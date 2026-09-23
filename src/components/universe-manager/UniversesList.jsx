@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check, History } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
@@ -112,10 +112,14 @@ const UniversesList = ({
     })();
   }, []);
 
-  // Track container width for responsive header layout
-  useEffect(() => {
+  // Track container width for responsive header layout. Layout effect with a
+  // synchronous first read, so the first paint isn't the wide layout.
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const initialWidth = el.clientWidth;
+    setIsHeaderSlim(initialWidth < 480);
+    setIsVerySlim(initialWidth < 320);
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {

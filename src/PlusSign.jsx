@@ -11,6 +11,8 @@ const PlusSign = ({
   targetWidth = NODE_WIDTH,
   targetHeight = NODE_HEIGHT,
   targetCornerRadius,
+  targetImage = null,
+  targetCenter = null,
   gestureBlockRef,
   isPanningOrZoomingRef
 }) => {
@@ -27,6 +29,8 @@ const PlusSign = ({
     strokeColor: 'maroon',
     lineOpacity: 1,
     textOpacity: 0,
+    dx: 0,
+    dy: 0,
   });
   const [, forceUpdate] = React.useReducer((s) => s + 1, 0);
   const preventClickRef = useRef(false);
@@ -57,6 +61,10 @@ const PlusSign = ({
   };
 
   useEffect(() => {
+    // 'preparing': the node's image is decoding before the morph — hold the plus.
+    // 'landed': the node has been added and the parent is waiting for it to be
+    // rendered — hold the final morph frame rather than animating anywhere.
+    if (plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
     runAnimation();
     return () => {
       if (animationFrameRef.current) {
@@ -181,7 +189,13 @@ const PlusSign = ({
       color: startColor,
       lineOpacity: startLineOp,
       textOpacity: startTextOp,
+      dx: startDx = 0,
+      dy: startDy = 0,
     } = plusRef.current;
+    // Morph glides the center to its landing point (the grid vertex when snapping)
+    // on the same curve as the growth, so the node never jumps there afterwards.
+    const endDx = mode === 'morph' && targetCenter ? targetCenter.x - plusSign.x : startDx;
+    const endDy = mode === 'morph' && targetCenter ? targetCenter.y - plusSign.y : startDy;
 
     let endRot = 0;
     let endWidth = scaledPlusSize;
@@ -234,8 +248,8 @@ const PlusSign = ({
       const easeT = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
       plusRef.current = {
-        x: 0, // Don't animate position - let the final node appear at the correct location
-        y: 0,
+        dx: lerp(startDx, endDx, easeT),
+        dy: lerp(startDy, endDy, easeT),
         rotation: lerp(startRot, endRot, easeT),
         width: Math.max(0, lerp(startW, endWidth, easeT)), // Prevent negative width
         height: Math.max(0, lerp(startH, endHeight, easeT)), // Prevent negative height
@@ -276,14 +290,15 @@ const PlusSign = ({
     animationFrameRef.current = requestAnimationFrame(animateFrame);
   };
 
-  const { rotation, width, height, cornerRadius, color, strokeColor, lineOpacity, textOpacity } = plusRef.current;
+  const { rotation, width, height, cornerRadius, color, strokeColor, lineOpacity, textOpacity, dx = 0, dy = 0 } = plusRef.current;
   const { mode, tempName } = plusSign;
   const halfCross = width / 4;
+  const clipId = useRef(`plus-morph-clip-${Math.random().toString(36).slice(2)}`).current;
 
   return (
     <g
       data-plus-sign="true"
-      transform={`translate(${plusSign.x}, ${plusSign.y}) rotate(${rotation})`}
+      transform={`translate(${plusSign.x + dx}, ${plusSign.y + dy}) rotate(${rotation})`}
       style={{ 
         cursor: 'pointer', 
         touchAction: 'manipulation', 
@@ -430,7 +445,35 @@ const PlusSign = ({
         strokeWidth={Math.max(1, 10 * plusSignScale)}
         opacity={lineOpacity}
       />
-
+      {/* The node's image grows into its slot with the morph, so an image node
+          lands at its real height instead of snapping to it. */}
+      {targetImage && (mode === 'morph' || mode === 'landed') && width > 0 && height > 0 && (
+        <>
+          <defs>
+            <clipPath id={clipId}>
+              <rect
+                x={-width / 2 + width * targetImage.fx}
+                y={-height / 2 + height * targetImage.fy}
+                width={width * targetImage.fw}
+                height={height * targetImage.fh}
+                rx={cornerRadius}
+                ry={cornerRadius}
+              />
+            </clipPath>
+          </defs>
+          <image
+            x={-width / 2 + width * targetImage.fx}
+            y={-height / 2 + height * targetImage.fy}
+            width={width * targetImage.fw}
+            height={height * targetImage.fh}
+            href={targetImage.src}
+            preserveAspectRatio="xMidYMid slice"
+            clipPath={`url(#${clipId})`}
+            opacity={textOpacity}
+            style={{ pointerEvents: 'none' }}
+          />
+        </>
+      )}
     </g>
   );
 };

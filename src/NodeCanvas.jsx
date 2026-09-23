@@ -792,6 +792,18 @@ const DEFAULT_KEYBOARD_SETTINGS = { zoomSensitivity: 0.5 };
 const DEFAULT_TOUCH_SETTINGS = { zoomSensitivity: 0.7, panSensitivity: 0.5 };
 const DEFAULT_FORCE_TUNER_SETTINGS = { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' };
 
+// Resolves true once `src` is decoded and ready to paint without a stall, false on
+// error or if it takes longer than `timeoutMs` (the caller proceeds either way).
+const decodeThumbnail = (src, timeoutMs = 600) => {
+  const img = new Image();
+  img.src = src;
+  const decoded = (img.decode
+    ? img.decode()
+    : new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; })
+  ).then(() => true, () => false);
+  return Promise.race([decoded, new Promise(resolve => setTimeout(() => resolve(false), timeoutMs))]);
+};
+
 function NodeCanvas() {
   // ORBIT DIM — the scrim behind the orbit overlay. Set false to drop it
   // entirely (the rect stays, transparent and static at full canvas size, so
@@ -12457,7 +12469,7 @@ function NodeCanvas() {
       // UnifiedSelector's submit/card fires a delayed synthesized click ~300ms
       // later that lands on the (now-uncovered) canvas; without this guard it
       // flips the morph to 'disappear' and the node is silently lost.
-      if (plusSign && plusSign.mode === 'morph') return;
+      if (plusSign && (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed')) return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
       setLastInteractionType('plus_sign_hidden');
     }
@@ -12465,7 +12477,7 @@ function NodeCanvas() {
 
   const handlePlusSignClick = () => {
     if (!plusSign) return;
-    if (plusSign.mode === 'morph') return;
+    if (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
 
     // Special Y-key video animation mode (session-only)
     if (keysPressed.current['y']) {
@@ -12667,14 +12679,28 @@ function NodeCanvas() {
   const handleNodeSelection = (nodePrototype) => {
     if (!plusSign || !activeGraphId) return;
 
-    // Trigger the morph animation with the selected prototype
-    setPlusSign(ps => ps && {
+    const { thumbnailSrc } = getPlusSignMorphNode({ selectedPrototype: nodePrototype });
+    // Only 'appear' / 'preparing' may morph — a plus sign dismissed while its image
+    // decoded must stay dismissed.
+    const startMorph = (imageReady) => setPlusSign(ps => (ps && (ps.mode === 'appear' || ps.mode === 'preparing')) ? {
       ...ps,
       mode: 'morph',
       tempName: nodePrototype.name,
       selectedPrototype: nodePrototype, // Store the selected prototype for morphDone
-      selectedColor: nodePrototype.color // Use the prototype's color for the animation
-    });
+      selectedColor: nodePrototype.color, // Use the prototype's color for the animation
+      imageReady,
+    } : ps);
+
+    if (thumbnailSrc) {
+      // Decode the image BEFORE the morph starts. Mounting an undecoded <image>
+      // mid-animation stalls the frames it decodes on, so the growth stutters
+      // exactly where the image enters. The bounds don't need the load — they come
+      // from the stored aspect ratio, the same one the real node will size itself by.
+      setPlusSign(ps => ps && { ...ps, mode: 'preparing' });
+      decodeThumbnail(thumbnailSrc).then(startMorph);
+    } else {
+      startMorph(false);
+    }
 
     // Clean up UI state
     setNodeNamePrompt({ visible: false, name: '' });
@@ -12688,27 +12714,71 @@ function NodeCanvas() {
     setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
   };
 
+  // The node the morph is turning into, shaped the way the `nodes` memo will hydrate
+  // it — including its image. A name-only stand-in sizes the morph (and the final
+  // placement) as a text node, so an image node snaps to its real height on landing.
+  const getPlusSignMorphNode = (ps) => {
+    const proto = ps.selectedPrototype
+      ? (nodePrototypesMap.get(ps.selectedPrototype.id) || ps.selectedPrototype)
+      : null;
+    if (!proto) return { name: ps.tempName };
+    // Mirrors the image resolution in the `nodes` memo.
+    const cached = imageCacheMap[proto.id];
+    const thumbnailSrc = (cached && !proto.thumbnailSrc) ? cached.thumbnailSrc : (proto.thumbnailSrc || null);
+    const imageAspectRatio = (cached && !proto.thumbnailSrc)
+      ? cached.imageAspectRatio
+      : (proto.imageAspectRatio ?? proto.semanticMetadata?.imageAspectRatio);
+    return { name: proto.name, thumbnailSrc, imageAspectRatio };
+  };
+
+  // Where the morph ends: the node's full dims and the canvas point its center
+  // lands on. With the grid on that's the snapped vertex, and the PlusSign glides
+  // there DURING the morph — placing the node at the snap afterwards made it
+  // teleport from the plus position to the grid on landing.
+  const getPlusSignMorphTarget = (ps) => {
+    const morphNode = getPlusSignMorphNode(ps);
+    const dims = getNodeDimensions(morphNode, false, null);
+    let center = { x: ps.x, y: ps.y };
+    if (gridMode !== 'off') {
+      const snapped = snapToGridAnimated(ps.x, ps.y, dims.currentWidth, dims.currentHeight, null);
+      center = { x: snapped.x + dims.currentWidth / 2, y: snapped.y + dims.currentHeight / 2 };
+    }
+    return { morphNode, dims, center };
+  };
+
+  // After the morph, the PlusSign holds its last frame ('landed') until the new
+  // instance is actually in the visible set. Culling admits it a frame or two after
+  // the store commit (effect → rAF → setVisibleNodeIds), and dropping the PlusSign
+  // in the same commit as the add left that gap empty — a one-frame flash.
+  // Layout effect so the swap lands in a single paint.
+  const landedInstanceId = plusSign?.mode === 'landed' ? plusSign.landedInstanceId : null;
+  useLayoutEffect(() => {
+    if (!landedInstanceId) return;
+    if (visibleNodeIds.has(landedInstanceId)) {
+      setPlusSign(null);
+      return;
+    }
+    // Safety net: never leave the placeholder stranded if the node doesn't show up.
+    const t = setTimeout(() => setPlusSign(ps => (ps?.landedInstanceId === landedInstanceId ? null : ps)), 500);
+    return () => clearTimeout(t);
+  }, [landedInstanceId, visibleNodeIds]);
+
   const handleMorphDone = () => {
     if (!plusSign || !activeGraphId) return;
 
-    // Get the actual dimensions for the node
-    const mockNode = { name: plusSign.tempName };
-    const dims = getNodeDimensions(mockNode, false, null);
-
-    let position = {
-      x: plusSign.x - dims.currentWidth / 2,
-      y: plusSign.y - dims.currentHeight / 2,
+    // Same target the morph animated to, so the node lands exactly under it.
+    const { dims, center } = getPlusSignMorphTarget(plusSign);
+    const position = {
+      x: center.x - dims.currentWidth / 2,
+      y: center.y - dims.currentHeight / 2,
     };
 
-    // Apply smooth grid snapping when creating new nodes if grid is enabled
-    if (gridMode !== 'off') {
-      const snapped = snapToGridAnimated(plusSign.x, plusSign.y, dims.currentWidth, dims.currentHeight, null);
-      position = { x: snapped.x, y: snapped.y };
-    }
-
+    const newInstanceId = uuidv4();
+    let added = false;
     if (plusSign.selectedPrototype) {
       // A prototype was selected from the grid - create instance of existing prototype
-      storeActions.addNodeInstance(activeGraphId, plusSign.selectedPrototype.id, position);
+      storeActions.addNodeInstance(activeGraphId, plusSign.selectedPrototype.id, position, newInstanceId);
+      added = true;
     } else if (plusSign.tempName) {
       // A custom name was entered - create new prototype
       const name = plusSign.tempName;
@@ -12726,10 +12796,11 @@ function NodeCanvas() {
       storeActions.addNodePrototype(newPrototypeData);
 
       // 2. Create the first instance of this prototype on the canvas
-      storeActions.addNodeInstance(activeGraphId, newPrototypeId, position);
+      storeActions.addNodeInstance(activeGraphId, newPrototypeId, position, newInstanceId);
+      added = true;
     }
 
-    setPlusSign(null);
+    setPlusSign(added ? { ...plusSign, mode: 'landed', landedInstanceId: newInstanceId } : null);
   };
 
   const handleVideoAnimationComplete = () => {
@@ -13219,7 +13290,7 @@ function NodeCanvas() {
     activate: () => handlePlusSignClick(),
     dismiss: () => {
       // Same guard the canvas click path uses: a morphing plus is committed.
-      if (!plusSign || plusSign.mode === 'morph') return;
+      if (!plusSign || plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
       setLastInteractionType('plus_sign_hidden');
     },
@@ -17960,25 +18031,33 @@ function NodeCanvas() {
                       onDisappearDone={() => setPlusSign(null)}
                       gestureBlockRef={gestureBlockRef}
                       isPanningOrZoomingRef={isPanningOrZooming}
-                      targetWidth={plusSign.tempName ? (() => {
-                        // Create a mock node object to get exact dimensions
-                        const mockNode = { name: plusSign.tempName };
-                        const dims = getNodeDimensions(mockNode, false, null);
-                        // Make the PlusSign slightly smaller so the final node feels like an expansion
-                        return dims.currentWidth * 0.9;
-                      })() : NODE_WIDTH}
-                      targetHeight={plusSign.tempName ? (() => {
-                        // Create a mock node object to get exact dimensions
-                        const mockNode = { name: plusSign.tempName };
-                        const dims = getNodeDimensions(mockNode, false, null);
-                        // Make the PlusSign slightly smaller so the final node feels like an expansion
-                        return dims.currentHeight * 0.9;
-                      })() : NODE_HEIGHT}
-                      targetCornerRadius={plusSign.tempName ? (() => {
-                        const mockNode = { name: plusSign.tempName };
-                        const dims = getNodeDimensions(mockNode, false, null);
-                        return dims.scaledCornerRadius;
-                      })() : NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)}
+                      {...(plusSign.tempName ? (() => {
+                        const { morphNode, dims, center } = getPlusSignMorphTarget(plusSign);
+                        const W = dims.currentWidth;
+                        const H = dims.currentHeight;
+                        // Only draw the image once it's decoded (see handleNodeSelection);
+                        // otherwise the slot is still reserved and the node fills it in.
+                        const hasImage = plusSign.imageReady && Boolean(morphNode.thumbnailSrc) && dims.calculatedImageHeight > 0;
+                        return {
+                          targetCenter: center,
+                          // Make the PlusSign slightly smaller so the final node feels like an expansion
+                          targetWidth: W * 0.9,
+                          targetHeight: H * 0.9,
+                          targetCornerRadius: dims.scaledCornerRadius,
+                          // Image slot as fractions of the node box, so it tracks the morphing rect.
+                          targetImage: hasImage ? {
+                            src: morphNode.thumbnailSrc,
+                            fx: (W - dims.imageWidth) / 2 / W,
+                            fy: dims.textAreaHeight / H,
+                            fw: dims.imageWidth / W,
+                            fh: dims.calculatedImageHeight / H,
+                          } : null,
+                        };
+                      })() : {
+                        targetWidth: NODE_WIDTH,
+                        targetHeight: NODE_HEIGHT,
+                        targetCornerRadius: NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0),
+                      })}
                     />
                   )}
 

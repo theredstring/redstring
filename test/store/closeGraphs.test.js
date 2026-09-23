@@ -35,6 +35,12 @@ const makeGraphs = (count) => {
   return ids;
 };
 
+// Closes whatever setup left open (createNewGraph's batch) before starting clean.
+const clearHistory = () => {
+  st().flushHistoryBatch();
+  useHistoryStore.setState({ history: [], currentIndex: -1 });
+};
+
 const undo = () => useHistoryStore.getState().undo(st().applyPatches);
 const redo = () => useHistoryStore.getState().redo(st().applyPatches);
 
@@ -64,7 +70,7 @@ describe('closeGraphs', () => {
   it('lands as one undo step and undo reopens every web in its slot', () => {
     const [a, b, c] = makeGraphs(3);
     st().setActiveGraphTab(a);
-    useHistoryStore.setState({ history: [], currentIndex: -1 });
+    clearHistory();
 
     st().closeGraphs([b, c], { label: 'Close webs below "G0"', activateId: a });
 
@@ -85,7 +91,9 @@ describe('closeGraphs', () => {
     // otherwise it would reopen an id that no longer resolves.
     const [a, b] = makeGraphs(2);
     st().setActiveGraphTab(a);
-    useHistoryStore.setState({ history: [], currentIndex: -1 });
+    // New webs bookmark their Thing, which keeps them alive; drop that.
+    useGraphStore.setState({ savedNodeIds: new Set() }, false, 'test_unsave');
+    clearHistory();
 
     st().closeGraphs([b]);
     expect(st().graphs.has(b)).toBe(false);
@@ -97,7 +105,7 @@ describe('closeGraphs', () => {
 
   it('is a no-op for webs that are not open', () => {
     const [a] = makeGraphs(1);
-    useHistoryStore.setState({ history: [], currentIndex: -1 });
+    clearHistory();
 
     st().closeGraphs(['nope']);
 

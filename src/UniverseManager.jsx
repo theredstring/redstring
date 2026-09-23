@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Plus,
   RefreshCw,
@@ -88,6 +88,12 @@ const blankState = {
   authStatus: null,
   githubAppInstallation: null
 };
+
+// Last state this panel showed. The panel unmounts on every tab switch, so
+// without this each open painted a "Loading universes..." block and then
+// snapped to the real list once getState() resolved. Reopening now paints the
+// previous list immediately and the silent refresh reconciles it.
+let lastShownState = null;
 
 function detectDeviceInfo() {
   if (typeof window === 'undefined') {
@@ -206,8 +212,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const theme = useTheme();
 
   const statusColors = useMemo(() => getStatusColors(theme.darkMode), [theme.darkMode]);
-  const [serviceState, setServiceState] = useState(blankState);
-  const [loading, setLoading] = useState(true);
+  const [serviceState, setServiceState] = useState(() => lastShownState?.serviceState || blankState);
+  const [loading, setLoading] = useState(() => !lastShownState);
   const [initializing, setInitializing] = useState(false); // Start false - don't block UI on load
   const [syncStatus, setSyncStatus] = useState(null);
   const [error, setError] = useState(null);
@@ -258,7 +264,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   // bare `useState({})`, which meant every panel open started empty and the
   // universe lists only appeared after a full network scan.
   const [discoveryMap, setDiscoveryMap] = useState(() => repoDiscoveryCache.getAllRepoEntries());
-  const [syncTelemetry, setSyncTelemetry] = useState({});
+  const [syncTelemetry, setSyncTelemetry] = useState(() => lastShownState?.syncTelemetry || {});
   // Tick counter bumped on SaveCoordinator status events so the Status & Sync
   // panel (which reads coordinator.isSaving / hasUnsavedChanges() at render
   // time) re-renders in step with the bottom-right SaveStatusDisplay. Without
@@ -699,10 +705,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   }, [serviceState.activeUniverseSlug, serviceState.universes, serviceState.authStatus, hasOAuth, hasApp, refreshState]);
 
   useEffect(() => {
+    if (serviceState === blankState) return;
+    lastShownState = { serviceState, syncTelemetry };
+  }, [serviceState, syncTelemetry]);
+
+  // Layout effect so the first paint already uses the right width mode;
+  // measuring after paint showed the wide layout for a frame, then snapped.
+  useLayoutEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
     const el = containerRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    if (!el) return undefined;
+    setIsSlim(el.clientWidth < 540);
+    if (typeof ResizeObserver === 'undefined') return undefined;
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
