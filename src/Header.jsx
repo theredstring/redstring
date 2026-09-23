@@ -9,6 +9,7 @@ import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
+import { getOpenWebContextMenuOptions } from './components/openWebContextMenu.jsx';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from './utils/debugUnlock.js';
@@ -758,7 +759,7 @@ const Header = ({
 
   // ─── Reordering the strip by drag ──────────────────────────────────────────
   //
-  // The strip IS the order: both this header and the left panel's "Open Things"
+  // The strip IS the order: both this header and the left panel's "Open Webs"
   // list render `openGraphIds` straight through, so one write restructures both.
   // The drop is committed once, on release, rather than shuffling live on every
   // hover tick — partly so a tab dragged out to the canvas to spawn a Thing
@@ -766,6 +767,13 @@ const Header = ({
   // partly so one gesture is one store write.
 
   const moveGraphTabBefore = useGraphStore(state => state.moveGraphTabBefore);
+
+  // Same menu as the left panel's Open Webs list — the two are one strip.
+  const handleWebTabContextMenu = useCallback((e, graphId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'right'));
+  }, []);
 
   // The tab the drop caret currently sits in front of, DROP_AT_END for the far
   // right slot, or null when no reorderable drag is over the strip. Mirrored in
@@ -1302,6 +1310,8 @@ const Header = ({
                   ref={activeTabRef}
                   data-header-tab-id={graph.id}
                   style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}
+                  // Mid-rename the field owns right-click (cut/paste etc).
+                  onContextMenu={isEditing ? undefined : (e) => handleWebTabContextMenu(e, graph.id)}
                 >
                   <HeaderGraphTab
                     graph={{
@@ -1356,7 +1366,11 @@ const Header = ({
           return (
             <React.Fragment key={graph.id}>
               {caret}
-              <div data-header-tab-id={graph.id} style={{ display: 'inline-block', flexShrink: 0 }}>
+              <div
+                data-header-tab-id={graph.id}
+                style={{ display: 'inline-block', flexShrink: 0 }}
+                onContextMenu={(e) => handleWebTabContextMenu(e, graph.id)}
+              >
                 <HeaderGraphTab
                   graph={graph}
                   onSelect={onSetActiveGraph}

@@ -255,7 +255,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-row">
             <div className="settings-row-label">
               Fullscreen Landscape
-              <div className="settings-row-description">Drop the header and the Type footer in landscape and hand the whole screen to the canvas. Adaptive turns it on for phone-sized screens, but stands down while a controller is in use — a handheld needs the chrome its d-pad navigates.</div>
+              <div className="settings-row-description">Hide the header and Type footer in landscape. Adaptive enables this on phones only, and stands down when a controller is connected.</div>
             </div>
             <OptionGroup
               options={[
@@ -1199,11 +1199,11 @@ const SettingsModal = ({ isVisible, onClose }) => {
             paddingLeft: '18px',
             listStyleType: 'disc'
           }}>
-            <li><strong style={{ color: theme.canvas.textPrimary }}>Visual Knowledge Graphs</strong> — hierarchical, expandable nodes with contextual definitions</li>
-            <li><strong style={{ color: theme.canvas.textPrimary }}>Semantic Web</strong> — W3C compliant with RDF, OWL, and JSON-LD; integrates Wikidata, DBpedia, and Wikipedia</li>
-            <li><strong style={{ color: theme.canvas.textPrimary }}>Local-First</strong> — your data lives on your machine; Git and cloud sync are opt-in</li>
-            <li><strong style={{ color: theme.canvas.textPrimary }}>Git Federation</strong> — real-time sync with hot-swappable providers and multi-provider redundancy</li>
-            <li><strong style={{ color: theme.canvas.textPrimary }}>AI-Native</strong> — first-class AI integration via MCP and HTTP tool framework</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Visual Knowledge Graphs:</strong> hierarchical, expandable nodes with contextual definitions</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Semantic Web:</strong> W3C compliant with RDF, OWL, and JSON-LD; integrates Wikidata, DBpedia, and Wikipedia</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Local-First:</strong> your data lives on your machine; Git and cloud sync are opt-in</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>Git Federation:</strong> real-time sync with hot-swappable providers and multi-provider redundancy</li>
+            <li><strong style={{ color: theme.canvas.textPrimary }}>AI-Native:</strong> first-class AI integration via MCP and HTTP tool framework</li>
           </ul>
           {/* The Help item the Redstring menu used to hold. The guide is also
               the header's help button. It closes Settings first — it raises a

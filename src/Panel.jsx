@@ -1628,7 +1628,7 @@ const Panel = memo(forwardRef(
       const defs = [];
       if (ENABLE_ALL_THINGS_TAB) defs.push({ key: 'all', title: 'All Things', Icon: LayoutGrid });
       defs.push({ key: 'library', title: 'Saved Things', Icon: Bookmark });
-      defs.push({ key: 'grid', title: 'Open Things', Icon: BookOpen });
+      defs.push({ key: 'grid', title: 'Open Webs', Icon: BookOpen });
       defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
       defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: TextSearch });
       if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
@@ -2558,7 +2558,7 @@ const Panel = memo(forwardRef(
           gridTitle="All Things"
         />
 
-        {/* Global Search Selector for Open Things */}
+        {/* Global Search Selector for Open Webs */}
         <UnifiedSelector
           mode="node-selection"
           isVisible={gridSearchVisible}
@@ -2591,13 +2591,13 @@ const Panel = memo(forwardRef(
             openRightPanelNodeTab?.(node.id);
             setGridSearchVisible(false);
           }}
-          title="Search Open Things"
-          subtitle="Search through open things or open a new one"
+          title="Search Open Webs"
+          subtitle="Search through open webs or open a new one"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchTerm=""
           searchOnly={true}
-          gridTitle="Open Things"
+          gridTitle="Open Webs"
         />
 
       </>

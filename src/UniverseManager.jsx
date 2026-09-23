@@ -3498,8 +3498,8 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         setSyncStatus({
           type: 'success',
           message: reloaded
-            ? `Workspace folder linked — reconnected ${reconnected.length} universe${reconnected.length === 1 ? '' : 's'} and loaded the active one`
-            : `Workspace folder linked — reconnected ${reconnected.length} universe${reconnected.length === 1 ? '' : 's'}`
+            ? `Workspace folder linked, reconnected ${reconnected.length} universe${reconnected.length === 1 ? '' : 's'} and loaded the active one`
+            : `Workspace folder linked, reconnected ${reconnected.length} universe${reconnected.length === 1 ? '' : 's'}`
         });
       } else {
         setSyncStatus({ type: 'success', message: 'Workspace folder linked.' });
@@ -4078,7 +4078,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         <StatusBanner
           tone="warning"
           title="Can't reach the OAuth server"
-          message="The connect request didn't go through. Check your network and try again — if the problem persists the OAuth server may be down."
+          message="The connect request didn't go through. Check your network and try again. If the problem persists, the OAuth server may be down."
           action={{
             label: 'Try again',
             onClick: () => {

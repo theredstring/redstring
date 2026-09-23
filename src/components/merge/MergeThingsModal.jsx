@@ -212,7 +212,7 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
           label="Not the same"
           variant="outline"
           labelFontSize={12}
-          title="Remembered with the universe — this pair won’t be raised again"
+          title="Remembered with the universe. This pair won’t be raised again"
           onClick={() => onSkip(candidate.key)}
         />
         <PanelIconButton

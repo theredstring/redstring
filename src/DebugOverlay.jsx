@@ -192,7 +192,7 @@ const DebugOverlay = ({ debugData, hideOverlay, actions = null }) => {
             <button
               onClick={actions.onClearGitHubAppCache}
               style={{ ...diagButtonStyle, backgroundColor: '#3a1500', borderColor: '#c75200' }}
-              title="Wipe stored GitHub App installation data so next sync attempt uses OAuth instead. One-shot — server may re-populate on reload."
+              title="Wipe stored GitHub App installation data so next sync attempt uses OAuth instead. One-shot: server may re-populate on reload."
             >
               Clear App cache (one-shot)
             </button>

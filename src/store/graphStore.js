@@ -6168,6 +6168,56 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }, 100);
     })),
 
+    /**
+     * Closes several open webs as ONE undoable action — the Open Webs list and
+     * header strip context menus ("Close", "Close all others", "Close all
+     * below/to the right").
+     *
+     * Unlike `closeGraph` (navigation, unrecorded), this is recorded. That forces
+     * the orphan sweep INTO the same transaction instead of leaving it on a timer:
+     * closing a web whose Thing is referenced nowhere else lets the sweep delete
+     * the graph itself, and an unrecorded delete would leave undo reopening an id
+     * that no longer resolves. Swept inside the transaction, the delete and the
+     * close come back together.
+     *
+     * If the active web is closed, `activateId` takes over when it survives;
+     * otherwise the nearest surviving web above it, else the first.
+     *
+     * @param {string[]} graphIds - Webs to close.
+     * @param {Object} [options]
+     * @param {string} [options.label] - History entry label.
+     * @param {string} [options.activateId] - Preferred new active web.
+     */
+    closeGraphs: (graphIds, { label, activateId } = {}) => {
+      const toClose = new Set(graphIds);
+      const { openGraphIds } = get();
+      if (!openGraphIds.some(id => toClose.has(id))) return;
+
+      api.withHistoryTransaction(label || 'Close webs', () => {
+        ctxSet('web_close', produce((draft) => {
+          const before = draft.openGraphIds.slice();
+          draft.openGraphIds = before.filter(id => !toClose.has(id));
+          toClose.forEach(id => draft.expandedGraphIds.delete(id));
+
+          if (!toClose.has(draft.activeGraphId)) return;
+          const survivors = draft.openGraphIds;
+          let next = null;
+          if (activateId && survivors.includes(activateId)) {
+            next = activateId;
+          } else {
+            const closedIndex = before.indexOf(draft.activeGraphId);
+            for (let i = closedIndex - 1; i >= 0 && !next; i--) {
+              if (!toClose.has(before[i])) next = before[i];
+            }
+            next = next || survivors[0] || null;
+          }
+          draft.activeGraphId = next;
+          if (next === null) draft.activeDefinitionNodeId = null;
+        }));
+        get().cleanupOrphanedData();
+      }, { domain: 'global' });
+    },
+
     // ─── SAVED & EXPANDED STATE ──────────────────────────────────────────────────
 
     /**

@@ -39,7 +39,7 @@ const UniverseTargetConflictDialog = ({
       icon={AlertTriangle}
       title="Two universes, one file"
       tone="alert"
-      subtitle="These universes all save to the same file, so each one overwrites the others. Saving is paused for all of them until you pick which keeps it — the rest move to their own file."
+      subtitle="These universes all save to the same file and would overwrite each other. Pick which one keeps it; the rest move to their own file."
     >
       <div style={{
         display: 'flex',

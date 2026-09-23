@@ -96,7 +96,7 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Left Stick:</strong> Pan the canvas under the crosshair</li>
             <li><strong>Right Stick (up/down):</strong> Zoom</li>
             <li><strong>A:</strong> Select whatever the crosshair is on, and open its menu</li>
-            <li><strong>B:</strong> Back out — deselect, close a menu</li>
+            <li><strong>B:</strong> Back out: deselect, close a menu</li>
             <li><strong>Right Trigger (hold):</strong> Pick up and carry a Thing</li>
             <li><strong>Left Trigger (hold):</strong> Draw a connection from a Thing</li>
           </ul>
@@ -137,7 +137,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h3 style={{ color: headingColor }}>Controller Navigation</h3>
           <ul style={{ lineHeight: '1.8' }}>
-            <li><strong>Left Stick:</strong> Pan — the canvas moves under a crosshair fixed to the center of the screen</li>
+            <li><strong>Left Stick:</strong> Pan. The canvas moves under a crosshair fixed to the center of the screen</li>
             <li><strong>Right Stick (up/down):</strong> Zoom toward the crosshair</li>
             <li><strong>D-pad:</strong> Move through the header and panels, without taking the sticks off the canvas</li>
             <li><strong>Bumpers (LB/RB):</strong> Previous/next Web, or previous/next tab when a panel is open</li>
@@ -166,7 +166,7 @@ const HelpModal = ({ isVisible, onClose }) => {
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>The crosshair is the cursor.</strong> It stays pinned to the center of the screen and the canvas moves underneath it, so "the Thing under the pointer" becomes "the Thing under the center"</li>
             <li><strong>Auto-aim:</strong> let the stick rest with something under the crosshair and the view drifts it to center</li>
-            <li><strong>Button names below are the Xbox ones</strong> — A bottom, B right, X left, Y top. Positions are identical on PlayStation and Switch Pro pads; only the printed labels differ</li>
+            <li><strong>Button names below are the Xbox ones:</strong> A bottom, B right, X left, Y top. Positions are identical on PlayStation and Switch Pro pads; only the printed labels differ</li>
             <li><strong>Settings → Input → Controller</strong> holds sensitivity, stick deadzone, crosshair size, and the panel-resize binding</li>
           </ul>
 
@@ -174,14 +174,14 @@ const HelpModal = ({ isVisible, onClose }) => {
           <ul style={{ lineHeight: '1.8' }}>
             <li><strong>Left Stick:</strong> Pan</li>
             <li><strong>Right Stick (up/down):</strong> Zoom toward the crosshair</li>
-            <li><strong>A:</strong> Act on whatever is under the crosshair — select a Thing and open its pie menu, select a connection, toggle an arrow on a connection's endpoint dot, select a Group, or drop a plus sign on empty canvas</li>
-            <li><strong>B:</strong> Back out — deselect, close the menu, dismiss the plus sign</li>
+            <li><strong>A:</strong> Act on whatever is under the crosshair: select a Thing and open its pie menu, select a connection, toggle an arrow on a connection's endpoint dot, select a Group, or drop a plus sign on empty canvas</li>
+            <li><strong>B:</strong> Back out: deselect, close the menu, dismiss the plus sign</li>
             <li><strong>X:</strong> Open the Thing under the crosshair in the right panel</li>
             <li><strong>Y:</strong> Expand the Thing under the crosshair into its own Web</li>
             <li><strong>Right Trigger (hold):</strong> Pick up the Thing (or Group title) under the crosshair, pan to place it, release to drop</li>
-            <li><strong>Left Trigger (hold) on a Thing:</strong> Draw a connection — pan until the target sits under the crosshair, then release</li>
+            <li><strong>Left Trigger (hold) on a Thing:</strong> Draw a connection. Pan until the target sits under the crosshair, then release</li>
             <li><strong>Left Trigger (hold) on empty canvas:</strong> Draw a selection box. Catching anything raises the bottom panel, where "Group Selection" lives</li>
-            <li><strong>Left Trigger (tap) on empty canvas:</strong> Open the canvas menu — the same one right-click gives. The trigger again, or B, closes it</li>
+            <li><strong>Left Trigger (tap) on empty canvas:</strong> Open the canvas menu, the same one right-click gives. The trigger again, or B, closes it</li>
           </ul>
 
           <h3 style={{ color: headingColor }}>Menus</h3>

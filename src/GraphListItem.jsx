@@ -21,7 +21,8 @@ const GraphListItem = forwardRef(({
   onDoubleClick,
   onClose, // <<< Add onClose prop
   isExpanded, // <<< Receive isExpanded prop
-  onToggleExpand // <<< Receive onToggleExpand prop
+  onToggleExpand, // <<< Receive onToggleExpand prop
+  onContextMenu
 }, ref) => {
   const theme = useTheme();
   // The following line seems to be out of context as 'node' is not defined in this component.
@@ -88,6 +89,8 @@ const GraphListItem = forwardRef(({
     return panelWidth ? panelWidth - 5 : NODE_HEIGHT; // Fallback to NODE_HEIGHT if panelWidth undefined?
   }, [panelWidth]);
 
+  const previewSize = Math.max(1, (currentItemWidth - 20) * 0.85);
+
   const itemStyle = useMemo(() => ({
     width: '100%',
     height: isExpanded ? currentItemWidth : NODE_HEIGHT,
@@ -141,6 +144,7 @@ const GraphListItem = forwardRef(({
       onDoubleClick={handleDoubleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, graphData.id) : undefined}
       title={graphData.name} // Tooltip with full name
       data-nav="item"
       data-graph-id={graphData.id}
@@ -174,8 +178,11 @@ const GraphListItem = forwardRef(({
           <GraphPreview
             nodes={graphData.nodes}
             edges={graphData.edges}
-            width={itemStyle.width === '100%' ? 100 : (currentItemWidth) * 0.85}
-            height={itemStyle.width === '100%' ? 100 : (currentItemWidth) * 0.80}
+            groups={graphData.groups}
+            // Rendered pixel size (85% of the padded item), square as it has
+            // always drawn. The preview fits its viewBox to this.
+            width={previewSize}
+            height={previewSize}
           />
         )}
         {/* </div> */}
@@ -225,7 +232,8 @@ const areGraphListItemPropsEqual = (prevProps, nextProps) => {
       prevProps.onClick === nextProps.onClick &&
       prevProps.onClose === nextProps.onClose &&
       prevProps.onDoubleClick === nextProps.onDoubleClick &&
-      prevProps.onToggleExpand === nextProps.onToggleExpand
+      prevProps.onToggleExpand === nextProps.onToggleExpand &&
+      prevProps.onContextMenu === nextProps.onContextMenu
     ) {
       return true; // Props equal, skip re-render
     }
@@ -239,7 +247,8 @@ const areGraphListItemPropsEqual = (prevProps, nextProps) => {
     prevProps.onClick === nextProps.onClick &&
     prevProps.onClose === nextProps.onClose &&
     prevProps.onDoubleClick === nextProps.onDoubleClick &&
-    prevProps.onToggleExpand === nextProps.onToggleExpand
+    prevProps.onToggleExpand === nextProps.onToggleExpand &&
+    prevProps.onContextMenu === nextProps.onContextMenu
   );
 };
 

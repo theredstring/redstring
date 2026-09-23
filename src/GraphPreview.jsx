@@ -1,18 +1,72 @@
-import React, { useMemo } from 'react';
+import React, { useId, useMemo } from 'react';
 import { getNodeDimensions } from './utils.js';
-import { NODE_HEIGHT, NODE_WIDTH, NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from './constants';
+import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants';
 import useGraphStore from "./store/graphStore.js";
-import { getTextColor } from './utils/colorUtils.js';
+import { blendColors } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
+import { measureTextWidth } from './services/textMeasurement.js';
+import {
+  GROUP_LAYOUT_CONSTANTS,
+  computeGroupLayout,
+  buildGroupsByMemberIdIndex,
+  buildChildGroupIdsIndex,
+  computeGroupDepths,
+  buildEdgeZSlotIndex,
+  edgeZSlotFor,
+} from './services/groupLayout.js';
 
 // Canvas nodes round at NODE_CORNER_RADIUS * 1.4 (see getNodeDimensions)
 const PREVIEW_CORNER_RADIUS = NODE_CORNER_RADIUS * 1.4;
 
-const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
+// Canvas geometry, in world units (see renderConnectionEdge / NodeCanvas).
+// The preview draws in world coordinates and lets the viewBox do the fitting,
+// so every one of these keeps the proportion it has on the canvas: a sprawling
+// web shown small gets thin connections, a two-node web shown large gets thick
+// ones — exactly as zooming the canvas would.
+const CONNECTION_STROKE = 27;
+const ARROW_HALF_WIDTH = 26;
+const ARROW_HALF_HEIGHT = 34;
+const PLAIN_GROUP_STROKE = 12;
+const PLAIN_GROUP_DASH = '16 12';
+const GROUP_PILL_STROKE = 6;
+const GROUP_PILL_RADIUS = 20;
+const NODE_GROUP_INTERIOR_TINT = 0.07; // matches NodeCanvas
+const BOUNDING_BOX_PADDING = 20;
+// Below this on screen a connection disappears into antialiasing, so a very
+// large web gets a floor rather than a strictly proportional line.
+const MIN_CONNECTION_PX = 0.75;
+
+// Where a ray from a box's center leaves the box.
+const getBoxEdgeIntersection = (box, dirX, dirY) => {
+  const centerX = box.x + box.w / 2;
+  const centerY = box.y + box.h / 2;
+  const halfWidth = box.w / 2;
+  const halfHeight = box.h / 2;
+  let best = null;
+  const consider = (t, x, y) => { if (!best || t < best.t) best = { t, x, y }; };
+
+  if (dirX > 0) { const t = halfWidth / dirX; if (Math.abs(dirY * t) <= halfHeight) consider(t, centerX + halfWidth, centerY + dirY * t); }
+  if (dirX < 0) { const t = -halfWidth / dirX; if (Math.abs(dirY * t) <= halfHeight) consider(t, centerX - halfWidth, centerY + dirY * t); }
+  if (dirY > 0) { const t = halfHeight / dirY; if (Math.abs(dirX * t) <= halfWidth) consider(t, centerX + dirX * t, centerY + halfHeight); }
+  if (dirY < 0) { const t = -halfHeight / dirY; if (Math.abs(dirX * t) <= halfWidth) consider(t, centerX + dirX * t, centerY - halfHeight); }
+  return best;
+};
+
+const toArrowSet = (arrowsToward) => (arrowsToward instanceof Set
+  ? arrowsToward
+  : new Set(Array.isArray(arrowsToward) ? arrowsToward : []));
+
+const GraphPreview = ({ nodes = [], edges = [], groups = null, width, height }) => {
   const theme = useTheme();
-  // Access store for prototype data to determine edge colors
+  // useId's colons are not valid inside url(#...) references.
+  const clipPrefix = useId().replace(/:/g, '');
+  // Access store for prototype data to determine edge and group colors
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
+  const textSettings = useGraphStore(state => state.textSettings);
+  const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
+
+  const connectionWidth = (textSettings?.connectionWidth ?? 1.0) * CONNECTION_WIDTH_BASE_SCALE;
 
   // Helper function to get edge color based on type hierarchy
   const getEdgeColor = (edge, destNode) => {
@@ -36,411 +90,303 @@ const GraphPreview = ({ nodes = [], edges = [], width, height }) => {
       }
     }
 
-    return destNode.color || NODE_DEFAULT_COLOR;
+    return destNode?.color || NODE_DEFAULT_COLOR;
   };
 
-  // Basic scaling logic (can be refined)
-  const { scaledNodes, scaledEdges, viewBox, scale } = useMemo(() => {
-    if (!nodes.length || !width || !height) {
-      return { scaledNodes: [], scaledEdges: [], viewBox: '0 0 100 100', scale: 1 };
-    }
+  const layout = useMemo(() => {
+    if (!nodes.length || !width || !height) return null;
 
-    // Define padding around the bounding box
-    const BOUNDING_BOX_PADDING = 20; // Pixels in original coordinates
-
-    // 1. Find bounds of original nodes using getNodeDimensions
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(n => {
+    // 1. Node boxes in world coordinates.
+    const boxes = new Map();
+    const dimsById = new Map();
+    const nodesById = new Map();
+    for (const n of nodes) {
       const dims = getNodeDimensions(n, false, null);
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + dims.currentWidth);
-      maxY = Math.max(maxY, n.y + dims.currentHeight);
-    });
-
-    // Handle case with only one node or invalid bounds
-    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
-      const n = nodes[0] || { x: 0, y: 0 }; // Default if nodes is empty somehow
-      const dims = nodes[0] ? getNodeDimensions(nodes[0], false, null) : { currentWidth: NODE_WIDTH, currentHeight: NODE_HEIGHT };
-      minX = n.x;
-      minY = n.y;
-      maxX = n.x + dims.currentWidth;
-      maxY = n.y + dims.currentHeight;
+      dimsById.set(n.id, dims);
+      nodesById.set(n.id, { id: n.id, x: n.x, y: n.y });
+      boxes.set(n.id, { x: n.x, y: n.y, w: dims.currentWidth, h: dims.currentHeight });
     }
 
-    // Calculate base network dimensions
-    const baseNetworkWidth = Math.max(maxX - minX, 1);
-    const baseNetworkHeight = Math.max(maxY - minY, 1);
+    // 2. Groups, laid out by the same pure solver the canvas uses.
+    const groupsById = groups instanceof Map
+      ? groups
+      : new Map(Object.entries(groups || {}));
+    const groupShapes = [];
+    const anchorShapes = new Map(); // anchor instance id -> { label, shell }
+    let depths = new Map();
+    let edgeSlots = new Map();
+    if (groupsById.size > 0) {
+      const groupsByMemberId = buildGroupsByMemberIdIndex(groupsById);
+      const childGroupIdsByGroupId = buildChildGroupIdsIndex(groupsById, groupsByMemberId);
+      depths = computeGroupDepths(groupsById, groupsByMemberId, childGroupIdsByGroupId);
+      edgeSlots = buildEdgeZSlotIndex(groupsById, depths);
 
-    // Add padding to the dimensions for scaling
-    const networkWidth = baseNetworkWidth + 2 * BOUNDING_BOX_PADDING;
-    const networkHeight = baseNetworkHeight + 2 * BOUNDING_BOX_PADDING;
-
-    // 2. Calculate scale factors
-    const scaleX = width / networkWidth;
-    const scaleY = height / networkHeight;
-    const finalScale = Math.min(scaleX, scaleY);
-
-    // 3. Calculate offsets to center the scaled graph (account for padding)
-    const scaledContentWidth = networkWidth * finalScale;
-    const scaledContentHeight = networkHeight * finalScale;
-    const offsetX = (width - scaledContentWidth) / 2 - ((minX - BOUNDING_BOX_PADDING) * finalScale);
-    const offsetY = (height - scaledContentHeight) / 2 - ((minY - BOUNDING_BOX_PADDING) * finalScale);
-
-    // 4. Scale node positions and dimensions
-    const finalScaledNodes = nodes.map(node => {
-      const dims = getNodeDimensions(node, false, null);
-      return {
-        id: node.id,
-        x: node.x * finalScale + offsetX,
-        y: node.y * finalScale + offsetY,
-        width: dims.currentWidth * finalScale,
-        height: dims.currentHeight * finalScale,
-        textAreaHeight: dims.textAreaHeight * finalScale,
-        imageWidth: dims.imageWidth,
-        calculatedImageHeight: dims.calculatedImageHeight,
+      const labelScale = textSettings?.nodeScale ?? 1.0;
+      const labelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * labelScale;
+      const labelFont = `bold ${labelFontSize}px "EmOne", sans-serif`;
+      // A node-group's name is its linked Thing's — resolve it once, into the
+      // map every nested layout call reads, as NodeCanvas does.
+      const namedGroups = new Map();
+      for (const [id, g] of groupsById) {
+        const proto = g.linkedNodePrototypeId ? nodePrototypesMap.get(g.linkedNodePrototypeId) : null;
+        const name = proto?.name || g.name || 'Group';
+        namedGroups.set(id, name === g.name ? g : { ...g, name });
+      }
+      const context = {
+        nodesById,
+        dimsById,
+        groupsById: namedGroups,
+        groupsByMemberId,
+        childGroupIdsByGroupId,
+        gridSize,
+        measureLabelWidth: (text) => measureTextWidth(text || 'Group', labelFont),
+        labelScale,
+        labelFontSize,
+        _cache: new Map(),
       };
-    });
 
-    // 5. Scale edge positions and include full edge data for arrows
-    const finalScaledEdges = edges.map(edge => {
-      const sourceNode = finalScaledNodes.find(n => n.id === edge.sourceId);
-      const destNode = finalScaledNodes.find(n => n.id === edge.destinationId);
-      if (!sourceNode || !destNode) return null;
-      return {
-        ...edge, // Include full edge data for directionality
-        key: edge.id,
-        sourceNode,
-        destNode,
-        x1: sourceNode.x + sourceNode.width / 2,
-        y1: sourceNode.y + sourceNode.height / 2,
-        x2: destNode.x + destNode.width / 2,
-        y2: destNode.y + destNode.height / 2,
-      };
-    }).filter(Boolean);
-
-    const vb = `0 0 ${width} ${height}`;
-
-    return { scaledNodes: finalScaledNodes, scaledEdges: finalScaledEdges, viewBox: vb, scale: finalScale };
-
-  }, [nodes, edges, width, height]);
-
-  // Helper function to calculate edge intersection with rectangular nodes (adapted from NodeCanvas)
-  const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dirX, dirY) => {
-    const centerX = nodeX + nodeWidth / 2;
-    const centerY = nodeY + nodeHeight / 2;
-    const halfWidth = nodeWidth / 2;
-    const halfHeight = nodeHeight / 2;
-    const intersections = [];
-
-    if (dirX > 0) {
-      const t = halfWidth / dirX;
-      const y = dirY * t;
-      if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX + halfWidth, y: centerY + y, distance: t });
-    }
-    if (dirX < 0) {
-      const t = -halfWidth / dirX;
-      const y = dirY * t;
-      if (Math.abs(y) <= halfHeight) intersections.push({ x: centerX - halfWidth, y: centerY + y, distance: t });
-    }
-    if (dirY > 0) {
-      const t = halfHeight / dirY;
-      const x = dirX * t;
-      if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY + halfHeight, distance: t });
-    }
-    if (dirY < 0) {
-      const t = -halfHeight / dirY;
-      const x = dirX * t;
-      if (Math.abs(x) <= halfWidth) intersections.push({ x: centerX + x, y: centerY - halfHeight, distance: t });
+      for (const group of namedGroups.values()) {
+        if (!group.memberInstanceIds?.length && !group.linkedNodePrototypeId) continue;
+        const result = computeGroupLayout(group, context);
+        if (!result.ok) continue;
+        const proto = group.linkedNodePrototypeId ? nodePrototypesMap.get(group.linkedNodePrototypeId) : null;
+        const shape = {
+          id: group.id,
+          depth: depths.get(group.id) ?? 0,
+          color: proto?.color || group.color || '#8B0000',
+          labelScale,
+          ...result,
+        };
+        groupShapes.push(shape);
+        if (result.isNodeGroup && group.anchorInstanceId) {
+          // On the canvas the anchor IS the title (drawn without a node of its
+          // own), and connections to it are cut at the shell rim.
+          anchorShapes.set(group.anchorInstanceId, {
+            label: result.label,
+            shell: { x: result.rect.x, y: result.nodeGroupRect.y, w: result.rect.w, h: result.nodeGroupRect.h },
+          });
+        }
+      }
     }
 
-    return intersections.reduce((closest, current) =>
-      !closest || current.distance < closest.distance ? current : closest, null);
+    // 3. Bounds: every drawn node plus every group's full shell.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const grow = (x, y, w, h) => {
+      minX = Math.min(minX, x); minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
+    };
+    // A group anchor is never drawn as a node — the canvas skips it too.
+    const hiddenIds = new Set(anchorShapes.keys());
+    for (const n of nodes) if (n.isGroupAnchor) hiddenIds.add(n.id);
+    for (const [id, b] of boxes) if (!hiddenIds.has(id)) grow(b.x, b.y, b.w, b.h);
+    for (const g of groupShapes) grow(g.visualBounds.x, g.visualBounds.y, g.visualBounds.w, g.visualBounds.h);
+    if (!isFinite(minX)) return null;
+
+    // The box takes its shape from the viewBox, so widen whichever side falls
+    // short of width:height and keep the web centered in it.
+    let vbW = Math.max(maxX - minX, 1) + BOUNDING_BOX_PADDING * 2;
+    let vbH = Math.max(maxY - minY, 1) + BOUNDING_BOX_PADDING * 2;
+    const aspect = width / height;
+    if (vbW / vbH < aspect) vbW = vbH * aspect;
+    else vbH = vbW / aspect;
+    const vbX = (minX + maxX) / 2 - vbW / 2;
+    const vbY = (minY + maxY) / 2 - vbH / 2;
+    const scale = width / vbW;
+
+    // 4. Connections. Anchors connect at their title's center but clip against
+    // the whole shell, the same split the canvas makes.
+    const endpointFor = (id) => {
+      const anchor = anchorShapes.get(id);
+      if (anchor) {
+        const l = anchor.label;
+        return { cx: l.x + l.w / 2, cy: l.y + l.h / 2, clip: anchor.shell };
+      }
+      const b = boxes.get(id);
+      return b ? { cx: b.x + b.w / 2, cy: b.y + b.h / 2, clip: b } : null;
+    };
+    const topSlot = groupShapes.reduce((m, g) => Math.max(m, g.depth), -1) + 1;
+    const connections = [];
+    for (const edge of edges) {
+      const s = endpointFor(edge.sourceId);
+      const d = endpointFor(edge.destinationId);
+      if (!s || !d) continue;
+      const dx = d.cx - s.cx;
+      const dy = d.cy - s.cy;
+      const length = Math.hypot(dx, dy);
+      if (length === 0) continue;
+      connections.push({
+        edge,
+        s, d,
+        ux: dx / length,
+        uy: dy / length,
+        slot: groupShapes.length ? edgeZSlotFor(edge, edgeSlots, topSlot) : topSlot,
+      });
+    }
+
+    return { boxes, hiddenIds, groupShapes, connections, topSlot, viewBox: `${vbX} ${vbY} ${vbW} ${vbH}`, scale };
+  }, [nodes, edges, groups, width, height, nodePrototypesMap, textSettings, gridSize]);
+
+  if (!layout) {
+    return <svg width="100%" height="100%" viewBox="0 0 100 100" style={{ display: 'block' }} />;
+  }
+
+  const { boxes, hiddenIds, groupShapes, connections, topSlot, viewBox, scale } = layout;
+  const nodesById = new Map(nodes.map(n => [n.id, n]));
+
+  // Proportional to the canvas, with a legibility floor for huge webs. The
+  // arrowheads ride the same factor so they stay in proportion to the line.
+  const naturalStroke = CONNECTION_STROKE * connectionWidth;
+  const floorBoost = Math.max(1, MIN_CONNECTION_PX / (naturalStroke * scale));
+  const lineStroke = naturalStroke * floorBoost;
+  const arrowScale = connectionWidth * floorBoost;
+
+  const renderConnection = ({ edge, s, d, ux, uy }) => {
+    const arrowsToward = toArrowSet(edge.directionality?.arrowsToward);
+    const edgeColor = getEdgeColor(edge, nodesById.get(edge.destinationId));
+    const arrowAtSource = arrowsToward.has(edge.sourceId);
+    const arrowAtDest = arrowsToward.has(edge.destinationId);
+    const sourceHit = arrowAtSource ? getBoxEdgeIntersection(s.clip, ux, uy) : null;
+    const destHit = arrowAtDest ? getBoxEdgeIntersection(d.clip, -ux, -uy) : null;
+
+    // The arrow's tip sits on the border, so its center is one half-height back.
+    const tipBack = ARROW_HALF_HEIGHT * arrowScale;
+    const arrow = (hit, dirX, dirY) => (
+      <g transform={`translate(${hit.x + dirX * tipBack}, ${hit.y + dirY * tipBack}) rotate(${Math.atan2(-dirY, -dirX) * 180 / Math.PI + 90}) scale(${arrowScale})`}>
+        <polygon
+          points={`${-ARROW_HALF_WIDTH},${ARROW_HALF_HEIGHT} ${ARROW_HALF_WIDTH},${ARROW_HALF_HEIGHT} 0,${-ARROW_HALF_HEIGHT}`}
+          fill={edgeColor}
+          stroke={edgeColor}
+          strokeWidth={6}
+          strokeLinejoin="round"
+          paintOrder="stroke fill"
+        />
+      </g>
+    );
+
+    return (
+      <g key={edge.id}>
+        <line
+          x1={sourceHit?.x ?? s.cx}
+          y1={sourceHit?.y ?? s.cy}
+          x2={destHit?.x ?? d.cx}
+          y2={destHit?.y ?? d.cy}
+          stroke={edgeColor}
+          strokeWidth={lineStroke}
+          strokeLinecap="round"
+        />
+        {sourceHit && arrow(sourceHit, ux, uy)}
+        {destHit && arrow(destHit, -ux, -uy)}
+      </g>
+    );
   };
 
-  // Render static SVG
+  const renderGroup = (g) => {
+    const C = GROUP_LAYOUT_CONSTANTS;
+    const { rect, label } = g;
+    if (g.isNodeGroup) {
+      return (
+        <g key={g.id}>
+          <rect x={rect.x} y={g.nodeGroupRect.y} width={rect.w} height={g.nodeGroupRect.h}
+            rx={C.nodeGroupCornerRadius} ry={C.nodeGroupCornerRadius} fill={g.color} />
+          <rect
+            x={rect.x + C.innerCanvasBorder}
+            y={g.innerCanvasY}
+            width={rect.w - C.innerCanvasBorder * 2}
+            height={(rect.y + rect.h) - g.innerCanvasY - C.innerCanvasBorder}
+            rx={C.innerCanvasCornerRadius} ry={C.innerCanvasCornerRadius}
+            fill={blendColors(theme.canvas.bg, g.color, NODE_GROUP_INTERIOR_TINT)}
+          />
+        </g>
+      );
+    }
+    return (
+      <g key={g.id}>
+        <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h}
+          rx={C.nodeGroupCornerRadius} ry={C.nodeGroupCornerRadius}
+          fill="none" stroke={g.color} strokeWidth={PLAIN_GROUP_STROKE} strokeDasharray={PLAIN_GROUP_DASH} />
+        <rect x={label.x} y={label.y} width={label.w} height={label.h}
+          rx={GROUP_PILL_RADIUS * g.labelScale} ry={GROUP_PILL_RADIUS * g.labelScale}
+          fill={theme.canvas.bg} stroke={g.color} strokeWidth={GROUP_PILL_STROKE * g.labelScale} />
+      </g>
+    );
+  };
+
+  // Paint order follows the canvas: top-level plain groups at the bottom, then
+  // per nesting depth the connections that belong at that depth followed by
+  // that depth's shells, then the connections above every shell, then nodes.
+  const layers = [];
+  groupShapes.filter(g => !g.isNodeGroup && g.depth === 0).forEach(g => layers.push(renderGroup(g)));
+  for (let depth = 0; depth < topSlot; depth++) {
+    connections.filter(c => c.slot === depth).forEach(c => layers.push(renderConnection(c)));
+    groupShapes.filter(g => g.depth === depth && (g.isNodeGroup || depth > 0)).forEach(g => layers.push(renderGroup(g)));
+  }
+  connections.filter(c => c.slot >= topSlot).forEach(c => layers.push(renderConnection(c)));
+
+  // Image nodes keep a hairline frame: a fixed 1px on screen, whatever the zoom.
+  const imageFrame = 1 / scale;
+
   return (
     <svg width="100%" height="100%" viewBox={viewBox} style={{ display: 'block' }}>
       <defs>
-        {/* Define clipPaths dynamically if needed, or keep one if IDs are unique enough within SVG */}
-        {/* Example using node.id if nodes are guaranteed unique within the SVG output */}
-        {scaledNodes.map(node => {
-          const originalNode = nodes.find(n => n.id === node.id);
-          if (!originalNode?.imageSrc) return null; // Only for image nodes
-          // Get proper dimensions for this specific node
-          const nodeDimensions = getNodeDimensions(originalNode, false, null);
-          const scaledWidth = node.width;
-          const scaledHeight = node.height;
-
-          // Use scaled corner radius to match Node.jsx
-          const imageCornerRadius = PREVIEW_CORNER_RADIUS * scale;
-
+        {nodes.map(node => {
+          if (!node.imageSrc || hiddenIds.has(node.id)) return null;
+          const b = boxes.get(node.id);
           return (
-            <clipPath key={`clip-${node.id}`} id={`clip-${node.id}`}>
-              <rect x={node.x} y={node.y} width={scaledWidth} height={scaledHeight} rx={imageCornerRadius} ry={imageCornerRadius} />
+            <clipPath key={node.id} id={`${clipPrefix}-clip-${node.id}`}>
+              <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={PREVIEW_CORNER_RADIUS} ry={PREVIEW_CORNER_RADIUS} />
             </clipPath>
           );
         })}
       </defs>
 
+      <g>{layers}</g>
+
+      {/* Nodes — no labels: at list-thumbnail size text only ever read as noise. */}
       <g>
-        {/* Render Edges First */}
-        {scaledEdges.map(edge => {
-          // Calculate direction and length
-          const dx = edge.x2 - edge.x1;
-          const dy = edge.y2 - edge.y1;
-          const length = Math.sqrt(dx * dx + dy * dy);
+        {nodes.map(node => {
+          if (hiddenIds.has(node.id)) return null;
+          const b = boxes.get(node.id);
+          const nodeColor = node.color || '#800000';
 
-          if (length === 0) return null;
-
-          // Calculate edge intersections for arrow positioning
-          const sourceIntersection = getNodeEdgeIntersection(
-            edge.sourceNode.x, edge.sourceNode.y, edge.sourceNode.width, edge.sourceNode.height,
-            dx / length, dy / length
-          );
-
-          const destIntersection = getNodeEdgeIntersection(
-            edge.destNode.x, edge.destNode.y, edge.destNode.width, edge.destNode.height,
-            -dx / length, -dy / length
-          );
-
-          // Determine if each end should be shortened for arrows
-          // Ensure arrowsToward is a Set (fix for loading from file)
-          const arrowsToward = edge.directionality?.arrowsToward instanceof Set
-            ? edge.directionality.arrowsToward
-            : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
-
-          const shouldShortenSource = arrowsToward.has(edge.sourceId);
-          const shouldShortenDest = arrowsToward.has(edge.destinationId);
-
-          // Calculate arrow positions and angles if needed
-          let sourceArrowX, sourceArrowY, destArrowX, destArrowY, sourceArrowAngle, destArrowAngle;
-
-          if (shouldShortenSource || shouldShortenDest) {
-            if (!sourceIntersection || !destIntersection) {
-              // Fallback positioning
-              sourceArrowX = edge.x1 + (dx / length) * 20 * scale;
-              sourceArrowY = edge.y1 + (dy / length) * 20 * scale;
-              destArrowX = edge.x2 - (dx / length) * 20 * scale;
-              destArrowY = edge.y2 - (dy / length) * 20 * scale;
-              sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-              destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-            } else {
-              // Precise intersection positioning
-              const arrowLength = 5 * scale;
-              sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-              sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
-              sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
-              destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-              destArrowX = destIntersection.x - (dx / length) * arrowLength;
-              destArrowY = destIntersection.y - (dy / length) * arrowLength;
-            }
-          }
-
-          // Get edge color based on type hierarchy
-          const edgeColor = getEdgeColor(edge, nodes.find(n => n.id === edge.destinationId));
-
-          // Calculate adaptive stroke width based on average node size
-          const sourceNodeWidth = edge.sourceNode.width;
-          const sourceNodeHeight = edge.sourceNode.height;
-          const destNodeWidth = edge.destNode.width;
-          const destNodeHeight = edge.destNode.height;
-          const avgNodeSize = (sourceNodeWidth + sourceNodeHeight + destNodeWidth + destNodeHeight) / 4;
-          const baseStrokeMultiplier = Math.max(0.006, Math.min(0.018, avgNodeSize / 1000)); // Scales with node size
-          // Arrowheads keep sizing off the original adaptive width.
-          const adaptiveStrokeWidth = Math.max(0.4, avgNodeSize * baseStrokeMultiplier);
-          // The line itself needs an absolute floor — the adaptive value lands under 1px
-          // in typical previews, where any relative bump is lost to antialiasing.
-          const lineStrokeWidth = Math.max(1.2, adaptiveStrokeWidth * 1.6);
-
-          return (
-            <g key={edge.key}>
-              {/* Main edge line - adaptive stroke */}
-              <line
-                x1={shouldShortenSource ? (sourceIntersection?.x || edge.x1) : edge.x1}
-                y1={shouldShortenSource ? (sourceIntersection?.y || edge.y1) : edge.y1}
-                x2={shouldShortenDest ? (destIntersection?.x || edge.x2) : edge.x2}
-                y2={shouldShortenDest ? (destIntersection?.y || edge.y2) : edge.y2}
-                stroke={edgeColor}
-                strokeWidth={lineStrokeWidth}
-              />
-
-              {/* Source Arrow - scales with adaptive stroke */}
-              {arrowsToward.has(edge.sourceId) && (() => {
-                // Calculate arrow scale based on adaptive stroke width (much smaller arrows)
-                const arrowScale = Math.max(0.15, adaptiveStrokeWidth / 2.5); // Much smaller arrows
-
-                return (
-                  <g transform={`translate(${sourceArrowX}, ${sourceArrowY}) rotate(${sourceArrowAngle + 90})`}>
-                    <polygon
-                      points={`${-10 * arrowScale},${12 * arrowScale} ${10 * arrowScale},${12 * arrowScale} 0,${-12 * arrowScale}`}
-                      fill={edgeColor}
-                      stroke={edgeColor}
-                      strokeWidth={Math.max(0.15, adaptiveStrokeWidth * 0.5)}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      paintOrder="stroke fill"
-                    />
-                  </g>
-                );
-              })()}
-
-              {/* Destination Arrow - scales with adaptive stroke */}
-              {arrowsToward.has(edge.destinationId) && (() => {
-                // Calculate arrow scale based on adaptive stroke width (much smaller arrows)
-                const arrowScale = Math.max(0.15, adaptiveStrokeWidth / 2.5); // Much smaller arrows
-
-                return (
-                  <g transform={`translate(${destArrowX}, ${destArrowY}) rotate(${destArrowAngle + 90})`}>
-                    <polygon
-                      points={`${-10 * arrowScale},${12 * arrowScale} ${10 * arrowScale},${12 * arrowScale} 0,${-12 * arrowScale}`}
-                      fill={edgeColor}
-                      stroke={edgeColor}
-                      strokeWidth={Math.max(0.15, adaptiveStrokeWidth * 0.5)}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                      paintOrder="stroke fill"
-                    />
-                  </g>
-                );
-              })()}
-            </g>
-          );
-        })}
-
-        {/* Render Nodes */}
-        {scaledNodes.map(node => {
-          const originalNode = nodes.find(n => n.id === node.id);
-          const imageSrc = originalNode?.imageSrc;
-          const nodeColor = originalNode?.color || '#800000'; // Get node color or default
-          const nodeName = originalNode?.name || 'Untitled';
-
-          // Get proper dimensions for this specific node (like InnerNetwork does)
-          const nodeDimensions = getNodeDimensions(originalNode, false, null);
-          const scaledWidth = nodeDimensions.currentWidth * scale;
-          const scaledHeight = nodeDimensions.currentHeight * scale;
-          const scaledTextAreaHeight = nodeDimensions.textAreaHeight * scale;
-
-          // Calculate adaptive node stroke width based on node size (thinner, better scaling)
-          const avgNodeDimension = (scaledWidth + scaledHeight) / 2;
-          const nodeStrokeWidth = Math.max(0.2, Math.min(1.5, avgNodeDimension * 0.008)); // Adaptive stroke based on node size
-
-          // Determine if text should be shown (when node is large enough)
-          const showText = scaledWidth > 15; // Show text when width exceeds 15px
-          const fontSize = Math.max(4, Math.min(10, scaledWidth * 0.11)); // Slightly larger font relative to node size
-
-          if (imageSrc) {
-            // Use fixed 1px stroke for image nodes as requested
-            const imageNodeStrokeWidth = 1.0;
-            const strokeOffset = imageNodeStrokeWidth / 2;
-            const strokeRectWidth = Math.max(0, scaledWidth - imageNodeStrokeWidth);
-            const strokeRectHeight = Math.max(0, scaledHeight - imageNodeStrokeWidth);
-
-            // Use same logic as clipPath for consistency
-            const imageCornerRadius = PREVIEW_CORNER_RADIUS * scale;
-            const strokeRectRx = Math.max(0, imageCornerRadius - strokeOffset);
-            const strokeRectRy = Math.max(0, imageCornerRadius - strokeOffset);
-
-            return (
-              // Remove clipPath from group
-              <g
-                key={node.id}
-              >
-                <image
-                  x={node.x}
-                  y={node.y}
-                  width={scaledWidth}
-                  height={scaledHeight}
-                  href={imageSrc}
-                  preserveAspectRatio="xMidYMid slice"
-                  // Apply unique clipPath directly to image
-                  clipPath={`url(#clip-${node.id})`}
-                />
-                {/* Adjust stroke rect position, size, and radius - 1px stroke */}
-                <rect
-                  x={node.x + strokeOffset} // Offset position
-                  y={node.y + strokeOffset}
-                  width={strokeRectWidth} // Adjusted size
-                  height={strokeRectHeight}
-                  fill="none"
-                  stroke={nodeColor}
-                  strokeWidth={imageNodeStrokeWidth}
-                  rx={strokeRectRx} // Adjusted radius
-                  ry={strokeRectRy}
-                />
-                {/* Conditional text for image nodes - hidden when there's an image */}
-                {showText && !imageSrc && (
-                  <text
-                    x={node.x + scaledWidth / 2}
-                    y={node.y + scaledTextAreaHeight / 2} // Position in text area
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={fontSize}
-                    fill={getTextColor(nodeColor, theme.darkMode)}
-                    fontWeight="bold"
-                    fontFamily="'EmOne', sans-serif"
-                    style={{
-                      pointerEvents: 'none',
-                      userSelect: 'none'
-                    }}
-                  >
-                    <tspan
-                      x={node.x + scaledWidth / 2}
-                      style={{
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {nodeName.length > 6 ? nodeName.substring(0, 6) + '...' : nodeName}
-                    </tspan>
-                  </text>
-                )}
-              </g>
-            );
-          } else {
-            // --- Render Rect Node ---
+          if (node.imageSrc) {
             return (
               <g key={node.id}>
-                <rect
-                  x={node.x}
-                  y={node.y}
-                  width={scaledWidth}
-                  height={scaledHeight}
-                  fill={nodeColor} // Use node color
-                  // More rounded corners to match other network representations
-                  rx={PREVIEW_CORNER_RADIUS * scale}
-                  ry={PREVIEW_CORNER_RADIUS * scale}
+                <image
+                  x={b.x}
+                  y={b.y}
+                  width={b.w}
+                  height={b.h}
+                  href={node.imageSrc}
+                  preserveAspectRatio="xMidYMid slice"
+                  clipPath={`url(#${clipPrefix}-clip-${node.id})`}
                 />
-                {/* Conditional text for rect nodes */}
-                {showText && (
-                  <text
-                    x={node.x + scaledWidth / 2}
-                    y={node.y + scaledTextAreaHeight / 2} // Position in text area
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={fontSize}
-                    fill={getTextColor(nodeColor, theme.darkMode)}
-                    fontWeight="bold"
-                    fontFamily="'EmOne', sans-serif"
-                    style={{
-                      pointerEvents: 'none',
-                      userSelect: 'none'
-                    }}
-                  >
-                    <tspan
-                      x={node.x + scaledWidth / 2}
-                      style={{
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}
-                    >
-                      {nodeName.length > 6 ? nodeName.substring(0, 6) + '...' : nodeName}
-                    </tspan>
-                  </text>
-                )}
+                <rect
+                  x={b.x + imageFrame / 2}
+                  y={b.y + imageFrame / 2}
+                  width={Math.max(0, b.w - imageFrame)}
+                  height={Math.max(0, b.h - imageFrame)}
+                  fill="none"
+                  stroke={nodeColor}
+                  strokeWidth={imageFrame}
+                  rx={Math.max(0, PREVIEW_CORNER_RADIUS - imageFrame / 2)}
+                  ry={Math.max(0, PREVIEW_CORNER_RADIUS - imageFrame / 2)}
+                />
               </g>
             );
           }
+
+          return (
+            <rect
+              key={node.id}
+              x={b.x}
+              y={b.y}
+              width={b.w}
+              height={b.h}
+              fill={nodeColor}
+              rx={PREVIEW_CORNER_RADIUS}
+              ry={PREVIEW_CORNER_RADIUS}
+            />
+          );
         })}
       </g>
     </svg>

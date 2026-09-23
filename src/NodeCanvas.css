@@ -200,6 +200,25 @@ body {
     visibility 0s linear 160ms;
 }
 
+/* Rasterized labels are a <g> around <image>s, and the paint alphas above
+   don't reach an image — so without this they skip the fade and pop back on
+   the visibility flip alone. Element opacity is the only lever an image has.
+   Note 2's transparency-group cost is small here: one group per label
+   around a bitmap, animated only on the way back in, when the gesture is
+   over. */
+.connection-label[data-label-sprite] {
+  transition:
+    opacity 220ms ease-out,
+    visibility 0s;
+}
+
+.canvas-moving .connection-label[data-label-sprite] {
+  opacity: 0;
+  transition:
+    opacity 0s linear 160ms,
+    visibility 0s linear 160ms;
+}
+
 /* Motion is a preference. Without it the labels simply cut away for the
    gesture and cut back on settle, which keeps every bit of the speed. */
 @media (prefers-reduced-motion: reduce) {
@@ -208,7 +227,9 @@ body {
     transition: none;
   }
   .canvas-moving .connection-label,
-  .canvas-moving .connection-label-ring {
+  .canvas-moving .connection-label-ring,
+  .connection-label[data-label-sprite],
+  .canvas-moving .connection-label[data-label-sprite] {
     transition: none;
   }
 }

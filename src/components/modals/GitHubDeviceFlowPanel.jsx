@@ -73,9 +73,9 @@ const GitHubDeviceFlowPanel = ({
   const statusLabel = errorMessage
     ? errorMessage
     : status === 'slow-down'
-      ? 'GitHub asked us to slow down — still waiting…'
+      ? 'GitHub asked us to slow down, still waiting…'
       : status === 'network-error'
-        ? 'Network blip — retrying…'
+        ? 'Network blip, retrying…'
         : 'Waiting for you to approve in the browser…';
 
   return (
@@ -145,14 +145,14 @@ const GitHubDeviceFlowPanel = ({
 
       {compact ? (
         <div style={{ fontSize: '0.75rem', color: theme.canvas.textPrimary, lineHeight: 1.4 }}>
-          Enter this code at <strong>{verificationUri || 'github.com/login/device'}</strong> and approve — we'll detect it automatically.
+          Enter this code at <strong>{verificationUri || 'github.com/login/device'}</strong> and approve. We'll detect it automatically.
         </div>
       ) : (
         <div style={{ fontSize: '0.78rem', color: theme.canvas.textPrimary, lineHeight: 1.4 }}>
           <ol style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <li>Open <strong>{verificationUri || 'github.com/login/device'}</strong> in your browser.</li>
             <li>Enter the code above and approve the request.</li>
-            <li>Come back here — we'll detect it automatically.</li>
+            <li>Come back here. We'll detect it automatically.</li>
           </ol>
         </div>
       )}
