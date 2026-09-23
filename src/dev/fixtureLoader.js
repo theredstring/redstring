@@ -12,8 +12,10 @@
  * Optional URL params: `labels=0|1` forces connection labels off/on.
  *
  * Test hook, available in fixture mode only:
- *   await window.__loadFixture(jsonObjectOrString, { label?, activeGraphId? })
+ *   await window.__loadFixture(jsonObjectOrString, { label?, activeGraphId?, frame? })
  *     → { label, graphs, prototypes, edges, activeGraphId, instancesOnActive }
+ *   activeGraphId: a graph id, or 'largest' (most instances, then edges, then
+ *   groups). frame: true stores a camera that fits that graph on screen.
  * This is how the local-only chambers universe is injected (Playwright reads
  * the file in Node and passes it in); it is never served or committed.
  *
@@ -83,6 +85,50 @@ function neutralizePersistence(universeBackend) {
   }
 }
 
+/**
+ * The graph with the most instances; ties go to more edges, then more groups.
+ * For the chambers universe that is the 54-instance / ~40-edge / 13-group
+ * graph METRICS.md calls "medium" (F-66). Group anchors count as instances,
+ * the way F-66 counted them.
+ */
+function largestGraphId(st) {
+  let best = null;
+  let bestKey = null;
+  for (const [id, g] of st.graphs) {
+    const key = [g.instances?.size || 0, g.edgeIds?.length || 0, g.groups?.size || 0];
+    if (!bestKey || key[0] > bestKey[0] || (key[0] === bestKey[0] && (key[1] > bestKey[1] || (key[1] === bestKey[1] && key[2] > bestKey[2])))) {
+      best = id;
+      bestKey = key;
+    }
+  }
+  return best;
+}
+
+/**
+ * [panOffset, zoom] that fits a graph's instances into the canvas area, using
+ * NodeCanvas's mapping: world = (client - rect - pan) / zoom + CANVAS_OFFSET.
+ * Node size is approximated; this only has to put everything on screen.
+ */
+function fitView(graph) {
+  const CANVAS_OFFSET = -50000; // NodeCanvas canvasSize.offsetX/Y
+  const area = document.querySelector('.canvas-area')?.getBoundingClientRect();
+  const width = area?.width || window.innerWidth;
+  const height = area?.height || window.innerHeight - 50;
+  let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+  for (const inst of graph.instances?.values() || []) {
+    minX = Math.min(minX, inst.x);
+    minY = Math.min(minY, inst.y);
+    maxX = Math.max(maxX, inst.x + 260);
+    maxY = Math.max(maxY, inst.y + 140);
+  }
+  if (!Number.isFinite(minX)) return [{ x: width / 2 + CANVAS_OFFSET, y: height / 2 + CANVAS_OFFSET }, 1];
+  const margin = 80;
+  const zoom = Math.max(0.1, Math.min(1, (width - 2 * margin) / (maxX - minX), (height - 2 * margin - 60) / (maxY - minY)));
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  return [{ x: width / 2 - (cx - CANVAS_OFFSET) * zoom, y: (height - 60) / 2 - (cy - CANVAS_OFFSET) * zoom }, zoom];
+}
+
 function summarize(label) {
   const st = useGraphStore.getState();
   const active = st.activeGraphId ? st.graphs.get(st.activeGraphId) : null;
@@ -100,7 +146,7 @@ function summarize(label) {
  * Load a `.redstring` document (object or text) through the real open-file
  * steps. Throws on anything the Universes panel would refuse.
  */
-export async function loadFixtureData(data, { label = 'injected', activeGraphId = null } = {}) {
+export async function loadFixtureData(data, { label = 'injected', activeGraphId = null, frame = false } = {}) {
   let parsedData = data;
   if (typeof data === 'string') {
     try {
@@ -131,9 +177,13 @@ export async function loadFixtureData(data, { label = 'injected', activeGraphId 
 
   if (activeGraphId) {
     const st = useGraphStore.getState();
-    if (!st.graphs.has(activeGraphId)) throw new Error(`${tag} ${label}: no graph ${activeGraphId}`);
-    st.openGraphTab(activeGraphId);
-    useGraphStore.getState().setActiveGraph(activeGraphId);
+    const targetId = activeGraphId === 'largest' ? largestGraphId(st) : activeGraphId;
+    if (!st.graphs.has(targetId)) throw new Error(`${tag} ${label}: no graph ${activeGraphId}`);
+    // Store a camera that fits the graph BEFORE activating it: NodeCanvas
+    // jumps to the stored view on a graph switch.
+    if (frame) st.updateGraphView(targetId, ...fitView(st.graphs.get(targetId)));
+    useGraphStore.getState().openGraphTab(targetId);
+    useGraphStore.getState().setActiveGraph(targetId);
   }
 
   const summary = summarize(label);

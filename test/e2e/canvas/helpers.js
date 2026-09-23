@@ -214,6 +214,43 @@ export async function expectBareCanvas(page, point) {
 }
 
 /**
+ * Find a point of bare canvas with a clear patch around it (`halfW` x `halfH`
+ * all bare) that is as far as possible from any rendered node. For flows on
+ * real data, where no layout is known in advance. Stays clear of the header,
+ * the bottom bar and the panel toggles.
+ */
+export async function findBareSpot(page, { halfW = 110, halfH = 70 } = {}) {
+  const spot = await page.evaluate(({ hw, hh }) => {
+    const area = document.querySelector('.canvas-area').getBoundingClientRect();
+    const boxes = [...document.querySelectorAll('svg.canvas g.node')].map((n) => n.getBoundingClientRect());
+    const isBare = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      return !!el && ((el.tagName === 'svg' && el.classList.contains('canvas')) || (el.tagName === 'DIV' && el.classList.contains('canvas-area')));
+    };
+    let best = null;
+    for (let y = area.top + 60 + hh; y < area.bottom - 70 - hh; y += 25) {
+      for (let x = area.left + 60 + hw; x < area.right - 60 - hw; x += 25) {
+        let clear = true;
+        for (let dy = -hh; dy <= hh && clear; dy += hh / 2) {
+          for (let dx = -hw; dx <= hw && clear; dx += hw / 2) clear = isBare(x + dx, y + dy);
+        }
+        if (!clear) continue;
+        let d = Infinity;
+        for (const b of boxes) {
+          const ex = Math.max(b.left - x, 0, x - b.right);
+          const ey = Math.max(b.top - y, 0, y - b.bottom);
+          d = Math.min(d, Math.hypot(ex, ey));
+        }
+        if (!best || d > best.d) best = { x, y, d };
+      }
+    }
+    return best;
+  }, { hw: halfW, hh: halfH });
+  if (!spot) throw new Error('no bare patch of canvas on screen');
+  return { x: spot.x, y: spot.y };
+}
+
+/**
  * Press, optionally hold still, move in steps, release. `holdMs` is how long
  * the pointer rests after the press before moving (0 = move immediately).
  */
