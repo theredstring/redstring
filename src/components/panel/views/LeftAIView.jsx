@@ -1686,7 +1686,10 @@ const LeftAIView = ({ compact = false,
     }
   }, [viewMode, druidInstance]);
 
-  const addMessage = (sender, content, metadata = {}, targetId = activeConversationId) => {
+  // Target the ref, not the closure: a send that lands right after a new tab
+  // opens (every Ask The Wizard prompt without "add to current") runs in a
+  // handler captured before the tab existed, so the closure names the OLD tab.
+  const addMessage = (sender, content, metadata = {}, targetId = activeConversationIdRef.current) => {
     // Strip trailing newlines/whitespace from user messages (users often add them after tool calls)
     const normalizedContent = sender === 'user' && typeof content === 'string'
       ? content.trimEnd()
@@ -1724,9 +1727,9 @@ const LeftAIView = ({ compact = false,
       c.id === targetId ? { ...c, messages: buildMessage(c.messages || []), timestamp: new Date().toISOString() } : c
     ));
 
-    // Update active UI ONLY if we targets the active tab
+    // Update active UI ONLY if this targets the active tab
     setMessages(prev => {
-      if (activeConversationId === targetId) {
+      if (activeConversationIdRef.current === targetId) {
         return buildMessage(prev);
       }
       return prev;
@@ -2287,11 +2290,17 @@ const LeftAIView = ({ compact = false,
     // Normal message handling
 
     // Auto-name if first message in a generic tab
-    const currentConv = conversations.find(c => c.id === activeConversationId);
+    // Refs, not closure state — see addMessage.
+    const sendConvId = activeConversationIdRef.current;
+    // The model's history is this tab's messages BEFORE this ask is appended
+    // (the ask itself travels separately). Snapshot it now: by the time the
+    // agent builds its request, an await has let the user message commit.
+    const historySnapshot = messagesRef.current || [];
+    const currentConv = (conversationsRef.current || []).find(c => c.id === sendConvId);
     if (currentConv && currentConv.messages.length === 0 && (currentConv.title === 'New Chat' || (activeGraphId && graphsMap?.get(activeGraphId)?.name === currentConv.title))) {
       const newTitle = generateConversationTitle(userMessage);
       setConversations(prev => prev.map(c =>
-        c.id === activeConversationId ? { ...c, title: newTitle } : c
+        c.id === sendConvId ? { ...c, title: newTitle } : c
       ));
     }
 
@@ -2350,7 +2359,7 @@ const LeftAIView = ({ compact = false,
     if (viewMode === 'druid') {
       try {
         // Reuse the autonomous agent handler but with Druid prompt
-        await handleAutonomousAgent(messagePayload, 'druid', { toolPolicy });
+        await handleAutonomousAgent(messagePayload, 'druid', { toolPolicy, history: historySnapshot });
         consecutiveAskErrorsRef.current = 0; // a completed ask resets the breaker
       } catch (error) {
         console.error('Druid error:', error);
@@ -2377,7 +2386,7 @@ const LeftAIView = ({ compact = false,
       // The health-probe effect above keeps `isConnected` and the status dot
       // honest on its own poll; it does not need to gate anything here.
       if (viewMode === 'wizard') {
-        await handleAutonomousAgent(messagePayload, 'wizard', { toolPolicy });
+        await handleAutonomousAgent(messagePayload, 'wizard', { toolPolicy, history: historySnapshot });
       } else {
         await handleQuestion(messagePayload);
       }
@@ -2560,7 +2569,11 @@ const LeftAIView = ({ compact = false,
       setCurrentAgentRequest(abortController);
 
       // Send recent conversation history for context memory
-      const recentMessages = messages.slice(-10).map(msg => ({
+      // Not the closure's `messages`: that belongs to whichever tab was active
+      // when this handler was captured, so a fresh Ask The Wizard tab would
+      // send the previous tab's history to the model. handleSendMessage passes
+      // a snapshot taken from the ref before the ask was appended.
+      const recentMessages = (askOptions?.history ?? messagesRef.current ?? []).slice(-10).map(msg => ({
         // A compaction summary IS the earlier conversation — it has to survive
         // into history or compacting would amount to deleting the transcript.
         // AgentLoop drops role:'system' entries (they're context annotations, and
@@ -3359,6 +3372,13 @@ const LeftAIView = ({ compact = false,
     // Urgent: insert the tab and move the selection so they paint immediately.
     setConversations(prev => [newConv, ...prev]);
     setActiveConversationId(newId);
+    // The refs normally trail state by a commit (they sync in effects). Ask The
+    // Wizard sends on the very next tick after opening this tab, possibly before
+    // that commit — and the send path routes by these refs. Left stale, the ask
+    // landed in the previous tab and the new one filled in afterwards.
+    activeConversationIdRef.current = newId;
+    conversationsRef.current = [newConv, ...(conversationsRef.current || [])];
+    messagesRef.current = [];
 
     // Urgent, NOT a transition. This used to be wrapped in startTransition so
     // unmounting a heavy old list wouldn't delay the tab-selection paint. But
@@ -3375,8 +3395,22 @@ const LeftAIView = ({ compact = false,
     // tab's messages with the new run appended, and the save effect copies
     // that into the new conversation. Clearing synchronously costs one heavier
     // commit on tab open.
-    lastMessagesRef.current = [];
-    setMessages([]);
+    //
+    // Both refs below also disarm effects that would otherwise clobber the ask
+    // that follows. React can commit this tab and run its effects a task LATER,
+    // after Ask The Wizard's setTimeout(0) send has already appended the chip.
+    // Those effects run with the pre-chip render's values:
+    //   - the tab-switch effect would reset `messages` to the new tab's stored
+    //     messages (still empty), wiping the chip from view;
+    //   - the save effect would then write that empty list into the new
+    //     conversation, wiping it from the record too.
+    // A brand-new tab has nothing to load or save, so mark both as handled.
+    // `empty` is the same array handed to setMessages so the save effect's
+    // identity guard (lastMessagesRef.current === messages) holds.
+    const empty = [];
+    lastMessagesRef.current = empty;
+    lastActiveIdRef.current = newId;
+    setMessages(empty);
   };
 
   const handleCloseConversation = (id, e) => {
