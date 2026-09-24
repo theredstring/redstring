@@ -9828,11 +9828,11 @@ function NodeCanvas() {
    * Shared by the mouse's live marquee and the controller's, so the two cannot
    * drift into selecting different things from the same rectangle.
    */
-  const selectionFromRect = (rect, keepAnchors = false) => {
+  const selectionFromRect = (rect) => {
     const base = selectionBaseRef.current || new Set();
     const final = new Set([...base]);
     nodes.forEach(nd => {
-      if (nd.isGroupAnchor && !keepAnchors) return;
+      if (nd.isGroupAnchor) return;
       if (base.has(nd.id)) return;
       const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
       const intersects = !(rect.x > nd.x + dims.currentWidth ||
@@ -9857,10 +9857,10 @@ function NodeCanvas() {
     marqueeSelectionRef.current = selectionBaseRef.current;
   };
   // Assigned every render so a queued frame uses the current nodes.
-  marqueePassRef.current = (keepAnchors) => {
+  marqueePassRef.current = () => {
     const box = marqueeBoxRef.current;
     if (!selectionStartRef.current || !box) return marqueeSelectionRef.current;
-    const next = selectionFromRect(box, keepAnchors);
+    const next = selectionFromRect(box);
     const prev = marqueeSelectionRef.current;
     if (!prev || prev.size !== next.size || [...next].some((id) => !prev.has(id))) {
       marqueeSelectionRef.current = next;
@@ -9880,10 +9880,10 @@ function NodeCanvas() {
     marqueeRafRef.current = requestAnimationFrame(() => { marqueeRafRef.current = 0; marqueePassRef.current?.(); });
   };
   // Runs a final pass now, retires the box, and returns the selection it leaves.
-  const endMarquee = (keepAnchors) => {
+  const endMarquee = () => {
     cancelAnimationFrame(marqueeRafRef.current);
     marqueeRafRef.current = 0;
-    const final = marqueePassRef.current?.(keepAnchors) ?? new Set();
+    const final = marqueePassRef.current?.() ?? new Set();
     selectionStartRef.current = null;
     marqueeBoxRef.current = null;
     setSelectionStart(null);
@@ -11821,7 +11821,7 @@ function NodeCanvas() {
         const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
         const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
         updateMarquee(currentX, currentY);
-        endMarquee(true); // B-01: unlike the live box, the release still selects group anchors
+        endMarquee();
       }
 
       // Finalize panning state.
