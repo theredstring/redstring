@@ -13641,7 +13641,7 @@ function NodeCanvas() {
     };
 
     setHurtleFlight(animationData);
-  }, [containerRef, previewingNodeId, getHeaderTabTarget]);
+  }, [containerRef, previewingNodeId, getHeaderTabTarget, canvasSize]);
 
   const startHurtleAnimationFromPanel = useCallback((nodeId, targetGraphId, definitionNodeId, startRect) => {
     const currentState = useGraphStore.getState();
@@ -13651,22 +13651,12 @@ function NodeCanvas() {
       return;
     }
 
-    const containerElement = containerRef.current;
-    if (!containerElement) {
+    if (!containerRef.current) return;
 
-      return;
-    }
-
-    // Get the current pan/zoom from the actual SVG element to ensure accuracy
-    const svgElement = containerElement.querySelector('.canvas');
-    if (!svgElement) {
-
-      return;
-    }
-
-    const transform = svgElement.style.transform;
-    const scaleMatch = transform.match(/scale\((-?\d+(?:\.\d+)?)\)/);
-    const currentZoom = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
+    // B-04: this used to parse the <svg>'s style.transform, which no longer
+    // carries the camera (it's an attribute on the content group now), so zoom
+    // always read 1 and the orb was always 30 px. The ref is authoritative.
+    const currentZoom = zoomLevelRef.current || 1;
 
     // Start position is the center of the icon's rect
     const startX = startRect.left + startRect.width / 2;
