@@ -1,13 +1,16 @@
 /**
- * fixtureSandbox.js: DEV-ONLY isolation for fixture mode (`?fixture=<name>`).
+ * fixtureSandbox.js: DEV/PROFILE-ONLY isolation for fixture mode (`?fixture=<name>`).
  *
  * NodeCanvas refactor P0.02. Imported FIRST by main.jsx so it runs before any
  * app module evaluates (several of them read localStorage at import time).
  * The companion loader is src/dev/fixtureLoader.js.
  *
- * With no `?fixture` in the URL, or in a production build, this module does
- * nothing: its whole body sits behind `import.meta.env.DEV`, which Vite
- * replaces with `false` in production so Rollup drops it.
+ * With no `?fixture` in the URL, or in a normal production build, this module
+ * does nothing: its whole body sits behind
+ * `import.meta.env.DEV || import.meta.env.MODE === 'profile'`, which Vite
+ * folds to `false` in production so Rollup drops it. The profiling build
+ * (`npm run build:profile`) keeps it for the perf scenarios (P0.04); that
+ * build is never shipped.
  *
  * In fixture mode a fixture must never reach real storage or a real server, so
  * this installs:
@@ -182,7 +185,12 @@ function installFixtureSandbox(name) {
   console.info(`[fixture] sandbox on for "${name}": in-memory localStorage, network limited to same-origin non-/api`);
 }
 
-if (import.meta.env.DEV && typeof window !== 'undefined') {
+// Dev server, plus the profiling build (`npm run build:profile`, Vite mode
+// "profile") so the perf scenarios (P0.04) can load fixtures in an optimised
+// bundle. Vite replaces both values at build time; in any other production
+// build the condition is `false || "production" === "profile"` and Rollup
+// drops this block and, with it, every reference to the loader.
+if ((import.meta.env.DEV || import.meta.env.MODE === 'profile') && typeof window !== 'undefined') {
   const params = new URLSearchParams(window.location.search);
   if (params.has('fixture')) {
     installFixtureSandbox(params.get('fixture') || 'small');
