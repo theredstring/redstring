@@ -193,7 +193,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:**
 
 ### P1.13: Batch of small bug fixes
-- **Status:** partial: B-07 done (c7453a4); B-03 blocked on Grant (report reports/P1.13.md)
+- **Status:** done for P1 scope: B-07 fixed (c7453a4). B-03 decided (D-17): the welcome screen returns as its own host, tracked outside P1 (report reports/P1.13.md)
 - **Lane:** A · **Size:** S · **Depends:** none
 - **Findings:** B-03, B-07
 - **Change:** One commit per bug.

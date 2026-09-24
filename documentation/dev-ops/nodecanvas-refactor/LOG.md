@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-23: Wave 1 on local main; Grant smoke-testing (Claude, orchestrator)
+
+- Local `main` was fast-forwarded to `0a8f5e0` (wave 1). **Not pushed**; Grant is smoke-testing before pushing. (The "not yet into main" note in the entry below is outdated.)
+- B-03 decided (D-17): "Show Welcome Screen" returns as its own host component.
+- Still running: P0.02 + P0.03 (Playwright). Wave 2 waits on Grant's smoke test and the Playwright flows.
+
+---
+
 ## 2026-09-23: Wave 1 reviewed and integrated (Claude, orchestrator)
 
 **Branches reviewed and merged into `refactor/wave1-integration`, not yet into `main`:**

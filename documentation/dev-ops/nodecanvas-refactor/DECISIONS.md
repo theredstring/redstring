@@ -107,3 +107,8 @@ This file records calls that nobody should re-argue mid-task.
 - Use a small dev-only helper that diffs store selectors and state between renders. Fall back to React DevTools' "record why each component rendered" for manual checks.
 - Rejected: `@welldone-software/why-did-you-render`. Its current release needs React 19, and it patches React.
 - Details are in `reports/P0.01.md`.
+
+**D-17. "Show Welcome Screen" comes back (resolves B-03).** *Decided (Grant), 2026-09-23.*
+- Keep both "Show Welcome Screen" menu items (the Help menu and the Electron app menu). Restore a real welcome screen for them to open.
+- Build it as its own App-level host component, not inside `NodeCanvas.jsx` (D-13). Check the removed welcome modal (5d6e650) for what it showed.
+- Until then, the dead `openOnboardingModal` listener in NodeCanvas stays. It gets rewired to the new host when that lands (P2.06c or a standalone card).
