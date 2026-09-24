@@ -147,16 +147,13 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
    - `git log --oneline refactor/waveN-integration..<branch>` and `git diff --stat refactor/waveN-integration...<branch>`.
    - Confirm the files stay within the agent's lane and base = wave (`git merge-base --is-ancestor <wave-base> <branch>`).
 2. **Review the risky diffs yourself,** not just the report.
-   - After any NodeCanvas deletion or move, compare `no-undef` against the base. Copy the file to `src/__lint_tmp_X.jsx`, run `npx eslint --no-warn-ignored --rule '{"no-undef":"error"}' src/__lint_tmp_X.jsx`, then delete the copy.
-   - The only allowed hit is `setShowOnboardingModal` (B-03).
+   - Run `npm run lint:undef` (P0.06). It fails on any undefined name in `src/` that isn't in `test/known-undefined-names.json`.
 3. **Merge.** `git merge --no-ff` into the integration branch. If `wc -l src/NodeCanvas.jsx` dropped, lower `test/meta/nodecanvas-budget.json`.
-4. **Full vitest.**
-   - `npx vitest run --reporter=json --outputFile=<scratch>/x.json`.
-   - Compare the failing set, by file and count, against **F-69** (67 failures in 15 files). It must be identical.
+4. **Full vitest.** Run `npm run test:ci` (P0.06). It fails on any failure not in `test/known-failures.json`, and on list entries that now pass (prune those in the same commit).
 5. **Browser flows.** `CANVAS_E2E_PORT=48xx npm run test:canvas`.
-   - It needs `@playwright/test` installed. The integration worktree resolves `node_modules` from the main checkout by walking up the directory tree, so until P0.02/P0.03 land on `main`, run it from an agent worktree that has a real install.
-   - **Never run a Vite dev server in the integration worktree** (F-68: shared cache).
-6. **Build.** `npm run build`.
+   - It needs `@playwright/test` installed. The integration worktree now has its own `node_modules`, an APFS clone (`cp -Rc`) of an agent worktree's install. Give each new integration worktree the same.
+   - F-68 still applies to any worktree whose `node_modules` is a symlink into the main checkout: no Vite dev server there. The e2e config uses a worktree-local `cacheDir` either way.
+6. **Build.** `NODE_OPTIONS=--max-old-space-size=4096 npm run build` (CI uses the same heap).
 7. **Fold the report into the docs.** Update the card, FINDINGS, METRICS, MAP, LOG and In flight, then commit on the integration branch.
 
 **Handing a wave to Grant**
@@ -167,8 +164,8 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
 **In flight** (edit this when you claim or finish a task). Wave 2 is based on `refactor/wave2-integration` (main + P0.02/P0.03):
-- **Lane A:** P1.03 → P1.04 → P1.06
-- **Lane C:** P0.06 (CI) + X-07 (dead hook params)
+- **Lane A:** ~~P1.03, P1.04 (+ B-01)~~ merged (7c188ba) → P1.06 next
+- ~~Lane C: P0.06 (CI) + X-07~~ merged (7b74851)
 - **Lane B:** P0.04 (perf scenarios + baseline)
 - **Lane B:** P1.12a (label investigation + DOM snapshot baselines)
 - ~~Lane B: P2.01~~ pre-staged and merged into wave2-integration (5121cc7)
@@ -189,8 +186,8 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 
 | Phase | File | Goal | Status |
 |---|---|---|---|
-| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.02, P0.03 (+b), P0.05, P0.07 done; P0.04, P0.06 in wave 2 |
-| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.07, P1.09, P1.11 done; P1.13 partial (B-03 needs Grant) |
+| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.02, P0.03 (+b), P0.05, P0.06, P0.07 done; P0.04 in wave 2 |
+| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.03, P1.04, P1.07, P1.09, P1.11 done; P1.13 partial (B-03 needs Grant) |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |

@@ -47,7 +47,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:** X-01, X-02, X-03, X-04 and X-06 removed. NodeCanvas.jsx went from 19,255 to 18,518 lines together with P1.01/P1.07. Lint no-undef is unchanged against the base (only B-03 remains). Follow-up X-07 (dead hook params).
 
 ### P1.03: Bind mousemove once
-- **Status:** todo
+- **Status:** done (2eb1009; report reports/P1.03.md)
 - **Lane:** A · **Size:** S · **Depends:** P0.03 preferred
 - **Findings:** F-02
 - **Change:**
@@ -57,10 +57,10 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Accept:**
   - `handleMouseMove` runs once per native event. Check with a dev-only counter, then remove the counter.
   - Flows F1, F2, F4, F5 and F7 pass.
-- **Handoff:**
+- **Handoff:** Bound on the `.canvas-area` div only. Calls per native move went from 2 to 1 (hover, drag-pan and marquee).
 
 ### P1.04: Marquee without a React commit on every move
-- **Status:** todo
+- **Status:** done (ea34291, B-01 fix 8702ad2; report reports/P1.04.md)
 - **Lane:** A · **Size:** M · **Depends:** P1.03
 - **Findings:** F-03, B-01, B-02
 - **Change:**
@@ -75,6 +75,10 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - In S5, commits equal the number of membership changes plus about 2.
   - F4 passes, including the group-anchor assertion.
 - **Handoff:**
+  - S5 (jsdom): sweep 115 → 12 commits over 40 moves; hold 90 → 0.
+  - B-01 and B-02 fixed.
+  - Mouseup's trailing-click swallow now depends on the marquee branch setting `mouseMoved` (see the report).
+  - X-10: `calculateSelection` in the worker is dead.
 
 ### P1.05: Panel resize without a commit every frame
 - **Status:** todo

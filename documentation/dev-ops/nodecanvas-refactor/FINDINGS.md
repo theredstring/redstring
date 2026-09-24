@@ -343,7 +343,23 @@ This state is used across clusters and must move to a store before the clusters 
   - OrbitOverlay, UniverseManager, formats consistency
   - SaveCoordinator (18), gitNativeProvider (11), rdfResolver
   - graphStore (11, stale tests for an old API), tools-health, edgeLabelPlacement (2)
-- Until P0.06 lands a known-failures list, compare against this set.
+- **Superseded by P0.06:** `test/known-failures.json` is now the list, and `npm run test:ci` does the compare.
+
+**F-71. Latent ReferenceErrors in src/ (P0.06 report).** VERIFIED (ESLint no-undef).
+- These names don't exist in their file, so each call throws the first time its path runs:
+  - `setShowAPIKeySetup` ×4 (`LeftAIView.jsx`)
+  - `minOccurrences` ×4 (`mcpProvider.js`)
+  - `persistentAuth` (`backend/auth/index.js`)
+  - `file` (`UniverseManager.jsx` ~3165)
+  - `edgeId` (`PanelContentWrapper.jsx` ~476)
+  - `fileName` (`fileHandlePersistence.js` ~241)
+  - `layoutMode` (`roleRunners.js` ~1304)
+  - `findEntitiesInSameCategories` (`semanticWebQuery.js` ~1612)
+  - `theme` and `clearTabularData` (`toolResultApplier.js`)
+  - `setShowOnboardingModal` (NodeCanvas, B-03)
+- The remaining entries (`process`, `Buffer`, `require`) are Node-only files linted as browser code.
+- All of them are in `test/known-undefined-names.json`. `npm run lint:undef` fails on any new one.
+- Outside the refactor's scope, but worth fixing before 1.0. Prune the baseline with each fix.
 
 **F-70. P2 kickoff research (P2.01 report).** VERIFIED at b2314ce.
 - **MCP bridge:** reads **no** spine field, selection included. The wizard only *writes* selection, via the `rs-select-node` window event (~14911). That listener must keep working after P2.02.
@@ -368,8 +384,8 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 
 | ID | Bug | Status | Fix in |
 |---|---|---|---|
-| B-01 | A mouse marquee release selects group-anchor instances: the release path (~12170) skips the anchor filter that `selectionFromRect` applies | VERIFIED; **reproduced in a real browser** (P0.03 F4 test.fail) | P1.04 |
-| B-02 | A marquee worker reply that arrives after mouseup can restore a selection rectangle that was just cleared | INFERRED race | P1.04 |
+| B-01 | A mouse marquee release selects group-anchor instances: the release path (~12170) skips the anchor filter that `selectionFromRect` applies | **FIXED** 8702ad2 (P1.04). F4's B-01 flow passes as a normal test | done |
+| B-02 | A marquee worker reply that arrives after mouseup can restore a selection rectangle that was just cleared | **FIXED** ea34291 (P1.04): the worker round trip is gone | done |
 | B-03 | The `openOnboardingModal` listener calls `setShowOnboardingModal` (~2748), which is never defined. The error is swallowed, so the event does nothing | VERIFIED; **decided (D-17)**: restore a welcome screen as an App-level host, then point the listener at it | P1.13 |
 | B-04 | `startHurtleAnimationFromPanel` reads zoom from `svg.style.transform` (~14387), but the transform is now an attribute on the inner `<g>`. So zoom reads as 1 and the orb is always 30 px. `startHurtleAnimation` also uses `canvasSize` without listing it as a dependency (~14365) | VERIFIED code, INFERRED effect | P1.06 |
 | B-05 | Node handlers are stale. Node's comparator ignores functions, and `handleNodeMouseDown` (~10788) reads `isPaused`, `middleMouseZoomEnabled`, `rightPanelExpanded` and `nodeLiftDelay` from render scope. For example, after collapsing the right panel, double-clicking a node that hasn't re-rendered may not re-open it. `touch.handleNode*` has the same problem | VERIFIED code and effect. Reproduced by F12 (P0.03b): after Save from a Thing's right-click menu, the same Thing's menu still offers "Save", because the frozen `onContextMenu` closure holds the old `savedNodeIds`. The test is `test.fail` until P3.02 | P3.02 |
@@ -395,5 +411,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | X-04 | `useCanvasTouch` parameters: `panOffset`, `zoomLevel`, `setZoomLevel` and `setPanOffset` are unused; `recentlyPanned` and `setLastInteractionType` are dead | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
 | X-05 | The right Panel's `ref={panelRef}` is never read (~8583) | P2.09 |
 | X-06 | Dead refs and constants: `lastHoverCheckRef`, `isKeyboardZooming`, `resizeTimeoutRef`, `prevZoomForWatchdog`, and the constants at ~469–471 (`MOUSE_WHEEL_ZOOM_SENSITIVITY`, …) | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
-| X-07 | Hook params that are now always empty after P1.02: `isPaused` in `useCanvasKeyboard`, `isPausedRef` in `useGamepad`; two dead animation cancels in `useNodeDrag` | P4.07–P4.09 |
+| X-07 | ~~Hook params that are now always empty after P1.02: `isPaused` in `useCanvasKeyboard`, `isPausedRef` in `useGamepad`; two dead animation cancels in `useNodeDrag`~~ **Done** 13c4a15. Left over: NodeCanvas still passes `pinchSmoothingRef` to `useNodeDrag` (Lane A, one line) | done |
 | X-08 | `src/hooks/useNodeActions.js` is imported nowhere since P1.02 removed its dead import: delete the file (the Oct-2025 "Phase 2" that was never wired) | any small cleanup commit |
+| X-09 | Two files in src/ don't parse and nothing imports them: `src/examples/UniverseManagerPureUI.jsx` (a component body stored as one string with literal `\n`) and `src/components/repositories/RepositoryList.jsx` (`Eye Off` typo in its imports). Delete both, then remove them from `unparseable` in test/known-undefined-names.json (found by P0.06) | any small cleanup commit |
+| X-10 | `calculateSelection` (`useCanvasWorker.js`) and `calculateSelectionRect` (`canvasWorker.js`) have no callers since P1.04 (found by P1.04) | any small cleanup commit |

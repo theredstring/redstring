@@ -13,6 +13,28 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-24: Wave-2 agents found cancelled; orchestrator finished P0.06, X-07, P1.04 (Claude, orchestrator)
+
+- **All four wave-2 agents stopped** when the old session ended (about 21:06), each with uncommitted work.
+  - The orchestrator is finishing that work itself. New agents for cancelled work need Grant's OK.
+- **P0.06 + X-07** (merged 7b74851):
+  - The known-failures gate (`test:ci`) and a new no-undef gate (`lint:undef`).
+  - `ci.yml` rewritten.
+  - Verified in a node:20 Linux container: identical failure set; the build needs the 4 GB heap `release.yml` already uses.
+  - Found F-71 (latent ReferenceErrors), X-09 (two unparseable dead files).
+- **P1.03 + P1.04 + B-01** (merged 7c188ba):
+  - Marquee S5: sweep 115 → 12 commits, hold 90 → 0.
+  - **Playwright caught a regression jsdom couldn't:** the box's trailing click deselected everything, because `mouseMoved` had only been set by accident before. Fixed in the P1.04 commit.
+  - B-01 and B-02 fixed. NodeCanvas.jsx is at 18,516 lines.
+- **Integration after both merges:**
+  - `lint:undef` PASS
+  - `test:ci` PASS (3,496 tests, 68 known, 0 new)
+  - Playwright 33 passed (B-05 expected)
+  - build OK
+- **Still to finish:** P0.04 (perf baseline, barely started), P1.12a (label investigation, exploration files only), P1.06 (Lane A's next card).
+
+---
+
 ## 2026-09-24: P0.03b done by the orchestrator; B-09 fixed; B-05 reproduced (Claude, orchestrator)
 
 - **Grant's go-ahead:** "you finish them". The orchestrator wrote the flows itself, on `refactor/p0.03b`, merged at 517e9d8.

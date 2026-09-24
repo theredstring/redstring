@@ -160,7 +160,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Handoff:** Covers all 27 DOM hooks useNodeDrag reads, in all 4 routing styles, plus a culling-on variant (camera pinned). A test-only sprite stand-in (src/test-utils/fakeLabelSprites.js). A shared harness now exists at src/test-utils/canvasHarness.jsx. Mutation sweep: all 38 attribute renames fail the test. Hover-only and mid-drag contracts are deferred to Playwright. Possible bug logged as B-09.
 
 ### P0.06: Get CI running again
-- **Status:** todo
+- **Status:** done (13c4a15 X-07, 6f30b22; report reports/P0.06.md). Formal acceptance (a green GitHub run on `main`) happens when Grant pushes.
 - **Lane:** C (`.github/workflows/`, a known-failures file) · **Size:** M · **Depends:** none
 - **Findings:** F-62, F-64
 - **Change:**
@@ -170,6 +170,10 @@ Right now neither can be answered (F-60 to F-63).
   - Add a Playwright job if it's affordable. If not, running `npm run test:canvas` locally becomes a required step before every Lane A merge (note that in README → Verification).
 - **Accept:** A workflow run on `main` passes with the known-failures list in place.
 - **Handoff:**
+  - `npm run test:ci` (known-failures gate) and `npm run lint:undef` (no-undef gate over src/) both run in `ci.yml`, followed by the build with a 4 GB heap.
+  - All three passed in a node:20 Linux container.
+  - There's no Playwright job in CI yet. `npm run test:canvas` stays a required local step before Lane A merges.
+  - F-71 lists the latent ReferenceErrors the no-undef baseline holds.
 
 ### P0.07: Size ratchet
 - **Status:** done (bf72821; report reports/P0.07.md)
