@@ -1012,7 +1012,9 @@ export const useNodeDrag = ({
         edgeEls.forEach(({ paths, selfArrow, texts }) => {
           paths.forEach(p => p.setAttribute('d', loop.path));
           if (selfArrow) {
-            selfArrow.setAttribute('transform', `translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90})`);
+            // Same transform SelfLoopEdge renders, scale included: without
+            // scale(connectionWidth) the head drew at 80% until the drop (B-09).
+            selfArrow.setAttribute('transform', `translate(${loop.anchorB.x}, ${loop.anchorB.y}) rotate(${loop.arrowAngleB + 90}) scale(${dragConnWidth})`);
           }
           texts.forEach(t => {
             t.setAttribute('x', apexX);
