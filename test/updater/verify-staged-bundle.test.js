@@ -4,6 +4,12 @@ import path from 'node:path';
 import os from 'node:os';
 import { verifyStagedBundle } from '../../electron/updater-bundle-verify.cjs';
 
+// The Info.plist check shells out to `plutil`, which only exists on macOS (as
+// does the Squirrel.Mac updater this guards). Elsewhere, e.g. Linux CI, every
+// plist reads as "unparseable", so these cases can't pass there, or pass only
+// by accident.
+const itWithPlutil = it.runIf(process.platform === 'darwin');
+
 describe('verifyStagedBundle', () => {
   let tmpDir;
 
@@ -50,7 +56,7 @@ describe('verifyStagedBundle', () => {
     return bundlePath;
   }
 
-  it('returns valid for a complete bundle', () => {
+  itWithPlutil('returns valid for a complete bundle', () => {
     const bundlePath = makeBundle('Redstring.app');
     const result = verifyStagedBundle(bundlePath);
     expect(result.valid).toBe(true);
@@ -82,14 +88,14 @@ describe('verifyStagedBundle', () => {
     expect(result.reason).toMatch(/Info\.plist empty/);
   });
 
-  it('rejects truncated Info.plist', () => {
+  itWithPlutil('rejects truncated Info.plist', () => {
     const bundlePath = makeBundle('Trunc.app', { infoPlist: 'truncated' });
     const result = verifyStagedBundle(bundlePath);
     expect(result.valid).toBe(false);
     expect(result.reason).toMatch(/unparseable/);
   });
 
-  it('rejects Info.plist without CFBundleShortVersionString', () => {
+  itWithPlutil('rejects Info.plist without CFBundleShortVersionString', () => {
     const bundlePath = makeBundle('NoVer.app', { infoPlist: 'no-version' });
     const result = verifyStagedBundle(bundlePath);
     expect(result.valid).toBe(false);

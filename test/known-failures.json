@@ -1,0 +1,283 @@
+{
+  "_readme": [
+    "Vitest tests that were already failing when CI was turned back on (NodeCanvas refactor P0.06; FINDINGS F-62, F-69).",
+    "scripts/check-known-failures.mjs (npm run test:ci) fails CI on any failure NOT listed here, and on any entry here that no longer fails.",
+    "This list only shrinks: when you fix one, delete its entry in the same commit (npm run test:ci -- --prune).",
+    "Never add an entry to get a red build green. \"(whole file failed to run)\" marks a file that errors before any test runs."
+  ],
+  "seededFrom": "refactor/wave2-integration @ b2314ce, 2026-09-23: 67 failing tests in 15 files (the F-69 set), plus UniverseManager.test.jsx failing at file level",
+  "failures": [
+    {
+      "file": "src/App.test.jsx",
+      "name": "App Integration Test should render layout, load initial data, and open definition graph in a tab on click"
+    },
+    {
+      "file": "src/services/__tests__/grouplessRemainder.test.js",
+      "name": "groupless remainder cycle keeps a satellite near the group it hangs off, not near unrelated loose nodes"
+    },
+    {
+      "file": "src/services/__tests__/grouplessRemainder.test.js",
+      "name": "groupless remainder force keeps a satellite near the group it hangs off, not near unrelated loose nodes"
+    },
+    {
+      "file": "src/services/__tests__/grouplessRemainder.test.js",
+      "name": "groupless remainder pattern keeps a satellite near the group it hangs off, not near unrelated loose nodes"
+    },
+    {
+      "file": "src/services/__tests__/groupMembership.test.js",
+      "name": "grouped graphs keep their routing-native layout reserves the same room for a labelled connection inside a group as outside one"
+    },
+    {
+      "file": "src/services/__tests__/semanticSystem.test.js",
+      "name": "Entity Matching should match entities with similar labels"
+    },
+    {
+      "file": "src/services/__tests__/semanticSystem.test.js",
+      "name": "Radial Layout should calculate node dimensions based on label"
+    },
+    {
+      "file": "src/services/__tests__/semanticSystem.test.js",
+      "name": "Radial Layout should generate connection paths"
+    },
+    {
+      "file": "src/services/__tests__/semanticSystem.test.js",
+      "name": "Radial Layout should handle overflow with subdivision"
+    },
+    {
+      "file": "src/services/__tests__/semanticSystem.test.js",
+      "name": "Radial Layout should position nodes without overlap"
+    },
+    {
+      "file": "src/wizard/tools/expandGraph.test.js",
+      "name": "expandGraph handles definitionNode in edges"
+    },
+    {
+      "file": "src/wizard/tools/expandGraph.test.js",
+      "name": "expandGraph handles missing edges array"
+    },
+    {
+      "file": "src/wizard/tools/expandGraph.test.js",
+      "name": "expandGraph handles missing nodes array"
+    },
+    {
+      "file": "src/wizard/tools/expandGraph.test.js",
+      "name": "expandGraph returns spec with nodes and edges for UI application"
+    },
+    {
+      "file": "src/wizard/tools/replaceEdges.test.js",
+      "name": "replaceEdges defaults directionality to unidirectional"
+    },
+    {
+      "file": "src/wizard/tools/replaceEdges.test.js",
+      "name": "replaceEdges preserves explicit directionality"
+    },
+    {
+      "file": "src/wizard/tools/replaceEdges.test.js",
+      "name": "replaceEdges returns replacement specs for UI application"
+    },
+    {
+      "file": "test/components/OrbitOverlay.test.jsx",
+      "name": "OrbitOverlay uses the canvas arrow polygon and stroke width"
+    },
+    {
+      "file": "test/components/UniverseManager.test.jsx",
+      "name": "(whole file failed to run)"
+    },
+    {
+      "file": "test/formats/consistency.test.js",
+      "name": "Format Consistency should maintain 1:1 fidelity between export and import"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider Error Handling should handle Gitea API errors gracefully"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider Error Handling should handle GitHub API errors gracefully"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider Export/Import Functionality should export full graph from GitHub"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider Export/Import Functionality should import full graph to GitHub"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider GiteaSemanticProvider should write semantic file successfully"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider GitHubSemanticProvider should check availability successfully"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider GitHubSemanticProvider should create semantic space with standard structure"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider GitHubSemanticProvider should get status information"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider GitHubSemanticProvider should read semantic file successfully"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider GitHubSemanticProvider should write semantic file successfully"
+    },
+    {
+      "file": "test/services/gitNativeProvider.test.js",
+      "name": "Git-Native Semantic Web Provider SemanticProviderFactory should return available providers"
+    },
+    {
+      "file": "test/services/rdfResolver.test.js",
+      "name": "RDF Resolver content negotiation should send proper Accept headers"
+    },
+    {
+      "file": "test/services/rdfResolver.test.js",
+      "name": "RDF Resolver format parsing should parse Turtle format correctly"
+    },
+    {
+      "file": "test/services/rdfResolver.test.js",
+      "name": "RDF Resolver resolveURI should handle network errors gracefully"
+    },
+    {
+      "file": "test/services/rdfResolver.test.js",
+      "name": "RDF Resolver resolveURI should resolve a valid URI successfully"
+    },
+    {
+      "file": "test/services/rdfResolver.test.js",
+      "name": "RDF Resolver resolveURI should use cached results when available"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Change Priority Detection should classify node placement as HIGH priority"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Change Priority Detection should classify prototype changes as IMMEDIATE priority"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Change Priority Detection should classify viewport changes as LOW priority"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Change Queuing should batch multiple changes of same priority"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Change Queuing should queue changes by priority"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Drag Detection should debounce saves during dragging"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Drag Detection should detect dragging from rapid updates"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Force Save should clear pending changes after force save"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Force Save should force immediate save to both local and git"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Force Save should handle errors gracefully"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Hash Generation should generate consistent hashes for same content"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Hash Generation should ignore viewport changes in hash"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Initialization should initialize with dependencies"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Initialization should not enable without required dependencies"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Rate Limiting should allow git saves after rate limit period"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Rate Limiting should respect minimum git commit interval"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Status Reporting should call status handlers on status changes"
+    },
+    {
+      "file": "test/services/SaveCoordinator.test.js",
+      "name": "SaveCoordinator Status Reporting should report current status"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions addEdge: should add new edge data to global pool, graph, and nodes"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions addNode: should add new node data to global pool and graph"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions loadGraph: should load graph, node, and edge data from instances"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions loadGraph: should not reload data for an existing graph"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions removeEdge: should remove edge data and references from graph/nodes"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions removeNode: should remove node data and associated edges/references"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore actions updateNode: should update existing node data"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore selectors getNodeDataById: should return the correct node data"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore selectors getNodesByParent: should return nodes with the specified parentDefinitionNodeId"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore selectors getNodesForGraph: should return correct node data for the graph"
+    },
+    {
+      "file": "test/store/graphStore.test.js",
+      "name": "useGraphStore should have correct initial state"
+    },
+    {
+      "file": "test/tools-health.test.js",
+      "name": "Tools layer healthcheck (daemon HTTP) fast-path: commit-ops applies without UI (create graph only)"
+    },
+    {
+      "file": "test/utils/edgeLabelPlacement.test.js",
+      "name": "parallel connections between the same two nodes keeps 2 labels clear of each other"
+    },
+    {
+      "file": "test/utils/edgeLabelPlacement.test.js",
+      "name": "parallel connections between the same two nodes keeps 3 labels clear of each other"
+    }
+  ]
+}

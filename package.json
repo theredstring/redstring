@@ -57,6 +57,8 @@
     "deploy:gcp:oauth:test": "./deployment/gcp/deploy_oauth_test.sh",
     "setup:gcp": "./deployment/gcp/setup.sh",
     "test": "vitest",
+    "test:ci": "node scripts/check-known-failures.mjs",
+    "lint:undef": "node scripts/check-undefined-names.mjs",
     "test:headless": "vitest run test/headless/",
     "test:e2e": "bash test/e2e/daemon-smoke.sh && bash test/e2e/cli-roundtrip.sh && node test/e2e/mcp-daemon-smoke.mjs",
     "test:canvas": "playwright test",

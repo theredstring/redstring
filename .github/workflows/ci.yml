@@ -12,24 +12,33 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
         cache: 'npm'
-    
+
     - name: Install dependencies
       run: npm ci
-    
-    - name: Run linting
-      run: npm run lint
-    
-    - name: Run tests
-      run: npm run test
-    
+
+    # Full `npm run lint` has thousands of old errors (prop-types, unused vars),
+    # so it can't gate yet. This gates the class that crashes at runtime: an
+    # undefined name in src/. Baseline: test/known-undefined-names.json.
+    - name: Undefined names (src)
+      run: npm run lint:undef
+
+    # Fails only on NEW failures, or on known failures that now pass (trim the
+    # list). Baseline: test/known-failures.json. See scripts/check-known-failures.mjs.
+    - name: Tests (known-failures gate)
+      run: npm run test:ci
+
+    # Same heap as release.yml's build: Vite runs out of memory on Node 20's
+    # default heap (reproduced in a node:20 container).
     - name: Build application
       run: npm run build
+      env:
+        NODE_OPTIONS: --max-old-space-size=4096
