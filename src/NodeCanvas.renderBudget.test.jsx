@@ -340,4 +340,78 @@ describe('NodeCanvas render budget', () => {
     expect(transformAfter).not.toBe(transformBefore);
     expect(steadyCommits).toBe(0);
   });
+
+  // S5 (marquee, P1.04 / F-03). The box is written straight to the <rect> and
+  // the selection is re-derived at most once a frame; React hears about it only
+  // when the set of selected nodes changes. Before P1.04 every move committed
+  // (a worker round trip, then setSelectionRect and a fresh Set).
+  it('marquee commits only when the selection changes, not per move', async () => {
+    // A known camera: zoom 1, world (0,0) at client (500,400). The canvas is
+    // offset by -50000 on both axes, and the container rect is stubbed at 0,0.
+    useGraphStore.setState({
+      graphViews: new Map([['g1', { panOffset: { x: -49500, y: -49600 }, zoomLevel: 1 }]]),
+    }, false, 'render_budget_camera');
+    const svg = await mountAndSettle();
+    const at = (wx, wy) => ({ clientX: wx + 500, clientY: wy + 400, metaKey: true, ctrlKey: true, buttons: 1 });
+    const selectedIds = () => [...document.querySelectorAll('g.node.selected')]
+      .map((el) => el.getAttribute('data-instance-id')).sort().join(',');
+    // async so a handler that awaits (the pre-P1.04 worker path) is measured fairly.
+    const moveTo = async (wx, wy) => {
+      await act(async () => { fireEvent.mouseMove(svg, at(wx, wy)); });
+      flushFrames(1);
+    };
+
+    // Seeded nodes sit at (0,0), (600,0) and (0,500). Sweep a box over all
+    // three, then keep dragging inside the region where all three stay selected.
+    const FROM = { x: -300, y: -300 };
+    const TO = { x: 1100, y: 900 };
+    const SWEEP = 40;
+    const HOLD = 30;
+
+    commits = [];
+    act(() => { fireEvent.mouseDown(svg, { ...at(FROM.x, FROM.y), button: 0 }); });
+    flushFrames(1);
+    const pressCommits = commits.length;
+
+    commits = [];
+    let membershipChanges = 0;
+    let last = selectedIds();
+    for (let i = 1; i <= SWEEP; i++) {
+      await moveTo(FROM.x + ((TO.x - FROM.x) * i) / SWEEP, FROM.y + ((TO.y - FROM.y) * i) / SWEEP);
+      const now = selectedIds();
+      if (now !== last) { membershipChanges++; last = now; }
+    }
+    flushFrames(3);
+    const sweepCommits = commits.length;
+    const liveWidth = Number(svg.querySelector('rect[stroke="red"]')?.getAttribute('width'));
+
+    commits = [];
+    for (let i = 1; i <= HOLD; i++) await moveTo(TO.x + i * 5, TO.y + i * 5);
+    const holdCommits = commits.length;
+    const holdSelection = selectedIds();
+
+    commits = [];
+    await act(async () => { fireEvent.mouseUp(svg, { ...at(TO.x + HOLD * 5, TO.y + HOLD * 5), button: 0 }); });
+    flushFrames(3);
+    const releaseCommits = commits.length;
+
+    console.error(`[render-budget] marquee: press=${pressCommits} sweep=${sweepCommits}/${SWEEP} moves `
+      + `(membershipChanges=${membershipChanges}) hold=${holdCommits}/${HOLD} moves release=${releaseCommits}`);
+
+    // The box was drawn to the size of the drag without React.
+    expect(liveWidth).toBeCloseTo(TO.x - FROM.x, 0);
+    expect(holdSelection).toBe('i1,i2,i3');
+    // Moves that don't change who is selected cost nothing.
+    expect(holdCommits).toBe(0);
+    // Moves that do cost one selection commit each, plus the cascade any
+    // selection change already triggers: NodeCanvas's lastSelected* effects
+    // commit a nested update, and follow-up work commits once or twice more
+    // (P1.12 / P5 territory). Measured 12-14 here; before P1.04 it was 115,
+    // with 90 more over the 30 hold moves. Bounded by changes, not by moves.
+    expect(membershipChanges).toBe(3);
+    expect(sweepCommits).toBeLessThanOrEqual(membershipChanges * 5 + 2);
+    // The release keeps the selection and drops the rectangle.
+    expect(selectedIds()).toBe('i1,i2,i3');
+    expect(svg.querySelector('rect[stroke="red"]')).toBeNull();
+  });
 });

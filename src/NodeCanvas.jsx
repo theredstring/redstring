@@ -2941,12 +2941,23 @@ function NodeCanvas() {
 
   const orbitClickDownPos = useRef(null); // Track mousedown position for orbit overlay pan detection
 
-  const [selectionRect, setSelectionRect] = useState(null);
+  // Marquee. `selectionStart` is state only so the <rect> mounts and unmounts
+  // with the gesture; the box itself lives in marqueeBoxRef and is written
+  // straight to the <rect> (P1.04, F-03), like the connection line's endpoint.
   const [selectionStart, setSelectionStart] = useState(null);
-  // Mirrored for the controller's marquee, which reads the anchor from inside
-  // the rAF tick that sets it — React state is a frame behind there.
+  // Set synchronously by beginMarquee/endMarquee; the effect covers resets.
   const selectionStartRef = useRef(null);
   useEffect(() => { selectionStartRef.current = selectionStart; }, [selectionStart]);
+  const marqueeBoxRef = useRef(null); // { x, y, width, height } in canvas space
+  const marqueeRectElRef = useRef(null);
+  const marqueeSelectionRef = useRef(null); // the last selection the box committed
+  const marqueeRafRef = useRef(0);
+  const marqueePassRef = useRef(null);
+  const setMarqueeRectEl = useCallback((el) => { // callback ref, and the writer
+    marqueeRectElRef.current = el;
+    const box = marqueeBoxRef.current;
+    if (el && box) ['x', 'y', 'width', 'height'].forEach((k) => el.setAttribute(k, box[k]));
+  }, []);
 
   // Drop every cached connection-label placement and the jitter deadband.
   //
@@ -7693,7 +7704,7 @@ function NodeCanvas() {
     setTempGroupName('');
     setPlusSign(null);
     setNodeNamePrompt({ visible: false, name: '' });
-    setSelectionRect(null);
+    selectionStartRef.current = null; // a pending marquee pass must not outlive the graph
     setSelectionStart(null);
     setDrawingConnectionFrom(null);
     setHoveredEdgeInfo(null); // Clear edge hover state
@@ -9817,11 +9828,11 @@ function NodeCanvas() {
    * Shared by the mouse's live marquee and the controller's, so the two cannot
    * drift into selecting different things from the same rectangle.
    */
-  const selectionFromRect = (rect) => {
+  const selectionFromRect = (rect, keepAnchors = false) => {
     const base = selectionBaseRef.current || new Set();
     const final = new Set([...base]);
     nodes.forEach(nd => {
-      if (nd.isGroupAnchor) return;
+      if (nd.isGroupAnchor && !keepAnchors) return;
       if (base.has(nd.id)) return;
       const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
       const intersects = !(rect.x > nd.x + dims.currentWidth ||
@@ -9831,6 +9842,51 @@ function NodeCanvas() {
       if (intersects) final.add(nd.id);
       else final.delete(nd.id);
     });
+    return final;
+  };
+
+  // The marquee, for mouse and pad alike (P1.04). The box is written straight
+  // to the <rect>; the selection is re-derived at most once a frame and reaches
+  // React only when its membership changes. Points are canvas-space.
+  const beginMarquee = (x, y) => {
+    selectionStartRef.current = { x, y };
+    setSelectionStart({ x, y });
+    marqueeBoxRef.current = { x, y, width: 0, height: 0 };
+    // Extend whatever was already selected (see selectionFromRect).
+    selectionBaseRef.current = new Set([...selectedInstanceIds]);
+    marqueeSelectionRef.current = selectionBaseRef.current;
+  };
+  // Assigned every render so a queued frame uses the current nodes.
+  marqueePassRef.current = (keepAnchors) => {
+    const box = marqueeBoxRef.current;
+    if (!selectionStartRef.current || !box) return marqueeSelectionRef.current;
+    const next = selectionFromRect(box, keepAnchors);
+    const prev = marqueeSelectionRef.current;
+    if (!prev || prev.size !== next.size || [...next].some((id) => !prev.has(id))) {
+      marqueeSelectionRef.current = next;
+      setSelectedInstanceIds(next);
+    }
+    return marqueeSelectionRef.current;
+  };
+  const updateMarquee = (x, y) => {
+    const start = selectionStartRef.current;
+    if (!start) return;
+    marqueeBoxRef.current = {
+      x: Math.min(start.x, x), y: Math.min(start.y, y),
+      width: Math.abs(x - start.x), height: Math.abs(y - start.y),
+    };
+    setMarqueeRectEl(marqueeRectElRef.current);
+    if (marqueeRafRef.current) return;
+    marqueeRafRef.current = requestAnimationFrame(() => { marqueeRafRef.current = 0; marqueePassRef.current?.(); });
+  };
+  // Runs a final pass now, retires the box, and returns the selection it leaves.
+  const endMarquee = (keepAnchors) => {
+    cancelAnimationFrame(marqueeRafRef.current);
+    marqueeRafRef.current = 0;
+    const final = marqueePassRef.current?.(keepAnchors) ?? new Set();
+    selectionStartRef.current = null;
+    marqueeBoxRef.current = null;
+    setSelectionStart(null);
     return final;
   };
 
@@ -11279,15 +11335,11 @@ function NodeCanvas() {
     // They're already cleared at drag start in handleMouseDown
 
     // Selection Box Logic (skip during node drag for performance)
-    if (selectionStart && isMouseDown.current && !draggingNodeInfo) {
+    if (selectionStartRef.current && isMouseDown.current && !draggingNodeInfo) {
       e.preventDefault();
-      try {
-        const selectionRes = await canvasWorker.calculateSelection({ selectionStart, currentX, currentY });
-        setSelectionRect(selectionRes);
-        setSelectedInstanceIds(selectionFromRect(selectionRes));
-      } catch (error) {
-
-      }
+      // Lets mouseup swallow the box's trailing click, which would deselect it all.
+      if (Math.hypot(e.clientX - mouseDownPosition.current.x, e.clientY - mouseDownPosition.current.y) > MOVEMENT_THRESHOLD) mouseMoved.current = true;
+      updateMarquee(currentX, currentY);
       return;
     }
 
@@ -11540,9 +11592,7 @@ function NodeCanvas() {
       const rect = containerRef.current.getBoundingClientRect();
       const startX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
       const startY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-      setSelectionStart({ x: startX, y: startY });
-      setSelectionRect({ x: startX, y: startY, width: 0, height: 0 });
-      selectionBaseRef.current = new Set([...selectedInstanceIds]);
+      beginMarquee(startX, startY);
       return;
     }
     setPanStart({ x: e.clientX, y: e.clientY });
@@ -11758,45 +11808,20 @@ function NodeCanvas() {
       }
 
       // Finalize selection box
-      if (selectionStart) {
+      if (selectionStartRef.current) {
         // Only a marquee that actually dragged swallows its trailing click. A
         // zero-drag Cmd+click also lands here and should keep behaving like the
         // plain click it is. Read before the reset further down in this handler.
         if (mouseMoved.current) justCompletedBoxSelectRef.current = true;
-        // Retire the marquee synchronously rather than in the worker callback
-        // below. selectionStart is already captured into the calculateSelection
-        // call, and the control-panel effect reads it as "still box-selecting" —
-        // leaving it set until a worker round-trip replies means the panel can't
-        // open on release, and whether it opens at all depends on how that reply
-        // interleaves with the synthetic click. Clearing here also drops the
-        // rectangle the instant the mouse comes up.
-        setSelectionStart(null);
-        setSelectionRect(null);
+        // Finish on the release point and retire the marquee synchronously: the
+        // control-panel effect reads selectionStart as "still box-selecting", so
+        // it must clear on release for the panel to open.
         const rect = containerRef.current.getBoundingClientRect();
         const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
         const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
         const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
-        canvasWorker.calculateSelection({ selectionStart, currentX, currentY })
-          .then(selectionRes => {
-            // Build final selection relative to the selection base (for proper toggle behavior)
-            const base = selectionBaseRef.current || new Set();
-            const final = new Set([...base]);
-            nodes.forEach(nd => {
-              const ndDims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
-              const intersects = !(selectionRes.x > nd.x + ndDims.currentWidth ||
-                selectionRes.x + selectionRes.width < nd.x ||
-                selectionRes.y > nd.y + ndDims.currentHeight ||
-                selectionRes.y + selectionRes.height < nd.y);
-              if (!base.has(nd.id)) {
-                if (intersects) final.add(nd.id);
-                else final.delete(nd.id);
-              }
-            });
-            setSelectedInstanceIds(final);
-          })
-          .catch(error => {
-            ignoreCanvasClick.current = true;
-          });
+        updateMarquee(currentX, currentY);
+        endMarquee(true); // B-01: unlike the live box, the release still selects group anchors
       }
 
       // Finalize panning state.
@@ -12763,7 +12788,6 @@ function NodeCanvas() {
    * coordinates either way, so anchoring one corner and tracking the crosshair
    * with the other produces the same box from the opposite motion.
    */
-  const marqueeCountRef = useRef(0);
   const marqueeControlRef = useRef(null);
   marqueeControlRef.current = {
     begin: (clientX, clientY) => {
@@ -12771,50 +12795,27 @@ function NodeCanvas() {
       if (!rect) return false;
       const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
       const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-      setSelectionStart({ x, y });
-      selectionStartRef.current = { x, y };
-      setSelectionRect({ x, y, width: 0, height: 0 });
-      marqueeCountRef.current = selectedInstanceIds.size;
-      // Extend whatever was already selected, exactly as the mouse's box does.
-      selectionBaseRef.current = new Set([...selectedInstanceIds]);
+      beginMarquee(x, y);
       return true;
     },
     /**
-     * Called every frame the box is live. Deliberately synchronous rather than
-     * going through canvasWorker like the mouse path: this runs inside the
-     * controller's rAF tick, and posting to a worker per frame would land the
-     * answer a frame or two late — the box would visibly lag the canvas it is
-     * being drawn on. The rectangle is four subtractions; it does not need a
-     * worker.
+     * Called every frame the box is live, from inside the controller's rAF
+     * tick. Same path as the mouse: the box is written to the DOM at once and
+     * the selection follows at most a frame later.
      */
     update: (clientX, clientY) => {
-      const start = selectionStartRef.current;
-      if (!start) return;
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
       const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
-      const box = {
-        x: Math.min(start.x, x),
-        y: Math.min(start.y, y),
-        width: Math.abs(x - start.x),
-        height: Math.abs(y - start.y),
-      };
-      setSelectionRect(box);
-      const next = selectionFromRect(box);
-      marqueeCountRef.current = next.size;
-      setSelectedInstanceIds(next);
+      updateMarquee(x, y);
     },
-    /** Ends the box and reports how many instances it leaves selected. */
-    end: () => {
-      setSelectionStart(null);
-      selectionStartRef.current = null;
-      setSelectionRect(null);
-      // The selection itself stands — `update` already committed it. The count
-      // comes from the ref rather than from selectedInstanceIdsRef, which is
-      // synced by an effect and so still holds the pre-box value here.
-      return marqueeCountRef.current;
-    },
+    /**
+     * Ends the box and reports how many instances it leaves selected. Taken
+     * from endMarquee, not selectedInstanceIdsRef, which an effect syncs and so
+     * still holds the pre-box value here.
+     */
+    end: () => endMarquee().size,
   };
 
   /**
@@ -14694,7 +14695,7 @@ function NodeCanvas() {
     }
 
     // Don't show if dragging or other interactions are active
-    if (draggingNodeInfo || drawingConnectionFrom || isPanning || selectionRect) {
+    if (draggingNodeInfo || drawingConnectionFrom || isPanning || selectionStart) {
       return false;
     }
 
@@ -14709,7 +14710,7 @@ function NodeCanvas() {
     nodes, relevantNodesVisibleInStrictViewport,
     nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible,
     abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
-    draggingNodeInfo, drawingConnectionFrom, isPanning, selectionRect
+    draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart
   ]);
 
 
@@ -17316,12 +17317,10 @@ function NodeCanvas() {
                     );
                   })()}
 
-                  {selectionRect && (
+                  {/* Marquee: geometry is written by setMarqueeRectEl, never by React. */}
+                  {selectionStart && (
                     <rect
-                      x={selectionRect.x}
-                      y={selectionRect.y}
-                      width={selectionRect.width}
-                      height={selectionRect.height}
+                      ref={setMarqueeRectEl}
                       fill="rgba(255, 0, 0, 0.1)"
                       stroke="red"
                       strokeWidth={1}
