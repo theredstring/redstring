@@ -13,6 +13,19 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-24: P0.03b done by the orchestrator; B-09 fixed; B-05 reproduced (Claude, orchestrator)
+
+- **Grant's go-ahead:** "you finish them". The orchestrator wrote the flows itself, on `refactor/p0.03b`, merged at 517e9d8.
+- **Flows:** F8 panel resize, F9 carousel, F10 touch (CDP), F11 groups, F12 context menus, F13 keyboard, plus F1b (B-09). That's 19 new tests. The suite is 33 tests, 3/3 green, about 40 s.
+- **Vitest:** unchanged, 67 failures in 15 files (F-69).
+- **B-09 fixed** (2c9a1e7): the self-loop arrowhead measured 0.80× mid-drag. Fixed with one line in useNodeDrag, so the visual check no longer needs Grant.
+- **B-05 reproduced:** after Save from a Thing's right-click menu, its menu still says "Save". F12 is `test.fail` until P3.02.
+- **Surprises:**
+  - A touch pan looked unsaved, but the camera lives in `graphViews`. It was a test error, not an app bug.
+  - Holding a lifted item near the top edge starts edge auto-pan. Flows must keep the grip away from the edges.
+
+---
+
 ## 2026-09-24: Wave 2 started (Claude, orchestrator, new session)
 
 - **Wave 1 is live.** Grant smoke-tested it ("looks pretty fantastic") and pushed `main` at 8ce03f0.

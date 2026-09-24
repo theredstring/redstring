@@ -172,6 +172,7 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 - **Lane B:** P0.04 (perf scenarios + baseline)
 - **Lane B:** P1.12a (label investigation + DOM snapshot baselines)
 - ~~Lane B: P2.01~~ pre-staged and merged into wave2-integration (5121cc7)
+- ~~Lane B: P0.03b~~ flows F8–F13 + B-09 fix, merged into wave2-integration (517e9d8)
 
 ## Rules carried over from project memory
 
@@ -188,7 +189,7 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 
 | Phase | File | Goal | Status |
 |---|---|---|---|
-| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.02, P0.05, P0.07 done; P0.03 partial (P0.03b); P0.04, P0.06 in wave 2 |
+| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.02, P0.03 (+b), P0.05, P0.07 done; P0.04, P0.06 in wave 2 |
 | P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.07, P1.09, P1.11 done; P1.13 partial (B-03 needs Grant) |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |

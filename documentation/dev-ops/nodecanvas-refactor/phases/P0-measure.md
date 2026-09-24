@@ -78,7 +78,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Handoff:** Fixtures: small, stress (deterministic generator, committed, --check passes) and chambers (local only). The dev-only sandbox and loader are wired first in main.jsx and fail closed. Verified absent from production bundles; only the sourcemap mentions them.
 
 ### P0.03: Playwright interaction flows
-- **Status:** partial (52339ea, 28a77b7; report reports/P0.03.md). F8–F13 split out to P0.03b
+- **Status:** done with P0.03b (52339ea, 28a77b7; reports P0.03.md, P0.03b.md)
 - **Lane:** B (plus `package.json`) · **Size:** L · **Depends:** P0.02, Q3
 - **Findings:** F-61
 - **Change:**
@@ -109,7 +109,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Handoff:** 10 flows plus chambers F1/F2/F6. 3/3 runs green (14 passed, about 21 s). F4's B-01 case is test.fail until P1.04. Run `npm run test:canvas` before every Lane A merge.
 
 ### P0.03b: Remaining interaction flows (F8–F13)
-- **Status:** todo. Waiting on Grant: this was the cancelled agent's unfinished work, so it needs his go-ahead before a new agent picks it up.
+- **Status:** done (789d468, 2c9a1e7; report reports/P0.03b.md). Written by the orchestrator on Grant's go-ahead ("you finish them").
 - **Lane:** B · **Size:** M · **Depends:** P0.03
 - **Findings:** F-61
 - **Change:** Add the flows below, following the patterns in `test/e2e/canvas/helpers.js`. Use `test.fixme` with a concrete reason for anything that isn't feasible.
@@ -121,6 +121,10 @@ Right now neither can be answered (F-60 to F-63).
   - F13 keyboard: delete, WASD/arrow pan, shortcuts suppressed while typing
 - **Accept:** 3 consecutive green runs. F10 and F13 are the priority.
 - **Handoff:**
+  - 19 new tests (F8–F13 plus F1b, the B-09 self-loop check). The suite is 33 tests, 3/3 green, about 40 s.
+  - Touch runs through CDP (`gestures.js`).
+  - F12 reproduces B-05 in a browser: it's `test.fail` until P3.02.
+  - B-09 is fixed (one line in useNodeDrag).
 
 ### P0.04: Perf scenarios and baseline
 - **Status:** todo

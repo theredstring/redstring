@@ -40,9 +40,11 @@
     - `selectEdgeFromClick`, `edgeTouchHandlers`, `getEdgeHitboxHandlers`
     - the group-title handlers
     - the Node callbacks (`onCreateDefinition`, `onExpandDefinition`, `onNavigateDefinition`, …)
+    - the node `onContextMenu` (`getContextMenuOptions` is rebuilt, but the closure the memoized Node holds is not)
   - This fixes B-05; commit that fix separately.
 - **Accept:**
   - The B-05 repro is fixed: collapse the right panel, then double-click a node that hasn't re-rendered.
+  - The Playwright flow `F12 … offers Unsave (B-05)` passes. Remove its `test.fail()`.
   - Handler identities stay stable across renders. Assert this in a test.
 
 ### P3.03: `useGroupLayouts`: group layout as pure data
