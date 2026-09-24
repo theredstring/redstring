@@ -1,0 +1,135 @@
+{
+  "_readme": [
+    "Undefined names (ESLint no-undef) in src/ when the gate was turned on (NodeCanvas refactor P0.06).",
+    "scripts/check-undefined-names.mjs (npm run lint:undef) fails CI on any new one, and on entries that are gone.",
+    "Most real entries are latent ReferenceErrors: a path that calls them throws. process/Buffer/require are Node-only files linted as browser code.",
+    "This list only shrinks. Never add an entry to get a red build green."
+  ],
+  "seededFrom": "refactor/wave2-integration @ 62188b8, 2026-09-24",
+  "unparseable": [
+    "src/components/repositories/RepositoryList.jsx",
+    "src/examples/UniverseManagerPureUI.jsx"
+  ],
+  "entries": [
+    {
+      "file": "src/ai/BridgeClient.jsx",
+      "name": "require",
+      "count": 1
+    },
+    {
+      "file": "src/backend/auth/index.js",
+      "name": "persistentAuth",
+      "count": 2
+    },
+    {
+      "file": "src/components/panel/PanelContentWrapper.jsx",
+      "name": "edgeId",
+      "count": 1
+    },
+    {
+      "file": "src/components/panel/views/LeftAIView.jsx",
+      "name": "setShowAPIKeySetup",
+      "count": 4
+    },
+    {
+      "file": "src/headless/config.js",
+      "name": "process",
+      "count": 2
+    },
+    {
+      "file": "src/headless/githubSync.js",
+      "name": "Buffer",
+      "count": 2
+    },
+    {
+      "file": "src/headless/HeadlessUniverse.js",
+      "name": "process",
+      "count": 2
+    },
+    {
+      "file": "src/NodeCanvas.jsx",
+      "name": "setShowOnboardingModal",
+      "count": 1
+    },
+    {
+      "file": "src/services/ai-bridge-service.js",
+      "name": "process",
+      "count": 2
+    },
+    {
+      "file": "src/services/bridgeConfig.js",
+      "name": "process",
+      "count": 3
+    },
+    {
+      "file": "src/services/fileHandlePersistence.js",
+      "name": "fileName",
+      "count": 1
+    },
+    {
+      "file": "src/services/GitAutosavePolicy.js",
+      "name": "Buffer",
+      "count": 1
+    },
+    {
+      "file": "src/services/githubApp.js",
+      "name": "process",
+      "count": 4
+    },
+    {
+      "file": "src/services/githubApp.js",
+      "name": "require",
+      "count": 1
+    },
+    {
+      "file": "src/services/mcpProvider.js",
+      "name": "minOccurrences",
+      "count": 4
+    },
+    {
+      "file": "src/services/orchestrator/roleRunners.js",
+      "name": "layoutMode",
+      "count": 1
+    },
+    {
+      "file": "src/services/semanticWebQuery.js",
+      "name": "findEntitiesInSameCategories",
+      "count": 1
+    },
+    {
+      "file": "src/services/server/tokenVault.js",
+      "name": "Buffer",
+      "count": 6
+    },
+    {
+      "file": "src/services/server/tokenVault.js",
+      "name": "process",
+      "count": 5
+    },
+    {
+      "file": "src/services/toolResultApplier.js",
+      "name": "clearTabularData",
+      "count": 1
+    },
+    {
+      "file": "src/services/toolResultApplier.js",
+      "name": "theme",
+      "count": 1
+    },
+    {
+      "file": "src/UniverseManager.jsx",
+      "name": "file",
+      "count": 1
+    },
+    {
+      "file": "src/utils/colorUtils.js",
+      "name": "require",
+      "count": 3
+    },
+    {
+      "file": "src/utils/debugLogger.js",
+      "name": "process",
+      "count": 2
+    }
+  ]
+}

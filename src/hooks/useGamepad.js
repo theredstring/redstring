@@ -778,7 +778,6 @@ export const useGamepad = ({
   orbitControlRef,
 
   // --- Gating ---
-  isPausedRef,
   activeGraphIdRef,
   minZoom,
   maxZoom,
@@ -960,7 +959,7 @@ export const useGamepad = ({
     edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef, connectionOrbControlRef,
     setPan, isAnimatingZoomRef, abstractionCarouselVisibleRef, driftingRef,
     semanticOrbitActiveRef, orbitControlRef,
-    isPausedRef, activeGraphIdRef, minZoom, maxZoom,
+    activeGraphIdRef, minZoom, maxZoom,
   };
 
   // When the current mode was entered. The menu modes are re-derived from the
@@ -1438,7 +1437,7 @@ export const useGamepad = ({
     // the loading escape hatch exists precisely for the state where there is no
     // graph, and a selector can be up during a prompt. So this gates the canvas
     // modes further down rather than the whole tick.
-    const canvasReady = !p.isPausedRef?.current && !!p.activeGraphIdRef?.current;
+    const canvasReady = !!p.activeGraphIdRef?.current;
 
     const cross = getCrosshair();
     if (!cross) return ZERO_TICK;

@@ -190,7 +190,6 @@ export const useNodeDrag = ({
   dragZoomSettings,
 
   // External refs for coordination
-  pinchSmoothingRef,
   placedLabelsRef,
 
   // DOM-bypass drag refs (from NodeCanvas)
@@ -2043,12 +2042,6 @@ export const useNodeDrag = ({
       cancelAnimationFrame(zoomAnimationRef.current.animationId);
     }
 
-    // Stop pinch smoothing animation to prevent conflicts
-    if (pinchSmoothingRef.current.animationId) {
-      cancelAnimationFrame(pinchSmoothingRef.current.animationId);
-      pinchSmoothingRef.current.animationId = null;
-      pinchSmoothingRef.current.isAnimating = false;
-    }
 
     const startZoom = currentZoom !== null ? currentZoom : zoomLevelRef.current;
     const startPan = currentPan ? { ...currentPan } : { ...panOffsetRef.current };
@@ -2120,16 +2113,11 @@ export const useNodeDrag = ({
     };
 
     zoomAnimationRef.current.animationId = requestAnimationFrame(step);
-  }, [setZoomLevel, setPanOffset, panOffsetRef, zoomLevelRef, viewportSizeRef, containerRef, canvasSizeRef, pinchSmoothingRef]);
+  }, [setZoomLevel, setPanOffset, panOffsetRef, zoomLevelRef, viewportSizeRef, containerRef, canvasSizeRef]);
 
   const animateZoomAndPanToTarget = useCallback((targetZoom, targetPan, currentZoom, currentPan = null, onComplete = null) => {
     if (zoomAnimationRef.current.animationId) {
       cancelAnimationFrame(zoomAnimationRef.current.animationId);
-    }
-    if (pinchSmoothingRef.current.animationId) {
-      cancelAnimationFrame(pinchSmoothingRef.current.animationId);
-      pinchSmoothingRef.current.animationId = null;
-      pinchSmoothingRef.current.isAnimating = false;
     }
 
     const startZoom = currentZoom !== null ? currentZoom : zoomLevelRef.current;
@@ -2173,7 +2161,7 @@ export const useNodeDrag = ({
     };
 
     zoomAnimationRef.current.animationId = requestAnimationFrame(step);
-  }, [setZoomLevel, setPanOffset, panOffsetRef, zoomLevelRef, pinchSmoothingRef]);
+  }, [setZoomLevel, setPanOffset, panOffsetRef, zoomLevelRef]);
 
   // ---------------------------------------------------------------------------
   // Trigger Drag Zoom-Out
