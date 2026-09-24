@@ -164,6 +164,15 @@ export function createRenderProbe({ enabled = false } = {}) {
       };
     },
 
+    /**
+     * The running session's totals so far, without ending it; null when none
+     * is running. Lets a scenario wait until commits stop before calling stop().
+     */
+    peek() {
+      if (session === null) return null;
+      return { commits: session.commits, totalMs: round(session.totalMs), maxMs: round(session.maxMs) };
+    },
+
     /** Discard any running session and its data. The enabled flag is kept. */
     reset() {
       session = null;

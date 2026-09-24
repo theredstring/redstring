@@ -1,0 +1,3 @@
+# Playwright output and perf results (raw runs; baselines go in METRICS.md)
+.results/
+results/
