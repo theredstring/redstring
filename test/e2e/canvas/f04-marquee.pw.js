@@ -10,7 +10,7 @@
 //     anchor shows up there as its node-group's Thing.
 import {
   test, expect,
-  openFixture, nodeBox, selectedNodeIds, camera, marqueeModifier, expectBareCanvas, EXPECT_KNOWN_BUGS,
+  openFixture, nodeBox, selectedNodeIds, camera, marqueeModifier, expectBareCanvas,
 } from './helpers.js';
 
 async function marquee(page, from, to) {
@@ -57,12 +57,10 @@ test('F4 marquee selects exactly the nodes inside the rectangle', async ({ page 
 });
 
 test('F4 marquee over a node-group selects its members but not its anchor (B-01)', async ({ page }) => {
-  // B-01: the mouse marquee release path skips the anchor filter that
-  // selectionFromRect applies, so the node-group's hidden anchor instance is
-  // selected too and "Cluster" appears in the multi-selection panel. Expected
-  // to fail until P1.04 fixes B-01; remove test.fail() there.
-  test.fail(EXPECT_KNOWN_BUGS, 'B-01, fixed in P1.04 (phases/P1-stop-rerenders.md)');
-
+  // B-01 (fixed in P1.04): the mouse marquee's release path used to skip the
+  // anchor filter that selectionFromRect applies, so the node-group's hidden
+  // anchor instance was selected too and "Cluster" appeared in the
+  // multi-selection panel.
   await openFixture(page, 'small');
   const zeta = await nodeBox(page, 'i-zeta');
   const eta = await nodeBox(page, 'i-eta');
