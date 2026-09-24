@@ -20,7 +20,7 @@ After this phase:
 ---
 
 ### P2.01: `canvasUIStore` scaffold
-- **Status:** todo
+- **Status:** pre-staged (80e0c39, 9c9087c; report reports/P2.01.md). NOT wired: counts as done only when P2.02 wires the first slice
 - **Lane:** B · **Size:** M · **Depends:** P1 done
 - **Findings:** F-47
 - **Change:**
@@ -44,7 +44,7 @@ After this phase:
   - Add unit tests.
 - **Don't:** Wire any consumers yet.
 - **Accept:** The tests pass and the store is importable. There are no consumers yet; say so in the Handoff so nobody counts it as done.
-- **Handoff:**
+- **Handoff:** 220 tests pass. Setters keep the NodeCanvas names and accept a value or an updater. No-op writes are skipped (Set equality for selection, Map equality for definition indices, shallow compare for prompts). That's stricter than useState: an effect that re-fired on a new-but-equal Set will stop re-firing. P2.02 must check for that. See the report for kickoff research (bridge, edge selection, timing risks).
 
 ### P2.02: Move `selectedInstanceIds` into the store
 - **Status:** todo

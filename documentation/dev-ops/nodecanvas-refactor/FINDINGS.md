@@ -345,6 +345,21 @@ This state is used across clusters and must move to a store before the clusters 
   - graphStore (11, stale tests for an old API), tools-health, edgeLabelPlacement (2)
 - Until P0.06 lands a known-failures list, compare against this set.
 
+**F-70. P2 kickoff research (P2.01 report).** VERIFIED at b2314ce.
+- **MCP bridge:** reads **no** spine field, selection included. The wizard only *writes* selection, via the `rs-select-node` window event (~14911). That listener must keep working after P2.02.
+- **Edge selection** (`selectedEdgeId(s)` in graphStore) should move to canvasUIStore in P2.03:
+  - It isn't serialised or saved.
+  - Each write currently runs the save middleware and schedules a whole-universe clone and hash about 500 ms later.
+  - `removeEdge` clears `selectedEdgeId` but never cleans `selectedEdgeIds`. The move must handle both.
+- **Timing risk.** Zustand notifies synchronously, while `useState` outside React event handlers renders later. A callback that writes both kinds renders twice, and the first render sees half the change.
+  - **Worst case is P2.03:** PieMenu `onExitAnimationComplete` (~16845) can flash the old menu. Move the pie render state together with the pie target, or use `flushSync`.
+  - **Graph Change Cleanup (~7646)** relies on selection landing in the same render.
+- **Equality semantics.** canvasUIStore skips equal writes, including an equal Set. Any effect that re-fired on a new-but-equal selection Set will stop re-firing. Audit this in P2.02.
+- **F-47 count corrections:**
+  - `setActiveView` has 7 call sites, not 6.
+  - "43 setter call sites" is 43 references, of which 29 are calls.
+  - The prompt counts dropped after wave 1.
+
 ---
 
 ## Bugs found along the way (B-)
@@ -381,3 +396,4 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | X-05 | The right Panel's `ref={panelRef}` is never read (~8583) | P2.09 |
 | X-06 | Dead refs and constants: `lastHoverCheckRef`, `isKeyboardZooming`, `resizeTimeoutRef`, `prevZoomForWatchdog`, and the constants at ~469–471 (`MOUSE_WHEEL_ZOOM_SENSITIVITY`, …) | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
 | X-07 | Hook params that are now always empty after P1.02: `isPaused` in `useCanvasKeyboard`, `isPausedRef` in `useGamepad`; two dead animation cancels in `useNodeDrag` | P4.07–P4.09 |
+| X-08 | `src/hooks/useNodeActions.js` is imported nowhere since P1.02 removed its dead import: delete the file (the Oct-2025 "Phase 2" that was never wired) | any small cleanup commit |
