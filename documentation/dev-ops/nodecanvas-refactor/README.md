@@ -134,9 +134,12 @@ One **orchestrating session** starts agents in git worktrees, reviews what they 
 3. Folds the report into the card, LOG, METRICS, FINDINGS and MAP.
 4. Updates **In flight**.
 
-**In flight** (edit this when you claim or finish a task):
-- **Lane B:** P0.02 + P0.03 (fixtures, loader, Playwright flows), worktree agent, started 2026-09-23
-- Wave 1 (P0.01, P0.05, P0.07, P1.01, P1.02, P1.07, P1.09, P1.11, P1.13 partial) is merged on branch `refactor/wave1-integration`, waiting for Grant's OK to merge into `main`
+**In flight** (edit this when you claim or finish a task). Wave 2 is based on `refactor/wave2-integration` (main + P0.02/P0.03):
+- **Lane A:** P1.03 → P1.04 → P1.06
+- **Lane C:** P0.06 (CI) + X-07 (dead hook params)
+- **Lane B:** P0.04 (perf scenarios + baseline)
+- **Lane B:** P1.12a (label investigation + DOM snapshot baselines)
+- **Lane B:** P2.01 (canvasUIStore scaffold, pre-staged and not wired)
 
 ## Rules carried over from project memory
 
@@ -153,7 +156,7 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 
 | Phase | File | Goal | Status |
 |---|---|---|---|
-| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.05, P0.07 done; P0.02/P0.03 running; P0.04, P0.06 todo |
+| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.02, P0.05, P0.07 done; P0.03 partial (P0.03b); P0.04, P0.06 in wave 2 |
 | P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.07, P1.09, P1.11 done; P1.13 partial (B-03 needs Grant) |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |

@@ -13,6 +13,21 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-24: Wave 2 started (Claude, orchestrator, new session)
+
+- **Wave 1 is live.** Grant smoke-tested it ("looks pretty fantastic") and pushed `main` at 8ce03f0.
+- **P0.02/P0.03 taken over.** The Playwright agent was cancelled at session end with 3 commits and no reports. The orchestrator:
+  - rebased it onto main
+  - ran the suite 3/3 green (14 passed, about 21 s)
+  - verified the loader is absent from the production build
+  - confirmed vitest's failures are unchanged (same 67)
+  - wrote the reports
+  - reversed the "don't commit the stress fixture" ask: it's 2.2 MB against a 493 MB pack, it's needed at dev-server start, and the `--check` script catches drift
+- **Remaining flows F8–F13 → new card P0.03b.** This waits on Grant's OK to launch a new agent for the cancelled agent's work.
+- **Wave 2 base:** `refactor/wave2-integration` (main + P0.02/P0.03). In flight: Lane A P1.03 → P1.04 → P1.06; P0.06 + X-07; P0.04; P1.12a; P2.01 (pre-stage).
+
+---
+
 ## 2026-09-23: Wave 1 on local main; Grant smoke-testing (Claude, orchestrator)
 
 - Local `main` was fast-forwarded to `0a8f5e0` (wave 1). **Not pushed**; Grant is smoke-testing before pushing. (The "not yet into main" note in the entry below is outdated.)

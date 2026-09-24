@@ -56,7 +56,7 @@ Right now neither can be answered (F-60 to F-63).
 - **Handoff:** Probe verified in headless Chromium against an independent commit counter, 126/126 on the profile build. The manual DevTools cross-check is still to do. `dist-profile` added to .gitignore. Proposed D-16 for render-cause attribution. NEW: a worktree Vite dev server with symlinked node_modules writes into the main checkout's cache (see the README rule).
 
 ### P0.02: Fixture universes and a dev-only fixture loader
-- **Status:** todo
+- **Status:** done (9642982; report reports/P0.02.md)
 - **Lane:** B · **Size:** M · **Depends:** none (Q2 answered, D-15)
 - **Findings:** F-65, F-66
 - **Change:**
@@ -75,10 +75,10 @@ Right now neither can be answered (F-60 to F-63).
   - `npm run dev` with `?fixture=stress` (or `small`) opens straight into an interactive canvas on the fixture's graph.
   - A test-only hook, e.g. `window.__loadFixture(json)`, loads the chambers file when the test injects it.
 - **Verify:** Load all three fixtures. Pan, zoom and select work in each.
-- **Handoff:**
+- **Handoff:** Fixtures: small, stress (deterministic generator, committed, --check passes) and chambers (local only). The dev-only sandbox and loader are wired first in main.jsx and fail closed. Verified absent from production bundles; only the sourcemap mentions them.
 
 ### P0.03: Playwright interaction flows
-- **Status:** todo
+- **Status:** partial (52339ea, 28a77b7; report reports/P0.03.md). F8–F13 split out to P0.03b
 - **Lane:** B (plus `package.json`) · **Size:** L · **Depends:** P0.02, Q3
 - **Findings:** F-61
 - **Change:**
@@ -106,6 +106,20 @@ Right now neither can be answered (F-60 to F-63).
   - Every flow passes on current `main`, apart from the documented expected failures.
   - The whole suite runs in about 3 minutes or less.
 - **Verify:** Run the suite 3 times in a row. It must not be flaky.
+- **Handoff:** 10 flows plus chambers F1/F2/F6. 3/3 runs green (14 passed, about 21 s). F4's B-01 case is test.fail until P1.04. Run `npm run test:canvas` before every Lane A merge.
+
+### P0.03b: Remaining interaction flows (F8–F13)
+- **Status:** todo. Waiting on Grant: this was the cancelled agent's unfinished work, so it needs his go-ahead before a new agent picks it up.
+- **Lane:** B · **Size:** M · **Depends:** P0.03
+- **Findings:** F-61
+- **Change:** Add the flows below, following the patterns in `test/e2e/canvas/helpers.js`. Use `test.fixme` with a concrete reason for anything that isn't feasible.
+  - F8 panel resize
+  - F9 abstraction carousel
+  - F10 touch: one-finger pan, CDP pinch, long-press drag
+  - F11 group create + drag
+  - F12 context menus
+  - F13 keyboard: delete, WASD/arrow pan, shortcuts suppressed while typing
+- **Accept:** 3 consecutive green runs. F10 and F13 are the priority.
 - **Handoff:**
 
 ### P0.04: Perf scenarios and baseline

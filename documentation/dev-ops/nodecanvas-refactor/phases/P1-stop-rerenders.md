@@ -179,7 +179,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:** The listener attaches once per mount: 4 before, 9 after five re-renders; it stays at 4 now. The orchestrator verified the handler reads no hook params from closure (only paramsRef).
 
 ### P1.12: Stop selection from re-solving every label
-- **Status:** todo
+- **Status:** todo. Split: P1.12a (investigation + label DOM snapshot baselines, Lane B) in wave 2; P1.12b (implementation, Lane A) after it
 - **Lane:** A · **Size:** M · **Depends:** P0.04 (to measure); P0.05 (label DOM baselines)
 - **Findings:** F-21
 - **Change:**
@@ -190,7 +190,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Accept:**
   - In S7, selecting a node doesn't re-solve every routed label. Verify with the `__edgePerf` or label-solve counters.
   - Label positions for the medium fixture match the pre-change DOM snapshot in every routing style.
-- **Handoff:**
+- **Handoff:** See P1.12a's report once it lands.
 
 ### P1.13: Batch of small bug fixes
 - **Status:** done for P1 scope: B-07 fixed (c7453a4). B-03 decided (D-17): the welcome screen returns as its own host, tracked outside P1 (report reports/P1.13.md)

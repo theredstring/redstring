@@ -353,7 +353,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 
 | ID | Bug | Status | Fix in |
 |---|---|---|---|
-| B-01 | A mouse marquee release selects group-anchor instances: the release path (~12170) skips the anchor filter that `selectionFromRect` applies | VERIFIED code, INFERRED effect | P1.04 |
+| B-01 | A mouse marquee release selects group-anchor instances: the release path (~12170) skips the anchor filter that `selectionFromRect` applies | VERIFIED; **reproduced in a real browser** (P0.03 F4 test.fail) | P1.04 |
 | B-02 | A marquee worker reply that arrives after mouseup can restore a selection rectangle that was just cleared | INFERRED race | P1.04 |
 | B-03 | The `openOnboardingModal` listener calls `setShowOnboardingModal` (~2748), which is never defined. The error is swallowed, so the event does nothing | VERIFIED; **decided (D-17)**: restore a welcome screen as an App-level host, then point the listener at it | P1.13 |
 | B-04 | `startHurtleAnimationFromPanel` reads zoom from `svg.style.transform` (~14387), but the transform is now an attribute on the inner `<g>`. So zoom reads as 1 and the orb is always 30 px. `startHurtleAnimation` also uses `canvasSize` without listing it as a dependency (~14365) | VERIFIED code, INFERRED effect | P1.06 |
