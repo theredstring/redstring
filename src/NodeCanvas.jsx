@@ -11120,7 +11120,7 @@ function NodeCanvas() {
   /**
    * Handles pointer-move for dragging, panning, edge-preview, and hover detection.
    *
-   * Runs on every `mousemove`/`pointermove` event over the canvas SVG. Branches:
+   * Bound once (the `.canvas-area` div); touch calls it synthetically. Branches:
    * - **Middle-mouse zoom drag**: uses `movementY` (pointer is locked) to drive zoom
    *   anchored at the original mousedown point.
    * - **Node drag**: updates the dragged node's canvas position; triggers viewport
@@ -11129,7 +11129,7 @@ function NodeCanvas() {
    * - **Canvas pan**: updates `panOffset` when in pan mode (no node targeted).
    * - **Hover detection**: debounced hit-test to update the hovered node/edge state.
    *
-   * @param {MouseEvent|PointerEvent} e - The pointer-move event from the SVG element.
+   * @param {MouseEvent|PointerEvent} e - The mouse-move event, or a synthetic one.
    */
   async function handleMouseMove(e) {
     // Update mouse position for edge panning
@@ -15580,8 +15580,7 @@ function NodeCanvas() {
                   touchAction: 'none',
                 }}
                 onMouseUp={handleMouseUp} // Uncommented
-                onMouseMove={handleMouseMove}
-              // Remove pointerDown preventDefault to avoid interfering with gestures
+              // No onMouseMove: the .canvas-area div's binding covers it (F-02, P1.03).
               >
                 {/* Pan/zoom transform is written to this <g> via SVG attribute. */}
                 <g ref={contentGroupRef}>
