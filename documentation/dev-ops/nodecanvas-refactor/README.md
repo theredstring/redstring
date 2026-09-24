@@ -134,12 +134,44 @@ One **orchestrating session** starts agents in git worktrees, reviews what they 
 3. Folds the report into the card, LOG, METRICS, FINDINGS and MAP.
 4. Updates **In flight**.
 
+### Orchestrator runbook
+This is how the orchestrating session reviews and lands agent work. A resumed or compacted session can pick up from here.
+
+**Branches**
+- Each wave has an integration branch, `refactor/waveN-integration`, checked out at `.claude/worktrees/integration-waveN`.
+- Agents branch from it (see "Step 0" in their prompts) and work on `worktree-agent-<id>`.
+- `main` changes only after Grant smoke-tests. **Grant fast-forwards `main` and pushes. Don't merge to `main` without his OK.**
+
+**Per finished agent**
+1. **Check scope.**
+   - `git log --oneline refactor/waveN-integration..<branch>` and `git diff --stat refactor/waveN-integration...<branch>`.
+   - Confirm the files stay within the agent's lane and base = wave (`git merge-base --is-ancestor <wave-base> <branch>`).
+2. **Review the risky diffs yourself,** not just the report.
+   - After any NodeCanvas deletion or move, compare `no-undef` against the base. Copy the file to `src/__lint_tmp_X.jsx`, run `npx eslint --no-warn-ignored --rule '{"no-undef":"error"}' src/__lint_tmp_X.jsx`, then delete the copy.
+   - The only allowed hit is `setShowOnboardingModal` (B-03).
+3. **Merge.** `git merge --no-ff` into the integration branch. If `wc -l src/NodeCanvas.jsx` dropped, lower `test/meta/nodecanvas-budget.json`.
+4. **Full vitest.**
+   - `npx vitest run --reporter=json --outputFile=<scratch>/x.json`.
+   - Compare the failing set, by file and count, against **F-69** (67 failures in 15 files). It must be identical.
+5. **Browser flows.** `CANVAS_E2E_PORT=48xx npm run test:canvas`.
+   - It needs `@playwright/test` installed. The integration worktree resolves `node_modules` from the main checkout by walking up the directory tree, so until P0.02/P0.03 land on `main`, run it from an agent worktree that has a real install.
+   - **Never run a Vite dev server in the integration worktree** (F-68: shared cache).
+6. **Build.** `npm run build`.
+7. **Fold the report into the docs.** Update the card, FINDINGS, METRICS, MAP, LOG and In flight, then commit on the integration branch.
+
+**Handing a wave to Grant**
+1. Give him a visual smoke-test list covering what changed and what "wrong" looks like.
+2. He smoke-tests, then fast-forwards `main` to the integration branch and pushes.
+3. Start the next wave's integration branch from the new `main`.
+
+**Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
+
 **In flight** (edit this when you claim or finish a task). Wave 2 is based on `refactor/wave2-integration` (main + P0.02/P0.03):
 - **Lane A:** P1.03 → P1.04 → P1.06
 - **Lane C:** P0.06 (CI) + X-07 (dead hook params)
 - **Lane B:** P0.04 (perf scenarios + baseline)
 - **Lane B:** P1.12a (label investigation + DOM snapshot baselines)
-- **Lane B:** P2.01 (canvasUIStore scaffold, pre-staged and not wired)
+- ~~Lane B: P2.01~~ pre-staged and merged into wave2-integration (5121cc7)
 
 ## Rules carried over from project memory
 
