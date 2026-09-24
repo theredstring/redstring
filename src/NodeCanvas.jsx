@@ -162,6 +162,7 @@ import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveCon
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
 import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
+import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
@@ -488,12 +489,6 @@ const TOUCH_HIGH_VELOCITY_RAMP = 1.5;           // px/ms — speed range over wh
 // texture rather than a rattle, and well under the ~25/sec ceiling the shared
 // rate limit imposes. Larger = sparser clicks; smaller = denser.
 const CONNECTION_DETENT_PX = 44;
-// Detent spacing along the hurtle orb's eased progress (0→1), so 0.25 means
-// three ticks in flight. Sized against the shared 40ms haptic rate limit: the
-// orb's ease-in-out peaks at twice its average speed, and at this spacing even
-// the fastest pair of crossings lands ~58ms apart. Halving it to 1/6 would put
-// the middle crossings ~37ms apart and silently drop one.
-const HURTLE_DETENT_STEP = 0.25;
 // How much of a thing-group's defining prototype color bleeds into its interior
 // surface. Just enough that the inside of a group reads as belonging to its
 // Thing without competing with the nodes sitting on it — the colored band above
@@ -13535,77 +13530,16 @@ function NodeCanvas() {
     exitOrbitMode();
   }, [activeGraphId, nodePrototypesMap, selectedInstanceIds, storeActions, gridMode, snapToGridAnimated, exitOrbitMode]);
 
-  // --- Hurtle Animation State & Logic ---
-  const [hurtleAnimation, setHurtleAnimation] = useState(null);
-  const hurtleAnimationRef = useRef(null);
-  // Detents for the orb's flight. One track reused across launches — every
-  // hurtle goes through runHurtleAnimation, which reseeds it.
-  const hurtleTrack = useRef(createDetentTrack('hurtleTravel', HURTLE_DETENT_STEP));
-
-  const runHurtleAnimation = useCallback((animationData) => {
-    hurtleTrack.current.reset(0);
-    const animate = (currentTime) => {
-      const elapsed = currentTime - animationData.startTime;
-      const progress = Math.min(elapsed / animationData.duration, 1);
-
-      // Subtle speed variation - gentle ease-in-out
-      const easedProgress = progress < 0.5
-        ? 2 * progress * progress
-        : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-
-      // Detents along the flight. Driven by easedProgress, not progress, so the
-      // ticks track how fast the orb is visibly moving — sparse at the ends
-      // where it's easing in and out, tight through the middle where it's
-      // actually hurtling. Stops short of 1: the landing gets its own, heavier
-      // event below rather than a fourth tick colliding with it.
-      if (progress < 1) hurtleTrack.current.update(easedProgress);
-
-      // Calculate current position (screen coordinates)
-      const currentX = Math.round(animationData.startPos.x + (animationData.targetPos.x - animationData.startPos.x) * easedProgress);
-      const currentY = Math.round(animationData.startPos.y + (animationData.targetPos.y - animationData.startPos.y) * easedProgress);
-
-      // Calculate ballooning and contracting size.
-      // It starts at 1px, "balloons" to a peak size, and "contracts" back to 1px.
-      const peakOrbSize = animationData.orbSize * 1.9; // Keep the dramatic peak size
-      const sineProgress = Math.sin(progress * Math.PI); // This goes from 0 -> 1 -> 0 as progress goes 0 -> 1
-      const currentOrbSize = Math.max(1, Math.round(1 + (peakOrbSize - 1) * sineProgress));
-
-      // Z-index behavior: stay under node much longer, use positive z-index
-      let currentZIndex;
-      if (progress < 0.45) {
-        currentZIndex = 500; // Positive z-index, will be covered by elevated selected node
-      } else if (progress < 0.85) {
-        currentZIndex = 15000; // Above header for shorter period
-      } else {
-        currentZIndex = 5000; // Below header only at the very end
-      }
-
-      // Update animation state with dynamic properties
-      setHurtleAnimation(prev => prev ? {
-        ...prev,
-        currentPos: { x: currentX, y: currentY },
-        currentOrbSize,
-        currentZIndex,
-        progress
-      } : null);
-
-      if (progress < 1) {
-        hurtleAnimationRef.current = requestAnimationFrame(animate);
-      } else {
-        // Animation complete - clean up and switch graph. The orb lands and the
-        // new graph takes over, which is the same event a tab tap produces —
-        // forced past the rate limit so the last detent can't swallow it.
-        haptic('graphSwitch', { force: true });
-        storeActions.openGraphTabAndBringToTop(animationData.targetGraphId, animationData.definitionNodeId);
-        setHurtleAnimation(null);
-        if (hurtleAnimationRef.current) {
-          cancelAnimationFrame(hurtleAnimationRef.current);
-          hurtleAnimationRef.current = null;
-        }
-      }
-    };
-
-    hurtleAnimationRef.current = requestAnimationFrame(animate);
+  // --- Hurtle ---
+  // The orb's flight runs in <HurtleOrb> (P1.06, F-05). NodeCanvas only
+  // launches it (hurtleFlight) and handles the landing.
+  const [hurtleFlight, setHurtleFlight] = useState(null);
+  const handleHurtleLand = useCallback((flight) => {
+    // The orb lands and the new graph takes over, which is the same event a tab
+    // tap produces — forced past the rate limit so the last detent can't swallow it.
+    haptic('graphSwitch', { force: true });
+    storeActions.openGraphTabAndBringToTop(flight.targetGraphId, flight.definitionNodeId);
+    setHurtleFlight(null);
   }, [storeActions]);
 
   /**
@@ -13706,9 +13640,8 @@ function NodeCanvas() {
       orbSize,
     };
 
-    setHurtleAnimation(animationData);
-    runHurtleAnimation(animationData);
-  }, [containerRef, runHurtleAnimation, previewingNodeId, getHeaderTabTarget]);
+    setHurtleFlight(animationData);
+  }, [containerRef, previewingNodeId, getHeaderTabTarget]);
 
   const startHurtleAnimationFromPanel = useCallback((nodeId, targetGraphId, definitionNodeId, startRect) => {
     const currentState = useGraphStore.getState();
@@ -13757,9 +13690,8 @@ function NodeCanvas() {
       orbSize: orbSize, // Use calculated, zoom-dependent size
     };
 
-    setHurtleAnimation(animationData);
-    runHurtleAnimation(animationData);
-  }, [containerRef, runHurtleAnimation, getHeaderTabTarget]);
+    setHurtleFlight(animationData);
+  }, [containerRef, getHeaderTabTarget]);
 
   /**
    * The connection menu's buttons, in display order.
@@ -14594,15 +14526,6 @@ function NodeCanvas() {
       }
     ];
   }, [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, zoomLevel, panOffset, handlePieMenuColorPickerOpen, startHurtleAnimation, useGraphStore, setIsTransitioningPieMenu]);
-
-  // Cleanup animation on unmount
-  useEffect(() => {
-    return () => {
-      if (hurtleAnimationRef.current) {
-        cancelAnimationFrame(hurtleAnimationRef.current);
-      }
-    };
-  }, []);
 
   // Track if the component has been mounted long enough to show BackToCivilization
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
@@ -17807,24 +17730,7 @@ function NodeCanvas() {
           {/* Debug overlay disabled */}
         </div>
 
-        {/* Dynamic Particle Transfer - starts under node, grows during acceleration, perfect z-layering */}
-        {hurtleAnimation && (
-          <div
-            style={{
-              position: 'fixed',
-              left: (hurtleAnimation.currentPos?.x || hurtleAnimation.startPos.x) - ((hurtleAnimation.currentOrbSize || hurtleAnimation.orbSize) / 2),
-              top: (hurtleAnimation.currentPos?.y || hurtleAnimation.startPos.y) - ((hurtleAnimation.currentOrbSize || hurtleAnimation.orbSize) / 2),
-              width: hurtleAnimation.currentOrbSize || hurtleAnimation.orbSize,
-              height: hurtleAnimation.currentOrbSize || hurtleAnimation.orbSize,
-              backgroundColor: hurtleAnimation.nodeColor,
-              borderRadius: '50%', // Perfect circle
-              zIndex: hurtleAnimation.currentZIndex || 1000, // Dynamic z-index based on animation progress
-              pointerEvents: 'none',
-              transition: 'none',
-              opacity: hurtleAnimation.progress > 0.9 ? (1 - (hurtleAnimation.progress - 0.9) * 10) : 1, // Fade out at the very end
-            }}
-          />
-        )}
+        <HurtleOrb flight={hurtleFlight} onLand={handleHurtleLand} />
 
         <Panel
           key="right-panel"
