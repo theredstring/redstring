@@ -68,7 +68,6 @@ export const useCanvasKeyboard = ({
     // the label suppression, the drag re-projection and the settle bookkeeping.
     gamepadTickRef,
     // UI State flags
-    isPaused,
     nodeNamePrompt,
     connectionNamePrompt,
     abstractionPrompt,
@@ -128,7 +127,6 @@ export const useCanvasKeyboard = ({
         maxZoom,
         gamepadTickRef,
         // UI State flags
-        isPaused,
         nodeNamePrompt,
         connectionNamePrompt,
         abstractionPrompt,
@@ -268,7 +266,6 @@ export const useCanvasKeyboard = ({
         const handleKeyboardMovement = (currentTime = performance.now()) => {
             const params = paramsRef.current;
             const {
-                isPaused,
                 nodeNamePrompt,
                 connectionNamePrompt,
                 abstractionPrompt,
@@ -314,7 +311,6 @@ export const useCanvasKeyboard = ({
 
             // Check for conditions that should disable keyboard controls
             const shouldDisableKeyboard =
-                isPaused ||
                 nodeNamePrompt?.visible ||
                 connectionNamePrompt?.visible ||
                 abstractionPrompt?.visible ||

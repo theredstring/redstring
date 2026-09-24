@@ -54,7 +54,6 @@ function makeParams(overrides = {}) {
     minZoom: 0.1,
     maxZoom: 3,
     gamepadTickRef: { current: null },
-    isPaused: false,
     nodeNamePrompt: { visible: false },
     connectionNamePrompt: { visible: false },
     abstractionPrompt: { visible: false },
