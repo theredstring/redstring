@@ -12,6 +12,7 @@ import { test } from '@playwright/test';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { waitForCanvasReady, waitForCameraSettled, chambersPath } from '../../e2e/canvas/helpers.js';
 import { SCENARIOS } from './scenarios.js';
+import { countNodeCanvasRenders } from './selfRenders.js';
 
 const RUNS = Number(process.env.PERF_RUNS || 5);
 const OUT = process.env.PERF_OUT || null;
@@ -78,25 +79,29 @@ for (const scenario of SCENARIOS) {
       for (let run = 1; run <= RUNS; run++) {
         const context = await browser.newContext({ hasTouch: !!scenario.touch });
         await context.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) => route.abort());
+        await context.addInitScript(countNodeCanvasRenders);
         const page = await context.newPage();
         try {
           const fx = size === 'large' ? await openLarge(page) : await openMedium(page);
           await waitForCanvasReady(page);
           await waitForCameraSettled(page);
-          await page.evaluate(() => { if (!window.__renderProbe) throw new Error('no __renderProbe: not the profile build?'); });
+          await page.evaluate(() => {
+            if (!window.__renderProbe) throw new Error('no __renderProbe: not the profile build?');
+            if (!window.__nodeCanvasRenders?.found) throw new Error('NodeCanvas render counter never found the NodeCanvas fiber');
+          });
 
           const ctx = {};
           if (scenario.setup) await scenario.setup(page, ctx);
           await waitForQuiet(page);
 
-          await page.evaluate((label) => window.__renderProbe.start(label), id);
+          await page.evaluate((label) => { Object.assign(window.__nodeCanvasRenders, { ran: 0, rendered: 0 }); window.__renderProbe.start(label); }, id);
           const extra = (await scenario.run(page, ctx)) || {};
           await settleSession(page);
-          const r = await page.evaluate(() => window.__renderProbe.stop());
+          const r = await page.evaluate(() => ({ ...window.__renderProbe.stop(), ncRan: window.__nodeCanvasRenders.ran, ncRendered: window.__nodeCanvasRenders.rendered }));
 
           const row = {
             id, run, fixture: fx.fixture, instances: fx.instances,
-            commits: r.commits, totalMs: r.totalMs, maxMs: r.maxMs, wallMs: r.wallMs, ...extra,
+            commits: r.commits, ncRan: r.ncRan, ncRendered: r.ncRendered, totalMs: r.totalMs, maxMs: r.maxMs, wallMs: r.wallMs, ...extra,
           };
           console.log(`[perf] ${JSON.stringify(row)}`);
           if (OUT) appendFileSync(OUT, `${JSON.stringify(row)}\n`);

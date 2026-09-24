@@ -6,7 +6,9 @@
 //   npm run perf:canvas -- --no-build --runs 3   # reuse dist-profile/
 //   npm run perf:canvas -- --fixtures medium     # medium only (chambers, or stress if absent)
 //
-// Prints a median table (NodeCanvas commits, total ms, max ms) and writes the
+// Prints a median table (commits under NodeCanvas's Profiler; how often the
+// NodeCanvas function itself ran, and how many of those runs rendered rather
+// than bailed out; total ms, max ms) and writes the
 // raw runs plus the medians to test/perf/canvas/results/<time>-<sha>.json
 // (gitignored). Record baselines in METRICS.md with the commit hash.
 
@@ -56,6 +58,8 @@ export function summarize(rows) {
     instances: rs[0].instances,
     runs: rs.length,
     commits: median(rs.map((r) => r.commits)),
+    ncRan: median(rs.map((r) => r.ncRan ?? NaN)),
+    ncRendered: median(rs.map((r) => r.ncRendered ?? NaN)),
     totalMs: median(rs.map((r) => r.totalMs)),
     maxMs: median(rs.map((r) => r.maxMs)),
     wallMs: median(rs.map((r) => r.wallMs)),
@@ -92,10 +96,10 @@ function main() {
   fs.writeFileSync(raw.replace(/\.jsonl$/, '.json'), JSON.stringify({ sha, dirty, runs: args.runs, table, rows }, null, 2));
 
   console.log(`\nNodeCanvas perf @ ${sha}${dirty ? ' (+ uncommitted src changes)' : ''}, median of ${args.runs} runs, profile build\n`);
-  console.log('| Scenario | Fixture | NodeCanvas commits (range) | Total ms | Max ms | Wall ms |');
-  console.log('|---|---|---|---|---|---|');
+  console.log('| Scenario | Fixture | Commits (range) | NodeCanvas ran (rendered) | Total ms | Max ms | Wall ms |');
+  console.log('|---|---|---|---|---|---|---|');
   for (const t of table) {
-    console.log(`| ${t.id} | ${t.fixture} (${t.instances}) | ${fmt(t.commits)} (${t.commitsRange.join('–')}) | ${fmt(t.totalMs)} | ${fmt(t.maxMs)} | ${fmt(t.wallMs)} |`);
+    console.log(`| ${t.id} | ${t.fixture} (${t.instances}) | ${fmt(t.commits)} (${t.commitsRange.join('–')}) | ${fmt(t.ncRan)} (${fmt(t.ncRendered)}) | ${fmt(t.totalMs)} | ${fmt(t.maxMs)} | ${fmt(t.wallMs)} |`);
   }
   console.log(`\nRaw runs: ${path.relative(ROOT, raw)}`);
   return code;
