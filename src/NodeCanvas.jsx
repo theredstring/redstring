@@ -2812,7 +2812,9 @@ function NodeCanvas() {
   // { node, buttons, nodeDimensions } is read by NodePieMenuLayer; NodeCanvas reads only the target (P5.04a).
   const currentPieMenuNodeId = useCanvasUIStore(s => s.currentPieMenuData?.node?.id ?? null);
   const hasPieMenuData = useCanvasUIStore(s => s.currentPieMenuData != null), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData);
-  const [pieMenuPage, setPieMenuPage] = useTrackedState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
+  // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size).
+  // In canvasUIStore: the pie machine resets it to 0 whenever the target changes.
+  const pieMenuPage = useCanvasUIStore(s => s.pieMenuPage), setPieMenuPage = useCanvasUIStore(s => s.setPieMenuPage);
   const setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
@@ -3414,88 +3416,13 @@ function NodeCanvas() {
   }, [clearHoverImmediate]);
 
   // --- Graph Change Cleanup ---
+  // A web change resets the pie, carousel, preview, selection and the panels
+  // (GRAPH_CHANGED: the pie machine's full reset and close-all; state that still
+  // lives here comes back as `local` commands, see handlePieCommand). The same
+  // reset also follows carousel and transition changes inside the machine.
   useEffect(() => {
-    // This effect runs whenever the active graph changes.
-    // We clear any graph-specific UI state to ensure a clean slate.
-
-    console.log(`[NodeCanvas] Current state during cleanup:`, {
-      abstractionCarouselVisible,
-      abstractionPromptVisible: abstractionPrompt.visible,
-      carouselPieMenuStage,
-      selectedNodeIdForPieMenu
-    });
-
-    // DON'T clean up if the abstraction carousel is visible (regardless of prompt state)
-    if (abstractionCarouselVisible) {
-
-      return;
-    }
-
-    // DON'T clean up if we just completed a carousel exit (to prevent clearing restored state)
-    if (justCompletedCarouselExit) {
-
-      return;
-    }
-
-    // DON'T clean up if we're transitioning the pie menu (carousel exit in progress)
-    if (isTransitioningPieMenu) {
-
-      return;
-    }
-
-    // DON'T clean up if carousel exit is in progress (ref-based check)
-    if (carouselExitInProgressRef.current) {
-
-      return;
-    }
-
-    // DON'T clean up if we have a selected node and pie menu is active (indicates recent restoration)
-    if (selectedInstanceIds.size === 1 && selectedNodeIdForPieMenu && !abstractionCarouselVisible) {
-
-      return;
-    }
-
-    setSelectedInstanceIds(new Set());
-    setPreviewingNodeId(null);
-    setEditingNodeIdOnCanvas(null);
-    setEditingGroupId(null); // Clear group editing state
-    setTempGroupName('');
-    setPlusSign(null);
-    setNodeNamePrompt({ visible: false, name: '' });
-    selectionStartRef.current = null; // a pending marquee pass must not outlive the graph
-    setSelectionStart(null);
-    setDrawingConnectionFrom(null);
-    setHoveredEdgeInfo(null); // Clear edge hover state
-
-    // --- Force-close the pie menu ---
-    setSelectedNodeIdForPieMenu(null);
-    setCurrentPieMenuData(null);
-    setIsPieMenuRendered(false);
-    setCarouselPieMenuStage(1); // Reset to main stage
-    setIsCarouselStageTransition(false); // Reset stage transition flag
-    setIsTransitioningPieMenu(false); // Reset any pending transition
-
-    // Clear pie menu color picker state
-    setPieMenuColorPickerVisible(false);
-    setActivePieMenuColorNodeId(null);
-
-    // Clear abstraction carousel
-
-    setAbstractionCarouselVisible(false);
-    setAbstractionCarouselNode(null);
-    setPendingAbstractionNodeId(null);
-    setCarouselFocusedNodeScale(1.2);
-    setCarouselFocusedNodeDimensions(null);
-    setCarouselFocusedNode(null);
-    setCarouselAnimationState('hidden');
-
-    // Clear pending swap operation
-    setPendingSwapOperation(null);
-
-    // Clear abstraction control panel
-    setAbstractionControlPanelVisible(false);
-    setAbstractionControlPanelShouldShow(false);
-  }, [activeGraphId, abstractionCarouselVisible, justCompletedCarouselExit, isTransitioningPieMenu]); // Protect from cleanup during carousel transitions
+    useCanvasUIStore.getState().dispatchPie({ type: 'GRAPH_CHANGED' });
+  }, [activeGraphId]);
 
   // --- Abstraction Control Panel Management ---
   useEffect(() => {
@@ -3614,23 +3541,6 @@ function NodeCanvas() {
     }
   }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel]);
 
-  // --- Close all control panels on page/graph change ---
-  useEffect(() => {
-    // When activeGraphId changes, close all control panels with exit animation
-    setNodeControlPanelVisible(false);
-    setConnectionControlPanelVisible(false);
-    setAbstractionControlPanelVisible(false);
-    setGroupControlPanelVisible(false);
-    setSelectedGroup(null);
-    // End any decomposition preview — navigating into a definition (e.g. via the hurtle)
-    // leaves the previewed node behind in the old graph; clearing it lets the decompose
-    // control panel dismiss instead of re-showing in the newly opened graph.
-    setPreviewingNodeId(null);
-    // Selection is per-graph: clear the old graph's node selection so it doesn't ghost into
-    // the newly opened graph (and so the decompose/node control panel fully dismisses).
-    setSelectedInstanceIds(new Set());
-    setSelectedNodeIdForPieMenu(null);
-  }, [activeGraphId]);
 
   const handleNodeControlPanelAnimationComplete = useCallback(() => {
     setNodeControlPanelShouldShow(false);
@@ -5203,25 +5113,10 @@ function NodeCanvas() {
   }, [isPieMenuRendered]);
 
   // Watchdog: isTransitioningPieMenu is only ever meant to be true briefly while a
-  // rendered pie menu plays its shrink animation; PieMenu.onExitAnimationComplete
-  // (and, for carousel exits, onCarouselExitAnimationComplete) clears it. But if
-  // the flag is set true when there is no pie menu actually animating out — e.g. a
-  // race where the selection changed or the menu wasn't rendered — that callback
-  // never fires and the flag stays stuck true, which permanently blocks every
-  // future pie menu from rendering (see the gate at `selectedNodeIdForPieMenu &&
-  // !isTransitioningPieMenu`). This timeout is well beyond any real transition
-  // (~400-600ms) and is cleared by the effect cleanup the instant the flag flips
-  // back to false through the normal chain, so it only ever fires in the stuck
-  // case — recovering the pie menu instead of requiring a refresh.
-  useEffect(() => {
-    if (!isTransitioningPieMenu) return;
-    const watchdog = setTimeout(() => {
-      console.warn('[NodeCanvas] Pie-menu transition watchdog fired — clearing stuck isTransitioningPieMenu.');
-      setIsTransitioningPieMenu(false);
-      setIsCarouselStageTransition(false);
-    }, 1200);
-    return () => clearTimeout(watchdog);
-  }, [isTransitioningPieMenu]);
+  // rendered pie menu plays its shrink animation. If it is set with nothing
+  // animating out, the callback that clears it never fires; the pie machine's
+  // 1200 ms watchdog timer (PIE_WATCHDOG_MS) recovers the pie instead of leaving it
+  // blocked until a refresh.
 
   // Sync semanticOrbitActive ref for RAF callbacks
   useEffect(() => {
