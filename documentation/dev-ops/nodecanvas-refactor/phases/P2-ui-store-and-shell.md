@@ -202,7 +202,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **Handoff:** TypeList takes no props: its lists come from `useStableSelector` (new, `src/hooks/`) and its click handlers read the stores. `useActiveGraphNodes` wasn't needed. TypeList commits: 0 in S1/S4/S5/S7; S5 total render ms 103 → 59. B-13 fixed (typing selected nodes from the TypeList).
 
 ### P2.11: App owns the shell layout
-- **Status:** todo
+- **Status:** done (e90dc32, merged 6ce6a00; report reports/P2.11.md)
 - **Lane:** A + C · **Size:** M · **Depends:** P2.08–P2.10
 - **Change:**
   - App renders the flex composition: Header / [Panel | canvas-area | Panel] / TypeList, respecting `useMobileLandscapeShell`.
@@ -210,7 +210,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **Accept:**
   - Layout is pixel-identical on desktop, in the mobile landscape shell, and in overlay-panel mode.
   - Every flow passes.
-- **Handoff:**
+- **Handoff:** `CanvasShell` (App-rendered, memo) owns the container, Header, the panel row and TypeList. NodeCanvas returns `.canvas-area` + `HurtleOrb` and portals its remaining overlays into the shell's `display: contents` slot through `CanvasOverlaySlot` (inline when rendered alone, as in tests). Each P2.06/P5 host that takes an overlay out should render it from CanvasShell (or App) in the same DOM position: after TypeList. Layout checked with `shell-shots.pw.js` + `scripts/compare-shots.mjs`; use them for P2.12 too.
 
 ### P2.12: `PanelResizers` component and a single source for panel width
 - **Status:** todo

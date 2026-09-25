@@ -13,6 +13,17 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.11 done; D-21 (Claude, orchestrator)
+
+- **D-21:** Grant smoke-tests at phase ends (or truly critical points) only. Wave 5 continues from wave 4; next smoke test is the end of P2.
+- **P2.11** (6ce6a00): `CanvasShell` owns the layout (container, Header, panel row, TypeList). NodeCanvas returns the canvas area and portals its remaining overlays into a `display: contents` slot, so their DOM position is unchanged.
+  - New `shell-shots.pw.js` + `scripts/compare-shots.mjs`: nine shell states are pixel-identical to the old layout within antialiasing noise (≤ 99 canvas-edge pixels, the same as two runs of the old code).
+  - Commits in S1/S6/S7 unchanged.
+- **Gates:** `test:ci` PASS (3,549, 68 known, 0 new), Playwright 45 passed (F12 expected), `lint:undef` PASS. NodeCanvas.jsx **17,945**.
+- **Next:** the P2.06 hosts (modals, universe, sync debug, searches, force sim).
+
+---
+
 ## 2026-09-25: P2.10 done, with B-13 (Claude, orchestrator)
 
 - **P2.10** (5a573a5): TypeList takes no props. Its lists come from selectors with equality checks (`useStableSelector`, new) and its click handlers read the stores. `TypeListHost` adds memo and a Profiler. `useActiveGraphNodes` turned out unnecessary.

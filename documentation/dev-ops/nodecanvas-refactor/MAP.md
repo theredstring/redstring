@@ -130,8 +130,8 @@ src/utils/perf/renderProbe.js                                          P0.01
 
 | Region | Anchor | ~Lines | Destination | Task |
 |---|---|---|---|---|
-| Shell root + Header slot | `className="node-canvas-container"`, `<HeaderHost` | 15765–16005 | App shell. Header is `<HeaderHost hidden>` (P2.08) and file operations are a module (P2.06e); App takes the element in P2.11 | P2.11 |
-| Left Panel | `<PanelHost key="left-panel"` | 16006–16024 | `hosts/PanelHost` (P2.09); App takes the element in P2.11 | P2.11 |
+| Canvas root + overlay portal | `placeOverlays(`, `className="canvas-area"` | 15765–16005 | **moved:** the shell is `hosts/CanvasShell` (P2.11); overlays portal into its slot until their hosts land | P2.06, P5 |
+| Left Panel | — | — | **moved:** `hosts/PanelHost`, rendered by CanvasShell | done |
 | `.canvas-area` div + its handlers | `className="canvas-area"` | 16026–16052 | stays | — |
 | Loading / error / empty states | `isUniverseLoading ?` | 16053–16256 | `UniverseHost` | P2.06c |
 | `<svg>` + content group | `<g ref={contentGroupRef}>` | 16258–16274 | stays | — |
@@ -146,8 +146,8 @@ src/utils/perf/renderProbe.js                                          P0.01
 | EdgeGlowIndicator, BackToCivilization, DownloadAppPill, resizers | `edgeGlowMode !== 'off'`, `<BackToCivilization`, `renderPanelResizers()` | 18185–18233 | leaves on the viewport store; `PanelResizers` | P3.10, P2.12 |
 | Header searches, New Web prompt, prompts IIFE | `headerSearchVisible &&`, `newWebPrompt.visible &&` | 18234–18544 | `SearchHosts`, `PromptHosts` | P2.06d, P5.06 |
 | Hurtle orb | `hurtleAnimation &&` | 18545–18562 | `HurtleOrb` | P1.06 |
-| Right Panel | `<PanelHost key="right-panel"` | 18563–18585 | `hosts/PanelHost` (P2.09); App takes the element in P2.11 | P2.11 |
-| TypeList, SaveStatusDisplay | `<TypeListHost`, `<SaveStatusDisplay` | 18586–18596 | TypeList: `hosts/TypeListHost` (P2.10), App takes it in P2.11; SaveStatusDisplay → UniverseHost | P2.11, P2.06c |
+| Right Panel | — | — | **moved:** `hosts/PanelHost`, rendered by CanvasShell | done |
+| SaveStatusDisplay | `<SaveStatusDisplay` | 18586–18596 | TypeList **moved** (`hosts/TypeListHost` in CanvasShell); SaveStatusDisplay → UniverseHost | P2.06c |
 | Control panels, carousel, colour pickers | `<NodeControlPanel`, `<UnifiedBottomControlPanel`, `<ConnectionControlPanel`, `<AbstractionControlPanel`, `<AbstractionCarousel`, `<ColorPicker` | 18597–18845 | P5 hosts | P5.04–P5.06 |
 | GitReconnect, StorageSetup, confirm dialogs, WizardIntentModal, self-loop dialog | `<GitReconnectModal`, `<StorageSetupModal`, `<CanvasConfirmDialog`, `<WizardIntentModal` | 18847–19088 | `UniverseHost`, `PromptHosts`, `WizardHost` | P2.06c, P5.06 |
 | AutoGraph, ForceSim, Help, Settings, Merge, DebugOverlay, LayoutProgress | `<AutoGraphModal` … `<LayoutProgressIndicator` | 19089–19250 | `ModalHosts`, `SyncDebugHost` | P2.06a, P2.06b, P2.06f |
