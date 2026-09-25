@@ -27,6 +27,31 @@ export function useStableSelector(useStore, selector, isEqual) {
   }, [selector, isEqual]));
 }
 
+const shallowRecordEqual = (a, b) => {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => Object.is(a[k], b[k]));
+};
+
+/**
+ * `state[field]` (a plain object keyed by id) narrowed to `ids`, keeping its
+ * identity while those entries are unchanged (P3.01). A write for any other id
+ * doesn't re-render the caller.
+ * @param {Function} useStore
+ * @param {string} field
+ * @param {Iterable<string>} ids  memoize it; a new iterable re-runs the pick
+ */
+export function usePickedEntries(useStore, field, ids) {
+  const last = useRef(null);
+  return useStore(useCallback((state) => {
+    const src = state[field] || {};
+    const next = {};
+    for (const id of ids) if (src[id] !== undefined) next[id] = src[id];
+    if (last.current && shallowRecordEqual(last.current, next)) return last.current;
+    last.current = next;
+    return next;
+  }, [field, ids]));
+}
+
 /** Same length and the same elements, by identity. */
 export const shallowArrayEqual = (a, b) => a === b
   || (a.length === b.length && a.every((x, i) => Object.is(x, b[i])));
