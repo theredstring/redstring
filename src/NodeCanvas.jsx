@@ -74,6 +74,8 @@ import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
+import { usePickedEntries } from './hooks/useStableSelector.js';
+import { createLiveMapView } from './utils/liveMapView.js';
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import PanelResizers from './components/canvas/PanelResizers.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
@@ -1086,13 +1088,13 @@ function NodeCanvas() {
   useEffect(() => {
     clearLabelStabilization();
   }, [activeGraphId]);
-  const graphsMap = useGraphStore(state => state.graphs);
+  // P3.01: `graphs` as a live view (utils/liveMapView.js). It reads the store when
+  // called, so callbacks and hooks never see a stale graph; its identity changes
+  // only when the active web does (or any web, while a node previews its
+  // definition, whose description renders), so an edit elsewhere doesn't render.
+  const graphsViewKey = useGraphStore(state => (useCanvasUIStore.getState().previewingNodeId ? state.graphs : state.graphs.get(state.activeGraphId)));
+  const graphsMap = useMemo(() => createLiveMapView(() => useGraphStore.getState().graphs), [graphsViewKey]);
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
-  // Image cache for auto-enriched thumbnails (separate store, never saved)
-  const imageCacheMap = useImageCache(state => state.images);
-  // Per-prototype "upload in progress" flags — drive the shimmer placeholder.
-  const loadingImagesMap = useImageCache(state => state.loading);
-  const failedImagesMap = useImageCache(state => state.failed);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
   const connectionLabelColorMode = useGraphStore(state => state.connectionLabelColorMode ?? DEFAULT_CONNECTION_LABEL_COLOR_MODE);
@@ -1177,6 +1179,18 @@ function NodeCanvas() {
   // Get the specific active graph to narrow memoization dependencies
   const activeGraph = graphsMap?.get(activeGraphId);
   const activeGraphInstances = activeGraph?.instances;
+
+  // Image cache for auto-enriched thumbnails (separate store, never saved), and the
+  // per-prototype upload/failure flags. Only the entries for prototypes on the
+  // active web (P3.01): a thumbnail landing for another web doesn't render this.
+  const activeProtoIds = useMemo(() => {
+    const ids = new Set();
+    activeGraphInstances?.forEach((instance) => ids.add(instance.prototypeId));
+    return ids;
+  }, [activeGraphInstances]);
+  const imageCacheMap = usePickedEntries(useImageCache, 'images', activeProtoIds);
+  const loadingImagesMap = usePickedEntries(useImageCache, 'loading', activeProtoIds);
+  const failedImagesMap = usePickedEntries(useImageCache, 'failed', activeProtoIds);
 
   // Repair node-groups missing their anchor instance. Node-groups need an anchor (the
   // invisible instance edges connect to) to be a usable connection target. Legacy files,
