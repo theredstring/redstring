@@ -26,7 +26,11 @@ const CanvasModal = ({
   const modalRef = useRef(null);
   const openedAtRef = useRef(0);
   const theme = useTheme();
-  const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
+  // Three fields, not the whole store: a selector-less useGraphStore() re-rendered
+  // every modal, open or closed, on every write anywhere (F-78).
+  const leftPanelExpanded = useGraphStore(s => s.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore(s => s.rightPanelExpanded);
+  const typeListMode = useGraphStore(s => s.typeListMode);
 
   useEffect(() => {
     if (isVisible) openedAtRef.current = Date.now();

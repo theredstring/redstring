@@ -196,7 +196,11 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
   const [minConfidence, setMinConfidence] = useState(0); // Confidence filter for semantic connections
   const connectionListRef = useRef(null);
 
-  const { activeGraphId, nodePrototypes, graphs, edges } = useGraphStore();
+  // Per field, not the whole store (F-78).
+  const activeGraphId = useGraphStore(s => s.activeGraphId);
+  const nodePrototypes = useGraphStore(s => s.nodePrototypes);
+  const graphs = useGraphStore(s => s.graphs);
+  const edges = useGraphStore(s => s.edges);
 
   // Measure container width for responsive text hiding
   useEffect(() => {

@@ -22,7 +22,11 @@ const PanelModal = ({
 }) => {
   const modalRef = useRef(null);
   const theme = useTheme();
-  const { leftPanelExpanded, rightPanelExpanded, typeListMode } = useGraphStore();
+  // Three fields, not the whole store: a selector-less useGraphStore() re-rendered
+  // every modal, open or closed, on every write anywhere (F-78).
+  const leftPanelExpanded = useGraphStore(s => s.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore(s => s.rightPanelExpanded);
+  const typeListMode = useGraphStore(s => s.typeListMode);
 
   // Get viewport bounds for positioning
   const viewportBounds = useViewportBounds(
