@@ -83,7 +83,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 ### P1.05: Panel resize without a commit every frame
 - **Status:** todo
 - **Lane:** A · **Size:** M · **Depends:** none
-- **Findings:** F-04
+- **Findings:** F-04 (measured: S9 renders NodeCanvas once per mousemove, 60 for the drag)
 - **Change:**
   - While dragging, write the width imperatively (a style or CSS variable on the panel element) and commit `setLeft/RightPanelWidth` on drag end.
   - First list everything that reads the width during a drag: overlay layout, `getFramingRegion`, `useViewportBounds`, and Panel itself.
@@ -95,7 +95,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:**
 
 ### P1.06: `HurtleOrb` component
-- **Status:** todo
+- **Status:** done (b235244, 0d85cb7 B-04, 3fda241 F16; report reports/P1.06.md)
 - **Lane:** A (plus a new file) · **Size:** M · **Depends:** none
 - **Findings:** F-05, B-04
 - **Change:**
@@ -109,6 +109,9 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - The orb looks the same.
   - The orb size scales with zoom (B-04).
 - **Handoff:**
+  - **S13:** 35 → 12 commits, and 31 → 8 NodeCanvas runs for the whole hurtle.
+  - **During the flight itself:** 2 runs: the launch, and hover vision clearing as the pie button is pressed. The rest is the graph switch.
+  - `components/canvas/layers/` now exists.
 
 ### P1.07: Remove debug work from render
 - **Status:** done (d26dc7a; report reports/P1.07.md)
@@ -155,7 +158,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 ### P1.10: Fix the pie menu memo dependencies
 - **Status:** todo
 - **Lane:** A · **Size:** M · **Depends:** P0.03 (flow F6)
-- **Findings:** F-08, B-06
+- **Findings:** F-08, B-06, F-75 (S6 sets `currentPieMenuData` 5 times; `--explain S6` shows each one)
 - **Change:**
   - In `nodePieMenuPages`, `targetPieMenuButtons` and `edgePieMenuButtons`, remove from the dependency arrays:
     - `panOffset` and `zoomLevel`, which the bodies don't read
@@ -183,7 +186,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:** The listener attaches once per mount: 4 before, 9 after five re-renders; it stays at 4 now. The orchestrator verified the handler reads no hook params from closure (only paramsRef).
 
 ### P1.12: Stop selection from re-solving every label
-- **Status:** todo. Split: P1.12a (investigation + label DOM snapshot baselines, Lane B) in wave 2; P1.12b (implementation, Lane A) after it
+- **Status:** P1.12a done (9b6e012, 3a5f8ff; report reports/P1.12a.md). P1.12b (implementation, Lane A) todo, unblocked by D-18
 - **Lane:** A · **Size:** M · **Depends:** P0.04 (to measure); P0.05 (label DOM baselines)
 - **Findings:** F-21
 - **Change:**
@@ -194,7 +197,12 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Accept:**
   - In S7, selecting a node doesn't re-solve every routed label. Verify with the `__edgePerf` or label-solve counters.
   - Label positions for the medium fixture match the pre-change DOM snapshot in every routing style.
-- **Handoff:** See P1.12a's report once it lands.
+- **Handoff:** (P1.12a)
+  - **Why selection is a dependency** (F-21): the 6 px selection stroke is part of the hitbox that the drawn line and the crossing index both trim against.
+  - **Recommended fix:** V1 + V2 in the report. Skip the index rebuild when the polylines are unchanged, and trim against the unselected hitbox.
+  - **Effect:** 0 label re-solves on select instead of all of them; the at-rest snapshots are unchanged.
+  - Labels stop shifting on select (F-72). Grant OK'd that (D-18).
+  - Label baselines: `src/NodeCanvas.labelSnapshot.test.jsx`, all four styles.
 
 ### P1.13: Batch of small bug fixes
 - **Status:** done for P1 scope: B-07 fixed (c7453a4). B-03 decided (D-17): the welcome screen returns as its own host, tracked outside P1 (report reports/P1.13.md)

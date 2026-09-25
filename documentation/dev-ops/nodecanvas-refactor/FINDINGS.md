@@ -39,16 +39,20 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - A worker reply that arrives after mouseup can restore the rectangle. → B-02.
 - → P1.04
 
-**F-04. Panel resize sets state every frame.** VERIFIED. `applyResizeUpdate` calls `setLeftPanelWidth`/`setRightPanelWidth` on every rAF during a drag (~1182/1187). `getFramingRegion` depends on these widths. → P1.05, P2.12
+**F-04. Panel resize sets state every frame.** VERIFIED; **measured (P0.04): S9, a 300 px drag of the right resizer in 60 moves, renders NodeCanvas 60 times, all `rightPanelWidth`.** `applyResizeUpdate` calls `setLeftPanelWidth`/`setRightPanelWidth` on every rAF during a drag (~1182/1187). `getFramingRegion` depends on these widths. → P1.05, P2.12
 
-**F-05. Hurtle sets state every frame.** VERIFIED. `setHurtleAnimation(prev => ({...prev, …}))` runs on every rAF for the whole ~400 ms flight (~14238). → P1.06
+**F-05. Hurtle sets state every frame.** VERIFIED. **→ resolved in P1.06 (b235244): S13 went from 35 commits (31 NodeCanvas runs) to 12 (8).** `setHurtleAnimation(prev => ({...prev, …}))` runs on every rAF for the whole ~400 ms flight (~14238). → P1.06
 
-**F-06. Carousel physics drives NodeCanvas state every frame.** VERIFIED.
+**F-06. Carousel physics drives NodeCanvas state every frame.** VERIFIED; **measured (P0.04): S12 (open, 3 steps, close) is about 200 commits and 155 NodeCanvas renders: `currentPieMenuData` ×69, `carouselFocusedNodeScale` ×53, `carouselFocusedNodeDimensions` ×13.** The worst scenario measured.
 - `AbstractionCarousel.jsx` (~745–791) sets `carouselFocusedNodeDimensions`, `Scale` and `Node` in NodeCanvas state every physics frame.
 - The pie-data effect then cascades on top of that.
 - → P5.04
 
 **F-07. Whole-collection subscriptions re-render NodeCanvas on writes anywhere in the universe.** VERIFIED. **→ partly: no-op guards landed in P1.09 (2aaa2cf, 4f97ba0); whole-collection subscriptions remain until P3.01**
+- **Measured (P0.04):** each write costs one NodeCanvas render plus one render bailout (the body runs a second time and is discarded):
+  - S11: 10 `updateGraph` calls on a graph that isn't on screen → 10 renders + 9 bailouts, through the `graphs` subscription.
+  - S10a: 20 thumbnails for nodes on screen → 20 renders + about 20 bailouts, through the image cache.
+  - Each of those renders also re-renders the right panel's whole content (F-74).
 - NodeCanvas subscribes to all of these (~1443–1529):
   - `graphs`, `nodePrototypes`, `edges`, `edgePrototypes`
   - `savedNodeIds`, `openGraphIds`
@@ -58,7 +62,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - `graphStore.setSelectedEdgeIds` always builds a new Set and `console.log`s (graphStore ~7386). NodeCanvas calls it with `new Set()` even when the selection is already empty (~6363, ~14464, ~18702).
 - → P1.08, P1.09, P3.01
 
-**F-08. Opening a pie menu costs about 5–8 commits.** VERIFIED (sequence INFERRED).
+**F-08. Opening a pie menu costs about 5–8 commits.** VERIFIED (sequence INFERRED). **Measured (P0.04): opening a pie and clicking it closed (S6) is 30 commits and 19 NodeCanvas runs. `currentPieMenuData` alone is set 5 times; the rest is F-75.**
 - `nodePieMenuPages` (~8784, deps ~9112) and `targetPieMenuButtons` (~9115, deps ~9735) depend on:
   - `panOffset` and `zoomLevel`, which neither body reads
   - `graphsMap`, `edgesMap`, `nodes` and `savedNodeIds`
@@ -122,8 +126,13 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - Each rebuild bumps `index.generation` (`labelCrossingGenerationRef`), and that value is part of every label's cache signature (`renderConnectionEdge.jsx` ~1444).
 - Every routed label therefore goes back through `chooseRoutedLabelPlacement`.
 - `labelObstacleOptions` (~5208) also depends on the selection and on `visibleNodeIds`.
-- **We don't yet know why selection is a dependency.**
-- → P1.12
+- **Why (answered in P1.12a):** a selected node's hitbox grows by the 6 px selection stroke (`getNodeHitbox(node, dims, isSelected)`).
+  - The drawn connection ends at that bigger box.
+  - `occluderFor` trims the indexed polylines the same way, so that labels only dodge what's drawn.
+  - So selection really does change the geometry, by 6 px at one end of the selected node's own connections.
+- In the label fixture, that moves 2 labels (clean) or 1 (lombardi) when the hub is selected, and none in manhattan.
+- **Every other label that moves on select moves because of F-72**, not because of geometry.
+- → P1.12b: V1 + V2 in reports/P1.12a.md. It stops labels shifting on select, which Grant OK'd (D-18).
 
 **F-22. Groups are laid out again on every render, inside JSX.** VERIFIED.
 - The groups IIFE (~16365–17066) does a `hydratedNodes.filter` per group, which is O(groups × nodes).
@@ -295,7 +304,7 @@ This state is used across clusters and must move to a store before the clusters 
 - Only Build/Release is active, and the release workflow has no test step.
 - About 67 tests were already failing according to 4dfb1e1's commit message. Today's count is unconfirmed.
 
-**F-63. Nothing measures a full render, and the 143 ms figure is stale.** VERIFIED.
+**F-63. Nothing measures a full render, and the 143 ms figure is stale.** VERIFIED. **→ resolved in P0.04: `npm run perf:canvas` (S1–S13, profile build, median of 5; baseline in METRICS.md) and `--explain` (F-73).** On chambers, NodeCanvas's longest single commit in any scenario is now about 13 ms (28 ms on the 600-node stress graph), not 143.
 - Existing probes: `window.__zoomPerf`, `__edgePerf`, `__edgeCacheStats` and `__spritePerf`, plus `window.__diag` (`canvasDiagnostics.js`).
 - Missing: a React Profiler, `performance.mark`, a render counter, and a benchmark script.
 - **The "143 ms per render" figure is stale.** It is quoted at ~738, ~3949, ~5241, `useCanvasTransform.js:19/129` and `renderConnectionEdge.jsx:30`. It was measured around 2026-08-07 with culling **off**, before label sprites were added.
@@ -376,6 +385,48 @@ This state is used across clusters and must move to a store before the clusters 
   - "43 setter call sites" is 43 references, of which 29 are calls.
   - The prompt counts dropped after wave 1.
 
+**F-72. Connection-label placement is path-dependent (P1.12a).** VERIFIED in jsdom on the label fixture.
+- Re-solving identical geometry moves labels. A no-op write (the `edges` Map replaced by an identical copy) re-solves every label:
+  - The 1st re-solve after mount moves 2 of 16 labels (manhattan) or 5 (clean).
+  - The 2nd moves 0 (manhattan) or 1 more (clean).
+  - Lombardi doesn't move.
+- Cause: placement has hysteresis (`labelStabilization`), and the solve at mount has nothing to be sticky against.
+- In the app, any edge write anywhere replaces `edges` (F-07), so labels can shift on an edit somewhere else in the universe.
+- It also makes every selection reshuffle labels, which is most of what selection "moves" (F-21).
+- → P1.12b's V1 (no rebuild when the polylines are unchanged) removes the no-op re-solves. Whether the hysteresis itself should change is outside the refactor: raise it with Grant.
+
+**F-73. "NodeCanvas commits" are not NodeCanvas renders (P0.04).** VERIFIED.
+- The probe counts every commit under `<Profiler id="NodeCanvas">`, including commits in which only a child rendered (the pie's animation, the panel).
+- `perf:canvas` therefore reports three numbers:
+  - commits
+  - how often the NodeCanvas function **ran**
+  - how many of those runs **rendered** (the rest are bailouts: the whole body ran and React discarded it)
+
+  Counted from the fiber after each commit, with no app code; equal to a counter in the function body on 8 scenarios.
+- **`npm run perf:canvas -- --explain S6`** prints each commit of a scenario. For each one it shows which NodeCanvas state or store hook changed (state hooks by name) and which children rendered. Use it to see what a card has to fix, and afterwards what it did fix.
+
+**F-74. In a real universe, children multiply every NodeCanvas render (P0.04).** VERIFIED on chambers with `--explain`.
+- **Every NodeCanvas render** re-renders the Header's **145 `HeaderGraphTab`s** (chambers has 145 open graphs) and 35 `EdgeType` chips.
+- **Every selection change and every `graphs` write** also re-renders the right panel's whole content: about 270 `LazySection`, 270 `ChevronRight` and 270 `StandardDivider`. A `graphs` write also re-renders the left panel's 51 `DraggableNodeComponent`s.
+- So one NodeCanvas render in real use is several hundred component renders. F-13 (unmemoized shell) and F-50 (Panel's comparator) are where this comes from.
+- → P2 (the shell leaves NodeCanvas; Header tabs and Panel get their own subscriptions).
+
+**F-75. What a pie open and close actually renders (S6, 19 NodeCanvas runs) (P0.04).** VERIFIED with `--explain`.
+
+| Step | NodeCanvas runs | What changes |
+|---|---|---|
+| Press and release on the node | 2 | `longPressingInstanceId` set on **every** press, cleared on release (~10568), even for a plain click |
+| Selection lands | 2 | `selectedInstanceIds`, then an effect sets `selectedNodeIdForPieMenu`, `lastSelectedNodePrototypes`, `lastSingleSelectedInstanceId` |
+| Pie shows | 1 | `isPieMenuRendered` + `currentPieMenuData` (F-08's copy into state) |
+| Hover vision | 1 | `hoveredNodeForVision` |
+| Framing animation settles | 4 | `settledPan`/`settledZoom`, then `currentPieMenuData` again (F-08), culling (`visibleNodeIds`, `visibleEdges`), `labelSpriteVersion` |
+| Click on empty canvas | 2 | `isPanning` true then false (~11594): set on every canvas press, before any movement |
+| Deselect | 4 | `selectedInstanceIds`, then `currentPieMenuData` twice with the pie target cleared, plus 1 bailout |
+| Pie exit | 3 | `labelSpriteVersion`, `isPieMenuRendered` false, plus 1 bailout |
+
+- The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
+- → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
+
 ---
 
 ## Bugs found along the way (B-)
@@ -387,7 +438,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-01 | A mouse marquee release selects group-anchor instances: the release path (~12170) skips the anchor filter that `selectionFromRect` applies | **FIXED** 8702ad2 (P1.04). F4's B-01 flow passes as a normal test | done |
 | B-02 | A marquee worker reply that arrives after mouseup can restore a selection rectangle that was just cleared | **FIXED** ea34291 (P1.04): the worker round trip is gone | done |
 | B-03 | The `openOnboardingModal` listener calls `setShowOnboardingModal` (~2748), which is never defined. The error is swallowed, so the event does nothing | VERIFIED; **decided (D-17)**: restore a welcome screen as an App-level host, then point the listener at it | P1.13 |
-| B-04 | `startHurtleAnimationFromPanel` reads zoom from `svg.style.transform` (~14387), but the transform is now an attribute on the inner `<g>`. So zoom reads as 1 and the orb is always 30 px. `startHurtleAnimation` also uses `canvasSize` without listing it as a dependency (~14365) | VERIFIED code, INFERRED effect | P1.06 |
+| B-04 | `startHurtleAnimationFromPanel` reads zoom from `svg.style.transform` (~14387), but the transform is now an attribute on the inner `<g>`. So zoom reads as 1 and the orb is always 30 px. `startHurtleAnimation` also uses `canvasSize` without listing it as a dependency (~14365) | **FIXED** 0d85cb7 (P1.06): reads `zoomLevelRef`; `canvasSize` listed. F16 checks the orb's size against the zoom | done |
 | B-05 | Node handlers are stale. Node's comparator ignores functions, and `handleNodeMouseDown` (~10788) reads `isPaused`, `middleMouseZoomEnabled`, `rightPanelExpanded` and `nodeLiftDelay` from render scope. For example, after collapsing the right panel, double-clicking a node that hasn't re-rendered may not re-open it. `touch.handleNode*` has the same problem | VERIFIED code and effect. Reproduced by F12 (P0.03b): after Save from a Thing's right-click menu, the same Thing's menu still offers "Save", because the frozen `onContextMenu` closure holds the old `savedNodeIds`. The test is `test.fail` until P3.02 | P3.02 |
 | B-06 | `nodePieMenuPages` / `targetPieMenuButtons` read `rightPanelExpanded` (~8889, ~8929) and `wizardEnabled` (~9048, ~9419) but don't list them as dependencies, so the pie buttons go stale | VERIFIED | P1.10 |
 | B-07 | `onNavigateDefinition` mutates the previous Map inside its state updater (`new Map(prev.set(…))`, ~17509, ~17944, ~18041). That updater is impure | **FIXED** c7453a4 | P1.13 |

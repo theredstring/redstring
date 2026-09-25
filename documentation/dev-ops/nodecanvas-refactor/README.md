@@ -164,10 +164,10 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
 **In flight** (edit this when you claim or finish a task). Wave 2 is based on `refactor/wave2-integration` (main + P0.02/P0.03):
-- **Lane A:** ~~P1.03, P1.04 (+ B-01)~~ merged (7c188ba) → P1.06 next
+- ~~Lane A: P1.03, P1.04 (+ B-01)~~ merged (7c188ba); ~~P1.06 (+ B-04)~~ merged (ebe2242)
 - ~~Lane C: P0.06 (CI) + X-07~~ merged (7b74851)
-- **Lane B:** P0.04 (perf scenarios + baseline)
-- **Lane B:** P1.12a (label investigation + DOM snapshot baselines)
+- ~~Lane B: P0.04 (perf scenarios + baseline)~~ merged (0396b65)
+- ~~Lane B: P1.12a (label investigation + DOM snapshot baselines)~~ merged (a18248e); P1.12b unblocked (D-18)
 - ~~Lane B: P2.01~~ pre-staged and merged into wave2-integration (5121cc7)
 - ~~Lane B: P0.03b~~ flows F8–F13 + B-09 fix, merged into wave2-integration (517e9d8)
 
@@ -186,8 +186,8 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 
 | Phase | File | Goal | Status |
 |---|---|---|---|
-| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | in progress: P0.01, P0.02, P0.03 (+b), P0.05, P0.06, P0.07 done; P0.04 in wave 2 |
-| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.03, P1.04, P1.07, P1.09, P1.11 done; P1.13 partial (B-03 needs Grant) |
+| P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | **done**: P0.01–P0.07 (P0.03 + P0.03b) |
+| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.03, P1.04, P1.06, P1.07, P1.09, P1.11, P1.12a done; P1.12b unblocked (D-18); P1.13 partial (B-03 needs Grant); todo P1.05, P1.08, P1.10 |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |
@@ -218,6 +218,12 @@ Answer them here; the answer becomes a DECISION.
 - ~~Q2: Fixture universe.~~ Answered: use Claude's Chambers. See D-15 and F-66.
 - ~~Q3: Playwright.~~ Answered: yes. See D-12.
 - ~~Q4: Concurrency.~~ Answered: parallel worktrees, Claude's call. See D-14.
+- ~~Q6: may connection labels stay put when you select a node?~~ Answered yes (D-18). The original question:
+  - Today, selecting any node re-solves every connection label on the graph, and a few land somewhere else each time: 1–7 of 16 in the test graph.
+  - Only 1–2 of those move because the geometry changed: the selected node's outline is 6 px thicker, so its own connections end 6 px sooner.
+  - The rest move because the label solver doesn't give the same answer twice (F-72).
+  - The fix for the slowness (P1.12b) stops the re-solve, so labels would stay exactly where they were when you select or deselect. The labels' resting positions don't change.
+  - Recommended: yes. Details: reports/P1.12a.md.
 - **Q5 (needed by P4.01): touch constants.** `useCanvasTouch` uses different zoom limits and movement thresholds from NodeCanvas (F-44). Which values are intended? Ask when P4 starts.
 
 ## Files in this folder

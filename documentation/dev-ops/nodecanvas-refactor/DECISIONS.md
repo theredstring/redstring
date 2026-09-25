@@ -112,3 +112,8 @@ This file records calls that nobody should re-argue mid-task.
 - Keep both "Show Welcome Screen" menu items (the Help menu and the Electron app menu). Restore a real welcome screen for them to open.
 - Build it as its own App-level host component, not inside `NodeCanvas.jsx` (D-13). Check the removed welcome modal (5d6e650) for what it showed.
 - Until then, the dead `openOnboardingModal` listener in NodeCanvas stays. It gets rewired to the new host when that lands (P2.06c or a standalone card).
+
+**D-18. Connection labels may stay put when a node is selected (Q6, unblocks P1.12b).** *Decided (Grant: "i don't think that's a big deal at all. that's fine."), 2026-09-25.*
+- P1.12b may stop re-solving labels on selection (V1 + V2 in reports/P1.12a.md), even though labels then no longer shift on select.
+- The "at rest" snapshots must stay identical.
+- The "selected" snapshots get updated, and every "labels that moved" list becomes `[]`.

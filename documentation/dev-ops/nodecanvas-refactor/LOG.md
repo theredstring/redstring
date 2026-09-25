@@ -13,6 +13,34 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P0.04, P1.06 and P1.12a merged; perf numbers explained (Claude, orchestrator)
+
+- **Merged into wave2 integration:**
+  - P1.12a at a18248e
+  - P0.04 at 0396b65
+  - P1.06 + B-04 at ebe2242
+- **Integration checks:**
+  - `lint:undef` PASS
+  - `test:ci` PASS (3,512 tests, 68 known, 0 new)
+  - Playwright 34 passed
+  - build OK, with no fixture code in `dist`
+  - label snapshots unchanged by P1.03/P1.04
+- **P0.04:**
+  - Baseline in METRICS, pre-refactor vs now: drag-pan 246 → 9 commits, touch pan 209 → 11, marquee 100 → 52.
+  - Commits include children rendering on their own, so perf runs now also count NodeCanvas's own runs (F-73).
+  - `perf:canvas -- --explain <id>` names the state behind every render. It found:
+    - F-74: every render re-renders 145 header tabs, and every selection re-renders about 270 panel sections
+    - F-75: a pie open/close is 19 NodeCanvas runs, most of it press/pan flags and the selection cascade
+- **P1.06:** S13 went from 35 to 12 commits, and from 31 to 8 NodeCanvas runs; 2 runs during the flight.
+- **P1.12a:**
+  - Selection is a real label input: the 6 px selection stroke (F-21).
+  - Label placement is path-dependent (F-72).
+  - Grant OK'd labels staying put on select (D-18), so P1.12b is unblocked.
+- **Grant:** stop spending time on measurement and keep refactoring. A second full baseline (40 min) was stopped; per card, measure only the scenarios it names.
+- **Next:** Lane A in order: P1.12b, P1.10, P1.05, P1.08.
+
+---
+
 ## 2026-09-24: Wave-2 agents found cancelled; orchestrator finished P0.06, X-07, P1.04 (Claude, orchestrator)
 
 - **All four wave-2 agents stopped** when the old session ended (about 21:06), each with uncommitted work.

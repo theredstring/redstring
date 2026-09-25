@@ -127,7 +127,7 @@ Right now neither can be answered (F-60 to F-63).
   - B-09 is fixed (one line in useNodeDrag).
 
 ### P0.04: Perf scenarios and baseline
-- **Status:** todo
+- **Status:** done (ad873f2, c34b0ca, 97c5895, b62eda4; report reports/P0.04.md)
 - **Lane:** B · **Size:** M · **Depends:** P0.01, P0.02, P0.03
 - **Findings:** F-63
 - **Change:**
@@ -143,6 +143,10 @@ Right now neither can be answered (F-60 to F-63).
   - The audit's expectations should reproduce roughly: S1 about 60 commits per second, S6 5–8 commits.
   - If they don't, add a FINDING explaining why.
 - **Handoff:**
+  - **Before and after each card:** run `npm run perf:canvas -- --scenario <ids>`, about 45 s per scenario. Record it in METRICS' per-task results.
+  - **Read the "NodeCanvas ran (rendered)" column, not just commits:** commits include children rendering on their own (F-73).
+  - **To see what a card has to fix:** `npm run perf:canvas -- --explain <id>` names the state behind every render. That's how F-74/F-75 were found.
+  - **The audit's guesses:** S1 was worse than guessed (2 commits per frame, F-67). S6 was far worse (19 runs, not 5–8: F-75). S10b and S11 cost a render plus a bailout per write (F-07).
 
 ### P0.05: Harden the jsdom render-contract test
 - **Status:** done (0b2bae9, 1803b7c; report reports/P0.05.md)
