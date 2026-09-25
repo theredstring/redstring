@@ -149,6 +149,9 @@ import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
 import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED } from './components/canvas/camera/framing.js';
+import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex } from './components/canvas/edges/edgeGeometry.js';
+import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
+import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -1099,55 +1102,7 @@ function NodeCanvas() {
   }, [activeGraphId, graphsMap, nodePrototypesMap, storeActions]);
 
   // <<< Universe File Loading >>>
-  useEffect(() => {
-    const tryUniverseRestore = async () => {
-      try {
-        // Wait for backend to finish loading if it's in progress
-        // Check if backend has already loaded data
-        const currentState = useGraphStore.getState();
-        const hasBackendLoadedData = currentState.nodePrototypes &&
-          (currentState.nodePrototypes instanceof Map ? currentState.nodePrototypes.size > 0 : Object.keys(currentState.nodePrototypes).length > 0);
-
-        if (hasBackendLoadedData) {
-          // console.log('[NodeCanvas] Backend already loaded universe data, skipping old fileStorage restore');
-          // Backend has loaded data, don't try old restore path
-          return;
-        }
-
-        // Wait a moment for backend to load if universe-backend-ready event hasn't fired yet
-        if (typeof window !== 'undefined' && !window._universeBackendReady) {
-          // console.log('[NodeCanvas] Waiting for universe backend to finish loading...');
-          await new Promise((resolve) => {
-            const timeout = setTimeout(resolve, 2000); // Max wait 2 seconds
-            const handler = () => {
-              clearTimeout(timeout);
-              window.removeEventListener('universe-backend-ready', handler);
-              resolve();
-            };
-            window.addEventListener('universe-backend-ready', handler);
-          });
-        }
-
-        // Check again after waiting
-        const stateAfterWait = useGraphStore.getState();
-        const hasDataAfterWait = stateAfterWait.nodePrototypes &&
-          (stateAfterWait.nodePrototypes instanceof Map ? stateAfterWait.nodePrototypes.size > 0 : Object.keys(stateAfterWait.nodePrototypes).length > 0);
-
-        if (hasDataAfterWait) {
-          // console.log('[NodeCanvas] Backend loaded universe data while waiting, skipping old restore');
-          return;
-        }
-
-        // Do not run legacy restore fallback here; allow backend to finalize hydration.
-        // Onboarding modal will appear if no universe is loaded.
-      } catch (error) {
-
-        storeActions.setUniverseError(`Universe restore failed: ${error.message}`);
-      }
-    };
-
-    tryUniverseRestore();
-  }, []); // Run once on mount
+  useEffect(() => restoreUniverseOnMount({ storeActions }), []); // Run once on mount
 
   // Clean up any invalid open graphs on mount and when store changes
   useEffect(() => {
@@ -1158,71 +1113,7 @@ function NodeCanvas() {
   const trackpadZoomEnabled = useCanvasUIStore(s => s.trackpadZoomEnabled);
 
   // <<< Prevent Page Zoom >>>
-  useEffect(() => {
-    const preventPageZoom = (e) => {
-      // Detect zoom keyboard shortcuts
-      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
-      const isZoomKey = e.key === '+' || e.key === '=' || e.key === '-' || e.key === '0';
-      const isNumpadZoom = e.key === 'Add' || e.key === 'Subtract';
-
-      // Prevent keyboard zoom shortcuts
-      if (isCtrlOrCmd && (isZoomKey || isNumpadZoom)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-
-      // Prevent F11 fullscreen (can interfere with zoom perception)
-      if (e.key === 'F11') {
-        e.preventDefault();
-        e.stopPropagation();
-        return false;
-      }
-    };
-
-    const preventWheelZoom = (e) => {
-      if (trackpadZoomEnabled) return;
-      // Prevent Ctrl+wheel zoom (both Mac and Windows)
-      if (e.ctrlKey || e.metaKey) {
-        // Only prevent if this wheel event is NOT over our canvas or panel tab bar
-        const isOverCanvas = e.target.closest('.canvas-area') || e.target.closest('.canvas');
-        const isOverPanelTabBar = e.target.closest('[data-panel-tabs="true"]');
-        if (!isOverCanvas && !isOverPanelTabBar) {
-          e.preventDefault();
-          e.stopPropagation();
-          return false;
-        }
-      }
-    };
-
-    const preventGestureZoom = (e) => {
-      if (trackpadZoomEnabled) return;
-      // Allow gestures within our canvas so we can handle them ourselves
-      const isOverCanvas = e.target && (e.target.closest && (e.target.closest('.canvas-area') || e.target.closest('.canvas')));
-      if (isOverCanvas) return; // let container-level handlers process
-      // Prevent page-level gesture zoom elsewhere
-      if (e.scale && e.scale !== 1) {
-        e.preventDefault();
-        try { e.stopPropagation(); } catch { }
-        return false;
-      }
-    };
-
-    // Add global event listeners
-    document.addEventListener('keydown', preventPageZoom, { passive: false, capture: true });
-    document.addEventListener('wheel', preventWheelZoom, { passive: false, capture: true });
-    document.addEventListener('gesturestart', preventGestureZoom, { passive: false, capture: true });
-    document.addEventListener('gesturechange', preventGestureZoom, { passive: false, capture: true });
-    document.addEventListener('gestureend', preventGestureZoom, { passive: false, capture: true });
-
-    return () => {
-      document.removeEventListener('keydown', preventPageZoom, { capture: true });
-      document.removeEventListener('wheel', preventWheelZoom, { capture: true });
-      document.removeEventListener('gesturestart', preventGestureZoom, { capture: true });
-      document.removeEventListener('gesturechange', preventGestureZoom, { capture: true });
-      document.removeEventListener('gestureend', preventGestureZoom, { capture: true });
-    };
-  }, [trackpadZoomEnabled]);
+  useEffect(() => preventPageZoom({ trackpadZoomEnabled }), [trackpadZoomEnabled]);
 
   // Raw per-graph collections, read straight off the active graph rather than through
   // a memo over `graphsMap` (which Immer replaces on every write in the universe).
@@ -2506,86 +2397,12 @@ function NodeCanvas() {
   // visibly reshuffle for the whole of a pan.
   const labelCrossingGenerationRef = useRef(0);
   const labelCrossingLastRef = useRef(null); // { polylines, index } of the last build
-  const labelCrossingIndex = useMemo(() => {
-    if (!showConnectionNames || !isRoutedStyle) return null;
-    if (edges.length < 2 || edges.length > LABEL_CROSSING_BUDGET) return null;
-
-    // A label may only dodge what is actually DRAWN. Every routed style runs its
-    // geometry to the node CENTRES and lets the node body cover the ends, so the
-    // raw polyline carries a stretch nobody can see; indexing it makes the placer
-    // count crossings against lines that aren't there, and since betterPlacement
-    // ranks crossings above everything else, one phantom pushes a label off a
-    // connection that had clear space. Between two ordinary nodes the phantom is
-    // a node-radius at each end; on a THING-GROUP anchor it's the group's whole
-    // outer box, which is why labels near a group were floating off their lines.
-    //
-    // Always the UNSELECTED hitbox: trimming by the 6 px selection outline made
-    // every selection re-solve every label, which reshuffles a few (F-21, F-72).
-    // Labels stay put on select instead (D-18).
-    const occluderFor = (node, dims) => {
-      const vb = node.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id)?.outerBounds : null;
-      return vb
-        ? { minX: vb.x, minY: vb.y, maxX: vb.x + vb.width, maxY: vb.y + vb.height }
-        : getNodeHitbox(node, dims, false);
-    };
-    const visibleOnly = (pts, srcNode, dstNode, sDims, dDims) => {
-      if (!pts || pts.length < 2) return pts;
-      const fromSource = trimRouteEnd(pts, occluderFor(srcNode, sDims), true, 0).points;
-      return trimRouteEnd(fromSource, occluderFor(dstNode, dDims), false, 0).points;
-    };
-
-    const polylines = new Map();
-    for (const edge of edges) {
-      const destId = edge.destinationId || edge.targetId;
-      // Self-loops hug their own node, where a label has nowhere better to go.
-      if (!destId || edge.sourceId === destId) continue;
-      const srcRaw = nodeById.get(edge.sourceId);
-      const dstRaw = nodeById.get(destId);
-      if (!srcRaw || !dstRaw) continue;
-      const sDimsRaw = baseDimsById.get(edge.sourceId);
-      const dDimsRaw = baseDimsById.get(destId);
-      if (!sDimsRaw || !dDimsRaw) continue;
-      // Route from the same boxes the renderer routes from. occluderFor below
-      // already trimmed against the group's REAL outer bounds while these
-      // endpoints came from the anchor's stored instance box, so for any
-      // connection into a node-group the indexed polyline and the drawn one
-      // were different lines. See anchorGeometryFor.
-      const { node: srcNode, dims: sDims } = anchorGeometryFor(srcRaw, sDimsRaw);
-      const { node: dstNode, dims: dDims } = anchorGeometryFor(dstRaw, dDimsRaw);
-
-      let raw;
-      if (routingStyle === 'manhattan') {
-        raw = computeManhattanRouting(
-          srcNode, dstNode, sDims, dDims, manhattanBends,
-          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
-        ).points;
-      } else if (routingStyle === 'clean') {
-        raw = computeCleanRouting(
-          edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing
-        ).points;
-      } else {
-        const { p, q, arc } = lombardiArcFor(
-          edge, srcNode, dstNode, sDims, dDims, lombardiTangents, lombardiCurvature,
-          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: lombardiLaneSpacing }
-        );
-        raw = arc ? sampleArc(arc, 24) : [p, q];
-      }
-      polylines.set(edge.id, visibleOnly(raw, srcNode, dstNode, sDims, dDims));
-    }
-    // Same geometry as last time (a write that replaced `edges` without moving
-    // anything)? Keep the index and its generation: a new one re-solves every label.
-    const last = labelCrossingLastRef.current;
-    if (last && samePolylines(last.polylines, polylines)) return last.index;
-    const index = buildEdgeSegmentIndex(polylines);
-    // Stamped so a cached placement names the landscape it was solved against
-    // (labelSignature). Refs written in a memo body: nothing renders from them.
-    if (index) index.generation = ++labelCrossingGenerationRef.current;
-    labelCrossingLastRef.current = { polylines, index };
-    return index;
-  }, [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById,
-    routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
-    lombardiTangents, lombardiCurvature, edgeCurveInfo,
-    orthogonalLaneSpacing, lombardiLaneSpacing, anchorGeometryFor]);
+  const labelCrossingIndex = useMemo(() => computeLabelCrossingIndex({
+    showConnectionNames, isRoutedStyle, edges, LABEL_CROSSING_BUDGET, anchorPositionUpdatesRef, nodeById,
+    baseDimsById, anchorGeometryFor, routingStyle, manhattanBends, edgeCurveInfo, orthogonalLaneSpacing,
+    cleanLaneOffsets, cleanLaneSpacing, lombardiTangents, lombardiCurvature, lombardiLaneSpacing,
+    labelCrossingLastRef, labelCrossingGenerationRef,
+  }), [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing, lombardiTangents, lombardiCurvature, edgeCurveInfo, orthogonalLaneSpacing, lombardiLaneSpacing, anchorGeometryFor]);
 
   // The obstacle set every label dodges. Identical for every edge, so build it
   // once — each placement call used to rebuild it from all visible nodes, which
@@ -2837,81 +2654,11 @@ function NodeCanvas() {
   // the bow of a curved one. Anchor it to the same place the connection's LABEL
   // goes instead: that's already the "you are looking here" point on the edge,
   // and it means the menu and the label agree by construction in every mode.
-  const selectedEdgeMidpoint = useMemo(() => {
-    const edgeId = selectedEdgeId || (selectedEdgeIds.size === 1 ? [...selectedEdgeIds][0] : null);
-    if (!edgeId) return null;
-    const edge = edgesMap.get(edgeId);
-    if (!edge) return null;
-    const destId = edge.destinationId || edge.targetId;
-    const srcNode = nodeById.get(edge.sourceId);
-    const dstNode = nodeById.get(destId);
-    if (!srcNode || !dstNode) return null;
-    const sDims = baseDimsById.get(edge.sourceId) || { currentWidth: 120, currentHeight: 40 };
-    const dDims = baseDimsById.get(destId) || { currentWidth: 120, currentHeight: 40 };
-
-    let x, y, angleDeg;
-
-    if (edge.sourceId === destId) {
-      // Self-loop: the chord midpoint is the node's own center, which would bury
-      // the menu under the node. Use the loop's apex, where its label sits.
-      const loop = calculateSelfLoopPath(
-        srcNode.x, srcNode.y, sDims.currentWidth, sDims.currentHeight, edgeCurveInfo.get(edgeId)
-      );
-      x = loop.loopCx + loop.radius * Math.cos(loop.outwardAngle);
-      y = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
-      angleDeg = 0;
-    } else if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi')) {
-      const routing = routingStyle === 'manhattan'
-        ? computeManhattanRouting(srcNode, dstNode, sDims, dDims, manhattanBends, {
-          curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: orthogonalLaneSpacing,
-        })
-        : routingStyle === 'clean'
-          ? computeCleanRouting(edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing)
-          : computeLombardiRouting(edge, srcNode, dstNode, sDims, dDims, lombardiTangents, {
-            curvature: lombardiCurvature, selectedInstanceIds,
-            curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: lombardiLaneSpacing,
-            connectionWidth,
-            minBow: lombardiMinBow,
-          });
-      const placement = placeLabelOnRoute(routing);
-      x = placement.x;
-      y = placement.y;
-      angleDeg = placement.angle;
-    } else {
-      // Straight/curved: mirror the label render exactly — visible (border-clipped)
-      // segment through calculateParallelEdgePath, whose apex is the label point
-      // and bows with the curve on parallel edges.
-      const visible = getVisualConnectionEndpoints(
-        srcNode, dstNode, sDims, dDims,
-        selectedInstanceIds.has(edge.sourceId),
-        selectedInstanceIds.has(destId),
-        true, null, null
-      );
-      const path = calculateParallelEdgePath(
-        visible.x1, visible.y1, visible.x2, visible.y2,
-        edgeCurveInfo.get(edgeId), curveSpacing
-      );
-      x = path.apexX ?? (visible.x1 + visible.x2) / 2;
-      y = path.apexY ?? (visible.y1 + visible.y2) / 2;
-      angleDeg = path.labelAngle ?? 0;
-    }
-
-    // Normalize into (-90, 90] so the button row never flips end-for-end as the
-    // connection crosses vertical — button order has to stay stable.
-    let normalized = ((angleDeg % 180) + 180) % 180;
-    if (normalized > 90) normalized -= 180;
-
-    return {
-      x,
-      y,
-      angle: normalized * (Math.PI / 180), // PieMenu's anchorAngle is radians
-      sourceId: edge.sourceId,
-      destinationId: destId,
-    };
-  }, [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds,
-    enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
-    lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing,
-    connectionWidth]);
+  const selectedEdgeMidpoint = useMemo(() => computeSelectedEdgeMidpoint({
+    selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, edgeCurveInfo, enableAutoRouting,
+    routingStyle, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, lombardiTangents,
+    lombardiCurvature, selectedInstanceIds, lombardiLaneSpacing, connectionWidth, lombardiMinBow, curveSpacing,
+  }), [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds, enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing, lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing, connectionWidth]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
