@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import './BackToCivilization.css';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
@@ -133,4 +133,5 @@ const BackToCivilization = ({
   );
 };
 
-export default BackToCivilization;
+// Memoized (render sweep): it re-rendered on every NodeCanvas render, props unchanged.
+export default memo(BackToCivilization);

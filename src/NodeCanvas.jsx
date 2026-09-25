@@ -5326,7 +5326,9 @@ function NodeCanvas() {
   // document-level endListener from ever firing).
   const groupTouchCleanupRef = useRef(null);
   // Preserve last selections during exit animations
-  const lastSelectedNodePrototypes = useCanvasUIStore(s => s.lastSelectedNodePrototypes), setLastSelectedNodePrototypes = useCanvasUIStore(s => s.setLastSelectedNodePrototypes);
+  // Latched during render below (not an effect + store write, which cost a second
+  // NodeCanvas render on every selection change): the node panel's exit animation.
+  const lastSelectedNodePrototypesRef = useRef([]);
   // Snapshot for the exit animation (even of a just-deleted group); latched in render (P2.03).
   const lastSelectedGroupRef = useRef(null);
   if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
@@ -6095,7 +6097,7 @@ function NodeCanvas() {
   const handleNodeControlPanelAnimationComplete = useCallback(() => {
     setNodeControlPanelShouldShow(false);
     // Clear the last selected prototypes when animation completes
-    setLastSelectedNodePrototypes([]);
+    lastSelectedNodePrototypesRef.current = [];
   }, [setNodeControlPanelShouldShow]);
 
   const handleConnectionControlPanelAnimationComplete = useCallback(() => {
@@ -6122,12 +6124,8 @@ function NodeCanvas() {
     return list;
   }, [selectedInstanceIds, nodes, nodePrototypesMap]);
 
-  // Update last selected prototypes when selection changes
-  useEffect(() => {
-    if (selectedNodePrototypes.length > 0) {
-      setLastSelectedNodePrototypes(selectedNodePrototypes);
-    }
-  }, [selectedNodePrototypes]);
+  if (selectedNodePrototypes.length > 0) lastSelectedNodePrototypesRef.current = selectedNodePrototypes;
+  const lastSelectedNodePrototypes = lastSelectedNodePrototypesRef.current;
 
   // Use last selected prototypes if current ones are empty but panel is still visible
   const nodePrototypesForPanel = useMemo(() => {
@@ -6145,17 +6143,13 @@ function NodeCanvas() {
   // selection: every action in nodePieMenuPages is written against one instance,
   // so with two Things selected the panel falls back to its own selection-wide
   // buttons rather than silently applying Delete to whichever one sorted first.
-  const lastSingleSelectedInstanceId = useCanvasUIStore(s => s.lastSingleSelectedInstanceId), setLastSingleSelectedInstanceId = useCanvasUIStore(s => s.setLastSingleSelectedInstanceId);
-
-  useEffect(() => {
-    if (selectedInstanceIds.size === 1) {
-      setLastSingleSelectedInstanceId(Array.from(selectedInstanceIds)[0]);
-    } else if (selectedInstanceIds.size > 1) {
-      // Forget it on multi-select, or a later deselect would let the panel animate
-      // out still showing the pages of whichever Thing was selected before.
-      setLastSingleSelectedInstanceId(null);
-    }
-  }, [selectedInstanceIds]);
+  // Latched during render, like lastSelectedNodePrototypes above.
+  const lastSingleSelectedInstanceIdRef = useRef(null);
+  if (selectedInstanceIds.size === 1) lastSingleSelectedInstanceIdRef.current = Array.from(selectedInstanceIds)[0];
+  // Forget it on multi-select, or a later deselect would let the panel animate
+  // out still showing the pages of whichever Thing was selected before.
+  else if (selectedInstanceIds.size > 1) lastSingleSelectedInstanceIdRef.current = null;
+  const lastSingleSelectedInstanceId = lastSingleSelectedInstanceIdRef.current;
 
   const singleSelectedInstanceId = useMemo(() => {
     if (selectedInstanceIds.size === 1) return Array.from(selectedInstanceIds)[0];

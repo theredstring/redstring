@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { MonitorDown, X } from 'lucide-react';
 import './DownloadAppPill.css';
 import { useViewportBounds } from './hooks/useViewportBounds';
@@ -160,4 +160,5 @@ const DownloadAppPill = ({ suppressed = false }) => {
   );
 };
 
-export default DownloadAppPill;
+// Memoized (render sweep): it re-rendered on every NodeCanvas render, props unchanged.
+export default memo(DownloadAppPill);

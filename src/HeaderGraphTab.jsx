@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, memo } from 'react';
 import { useDrag } from 'react-dnd';
 import { haptic } from './services/haptics.js';
 import { getEmptyImage } from 'react-dnd-html5-backend';
@@ -176,4 +176,6 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
   );
 };
 
-export default HeaderGraphTab; 
+// Memoized (render sweep): the header re-rendered all of its tabs (145 on Chambers)
+// whenever it rendered; an inactive tab's props are stable (P2.08, P2.10).
+export default memo(HeaderGraphTab); 
