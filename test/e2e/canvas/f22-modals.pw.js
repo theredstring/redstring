@@ -46,3 +46,22 @@ test('F22b the debug overlay follows the Settings switch and fills with sync dat
   await setOverlay(false);
   await expect(overlay).toHaveCount(0);
 });
+
+// B-03: "Show Welcome Screen" (Help menu, Electron menu) fired an event nothing
+// handled. It opens onboarding now, which is the welcome screen; closing it with
+// a universe already loaded leaves that universe on the canvas.
+test('F22c Show Welcome Screen opens onboarding, and closing it keeps the universe', async ({ page }) => {
+  await openFixture(page, 'small');
+  const nodes = page.locator('g.node');
+  const before = await nodes.count();
+  expect(before).toBeGreaterThan(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('openOnboardingModal')));
+  await expect.poll(() => ui(page, 'showStorageSetupModal')).toBe(true);
+  await expect(page.getByText('Welcome to Redstring')).toBeVisible();
+  await page.evaluate(async () => {
+    const { default: store } = await import('/src/store/canvasUIStore.js');
+    store.getState().setShowStorageSetupModal(false);
+  });
+  await expect(page.getByText('Welcome to Redstring')).toHaveCount(0, { timeout: 5_000 });
+  await expect(nodes).toHaveCount(before);
+});

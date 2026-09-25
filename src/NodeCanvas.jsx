@@ -1418,20 +1418,6 @@ function NodeCanvas() {
   // download pill still yields to it.
   const showStorageSetupModal = useCanvasUIStore(s => s.showStorageSetupModal);
 
-  // Open Onboarding modal when event is dispatched from Help menu
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const handler = () => {
-      try {
-        setShowOnboardingModal(true);
-      } catch { }
-    };
-
-    window.addEventListener('openOnboardingModal', handler);
-    return () => window.removeEventListener('openOnboardingModal', handler);
-  }, []);
-
   const [drawingConnectionFrom, _setDrawingConnectionFromState] = useState(null); // Structure might change (store source ID)
   // Set when a draw is abandoned rather than completed, so the release that
   // follows knows not to build anything out of it. One-way: only a genuinely new

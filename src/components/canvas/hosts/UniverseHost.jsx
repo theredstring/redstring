@@ -432,6 +432,15 @@ function UniverseHost() {
     return () => window.removeEventListener('redstring:open-external-link', handler);
   }, []);
 
+  // "Show Welcome Screen" (Help menu, Electron app menu) reopens onboarding,
+  // which is the welcome screen since the old modal was folded into it (B-03).
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => setShowStorageSetupModal(true);
+    window.addEventListener('openOnboardingModal', handler);
+    return () => window.removeEventListener('openOnboardingModal', handler);
+  }, [setShowStorageSetupModal]);
+
   // Resume Git flow after OAuth/App redirects.
   // - Onboarding wizard resume: re-open StorageSetupModal (it reads the
   //   resume flags and lands on its git-connect step). Do NOT open the panel.

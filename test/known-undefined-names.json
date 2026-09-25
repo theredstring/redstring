@@ -47,11 +47,6 @@
       "count": 2
     },
     {
-      "file": "src/NodeCanvas.jsx",
-      "name": "setShowOnboardingModal",
-      "count": 1
-    },
-    {
       "file": "src/services/ai-bridge-service.js",
       "name": "process",
       "count": 2
