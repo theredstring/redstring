@@ -118,3 +118,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | P2.06d merge | 17,215 | — | SearchHosts |
 | 2026-09-25 | P2.06c merge | 16,464 | — | UniverseHost, UniverseScreens |
 | 2026-09-25 | P2.06f merge | 16,430 | — | ForceSimHost |
+| 2026-09-25 | P2.07 merge | 16,415 | — | DeletionGhostLayer |

@@ -142,7 +142,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - The host's Profiler shows it doesn't re-render during S1, S4 or S8.
 
 ### P2.07: Deletion-ghost layer
-- **Status:** todo
+- **Status:** done (reports/P2.07.md)
 - **Lane:** A + B · **Size:** S · **Depends:** P2.01
 - **Findings:** F-12
 - **Change:**
@@ -150,7 +150,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - Add `src/components/canvas/layers/DeletionGhostLayer.jsx`, rendered inside the SVG content group.
   - `captureDeletionGhosts` pushes to the store, and the layer removes each ghost on `animationend`.
 - **Accept:** Deleting N nodes causes 0 NodeCanvas commits for ghost cleanup.
-- **Handoff:**
+- **Handoff:** Ghosts are `canvasUIStore.deletionGhosts`; `layers/DeletionGhostLayer` renders and removes them. NodeCanvas only builds them in `captureDeletionGhosts`.
 
 ### P2.08: Canvas command registry; move Header to App
 - **Status:** done (0d54da5 + B-12 90120ef, merged 5bce422; report reports/P2.08.md). Header renders from NodeCanvas's slot as a one-prop host; App takes the element in P2.11

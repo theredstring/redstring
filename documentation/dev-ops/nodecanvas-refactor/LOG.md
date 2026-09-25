@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.07 done (Claude, orchestrator)
+
+- **P2.07:** deletion ghosts in canvasUIStore; `DeletionGhostLayer` renders and removes them, so ghost cleanup no longer renders NodeCanvas. NodeCanvas.jsx **16,415**. F26 added.
+- **Gates:** `test:ci` PASS, Playwright 53 passed (F12 expected), `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P2.06f done; P2.06 complete (Claude, orchestrator)
 
 - **P2.06f:** `ForceSimHost` renders the tuner and the progress indicator; the tuner's getters are canvas commands; layout progress is in canvasUIStore (ticks no longer render NodeCanvas). NodeCanvas.jsx **16,430**. F25 added.
