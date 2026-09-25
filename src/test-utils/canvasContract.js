@@ -19,6 +19,7 @@
  */
 import { expect } from 'vitest';
 import useGraphStore from '../store/graphStore.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 import { seedUniverse } from './canvasHarness.jsx';
 
 export const ROUTING_STYLES = ['straight', 'manhattan', 'clean', 'lombardi'];
@@ -109,10 +110,11 @@ export const seedContractFixture = ({ routingStyle = 'straight', state = {} } = 
         enableAutoRouting: routingStyle !== 'straight',
         routingStyle,
       },
-      selectedEdgeIds: new Set([SELECTED_EDGE_ID]),
       ...state,
     },
   });
+  // Edge selection is canvasUIStore's since P2.03c.
+  useCanvasUIStore.getState().setSelectedEdgeIds([SELECTED_EDGE_ID]);
 
   let st = useGraphStore.getState();
   INSTANCES.forEach(([id, protoId, x, y]) => st.addNodeInstance('g1', protoId, { x, y }, id));

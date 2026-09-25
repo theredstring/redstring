@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import useCanvasUIStore from './canvasUIStore.js';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
 import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity } from '../utils/colorUtils.js';
 
@@ -141,8 +142,6 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {string|null} activeGraphId - ID of the graph currently displayed on the canvas.
  * @property {string[]} openGraphIds - Ordered list of graph IDs open as tabs.
  * @property {string|null} activeDefinitionNodeId - Prototype ID whose definition is being viewed.
- * @property {string|null} selectedEdgeId - Single selected edge ID (used for editing).
- * @property {Set<string>} selectedEdgeIds - Set of selected edge IDs for multi-select.
  * @property {string} typeListMode - Left panel type list state: `'closed'|'node'|'connection'|'component'`.
  * @property {Object[]} rightPanelTabs - Array of tab descriptor objects for the right panel.
  * @property {Set<string>} expandedGraphIds - Graph IDs with their tree item expanded in the panel.
@@ -1524,8 +1523,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     openGraphIds: [],
     activeGraphId: null,
     activeDefinitionNodeId: null, // This now refers to a prototypeId
-    selectedEdgeId: null, // Currently selected edge for editing
-    selectedEdgeIds: new Set(), // Multiple selected edges
     // Default order: connections -> nodes -> closed. Unguarded before — a
     // throwing localStorage (private mode, blocked storage) took the whole
     // store construction down with it, not just this one preference.
@@ -4946,7 +4943,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     removeEdge: (edgeId, contextOptions = {}) => {
       api.setChangeContext({ type: 'edge_delete', target: 'edge', finalize: true, ...contextOptions });
-      return set(produce((draft) => {
+      const result = set(produce((draft) => {
         const edge = draft.edges.get(edgeId);
         if (!edge) {
           console.warn(`[Store removeEdge] Edge with ID ${edgeId} not found.`);
@@ -4967,13 +4964,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         }
 
-        // Clear selection if this edge was selected
-        if (draft.selectedEdgeId === edgeId) {
-          draft.selectedEdgeId = null;
-        }
-
         console.log(`[Store removeEdge] Edge ${edgeId} removed successfully.`);
       }));
+      // Edge selection lives in canvasUIStore (P2.03c): drop the removed edge.
+      const ui = useCanvasUIStore.getState();
+      if (ui.selectedEdgeId === edgeId) ui.setSelectedEdgeId(null);
+      ui.removeSelectedEdgeId(edgeId);
+      return result;
     },
 
 
@@ -7374,55 +7371,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Sets the single selected edge for editing in the connection control panel.
      * @param {string|null} edgeId
      */
-    setSelectedEdgeId: (edgeId) => {
-      console.log(`[Store Action] Setting selectedEdgeId to: ${edgeId}`);
-      set({ selectedEdgeId: edgeId });
-    },
+    // Edge selection moved to canvasUIStore (P2.03c, D-22). These five keep
+    // their names for existing callers and forward without touching this
+    // store, so an edge click no longer runs the save middleware.
+    setSelectedEdgeId: (edgeId) => useCanvasUIStore.getState().setSelectedEdgeId(edgeId),
 
-    /**
-     * Replaces the entire multi-edge selection with the provided set.
-     * No-ops when the new selection has exactly the current members (same size,
-     * same ids, whatever iterable is passed): callers routinely clear an
-     * already-empty selection, and every `set` hands `selectedEdgeIds`
-     * subscribers a fresh Set, which re-renders NodeCanvas.
-     * @param {string[]|Iterable<string>} edgeIds
-     */
-    setSelectedEdgeIds: (edgeIds) => {
-      const next = new Set(edgeIds);
-      const current = get().selectedEdgeIds;
-      if (current instanceof Set && current.size === next.size) {
-        let same = true;
-        for (const id of next) {
-          if (!current.has(id)) { same = false; break; }
-        }
-        if (same) return;
-      }
-      set({ selectedEdgeIds: next });
-    },
-
-    /**
-     * Adds an edge to the multi-edge selection.
-     * @param {string} edgeId
-     */
-    addSelectedEdgeId: (edgeId) => set(produce((draft) => {
-      draft.selectedEdgeIds.add(edgeId);
-      console.log(`[Store Action] Added edge ${edgeId} to selection`);
-    })),
-
-    /**
-     * Removes an edge from the multi-edge selection.
-     * @param {string} edgeId
-     */
-    removeSelectedEdgeId: (edgeId) => set(produce((draft) => {
-      draft.selectedEdgeIds.delete(edgeId);
-      console.log(`[Store Action] Removed edge ${edgeId} from selection`);
-    })),
-
-    /** Clears all selected edges. */
-    clearSelectedEdgeIds: () => set(produce((draft) => {
-      draft.selectedEdgeIds.clear();
-      console.log(`[Store Action] Cleared all selected edges`);
-    })),
+    setSelectedEdgeIds: (edgeIds) => useCanvasUIStore.getState().setSelectedEdgeIds(edgeIds),
+    addSelectedEdgeId: (edgeId) => useCanvasUIStore.getState().addSelectedEdgeId(edgeId),
+    removeSelectedEdgeId: (edgeId) => useCanvasUIStore.getState().removeSelectedEdgeId(edgeId),
+    clearSelectedEdgeIds: () => useCanvasUIStore.getState().clearSelectedEdgeIds(),
 
     /**
      * Sets the type list display mode in the left panel.

@@ -311,7 +311,10 @@ export function edgeGlow(page, edgeId) {
 
 /** Store-side edge selection: the union NodeCanvas renders as selected. */
 export function selectedEdgeIds(page) {
-  return storeEval(page, (st) => {
+  // In canvasUIStore since P2.03c.
+  return page.evaluate(async () => {
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    const st = ui.getState();
     const ids = new Set(st.selectedEdgeIds);
     if (st.selectedEdgeId) ids.add(st.selectedEdgeId);
     return [...ids].sort();

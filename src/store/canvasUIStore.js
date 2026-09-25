@@ -108,6 +108,10 @@ export function createCanvasUIDefaults() {
     // selection (F-47 #1)
     /** @type {Set<string>} Selected node instance ids in the active graph. */
     selectedInstanceIds: new Set(),
+    // Edge selection (P2.03c, D-22): moved from graphStore, whose middleware ran
+    // on every edge click. graphStore keeps its five action names as shims.
+    selectedEdgeId: null,
+    selectedEdgeIds: new Set(),
 
     // group selection (F-47 #2). Ids, not the object snapshots NodeCanvas holds
     // today: consumers derive the group from graphStore so it can't go stale.
@@ -276,6 +280,23 @@ const useCanvasUIStore = create((set) => ({
 
   // selection
   setSelectedInstanceIds: fieldSetter(set, 'selectedInstanceIds', setsEqual, toSet),
+  // edge selection (P2.03c)
+  setSelectedEdgeId: fieldSetter(set, 'selectedEdgeId'),
+  // Always stores a copy, never the caller's Set.
+  setSelectedEdgeIds: (edgeIds) => set((state) => {
+    const next = new Set(typeof edgeIds === 'function' ? edgeIds(state.selectedEdgeIds) : edgeIds);
+    return setsEqual(state.selectedEdgeIds, next) ? state : { selectedEdgeIds: next };
+  }),
+  addSelectedEdgeId: (edgeId) => set((state) => (
+    state.selectedEdgeIds.has(edgeId) ? state : { selectedEdgeIds: new Set(state.selectedEdgeIds).add(edgeId) }
+  )),
+  removeSelectedEdgeId: (edgeId) => set((state) => {
+    if (!state.selectedEdgeIds.has(edgeId)) return state;
+    const next = new Set(state.selectedEdgeIds);
+    next.delete(edgeId);
+    return { selectedEdgeIds: next };
+  }),
+  clearSelectedEdgeIds: () => set((state) => (state.selectedEdgeIds.size === 0 ? state : { selectedEdgeIds: new Set() })),
 
   // group selection
   setSelectedGroupId: fieldSetter(set, 'selectedGroupId'),

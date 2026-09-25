@@ -1384,8 +1384,8 @@ function NodeCanvas() {
   // <<< OPTIMIZED: Individual stable subscriptions - Zustand auto-batches these >>>
   const activeGraphId = useGraphStore(state => state.activeGraphId);
   const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
-  const selectedEdgeId = useGraphStore(state => state.selectedEdgeId);
-  const selectedEdgeIds = useGraphStore(state => state.selectedEdgeIds);
+  const selectedEdgeId = useCanvasUIStore(s => s.selectedEdgeId); // canvasUIStore since P2.03c (D-22)
+  const selectedEdgeIds = useCanvasUIStore(s => s.selectedEdgeIds);
   const typeListMode = useGraphStore(state => state.typeListMode);
 
   // Fullscreen shell (phone in landscape, Capacitor): no header bar, no
