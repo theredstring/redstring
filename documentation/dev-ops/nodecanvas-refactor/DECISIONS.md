@@ -151,3 +151,19 @@ This file records calls that nobody should re-argue mid-task.
 - NEW-2 (Back after a cancelled Add Above/Below goes to stage 2) and NEW-4 (the carousel reopens in stage 2) are bugs; they are fixed as B-commits after the machine is wired, and go on the final smoke list.
 - The carousel's exit/enter callbacks are stable, so its 200 ms exit timer no longer restarts on a web change (Q7).
 
+
+**D-26. The opt-in `window.__*` switches stay (P6.01).** *Decided (orchestrator, under D-24), 2026-09-25.*
+- `__edgePerf`, `__zoomPerf`, `__spritePerf`, `__groupBoundsDebug` and the label tuning overrides (`__labelCurveMinPx`, `__curvedGlyphQuantum`, `__connectionCurveMinPx`, `__labelAngleQuantum`, `__orbitZoom`, …) are console switches: documented where they are read, off by default, and a single falsy check when off. They are the tools the perf and label work used and will use again, so none is "temporary" in P6.01's sense. `__renderProbe` and `__diag` stay as the card says.
+- P6.01 fixed the stale comments instead: the P0 143 ms figure is marked as P0's, and the old "Phase N" plan numbering is gone. The group-render "Phase 1/2/3" comments name render passes, not plan phases, and stay.
+
+**D-27. Success criterion 7 is met by passing controllers and named groups, with no behaviour change (P4.06–P4.09).** *Decided (orchestrator, under D-24), 2026-09-25.*
+- The cards describe the end state as hooks taking the `gestures`, `camera` and `policy` APIs and reading stores directly. The hooks now take the controllers that exist (`transform`, `camera`, `pointer`, `nodeDrag`), a `gestures` group, and a few feature groups, and they subscribe to their store-backed inputs and settings with NodeCanvas's selectors.
+- Deleting the mirror refs and re-plumbing the gesture code (the rest of those cards) would change control flow on touch, trackpad and controller, which can't be checked without the device checklist. Grouping cannot: each hook unpacks its groups under the names it always used, and each group holds the refs and functions that were passed one by one.
+- The controller contexts assigned during render (`pointerCtxRef`, `cameraCtxRef`, `groupInputCtxRef`) are still large; they shrink with P4.04b.
+
+**D-28. Cards deferred at the close of wave 6, with reasons.** *Decided (orchestrator, under D-24; the P3 part follows the earlier "deferred to a session with Grant" note), 2026-09-25.*
+- **P3.05 / P3.06b (deterministic label placement, per-edge memo) and P3.10 / P3.11 (the viewport store, which leans on them).** They move connection labels, which is how Redstring looks. The acceptance for P3.05 is Grant's approval of every changed position, so they wait for a session with him. Criterion 2 is already met without them (S8: NodeCanvas 0 renders).
+- **P4.04b (explicit gesture machine), P4.05 (shared tap policy), the rest of P4.06 (touch stops synthesising mouse events).** They rewrite input control flow; each needs the device checklist (trackpad, mouse, iOS, Android, Electron, controller). Release already runs once per event burst (the `handleMouseUpInProgressRef` guard).
+- **The camera framing effects as machine `frame` commands (P5.02b).** A command runs at dispatch, before the commit that shows the pie; the effects run after it. Moving them changes when the camera starts relative to the pie, a look question with no user benefit.
+- **P5.02b step 9 (the panels' show/hide effects in the machine).** The panels already render from ControlPanelsHost and don't re-render NodeCanvas. Folding them into the reducer would change the order panels and pie commit in (F-84) for no measurable gain.
+- **P4.03 (connection-draw controller API), P5.01b (actions read state at fire time), P5.07 (context-menu actions through commands).** Structural only, nothing a user sees. The code already lives outside NodeCanvas (`input/connectionDraw.js`, `pointerHandlers.js`, `pie/`, `menus/`). They are post-1.0 follow-ups.

@@ -429,6 +429,16 @@ This state is used across clusters and must move to a store before the clusters 
 - The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
 - → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
 
+**F-85. A hook call's arguments are evaluated where it is called; a closure's are not (wave 6).** VERIFIED; a rule for moves.
+- Moving a block into a hook called at the same spot turns its free names into arguments, evaluated at the call. A closure in the old block could name something declared further down NodeCanvas, since it only ran after render; as an argument that name is a temporal-dead-zone throw.
+- Every hook-wrapped move checks that its arguments are declared above the call (the move tool reports them). Where one wasn't, the declaration moved up only when it has no effects (`useKeyboardShortcuts` has passive effects only, and moved up one block with no effect crossing another).
+
+**F-84. The panel-inclusive DOM view of the lifecycle traces varies between runs of the same code (wave 6).** VERIFIED (two recordings of one commit differ in 3–4 scenarios).
+- Each panel's own sequence (entering, visible, exiting) is identical run to run; only how its steps interleave with the pie's shifts by a commit. That is why the trace check runs with `--no-panels` and compares each panel's sequence separately.
+
+**F-83. Memoizing the pie menus makes S6's NodeCanvas count vary: 11 or 13 runs, where it was 11 every time (P5.03).** VERIFIED (perf harness, 10 runs before, 10 after); accepted.
+- The node pie renders 12 → 6 times, total commit time is unchanged, and the lifecycle traces are identical. The extra two are the camera-settle render landing on either side of a commit now that commits are cheaper.
+
 **F-82. Connection-label truncation varies between loads of the same web.** VERIFIED (baseline against itself, wave 6); not fixed.
 - The same scene on the same code truncates a label differently across runs ("ca…" against "c…"), in every routing style, most often zoomed out. Everything else in the markup is identical.
 - Likely cause: `textMeasurement.js` caches the first ellipsis width per font size and answers from em buckets until `document.fonts.check` passes; if the cache fills before the font lands and the `fonts.ready` clear misses it, a session keeps the pre-font widths.
@@ -485,6 +495,8 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-15 | `useViewportBounds` fell back to a 280 px panel width while panels open at 250, so on a fresh profile the save pill, edge glows and modals placed off the viewport bounds sat 30 px off (found by P2.12) | **FIXED** (P2.12): one width source in canvasUIStore | done |
 | B-16 | Semantic concepts added to a web were **unsaved**: `addNodePrototype` saves a new prototype, and the orbit placement, canvas drop and discovery-panel add then toggled it (meaning to save) | **FIXED** 0e03477: save only if not saved; `orbitActions.test.js` | sweep 4 |
 | B-17 | Touching a group title while the view was still moving threw `Cannot access 'touch' before initialization`: the title's `onTouchStart` called `touch.handleTouchStartCanvas` in its view-moving branch, but a `const touch = e.touches[0]` later in the same function shadowed NodeCanvas's `touch` (TDZ). The error was logged and the touch bubbled to the canvas unclaimed (found by P3.04) | **FIXED** (wave 6): the inner const is `firstTouch` | P3.04 |
+| B-18 | Back after a cancelled Add Above/Below swapped the carousel to stage 2 instead of closing it: the prompt's cancel raised the stage-swap flag with no transition running, so the next shrink was read as a stage swap (P5.02a NEW-2) | **FIXED** f29d0e5: `PROMPT_CANCELLED` leaves the flag down. F34 and the machine tests assert it | P5.02b |
+| B-19 | Closing the carousel from stage 2 (Escape, click-away, the panel's dismiss) left the stage at 2, so the next carousel opened on the three stage-2 buttons (P5.02a NEW-4) | **FIXED** f29d0e5: `CAROUSEL_EXITED` resets the stage to 1. F35 and the machine tests assert it | P5.02b |
 
 ---
 

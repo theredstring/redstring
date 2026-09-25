@@ -146,3 +146,12 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | P3.03a merge | 12,884 | — | computeGroupLayouts |
 | 2026-09-25 | P3.08a merge | 12,796 | — | one Node element builder |
 | 2026-09-25 | sweep 5 merge | 12,204 | — | nodes/dims memos, momentum, 3 actions, framing |
+| 2026-09-25 | 72202a8 | 11,642 | — | wave 6: P3.04 group elements and input |
+| 2026-09-25 | 038a9e1 | 10,923 | — | P4.02a camera controller |
+| 2026-09-25 | d75aa60 | 9,516 | — | P4.04a pointer handlers |
+| 2026-09-25 | 73cce3b | 7,514 | — | sweeps 6a–6c, P3.06a/P3.08b layers |
+| 2026-09-25 | 1f473a3 | 7,234 | — | P5.02b pie machine wired (steps 4–8) |
+| 2026-09-25 | 64f5436 | 6,672 | — | P5.05a / P5.06a hosts |
+| 2026-09-25 | 04687be | 5,496 | — | sweeps 6d–6e; the JSX is a list of layers |
+| 2026-09-25 | 48429af | 4,000 | — | P5.05b, P5.06b, effect clusters as hooks, P4.06–08; **criterion 6 met** |
+| 2026-09-25 | 10bc17b | 3,646 | 1195 | P5.08, P5.04b, P4.06–09 groups, dialogs; final budget |

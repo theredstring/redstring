@@ -71,7 +71,7 @@
 - **Accept:** GroupLayer shows 0 commits in S7 and S8 when no group changed.
 
 ### P3.05: Deterministic label placement
-- **Status:** todo
+- **Status:** deferred (D-28): it moves connection labels, so it waits for a session with Grant. Design: `reports/P3.05-design.md`; D-24 answers its questions.
 - **Lane:** A + B · **Size:** XL. **Split this before starting.**
 - **Findings:** F-21, F-23, F-25
 - **Change:**
@@ -86,7 +86,7 @@
 - **Accept:** Label positions match the kickoff snapshots in every routing style, or every difference is listed and approved by Grant.
 
 ### P3.06: `EdgeLayer`, `EdgeSlot` and memoized `ConnectionEdge`
-- **Status:** part a done (wave 6): the edges pass is `components/canvas/layers/EdgeLayer.jsx`, moved verbatim, and the hovered connection lives in canvasUIStore (`hoveredEdgeInfo`, equal by `edgeId`); EdgeLayer subscribes to it, NodeCanvas and its handlers read it at event time. **S8: NodeCanvas 0 renders** (EdgeLayer 18), 218 → 96 ms. The whole pass still renders together, so label order is unchanged; markup identical to `main` in 28 scenes (one known font-timing truncation flip). Open (part b, after P3.05): split the context, per-edge `ConnectionEdge` memo with hover/selection booleans, `SelfLoopEdge`, and EdgeLayer memoized so a NodeCanvas render that changes nothing about edges skips it. **Hover-only renders (wave 6):** when NodeCanvas hasn't rendered since EdgeLayer's last pass (same ctx object, edges and slots), only the connection losing hover and the one gaining it re-render; the rest get back their previous elements. Safe because hover moves no label (placement doesn't read it, and every label cache-hits on such a render). S8 96 → 41 ms. Flow F7b checks an unrelated connection's markup is untouched while hover moves.
+- **Status:** part a done (wave 6): the edges pass is `components/canvas/layers/EdgeLayer.jsx`, moved verbatim, and the hovered connection lives in canvasUIStore (`hoveredEdgeInfo`, equal by `edgeId`); EdgeLayer subscribes to it, NodeCanvas and its handlers read it at event time. **S8: NodeCanvas 0 renders** (EdgeLayer 18), 218 → 96 ms. The whole pass still renders together, so label order is unchanged; markup identical to `main` in 28 scenes (one known font-timing truncation flip). Open (part b, after P3.05): split the context, per-edge `ConnectionEdge` memo with hover/selection booleans, `SelfLoopEdge`, and EdgeLayer memoized so a NodeCanvas render that changes nothing about edges skips it. **Hover-only renders (wave 6):** when NodeCanvas hasn't rendered since EdgeLayer's last pass (same ctx object, edges and slots), only the connection losing hover and the one gaining it re-render; the rest get back their previous elements. Safe because hover moves no label (placement doesn't read it, and every label cache-hits on such a render). S8 96 → 41 ms. Flow F7b checks an unrelated connection's markup is untouched while hover moves. **Part b deferred (D-28)** with P3.05.
 - **Lane:** A + C (`renderConnectionEdge.jsx`) · **Size:** L
 - **Findings:** F-23
 - **Change:**
@@ -132,7 +132,7 @@
 - **Accept:** The overlays behave identically. F5 and F14 pass.
 
 ### P3.10: Viewport store: consumers subscribe to the settled view directly
-- **Status:** todo
+- **Status:** deferred (D-28): leans on P3.05/P3.06b. Back to Civilization's visibility and click now live in `data/backToCivilization.js` (`useBackToCivilization`), which reads the settled view from `transform`, so moving it onto a viewport store is a one-place change.
 - **Lane:** A + C (`useCanvasTransform`) · **Size:** M
 - **Findings:** F-11
 - **Change:**
@@ -145,7 +145,7 @@
 - **Accept:** A settle causes 0 NodeCanvas commits; only the subscribers re-render.
 
 ### P3.11: `useViewportCulling` publishes to the viewport store
-- **Status:** todo
+- **Status:** deferred (D-28), with P3.10. Culling already lives in `data/culling.js`, wired to the transform by `camera/transformWiring.js`.
 - **Lane:** A + B · **Size:** M
 - **Change:**
   - `runCulling` moves to a hook.

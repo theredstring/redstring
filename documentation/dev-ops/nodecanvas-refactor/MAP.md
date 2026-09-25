@@ -6,6 +6,11 @@ This file tells you where things are in `src/NodeCanvas.jsx`, where each part is
 - **Find code by symbol.** Grep an anchor, e.g. `grep -n "const runCulling" src/NodeCanvas.jsx`, then read a window of at most 300 lines around the hit.
 - **When you move a region**, replace its "Now" cell with the new location and the commit.
 
+> **Closed with wave 6 (2026-09-25).** This map is historical. Where things live now: [`documentation/core-system/CANVAS_ARCHITECTURE.md`](../../core-system/CANVAS_ARCHITECTURE.md). The rows below were kept current through wave 5; the wave-6 moves are listed in the LOG ("Wave 6") and the commit messages. Where the structure landed differs from the target below:
+> - Layers, hosts and controllers live under `src/components/canvas/` by concern (`layers/`, `hosts/`, `camera/`, `input/`, `groups/`, `pie/`, `orbit/`, `carousel/`, `colorPickers/`, `dialogs/`, `wizard/`, `actions/`, `data/`, `edges/`, `menus/`), not under `src/utils/canvas/input/`.
+> - Not built (deferred, D-28): `viewportStore.js`, `useLabelPlacements.js`, `useViewportCulling.js` (culling is `data/culling.js`), `useConnectionDraw.js` (`input/connectionDraw.js`), `usePointerGestures.js` (`input/pointerHandlers.js`), `resolveCanvasTap.js`, a separate `EdgePieMenuLayer` (the edge pie is in `PieMenusLayer` with `pie/edgePie.js`).
+> - Group layout is `groups/groupLayouts.js` + `groups/groupElements.jsx` rather than `useGroupLayouts` and a `GroupLayer` component (P3.04: memoized elements, because shells and titles sit at different z-levels).
+
 ---
 
 ## Target structure

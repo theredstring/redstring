@@ -1,6 +1,6 @@
 # NodeCanvas Refactor: Plan of Record
 
-> **Status:** active. Started 2026-09-23. Target: done before the 1.0.0 release. Owner: Grant.
+> **Status:** closed with wave 6 (2026-09-25), pending Grant's smoke test ([SMOKE-wave6.md](SMOKE-wave6.md)). Started 2026-09-23. Owner: Grant. The architecture it produced is described, as current, in [`documentation/core-system/CANVAS_ARCHITECTURE.md`](../../core-system/CANVAS_ARCHITECTURE.md); read that first for new work. This folder is now the historical record, and the home of the deferred cards (D-28) when someone picks one up.
 >
 > This folder is the source of truth for the NodeCanvas refactor. **Every agent that touches `src/NodeCanvas.jsx`, anything it renders, or the canvas hooks reads this file first, every session**, and follows the protocol below. If this folder and your context disagree, this folder wins; if this folder and the code disagree, the code wins and you fix this folder.
 
@@ -164,12 +164,14 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
-**In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). **Ready for Grant's smoke test: [SMOKE-wave5.md](SMOKE-wave5.md)** (everything since wave 4).
+**In flight** (edit this when you claim or finish a task). Nothing: the refactor is closed. **Ready for Grant's smoke test: [SMOKE-wave6.md](SMOKE-wave6.md)** (everything since wave 5).
+
+Wave 6 (`refactor/wave6`, based on wave 5 = `main` 8e3d7f1): B-03, B-17, B-18, B-19; P3.04, P3.06a, P3.07, P3.08b; P4.02a, P4.04a, P4.06–P4.09 (parameters); P5.02b (machine wired, steps 1–8 and 11), P5.03, P5.04b, P5.05, P5.06, P5.08; sweeps 6a–6e; P6.01–P6.04. Deferred with reasons: D-28. See LOG, "Wave 6".
+
+Wave 5 (smoke-tested by Grant; `main` fast-forwarded to 8e3d7f1), based on wave 4 (a2b693a):
 - ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~, ~~P2.06a~~, ~~P2.06d~~, ~~P2.06c~~, ~~P2.06f~~, ~~P2.07~~, ~~P2.03b (+ B-14)~~, ~~P2.03c (D-22)~~
 - ~~P2.12 (+ B-15)~~, ~~P2.13~~ — **P2 complete**
 - ~~P3.02 (B-05)~~ (f6007f7), ~~P3.01~~ (27d51a3), ~~P4.01a~~ (bf2c9b8), ~~F-78~~, ~~render sweep~~ (c56074e), ~~bailout sweep~~ (e0abe3c), ~~P4.01b~~ (65ef61d), ~~P5.04a~~ (5f6a10a), ~~culling bailouts~~, ~~P5.01a~~, ~~P5.07~~, ~~sweep 4 (+ B-16)~~, ~~P3.09 (grid)~~, ~~P3.03a~~, ~~P3.08a~~, ~~sweep 5~~
-- Deferred to a session with Grant: P3.05/P3.06 (label placement changes need his review), then P3.10/P3.11 which lean on them
-- Next without Grant: P3.04 (group layers, on P3.03a's data), P3.08 (NodeLayer). P3.10/P3.11 lean on P3.06; P4.02+ need the device checklist; P5.02b+ need P5.02a
 
 Wave 4 (smoke-tested by Grant), based on wave 3:
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)
@@ -204,10 +206,10 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 | P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | **done**: P0.01–P0.07 (P0.03 + P0.03b) |
 | P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | **done** except P1.13's B-03, which becomes the welcome-screen host (D-17), built outside NodeCanvas |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | **done** (waves 3–5): shell out of NodeCanvas (`CanvasShell` + hosts), UI state in canvasUIStore. Overlays still portalled from NodeCanvas go to P5 hosts |
-| P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | **in progress**: P3.02, P3.01 |
-| P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |
-| P5 | [phases/P5-menus-and-panels.md](phases/P5-menus-and-panels.md) | Pie menu, carousel and abstraction state machine; control panels; remaining hosts | not started |
-| P6 | [phases/P6-closeout.md](phases/P6-closeout.md) | Remove flags, final metrics, architecture doc | not started |
+| P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | **done** except the label work: P3.05, P3.06b, P3.10, P3.11 deferred to a session with Grant (D-28) |
+| P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | **done**: camera controller, pointer handlers, the input hooks' parameters (criterion 7). The gesture machine, tap policy and connection-draw API are deferred (D-28) |
+| P5 | [phases/P5-menus-and-panels.md](phases/P5-menus-and-panels.md) | Pie menu, carousel and abstraction state machine; control panels; remaining hosts | **done**: the pie machine (B-18, B-19 fixed), memoized pies, the carousel's callbacks and axes, the control-panel, prompt, colour-picker, dialog and Wizard hosts, the orbit. Small structural follow-ups deferred (D-28) |
+| P6 | [phases/P6-closeout.md](phases/P6-closeout.md) | Remove flags, final metrics, architecture doc | **done** (P6.05, optional, not done) |
 
 **Order:** P0 → P1 → P2 → P3 → P4 → P5 → P6.
 - Cards marked **pre-P0 OK** may start before the harness exists, provided they record a manual React DevTools Profiler before/after.
@@ -239,7 +241,7 @@ Answer them here; the answer becomes a DECISION.
   - The rest move because the label solver doesn't give the same answer twice (F-72).
   - The fix for the slowness (P1.12b) stops the re-solve, so labels would stay exactly where they were when you select or deselect. The labels' resting positions don't change.
   - Recommended: yes. Details: reports/P1.12a.md.
-- **Q5 (needed by P4.01): touch constants.** `useCanvasTouch` uses different zoom limits and movement thresholds from NodeCanvas (F-44). Which values are intended? Ask when P4 starts.
+- ~~Q5: touch constants.~~ Decided under D-24: each path keeps its current values (nothing reported feels off, and reconciling them would change feel on some device).
 
 ## Files in this folder
 

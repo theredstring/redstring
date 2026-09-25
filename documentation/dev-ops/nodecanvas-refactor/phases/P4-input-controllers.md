@@ -78,6 +78,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** Grant runs the device checklist (below) and pan and zoom feel identical.
 
 ### P4.03: `useConnectionDraw`
+- **Status:** deferred (D-28): structural only. The endpoint writer and edge-pan loop are in `input/connectionDraw.js`, the draw start and finish in `input/pointerHandlers.js`.
 - **Lane:** B, then A · **Size:** M (about 360 lines)
 - **Change:**
   - Move connection drawing: the DOM-bypass endpoint, detents, the edge-pan loop, `beginConnectionDrawFromNode` and keyboard pan-travel.
@@ -85,7 +86,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** F5 passes, including the self-loop case and drawing while the canvas edge-pans.
 
 ### P4.04: `usePointerGestures` state machine
-- **Status:** part a done (wave 6): the handlers themselves, `handleNodeMouseDown`, `handleMouseMove` / `Down` / `Up` / `UpCanvas`, `handleCanvasClick`, `beginConnectionDrawFromNode` and `handleKeyboardPanTravel` (~1,100 lines), moved verbatim to `components/canvas/input/pointerHandlers.js` (`createPointerHandlers(ctxRef)`), with the six rAF-scheduling refs only they used. NodeCanvas creates them once (so every consumer holds stable functions and `useCanvasTouch` no longer leans on hoisting) and assigns their context during render. The context is large (135 names: the shared gesture refs, selection and panel latches, camera calls): that is what part b shrinks. All 61 flows pass; S1/S4/S5/S7 unchanged. Open (part b): the explicit gesture machine, idempotent release per gesture id, and the low-frequency flags into a store.
+- **Status:** part a done (wave 6): the handlers themselves, `handleNodeMouseDown`, `handleMouseMove` / `Down` / `Up` / `UpCanvas`, `handleCanvasClick`, `beginConnectionDrawFromNode` and `handleKeyboardPanTravel` (~1,100 lines), moved verbatim to `components/canvas/input/pointerHandlers.js` (`createPointerHandlers(ctxRef)`), with the six rAF-scheduling refs only they used. NodeCanvas creates them once (so every consumer holds stable functions and `useCanvasTouch` no longer leans on hoisting) and assigns their context during render. The context is large (135 names: the shared gesture refs, selection and panel latches, camera calls): that is what part b shrinks. All 61 flows pass; S1/S4/S5/S7 unchanged. Open (part b): the explicit gesture machine, idempotent release per gesture id, and the low-frequency flags into a store. **Part b deferred (D-28)**: it needs the device checklist.
 - **Lane:** B, then A · **Size:** XL (**split at kickoff**)
 - **Findings:** F-02, F-42, F-43
 - **Change:**
@@ -102,6 +103,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** Every flow passes, and mouseup logic runs once per release (assert it with a counter in a test).
 
 ### P4.05: `resolveCanvasTap` policy
+- **Status:** deferred (D-28): unifying mouse and touch taps changes touch behaviour and needs the device checklist.
 - **Lane:** B, then A · **Size:** M (about 280 lines)
 - **Change:**
   - Move `handleCanvasClick` and the group-drop detection (~12054–12143) into a pure `resolveCanvasTap(snapshot) → action`.
@@ -109,6 +111,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** Unit tests cover the tap-policy matrix. F14 passes. Tapping on touch behaves the same as clicking.
 
 ### P4.06: Re-plumb `useCanvasTouch`
+- **Status:** done for the parameters (wave 6, D-27): 51 → 13. The hook takes `transform`, `camera`, `pointer`, `nodeDrag`, `gestures`, `hitTest` and `canvasState`, and subscribes to selection, edge selection, prompts, panel latches, preview, pie target and its two settings itself. Touch tests regroup their params (`test/hooks/seedCanvasTouchStores.js`). The rest (no synthesised mouse events, the shadow long-press ref) is deferred with P4.04b (D-28).
 - **Lane:** C + A · **Size:** L
 - **Findings:** F-41, F-42
 - **Change:**
@@ -119,11 +122,13 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** F10 passes and the touch tests pass. Grant checks touch on iOS and Android.
 
 ### P4.07: `useGamepadBindings`
+- **Status:** done for the parameters (wave 6, D-27): `useGamepad` 41 → 11, its comment sections as groups (`view`, `drag`, `targets`, `selection`, `hover`, `pie`, `camera`, `orbit`). The control objects it aims with are built by `input/controllerTargets.js` (`useControllerTargets`, 10 arguments). No browser flow drives a controller; it is on the smoke list.
 - **Lane:** A + C · **Size:** M (about 280 lines)
 - **Change:** The control objects become thin wrappers over `gestures`, `camera` and `connectionDraw`.
 - **Accept:** Grant runs the gamepad items on the device checklist.
 
 ### P4.08: Reduce `useNodeDrag`'s parameters
+- **Status:** done (wave 6, D-27): 42 → 12. It takes `transform` and `dragGeometryRefs` (the mirror refs as one group, built once) and subscribes to the active graph, selection and grid itself. The mirror refs stay (deleting them is P4.04b territory).
 - **Lane:** C + A · **Size:** L
 - **Change:** Cut its inputs from 42 to 15 or fewer by:
   - reading from the stores and controllers directly
@@ -132,6 +137,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** F1, F4 and F11 pass. S4 is unchanged or better.
 
 ### P4.09: Reduce `useCanvasKeyboard`'s parameters
+- **Status:** done (wave 6, D-27): 48 → 15. It takes `transform`, `nodeDrag`, `gestures` and `frameHooks`, and subscribes to its store inputs and settings; `renderKeyboard` in its test seeds the stores.
 - **Lane:** C + A · **Size:** M
 - **Change:** Cut its inputs from 48 to 15 or fewer, using the stores, the camera and commands.
 - **Accept:** F13 passes.
