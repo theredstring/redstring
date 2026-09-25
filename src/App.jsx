@@ -1,5 +1,5 @@
-import React, { Profiler, useEffect } from 'react';
-import NodeCanvas from './NodeCanvas';
+import React, { useEffect } from 'react';
+import CanvasShell from './components/canvas/hosts/CanvasShell.jsx';
 import SpawningNodeDragLayer from './SpawningNodeDragLayer';
 import BridgeClient from './ai/BridgeClient.jsx';
 import GlobalContextMenu from './components/GlobalContextMenu.jsx';
@@ -11,7 +11,6 @@ import { isCapacitor, registerCapacitorLifecycle, logPlatformDiagnostics } from 
 import { warmHaptics } from './services/haptics.js';
 import { saveCoordinator } from './services/SaveCoordinator.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
-import { onRenderProbe } from './utils/perf/renderProbe.js';
 import './App.css';
 
 // TEMP: manual test hook for empty node-group placeholder feature — remove before commit.
@@ -155,11 +154,8 @@ function App() {
     <>
       {/* UniverseManagerBootstrap handles backend initialization */}
       <UniverseManagerBootstrap enableEagerInit={true} />
-      {/* Render probe (window.__renderProbe). Inert unless ?probe=1 or enable();
-          onRender only fires in dev and in `npm run build:profile`. */}
-      <Profiler id="NodeCanvas" onRender={onRenderProbe}>
-        <NodeCanvas />
-      </Profiler>
+      {/* Header, Panels, TypeList and NodeCanvas (inside <Profiler id="NodeCanvas">). */}
+      <CanvasShell />
       <SpawningNodeDragLayer />
       <BridgeClient />
       <GlobalContextMenu />
