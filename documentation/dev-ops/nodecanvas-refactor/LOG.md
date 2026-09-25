@@ -13,6 +13,20 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: wave 3 smoke-tested; P2.09 done on wave 4 (Claude, orchestrator)
+
+- Grant smoke-tested wave 3 ("looks great"); he fast-forwards `main` to 1c15fc7. Wave 4 (`refactor/wave4-integration`) starts from 1c15fc7.
+- **P2.09** (e94df94): each Panel is wired by `PanelHost` (`side` only); the panel hurtle is a canvas command.
+  - Measured first with a Profiler inside Panel's memo: selection and `hydratedNodes` props (only Semantic Discovery used them) and Panel's own `graphs` subscription drove its renders.
+  - Views that show live graph data subscribe for themselves, and Panel is a plain memo.
+  - Panel commits in S1/S4/S5/S7: 0 (were 2/8/18/2).
+- **F-76** found with `--explain S1` and fixed: the hidden wizard view polled file status into unused state every 3 s. S1 9 → 7 commits.
+- **X-05** deleted (the right Panel's ref and `openNodeTab`).
+- **Integration e94df94:** `test:ci` PASS (3,547, 68 known, 0 new), Playwright 43 passed (F12 expected), `lint:undef` PASS. NodeCanvas.jsx **17,968**.
+- **Next:** P2.10 (TypeList host + `useActiveGraphNodes`).
+
+---
+
 ## 2026-09-25: P2.08 done, with P2.06e and B-12 (Claude, orchestrator)
 
 - **P2.08** (5bce422): Header is wired by `HeaderHost`, a one-prop host that reads the stores itself. Canvas actions go through a new command registry (**D-20**). Header's file operations became `services/universeFileActions.js` (**P2.06e** done).

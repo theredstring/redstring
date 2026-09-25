@@ -175,7 +175,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - The orphan-graph cleanup effect stayed in NodeCanvas on purpose (see the report).
 
 ### P2.09: Move the left and right Panel to App
-- **Status:** todo
+- **Status:** done (2908e9d + F-76 aa07e76, merged e94df94; report reports/P2.09.md). Panels render from NodeCanvas's slots as one-prop hosts; App takes the elements in P2.11
 - **Lane:** A + C · **Size:** L · **Depends:** P2.03, P2.05, P2.08
 - **Findings:** F-13, X-05
 - **Change:**
@@ -189,11 +189,15 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - It re-renders in S7 only if it displays the selection.
   - Every panel tab works.
 - **Handoff:**
+  - `PanelHost` (`side` only) supplies store values, stable toggles and the `startHurtleFromPanel` command. Panel is a plain memo now (comparator, `forwardRef` and `openNodeTab` gone; X-05).
+  - Panel doesn't subscribe to `graphs`/`edges`: Open Webs (LeftGridView), the wizard (LeftAIView) and Semantic Discovery subscribe for themselves. Panel commits: 0 in S1/S4/S5/S7 (were up to 18 in S5).
+  - F-76: the hidden wizard view's unused 3 s poll is gone.
+  - `useActiveGraphNodes` was not needed here; build it in P2.10 for TypeList.
 
 ### P2.10: Move TypeList to App
 - **Status:** todo
 - **Lane:** A + C · **Size:** S · **Depends:** P2.02, P2.09
-- **Change:** TypeList reads its nodes through `useActiveGraphNodes` and reads selection from the store.
+- **Change:** TypeList reads its nodes through `useActiveGraphNodes` (add `src/hooks/useActiveGraphNodes.js` here; P2.09 didn't need it) and reads selection from the store. Wrap it in a host with a Profiler, as P2.08/P2.09 did.
 - **Accept:** TypeList shows 0 commits in S1 and S4.
 - **Handoff:**
 

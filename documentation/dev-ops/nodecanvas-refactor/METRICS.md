@@ -93,6 +93,7 @@ Filled in by P0.04; details and method are in reports/P0.04.md.
 | 2026-09-25 | P1.10 | S6 pie open/close (`--explain`, 1 run) | 30 commits, 19 NC runs | 28, 18 | 8385536 | Camera-settle rebuild of the pie gone |
 | 2026-09-25 | P1.05 | S9 panel resize (chambers, 3 runs) | 71 commits, 65 NC runs, 187 ms | 17, 7, 40 ms | e5a7e82 | |
 | 2026-09-25 | P1.08 | S10b off-graph thumbnails (chambers, 3 runs) | 41 commits, 52.5 ms | 23 (20 NC renders, no bailouts), 48.9 ms | 1247e9b | Node-derived memos under off-graph writes: 20 runs → 0 (jsdom counter, removed) |
+| 2026-09-25 | P2.09 | Panel renders, left / right (chambers, 3 runs; Profiler inside the memo) | S1 2/0, S4 6/2, S5 18/0, S7 2/0 | 0/0 in all four; all commits S1 9 → 7, S4 16 → 14 | 2908e9d, aa07e76 | Before: selection/hydratedNodes props, Panel's `graphs` subscription, and the hidden wizard's 3 s poll (F-76) |
 | 2026-09-25 | P2.08 | Header renders (chambers, 3 runs; `<Profiler id="Header">`) | once per NodeCanvas render (S5 38, S7 10, S4 6, S1 3) | S1 0, S5 0, S7 0, S4 1, S11 1, S13 2 | 0d54da5 | S4/S11: Header's own Undo subscription on the first edit (INFERRED); S13 changes the active tab. The perf table's new "Hosts (commits)" column (90c0b57) reads these |
 
 ## Size history
@@ -108,3 +109,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | 4daa4d1 (wave 2, `main`) | 18,412 | — | P1 done |
 | 2026-09-25 | 87f11e7 | 18,362 | — | P2.02–P2.05 |
 | 2026-09-25 | 5bce422 | 17,994 | — | P2.08 (HeaderHost, P2.06e) |
+| 2026-09-25 | e94df94 | 17,968 | — | P2.09 (PanelHost) |

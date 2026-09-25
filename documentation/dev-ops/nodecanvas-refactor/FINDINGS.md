@@ -96,7 +96,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - Header, TypeList, NodeControlPanel, UnifiedBottomControlPanel, ConnectionControlPanel, AbstractionControlPanel, PieMenu, AbstractionCarousel, and ColorPicker ×3.
 - SettingsModal (54 store subscriptions), HelpModal, MergeThingsModal, StorageSetupModal and GitReconnectModal.
 - Panel has a custom memo comparator (see F-50).
-- → P2. **Header done** (P2.08: one-prop `HeaderHost`, 0 commits in S1/S5/S7).
+- → P2. **Header done** (P2.08: one-prop `HeaderHost`, 0 commits in S1/S5/S7). **Panels done** (P2.09: `PanelHost`, plain memo, 0 commits in S1/S4/S5/S7).
 
 **F-14. The keyboard listener is torn down and re-added on every render.** VERIFIED. **→ resolved in P1.11 (9e4cdfe)**
 - The `useCanvasKeyboard` keydown effect has about 22 dependencies (`useCanvasKeyboard.js` ~784).
@@ -411,6 +411,7 @@ This state is used across clusters and must move to a store before the clusters 
 - **Every selection change and every `graphs` write** also re-renders the right panel's whole content: about 270 `LazySection`, 270 `ChevronRight` and 270 `StandardDivider`. A `graphs` write also re-renders the left panel's 51 `DraggableNodeComponent`s.
 - So one NodeCanvas render in real use is several hundred component renders. F-13 (unmemoized shell) and F-50 (Panel's comparator) are where this comes from.
 - → P2 (the shell leaves NodeCanvas; Header tabs and Panel get their own subscriptions).
+- **Header and Panels resolved:** P2.08 (Header 0 commits per NodeCanvas render) and P2.09 (Panels 0 commits in S1/S4/S5/S7; Panel no longer subscribes to `graphs`).
 
 **F-75. What a pie open and close actually renders (S6, 19 NodeCanvas runs) (P0.04).** VERIFIED with `--explain`.
 
@@ -427,6 +428,10 @@ This state is used across clusters and must move to a store before the clusters 
 
 - The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
 - → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
+
+**F-76. The hidden wizard view re-rendered every 3 s (P2.09).** VERIFIED with `--explain S1`; **fixed** aa07e76.
+- LeftAIView stays mounted while hidden (to keep wizard sessions). It polled `fileStorage.getFileStatus()` every 3 s into state that nothing read; the call returns a new object each time.
+- So the left Panel committed every 3 s for as long as the app was open. That was the only left-panel activity left in S1 after P2.09.
 
 ---
 
@@ -463,7 +468,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | X-02 | Functions that are never called: `animatePinchSmoothing` / `startPinchSmoothing` / `stopPinchSmoothing` (~9894–10092; keep the `lastFrameTime` the touch hook reads); `renderConnectionNamePrompt` (~12943); `renderCustomPrompt` (~13065) and the things only it uses (`handleDialogColorPickerOpen`, `handlePromptSubmit`, `handleNodeSelectionGridClose`, `dialogContainerRef`); `isNearEdge`; `handleEdgeClick`; `handleEdgeMouseEnter` / `Leave`; `schedulePositionUpdate` / `flushPositionUpdates`; `nodesVisibleInStrictViewport` (~15275), which still walks every node on every settle | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
 | X-03 | Imports that are never used: `useNodeActions` (line 149) and `NodeSelectionGrid` | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
 | X-04 | `useCanvasTouch` parameters: `panOffset`, `zoomLevel`, `setZoomLevel` and `setPanOffset` are unused; `recentlyPanned` and `setLastInteractionType` are dead | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
-| X-05 | The right Panel's `ref={panelRef}` is never read (~8583) | P2.09 |
+| X-05 | The right Panel's `ref={panelRef}` is never read (~8583) | **deleted** in P2.09 (2908e9d), with Panel's `forwardRef` and `openNodeTab` handle |
 | X-06 | Dead refs and constants: `lastHoverCheckRef`, `isKeyboardZooming`, `resizeTimeoutRef`, `prevZoomForWatchdog`, and the constants at ~469–471 (`MOUSE_WHEEL_ZOOM_SENSITIVITY`, …) | **deleted** in P1.02 (560a08e, ddbc5fe, 739c464) |
 | X-07 | ~~Hook params that are now always empty after P1.02: `isPaused` in `useCanvasKeyboard`, `isPausedRef` in `useGamepad`; two dead animation cancels in `useNodeDrag`~~ **Done** 13c4a15. Left over: NodeCanvas still passes `pinchSmoothingRef` to `useNodeDrag` (Lane A, one line) | done |
 | X-08 | `src/hooks/useNodeActions.js` is imported nowhere since P1.02 removed its dead import: delete the file (the Oct-2025 "Phase 2" that was never wired) | any small cleanup commit |
