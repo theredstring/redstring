@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P5.01a, pie button builders (Claude, orchestrator)
+
+- `nodePieMenuPages`, `targetPieMenuButtons`, `decomposePanelInfo` and `edgePieMenuButtons` (about 1,100 lines) moved verbatim into `components/canvas/pie/`, taking their closed-over values as `ctx`, with the same memo dependencies (reports/P5.01a.md).
+- The button sets are identical to the wave5 tip in six recorded states. **NodeCanvas.jsx 15,131 → 14,054.**
+- **Gates:** `test:ci` PASS, Playwright 56 passed, `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: Culling bailouts (Claude, orchestrator)
 
 - `runCulling`'s same-membership sets were F-79 bailouts. `visibleNodeIds`/`visibleEdges` now use `useTrackedState` (reports/culling-bailouts.md).

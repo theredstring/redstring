@@ -24,6 +24,7 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
 ---
 
 ### P5.01: Pure button builders
+- **Status:** part a done (reports/P5.01a.md): the four memos are builder functions in `components/canvas/pie/`, moved verbatim; button sets identical in six states. Open (P5.01b): actions reading state at fire time; the control panels calling the builders.
 - **Lane:** B, then A · **Size:** L
 - **Findings:** F-08
 - **Change:**
