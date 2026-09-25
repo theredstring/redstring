@@ -152,6 +152,24 @@ export function createCanvasUIDefaults() {
     pendingAbstractionNodeId: null,
     /** @type {string|null} Toggles the decompose preview on this node once the pie has shrunk. */
     pendingDecomposeNodeId: null,
+    // Moved from NodeCanvas for the pie machine (P5.02b; written by dispatchPie
+    // once wired). Defaults match the NodeCanvas locals they replace.
+    /** @type {number} Page of the default node pie (NodeCanvas `pieMenuPage`). */
+    pieMenuPage: 0,
+    /** @type {boolean} 100 ms click guard after a carousel action (NodeCanvas `isPieMenuActionInProgress`). */
+    isPieMenuActionInProgress: false,
+    /** @type {object|null} The carousel Swap, applied when the carousel has faded (NodeCanvas `pendingSwapOperation`). */
+    pendingSwapOperation: null,
+    /** @type {boolean} From the carousel's exit until 300 ms after (NodeCanvas `carouselExitInProgressRef`). */
+    carouselExitInProgress: false,
+    /** @type {boolean} A touch close was requested for this showing (NodeCanvas `carouselCloseRequestedRef`). */
+    carouselCloseRequested: false,
+    /** @type {string|null} Node to frame once the carousel is gone (NodeCanvas `pendingCarouselReturnFocusRef`). */
+    pendingCarouselReturnFocusId: null,
+    /** @type {boolean} A marquee is being dragged: mirrors NodeCanvas `selectionStart != null`. */
+    marqueeActive: false,
+    /** @type {number} Bumped by the machine's full reset, for NodeCanvas locals that reset with it. */
+    resetNonce: 0,
 
     // decompose preview (F-47 #4)
     /** @type {string|null} */
@@ -322,6 +340,10 @@ const useCanvasUIStore = create((set) => ({
   setIsCarouselStageTransition: fieldSetter(set, 'isCarouselStageTransition'),
   setPendingAbstractionNodeId: fieldSetter(set, 'pendingAbstractionNodeId'),
   setPendingDecomposeNodeId: fieldSetter(set, 'pendingDecomposeNodeId'),
+  // Page flips from the layer and the gamepad are not lifecycle events; the
+  // reset to page 0 on a target change is (the pie machine does it).
+  setPieMenuPage: fieldSetter(set, 'pieMenuPage'),
+
 
   // decompose preview
   setPreviewingNodeId: fieldSetter(set, 'previewingNodeId'),
