@@ -70,6 +70,7 @@ import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
 import { clampPan, clientToCanvas } from './utils/canvas/viewportMath.js';
+import { findNearestEdgeAtCanvasPoint as findNearestEdge, edgeHitThreshold } from './utils/canvas/edgeHitTest.js';
 import {
   isMac,
   isIOS,
@@ -185,12 +186,11 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
-import { distanceToPolyline, edgeHitScore } from './utils/canvas/geometryUtils.js';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint } from './utils/canvas/parallelEdgeUtils.js';
-import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
+import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
@@ -398,37 +398,6 @@ const DRAG_ZOOM_RESTORE_HOLD_MS = 300;
 // rasterisation. This bound is kept only as a backstop against pathological
 // counts; it should not be the reason an ordinary graph's labels stop bending.
 const CURVED_LABEL_BUDGET = 250;
-
-// Connection grab radius floors, in SCREEN pixels — see getEdgeHitThreshold.
-// The base radius is expressed in canvas units, which shrink on screen as you
-// zoom out; these keep the real target usable at any zoom. 44px is Apple's HIG
-// minimum touch target, and touch also scales the base radius up because a
-// fingertip has nothing like a cursor's precision.
-const EDGE_HIT_FLOOR_PX_MOUSE = 24;
-const EDGE_HIT_FLOOR_PX_TOUCH = 44;
-const EDGE_HIT_TOUCH_BOOST = 1.4;
-
-// How much closer a rival has to be before it takes the hover away from the
-// connection already showing, as a fraction of the grab radius.
-//
-// Pure nearest-wins is the right answer for a CLICK, which happens at one
-// instant. It is the wrong answer for hover, which is a continuous judgement
-// re-made every frame: wherever two connections are near-tied, the winner
-// alternates under a pixel of cursor jitter, and since entering a new target
-// restarts the 180ms dwell, one flickering frame costs the user the whole
-// delay. Sustained flicker means hover never settles at all.
-//
-// Curved styles are where the tie zones live. A straight connection crosses its
-// neighbours at a point; a Lombardi arc bows clear of its chord, detours
-// through territory other connections occupy, and meets them at shallow angles
-// — so the near-tie is a STRETCH, not a point, and the more extreme the bow the
-// longer it runs. That is why the flicker showed up on the big arcs first and
-// left ordinary connections alone.
-//
-// Hysteresis, the same remedy runCulling applies to the visible set for the
-// same reason. Deliberately modest: enough to cover jitter and shallow
-// crossings, not enough to hold hover on a connection you have genuinely left.
-const EDGE_HOVER_STICKY_FRACTION = 0.25;
 
 // Shared empty obstacle list, so the memo below can skip the work without
 // handing out a fresh array identity on every pan tick.
@@ -8122,249 +8091,21 @@ function NodeCanvas() {
 
   // --- Connection hit-testing (shared by hover, click and touch) -------------
   //
-  // One geometric test for every routing style, so hover and selection can never
-  // disagree about which connection is under the pointer. Hover used to own this
-  // math privately while selection leaned on the transparent SVG stroke drawn
-  // around each path — a narrower target (radius ~25 canvas units against
-  // hover's 40–50) that also resolves topmost-wins instead of nearest-wins.
-  // Curved styles suffered worst: a Lombardi arc or a parallel fan bows away
-  // from where the stroke sits, so the line you aimed at was not the line that
-  // got the tap.
-  //
-  // Returns { edgeId, distance, point, connection } for the NEAREST connection
-  // within `threshold` canvas units, or null. `point` is the closest point on
-  // the winner's REAL drawn geometry — the arc, the Manhattan run, the Bézier —
-  // not on the chord between its endpoints. The controller's auto-aim is the
-  // caller that needs it: aiming at a chord in a curved style walks the camera
-  // to a spot with nothing drawn on it. Every style computes that point already
-  // on its way to a distance; it was simply being thrown away.
-  //
-  // `options.stickyEdgeId` biases the scan toward a connection the caller is
-  // already showing — see EDGE_HOVER_STICKY_FRACTION. Callers that want an
-  // honest nearest-wins (click, tap, the controller) simply omit it.
-  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options = {}) => {
-    let foundEdgeId = null;
-    let foundConnectionPayload = null;
-    let closestDistance = Infinity;
-    // Ranking key, which is the true distance for every connection EXCEPT the
-    // sticky one. Kept separate so `closestDistance` — and therefore the
-    // `distance` handed back to callers — stays the real measurement.
-    let closestScore = Infinity;
-    const stickyEdgeId = options.stickyEdgeId ?? null;
-    const stickyMargin = stickyEdgeId ? threshold * EDGE_HOVER_STICKY_FRACTION : 0;
-    // One scratch object reused across the whole scan, copied out only when an
-    // edge actually becomes the winner: this loop runs over every visible edge
-    // on every pointer move, and the styles here were written to avoid exactly
-    // this kind of per-edge garbage.
-    const nearest = { x: 0, y: 0 };
-    let foundPoint = null;
-
-    for (let i = visibleEdges.length - 1; i >= 0; i--) {
-      const edge = visibleEdges[i];
-      const sourceRaw = nodeById.get(edge.sourceId);
-      const targetRaw = nodeById.get(edge.destinationId);
-      if (!sourceRaw || !targetRaw) continue;
-
-      const sourceDimsRaw = baseDimsById.get(sourceRaw.id);
-      const targetDimsRaw = baseDimsById.get(targetRaw.id);
-      if (!sourceDimsRaw || !targetDimsRaw) continue;
-
-      // Route from the same boxes the renderer routes from. A thing-group
-      // anchor is drawn from the GROUP's pill, not from the anchor's stored
-      // instance box, and every other reader of this geometry — the tangent
-      // solve, the label crossing index, renderConnectionEdge, the drag's live
-      // updater — already substitutes it. The pointer test was the last one
-      // that didn't, so a connection into a group was measured against a curve
-      // nobody had drawn. See anchorGeometryFor.
-      const { node: sourceInstance, dims: sourceDims } = anchorGeometryFor(sourceRaw, sourceDimsRaw);
-      const { node: targetInstance, dims: targetDims } = anchorGeometryFor(targetRaw, targetDimsRaw);
-
-      const isSourcePreviewing = previewingNodeId === sourceInstance.id;
-      const isTargetPreviewing = previewingNodeId === targetInstance.id;
-      const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
-      const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
-      const x2 = targetInstance.x + targetDims.currentWidth / 2;
-      const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
-
-      let distance = Infinity;
-
-      if (edge.sourceId === edge.destinationId) {
-        distance = distanceToSelfLoop(
-          cx, cy,
-          sourceInstance.x, sourceInstance.y,
-          sourceDims.currentWidth, sourceDims.currentHeight,
-          edgeCurveInfo.get(edge.id),
-          nearest
-        );
-      } else if (enableAutoRouting && routingStyle === 'clean') {
-        const pathPoints = generateCleanRoutingPath(
-          edge, sourceInstance, targetInstance, sourceDims, targetDims,
-          cleanLaneOffsets, cleanLaneSpacing
-        );
-        distance = distanceToPolyline(cx, cy, pathPoints, nearest);
-      } else if (enableAutoRouting && routingStyle === 'lombardi') {
-        // Closed form, not sampling. This runs for every visible edge on every
-        // pointer move; building the full routing descriptor here (sampled
-        // polyline, path string, arrowhead trims) and then walking the polyline
-        // made hover cost ~2x what the orthogonal styles cost, on top of the
-        // garbage it generated.
-        const { p, q, arc } = lombardiArcFor(
-          edge, sourceInstance, targetInstance, sourceDims, targetDims,
-          lombardiTangents, lombardiCurvature,
-          // Same fan the renderer drew, so the hit-test picks the member of a
-          // bundle actually under the pointer — and the same straight/curved
-          // verdict, or a connection drawn as a line is measured as a bow.
-          {
-            curveInfo: edgeCurveInfo.get(edge.id),
-            laneSpacing: lombardiLaneSpacing,
-            minBow: lombardiMinBow,
-          }
-        );
-        distance = arc
-          ? distanceToArc(cx, cy, arc, nearest)
-          : distanceToPolyline(cx, cy, [p, q], nearest);
-      } else if (enableAutoRouting && routingStyle === 'manhattan') {
-        const pathPoints = generateManhattanRoutingPath(
-          edge, sourceInstance, targetInstance, sourceDims, targetDims,
-          manhattanBends,
-          // Same lane the renderer drew, or the hit-test picks the wrong member
-          // of a bundle — every one of them would test against the un-fanned
-          // centre route.
-          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
-        );
-        distance = distanceToPolyline(cx, cy, pathPoints, nearest);
-      } else {
-        const curveInfo = edgeCurveInfo.get(edge.id);
-        if (curveInfo && curveInfo.totalInPair > 1) {
-          // Distance to the quadratic Bézier. Must use the SAME curveSpacing as
-          // the renderer (200 * multiConnectionCurve) — the default
-          // (BASE_CURVE_SPACING = 100) bunches the test curves at half the drawn
-          // fan-out, so with 3+ parallel edges the nearest computed curve is no
-          // longer the one under the pointer.
-          const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
-          if (ctrlPoint) {
-            distance = distanceToQuadraticBezier(
-              cx, cy,
-              x1, y1,
-              ctrlPoint.ctrlX, ctrlPoint.ctrlY,
-              x2, y2,
-              40, // finer sampling to disambiguate tightly packed curves
-              nearest
-            );
-          }
-        } else {
-          const A = cx - x1;
-          const B = cy - y1;
-          const C = x2 - x1;
-          const D = y2 - y1;
-          const dot = A * C + B * D;
-          const lenSq = C * C + D * D;
-          if (lenSq > 0) {
-            let param = dot / lenSq;
-            if (param < 0) param = 0;
-            else if (param > 1) param = 1;
-            const xx = x1 + param * C;
-            const yy = y1 + param * D;
-            const dx = cx - xx;
-            const dy = cy - yy;
-            distance = Math.sqrt(dx * dx + dy * dy);
-            nearest.x = xx;
-            nearest.y = yy;
-          }
-        }
-      }
-
-      const score = edgeHitScore(distance, threshold, edge.id === stickyEdgeId, stickyMargin);
-      if (score >= closestScore) continue;
-      // Keep scanning: for overlapping connections the nearest edge wins, not
-      // the first one found within the threshold.
-      closestScore = score;
-      closestDistance = distance;
-      foundEdgeId = edge.id;
-      // Copied, not aliased — `nearest` is about to be overwritten by the next
-      // edge in the scan.
-      foundPoint = { x: nearest.x, y: nearest.y };
-
-      let connectionName = edge.connectionName || 'Connection';
-      let connectionColor = edge.color || '#000000';
-
-      if ((!connectionName || connectionName === 'Connection') && edge.definitionNodeIds?.length) {
-        const defNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-        if (defNode) {
-          connectionName = defNode.name || connectionName;
-          connectionColor = defNode.color || connectionColor;
-        }
-      } else if ((!edge.definitionNodeIds || edge.definitionNodeIds.length === 0) && edge.typeNodeId) {
-        const typeNode = nodePrototypesMap.get(edge.typeNodeId);
-        if (typeNode) {
-          connectionName = typeNode.name || connectionName;
-          connectionColor = typeNode.color || connectionColor;
-        }
-      }
-
-      const sourceEndpoint = {
-        id: sourceInstance.id,
-        name: sourceInstance.name,
-        color: sourceInstance.color,
-        width: sourceDims.currentWidth,
-        height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
-        prototypeId: sourceInstance.prototypeId
-      };
-      const targetEndpoint = {
-        id: targetInstance.id,
-        name: targetInstance.name,
-        color: targetInstance.color,
-        width: targetDims.currentWidth,
-        height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
-        prototypeId: targetInstance.prototypeId
-      };
-      // Orient the preview to match the canvas: whichever endpoint sits further
-      // left on the canvas is shown on the left of the hover aid. Our brains
-      // can't easily re-map a connection whose on-canvas left→right order is
-      // reversed in the preview. Arrows are keyed by node id
-      // (directionality.arrowsToward), so swapping the display order of
-      // source/target is lossless.
-      const flipForCanvasOrder = targetInstance.x < sourceInstance.x;
-
-      foundConnectionPayload = {
-        id: edge.id,
-        name: connectionName,
-        color: connectionColor,
-        definitionNodeIds: edge.definitionNodeIds,
-        typeNodeId: edge.typeNodeId,
-        source: flipForCanvasOrder ? targetEndpoint : sourceEndpoint,
-        target: flipForCanvasOrder ? sourceEndpoint : targetEndpoint,
-        directionality: edge.directionality,
-        // Whether the canvas is currently showing this connection's name in
-        // full. The hover aid uses it to decide it is needed at a zoom level
-        // where it would normally stand down — see labelTruncationRef.
-        labelTruncated: labelTruncationRef.current.get(edge.id) === true
-      };
-    }
-
-    return foundEdgeId
-      ? { edgeId: foundEdgeId, distance: closestDistance, point: foundPoint, connection: foundConnectionPayload }
-      : null;
-  }, [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+  // The nearest connection to a canvas point: utils/canvas/edgeHitTest.js.
+  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options) => findNearestEdge(cx, cy, threshold, {
+    visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+    enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
+    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
+    lombardiMinBow, anchorGeometryFor, labelTruncationRef,
+  }, options), [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
     lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
     lombardiMinBow, anchorGeometryFor]);
 
-  // Grab radius for the hit-test above, in canvas units.
-  //
-  // Routed styles get a wider base radius: their geometry doesn't run where a
-  // naive chord would, so the pointer is often further from the line than the
-  // user's aim suggests. On top of that both tiers take a screen-space FLOOR —
-  // the base radius is fixed in graph units, so zooming out used to shrink the
-  // real target to a handful of pixels. A finger is roughly 44px wide (Apple's
-  // HIG minimum) and can't aim anywhere near as precisely as a cursor, so touch
-  // gets both a bigger floor and a multiplier on the base.
-  const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => {
-    const base = (isRoutedStyle ? 50 : 40) * Math.max(1, connectionWidth);
-    const isTouch = pointerKind === 'touch';
-    const floorPx = isTouch ? EDGE_HIT_FLOOR_PX_TOUCH : EDGE_HIT_FLOOR_PX_MOUSE;
-    return Math.max(base * (isTouch ? EDGE_HIT_TOUCH_BOOST : 1), floorPx / (zoomLevelRef.current || 1));
-  }, [isRoutedStyle, connectionWidth]);
+  // Grab radius for the hit-test above, in canvas units: see edgeHitThreshold.
+  const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => (
+    edgeHitThreshold(pointerKind, isRoutedStyle, connectionWidth, zoomLevelRef.current)
+  ), [isRoutedStyle, connectionWidth]);
 
   // Client-space wrapper around the two above.
   const findEdgeAtClientPoint = useCallback((clientX, clientY, pointerKind = 'mouse') => {
