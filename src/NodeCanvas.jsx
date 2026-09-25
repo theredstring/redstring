@@ -3,24 +3,13 @@ import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
-import PlusSign from './PlusSign.jsx'; // Import the new PlusSign component
-import VideoNodeAnimation from './VideoNodeAnimation.jsx'; // Import the video animation component
-import PieMenu from './PieMenu.jsx'; // Import the PieMenu component
-import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
-import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
-import DownloadAppPill from './DownloadAppPill.jsx';
-import HoverVisionAidLayer from './components/canvas/layers/HoverVisionAidLayer.jsx';
 import { setActionHover } from './utils/canvas/actionHover.js';
-import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-mode reticle
 import { getNodeDimensions } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
 import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
 import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT } from './utils/colorUtils.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
-import { CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution } from './utils/clusterAnalysis.js';
-import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Plus } from 'lucide-react'; // Icons for PieMenu
 import { useDrop } from 'react-dnd';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
@@ -35,7 +24,6 @@ import {
   computeGroupDepths,
   buildEdgeZSlotIndex,
 } from './services/groupLayout.js';
-import { getNodeHitbox } from './utils/canvas/nodeHitbox.js';
 import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
@@ -46,7 +34,6 @@ import useCanvasUIStore, { setPieCommandHandler } from './store/canvasUIStore.js
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
-import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
 import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js';
 import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
@@ -57,7 +44,7 @@ import { createCameraController } from './components/canvas/camera/cameraControl
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass, ENABLE_CULLING } from './components/canvas/data/culling.js';
 import { LABEL_ANGLE_QUANTUM, LABEL_ANGLE_QUANTUM_MIN_COUNT, LABEL_ANGLE_QUANTUM_ALWAYS_STYLES, CURVED_LABEL_BUDGET, EMPTY_OBSTACLES, LABEL_CROSSING_BUDGET } from './components/canvas/edges/labelBudgets.js';
-import { EMPTY_ORBIT, ORBIT_SCRIM_COLOR, ORBIT_SCRIM_BLUR_PX, ORBIT_FIT_PADDING, ORBIT_FIT_MIN_ZOOM } from './components/canvas/orbit/orbitConstants.js';
+import { EMPTY_ORBIT } from './components/canvas/orbit/orbitConstants.js';
 import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
 import { dispatchWizardIntent } from './components/canvas/actions/wizardIntent.js';
@@ -75,11 +62,10 @@ import { submitAbstraction } from './components/canvas/actions/abstractionSubmit
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
-import { clampPan, clientToCanvas } from './utils/canvas/viewportMath.js';
+import { clientToCanvas } from './utils/canvas/viewportMath.js';
 import { findNearestEdgeAtCanvasPoint as findNearestEdge, edgeHitThreshold } from './utils/canvas/edgeHitTest.js';
 import { selectionInRect, groupTitleAtCanvasPoint, groupDragOffsets } from './utils/canvas/canvasHitTest.js';
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
-import PanelResizers from './components/canvas/PanelResizers.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
 import {
   buildWizardConnectionPrompt,
@@ -101,8 +87,6 @@ import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './serv
 
 import { getAppViewportSize } from './utils/appViewport.js';
 import {
-  NODE_WIDTH,
-  NODE_HEIGHT,
   HEADER_HEIGHT,
   MAX_ZOOM,
   PLUS_SIGN_SIZE,
@@ -124,7 +108,6 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
 import { computeLombardiTangents, connectionCurveMinBow, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
-import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
 import NodeLayer from './components/canvas/layers/NodeLayer.jsx';
 import ControlPanelsHost from './components/canvas/hosts/ControlPanelsHost.jsx';
@@ -153,6 +136,15 @@ import { edgeHitboxHandlersFor, edgeTouchHandlersFor, commitEdgeTouchWith, resol
 import { handlePieCommandWith } from './components/canvas/pie/pieCommands.js';
 import { rebuildPieMenuDataWith } from './components/canvas/pie/pieData.js';
 import { finishPlusSignMorph, finishVideoAnimation } from './components/canvas/actions/plusSignMorph.js';
+import EmptyWebPrompt from './components/canvas/layers/EmptyWebPrompt.jsx';
+import CanvasChrome from './components/canvas/layers/CanvasChrome.jsx';
+import CanvasHud from './components/canvas/layers/CanvasHud.jsx';
+import SvgOverlays from './components/canvas/layers/SvgOverlays.jsx';
+import OrbitDimRect from './components/canvas/orbit/OrbitDimRect.jsx';
+import ConnectionDrawOverlay from './components/canvas/layers/ConnectionDrawOverlay.jsx';
+import HitboxDebugLayer from './components/canvas/layers/HitboxDebugLayer.jsx';
+import OrbitLayers from './components/canvas/orbit/OrbitLayers.jsx';
+import PieMenusLayer from './components/canvas/layers/PieMenusLayer.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -5235,6 +5227,65 @@ function NodeCanvas() {
     selfLoopDialog, setSelfLoopDialog,
   };
 
+  // EmptyWebPrompt's inputs (moved JSX, wave 6).
+  const emptyWebPromptCtx = {
+    theme, openNewWebPrompt,
+  };
+
+  // CanvasChrome's inputs (moved JSX, wave 6).
+  const canvasChromeCtx = {
+    edgeGlowMode, hydratedNodes, baseDimsById, panOffset, zoomLevel, panOffsetRef, zoomLevelRef,
+    glowUpdateRef, leftPanelExpanded, rightPanelExpanded, previewingNodeId, containerRef,
+    shouldShowBackToCivilization, backToCivilizationDelayComplete, handleBackToCivilizationClick, canvasSize,
+    viewportSize, enableClustering, clusterAnalysis, showStorageSetupModal, nodeControlPanelShouldShow,
+    nodeControlPanelVisible, connectionControlPanelShouldShow, connectionControlPanelVisible,
+    abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef,
+  };
+
+  // CanvasHud's inputs (moved JSX, wave 6).
+  const canvasHudCtx = {
+    headerHeight, zoomLevel, gamepadActive, viewportBounds, gamepadCrosshairScale,
+  };
+
+  // SvgOverlays's inputs (moved JSX, wave 6).
+  const svgOverlaysCtx = {
+    selectionStart, setMarqueeRectEl, plusSign, handlePlusSignClick, handleMorphDone, setPlusSign,
+    gestureBlockRef, isPanningOrZooming, getPlusSignMorphTarget, textSettings, videoAnimation,
+    handleVideoAnimationComplete,
+  };
+
+  // OrbitDimRect's inputs (moved JSX, wave 6).
+  const orbitDimCtx = {
+    semanticOrbitActive, orbitDimRectRef, updateOrbitDimRect, ENABLE_ORBIT_DIM, canvasSize,
+    orbitClickDownPos, exitOrbitMode,
+  };
+
+  // ConnectionDrawOverlay's inputs (moved JSX, wave 6).
+  const connectionDrawCtx = {
+    drawingConnectionFrom, draggingNodeInfo, drawingConnectionLineRef, drawingConnectionEndRef,
+    connectionWidth, selfLoopPreviewActive, nodes, baseDimsById, visibleEdges,
+  };
+
+  // HitboxDebugLayer's inputs (moved JSX, wave 6).
+  const hitboxDebugCtx = {
+    showNodeHitboxes, hydratedNodes, baseDimsById, selectedInstanceIds,
+  };
+
+  // OrbitLayers's inputs (moved JSX, wave 6).
+  const orbitLayersCtx = {
+    semanticOrbitActive, canvasSize, setOverlayGroup,
+  };
+
+  // PieMenusLayer's inputs (moved JSX, wave 6).
+  const pieMenusCtx = {
+    isPieMenuRendered, hasPieMenuData, textSettings, carouselFocusedNode, abstractionCarouselVisible,
+    previewingNodeId, selectedNodeIdForPieMenu, nodePieMenuPages, pieMenuPage, setPieMenuPage, gamepadMode,
+    gamepadPieFocusedIndex, currentPieMenuNodeId, semanticOrbitActive, isTransitioningPieMenu,
+    abstractionPrompt, carouselAnimationState, draggingNodeInfo, handlePieMenuHoverChange,
+    handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
+    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered,
+  };
+
   // The pointer handlers' context (P4.04a), assigned during render for the same
   // reason as the camera's: effects in this commit see this render's values.
   pointerCtxRef.current = {
@@ -5361,62 +5412,7 @@ function NodeCanvas() {
             // reconnect card): UniverseScreens since P2.06c.
             <UniverseScreens />
           ) : !activeGraphId ? ( // Check local state
-            <div style={{
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '24px',
-              fontFamily: "'EmOne', sans-serif"
-            }}>
-              <div style={{ fontSize: '16px', color: theme.canvas.textPrimary, opacity: 0.7 }}>
-                Open a New Thing
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Same act as the header's + (Create New Thing), so it gets the
-                  // same feedback — see Header.jsx's action row — and opens the
-                  // same selector rather than minting an unnamed Web.
-                  haptic('menuSelect');
-                  openNewWebPrompt();
-                }}
-                onTouchEnd={(e) => {
-                  // The canvas container uses touchAction:'none' and intercepts touch events,
-                  // which prevents synthetic clicks from firing on this button on mobile.
-                  // Handle the tap explicitly here.
-                  e.stopPropagation();
-                  haptic('menuSelect');
-                  openNewWebPrompt();
-                }}
-                style={{
-                  width: '120px',
-                  height: '120px',
-                  backgroundColor: 'transparent',
-                  border: `3px dotted ${theme.canvas.textPrimary}`,
-                  borderRadius: '16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s ease',
-                  outline: 'none',
-                  touchAction: 'manipulation'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(38, 0, 0, 0.05)';
-                  e.currentTarget.style.borderWidth = '4px';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.borderWidth = '3px';
-                }}
-                title="Create New Thing"
-              >
-                <Plus size={48} strokeWidth={2} color={theme.canvas.textPrimary} />
-              </button>
-            </div>
+            <EmptyWebPrompt ctx={emptyWebPromptCtx} />
           ) : (
             <>
               <svg
@@ -5446,32 +5442,7 @@ function NodeCanvas() {
 
                   {/* Regular groups, at the bottom of the stack (P3.04: built by the groupElements memo). */}
                   {groupElements.regular}
-                  {/* Debug: Node Hitbox Visualization */}
-                  {showNodeHitboxes && hydratedNodes.map(node => {
-                    const dims = baseDimsById.get(node.id);
-                    if (!dims) return null;
-
-                    const isSelected = selectedInstanceIds.has(node.id);
-                    const hitbox = getNodeHitbox(node, dims, isSelected);
-
-                    return (
-                      <rect
-                        key={`hitbox-${node.id}`}
-                        x={hitbox.minX}
-                        y={hitbox.minY}
-                        width={hitbox.maxX - hitbox.minX}
-                        height={hitbox.maxY - hitbox.minY}
-                        fill="cyan"
-                        fillOpacity={0.15}
-                        stroke="cyan"
-                        strokeWidth={2}
-                        strokeDasharray="4 4"
-                        pointerEvents="none"
-                        style={{ mixBlendMode: 'multiply' }}
-                      />
-                    );
-                  })}
-
+                  <HitboxDebugLayer ctx={hitboxDebugCtx} />
                   {isViewReady && (
                     <EdgeLayer
                       ctx={edgeRenderCtx} visibleEdges={visibleEdges} edgeZSlots={groupStructure.edgeZSlots}
@@ -5480,48 +5451,7 @@ function NodeCanvas() {
                     />
                   )}
 
-                  {/* Drawing connection line (same z-level as existing edges, below nodes).
-                    Hidden while dragging — a race can leak `drawingConnectionFrom` state
-                    into a drag, which would otherwise leave a frozen black stub behind. */}
-                  {drawingConnectionFrom && !draggingNodeInfo && (
-                    <line
-                      ref={drawingConnectionLineRef}
-                      x1={drawingConnectionFrom.startX}
-                      y1={drawingConnectionFrom.startY}
-                      /* Endpoint is ref-owned (see drawingConnectionEndRef) and re-asserted
-                         imperatively after every commit — rendered here only so a fresh
-                         mount paints in the right place. */
-                      x2={drawingConnectionEndRef.current.x}
-                      y2={drawingConnectionEndRef.current.y}
-                      stroke="black"
-                      strokeWidth={27 * connectionWidth}
-                    />
-                  )}
-                  {/* Self-loop preview. Gated on the state flag rather than on the live
-                    endpoint: the flag is what re-renders this at all, since endpoint
-                    movement no longer goes through React. */}
-                  {drawingConnectionFrom && !draggingNodeInfo && selfLoopPreviewActive && (() => {
-                    const srcNode = nodes.find(n => n.id === drawingConnectionFrom.sourceInstanceId);
-                    if (!srcNode) return null;
-                    const srcDims = baseDimsById.get(srcNode.id) || getNodeDimensions(srcNode, false, null);
-                    const sx = srcNode.x;
-                    const sy = srcNode.y;
-                    const existing = countSelfLoopsForNode(visibleEdges, srcNode.id);
-                    const loop = calculateSelfLoopPath(sx, sy, srcDims.currentWidth, srcDims.currentHeight, { pairIndex: existing, totalInPair: existing + 1 });
-                    return (
-                      <path
-                        d={loop.path}
-                        fill="none"
-                        stroke="black"
-                        strokeWidth={10 * connectionWidth}
-                        strokeDasharray="6 6"
-                        strokeLinecap="round"
-                        opacity="0.7"
-                        style={{ pointerEvents: 'none' }}
-                      />
-                    );
-                  })()}
-
+                  <ConnectionDrawOverlay ctx={connectionDrawCtx} />
                   {/* Nodes: ordinary, then node-group members (P3.08b: NodeLayer reads selection and preview itself). */}
                   <NodeLayer part="rest" {...nodeLayerProps} />
 
@@ -5531,366 +5461,21 @@ function NodeCanvas() {
                   {/* Delete ghost rects (P2.07) */}
                   <DeletionGhostLayer />
 
-                  {/* Render The PieMenu next (it will be visually under the active node) */}
-                  {isPieMenuRendered && hasPieMenuData && (
-                    <NodePieMenuLayer
-                      nodeScale={textSettings?.nodeScale ?? 1.0}
-                      focusedNode={carouselFocusedNode}
-                      pageCount={/* Counted off nodePieMenuPages rather than written down here, so
-                                    adding a page to that list grows the chevrons' range on its own.
-                                    Carousel and decomposition build their own single-page sets. */
-                        (!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? nodePieMenuPages.length : 1}
-                      currentPage={pieMenuPage}
-                      onPageChange={setPieMenuPage}
-                      focusedButtonIndex={gamepadMode === 'node' ? gamepadPieFocusedIndex : -1}
-                      isVisible={(
-                        currentPieMenuNodeId === selectedNodeIdForPieMenu &&
-                        // Orbit owns the screen while it is up. Hiding via
-                        // isVisible (rather than clearing the target) keeps
-                        // the menu mounted and its page intact, so leaving
-                        // orbit animates it back exactly where it was.
-                        !semanticOrbitActive &&
-                        (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
-                        !(draggingNodeInfo &&
-                          (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu || draggingNodeInfo.instanceId === selectedNodeIdForPieMenu)
-                        )
-                      )}
-                      onHoverChange={handlePieMenuHoverChange}
-                      onExitAnimationComplete={handlePieExitComplete}
-                    />
-                  )}
-
-                  {/* Edge pie menu — rendered inline at the edge midpoint */}
-                  {(() => {
-                    // Live midpoint wins whenever there is one; the frozen ref only stands in
-                    // once the edge is deselected, which is the case it exists for — the
-                    // bubbles have to finish shrinking where they were.
-                    //
-                    // Same reasoning as frozenButtons below, and for the same reason: the
-                    // effect that maintains this ref writes it AFTER the render that changed
-                    // the selection, and a ref write re-renders nothing. Reading the ref first
-                    // therefore pinned the menu to the previous connection until an unrelated
-                    // render came along — the visible stall when clicking from one connection
-                    // straight to another. The glide to the new midpoint is a CSS transition on
-                    // the bubbles (see PieMenu's line mode), so it plays either way; this only
-                    // decides whether it starts now or whenever something else happens to render.
-                    const anchor = selectedEdgeMidpoint || edgePieMenuAnchorRef.current;
-                    // Live buttons win whenever there are any; the frozen ref only stands in once
-                    // the list empties out, which is exactly the case it exists for — the edge is
-                    // deselected while the menu is still animating away, and the bubbles have to
-                    // finish shrinking on the set they were showing.
-                    //
-                    // Deliberately not the other way round: this list changes under an open menu
-                    // (Copy makes Paste available, pasting a definition makes Palette and Copy
-                    // available), and a ref write re-renders nothing — so preferring the ref would
-                    // pin the menu to whatever it had when it opened until some unrelated render
-                    // happened to come along.
-                    const frozenButtons = edgePieMenuButtons.length > 0
-                      ? edgePieMenuButtons
-                      : edgePieMenuButtonsRef.current;
-                    if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
-
-                    // Hide (outro) while a node this edge is attached to is being dragged —
-                    // mirrors the node's own PieMenu (isVisible gated on draggingNodeInfo above).
-                    // The anchor position is frozen mid-drag (nodeById doesn't update during
-                    // DOM-bypass drag), so without this the menu would float detached from the
-                    // connection until it snaps to the new spot on drop.
-                    const draggedNodeIds = !draggingNodeInfo ? null
-                      : draggingNodeInfo.instanceId ? new Set([draggingNodeInfo.instanceId])
-                      : draggingNodeInfo.primaryId ? new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})])
-                      : (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) ? new Set(draggingNodeInfo.memberOffsets.map(m => m.id))
-                      : null;
-                    const edgeAttachedToDraggedNode = Boolean(draggedNodeIds && (draggedNodeIds.has(anchor.sourceId) || draggedNodeIds.has(anchor.destinationId)));
-
-                    // No compact/"..." fallback: focusEdgePieMenuInView (see the
-                    // focus-on-select effect) zooms the view to the menu's own bounds
-                    // whenever the row wouldn't fit, so the full row is always reachable.
-                    const displayButtons = frozenButtons;
-
-                    return (
-                      <PieMenu
-                        anchor={anchor}
-                        anchorAngle={anchor.angle ?? 0}
-                        buttons={displayButtons}
-                        focusedButtonIndex={gamepadMode === 'edge' ? gamepadPieFocusedIndex : -1}
-                        nodeScale={textSettings?.nodeScale ?? 1.0}
-                        isVisible={edgePieMenuVisible && !edgeAttachedToDraggedNode}
-                        onHoverChange={handlePieMenuHoverChange}
-                        onExitAnimationComplete={() => {
-                          edgePieMenuAnchorRef.current = null;
-                          edgePieMenuButtonsRef.current = null;
-                          setEdgePieMenuRendered(false);
-                        }}
-                      />
-                    );
-                  })()}
-
-                  {/* Dim overlay for semantic orbit mode.
-                      Plain SVG rect (not foreignObject) so it stays in proper paint order
-                      on iOS WebKit — foreignObject with backdrop-filter punches itself to
-                      the top of the stack and eats taps on orbit items. */}
-                  {semanticOrbitActive && (
-                    <rect
-                      /* Geometry is set imperatively (viewport-sized, tracks
-                         every pan/zoom tick) — see updateOrbitDimRect. Kept out
-                         of JSX so React re-renders don't clobber it. */
-                      ref={(el) => {
-                        orbitDimRectRef.current = el;
-                        if (el) updateOrbitDimRect();
-                      }}
-                      data-orbit-dim=""
-                      /* Dimming off: transparent and static at full canvas
-                         size — nothing to paint, nothing to blend through,
-                         no per-tick geometry writes, and still the click
-                         target that exits orbit mode. */
-                      {...(ENABLE_ORBIT_DIM ? null : {
-                        x: canvasSize.offsetX,
-                        y: canvasSize.offsetY,
-                        width: canvasSize.width,
-                        height: canvasSize.height,
-                      })}
-                      fill={ENABLE_ORBIT_DIM ? 'rgba(0, 0, 0, 0.7)' : 'transparent'}
-                      /* touchAction 'none', like the canvas surface this
-                         covers — every gesture here is the app's to
-                         interpret. It read 'manipulation' before, copied
-                         from a small button where handing pan and pinch
-                         back to the browser is harmless; on something
-                         spanning the whole canvas it is not. */
-                      style={{ cursor: 'pointer', touchAction: 'none' }}
-                      onMouseDown={(e) => {
-                        orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
-                      }}
-                      onClick={(e) => {
-                        const down = orbitClickDownPos.current;
-                        orbitClickDownPos.current = null;
-                        // No matching mousedown means this is a synthesized click after a
-                        // touch gesture (pan) — ignore. Real mouse clicks always come with
-                        // a mousedown right before.
-                        if (!down) return;
-                        const dx = e.clientX - down.x;
-                        const dy = e.clientY - down.y;
-                        if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
-                        e.stopPropagation();
-                        exitOrbitMode();
-                      }}
-                      onTouchStart={(e) => {
-                        // Only a one-finger sequence can be a tap. A second finger
-                        // means a pinch, which is the canvas's gesture, not ours.
-                        const t = e.touches?.length === 1 ? e.touches[0] : null;
-                        orbitClickDownPos.current = t ? { x: t.clientX, y: t.clientY } : null;
-                      }}
-                      onTouchEnd={(e) => {
-                        const down = orbitClickDownPos.current;
-                        orbitClickDownPos.current = null;
-                        // Suppress the synthetic click that follows touchend either way,
-                        // so a pan-then-lift can't fall through to onClick and exit.
-                        if (e.cancelable) e.preventDefault();
-
-                        const t = e.changedTouches?.[0];
-                        const isTap = down && t
-                          && e.touches?.length === 0            // last finger up
-                          && (t.clientX - down.x) ** 2 + (t.clientY - down.y) ** 2 <= 25;
-
-                        // Deliberately does NOT stop propagation, for any outcome.
-                        //
-                        // The canvas's own touchend is where a gesture gets torn down —
-                        // the pinch flag cleared, pan momentum launched — and it is also
-                        // what removes the document-level touchmove/touchend listeners
-                        // that handleTouchStartCanvas attached for this gesture. Stopping
-                        // propagation here (which React forwards to the native event, so
-                        // the document listeners never fire either) meant that in orbit
-                        // mode none of it ran: pans lost their inertia, every touch leaked
-                        // a live touchmove listener, and after a pinch the pinch flag
-                        // stayed set, so every later touch was read as a continuing pinch
-                        // and panning stopped working at all.
-                        //
-                        // The canvas will read a tap here as a bare-canvas tap and clear
-                        // the selection, which exits orbit by way of the deselect effect.
-                        // Exiting explicitly as well is harmless and does not depend on
-                        // that chain holding.
-                        if (isTap) exitOrbitMode();
-                      }}
-                    />
-                  )}
-
-
+                  <PieMenusLayer ctx={pieMenusCtx} />
+                  <OrbitDimRect ctx={orbitDimCtx} />
                   {/* The active node (with the orbit overlay while orbiting), then the dragged node, on top. */}
                   <NodeLayer part="top" {...nodeLayerProps} />
 
-                  {/* Marquee: geometry is written by setMarqueeRectEl, never by React. */}
-                  {selectionStart && (
-                    <rect
-                      ref={setMarqueeRectEl}
-                      fill="rgba(255, 0, 0, 0.1)"
-                      stroke="red"
-                      strokeWidth={1}
-                    />
-                  )}
-
-                  {plusSign && (
-                    <PlusSign
-                      plusSign={plusSign}
-                      onClick={handlePlusSignClick}
-                      onMorphDone={handleMorphDone}
-                      onDisappearDone={() => setPlusSign(null)}
-                      gestureBlockRef={gestureBlockRef}
-                      isPanningOrZoomingRef={isPanningOrZooming}
-                      {...(plusSign.tempName ? (() => {
-                        const { morphNode, dims, center } = getPlusSignMorphTarget(plusSign);
-                        const W = dims.currentWidth;
-                        const H = dims.currentHeight;
-                        // Only draw the image once it's decoded (see handleNodeSelection);
-                        // otherwise the slot is still reserved and the node fills it in.
-                        const hasImage = plusSign.imageReady && Boolean(morphNode.thumbnailSrc) && dims.calculatedImageHeight > 0;
-                        return {
-                          targetCenter: center,
-                          // Make the PlusSign slightly smaller so the final node feels like an expansion
-                          targetWidth: W * 0.9,
-                          targetHeight: H * 0.9,
-                          targetCornerRadius: dims.scaledCornerRadius,
-                          // Image slot as fractions of the node box, so it tracks the morphing rect.
-                          targetImage: hasImage ? {
-                            src: morphNode.thumbnailSrc,
-                            fx: (W - dims.imageWidth) / 2 / W,
-                            fy: dims.textAreaHeight / H,
-                            fw: dims.imageWidth / W,
-                            fh: dims.calculatedImageHeight / H,
-                          } : null,
-                        };
-                      })() : {
-                        targetWidth: NODE_WIDTH,
-                        targetHeight: NODE_HEIGHT,
-                        targetCornerRadius: NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0),
-                      })}
-                    />
-                  )}
-
-                  {/* Y-key video animation (session-only special effect) */}
-                  {videoAnimation && videoAnimation.active && (
-                    <VideoNodeAnimation
-                      x={videoAnimation.x}
-                      y={videoAnimation.y}
-                      onComplete={handleVideoAnimationComplete}
-                    />
-                  )}
+                  <SvgOverlays ctx={svgOverlaysCtx} />
                 </g>
               </svg>
 
-              {/* Orbit scrim. An HTML layer above the <svg>, NOT a rect inside
-                  it: a translucent element inside the content group makes the
-                  canvas's own tiles non-opaque, so the whole graph beneath has
-                  to be blended instead of discarded — that is what exhausted
-                  the GPU tile budget in orbit mode. As a sibling layer it is a
-                  single flat composite on the GPU and costs essentially
-                  nothing. pointer-events stays off so the transparent rect
-                  inside the canvas keeps handling click-to-exit unchanged. */}
-              {semanticOrbitActive && (() => {
-                const blurPx = typeof window !== 'undefined' && window.__orbitBlur != null
-                  ? Number(window.__orbitBlur)
-                  : ORBIT_SCRIM_BLUR_PX;
-                const blur = blurPx > 0 ? `blur(${blurPx}px)` : undefined;
-                return (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      background: ORBIT_SCRIM_COLOR,
-                      backdropFilter: blur,
-                      WebkitBackdropFilter: blur, // Safari / iOS still need the prefix
-                      pointerEvents: 'none',
-                    }}
-                  />
-                );
-              })()}
-
-              {/* Orbit layer. Geometry mirrors the main <svg> exactly (same
-                  origin, same size) and its content group carries the same
-                  transform, so anything portalled in here lands where it would
-                  have inside the canvas — just above the scrim. Only mounted
-                  during orbit, so normal rendering is untouched. */}
-              {semanticOrbitActive && (
-                <svg
-                  className="canvas-orbit-layer"
-                  width={canvasSize.width}
-                  height={canvasSize.height}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    overflow: 'visible',
-                    // Empty space must fall through to the canvas beneath; the
-                    // content group re-enables hits on the shapes themselves.
-                    pointerEvents: 'none',
-                  }}
-                >
-                  <g ref={setOverlayGroup} style={{ pointerEvents: 'auto' }} />
-                </svg>
-              )}
-
-              <HoverVisionAidLayer headerHeight={headerHeight} zoomLevel={zoomLevel} />
-
-              {/* The controller's cursor. Pinned to the absolute screen centre
-                  so panels opening and closing never move it, and the zoom is
-                  anchored on the same point, so the world scales under it
-                  without sliding. */}
-              <GamepadCrosshair
-                visible={gamepadActive}
-                viewportBounds={viewportBounds}
-                headerHeight={headerHeight}
-                scale={gamepadCrosshairScale}
-              />
+              <OrbitLayers ctx={orbitLayersCtx} />
+              <CanvasHud ctx={canvasHudCtx} />
             </>
           )}
 
-          {/* Edge glow indicators for off-screen nodes */}
-          {edgeGlowMode !== 'off' && (
-            <EdgeGlowIndicator
-              nodes={hydratedNodes}
-              baseDimensionsById={baseDimsById}
-              panOffset={panOffset}
-              zoomLevel={zoomLevel}
-              panOffsetRef={panOffsetRef}
-              zoomLevelRef={zoomLevelRef}
-              glowUpdateRef={glowUpdateRef}
-              leftPanelExpanded={leftPanelExpanded}
-              rightPanelExpanded={rightPanelExpanded}
-              previewingNodeId={previewingNodeId}
-              containerRef={containerRef}
-              showViewportDebug={false}
-              showDirectionLines={false}
-            />
-          )}
-
-          {/* Back to Civilization component - shown when no nodes are visible */}
-          <BackToCivilization
-            isVisible={shouldShowBackToCivilization && backToCivilizationDelayComplete}
-            onClick={handleBackToCivilizationClick}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-            containerRef={containerRef}
-            canvasSize={canvasSize}
-            viewportSize={viewportSize}
-            clusteringEnabled={enableClustering}
-            clusterInfo={clusterAnalysis.statistics}
-          />
-
-          {/* One-time desktop-app nudge (web only). Held back while first-run
-              setup is up — nobody needs a download offer before they have a
-              universe — and while a bottom control panel is showing, since both
-              center on the same strip of canvas above the TypeList. The pill is
-              in no hurry: it waits and pops once the way is clear. */}
-          <DownloadAppPill
-            suppressed={
-              showStorageSetupModal ||
-              nodeControlPanelShouldShow || nodeControlPanelVisible ||
-              connectionControlPanelShouldShow || connectionControlPanelVisible ||
-              abstractionControlPanelShouldShow || abstractionControlPanelVisible
-            }
-          />
-
-          {/* Overlay panel resizers (outside panels) */}
-          <PanelResizers controlRef={panelResizeControlRef} />
-
+          <CanvasChrome ctx={canvasChromeCtx} />
           <PromptsHost ctx={promptsCtx} />
           {/* Debug overlay disabled */}
         </div>
