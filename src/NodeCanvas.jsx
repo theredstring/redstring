@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useContext } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
@@ -44,7 +44,6 @@ import {
   collectAncestorGroupIds,
   computeGroupDepths,
   buildEdgeZSlotIndex,
-  edgeZSlotFor,
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
 import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
@@ -147,7 +146,7 @@ import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, c
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
-import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
+import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
@@ -3763,12 +3762,11 @@ function NodeCanvas() {
     document.addEventListener('touchstart', dismissOnOutsideTouch, true);
     return () => document.removeEventListener('touchstart', dismissOnOutsideTouch, true);
   }, [editingGroupId]);
-  const [hoveredEdgeInfo, setHoveredEdgeInfo] = useState(null); // Track hovered edge and which end
-  // Mirror the nearest-hovered edge into a ref so click selection can pick the
-  // nearest of several overlapping connections (matching the hover highlight)
-  // without depending on which SVG hitbox happens to be on top.
-  const hoveredEdgeInfoRef = useRef(null);
-  useEffect(() => { hoveredEdgeInfoRef.current = hoveredEdgeInfo; }, [hoveredEdgeInfo]);
+  // The connection under the pointer lives in canvasUIStore (P3.06a), so a hover
+  // change re-renders only EdgeLayer. Handlers read it at event time, which also
+  // lets click selection pick the nearest of several overlapping connections
+  // (matching the hover highlight) rather than whichever hitbox is on top.
+  const setHoveredEdgeInfo = useCanvasUIStore.getState().setHoveredEdgeInfo;
 
   // Currently-visible connection endpoint "orbs" (the arrow-direction toggles that
   // appear on a hovered/selected connection). Populated fresh each render by the
@@ -5838,11 +5836,11 @@ function NodeCanvas() {
   // Select an edge from a mouse click on its line/path hitbox. When several
   // connections overlap, the topmost SVG hitbox receives the click but is not
   // necessarily the one closest to the pointer, so we prefer the nearest edge
-  // computed by the hover hit-test (mirrored in hoveredEdgeInfoRef). Falls back
+  // computed by the hover hit-test (hoveredEdgeInfo in canvasUIStore). Falls back
   // to the clicked edge when no hover has been computed (e.g. the pointer never
   // moved over the canvas first).
   const selectEdgeFromClick = useCallback((clickedEdgeId, e) => {
-    const targetEdgeId = hoveredEdgeInfoRef.current?.edgeId
+    const targetEdgeId = useCanvasUIStore.getState().hoveredEdgeInfo?.edgeId
       || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId
       || clickedEdgeId;
     haptic('edgeSelect');
@@ -7178,7 +7176,7 @@ function NodeCanvas() {
     );
     if (isBareCanvasTarget && !ignoreCanvasClick.current && !draggingNodeInfo
       && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
-      const clickedEdgeId = hoveredEdgeInfoRef.current?.edgeId
+      const clickedEdgeId = useCanvasUIStore.getState().hoveredEdgeInfo?.edgeId
         || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId;
       const alreadySoleSelection = clickedEdgeId
         && selectedEdgeIds.size <= 1
@@ -7294,7 +7292,7 @@ function NodeCanvas() {
     }
 
     // Clear selected edge when clicking on empty canvas
-    if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
+    if ((selectedEdgeId || selectedEdgeIds.size > 0) && !useCanvasUIStore.getState().hoveredEdgeInfo) {
       storeActions.setSelectedEdgeId(null);
       storeActions.clearSelectedEdgeIds();
       return;
@@ -7303,7 +7301,7 @@ function NodeCanvas() {
     const rect = containerRef.current.getBoundingClientRect();
     const { x: mouseX, y: mouseY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
-    if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
+    if (!plusSign && selectedInstanceIds.size === 0 && !useCanvasUIStore.getState().hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
     } else {
       if (nodeNamePrompt.visible) return;
@@ -9219,6 +9217,72 @@ function NodeCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getTextWidth is a stateless wrapper; labelFontVersion re-measures once the font arrives
   }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion]);
 
+  // Everything renderConnectionEdge reads except hover, gathered in one place;
+  // EdgeLayer adds hover from canvasUIStore (P3.06a).
+  // The renderer now lives in components/canvas/renderConnectionEdge.jsx;
+  // this object is its entire input surface. Adding a value the renderer
+  // needs means adding it here — there is no implicit closure any more.
+  const edgeRenderCtx = {
+    // Not read by the renderer directly: they are here so that a
+    // per-edge memo (P3.06) re-renders when a sprite batch
+    // finishes or the label font arrives.
+    labelSpriteVersion,
+    labelFontVersion,
+    anchorPositionUpdatesRef,
+    baseDimsById,
+    canvasSize,
+    cleanLaneOffsets,
+    cleanLaneSpacing,
+    connectionLabelColorMode,
+    connectionLabelOuterRing,
+    connectionLabelRingWidth,
+    connectionLabelSize,
+    connectionLabelTruncate,
+    connectionOrbHitsRef,
+    connectionWidth,
+    curveLabels,
+    curveSpacing,
+    curvedLabelQuantum,
+    darkMode,
+    draggingNodeInfo,
+    edgeCurveInfo,
+    edgePrototypesMap,
+    edgeTouchHandlers,
+    enableAutoRouting,
+    getEdgeHitboxHandlers,
+    ignoreCanvasClick,
+    isRoutedStyle,
+    labelArcMinBow,
+    labelCrossingIndex,
+    labelHaloEnabled,
+    labelObstacleOptions,
+    labelRingEnabled,
+    labelSpriteScale,
+    labelSpritesEnabled,
+    labelTruncationRef,
+    lombardiCurvature,
+    lombardiLaneSpacing,
+    lombardiMinBow,
+    lombardiTangents,
+    manhattanBends,
+    nodeById,
+    nodePrototypesMap,
+    nodes,
+    orbToggleEchoRef,
+    orthogonalLaneSpacing,
+    placedLabelsRef,
+    quantizeLabelAngle,
+    routingStyle,
+    selectEdgeFromClick,
+    selectedEdgeId,
+    selectedEdgeIds,
+    selectedInstanceIds,
+    showConnectionNames,
+    storeActions,
+    textSettings,
+    visibleNodeIds,
+  };
+
   // The camera controller's context (P4.02). Assigned during render rather than
   // in a layout effect so that effects in this commit, which call into the
   // camera, see this render's values, as the old per-render closures did.
@@ -9246,7 +9310,6 @@ function NodeCanvas() {
     selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState,
     setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState,
     selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, selectedEdgeId, selectedEdgeIds,
-    hoveredEdgeInfo,
   });
   const groupInputHandlers = useMemo(() => createGroupInputHandlers(groupInputCtxRef), [groupInputCtxRef]);
   const draggingGroupId = draggingNodeInfo?.groupId ?? null;
@@ -9413,138 +9476,13 @@ function NodeCanvas() {
                     );
                   })}
 
-                  {isViewReady && (() => {
-                    // --- Connection z-order -------------------------------------------------
-                    // A connection paints at the level of its DEEPER endpoint — see
-                    // buildEdgeZSlotIndex / edgeZSlotFor in groupLayout.js for the rule and
-                    // why keying the layer off "is either end an anchor" hid a node-group
-                    // wired to a node inside a sibling node-group.
-                    const edgeZSlots = groupStructure.edgeZSlots;
-                    const nodeGroupShellsByDepth = groupElements.backgroundsByDepth;
-                    const nestedRegularGroupsByDepth = groupElements.nestedRegularByDepth;
-                    const shellDepths = Array.from(nodeGroupShellsByDepth.keys());
-                    const topEdgeSlot = (shellDepths.length ? Math.max(...shellDepths) : 0) + 1;
-                    const edgesBySlot = new Map();
-                    visibleEdges.forEach(edge => {
-                      const slot = edgeZSlotFor(edge, edgeZSlots, topEdgeSlot);
-                      let bucket = edgesBySlot.get(slot);
-                      if (!bucket) { bucket = []; edgesBySlot.set(slot, bucket); }
-                      bucket.push(edge);
-                    });
-                    // Ascending, three emissions per slot: nested plain-group outlines,
-                    // then that slot's edges, then the shells at that depth.
-                    //
-                    // A plain group at depth D is contained by node-groups of depth
-                    // <= D-1, whose shells have already emitted, so it clears them.
-                    // It goes BEFORE the edges rather than after so connections keep
-                    // painting over the dashed outline, exactly as they do for a
-                    // top-level plain group down in the bottom layer.
-                    const edgeZSlotOrder = Array.from(
-                      new Set([...edgesBySlot.keys(), ...shellDepths, ...nestedRegularGroupsByDepth.keys()])
-                    ).sort((a, b) => a - b);
-
-                    // edgeCurveInfo is computed via useMemo and available in scope
-                    // (used for parallel edge curve offset calculation)
-
-                    // Everything renderConnectionEdge reads, gathered in one place.
-                    // The renderer now lives in components/canvas/renderConnectionEdge.jsx;
-                    // this object is its entire input surface. Adding a value the renderer
-                    // needs means adding it here — there is no implicit closure any more.
-                    const edgeRenderCtx = {
-                      // Not read by the renderer directly: they are here so that a
-                      // per-edge memo (P3.06) re-renders when a sprite batch
-                      // finishes or the label font arrives.
-                      labelSpriteVersion,
-                      labelFontVersion,
-                      anchorPositionUpdatesRef,
-                      baseDimsById,
-                      canvasSize,
-                      cleanLaneOffsets,
-                      cleanLaneSpacing,
-                      connectionLabelColorMode,
-                      connectionLabelOuterRing,
-                      connectionLabelRingWidth,
-                      connectionLabelSize,
-                      connectionLabelTruncate,
-                      connectionOrbHitsRef,
-                      connectionWidth,
-                      curveLabels,
-                      curveSpacing,
-                      curvedLabelQuantum,
-                      darkMode,
-                      draggingNodeInfo,
-                      edgeCurveInfo,
-                      edgePrototypesMap,
-                      edgeTouchHandlers,
-                      enableAutoRouting,
-                      getEdgeHitboxHandlers,
-                      hoveredEdgeInfo,
-                      ignoreCanvasClick,
-                      isRoutedStyle,
-                      labelArcMinBow,
-                      labelCrossingIndex,
-                      labelHaloEnabled,
-                      labelObstacleOptions,
-                      labelRingEnabled,
-                      labelSpriteScale,
-                      labelSpritesEnabled,
-                      labelTruncationRef,
-                      lombardiCurvature,
-                      lombardiLaneSpacing,
-                      lombardiMinBow,
-                      lombardiTangents,
-                      manhattanBends,
-                      nodeById,
-                      nodePrototypesMap,
-                      nodes,
-                      orbToggleEchoRef,
-                      orthogonalLaneSpacing,
-                      placedLabelsRef,
-                      quantizeLabelAngle,
-                      routingStyle,
-                      selectEdgeFromClick,
-                      selectedEdgeId,
-                      selectedEdgeIds,
-                      selectedInstanceIds,
-                      showConnectionNames,
-                      storeActions,
-                      textSettings,
-                      visibleNodeIds,
-                    };
-
-                    return (
-                        <>
-                          {/* No per-pass reset any more — see connectionOrbHitsRef.
-                              Each edge now owns its own entry and sets or deletes
-                              it, because a memoized edge does not run and could not
-                              refill a cleared map. Entries for edges that have gone
-                              out of the visible set are pruned in an effect. */}
-                          {/* Connections, nested plain-group outlines and node-group shells
-                              interleaved by z-slot (Groups Phase 2): at each depth, the plain
-                              groups that live at that depth, then that slot's connections,
-                              then the shells allowed to cover them. A shell occludes a
-                              connection unless that connection has an endpoint inside it.
-                              See edgeZSlotFor. */}
-                          {edgeZSlotOrder.map(slot => (
-                            <React.Fragment key={`edge-z-slot-${slot}`}>
-                              {nestedRegularGroupsByDepth.get(slot)}
-                              {(() => {
-                                const bucket = edgesBySlot.get(slot) || [];
-                                const perfOn = typeof window !== 'undefined' && window.__edgePerf;
-                                const t0 = perfOn ? performance.now() : 0;
-                                const painted = bucket.map(edge => renderConnectionEdge(edge, edgeRenderCtx));
-                                if (perfOn) {
-                                  edgePerfRef.current.ms += performance.now() - t0;
-                                  edgePerfRef.current.edges += bucket.length;
-                                }
-                                return painted;
-                              })()}
-                              {nodeGroupShellsByDepth.get(slot)}
-                            </React.Fragment>
-                          ))}
-                        </>
-                    );
-                  })()}
+                  {isViewReady && (
+                    <EdgeLayer
+                      ctx={edgeRenderCtx} visibleEdges={visibleEdges} edgeZSlots={groupStructure.edgeZSlots}
+                      nodeGroupShellsByDepth={groupElements.backgroundsByDepth}
+                      nestedRegularGroupsByDepth={groupElements.nestedRegularByDepth} edgePerfRef={edgePerfRef}
+                    />
+                  )}
 
                   {/* Drawing connection line (same z-level as existing edges, below nodes).
                     Hidden while dragging — a race can leak `drawingConnectionFrom` state

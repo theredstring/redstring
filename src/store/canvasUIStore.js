@@ -113,6 +113,10 @@ export function createCanvasUIDefaults() {
     // on every edge click. graphStore keeps its five action names as shims.
     selectedEdgeId: null,
     selectedEdgeIds: new Set(),
+    // The connection under the pointer, `{ edgeId }` or null (P3.06a: was
+    // NodeCanvas state, so every hover change re-rendered all of NodeCanvas).
+    // Written by useHoverIntent; read by EdgeLayer, and by handlers at event time.
+    hoveredEdgeInfo: null,
 
     // group selection (F-47 #2). Ids, not the object snapshots NodeCanvas holds
     // today: consumers derive the group from graphStore so it can't go stale.
@@ -287,6 +291,8 @@ const useCanvasUIStore = create((set) => ({
   setSelectedInstanceIds: fieldSetter(set, 'selectedInstanceIds', setsEqual, toSet),
   // edge selection (P2.03c)
   setSelectedEdgeId: fieldSetter(set, 'selectedEdgeId'),
+  // Equal when it names the same edge: the renderer reads only `edgeId`.
+  setHoveredEdgeInfo: fieldSetter(set, 'hoveredEdgeInfo', (a, b) => (a?.edgeId ?? null) === (b?.edgeId ?? null)),
   // Always stores a copy, never the caller's Set.
   setSelectedEdgeIds: (edgeIds) => set((state) => {
     const next = new Set(typeof edgeIds === 'function' ? edgeIds(state.selectedEdgeIds) : edgeIds);

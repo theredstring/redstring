@@ -7,8 +7,8 @@ import useCanvasUIStore from '../store/canvasUIStore.js';
  * it to the vision aid (canvasUIStore) and the edge renderer's hoveredEdgeInfo.
  *
  * @param {object} p
- * @param {(info: object|null) => void} p.setHoveredEdgeInfo  NodeCanvas state
- *   the edge renderer reads (until the edge layer, P3.06).
+ * @param {(info: object|null) => void} p.setHoveredEdgeInfo  canvasUIStore's
+ *   setter (P3.06a); EdgeLayer subscribes to the value.
  * @param {{ current: boolean }} p.semanticOrbitActiveRef
  * @returns {{ commitHoverTarget: Function, clearHoverImmediate: Function, hoverStickyEdgeId: Function }}
  */

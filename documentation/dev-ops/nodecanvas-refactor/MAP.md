@@ -138,7 +138,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Cluster hulls (debug), grid | `showClusterHulls`, `gridActive` | 16275–16362 | `GridLayer` | P3.09 |
 | **Groups IIFE** | "Groups Phase 1" comment | 16363–17066 | **moved (P3.03a, P3.04):** layout `components/canvas/groups/groupLayouts.js`, elements `groupElements.jsx` (memo `groupElements`), input `groupInput.js` (stable handlers over `groupInputCtxRef`) | P3.03, P3.04 |
 | Node hitbox debug | `showNodeHitboxes && hydratedNodes` | 17067–17091 | overlay (debug) | P3.09 |
-| **Edges IIFE** | `isViewReady && (() =>`, `const edgeRenderCtx`, `renderEdgeCached` | 17092–17355 | `EdgeLayer` / `ConnectionEdge` | P1.07, P3.06 |
+| **Edges IIFE** | `isViewReady && (() =>`, `const edgeRenderCtx`, `renderEdgeCached` | 17092–17355 | **moved (P3.07, P3.06a):** cache and painter deleted; the pass is `components/canvas/layers/EdgeLayer.jsx`; `edgeRenderCtx` is built just before the JSX | P1.07, P3.06 |
 | Connection-draw line, self-loop preview | `drawingConnectionFrom && !draggingNodeInfo` | 17356–17397 | `OverlayLayer` | P3.09 |
 | **Nodes + pie menus IIFE** | `const renderNodeElement`, `<PieMenu`, `onExitAnimationComplete={() =>` | 17398–18051 | `NodeLayer`; pie layers | P3.08, P5.03 |
 | Selection rect, PlusSign, VideoNodeAnimation | `selectionRect &&`, `<PlusSign`, `<VideoNodeAnimation` | 18052–18112 | `OverlayLayer` | P1.04, P3.09 |

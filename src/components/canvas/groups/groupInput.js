@@ -10,6 +10,7 @@
  */
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { placeholderIdForGroup } from '../../../services/groupLayout.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
 /** @param {{ current: object }} ctxRef */
 export function createGroupInputHandlers(ctxRef) {
@@ -339,7 +340,7 @@ export function createGroupInputHandlers(ctxRef) {
     },
 
     innerCanvasClick(e) {
-      const { draggingNodeInfo, drawingConnectionFrom, mouseMoved, nodeNamePrompt, activeGraphId, groupControlPanelShouldShow, groupControlPanelVisible, selectedGroup, setGroupControlPanelVisible, setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState, setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState, selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, setSelectedInstanceIds, selectedEdgeId, selectedEdgeIds, hoveredEdgeInfo, storeActions } = ctxRef.current;
+      const { draggingNodeInfo, drawingConnectionFrom, mouseMoved, nodeNamePrompt, activeGraphId, groupControlPanelShouldShow, groupControlPanelVisible, selectedGroup, setGroupControlPanelVisible, setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState, setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState, selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, setSelectedInstanceIds, selectedEdgeId, selectedEdgeIds, storeActions } = ctxRef.current;
       e.stopPropagation();
       if (draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || nodeNamePrompt.visible || !activeGraphId) return;
       if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
@@ -358,7 +359,7 @@ export function createGroupInputHandlers(ctxRef) {
         if (justCompletedCarouselExit || carouselExitInProgressRef.current) return;
         setSelectedInstanceIds(new Set()); return;
       }
-      if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
+      if ((selectedEdgeId || selectedEdgeIds.size > 0) && !useCanvasUIStore.getState().hoveredEdgeInfo) {
         storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
       }
     },

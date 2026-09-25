@@ -86,7 +86,7 @@
 - **Accept:** Label positions match the kickoff snapshots in every routing style, or every difference is listed and approved by Grant.
 
 ### P3.06: `EdgeLayer`, `EdgeSlot` and memoized `ConnectionEdge`
-- **Status:** todo
+- **Status:** part a done (wave 6): the edges pass is `components/canvas/layers/EdgeLayer.jsx`, moved verbatim, and the hovered connection lives in canvasUIStore (`hoveredEdgeInfo`, equal by `edgeId`); EdgeLayer subscribes to it, NodeCanvas and its handlers read it at event time. **S8: NodeCanvas 0 renders** (EdgeLayer 18), 218 → 96 ms. The whole pass still renders together, so label order is unchanged; markup identical to `main` in 28 scenes (one known font-timing truncation flip). Open (part b, after P3.05): split the context, per-edge `ConnectionEdge` memo with hover/selection booleans, `SelfLoopEdge`, and EdgeLayer memoized so a NodeCanvas render that changes nothing about edges skips it.
 - **Lane:** A + C (`renderConnectionEdge.jsx`) · **Size:** L
 - **Findings:** F-23
 - **Change:**
