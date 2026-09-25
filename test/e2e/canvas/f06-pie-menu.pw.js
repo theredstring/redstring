@@ -31,3 +31,27 @@ test('F6 click opens the pie menu; Save and Open in Panel work; clicking off clo
   await expect.poll(() => selectedNodeIds(page)).toEqual([]);
   await expect(page.locator('svg.canvas g.pie-menu')).toHaveCount(0);
 });
+
+// B-06: the pie's Ask The Wizard button (second page) follows the wizard
+// setting while the menu is open, instead of keeping the menu it was built with.
+test('F6b turning the wizard off and on while the pie is open updates its buttons', async ({ page }) => {
+  await openFixture(page, 'small');
+  const setWizard = (on) => page.evaluate(async (v) => {
+    const { debugConfig } = await import('/src/utils/debugConfig.js');
+    debugConfig.setWizardEnabled(v);
+  }, on);
+  await setWizard(true);
+  await openPieMenu(page, 'i-alpha');
+
+  const chevrons = page.locator('svg.canvas g.pie-chevron-intro');
+  await expect(chevrons).toHaveCount(2);
+  const [a, b] = await Promise.all([chevrons.nth(0).boundingBox(), chevrons.nth(1).boundingBox()]);
+  await clickCenter(page, chevrons.nth(a.x > b.x ? 0 : 1)); // the right-hand one: next page
+
+  const wizard = page.locator('svg.canvas g.pie-menu svg.lucide-sparkles');
+  await expect(wizard).toHaveCount(1);
+  await setWizard(false);
+  await expect(wizard).toHaveCount(0);
+  await setWizard(true);
+  await expect(wizard).toHaveCount(1);
+});
