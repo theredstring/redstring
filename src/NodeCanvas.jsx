@@ -65,6 +65,12 @@ import { useTrackedState } from './hooks/useTrackedState.js';
 import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
 import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js';
+import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
+import { recordTrackpadZoom, runPanMomentum, runZoomMomentum } from './components/canvas/camera/momentum.js';
+import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
+import { dispatchWizardIntent } from './components/canvas/actions/wizardIntent.js';
+import { diveIntoNodeGroupDefinition } from './components/canvas/actions/nodeGroupDive.js';
+import { choosePlusSignNode } from './components/canvas/actions/plusSignSelection.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
@@ -92,48 +98,17 @@ import {
   VIEW_MOTION_STALE_MS,
   VIEW_MOTION_SAMPLE_MAX_GAP_MS,
   VIEW_MOTION_MIN_SAMPLES,
-  TOUCH_PAN_FRICTION,
-  TOUCH_PAN_FRICTION_HIGH_VELOCITY,
-  TOUCH_HIGH_VELOCITY_THRESHOLD,
-  TOUCH_HIGH_VELOCITY_RAMP,
-  TRACKPAD_PAN_FRICTION,
-  MOUSE_PAN_FRICTION,
   PAN_MOMENTUM_FRAME,
-  TOUCH_PAN_MOMENTUM_BOOST,
-  TRACKPAD_PAN_MOMENTUM_BOOST,
-  GLIDE_STRENGTH_FRICTION_RANGE,
-  GLIDE_FRICTION_MIN,
-  GLIDE_FRICTION_MAX,
-  ZOOM_MOMENTUM_BOOST,
-  ZOOM_MOMENTUM_FRICTION,
-  ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY,
-  ZOOM_HIGH_VELOCITY_THRESHOLD,
-  ZOOM_HIGH_VELOCITY_RAMP,
-  ZOOM_MOMENTUM_MIN_SPEED,
-  ZOOM_MOMENTUM_MAX_SPEED,
-  PINCH_GLIDE_STRENGTH_VEL_RANGE,
-  PINCH_GLIDE_STRENGTH_FRICTION_RANGE,
   TRACKPAD_ZOOM_MAX_STEP_DELTA,
   TRACKPAD_ZOOM_SENSITIVITY_SLIDER_SCALE,
   TRACKPAD_ZOOM_SMOOTHING,
   TRACKPAD_ZOOM_SETTLE_EPSILON,
-  TRACKPAD_ZOOM_IDLE_GAP_MULTIPLE,
-  TRACKPAD_ZOOM_IDLE_END_MIN_MS,
-  TRACKPAD_ZOOM_IDLE_END_MAX_MS,
-  TRACKPAD_ZOOM_VELOCITY_WINDOW_MS,
   TRACKPAD_ZOOM_GLIDE_FRICTION,
-  TRACKPAD_ZOOM_GLIDE_FRICTION_SLIDER_RANGE,
-  TRACKPAD_ZOOM_GLIDE_FRICTION_MIN,
-  TRACKPAD_ZOOM_GLIDE_FRICTION_MAX,
-  TRACKPAD_ZOOM_GLIDE_MIN_SPEED,
-  TRACKPAD_ZOOM_GLIDE_MAX_SPEED,
   TRACKPAD_ZOOM_GLIDE_STOP_SPEED,
-  measureTrackpadZoomVelocity,
 } from './utils/canvas/input/inputTuning.js';
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import PanelResizers from './components/canvas/PanelResizers.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
-import { DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
   buildWizardConnectionPrompt,
   buildWizardNodeDefinitionPrompt,
@@ -146,17 +121,8 @@ import {
   SURFACES as WIZARD_SURFACES,
   shouldSkipPicker,
   defaultIntentForSurface,
-  policyForIntent
 } from './wizard/prompts/intents.js';
 import {
-  buildExplainThingPrompt,
-  buildConnectThingPrompt,
-  buildFillDetailsPrompt,
-  buildExplainConnectionPrompt,
-  buildConnectionGapsPrompt,
-  buildSummarizeWebPrompt,
-  buildAuditWebPrompt,
-  buildFreeTextPrompt
 } from './wizard/prompts/intentPrompts.js';
 import { thingFacts, connectionFacts, ladderFacts } from './wizard/prompts/facts.js';
 import WizardIntentModal from './components/wizard/WizardIntentModal.jsx';
@@ -1301,98 +1267,10 @@ function NodeCanvas() {
   // with Node's memo comparator only the dragged node(s) re-render during a drag.
   const prevNodesRef = useRef(new Map()); // id → previous node object
   const prevNodesListRef = useRef([]);
-  const nodes = useMemo(() => {
-    if (!instances || !nodePrototypesMap) return [];
-    const prevMap = prevNodesRef.current;
-    const newMap = new Map();
-    const result = [];
-
-    for (const [id, instance] of instances) {
-      const prototype = nodePrototypesMap.get(instance.prototypeId);
-      if (!prototype) continue;
-
-      const cached = imageCacheMap[instance.prototypeId];
-      const effectiveThumb = (cached && !prototype.thumbnailSrc)
-        ? cached.thumbnailSrc
-        : (prototype.thumbnailSrc || null);
-      // Mirrors the imageOverrides rule below, so the reuse check compares the same
-      // ratio the node will actually be built with.
-      // The semanticMetadata fallback matters when the image is EXPECTED but not
-      // in hand: an auto-enriched node keeps its ratio there (it survives save,
-      // where the image data does not), so a slot reserved for an unfetchable
-      // image is still the right shape rather than defaulting to square.
-      const effectiveAspect = (cached && !prototype.thumbnailSrc)
-        ? cached.imageAspectRatio
-        : (prototype.imageAspectRatio ?? prototype.semanticMetadata?.imageAspectRatio);
-      // Show the shimmer only while there's no image to show yet.
-      const imageLoading = Boolean(loadingImagesMap[instance.prototypeId]) && !effectiveThumb;
-      // The graph says this node HAS an image and every attempt to get it
-      // failed. Without this the node renders identically to one that never had
-      // an image — the layout collapses and the viewer has no way to tell a
-      // missing picture from an absent one. `wikipediaThumbnail` (a URL we
-      // could not fetch) and `imageRef` (a blob we could not read) are both
-      // statements that an image is expected.
-      const expectsImage = Boolean(
-        prototype.semanticMetadata?.wikipediaThumbnail || prototype.imageRef
-      );
-      const imageMissing = expectsImage && !effectiveThumb &&
-        Boolean(failedImagesMap[instance.prototypeId]);
-
-      const prev = prevMap.get(id);
-      // Reuse old reference if nothing meaningful changed
-      if (prev &&
-        prev.x === instance.x && prev.y === instance.y &&
-        prev.scale === instance.scale &&
-        prev.sizeMul === instance.sizeMul &&
-        prev.prototypeId === instance.prototypeId &&
-        // Anchor flags gate rendering outright (flagged anchors are filtered out of
-        // the node pass and drawn as their group's title tab instead), so a stale
-        // reuse here makes a node invisible. Combining a zero-member node-group —
-        // decompose on an empty definition, then recompose — clears these flags
-        // without moving the instance, so every other field below still matches
-        // and the old flagged object would be reused: the node then renders only
-        // while it happens to be the selected/active node and vanishes on deselect.
-        prev.isGroupAnchor === instance.isGroupAnchor &&
-        prev.anchorForGroupId === instance.anchorForGroupId &&
-        prev.name === prototype.name &&
-        prev.color === prototype.color &&
-        (prev.thumbnailSrc || null) === effectiveThumb && // a node without an image has it undefined
-        // The ratio drives node height and can arrive after the thumbnail does
-        // (async imageCache fetch), so reusing the old object here would pin the
-        // node at its square placeholder height until something else invalidated it.
-        prev.imageAspectRatio === effectiveAspect &&
-        prev.imageLoading === imageLoading &&
-        prev.imageMissing === imageMissing &&
-        prev.description === prototype.description &&
-        prev.definitionGraphIds === prototype.definitionGraphIds) {
-        result.push(prev);
-        newMap.set(id, prev);
-      } else {
-        const imageOverrides = (cached && !prototype.thumbnailSrc)
-          ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
-          : {};
-        const node = {
-          ...prototype,
-          ...imageOverrides,
-          ...instance,
-          name: prototype.name,
-          imageAspectRatio: effectiveAspect,
-          imageLoading,
-          imageMissing,
-        };
-        result.push(node);
-        newMap.set(id, node);
-      }
-    }
-
-    prevNodesRef.current = newMap;
-    // All reused, same order: keep the previous array too, so a write that changed nothing
-    // here (a thumbnail for another graph) doesn't invalidate what's keyed on `nodes` (F-20).
-    const prevList = prevNodesListRef.current;
-    if (prevList.length === result.length && result.every((n, i) => n === prevList[i])) return prevList;
-    prevNodesListRef.current = result;
-    return result;
-  }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap, failedImagesMap]);
+  const nodes = useMemo(() => computeCanvasNodes({
+    failedImagesMap, imageCacheMap, instances, loadingImagesMap, nodePrototypesMap, prevNodesListRef,
+    prevNodesRef,
+  }), [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap, failedImagesMap]);
 
   const edges = useMemo(() => {
     if (!graphEdgeIds || !edgesMap) return [];
@@ -1411,47 +1289,9 @@ function NodeCanvas() {
   const dimensionCacheRef = useRef(new Map());
 
   // Base dimensions for nodes (non-preview) for fast edge math and visibility checks
-  const baseDimsById = useMemo(() => {
-    const map = new Map();
-    const cache = dimensionCacheRef.current;
-    // Include textSettings in cache key so dimensions recalculate when text size changes
-    const tsFontSize = textSettings?.fontSize || 1;
-    const tsLineSpacing = textSettings?.lineSpacing || 1;
-    const tsNodeScale = textSettings?.nodeScale || 1;
-
-    // A stable key over only the properties that affect dimensions (not position
-    // x/y or scale, which change during drag). sizeMul IS included: it's the
-    // persistent per-instance size, so different sizes get distinct dims. So is
-    // imageAspectRatio, which drives node height and can arrive after the thumbnail.
-    // One builder because the eviction sweep below has to produce the identical
-    // string — two hand-written copies would silently drift.
-    const keyFor = (n) => `${n.prototypeId}-${n.name}-${n.thumbnailSrc || 'noimg'}-${n.imageAspectRatio ?? 'noar'}-${n.imageLoading ? 'loading' : 'idle'}-${n.imageMissing ? 'missing' : 'ok'}-${tsFontSize}-${tsLineSpacing}-${tsNodeScale}-${n.sizeMul || 1}`;
-
-    for (const n of nodes) {
-      const cacheKey = keyFor(n);
-
-      // Check if we have cached dimensions for this node's dimensional properties
-      let dims = cache.get(cacheKey);
-
-      if (!dims) {
-        // Only calculate if not in cache
-        dims = getNodeDimensions(n, false, null);
-        cache.set(cacheKey, dims);
-      }
-
-      map.set(n.id, dims);
-    }
-
-    // Clean up cache entries for nodes that no longer exist
-    const currentCacheKeys = new Set(nodes.map(keyFor));
-    for (const key of cache.keys()) {
-      if (!currentCacheKeys.has(key)) {
-        cache.delete(key);
-      }
-    }
-
-    return map;
-  }, [nodes, textSettings?.fontSize, textSettings?.lineSpacing, textSettings?.nodeScale]);
+  const baseDimsById = useMemo(() => computeBaseDims({
+    dimensionCacheRef, nodes, textSettings,
+  }), [nodes, textSettings?.fontSize, textSettings?.lineSpacing, textSettings?.nodeScale]);
   // Defer viewport-dependent culling until pan/zoom state is initialized below
   const [visibleNodeIds, setVisibleNodeIds] = useTrackedState(() => new Set());
   const [visibleEdges, setVisibleEdges] = useTrackedState(() => []);
@@ -2278,111 +2118,10 @@ function NodeCanvas() {
     panVelocityHistoryRef.current = [];
   }, []);
 
-  const startPanMomentum = useCallback((initialVx, initialVy, source = 'touch', strength = 0.5) => {
-    if (!Number.isFinite(initialVx) || !Number.isFinite(initialVy)) {
-      return false;
-    }
-    stopPanMomentum();
-    const boost = source === 'trackpad' ? TRACKPAD_PAN_MOMENTUM_BOOST : TOUCH_PAN_MOMENTUM_BOOST;
-    let frictionBase = source === 'trackpad' ? TRACKPAD_PAN_FRICTION
-      : source === 'mouse' ? MOUSE_PAN_FRICTION
-      : TOUCH_PAN_FRICTION;
-    const vx = initialVx * boost;
-    const vy = initialVy * boost;
-    const launchSpeed = Math.hypot(vx, vy);
-    if (launchSpeed < PAN_MOMENTUM_MIN_SPEED) {
-      return false;
-    }
-    // For touch fast flicks: lerp friction toward a higher value so the glide
-    // travels farther. Slow/precise flicks keep the original friction so they
-    // don't drift past the user's intended target.
-    if (source === 'touch' && launchSpeed > TOUCH_HIGH_VELOCITY_THRESHOLD) {
-      const overshoot = Math.min(1, (launchSpeed - TOUCH_HIGH_VELOCITY_THRESHOLD) / TOUCH_HIGH_VELOCITY_RAMP);
-      frictionBase = TOUCH_PAN_FRICTION + (TOUCH_PAN_FRICTION_HIGH_VELOCITY - TOUCH_PAN_FRICTION) * overshoot;
-    }
-    // Apply the user's glide-strength slider (0..1, 0.5 = default): higher
-    // strength retains more velocity per frame, so the glide coasts farther.
-    // Offsets whatever friction was computed above, then clamps so it stays bounded.
-    const strengthOffset = (Math.max(0, Math.min(1, strength)) - 0.5) * GLIDE_STRENGTH_FRICTION_RANGE;
-    frictionBase = Math.max(GLIDE_FRICTION_MIN, Math.min(GLIDE_FRICTION_MAX, frictionBase + strengthOffset));
-
-    panMomentumRef.current.vx = vx;
-    panMomentumRef.current.vy = vy;
-    panMomentumRef.current.lastTime = performance.now();
-    panMomentumRef.current.source = source;
-    panMomentumRef.current.active = true;
-
-    const step = (time) => {
-      const ref = panMomentumRef.current;
-      if (!ref.active) {
-        return;
-      }
-      const lastTime = ref.lastTime || time;
-      const dt = Math.min(32, Math.max(1, time - lastTime));
-      ref.lastTime = time;
-
-      const moveX = ref.vx * dt;
-      const moveY = ref.vy * dt;
-
-      // Calculate the new pan offset and track what actually got applied
-      const viewport = viewportSizeRef.current;
-      const canvas = canvasSizeRef.current;
-      const z = zoomLevelRef.current;
-
-      if (!viewport || !canvas || !z) {
-        stopPanMomentum();
-        return;
-      }
-
-      // Track if we hit bounds to stop momentum in that direction
-      let hitBoundsX = false;
-      let hitBoundsY = false;
-
-      setPanOffset(prev => {
-        const minX = viewport.width - canvas.width * z;
-        const minY = viewport.height - canvas.height * z;
-        const maxX = 0;
-        const maxY = 0;
-        const targetX = prev.x + moveX;
-        const targetY = prev.y + moveY;
-        const clampedX = Math.min(Math.max(targetX, minX), maxX);
-        const clampedY = Math.min(Math.max(targetY, minY), maxY);
-
-        // Check if we hit bounds
-        hitBoundsX = Math.abs(clampedX - targetX) > 0.01;
-        hitBoundsY = Math.abs(clampedY - targetY) > 0.01;
-
-        return { x: clampedX, y: clampedY };
-      });
-
-      const damping = Math.pow(frictionBase, dt / PAN_MOMENTUM_FRAME);
-
-      // If we hit bounds, stop momentum in that direction
-      if (hitBoundsX) {
-        ref.vx = 0;
-      } else {
-        ref.vx *= damping;
-      }
-      if (hitBoundsY) {
-        ref.vy = 0;
-      } else {
-        ref.vy *= damping;
-      }
-
-      const speed = Math.hypot(ref.vx, ref.vy);
-      if (speed < PAN_MOMENTUM_MIN_SPEED) {
-        stopPanMomentum();
-        isPanningOrZooming.current = false;
-        return;
-      }
-
-      ref.animationId = requestAnimationFrame(step);
-    };
-
-    isPanningOrZooming.current = true;
-    panMomentumRef.current.animationId = requestAnimationFrame(step);
-    return true;
-  }, [stopPanMomentum, setPanOffset]);
+  const startPanMomentum = useCallback((a0, a1, a2, a3) => runPanMomentum(a0, a1, a2, a3, {
+    canvasSizeRef, isPanningOrZooming, panMomentumRef, setPanOffset, stopPanMomentum, viewportSizeRef,
+    zoomLevelRef,
+  }), [stopPanMomentum, setPanOffset]);
 
   useEffect(() => {
     return () => stopPanMomentum();
@@ -2419,50 +2158,10 @@ function NodeCanvas() {
   }, []);
 
   // Center view on instances of a prototype within the active graph
-  const navigateToPrototypeInstances = useCallback((prototypeId) => {
-    try {
-      if (!activeGraphId || !nodes || nodes.length === 0 || !containerRef.current) return;
-      const matching = nodes.filter(n => n.prototypeId === prototypeId);
-      if (matching.length === 0) return;
-
-      let minX = Infinity, minY = Infinity;
-      let maxX = -Infinity, maxY = -Infinity;
-      matching.forEach(node => {
-        const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
-        minX = Math.min(minX, node.x);
-        minY = Math.min(minY, node.y);
-        maxX = Math.max(maxX, node.x + dims.currentWidth);
-        maxY = Math.max(maxY, node.y + dims.currentHeight);
-      });
-
-      const nodesCenterX = (minX + maxX) / 2;
-      const nodesCenterY = (minY + maxY) / 2;
-      const nodesWidth = Math.max(1, maxX - minX);
-      const nodesHeight = Math.max(1, maxY - minY);
-
-      // Fit and centre against the usable region rather than the raw window, so
-      // open panels don't park the instances behind themselves.
-      const vb = getFramingRegion();
-      const padding = 180; // slightly more padding for less aggressive zoom
-      const targetZoomX = vb.width / (nodesWidth + padding * 2);
-      const targetZoomY = vb.height / (nodesHeight + padding * 2);
-      const rawZoom = Math.min(targetZoomX, targetZoomY);
-      const maxSearchZoom = 0.6; // cap zoom-in for search navigation
-      const targetZoom = Math.min(MAX_ZOOM, Math.max(0.05, Math.min(rawZoom, maxSearchZoom)));
-
-      const targetPanX = (vb.x + vb.width / 2) - nodesCenterX * targetZoom + canvasSize.offsetX * targetZoom;
-      const targetPanY = (vb.y + vb.height / 2) - nodesCenterY * targetZoom + canvasSize.offsetY * targetZoom;
-
-      const maxPanX = 0;
-      const maxPanY = 0;
-      const minPanX = viewportSize.width - canvasSize.width * targetZoom;
-      const minPanY = viewportSize.height - canvasSize.height * targetZoom;
-      const finalPanX = Math.min(Math.max(targetPanX, minPanX), maxPanX);
-      const finalPanY = Math.min(Math.max(targetPanY, minPanY), maxPanY);
-
-      transform.jumpTo({ x: finalPanX, y: finalPanY }, targetZoom);
-    } catch { }
-  }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM, getFramingRegion]);
+  const navigateToPrototypeInstances = useCallback((prototypeId) => frameInstancesOfPrototype(prototypeId, {
+    activeGraphId, baseDimsById, canvasSize, containerRef, getFramingRegion, nodes,
+    transform, viewportSize,
+  }), [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM, getFramingRegion]);
 
   // Function to move out-of-bounds nodes back into canvas while preserving relative positions
   // Integrated graph layout logic via custom hook
@@ -2552,109 +2251,10 @@ function NodeCanvas() {
   // pinch midpoint so the coasting zoom stays centered on the same world point.
   // Trackpad zoom does not come through here — it coasts by extending the
   // smoothing target instead (see the trackpad zoom smoothing block).
-  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound) => {
-    if (!Number.isFinite(initialVel) || !anchorClient || !anchorWorld) return false;
-
-    // Pinch glide is opt-out and strength-adjustable in Settings → Input → Touch.
-    const touchPrefs = useGraphStore.getState().touchSettings;
-    if (touchPrefs?.pinchGlideEnabled === false) return false;
-    const strength = Math.max(0, Math.min(1, touchPrefs?.pinchGlideStrength ?? 0.5));
-
-    // A new inertial gesture supersedes any in-flight pan/zoom glide.
-    stopPanMomentum();
-    stopZoomMomentum();
-
-    // The glide must stop exactly where a manual pinch would — the caller (the
-    // touch pinch handler) owns the authoritative zoom bounds and passes them
-    // in. Without this the glide clamps to the dynamic fit-to-canvas MIN_ZOOM,
-    // which on a large canvas floors below the pinch's limit and lets the coast
-    // sail past the max zoom-out point. Fall back to the dynamic bounds.
-    const effMinZoom = Number.isFinite(minZoomBound) ? minZoomBound : MIN_ZOOM;
-    const effMaxZoom = Number.isFinite(maxZoomBound) ? maxZoomBound : MAX_ZOOM;
-
-    // Strength scales the launch kick around 1× at the 0.5 default.
-    const strengthVelScale = 1 + (strength - 0.5) * PINCH_GLIDE_STRENGTH_VEL_RANGE;
-    let vel = initialVel * ZOOM_MOMENTUM_BOOST * strengthVelScale;
-    vel = Math.max(-ZOOM_MOMENTUM_MAX_SPEED, Math.min(ZOOM_MOMENTUM_MAX_SPEED, vel));
-    if (Math.abs(vel) < ZOOM_MOMENTUM_MIN_SPEED) return false;
-
-    // Violent flicks coast farther: lerp friction toward the high-velocity
-    // retention as launch speed rises (same shape as the touch pan glide).
-    let friction = ZOOM_MOMENTUM_FRICTION;
-    const launchSpeed = Math.abs(vel);
-    if (launchSpeed > ZOOM_HIGH_VELOCITY_THRESHOLD) {
-      const overshoot = Math.min(1, (launchSpeed - ZOOM_HIGH_VELOCITY_THRESHOLD) / ZOOM_HIGH_VELOCITY_RAMP);
-      friction = ZOOM_MOMENTUM_FRICTION + (ZOOM_MOMENTUM_FRICTION_HIGH_VELOCITY - ZOOM_MOMENTUM_FRICTION) * overshoot;
-    }
-    // Strength also stretches/shrinks the coast, mirroring the pan glide's
-    // GLIDE_STRENGTH_FRICTION_RANGE treatment. Clamped well below 1.
-    friction = Math.max(0.78, Math.min(0.95, friction + (strength - 0.5) * PINCH_GLIDE_STRENGTH_FRICTION_RANGE));
-
-    // Measured once, here, before the coast starts writing transforms. Reading
-    // it inside the loop forces a synchronous layout of an SVG subtree the
-    // previous frame just dirtied, and a SCALE change (which is all this loop
-    // does) invalidates text layout — so the flush re-resolves every label.
-    // Same reflow the trackpad ease caches away; see trackpadZoomRef.rect. The
-    // container is viewport-fixed, so one read per gesture is all it can need.
-    const coastRect = containerRef.current?.getBoundingClientRect();
-    if (!coastRect) return false;
-
-    zoomMomentumRef.current.vel = vel;
-    zoomMomentumRef.current.anchorClient = { x: anchorClient.x, y: anchorClient.y };
-    zoomMomentumRef.current.anchorWorld = { x: anchorWorld.x, y: anchorWorld.y };
-    zoomMomentumRef.current.lastTime = performance.now();
-    zoomMomentumRef.current.active = true;
-    isPanningOrZooming.current = true;
-
-    const step = (time) => {
-      const ref = zoomMomentumRef.current;
-      if (!ref.active) return;
-      const lastTime = ref.lastTime || time;
-      const dt = Math.min(32, Math.max(1, time - lastTime));
-      ref.lastTime = time;
-
-      const container = containerRef.current;
-      const canvas = canvasSizeRef.current;
-      if (!container || !canvas) {
-        stopZoomMomentum();
-        isPanningOrZooming.current = false;
-        return;
-      }
-
-      // Re-assert every frame: the duplicated touchend run (React + document
-      // listener) goes through handleMouseUp → stopPanMomentum, which clears
-      // this flag right after the glide launches.
-      isPanningOrZooming.current = true;
-
-      const prevZoom = zoomLevelRef.current;
-      let newZoom = prevZoom * Math.exp(ref.vel * dt);
-      const clampedZoom = Math.max(effMinZoom, Math.min(effMaxZoom, newZoom));
-
-      const rect = coastRect;
-      const world = ref.anchorWorld;
-      const client = ref.anchorClient;
-      const newPan = {
-        x: client.x - rect.left - (world.x - canvas.offsetX) * clampedZoom,
-        y: client.y - rect.top - (world.y - canvas.offsetY) * clampedZoom,
-      };
-      setPanAndZoom(newPan, clampedZoom);
-
-      // Decay velocity, frame-time compensated like the pan glide.
-      ref.vel *= Math.pow(friction, dt / PAN_MOMENTUM_FRAME);
-
-      // Stop once the coast is imperceptible or we've hit a zoom bound.
-      const hitBound = clampedZoom !== newZoom;
-      if (hitBound || Math.abs(ref.vel) < ZOOM_MOMENTUM_MIN_SPEED) {
-        stopZoomMomentum();
-        isPanningOrZooming.current = false;
-        return;
-      }
-      ref.animationId = requestAnimationFrame(step);
-    };
-
-    zoomMomentumRef.current.animationId = requestAnimationFrame(step);
-    return true;
-  }, [stopPanMomentum, stopZoomMomentum, setPanAndZoom, MIN_ZOOM]);
+  const startZoomMomentum = useCallback((initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound) => runZoomMomentum(initialVel, anchorClient, anchorWorld, minZoomBound, maxZoomBound, {
+    MIN_ZOOM, canvasSizeRef, containerRef, isPanningOrZooming, setPanAndZoom, stopPanMomentum,
+    stopZoomMomentum, zoomLevelRef, zoomMomentumRef,
+  }), [stopPanMomentum, stopZoomMomentum, setPanAndZoom, MIN_ZOOM]);
 
   // --- Trackpad zoom smoothing + glide ---
   // `targetZoom` is where the accumulated wheel/gesture input wants the view;
@@ -2981,82 +2581,9 @@ function NodeCanvas() {
   // hurts). Event timestamps are unaffected by when we got around to reading
   // them. Sanity-checked against the clock in case a browser hands back an
   // epoch-based value rather than a DOMHighResTimeStamp.
-  const recordTrackpadZoomSample = useCallback((zoom, sensitivity = null, eventTime = null) => {
-    if (!Number.isFinite(zoom) || zoom <= 0) return;
-    const ref = trackpadZoomRef.current;
-    const isGestureStart = ref.hist.length === 0;
-    if (sensitivity != null && isGestureStart) ref.sensitivity = sensitivity;
-    // Latch the glide preferences for the gesture, like `sensitivity` — the
-    // coast is continuous with the gesture now, so its friction has to be too.
-    if (isGestureStart) {
-      const prefs = useGraphStore.getState().touchSettings;
-      ref.glideEnabled = prefs?.trackpadZoomGlideEnabled !== false;
-      // The slider reads as strength, like every other glide slider — turn it
-      // up, the coast runs longer — which is the same sense as the retention
-      // coefficient it sets, hence the addition. The slider moves this and
-      // nothing else: the coast's launch speed is always the gesture's, or the
-      // seam comes back.
-      const strength = Math.max(0, Math.min(1, prefs?.trackpadZoomGlideStrength ?? 0.5));
-      ref.glideFriction = Math.max(
-        TRACKPAD_ZOOM_GLIDE_FRICTION_MIN,
-        Math.min(
-          TRACKPAD_ZOOM_GLIDE_FRICTION_MAX,
-          TRACKPAD_ZOOM_GLIDE_FRICTION + (strength - 0.5) * TRACKPAD_ZOOM_GLIDE_FRICTION_SLIDER_RANGE
-        )
-      );
-    }
-    const clock = performance.now();
-    const now = (Number.isFinite(eventTime) && Math.abs(clock - eventTime) < 1000) ? eventTime : clock;
-    const lz = Math.log(zoom);
-
-    // Reversing mid-gesture drops the samples from the other direction. Without
-    // this the velocity windows straddle the turn: the wide one still averages
-    // out to the OLD direction, wins the peak-biased pick against a short new
-    // slice, and the target keeps being carried the way the user just stopped
-    // going. Two samples in the new direction measure it honestly instead.
-    const prev = ref.hist[ref.hist.length - 1];
-    if (prev && ref.hist.length >= 2) {
-      const stepLn = lz - prev.lz;
-      const prevStepLn = prev.lz - ref.hist[ref.hist.length - 2].lz;
-      if (stepLn * prevStepLn < 0) ref.hist = [prev];
-    }
-
-    ref.hist.push({ t: now, lz });
-    while (ref.hist.length > 2 && now - ref.hist[0].t > TRACKPAD_ZOOM_VELOCITY_WINDOW_MS * 2) {
-      ref.hist.shift();
-    }
-
-    // Re-arm the momentum the ease loop carries the target forward with. Doing
-    // this on every step rather than once at the end is what removes the seam:
-    // the velocity is already correct when the events stop, so nothing has to
-    // notice that they did. Below the launch floor nothing is predicted at all,
-    // which is what keeps a slow, deliberate gesture landing where it was aimed.
-    if (ref.glideEnabled) {
-      const vel = measureTrackpadZoomVelocity(ref.hist);
-      ref.glideVel = Math.abs(vel) < TRACKPAD_ZOOM_GLIDE_MIN_SPEED
-        ? 0
-        : Math.sign(vel) * Math.min(Math.abs(vel), TRACKPAD_ZOOM_GLIDE_MAX_SPEED);
-    }
-
-    // Idle gap scaled to this gesture's own cadence — see the constants. Median
-    // of the recent intervals, so one dropped frame doesn't stretch the gap.
-    let idleMs = TRACKPAD_ZOOM_IDLE_END_MAX_MS;
-    if (ref.hist.length >= 3) {
-      const gaps = [];
-      for (let i = Math.max(1, ref.hist.length - 5); i < ref.hist.length; i++) {
-        gaps.push(ref.hist[i].t - ref.hist[i - 1].t);
-      }
-      gaps.sort((a, b) => a - b);
-      const median = gaps[Math.floor(gaps.length / 2)];
-      idleMs = Math.min(
-        TRACKPAD_ZOOM_IDLE_END_MAX_MS,
-        Math.max(TRACKPAD_ZOOM_IDLE_END_MIN_MS, median * TRACKPAD_ZOOM_IDLE_GAP_MULTIPLE)
-      );
-    }
-
-    if (ref.endTimerId) clearTimeout(ref.endTimerId);
-    ref.endTimerId = setTimeout(() => endTrackpadZoomGesture(), idleMs);
-  }, [endTrackpadZoomGesture]);
+  const recordTrackpadZoomSample = useCallback((a0, a1, a2) => recordTrackpadZoom(a0, a1, a2, {
+    endTrackpadZoomGesture, trackpadZoomRef,
+  }), [endTrackpadZoomGesture]);
 
   useEffect(() => stopTrackpadZoom, [stopTrackpadZoom]);
 
@@ -4521,43 +4048,9 @@ function NodeCanvas() {
   // they are not interchangeable. The four original openers keep their own paths
   // because they carry per-ask side effects (clearing the selection) and the
   // full/short instruction dedupe; everything else goes through one branch.
-  const runWizardIntent = useCallback(async ({ intent, destination, payload, freeText }) => {
-    const newConversation = destination !== 'current';
-    const toolPolicy = policyForIntent(intent);
-
-    switch (intent.id) {
-      // The original four, unchanged.
-      case 'refine-connection':
-        return openWizardWithPrompt(payload.edges, { newConversation });
-      case 'define-components':
-        return openNodeWizardWithPrompt(payload.prototype, { newConversation });
-      case 'ladder-build':
-        return openAbstractionWizardWithPrompt(payload.prototype, payload.dimension, { newConversation });
-      case 'thing-ladder':
-        // Same ask reached from the Thing's own menu rather than the carousel.
-        return openAbstractionWizardWithPrompt(payload.prototype, DEFAULT_ABSTRACTION_DIMENSION, { newConversation });
-      case 'grow-web':
-        return openGrowGraphWizardWithPrompt({ newConversation });
-      default:
-        break;
-    }
-
-    const build = () => {
-      switch (intent.id) {
-        case 'explain-thing': return buildExplainThingPrompt(payload.prototype);
-        case 'connect-into-web': return buildConnectThingPrompt(payload.prototype);
-        case 'fill-in-details': return buildFillDetailsPrompt(payload.prototype);
-        case 'explain-connection': return buildExplainConnectionPrompt(payload.edges);
-        case 'connection-gaps': return buildConnectionGapsPrompt(payload.edges);
-        case 'summarize-web': return buildSummarizeWebPrompt();
-        case 'audit-web': return buildAuditWebPrompt();
-        default:
-          if (intent.tier === 'freetext') return buildFreeTextPrompt(intent.surface, payload, freeText);
-          return null;
-      }
-    };
-    return openWizardAsk(build, { newConversation, toolPolicy });
-  }, [
+  const runWizardIntent = useCallback((a0) => dispatchWizardIntent(a0, {
+    openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt, openNodeWizardWithPrompt, openWizardAsk, openWizardWithPrompt,
+  }), [
     openWizardWithPrompt, openNodeWizardWithPrompt,
     openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt, openWizardAsk
   ]);
@@ -8699,55 +8192,10 @@ function NodeCanvas() {
     setAbstractionPrompt, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage, setIsCarouselStageTransition, setSelectedNodeIdForPieMenu, storeActions,
   });
 
-  const handleNodeSelection = (nodePrototype) => {
-    if (!plusSign || !activeGraphId) return;
-
-    const proto = nodePrototypesMap.get(nodePrototype.id) || nodePrototype;
-    const { thumbnailSrc } = getPlusSignMorphNode({ selectedPrototype: nodePrototype });
-    // A Wikipedia image lives in imageCache, which is only filled for prototypes
-    // already placed in the active web. Picked from anywhere else, the cache is
-    // empty here — so the morph sized itself as a text node and the image arrived
-    // as a second stage after the add. Start that fetch now instead.
-    const wikiThumb = !thumbnailSrc && !proto.thumbnailSrc
-      ? proto.semanticMetadata?.wikipediaThumbnail
-      : null;
-    // Only 'appear' / 'preparing' may morph — a plus sign dismissed while its image
-    // decoded must stay dismissed.
-    const startMorph = (imageReady) => setPlusSign(ps => (ps && (ps.mode === 'appear' || ps.mode === 'preparing')) ? {
-      ...ps,
-      mode: 'morph',
-      tempName: nodePrototype.name,
-      selectedPrototype: nodePrototype, // Store the selected prototype for morphDone
-      selectedColor: nodePrototype.color, // Use the prototype's color for the animation
-      imageReady,
-    } : ps);
-
-    if (thumbnailSrc || wikiThumb) {
-      // Fetch (if needed) and decode the image BEFORE the morph starts, so the
-      // morph targets the node's real image size and carries the image from its
-      // first frame. Mounting an undecoded <image> mid-animation stalls the frames
-      // it decodes on. One budget covers both steps; past it the morph goes ahead
-      // and targets whatever the real node will render at that moment.
-      setPlusSign(ps => ps && { ...ps, mode: 'preparing' });
-      const PREPARE_BUDGET_MS = 1200;
-      const deadline = performance.now() + PREPARE_BUDGET_MS;
-      (async () => {
-        let src = thumbnailSrc;
-        if (!src) {
-          queueThumbnailFetch(proto.id, wikiThumb, proto.semanticMetadata?.imageAspectRatio || 1, proto.name || '');
-          src = (await waitForCachedImage(proto.id, PREPARE_BUDGET_MS))?.thumbnailSrc ?? null;
-        }
-        const remaining = deadline - performance.now();
-        const ok = src && remaining > 0 ? await decodeThumbnail(src, remaining) : false;
-        startMorph(ok);
-      })();
-    } else {
-      startMorph(false);
-    }
-
-    // Clean up UI state
-    setNodeNamePrompt({ visible: false, name: '' });
-  };
+  const handleNodeSelection = (nodePrototype) => choosePlusSignNode(nodePrototype, {
+    activeGraphId, decodeThumbnail, getPlusSignMorphNode, nodePrototypesMap, plusSign, setNodeNamePrompt,
+    setPlusSign, waitForCachedImage,
+  });
 
   // The node the morph is turning into, shaped the way the `nodes` memo will hydrate
   // it — including its image. A name-only stand-in sizes the morph (and the final
@@ -9977,50 +9425,10 @@ function NodeCanvas() {
   }, [activeGraphId, selectedInstanceIds, graphsMap, nodePrototypesMap, edgesMap, storeActions, setSelectedInstanceIds]);
 
   // Node-group control panel action handlers
-  const handleNodeGroupDiveIntoDefinition = useCallback((startRect = null) => {
-    if (!activeGraphId || !selectedGroup?.linkedNodePrototypeId) return;
-
-    const prototypeId = selectedGroup.linkedNodePrototypeId;
-    const linkedPrototype = nodePrototypesMap.get(prototypeId);
-
-    const openDefinitionGraph = (graphId) => {
-      if (!graphId) return;
-
-      if (startRect && typeof startHurtleAnimationFromPanel === 'function') {
-        startHurtleAnimationFromPanel(prototypeId, graphId, prototypeId, startRect);
-      } else if (typeof storeActions.openGraphTabAndBringToTop === 'function') {
-        storeActions.openGraphTabAndBringToTop(graphId, prototypeId);
-      } else if (typeof storeActions.openGraphTab === 'function') {
-        storeActions.openGraphTab(graphId, prototypeId);
-      } else if (typeof storeActions.setActiveGraph === 'function') {
-        storeActions.setActiveGraph(graphId);
-      } else {
-        console.warn('No store action available to activate definition graph for node-group');
-      }
-    };
-
-    if (linkedPrototype?.definitionGraphIds?.length) {
-      openDefinitionGraph(linkedPrototype.definitionGraphIds[0]);
-    } else if (typeof storeActions.createAndAssignGraphDefinitionWithoutActivation === 'function') {
-      storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-
-      setTimeout(() => {
-        const refreshedPrototype = useGraphStore.getState().nodePrototypes.get(prototypeId);
-        const newGraphId = refreshedPrototype?.definitionGraphIds?.[refreshedPrototype.definitionGraphIds.length - 1];
-
-        if (newGraphId) {
-          openDefinitionGraph(newGraphId);
-        } else {
-          console.warn('Node-group has no definition graph after creation attempt');
-        }
-      }, 50);
-    } else {
-      console.warn('Node-group has no definition graph and cannot create one');
-    }
-
-    setGroupControlPanelVisible(false);
-    setSelectedGroup(null);
-  }, [
+  const handleNodeGroupDiveIntoDefinition = useCallback((a0) => diveIntoNodeGroupDefinition(a0, {
+    activeGraphId, nodePrototypesMap, selectedGroup, setGroupControlPanelVisible, setSelectedGroup, startHurtleAnimationFromPanel,
+    storeActions,
+  }), [
     activeGraphId,
     selectedGroup,
     nodePrototypesMap,
