@@ -77,3 +77,45 @@ export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraph
 
   setHurtleFlight(animationData);
 }
+
+/** Hurtle into a definition from a panel button (the orb starts at the button). */
+export function startHurtleFromPanelWith(ctx, nodeId, targetGraphId, definitionNodeId, startRect) {
+  const { containerRef, zoomLevelRef, getHeaderTabTarget, setHurtleFlight } = ctx;
+  const currentState = useGraphStore.getState();
+  const nodeData = currentState.nodePrototypes.get(nodeId);
+  if (!nodeData) {
+
+    return;
+  }
+
+  if (!containerRef.current) return;
+
+  // B-04: this used to parse the <svg>'s style.transform, which no longer
+  // carries the camera (it's an attribute on the content group now), so zoom
+  // always read 1 and the orb was always 30 px. The ref is authoritative.
+  const currentZoom = zoomLevelRef.current || 1;
+
+  // Start position is the center of the icon's rect
+  const startX = startRect.left + startRect.width / 2;
+  const startY = startRect.top + startRect.height / 2;
+
+  // Calculate orb size proportional to current zoom, same as pie menu animation
+  const orbSize = Math.max(12, Math.round(30 * currentZoom));
+
+  const animationData = {
+    nodeId,
+    targetGraphId,
+    definitionNodeId,
+    startTime: performance.now(),
+    duration: 400, // Slower arc
+    startPos: { x: startX, y: startY },
+    // Was the canvas container's half-width used as a client x, which ignored
+    // the container's own left edge entirely — so with the panel this button
+    // lives in open, the orb aimed a whole panel-width left of the tab.
+    targetPos: getHeaderTabTarget(),
+    nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
+    orbSize: orbSize, // Use calculated, zoom-dependent size
+  };
+
+  setHurtleFlight(animationData);
+}

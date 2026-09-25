@@ -7,6 +7,8 @@ import useGraphStore from '../../../store/graphStore.js';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from '../../../services/orbitResolver.js';
 import { formatPredicate } from '../../../utils/predicateFormatter.js';
 import { NODE_DEFAULT_COLOR, NODE_WIDTH, NODE_HEIGHT } from '../../../constants';
+import { ORBIT_FIT_PADDING, ORBIT_FIT_MIN_ZOOM } from './orbitConstants.js';
+import { MAX_ZOOM } from '../../../constants';
 
 /** Fetch the focused node's orbit candidates while orbit mode is on. */
 export function fetchOrbitCandidates(ctx) {
@@ -157,4 +159,49 @@ export function sizeOrbitDimRect(ctx) {
   el.setAttribute('y', y0 - vh * m);
   el.setAttribute('width', vw * (1 + 2 * m));
   el.setAttribute('height', vh * (1 + 2 * m));
+}
+
+/** While orbiting, pull the view back so the rings fit, continuously rather than in jumps. */
+export function fitOrbitInView(ctx) {
+  const {
+    semanticOrbitActive, orbitFitRef, orbitFrame, getFramingRegion, MIN_ZOOM, zoomLevelRef, canvasSize,
+    viewportSize, animateCanvasView,
+  } = ctx;
+  if (!semanticOrbitActive) {
+    orbitFitRef.current = { fitted: false, zoom: 0 };
+    return;
+  }
+  if (!orbitFrame || !(orbitFrame.radius > 0)) return;
+
+  const vb = getFramingRegion();
+  const usable = Math.min(
+    vb.width * (1 - 2 * ORBIT_FIT_PADDING),
+    vb.height * (1 - 2 * ORBIT_FIT_PADDING)
+  );
+  const diameter = orbitFrame.radius * 2;
+  const floor = typeof window !== 'undefined' && window.__orbitZoom != null
+    ? Number(window.__orbitZoom)
+    : ORBIT_FIT_MIN_ZOOM;
+  const tz = Math.max(MIN_ZOOM, floor, Math.min(MAX_ZOOM, usable / diameter));
+
+  const state = orbitFitRef.current;
+  if (state.fitted) {
+    // Already pulled back as far as this is willing to go — growing past that
+    // asks for the same zoom, so there is nothing left to do.
+    if (tz === state.zoom) return;
+    // It grew and wants a different zoom, but still fits at whatever zoom we
+    // are actually at (the user may have moved since) — leave the view alone.
+    if (diameter * (zoomLevelRef.current || 1) <= usable) return;
+  }
+
+  const targetPanX = (vb.x + vb.width / 2) - (orbitFrame.centerX - canvasSize.offsetX) * tz;
+  const targetPanY = (vb.y + vb.height / 2) - (orbitFrame.centerY - canvasSize.offsetY) * tz;
+  const minPanX = viewportSize.width - canvasSize.width * tz;
+  const minPanY = viewportSize.height - canvasSize.height * tz;
+  animateCanvasView({
+    x: Math.min(Math.max(targetPanX, minPanX), 0),
+    y: Math.min(Math.max(targetPanY, minPanY), 0),
+  }, tz);
+
+  orbitFitRef.current = { fitted: true, zoom: tz };
 }

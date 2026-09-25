@@ -67,7 +67,7 @@ import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelIn
 import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
 import { placeOrbitCandidate } from './components/canvas/orbit/orbitActions.js';
-import { startHurtle } from './components/canvas/camera/hurtle.js';
+import { startHurtle, startHurtleFromPanelWith } from './components/canvas/camera/hurtle.js';
 import { backToCivilization } from './components/canvas/camera/backToCivilization.js';
 import { convertNodeToNodeGroup } from './components/canvas/actions/nodeGroupConversion.js';
 import { computeCleanLaneOffsets } from './utils/canvas/cleanLaneOffsets.js';
@@ -135,19 +135,21 @@ import { likelyTouch } from './utils/inputDeviceAnalysis';
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
-import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameEdgePieOnOpen } from './components/canvas/camera/framing.js';
+import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameEdgePieOnOpen, frameCarouselOnOpen, animateCanvasViewWith } from './components/canvas/camera/framing.js';
 import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex, computeEdgeCurveInfo, computeLabelObstacleOptions } from './components/canvas/edges/edgeGeometry.js';
 import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
 import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
 import { runConnectionEdgePan, writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
 import { suggestConnectionName, fillAbstractionNameSuggestion, suggestEdgeArrowDirectionWith } from './components/canvas/actions/oneShotSuggestions.js';
-import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect } from './components/canvas/orbit/orbitData.js';
+import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect, fitOrbitInView } from './components/canvas/orbit/orbitData.js';
 import { computeShouldShowBackToCivilization, computeRelevantNodesVisible } from './components/canvas/data/backToCivilization.js';
 import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
 import { resolveStoreActions } from './components/canvas/data/storeActions.js';
 import PromptsHost from './components/canvas/hosts/PromptsHost.jsx';
 import CanvasOverlaysHost from './components/canvas/hosts/CanvasOverlaysHost.jsx';
+import { performInstanceSwapWith } from './components/canvas/actions/instanceSwap.js';
+import { edgeHitboxHandlersFor, edgeTouchHandlersFor, commitEdgeTouchWith, resolveTouchEdgeTargetWith, edgePointerDownTouchWith, selectEdgeFromClickWith, findEdgeAtClientPointWith } from './components/canvas/input/edgeInput.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -2753,104 +2755,18 @@ function NodeCanvas() {
   // Smoothly animate the canvas to a target pan/zoom (easeOutCubic). Reuses the
   // DOM-bypass transform path; the AbstractionCarousel re-anchors each frame off
   // the 'canvas-transform-change' event so it tracks the motion cleanly.
-  const animateCanvasView = useCallback((targetPan, targetZoom, durationMs = 320) => {
-    if (carouselViewAnimRef.current) cancelAnimationFrame(carouselViewAnimRef.current);
-    const startPan = { ...panOffsetRef.current };
-    const startZoom = zoomLevelRef.current;
-    const startTime = performance.now();
-    isAnimatingZoomRef.current = true;
-    const ease = (t) => 1 - Math.pow(1 - t, 3);
-    const step = (now) => {
-      const t = Math.min(1, (now - startTime) / durationMs);
-      const e = ease(t);
-      const pan = {
-        x: startPan.x + (targetPan.x - startPan.x) * e,
-        y: startPan.y + (targetPan.y - startPan.y) * e,
-      };
-      const zoom = startZoom + (targetZoom - startZoom) * e;
-      setPanAndZoom(pan, zoom);
-      if (t < 1) {
-        carouselViewAnimRef.current = requestAnimationFrame(step);
-      } else {
-        carouselViewAnimRef.current = null;
-        isAnimatingZoomRef.current = false;
-      }
-    };
-    carouselViewAnimRef.current = requestAnimationFrame(step);
-  }, [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
+  const animateCanvasView = useCallback((...args) => animateCanvasViewWith({
+    carouselViewAnimRef, panOffsetRef, zoomLevelRef, isAnimatingZoomRef, setPanAndZoom,
+  }, ...args), [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
 
   // Center on open. On close we intentionally leave the canvas where it is —
   // the carousel framing becomes the new resting view rather than snapping back.
-  useEffect(() => {
-    const was = prevCarouselVisibleRef.current;
-    prevCarouselVisibleRef.current = abstractionCarouselVisible;
-
-    if (!was && abstractionCarouselVisible) {
-      // Opening: frame the node.
-      const node = abstractionCarouselNode;
-      if (!node) return;
-      runFramingAfterCommit(() => {
-      const dims = getNodeDimensions(node, false, null);
-      const centerX = node.x + dims.currentWidth / 2;
-      const centerY = node.y + dims.currentHeight / 2;
-      // Frame against the usable canvas region (panels/header/typelist excluded),
-      // in container coordinates — so the node centers in what's actually visible
-      // rather than the full window when panels/typelist are open. The abstraction
-      // control panel comes up with the carousel (showAbstractionControlPanel, on by
-      // default) and sits right under the stack, so it's excluded too when present.
-      const vb = getFramingRegion({ reserveBottomPanel: true });
-      const regionCenterX = vb.x + vb.width / 2;
-      const regionCenterY = vb.y + vb.height / 2;
-      // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
-      const narrowness = Math.max(0, Math.min(1,
-        (CAROUSEL_ZOOM_WIDTH_WIDE - vb.width) / (CAROUSEL_ZOOM_WIDTH_WIDE - CAROUSEL_ZOOM_WIDTH_NARROW)
-      ));
-      // Max horizontal reach of the pie-menu button cluster from the focused-node
-      // centre, in canvas units: the focused-node half-width plus the outermost
-      // button and its radius. Buttons are BUBBLE_SIZE/BUBBLE_PADDING (see
-      // PieMenu.jsx) scaled by nodeScale·pieMenuScale, so this tracks any size
-      // change automatically. The furthest slot stage 1 fills is 'right-third'
-      // (Delete), at halfW + padding + 2·slotStep, where padding = bPad + bSize/2
-      // and slotStep = CAROUSEL_SLOT_FRACTION·(bSize + bPad), plus bSize/2 for the
-      // bubble's own radius. Row 1 reaches slot 1 plus its stagger — 1.5 steps —
-      // so it stays inside row 0's reach and doesn't enter this.
-      const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
-      const bSize = 120 * pieScale; // BUBBLE_SIZE
-      const bPad = 32 * pieScale;   // BUBBLE_PADDING
-      const slotStep = (bSize + bPad) * CAROUSEL_SLOT_FRACTION;
-      const focusScale = carouselFocusedNodeScale || 1.2;
-      const clusterHalfReach = (dims.currentWidth * focusScale) / 2 + bSize + bPad + 2 * slotStep;
-      // Fraction of the usable region half-width the cluster should occupy (fuller on narrow).
-      const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
-      const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
-      // Vertical fit. The derivation above knows only the node's WIDTH, and an image
-      // node grows in height ALONE — getNodeDimensions gives it a fixed
-      // EXPANDED_NODE_WIDTH and then adds imageWidth * aspect (up to
-      // IMAGE_MAX_ASPECT = 2.0) to its height, so a portrait image node is ~8.5x the
-      // height of a text node at the same width-derived zoom. Framed horizontally it
-      // overflowed the region vertically and took the More/Less Specific hints
-      // off-screen with it.
-      //
-      // Sized to the focused node alone, not its neighbours: a chain of portrait
-      // image nodes puts ~1150 canvas units between adjacent centres, so demanding a
-      // neighbour fit would drive the zoom to ~0.09 and render the focused node
-      // barely 100px tall. The stack is built to overlap and fade (LEVEL_SPACING is
-      // negative), so neighbours peeking in is the intended read.
-      //
-      // Stage 1's two button rows straddle the node's centre line, half a slot step
-      // either side of it, so on a short node they — not the node — set the vertical
-      // extent. Fit whichever reaches further.
-      const availableHalfHeight = Math.max(1, vb.height * 0.5 - CAROUSEL_HINT_BAND);
-      const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2, slotStep / 2 + bSize / 2);
-      const verticalZoom = availableHalfHeight / nodeHalfHeight;
-      const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(referenceZoom, verticalZoom)));
-      const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-      const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
-      const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
-      animateCanvasView(finalPan, tz);
-      });
-    }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale, runFramingAfterCommit]);
+  useEffect(() => frameCarouselOnOpen({
+    prevCarouselVisibleRef, abstractionCarouselVisible, abstractionCarouselNode, runFramingAfterCommit,
+    getFramingRegion, CAROUSEL_ZOOM_WIDTH_WIDE, CAROUSEL_ZOOM_WIDTH_NARROW, textSettings,
+    carouselFocusedNodeScale, CAROUSEL_FILL_WIDE, CAROUSEL_FILL_NARROW, CAROUSEL_HINT_BAND, MIN_ZOOM,
+    canvasSize, viewportSize, animateCanvasView,
+  }), [abstractionCarouselVisible, abstractionCarouselNode, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, carouselFocusedNodeScale, runFramingAfterCommit]);
 
   // Frame the orbit when it opens, out to a limit.
   //
@@ -2866,45 +2782,10 @@ function NodeCanvas() {
   // never while the orbit still fits the frame. animateCanvasView re-eases from
   // wherever the last one reached, so consecutive reframes read as one
   // continuous pull-back rather than a series of jumps.
-  useEffect(() => {
-    if (!semanticOrbitActive) {
-      orbitFitRef.current = { fitted: false, zoom: 0 };
-      return;
-    }
-    if (!orbitFrame || !(orbitFrame.radius > 0)) return;
-
-    const vb = getFramingRegion();
-    const usable = Math.min(
-      vb.width * (1 - 2 * ORBIT_FIT_PADDING),
-      vb.height * (1 - 2 * ORBIT_FIT_PADDING)
-    );
-    const diameter = orbitFrame.radius * 2;
-    const floor = typeof window !== 'undefined' && window.__orbitZoom != null
-      ? Number(window.__orbitZoom)
-      : ORBIT_FIT_MIN_ZOOM;
-    const tz = Math.max(MIN_ZOOM, floor, Math.min(MAX_ZOOM, usable / diameter));
-
-    const state = orbitFitRef.current;
-    if (state.fitted) {
-      // Already pulled back as far as this is willing to go — growing past that
-      // asks for the same zoom, so there is nothing left to do.
-      if (tz === state.zoom) return;
-      // It grew and wants a different zoom, but still fits at whatever zoom we
-      // are actually at (the user may have moved since) — leave the view alone.
-      if (diameter * (zoomLevelRef.current || 1) <= usable) return;
-    }
-
-    const targetPanX = (vb.x + vb.width / 2) - (orbitFrame.centerX - canvasSize.offsetX) * tz;
-    const targetPanY = (vb.y + vb.height / 2) - (orbitFrame.centerY - canvasSize.offsetY) * tz;
-    const minPanX = viewportSize.width - canvasSize.width * tz;
-    const minPanY = viewportSize.height - canvasSize.height * tz;
-    animateCanvasView({
-      x: Math.min(Math.max(targetPanX, minPanX), 0),
-      y: Math.min(Math.max(targetPanY, minPanY), 0),
-    }, tz);
-
-    orbitFitRef.current = { fitted: true, zoom: tz };
-  }, [semanticOrbitActive, orbitFrame, getFramingRegion, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
+  useEffect(() => fitOrbitInView({
+    semanticOrbitActive, orbitFitRef, orbitFrame, getFramingRegion, MIN_ZOOM, zoomLevelRef, canvasSize,
+    viewportSize, animateCanvasView,
+  }), [semanticOrbitActive, orbitFrame, getFramingRegion, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
   const carouselAnimationState = useCanvasUIStore(s => s.carouselAnimationState), setCarouselAnimationState = useCanvasUIStore(s => s.setCarouselAnimationState); // 'hidden', 'entering', 'visible', 'exiting'
@@ -3541,36 +3422,9 @@ function NodeCanvas() {
   // instance's prototypeId changes. Position is nudged so the node keeps its
   // center despite the new prototype's (possibly different) dimensions. This is the
   // same operation the abstraction carousel performs on swap.
-  const performInstanceSwap = useCallback((instanceId, newPrototypeId) => {
-    const instance = nodes.find(n => n.id === instanceId);
-    if (!instance || !activeGraphId || !newPrototypeId) return;
-    if (instance.prototypeId === newPrototypeId) return; // no-op
-    // Read fresh from the store so a prototype created moments ago (new-Thing swap) resolves.
-    const newPrototype = useGraphStore.getState().nodePrototypes.get(newPrototypeId);
-    if (!newPrototype) return;
-
-    const originalDimensions = getNodeDimensions(instance, false, null);
-    const tempNodeWithNewPrototype = {
-      ...instance,
-      prototypeId: newPrototypeId,
-      name: newPrototype.name || instance.name,
-      color: newPrototype.color || instance.color,
-      thumbnailSrc: newPrototype.thumbnailSrc || instance.thumbnailSrc,
-      definitionGraphIds: newPrototype.definitionGraphIds || []
-    };
-    const newDimensions = getNodeDimensions(tempNodeWithNewPrototype, false, null);
-
-    const centerX = instance.x + originalDimensions.currentWidth / 2;
-    const centerY = instance.y + originalDimensions.currentHeight / 2;
-    const newX = centerX - newDimensions.currentWidth / 2;
-    const newY = centerY - newDimensions.currentHeight / 2;
-
-    storeActions.updateNodeInstance(activeGraphId, instanceId, (inst) => {
-      inst.prototypeId = newPrototypeId;
-      inst.x = newX;
-      inst.y = newY;
-    }, { finalize: true });
-  }, [nodes, activeGraphId, storeActions]);
+  const performInstanceSwap = useCallback((...args) => performInstanceSwapWith({
+    nodes, activeGraphId, storeActions,
+  }, ...args), [nodes, activeGraphId, storeActions]);
 
   /**
    * Every page of the default single-Thing pie menu, in display order.
@@ -3778,30 +3632,9 @@ function NodeCanvas() {
   // Touch double-tap detection for edges → open definition
   const lastEdgeTapRef = useRef({ id: null, ts: 0 });
   const EDGE_DOUBLE_TAP_MS = 300;
-  const handleEdgePointerDownTouch = useCallback((edgeId, e) => {
-    if (e && e.pointerType === 'mouse') return; // only handle touch/pencil here
-    const now = performance.now();
-    const last = lastEdgeTapRef.current;
-    if (last.id === edgeId && (now - last.ts) < EDGE_DOUBLE_TAP_MS) {
-      // Double tap → open definition in right panel
-      e.preventDefault?.();
-      e.stopPropagation?.();
-      const state = useGraphStore.getState();
-      const edge = state.edges?.get?.(edgeId);
-      let definingNodeId = null;
-      if (edge?.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-        definingNodeId = edge.definitionNodeIds[0];
-      } else if (edge?.typeNodeId) {
-        definingNodeId = edge.typeNodeId;
-      }
-      if (definingNodeId) {
-        state.openRightPanelNodeTab?.(definingNodeId);
-      }
-      lastEdgeTapRef.current = { id: null, ts: 0 };
-      return;
-    }
-    lastEdgeTapRef.current = { id: edgeId, ts: now };
-  }, []);
+  const handleEdgePointerDownTouch = useCallback((...args) => edgePointerDownTouchWith({
+    lastEdgeTapRef, EDGE_DOUBLE_TAP_MS,
+  }, ...args), []);
 
   // --- Connection hit-testing (shared by hover, click and touch) -------------
   //
@@ -3822,12 +3655,9 @@ function NodeCanvas() {
   ), [isRoutedStyle, connectionWidth]);
 
   // Client-space wrapper around the two above.
-  const findEdgeAtClientPoint = useCallback((clientX, clientY, pointerKind = 'mouse') => {
-    if (!containerRef.current) return null;
-    const rect = containerRef.current.getBoundingClientRect();
-    const { x: cx, y: cy } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-    return findNearestEdgeAtCanvasPoint(cx, cy, getEdgeHitThreshold(pointerKind));
-  }, [findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, canvasSize]);
+  const findEdgeAtClientPoint = useCallback((...args) => findEdgeAtClientPointWith({
+    containerRef, panOffsetRef, zoomLevelRef, canvasSize, findNearestEdgeAtCanvasPoint, getEdgeHitThreshold,
+  }, ...args), [findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, canvasSize]);
 
   // Select an edge from a mouse click on its line/path hitbox. When several
   // connections overlap, the topmost SVG hitbox receives the click but is not
@@ -3835,34 +3665,18 @@ function NodeCanvas() {
   // computed by the hover hit-test (hoveredEdgeInfo in canvasUIStore). Falls back
   // to the clicked edge when no hover has been computed (e.g. the pointer never
   // moved over the canvas first).
-  const selectEdgeFromClick = useCallback((clickedEdgeId, e) => {
-    const targetEdgeId = useCanvasUIStore.getState().hoveredEdgeInfo?.edgeId
-      || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId
-      || clickedEdgeId;
-    haptic('edgeSelect');
-    if (e.ctrlKey || e.metaKey) {
-      if (selectedEdgeIds.has(targetEdgeId)) {
-        storeActions.removeSelectedEdgeId(targetEdgeId);
-      } else {
-        storeActions.addSelectedEdgeId(targetEdgeId);
-      }
-    } else {
-      storeActions.clearSelectedEdgeIds();
-      storeActions.setSelectedEdgeId(targetEdgeId);
-    }
-  }, [selectedEdgeIds, storeActions, findEdgeAtClientPoint]);
+  const selectEdgeFromClick = useCallback((...args) => selectEdgeFromClickWith({
+    findEdgeAtClientPoint, selectedEdgeIds, storeActions,
+  }, ...args), [selectedEdgeIds, storeActions, findEdgeAtClientPoint]);
 
   // Nearest-wins resolution for a touch/pen tap that landed on a connection's
   // transparent stroke. The topmost stroke receives the event, which in a curved
   // bundle (Lombardi arcs, parallel fans) is routinely not the connection under
   // the finger. Mouse clicks correct for this via the hover ref; touch has no
   // hover to lean on, so it re-runs the geometry.
-  const resolveTouchEdgeTarget = useCallback((fallbackEdgeId, e) => {
-    const x = e?.clientX ?? e?.touches?.[0]?.clientX;
-    const y = e?.clientY ?? e?.touches?.[0]?.clientY;
-    if (typeof x !== 'number' || typeof y !== 'number') return fallbackEdgeId;
-    return findEdgeAtClientPoint(x, y, 'touch')?.edgeId || fallbackEdgeId;
-  }, [findEdgeAtClientPoint]);
+  const resolveTouchEdgeTarget = useCallback((...args) => resolveTouchEdgeTargetWith({
+    findEdgeAtClientPoint,
+  }, ...args), [findEdgeAtClientPoint]);
 
   // --- Deferred touch selection for connections ------------------------------
   //
@@ -3907,62 +3721,16 @@ function NodeCanvas() {
     pendingEdgeTouchRef.current = null;
   }, []);
 
-  const commitEdgeTouch = useCallback((e) => {
-    const pending = pendingEdgeTouchRef.current;
-    pendingEdgeTouchRef.current = null;
-    if (!pending) return;
-    // Release position, when we have one — a gesture can outrun moveEdgeTouch
-    // (coalesced moves, a fast flick) and still land far from where it began.
-    const x = e?.clientX ?? e?.changedTouches?.[0]?.clientX;
-    const y = e?.clientY ?? e?.changedTouches?.[0]?.clientY;
-    if (typeof x === 'number' && typeof y === 'number'
-      && Math.hypot(x - pending.x, y - pending.y) > EDGE_TAP_SLOP_PX) return;
-
-    haptic('edgeSelect');
-    // Double-tap → open definition. Counted on release for the same reason
-    // selection is: a pan is not a tap and must not accumulate toward one.
-    handleEdgePointerDownTouch(pending.edgeId, { pointerType: 'touch', preventDefault: () => { }, stopPropagation: () => { } });
-    if (pending.additive) {
-      if (selectedEdgeIds.has(pending.edgeId)) {
-        storeActions.removeSelectedEdgeId(pending.edgeId);
-      } else {
-        storeActions.addSelectedEdgeId(pending.edgeId);
-      }
-    } else {
-      storeActions.clearSelectedEdgeIds();
-      storeActions.setSelectedEdgeId(pending.edgeId);
-    }
-  }, [selectedEdgeIds, storeActions, handleEdgePointerDownTouch]);
+  const commitEdgeTouch = useCallback((...args) => commitEdgeTouchWith({
+    pendingEdgeTouchRef, EDGE_TAP_SLOP_PX, handleEdgePointerDownTouch, selectedEdgeIds, storeActions,
+  }, ...args), [selectedEdgeIds, storeActions, handleEdgePointerDownTouch]);
 
   // The touch half of an edge hitbox's handlers, shared by every hitbox that draws
   // one (the shared helper below and the per-routing-style inline strokes).
-  const edgeTouchHandlers = useCallback((edgeId) => ({
-    onPointerDown: (e) => {
-      if (!e.pointerType || e.pointerType === 'mouse') return false;
-      e.preventDefault?.();
-      e.stopPropagation?.();
-      ignoreCanvasClick.current = true; // suppress canvas click -> plus sign
-      setLongPressingInstanceId(null);  // prevent connection drawing intent
-      setDrawingConnectionFrom(null);
-      beginEdgeTouch(edgeId, e);
-      return true;
-    },
-    onPointerMove: moveEdgeTouch,
-    onPointerUp: commitEdgeTouch,
-    onPointerCancel: cancelEdgeTouch,
-    // Deliberately NOT stopping propagation here: the canvas's own touch pipeline
-    // (handleTouchStartCanvas) has to see this touch, or a gesture that begins on a
-    // connection can't pan at all. It owns preventDefault and ignoreCanvasClick; we
-    // only record the selection candidate and let the pan machinery run.
-    onTouchStart: (e) => {
-      setLongPressingInstanceId(null);
-      setDrawingConnectionFrom(null);
-      beginEdgeTouch(edgeId, e);
-    },
-    onTouchMove: moveEdgeTouch,
-    onTouchEnd: commitEdgeTouch,
-    onTouchCancel: cancelEdgeTouch,
-  }), [beginEdgeTouch, moveEdgeTouch, commitEdgeTouch, cancelEdgeTouch]);
+  const edgeTouchHandlers = useCallback((...args) => edgeTouchHandlersFor({
+    ignoreCanvasClick, setLongPressingInstanceId, setDrawingConnectionFrom, beginEdgeTouch, moveEdgeTouch,
+    commitEdgeTouch, cancelEdgeTouch,
+  }, ...args), [beginEdgeTouch, moveEdgeTouch, commitEdgeTouch, cancelEdgeTouch]);
 
   // Select a connection from a bare-canvas tap — the touch counterpart of the
   // mouse hover→click path. The transparent SVG stroke is a narrow fast path;
@@ -3989,38 +3757,9 @@ function NodeCanvas() {
 
   // Shared pointer handlers for edge hitboxes (line stroke + label rect) so the
   // connection label text is just as clickable as the line itself.
-  const getEdgeHitboxHandlers = useCallback((edgeId) => ({
-    ...edgeTouchHandlers(edgeId),
-    onClick: (e) => {
-      e.stopPropagation();
-      ignoreCanvasClick.current = true;
-      haptic('edgeSelect');
-      if (e.ctrlKey || e.metaKey) {
-        if (selectedEdgeIds.has(edgeId)) {
-          storeActions.removeSelectedEdgeId(edgeId);
-        } else {
-          storeActions.addSelectedEdgeId(edgeId);
-        }
-      } else {
-        storeActions.clearSelectedEdgeIds();
-        storeActions.setSelectedEdgeId(edgeId);
-      }
-    },
-    onDoubleClick: (e) => {
-      e.stopPropagation();
-      const state = useGraphStore.getState();
-      const edge = state.edges?.get?.(edgeId);
-      let definingNodeId = null;
-      if (edge?.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-        definingNodeId = edge.definitionNodeIds[0];
-      } else if (edge?.typeNodeId) {
-        definingNodeId = edge.typeNodeId;
-      }
-      if (definingNodeId) {
-        storeActions.openRightPanelNodeTab(definingNodeId);
-      }
-    },
-  }), [selectedEdgeIds, storeActions, edgeTouchHandlers]);
+  const getEdgeHitboxHandlers = useCallback((...args) => edgeHitboxHandlersFor({
+    edgeTouchHandlers, ignoreCanvasClick, selectedEdgeIds, storeActions,
+  }, ...args), [selectedEdgeIds, storeActions, edgeTouchHandlers]);
 
   // Canvas pointer handlers (P4.04a: components/canvas/input/pointerHandlers.js):
   // node press, pointer move/press/release, the canvas click, the connection-draw
@@ -4898,45 +4637,9 @@ function NodeCanvas() {
     setHurtleFlight, zoomLevelRef,
   }), [containerRef, previewingNodeId, getHeaderTabTarget, canvasSize]);
 
-  const startHurtleAnimationFromPanel = useCallback((nodeId, targetGraphId, definitionNodeId, startRect) => {
-    const currentState = useGraphStore.getState();
-    const nodeData = currentState.nodePrototypes.get(nodeId);
-    if (!nodeData) {
-
-      return;
-    }
-
-    if (!containerRef.current) return;
-
-    // B-04: this used to parse the <svg>'s style.transform, which no longer
-    // carries the camera (it's an attribute on the content group now), so zoom
-    // always read 1 and the orb was always 30 px. The ref is authoritative.
-    const currentZoom = zoomLevelRef.current || 1;
-
-    // Start position is the center of the icon's rect
-    const startX = startRect.left + startRect.width / 2;
-    const startY = startRect.top + startRect.height / 2;
-
-    // Calculate orb size proportional to current zoom, same as pie menu animation
-    const orbSize = Math.max(12, Math.round(30 * currentZoom));
-
-    const animationData = {
-      nodeId,
-      targetGraphId,
-      definitionNodeId,
-      startTime: performance.now(),
-      duration: 400, // Slower arc
-      startPos: { x: startX, y: startY },
-      // Was the canvas container's half-width used as a client x, which ignored
-      // the container's own left edge entirely — so with the panel this button
-      // lives in open, the orb aimed a whole panel-width left of the tab.
-      targetPos: getHeaderTabTarget(),
-      nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
-      orbSize: orbSize, // Use calculated, zoom-dependent size
-    };
-
-    setHurtleFlight(animationData);
-  }, [containerRef, getHeaderTabTarget]);
+  const startHurtleAnimationFromPanel = useCallback((...args) => startHurtleFromPanelWith({
+    containerRef, zoomLevelRef, getHeaderTabTarget, setHurtleFlight,
+  }, ...args), [containerRef, getHeaderTabTarget]);
 
   /**
    * The connection menu's buttons, in display order.

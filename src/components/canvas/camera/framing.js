@@ -13,6 +13,7 @@ import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
 import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
 import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
+import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
 
 // How much canvas an open overlay panel has to leave behind before framing
 // bothers aiming at the gap rather than at the whole region — see
@@ -397,4 +398,110 @@ export function frameEdgePieOnOpen(ctx) {
   }
 
   focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length, labelRect);
+}
+
+/** When the abstraction carousel opens, frame its node; the framing becomes the resting view. */
+export function frameCarouselOnOpen(ctx) {
+  const {
+    prevCarouselVisibleRef, abstractionCarouselVisible, abstractionCarouselNode, runFramingAfterCommit,
+    getFramingRegion, CAROUSEL_ZOOM_WIDTH_WIDE, CAROUSEL_ZOOM_WIDTH_NARROW, textSettings,
+    carouselFocusedNodeScale, CAROUSEL_FILL_WIDE, CAROUSEL_FILL_NARROW, CAROUSEL_HINT_BAND, MIN_ZOOM,
+    canvasSize, viewportSize, animateCanvasView,
+  } = ctx;
+  const was = prevCarouselVisibleRef.current;
+  prevCarouselVisibleRef.current = abstractionCarouselVisible;
+
+  if (!was && abstractionCarouselVisible) {
+    // Opening: frame the node.
+    const node = abstractionCarouselNode;
+    if (!node) return;
+    runFramingAfterCommit(() => {
+    const dims = getNodeDimensions(node, false, null);
+    const centerX = node.x + dims.currentWidth / 2;
+    const centerY = node.y + dims.currentHeight / 2;
+    // Frame against the usable canvas region (panels/header/typelist excluded),
+    // in container coordinates — so the node centers in what's actually visible
+    // rather than the full window when panels/typelist are open. The abstraction
+    // control panel comes up with the carousel (showAbstractionControlPanel, on by
+    // default) and sits right under the stack, so it's excluded too when present.
+    const vb = getFramingRegion({ reserveBottomPanel: true });
+    const regionCenterX = vb.x + vb.width / 2;
+    const regionCenterY = vb.y + vb.height / 2;
+    // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
+    const narrowness = Math.max(0, Math.min(1,
+      (CAROUSEL_ZOOM_WIDTH_WIDE - vb.width) / (CAROUSEL_ZOOM_WIDTH_WIDE - CAROUSEL_ZOOM_WIDTH_NARROW)
+    ));
+    // Max horizontal reach of the pie-menu button cluster from the focused-node
+    // centre, in canvas units: the focused-node half-width plus the outermost
+    // button and its radius. Buttons are BUBBLE_SIZE/BUBBLE_PADDING (see
+    // PieMenu.jsx) scaled by nodeScale·pieMenuScale, so this tracks any size
+    // change automatically. The furthest slot stage 1 fills is 'right-third'
+    // (Delete), at halfW + padding + 2·slotStep, where padding = bPad + bSize/2
+    // and slotStep = CAROUSEL_SLOT_FRACTION·(bSize + bPad), plus bSize/2 for the
+    // bubble's own radius. Row 1 reaches slot 1 plus its stagger — 1.5 steps —
+    // so it stays inside row 0's reach and doesn't enter this.
+    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+    const bSize = 120 * pieScale; // BUBBLE_SIZE
+    const bPad = 32 * pieScale;   // BUBBLE_PADDING
+    const slotStep = (bSize + bPad) * CAROUSEL_SLOT_FRACTION;
+    const focusScale = carouselFocusedNodeScale || 1.2;
+    const clusterHalfReach = (dims.currentWidth * focusScale) / 2 + bSize + bPad + 2 * slotStep;
+    // Fraction of the usable region half-width the cluster should occupy (fuller on narrow).
+    const fillFrac = CAROUSEL_FILL_WIDE + (CAROUSEL_FILL_NARROW - CAROUSEL_FILL_WIDE) * narrowness;
+    const referenceZoom = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
+    // Vertical fit. The derivation above knows only the node's WIDTH, and an image
+    // node grows in height ALONE — getNodeDimensions gives it a fixed
+    // EXPANDED_NODE_WIDTH and then adds imageWidth * aspect (up to
+    // IMAGE_MAX_ASPECT = 2.0) to its height, so a portrait image node is ~8.5x the
+    // height of a text node at the same width-derived zoom. Framed horizontally it
+    // overflowed the region vertically and took the More/Less Specific hints
+    // off-screen with it.
+    //
+    // Sized to the focused node alone, not its neighbours: a chain of portrait
+    // image nodes puts ~1150 canvas units between adjacent centres, so demanding a
+    // neighbour fit would drive the zoom to ~0.09 and render the focused node
+    // barely 100px tall. The stack is built to overlap and fade (LEVEL_SPACING is
+    // negative), so neighbours peeking in is the intended read.
+    //
+    // Stage 1's two button rows straddle the node's centre line, half a slot step
+    // either side of it, so on a short node they — not the node — set the vertical
+    // extent. Fit whichever reaches further.
+    const availableHalfHeight = Math.max(1, vb.height * 0.5 - CAROUSEL_HINT_BAND);
+    const nodeHalfHeight = Math.max(1, (dims.currentHeight * focusScale) / 2, slotStep / 2 + bSize / 2);
+    const verticalZoom = availableHalfHeight / nodeHalfHeight;
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(referenceZoom, verticalZoom)));
+    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
+    const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
+    const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
+    animateCanvasView(finalPan, tz);
+    });
+  }
+}
+
+/** Ease the camera to a pan and zoom over `durationMs` (the framing animations). */
+export function animateCanvasViewWith(ctx, targetPan, targetZoom, durationMs = 320) {
+  const { carouselViewAnimRef, panOffsetRef, zoomLevelRef, isAnimatingZoomRef, setPanAndZoom } = ctx;
+  if (carouselViewAnimRef.current) cancelAnimationFrame(carouselViewAnimRef.current);
+  const startPan = { ...panOffsetRef.current };
+  const startZoom = zoomLevelRef.current;
+  const startTime = performance.now();
+  isAnimatingZoomRef.current = true;
+  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const step = (now) => {
+    const t = Math.min(1, (now - startTime) / durationMs);
+    const e = ease(t);
+    const pan = {
+      x: startPan.x + (targetPan.x - startPan.x) * e,
+      y: startPan.y + (targetPan.y - startPan.y) * e,
+    };
+    const zoom = startZoom + (targetZoom - startZoom) * e;
+    setPanAndZoom(pan, zoom);
+    if (t < 1) {
+      carouselViewAnimRef.current = requestAnimationFrame(step);
+    } else {
+      carouselViewAnimRef.current = null;
+      isAnimatingZoomRef.current = false;
+    }
+  };
+  carouselViewAnimRef.current = requestAnimationFrame(step);
 }
