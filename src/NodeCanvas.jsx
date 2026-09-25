@@ -148,10 +148,17 @@ import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
-import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED } from './components/canvas/camera/framing.js';
-import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex } from './components/canvas/edges/edgeGeometry.js';
+import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameEdgePieOnOpen } from './components/canvas/camera/framing.js';
+import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex, computeEdgeCurveInfo, computeLabelObstacleOptions } from './components/canvas/edges/edgeGeometry.js';
 import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
+import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
+import { runConnectionEdgePan, writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
+import { suggestConnectionName, fillAbstractionNameSuggestion, suggestEdgeArrowDirectionWith } from './components/canvas/actions/oneShotSuggestions.js';
+import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect } from './components/canvas/orbit/orbitData.js';
+import { computeShouldShowBackToCivilization, computeRelevantNodesVisible } from './components/canvas/data/backToCivilization.js';
+import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
+import { resolveStoreActions } from './components/canvas/data/storeActions.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -641,73 +648,7 @@ function NodeCanvas() {
   // <<< OPTIMIZED: Use direct getState() calls for stable action methods >>>
   // Zustand actions are stable - we can use direct references instead of subscriptions
   // Use a defensive approach to avoid initialization errors
-  const storeActions = useMemo(() => {
-    try {
-      return useGraphStore.getState();
-    } catch (error) {
-      console.warn('[NodeCanvas] Store not ready, using fallback actions:', error);
-      return {
-        updateNodePrototype: () => { },
-        updateNodeInstance: () => { },
-        updateEdge: () => { },
-        addEdge: () => { },
-        addNodePrototype: () => { },
-        addNodeInstance: () => { },
-        removeNodeInstance: () => { },
-        forceDeleteNodeInstance: () => { },
-        removeEdge: () => { },
-        updateGraph: () => { },
-        createNewGraph: () => { },
-        setActiveGraph: () => { },
-        setActiveDefinitionNode: () => { },
-        setSelectedEdgeId: () => { },
-        setSelectedEdgeIds: () => { },
-        addSelectedEdgeId: () => { },
-        removeSelectedEdgeId: () => { },
-        clearSelectedEdgeIds: () => { },
-        setNodeType: () => { },
-        openRightPanelNodeTab: () => { },
-        createAndAssignGraphDefinition: () => { },
-        createAndAssignGraphDefinitionWithoutActivation: () => { },
-        closeRightPanelTab: () => { },
-        activateRightPanelTab: () => { },
-        openGraphTab: () => { },
-        moveRightPanelTab: () => { },
-        closeGraph: () => { },
-        toggleGraphExpanded: () => { },
-        toggleSavedNode: () => { },
-        toggleSavedGraph: () => { },
-        toggleShowConnectionNames: () => { },
-        updateMultipleNodeInstancePositions: () => { },
-        createGroup: () => { },
-        updateGroup: () => { },
-        deleteGroup: () => { },
-        cleanupOrphanedGroupAnchors: () => { },
-        removeDefinitionFromNode: () => { },
-        openGraphTabAndBringToTop: () => { },
-        cleanupOrphanedData: () => { },
-        restoreFromSession: () => { },
-        loadUniverseFromFile: () => { },
-        setUniverseError: () => { },
-        clearUniverse: () => { },
-        setUniverseConnected: () => { },
-        addToAbstractionChain: () => { },
-        removeFromAbstractionChain: () => { },
-        updateGraphView: () => { },
-        setTypeListMode: () => { },
-        toggleEnableAutoRouting: () => { },
-        setRoutingStyle: () => { },
-        setCleanLaneSpacing: () => { },
-        setLayoutScalePreset: () => { },
-        setLayoutScaleMultiplier: () => { },
-        setLayoutIterationPreset: () => { },
-        deleteNodePrototype: () => { },
-        deleteGraph: () => { },
-        setGroupLayoutAlgorithm: () => { },
-        toggleShowClusterHulls: () => { }
-      };
-    }
-  }, []);
+  const storeActions = useMemo(() => resolveStoreActions({}), []);
 
 
   // Filled by PanelResizers (P2.12): the gamepad resizes through it, and a canvas
@@ -1358,36 +1299,10 @@ function NodeCanvas() {
   // keyboard panning in particular: the pointer can sit still while the canvas
   // slides the source node out from under it, which is a real exit even though no
   // pointer event fired.
-  const setDrawingConnectionEnd = useCallback((canvasX, canvasY) => {
-    drawingConnectionEndRef.current = { x: canvasX, y: canvasY };
-    applyDrawingConnection();
-
-    const draw = drawingConnectionFromRef.current;
-    const srcNode = draw ? nodesRef.current?.find(n => n.id === draw.sourceInstanceId) : null;
-    if (!srcNode) return;
-
-    const anchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
-    const dims = anchorInfo
-      ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
-      : getNodeDimensions(srcNode, false, null);
-    const sx = anchorInfo ? anchorInfo.x : srcNode.x;
-    const sy = anchorInfo ? anchorInfo.y : srcNode.y;
-
-    if (!connectionExitedSourceRef.current) {
-      // Self-loop gesture: flip once the endpoint has traveled >=10px (screen
-      // space) outside the source's bounds. Threshold scaled to canvas units.
-      const closestX = Math.max(sx, Math.min(canvasX, sx + dims.currentWidth));
-      const closestY = Math.max(sy, Math.min(canvasY, sy + dims.currentHeight));
-      const distSq = (canvasX - closestX) ** 2 + (canvasY - closestY) ** 2;
-      const threshold = 10 / Math.max(zoomLevelRef.current, 0.0001);
-      if (distSq >= threshold * threshold) connectionExitedSourceRef.current = true;
-      return; // can't be back inside on the same frame it first left
-    }
-
-    const overSource = canvasX >= sx && canvasX <= sx + dims.currentWidth
-      && canvasY >= sy && canvasY <= sy + dims.currentHeight;
-    setSelfLoopPreviewActive(prev => (prev === overSource ? prev : overSource));
-  }, [applyDrawingConnection]);
+  const setDrawingConnectionEnd = useCallback((...args) => writeDrawingConnectionEnd({
+    drawingConnectionEndRef, applyDrawingConnection, drawingConnectionFromRef, nodesRef,
+    anchorPositionUpdatesRef, connectionExitedSourceRef, zoomLevelRef, setSelfLoopPreviewActive,
+  }, ...args), [applyDrawingConnection]);
 
   // Same, from a client-space pointer position re-projected against the given
   // pan/zoom. This is what holds the endpoint under the cursor while the canvas
@@ -1801,79 +1716,10 @@ function NodeCanvas() {
     setLongPressingInstanceId(null); // don't let the mouse path re-arm a draw
     setDrawingConnectionFrom(null);
   }, [setLongPressingInstanceId, setDrawingConnectionFrom]);
-  useEffect(() => {
-    if (!drawingConnectionFrom) return;
-    let animationFrameId;
-    const panLoop = () => {
-      if (isAnimatingZoomRef.current || !drawingConnectionFromRef.current) {
-        animationFrameId = requestAnimationFrame(panLoop);
-        return;
-      }
-      if (useGraphStore.getState().mouseSettings?.connectionDrawEdgePanEnabled === false) {
-        animationFrameId = requestAnimationFrame(panLoop);
-        return;
-      }
-
-      const { x: mouseX, y: mouseY } = mousePositionRef.current;
-      const bounds = viewportBoundsRef.current;
-      const margin = 75;
-      const maxSpeed = 15;
-
-      let dx = 0;
-      let dy = 0;
-
-      if (mouseX < bounds.x + margin) {
-        const dist = (bounds.x + margin) - mouseX;
-        const ratio = Math.min(1, dist / margin);
-        dx = -maxSpeed * Math.pow(ratio, 1.5);
-      } else if (mouseX > bounds.x + bounds.width - margin) {
-        const dist = mouseX - (bounds.x + bounds.width - margin);
-        const ratio = Math.min(1, dist / margin);
-        dx = maxSpeed * Math.pow(ratio, 1.5);
-      }
-
-      if (mouseY < bounds.y + margin) {
-        const dist = (bounds.y + margin) - mouseY;
-        const ratio = Math.min(1, dist / margin);
-        dy = -maxSpeed * Math.pow(ratio, 1.5);
-      } else if (mouseY > bounds.y + bounds.height - margin) {
-        const dist = mouseY - (bounds.y + bounds.height - margin);
-        const ratio = Math.min(1, dist / margin);
-        dy = maxSpeed * Math.pow(ratio, 1.5);
-      }
-
-      if (dx !== 0 || dy !== 0) {
-        const currentPan = panOffsetRef.current;
-        const currentZoom = zoomLevelRef.current;
-        const currentCanvasWidth = canvasSizeRef.current.width * currentZoom;
-        const currentCanvasHeight = canvasSizeRef.current.height * currentZoom;
-        const minX = viewportSizeRef.current.width - currentCanvasWidth;
-        const minY = viewportSizeRef.current.height - currentCanvasHeight;
-        const newX = Math.min(Math.max(currentPan.x - dx, minX), 0);
-        const newY = Math.min(Math.max(currentPan.y - dy, minY), 0);
-
-        if (newX !== currentPan.x || newY !== currentPan.y) {
-          const newPan = { x: newX, y: newY };
-          panOffsetRef.current = newPan;
-          setPanOffset(newPan);
-
-          // Keep the line endpoint anchored to the pointer on screen by
-          // recomputing canvas-space coords against the new pan. Without
-          // this, the endpoint visibly drifts while the pointer is held
-          // still at the edge.
-          reprojectDrawingConnectionEnd(mouseX, mouseY, newPan, currentZoom);
-        }
-      }
-
-      animationFrameId = requestAnimationFrame(panLoop);
-    };
-
-    animationFrameId = requestAnimationFrame(panLoop);
-    return () => cancelAnimationFrame(animationFrameId);
-    // Boolean dep keeps the loop stable across per-move setDrawingConnectionFrom
-    // updates (which create a new object each tick); we only want to mount/unmount
-    // the RAF when a draw starts/ends.
-  }, [!!drawingConnectionFrom]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => runConnectionEdgePan({
+    drawingConnectionFrom, isAnimatingZoomRef, drawingConnectionFromRef, mousePositionRef, viewportBoundsRef,
+    panOffsetRef, zoomLevelRef, canvasSizeRef, viewportSizeRef, setPanOffset, reprojectDrawingConnectionEnd,
+  }), [!!drawingConnectionFrom]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Grid Snapping Helper (kept for non-drag uses like node creation, orbit, plus sign) ---
   const snapToGridAnimated = (mouseX, mouseY, nodeWidth, nodeHeight, currentPos) => {
@@ -2228,41 +2074,7 @@ function NodeCanvas() {
 
   // Flush anchor position updates from group rendering to the store
   // Skip during active drag to avoid double-renders per frame (positions sync when drag ends)
-  useEffect(() => {
-    if (draggingNodeInfo) return; // Don't trigger store updates during drag — use ref positions for rendering
-    const updates = anchorPositionUpdatesRef.current;
-    if (updates.size === 0) return;
-
-    const rafId = requestAnimationFrame(() => {
-      const st = useGraphStore.getState();
-      const graph = st.graphs.get(activeGraphId);
-      if (!graph?.instances) return;
-
-      const positionUpdates = [];
-      for (const [anchorId, pos] of updates.entries()) {
-        const inst = graph.instances.get(anchorId);
-        // Drop stale entries whose instance is gone or no longer an anchor (e.g. the group
-        // was combined into a node or deleted). Otherwise this keeps snapping a now-free
-        // node back to where its old group title sat — the "pinned" bug.
-        if (!inst || !inst.isGroupAnchor) {
-          updates.delete(anchorId);
-          continue;
-        }
-        if (Math.abs((inst.x ?? 0) - pos.x) > 1 || Math.abs((inst.y ?? 0) - pos.y) > 1) {
-          positionUpdates.push({ instanceId: anchorId, x: pos.x, y: pos.y });
-        }
-      }
-      if (positionUpdates.length > 0) {
-        // This runs when NOT dragging (see the early return above), so it must
-        // NOT pass a drag context — `isDragging: true` here latched the save
-        // gate with no matching end signal, and if this was the session's last
-        // mutation, autosave never fired again. `phase: 'end'` marks it as a
-        // finalizing, non-gating change so the queued state actually saves.
-        storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates, { phase: 'end' });
-      }
-    });
-    return () => cancelAnimationFrame(rafId);
-  });
+  useEffect(() => flushAnchorPositions({ draggingNodeInfo, anchorPositionUpdatesRef, activeGraphId, storeActions }));
 
   // A thing-group ANCHOR is not drawn as its stored instance box.
   //
@@ -2355,27 +2167,7 @@ function NodeCanvas() {
   // any given edge stays stable as neighboring edges pop in/out of visibility
   // during pan/zoom. Otherwise, parallel edges visibly jump lanes when a sibling
   // culls out = flicker.
-  const edgeCurveInfo = useMemo(() => {
-    const edgePairGroups = new Map();
-    const curveInfoMap = new Map();
-
-    edges.forEach(edge => {
-      const key = [edge.sourceId, edge.destinationId].sort().join('-');
-      if (!edgePairGroups.has(key)) {
-        edgePairGroups.set(key, []);
-      }
-      edgePairGroups.get(key).push(edge.id);
-    });
-
-    edgePairGroups.forEach((edgeIds) => {
-      const total = edgeIds.length;
-      edgeIds.forEach((edgeId, idx) => {
-        curveInfoMap.set(edgeId, { pairIndex: idx, totalInPair: total });
-      });
-    });
-
-    return curveInfoMap;
-  }, [edges]);
+  const edgeCurveInfo = useMemo(() => computeEdgeCurveInfo({ edges }), [edges]);
 
   // The geometry every OTHER connection is drawn with, so a label can be moved
   // off a line that would strike through it. See CONNECTIONS AS OBSTACLES in
@@ -2411,11 +2203,9 @@ function NodeCanvas() {
   // Nothing reads it when labels are off, and `visibleNodeIds` changes
   // throughout a pan — so without the guard this rebuilt a rect per visible
   // node on every culling commit for a result no one would look at.
-  const labelObstacleOptions = useMemo(() => ({
-    obstacles: (showConnectionNames && isRoutedStyle)
-      ? getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds)
-      : EMPTY_OBSTACLES,
-    segmentIndex: labelCrossingIndex,
+  const labelObstacleOptions = useMemo(() => computeLabelObstacleOptions({
+    showConnectionNames, isRoutedStyle, nodes, visibleNodeIds, baseDimsById, selectedInstanceIds,
+    EMPTY_OBSTACLES, labelCrossingIndex,
   }), [showConnectionNames, isRoutedStyle, nodes, visibleNodeIds, baseDimsById, selectedInstanceIds, labelCrossingIndex]);
 
   // How coarsely to snap connection-label rotations. See CONNECTION LABEL
@@ -2756,102 +2546,19 @@ function NodeCanvas() {
   // should point and pre-set it — but ONLY if the edge has no direction yet, and
   // re-check inside the store write so a late suggestion never overrides a
   // direction the user set in the meantime. No model → nothing happens.
-  const suggestEdgeArrowDirection = useCallback((edgeId, label) => {
-    if (!edgeId || !label || !label.trim()) return;
-    (async () => {
-      try {
-        if (!(await isOneShotAvailable())) return;
-        const edge = edgesMap.get(edgeId);
-        if (!edge) return;
-        // User already set a direction → leave it alone.
-        if (edge.directionality?.arrowsToward && edge.directionality.arrowsToward.size > 0) return;
-        const sourceInstId = edge.sourceId;
-        const targetInstId = edge.destinationId || edge.targetId;
-        const sourceName = nodeById.get(sourceInstId)?.name || '';
-        const targetName = nodeById.get(targetInstId)?.name || '';
-        if (!sourceName || !targetName) return;
-
-        const dir = await suggestArrowDirection({ sourceName, targetName, label: label.trim(), timeoutMs: 4000 });
-        if (!dir) return;
-        const towardId = dir.arrowsToward === 'source' ? sourceInstId : targetInstId;
-        // Its own labelled entry: this resolves asynchronously, so folding it
-        // into whatever the user is doing when the model answers would attribute
-        // it to an unrelated action.
-        storeActions.updateEdge(edgeId, (draft) => {
-          if (!draft.directionality) draft.directionality = { arrowsToward: new Set() };
-          if (!draft.directionality.arrowsToward) draft.directionality.arrowsToward = new Set();
-          // User input always wins: never override a direction already set.
-          if (draft.directionality.arrowsToward.size > 0) return;
-          draft.directionality.arrowsToward = new Set([towardId]);
-        }, { historyLabel: 'Suggested connection direction' });
-      } catch {
-        // Never disrupt connection creation.
-      }
-    })();
-  }, [edgesMap, nodeById, storeActions]);
+  const suggestEdgeArrowDirection = useCallback((...args) => suggestEdgeArrowDirectionWith({
+    edgesMap, nodeById, storeActions,
+  }, ...args), [edgesMap, nodeById, storeActions]);
 
   // One-shot edge-label suggestion: when the connection prompt opens on an
   // untouched field, ask the configured model (in the background) for a short
   // verb-phrase label from source→target and pre-fill it as a suggestion the
   // user can overwrite. No model / timeout / malformed → nothing happens and the
   // field stays blank (identical to today).
-  useEffect(() => {
-    if (!connectionNamePrompt.visible || !connectionNamePrompt.edgeId) return;
-    if (connectionNamePrompt.name && connectionNamePrompt.name.trim()) return;
-
-    const edgeId = connectionNamePrompt.edgeId;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        if (!(await isOneShotAvailable())) return;
-        const edge = edgesMap.get(edgeId);
-        if (!edge) return;
-        const sourceName = nodeById.get(edge.sourceId)?.name || '';
-        const targetName = nodeById.get(edge.destinationId || edge.targetId)?.name || '';
-        if (!sourceName || !targetName) return;
-
-        // Existing connection-type names, offered to the model to prefer reuse.
-        const typeNames = new Set();
-        for (const e of edgesMap.values()) {
-          for (const pid of (e.definitionNodeIds || [])) {
-            const p = nodePrototypesMap.get(pid);
-            if (p?.name) typeNames.add(p.name);
-          }
-        }
-        const existing = Array.from(typeNames).slice(0, 20);
-
-        const result = await oneShotLabel({
-          callSite: 'edgeLabelSuggestion',
-          instruction:
-            'Suggest a short connection label (a verb phrase) for how the source relates to the target, read source → target. ' +
-            (existing.length ? `Prefer reusing one of these existing types if one fits: ${existing.join(', ')}. ` : '') +
-            'Examples: "directed by", "is a kind of", "causes".',
-          input: `${sourceName} → ${targetName}`,
-          maxWords: 4,
-          timeoutMs: 4000
-        });
-        if (cancelled || !result?.value) return;
-
-        // Store first so outcome logging works even under StrictMode double-invoke.
-        const suggestionRecord = { edgeId, suggestion: result.value, callId: result.callId, applied: false };
-        connectionSuggestionRef.current = suggestionRecord;
-
-        // User input always wins: only pre-fill if still open for THIS edge and untouched.
-        setConnectionNamePrompt((prev) => {
-          if (prev.visible && prev.edgeId === edgeId && (!prev.name || !prev.name.trim())) {
-            suggestionRecord.applied = true;
-            return { ...prev, name: result.value };
-          }
-          return prev;
-        });
-      } catch {
-        // Never disrupt the prompt.
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [connectionNamePrompt.visible, connectionNamePrompt.edgeId, edgesMap, nodeById, nodePrototypesMap]);
+  useEffect(() => suggestConnectionName({
+    connectionNamePrompt, edgesMap, nodeById, nodePrototypesMap, connectionSuggestionRef,
+    setConnectionNamePrompt,
+  }), [connectionNamePrompt.visible, connectionNamePrompt.edgeId, edgesMap, nodeById, nodePrototypesMap]);
 
   // C6 — Attach an accepted/edited/ignored outcome to the last abstraction-name suggestion.
   const finalizeAbstractionSuggestion = useCallback((finalName) => {
@@ -2870,44 +2577,9 @@ function NodeCanvas() {
   // MORE SPECIFIC and "below" = MORE GENERAL (see the prompt subtitle), which is
   // the opposite of the usual convention — so we pass moreGeneral accordingly.
   // No model / timeout / malformed → field stays blank (identical to today).
-  useEffect(() => {
-    if (!abstractionPrompt.visible || !abstractionPrompt.nodeId) return;
-    if (abstractionPrompt.name && abstractionPrompt.name.trim()) return;
-
-    const { nodeId, direction } = abstractionPrompt;
-    let cancelled = false;
-
-    (async () => {
-      try {
-        if (!(await isOneShotAvailable())) return;
-        const nodeName = nodePrototypesMap.get(nodeId)?.name || '';
-        if (!nodeName) return;
-        const moreGeneral = direction === 'below'; // app: below = more general
-
-        const result = await suggestAbstractionName({
-          nodeName,
-          moreGeneral,
-          timeoutMs: 4000
-        });
-        if (cancelled || !result?.name) return;
-
-        const record = { nodeId, direction, suggestion: result.name, callId: result.callId, applied: false };
-        abstractionSuggestionRef.current = record;
-
-        setAbstractionPrompt((prev) => {
-          if (prev.visible && prev.nodeId === nodeId && prev.direction === direction && (!prev.name || !prev.name.trim())) {
-            record.applied = true;
-            return { ...prev, name: result.name };
-          }
-          return prev;
-        });
-      } catch {
-        // Never disrupt the prompt.
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [abstractionPrompt.visible, abstractionPrompt.nodeId, abstractionPrompt.direction, nodePrototypesMap]);
+  useEffect(() => fillAbstractionNameSuggestion({
+    abstractionPrompt, nodePrototypesMap, abstractionSuggestionRef, setAbstractionPrompt,
+  }), [abstractionPrompt.visible, abstractionPrompt.nodeId, abstractionPrompt.direction, nodePrototypesMap]);
 
   // Dialog color picker state
   const [dialogColorPickerVisible, setDialogColorPickerVisible] = useState(false);
@@ -3762,47 +3434,11 @@ function NodeCanvas() {
   const DECOMPOSE_WIDTH_WIDE = 1200;         // px: at/above this, use the WIDE values
   const DECOMPOSE_WIDTH_NARROW = 480;        // px: at/below this, use the NARROW values
   const prevPreviewingNodeIdRef = useRef(null);
-  useEffect(() => {
-    const was = prevPreviewingNodeIdRef.current;
-    prevPreviewingNodeIdRef.current = previewingNodeId;
-
-    // Only animate on spawn (null -> a node), not on un-decompose or node switches.
-    if (was || !previewingNodeId) return;
-    const node = nodes.find(n => n.id === previewingNodeId);
-    if (!node) return;
-
-    const dims = getNodeDimensions(node, true, null); // preview (expanded) dimensions
-    const centerX = node.x + dims.currentWidth / 2;
-    const centerY = node.y + dims.currentHeight / 2;
-
-    // Fit against the usable canvas region (panels/header/typelist excluded), in
-    // container coordinates — so the expanded node fits and centers within what's
-    // actually visible rather than the full window when panels are open.
-    const vb = getFramingRegion();
-    const regionCenterX = vb.x + vb.width / 2;
-    const regionCenterY = vb.y + vb.height / 2;
-
-    // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
-    const narrowness = Math.max(0, Math.min(1,
-      (DECOMPOSE_WIDTH_WIDE - vb.width) / (DECOMPOSE_WIDTH_WIDE - DECOMPOSE_WIDTH_NARROW)
-    ));
-    const lerp = (a, b, t) => a + (b - a) * t;
-    const zoomFactor = lerp(DECOMPOSE_ZOOM_FACTOR_WIDE, DECOMPOSE_ZOOM_FACTOR_NARROW, narrowness);
-    const biasFraction = lerp(DECOMPOSE_BIAS_WIDE, DECOMPOSE_BIAS_NARROW, narrowness);
-
-    // Zoom to fit the expanded node within the usable region, then pull back per the
-    // width-scaled factor. Clamp to zoom bounds.
-    const fitX = vb.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
-    const fitY = vb.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY) * zoomFactor));
-
-    // Nudge the node above the region center so the control panel below has room.
-    const verticalBias = vb.height * biasFraction;
-    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
-    const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
-    animateCanvasView(finalPan, tz);
-  }, [previewingNodeId, nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM]);
+  useEffect(() => frameDecomposedNode({
+    prevPreviewingNodeIdRef, previewingNodeId, nodes, getFramingRegion, DECOMPOSE_WIDTH_WIDE,
+    DECOMPOSE_WIDTH_NARROW, DECOMPOSE_ZOOM_FACTOR_WIDE, DECOMPOSE_ZOOM_FACTOR_NARROW, DECOMPOSE_BIAS_WIDE,
+    DECOMPOSE_BIAS_NARROW, DECOMPOSE_VIEW_PADDING, MIN_ZOOM, canvasSize, viewportSize, animateCanvasView,
+  }), [previewingNodeId, nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 
   const prevFocusPieNodeIdRef = useRef(null);
 
@@ -4552,62 +4188,10 @@ function NodeCanvas() {
   // Effect to restore view state on graph change or center if no stored state.
   // IMPORTANT: Does NOT depend on graphsMap — we read it imperatively to avoid
   // snapping the view back whenever any graph mutation changes the graphsMap ref.
-  useLayoutEffect(() => {
-    // If we're dragging a node or animating zoom, DO NOT restore view from store
-    // This prevents the "teleportation" where store state overrides our local interaction state
-    if (draggingNodeInfoRef.current || isAnimatingZoomRef.current || wasDraggingRef.current) {
-      return;
-    }
-
-    setIsViewReady(false); // Set to not ready on graph change
-
-    // Ensure we have valid sizes and an active graph
-    if (activeGraphId && viewportSize.width > 0 && viewportSize.height > 0 && canvasSize.width > 0 && canvasSize.height > 0) {
-
-      // Read graph data imperatively (not from deps) so store mutations don't re-trigger this effect
-      const liveState = useGraphStore.getState();
-      const graphData = liveState.graphs.get(activeGraphId);
-      // Live viewport comes from the graphViews slice; the graph's own fields are
-      // the fallback for a graph loaded from file whose camera hasn't moved yet.
-      // See graphViews in graphStore for why the two are separate.
-      const storedView = liveState.graphViews?.get(activeGraphId) || graphData;
-
-      if (storedView && storedView.panOffset && typeof storedView.zoomLevel === 'number') {
-        // Restore the stored view state immediately (jumpTo flushes settled state synchronously)
-        transform.jumpTo(storedView.panOffset, storedView.zoomLevel);
-      } else {
-        // No stored state, center the view as before
-
-        // Target the center of the canvas
-        const targetCanvasX = canvasSize.width / 2;
-        const targetCanvasY = canvasSize.height / 2;
-
-        // Use default zoom level
-        const defaultZoom = 1;
-
-        // Calculate pan needed to place targetCanvas coords at viewport center
-        const initialPanX = viewportSize.width / 2 - targetCanvasX * defaultZoom;
-        const initialPanY = viewportSize.height / 2 - targetCanvasY * defaultZoom;
-
-        // Clamp the initial pan to valid bounds
-        const maxX = 0;
-        const maxY = 0;
-        const minX = viewportSize.width - canvasSize.width * defaultZoom;
-        const minY = viewportSize.height - canvasSize.height * defaultZoom;
-        const clampedX = Math.min(Math.max(initialPanX, minX), maxX);
-        const clampedY = Math.min(Math.max(initialPanY, minY), maxY);
-
-        // Apply the calculated view state immediately (jumpTo flushes settled state synchronously)
-        transform.jumpTo({ x: clampedX, y: clampedY }, defaultZoom);
-      }
-
-      // Set view to ready immediately - no delay
-      setIsViewReady(true);
-
-    } else if (!activeGraphId) {
-      setIsViewReady(true); // No graph, so "ready" to show nothing
-    }
-  }, [activeGraphId, viewportSize, canvasSize]);
+  useLayoutEffect(() => restoreViewForGraph({
+    draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
+    canvasSize, transform,
+  }), [activeGraphId, viewportSize, canvasSize]);
 
   // Track when panning/zooming operations are active
   const isPanningOrZooming = useRef(false);
@@ -4621,40 +4205,10 @@ function NodeCanvas() {
   }, [activeGraphId, panOffset, zoomLevel, storeActions.updateGraphView]);
 
   // Effect to save view state after panning/zooming stops
-  useEffect(() => {
-    if (activeGraphId && panOffset && zoomLevel) {
-      // Clear any existing timeout
-      if (saveViewStateTimeout.current) {
-        clearTimeout(saveViewStateTimeout.current);
-      }
-
-      // Set a timeout to save after operations stop
-      // Completely prevent store updates during active pinch operations to eliminate Panel jitter
-      if (pinchRef.current.active) {
-        // Don't save to store during active pinch - this prevents Panel re-renders
-        return;
-      }
-
-      // CRITICAL: Don't save during node drag or drag zoom animations
-      if (draggingNodeInfo || isAnimatingZoomRef.current) {
-        return;
-      }
-
-      const saveDelay = 300; // Standard delay for non-pinch operations
-      saveViewStateTimeout.current = setTimeout(() => {
-        if (!isPanningOrZooming.current && !draggingNodeInfoRef.current && !isAnimatingZoomRef.current) {
-          updateGraphViewInStore();
-        } else {
-        }
-      }, saveDelay);
-    }
-
-    return () => {
-      if (saveViewStateTimeout.current) {
-        clearTimeout(saveViewStateTimeout.current);
-      }
-    };
-  }, [activeGraphId, panOffset, zoomLevel, updateGraphViewInStore, draggingNodeInfo]);
+  useEffect(() => saveViewWhenSettled({
+    activeGraphId, panOffset, zoomLevel, saveViewStateTimeout, pinchRef, draggingNodeInfo, isAnimatingZoomRef,
+    isPanningOrZooming, draggingNodeInfoRef, updateGraphViewInStore,
+  }), [activeGraphId, panOffset, zoomLevel, updateGraphViewInStore, draggingNodeInfo]);
 
   // --- Utility Functions ---
 
@@ -5857,35 +5411,10 @@ function NodeCanvas() {
   // synchronously from the transform mutators) so it never lags a gesture the
   // way settled-state (150ms debounce) sizing did.
   const orbitDimRectRef = useRef(null);
-  const updateOrbitDimRect = useCallback(() => {
-    const el = orbitDimRectRef.current;
-    if (!el) return;
-    // With dimming off the rect is transparent and statically sized to the whole
-    // canvas plane, so it never needs repositioning — and skipping this removes
-    // a write into the content group on every pan tick.
-    if (!ENABLE_ORBIT_DIM) return;
-    const pan = panOffsetRef.current;
-    const z = zoomLevelRef.current || 1;
-    const vp = viewportSizeRef.current;
-    const vw = vp.width / z;
-    const vh = vp.height / z;
-    const x0 = (0 - pan.x) / z + (canvasSize?.offsetX || 0);
-    const y0 = (0 - pan.y) / z + (canvasSize?.offsetY || 0);
-    // Cover the viewport plus a small margin — NOT the 3x-per-side box this
-    // used to use, which was ~9 viewports of blending.
-    //
-    // Sizing it down was not enough to make this affordable, which is why the
-    // flag above is off: a translucent element inside the content group makes
-    // the SVG's own tiles non-opaque at ANY size, so the whole graph beneath
-    // gets blended instead of discarded. The scrim has to become a separate
-    // compositor layer above the <svg> — one flat blend on the GPU — rather
-    // than an element competing inside the canvas's own raster.
-    const m = ORBIT_DIM_MARGIN;
-    el.setAttribute('x', x0 - vw * m);
-    el.setAttribute('y', y0 - vh * m);
-    el.setAttribute('width', vw * (1 + 2 * m));
-    el.setAttribute('height', vh * (1 + 2 * m));
-  }, [canvasSize]);
+  const updateOrbitDimRect = useCallback((...args) => sizeOrbitDimRect({
+    orbitDimRectRef, ENABLE_ORBIT_DIM, panOffsetRef, zoomLevelRef, viewportSizeRef, canvasSize,
+    ORBIT_DIM_MARGIN,
+  }, ...args), [canvasSize]);
 
   // Seed the orbit layer with the current transform the moment it mounts. Pan
   // and zoom write to it from then on, but nothing fires between mount and the
@@ -5903,75 +5432,10 @@ function NodeCanvas() {
   }, [semanticOrbitActive, updateOrbitDimRect, ENABLE_ORBIT_DIM]);
 
   // Fetch orbit candidates only when orbit mode is explicitly active
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        if (!semanticOrbitActive || selectedInstanceIds.size !== 1) {
-          // Reset only what isn't reset already. This runs on every selection
-          // change, and a same-value set from an effect still costs a
-          // NodeCanvas run that React throws away.
-          if (orbitSetRef.current.data !== EMPTY_ORBIT) setOrbitData(EMPTY_ORBIT);
-          if (orbitSetRef.current.loading) setOrbitLoading(false);
-          return;
-        }
-
-        const instanceId = [...selectedInstanceIds][0];
-        const graph = useGraphStore.getState().graphs.get(activeGraphId);
-        const inst = graph?.instances?.get(instanceId);
-        const proto = inst ? useGraphStore.getState().nodePrototypes.get(inst.prototypeId) : null;
-
-        if (!proto) {
-          setOrbitData(EMPTY_ORBIT);
-          setOrbitLoading(false);
-          return;
-        }
-
-        setOrbitLoading(true);
-
-        // streamedCount tracks how many items onProgress has already shown
-        let streamedCount = 0;
-        const candidates = await fetchOrbitCandidatesForPrototype(proto, {
-          onProgress: (data) => {
-            if (!cancelled) {
-              streamedCount = (data.all || []).length;
-              setOrbitData(data);
-              setOrbitLoading(false);
-            }
-          },
-        });
-
-        if (cancelled) return;
-
-        // Trickle any remaining items not yet shown by onProgress (covers cached results
-        // where onProgress never fires, or fills in the final batch)
-        const all = candidates.all || [];
-        if (streamedCount < all.length) {
-          for (let i = Math.max(streamedCount, 2); i <= all.length; i += 2) {
-            if (cancelled) return;
-            const partial = all.slice(0, i);
-            const snapshot = dedupeAndPartitionOrbit(partial);
-            setOrbitData(snapshot);
-            if (i < all.length) {
-              await new Promise(r => setTimeout(r, 120));
-            }
-          }
-        }
-
-        if (!cancelled) {
-          setOrbitData(candidates);
-          setOrbitLoading(false);
-        }
-      } catch (error) {
-        console.error('Orbit search failed:', error);
-        if (!cancelled) {
-          setOrbitData(EMPTY_ORBIT);
-          setOrbitLoading(false);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [semanticOrbitActive, selectedInstanceIds, activeGraphId]);
+  useEffect(() => fetchOrbitCandidates({
+    semanticOrbitActive, selectedInstanceIds, orbitSetRef, EMPTY_ORBIT, setOrbitData, setOrbitLoading,
+    activeGraphId,
+  }), [semanticOrbitActive, selectedInstanceIds, activeGraphId]);
 
   // Exit orbit mode when node is deselected
   useEffect(() => {
@@ -5992,44 +5456,9 @@ function NodeCanvas() {
    * knows nothing about orbit. A lone node box would only repeat what the orbit
    * already draws; the relationship is the thing that is actually on offer.
    */
-  const handleOrbitCandidateHover = useCallback((candidate) => {
-    const focusInstanceId = selectedInstanceIds.size > 0 ? [...selectedInstanceIds][0] : null;
-    const focus = focusInstanceId ? nodes.find(n => n.id === focusInstanceId) : null;
-    if (!candidate || !focus) {
-      commitHoverTarget({ kind: 'none' });
-      return;
-    }
-
-    const focusDims = baseDimsById.get(focus.id);
-    const predicateLabel = formatPredicate(candidate.predicate || 'relatedTo');
-    commitHoverTarget({
-      kind: 'orbitItem',
-      id: candidate.id,
-      connection: {
-        id: `orbit-${candidate.id}`,
-        name: predicateLabel,
-        color: candidate.color || NODE_DEFAULT_COLOR,
-        source: {
-          id: focus.id,
-          name: focus.name,
-          color: focus.color,
-          width: focusDims?.currentWidth ?? NODE_WIDTH,
-          height: focusDims?.currentHeight ?? NODE_HEIGHT,
-          prototypeId: focus.prototypeId
-        },
-        target: {
-          id: candidate.id,
-          name: candidate.name,
-          color: candidate.color || NODE_DEFAULT_COLOR,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT
-        },
-        // The arrow the edge would carry if this were placed — see the
-        // directionality on the edge handleOrbitItemClick creates.
-        directionality: { arrowsToward: new Set([candidate.id]) }
-      }
-    });
-  }, [commitHoverTarget, selectedInstanceIds, nodes, baseDimsById]);
+  const handleOrbitCandidateHover = useCallback((...args) => hoverOrbitCandidate({
+    selectedInstanceIds, nodes, commitHoverTarget, baseDimsById,
+  }, ...args), [commitHoverTarget, selectedInstanceIds, nodes, baseDimsById]);
 
   // Exit orbit mode callback
   const exitOrbitMode = useCallback(() => {
@@ -6195,48 +5624,12 @@ function NodeCanvas() {
   // pan would re-yank the view. Mid-drag is skipped: the anchor is frozen then, and
   // the menu is outroing anyway.
   const prevFocusPieEdgeIdRef = useRef(null);
-  useEffect(() => {
-    const was = prevFocusPieEdgeIdRef.current;
-    const id = edgePieMenuVisible ? selectedEdgeId : null;
-    prevFocusPieEdgeIdRef.current = id;
-
-    if (!FOCUS_ON_SELECT_ENABLED || !focusOnSelectEnabled) return;
-    if (!id || id === was) return;
-    if (abstractionCarouselVisible || draggingNodeInfoRef.current) return;
-    if (!selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return;
-
-    // The connection's own name label, so framing shows what the connection SAYS and
-    // not just its buttons. Prefer the rect the render actually registered (routed
-    // styles solve label placement and can slide it along the route); fall back to
-    // the box the label would occupy at the anchor, which is where straight/curved
-    // labels are drawn.
-    let labelRect = null;
-    if (showConnectionNames) {
-      const placed = placedLabelsRef.current.get(selectedEdgeId);
-      if (placed?.rect) {
-        labelRect = placed.rect;
-      } else {
-        const edge = edgesMap.get(selectedEdgeId);
-        const name = edge && (
-          (edge.definitionNodeIds?.length > 0 && nodePrototypesMap.get(edge.definitionNodeIds[0])?.name)
-          || (edge.typeNodeId && edgePrototypesMap.get(edge.typeNodeId)?.name)
-          || edge.connectionName
-        );
-        if (name) {
-          const fs = resolveEdgeLabelFontSize(textSettings, connectionLabelSize);
-          labelRect = labelBoundsFor(
-            selectedEdgeMidpoint.x, selectedEdgeMidpoint.y,
-            estimateTextWidth(name, fs), fs * 1.1,
-            (selectedEdgeMidpoint.angle ?? 0) * (180 / Math.PI)
-          );
-        }
-      }
-    }
-
-    focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length, labelRect);
-  }, [edgePieMenuVisible, selectedEdgeId, selectedEdgeMidpoint, edgePieMenuButtons,
-    abstractionCarouselVisible, focusEdgePieMenuInView, focusOnSelectEnabled,
-    showConnectionNames, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings, connectionLabelSize]);
+  useEffect(() => frameEdgePieOnOpen({
+    prevFocusPieEdgeIdRef, edgePieMenuVisible, selectedEdgeId, focusOnSelectEnabled,
+    abstractionCarouselVisible, draggingNodeInfoRef, selectedEdgeMidpoint, edgePieMenuButtons,
+    showConnectionNames, placedLabelsRef, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings,
+    connectionLabelSize, focusEdgePieMenuInView,
+  }), [edgePieMenuVisible, selectedEdgeId, selectedEdgeMidpoint, edgePieMenuButtons, abstractionCarouselVisible, focusEdgePieMenuInView, focusOnSelectEnabled, showConnectionNames, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings, connectionLabelSize]);
 
   // Callback for activating semantic orbit from control panel
   const activateSemanticOrbit = useCallback(() => {
@@ -6551,80 +5944,17 @@ function NodeCanvas() {
 
   // Calculate if relevant nodes are visible in strict viewport
   // Uses main cluster if clustering is enabled, otherwise all nodes
-  const relevantNodesVisibleInStrictViewport = useMemo(() => {
-    const nodesToCheck = enableClustering && clusterAnalysis.mainCluster && clusterAnalysis.mainCluster.length > 0
-      ? clusterAnalysis.mainCluster
-      : nodes;
-
-    if (!nodesToCheck || nodesToCheck.length === 0 || !panOffset || !zoomLevel || !viewportSize || !canvasSize) {
-      return false;
-    }
-
-    // Calculate strict viewport bounds in canvas coordinates
-    const viewportMinX = (-panOffset.x) / zoomLevel + canvasSize.offsetX;
-    const viewportMinY = (-panOffset.y) / zoomLevel + canvasSize.offsetY;
-    const viewportMaxX = viewportMinX + viewportSize.width / zoomLevel;
-    const viewportMaxY = viewportMinY + viewportSize.height / zoomLevel;
-
-    // Check if any relevant node intersects with the strict viewport
-    for (const node of nodesToCheck) {
-      const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
-      const nodeLeft = node.x;
-      const nodeTop = node.y;
-      const nodeRight = node.x + dims.currentWidth;
-      const nodeBottom = node.y + dims.currentHeight;
-
-      // Check if node intersects with strict viewport
-      const intersects = !(nodeRight < viewportMinX || nodeLeft > viewportMaxX ||
-        nodeBottom < viewportMinY || nodeTop > viewportMaxY);
-
-      if (intersects) {
-        return true; // At least one relevant node is visible
-      }
-    }
-
-    return false; // No relevant nodes are visible
-  }, [enableClustering, clusterAnalysis.mainCluster, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById]);
+  const relevantNodesVisibleInStrictViewport = useMemo(() => computeRelevantNodesVisible({
+    enableClustering, clusterAnalysis, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById,
+  }), [enableClustering, clusterAnalysis.mainCluster, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById]);
 
   // Determine if BackToCivilization should be shown
-  const shouldShowBackToCivilization = useMemo(() => {
-    // Only show if:
-    // 1. Initial load is complete (startup delay)
-    // 2. Universe is loaded and has a file
-    // 3. There's an active graph
-    // 4. View is ready (pan/zoom initialized)
-    // 5. No nodes are visible in strict viewport
-    // 6. There are actually nodes in the graph (just not visible)
-    // 7. No UI overlays are active (pie menu, carousels, prompts, etc.)
-
-    if (!isInitialLoadComplete || !isUniverseLoaded || !hasUniverseFile || !activeGraphId || !isViewReady) {
-      return false;
-    }
-
-    // Don't show if any prompts or overlays are visible
-    if (nodeNamePrompt.visible || connectionNamePrompt.visible || abstractionPrompt.visible ||
-      abstractionCarouselVisible || selectedNodeIdForPieMenu || plusSign) {
-      return false;
-    }
-
-    // Don't show if dragging or other interactions are active
-    if (draggingNodeInfo || drawingConnectionFrom || isPanning || selectionStart) {
-      return false;
-    }
-
-    // Check if there are nodes in the graph but none are visible in strict viewport
-    // Use cluster-aware visibility if clustering is enabled
-    const hasNodesInGraph = nodes && nodes.length > 0;
-    const hasNoVisibleNodesInViewport = !relevantNodesVisibleInStrictViewport;
-
-    return hasNodesInGraph && hasNoVisibleNodesInViewport;
-  }, [
-    isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady,
-    nodes, relevantNodesVisibleInStrictViewport,
-    nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible,
-    abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
-    draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart
-  ]);
+  const shouldShowBackToCivilization = useMemo(() => computeShouldShowBackToCivilization({
+    isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodeNamePrompt,
+    connectionNamePrompt, abstractionPrompt, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
+    draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart, nodes,
+    relevantNodesVisibleInStrictViewport,
+  }), [isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodes, relevantNodesVisibleInStrictViewport, nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign, draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart]);
 
   // Expose clustering functions to window for manual use (for debugging/testing)
   useEffect(() => {

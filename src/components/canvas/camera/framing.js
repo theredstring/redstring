@@ -11,6 +11,8 @@ import { getNodeDimensions } from '../../../utils.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
+import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
+import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
 
 // How much canvas an open overlay panel has to leave behind before framing
 // bothers aiming at the gap rather than at the whole region — see
@@ -299,4 +301,100 @@ export function getBottomPanelReserveWith(ctx) {
   // of that by the TypeList bar, so only the remainder actually eats into it.
   const belowRegion = Math.max(0, getAppViewportSize().height - (viewportBounds.y + viewportBounds.height));
   return Math.max(0, band - belowRegion);
+}
+
+/** When a node starts previewing its definition (decompose), frame the expanded node. */
+export function frameDecomposedNode(ctx) {
+  const {
+    prevPreviewingNodeIdRef, previewingNodeId, nodes, getFramingRegion, DECOMPOSE_WIDTH_WIDE,
+    DECOMPOSE_WIDTH_NARROW, DECOMPOSE_ZOOM_FACTOR_WIDE, DECOMPOSE_ZOOM_FACTOR_NARROW, DECOMPOSE_BIAS_WIDE,
+    DECOMPOSE_BIAS_NARROW, DECOMPOSE_VIEW_PADDING, MIN_ZOOM, canvasSize, viewportSize, animateCanvasView,
+  } = ctx;
+  const was = prevPreviewingNodeIdRef.current;
+  prevPreviewingNodeIdRef.current = previewingNodeId;
+
+  // Only animate on spawn (null -> a node), not on un-decompose or node switches.
+  if (was || !previewingNodeId) return;
+  const node = nodes.find(n => n.id === previewingNodeId);
+  if (!node) return;
+
+  const dims = getNodeDimensions(node, true, null); // preview (expanded) dimensions
+  const centerX = node.x + dims.currentWidth / 2;
+  const centerY = node.y + dims.currentHeight / 2;
+
+  // Fit against the usable canvas region (panels/header/typelist excluded), in
+  // container coordinates — so the expanded node fits and centers within what's
+  // actually visible rather than the full window when panels are open.
+  const vb = getFramingRegion();
+  const regionCenterX = vb.x + vb.width / 2;
+  const regionCenterY = vb.y + vb.height / 2;
+
+  // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
+  const narrowness = Math.max(0, Math.min(1,
+    (DECOMPOSE_WIDTH_WIDE - vb.width) / (DECOMPOSE_WIDTH_WIDE - DECOMPOSE_WIDTH_NARROW)
+  ));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const zoomFactor = lerp(DECOMPOSE_ZOOM_FACTOR_WIDE, DECOMPOSE_ZOOM_FACTOR_NARROW, narrowness);
+  const biasFraction = lerp(DECOMPOSE_BIAS_WIDE, DECOMPOSE_BIAS_NARROW, narrowness);
+
+  // Zoom to fit the expanded node within the usable region, then pull back per the
+  // width-scaled factor. Clamp to zoom bounds.
+  const fitX = vb.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
+  const fitY = vb.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
+  const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY) * zoomFactor));
+
+  // Nudge the node above the region center so the control panel below has room.
+  const verticalBias = vb.height * biasFraction;
+  const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
+  const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+  const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
+  animateCanvasView(finalPan, tz);
+}
+
+/** When the edge pie opens on a connection, frame it (label included). */
+export function frameEdgePieOnOpen(ctx) {
+  const {
+    prevFocusPieEdgeIdRef, edgePieMenuVisible, selectedEdgeId, focusOnSelectEnabled,
+    abstractionCarouselVisible, draggingNodeInfoRef, selectedEdgeMidpoint, edgePieMenuButtons,
+    showConnectionNames, placedLabelsRef, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings,
+    connectionLabelSize, focusEdgePieMenuInView,
+  } = ctx;
+  const was = prevFocusPieEdgeIdRef.current;
+  const id = edgePieMenuVisible ? selectedEdgeId : null;
+  prevFocusPieEdgeIdRef.current = id;
+
+  if (!FOCUS_ON_SELECT_ENABLED || !focusOnSelectEnabled) return;
+  if (!id || id === was) return;
+  if (abstractionCarouselVisible || draggingNodeInfoRef.current) return;
+  if (!selectedEdgeMidpoint || edgePieMenuButtons.length === 0) return;
+
+  // The connection's own name label, so framing shows what the connection SAYS and
+  // not just its buttons. Prefer the rect the render actually registered (routed
+  // styles solve label placement and can slide it along the route); fall back to
+  // the box the label would occupy at the anchor, which is where straight/curved
+  // labels are drawn.
+  let labelRect = null;
+  if (showConnectionNames) {
+    const placed = placedLabelsRef.current.get(selectedEdgeId);
+    if (placed?.rect) {
+      labelRect = placed.rect;
+    } else {
+      const edge = edgesMap.get(selectedEdgeId);
+      const name = edge && (
+        (edge.definitionNodeIds?.length > 0 && nodePrototypesMap.get(edge.definitionNodeIds[0])?.name)
+        || (edge.typeNodeId && edgePrototypesMap.get(edge.typeNodeId)?.name)
+        || edge.connectionName
+      );
+      if (name) {
+        const fs = resolveEdgeLabelFontSize(textSettings, connectionLabelSize);
+        labelRect = labelBoundsFor(
+          selectedEdgeMidpoint.x, selectedEdgeMidpoint.y,
+          estimateTextWidth(name, fs), fs * 1.1,
+          (selectedEdgeMidpoint.angle ?? 0) * (180 / Math.PI)
+        );
+      }
+    }
+  }
+
+  focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length, labelRect);
 }

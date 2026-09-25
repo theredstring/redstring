@@ -12,6 +12,7 @@ import { calculateParallelEdgePath } from '../../../utils/canvas/parallelEdgeUti
 import { getNodeHitbox } from '../../../utils/canvas/nodeHitbox.js';
 import { trimRouteEnd, lombardiArcFor, sampleArc } from '../../../utils/canvas/edgeRouting.js';
 import { samePolylines, buildEdgeSegmentIndex } from '../../../utils/canvas/edgeLabelPlacement.js';
+import { getVisibleObstacleRects } from '../../../utils/canvas/edgeLabelPlacement.js';
 
 /** Where the edge pie menu anchors on the selected connection (null when none). */
 export function computeSelectedEdgeMidpoint(ctx) {
@@ -176,4 +177,42 @@ export function computeLabelCrossingIndex(ctx) {
   if (index) index.generation = ++labelCrossingGenerationRef.current;
   labelCrossingLastRef.current = { polylines, index };
   return index;
+}
+
+/** Parallel-edge curve offsets: each connection's index within its node pair. */
+export function computeEdgeCurveInfo(ctx) {
+  const { edges } = ctx;
+  const edgePairGroups = new Map();
+  const curveInfoMap = new Map();
+
+  edges.forEach(edge => {
+    const key = [edge.sourceId, edge.destinationId].sort().join('-');
+    if (!edgePairGroups.has(key)) {
+      edgePairGroups.set(key, []);
+    }
+    edgePairGroups.get(key).push(edge.id);
+  });
+
+  edgePairGroups.forEach((edgeIds) => {
+    const total = edgeIds.length;
+    edgeIds.forEach((edgeId, idx) => {
+      curveInfoMap.set(edgeId, { pairIndex: idx, totalInPair: total });
+    });
+  });
+
+  return curveInfoMap;
+}
+
+/** The node boxes and crossing index routed labels dodge. */
+export function computeLabelObstacleOptions(ctx) {
+  const {
+    showConnectionNames, isRoutedStyle, nodes, visibleNodeIds, baseDimsById, selectedInstanceIds,
+    EMPTY_OBSTACLES, labelCrossingIndex,
+  } = ctx;
+  return ({
+    obstacles: (showConnectionNames && isRoutedStyle)
+      ? getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedInstanceIds)
+      : EMPTY_OBSTACLES,
+    segmentIndex: labelCrossingIndex,
+  });
 }
