@@ -53,6 +53,7 @@
  * canvas-busy snapshot are not here: they are P2.12 and later).
  */
 import { create } from 'zustand';
+import { readPersistedPanelWidth } from '../utils/canvas/panelWidth.js';
 
 // ─── Equality helpers ─────────────────────────────────────────────────────────
 
@@ -202,6 +203,12 @@ export function createCanvasUIDefaults() {
     // rx, color, delay }. DeletionGhostLayer renders them and removes each one
     // when its animation ends, so cleanup never renders the canvas.
     deletionGhosts: [],
+    // Committed side-panel widths (P2.12): the one source for PanelResizers,
+    // framing and every useViewportBounds. Updated when a resize ends
+    // (panelWidthChanged) and re-clamped on window resize; the live width during
+    // a drag goes to the DOM directly.
+    leftPanelWidth: readPersistedPanelWidth('left'),
+    rightPanelWidth: readPersistedPanelWidth('right'),
     autoGraphModalVisible: false,
     forceSimModalVisible: false,
 
@@ -360,6 +367,8 @@ const useCanvasUIStore = create((set) => ({
   setUniverseReconnectTarget: fieldSetter(set, 'universeReconnectTarget'),
   setUniverseReconnectDismissed: fieldSetter(set, 'universeReconnectDismissed'),
   setLayoutProgress: fieldSetter(set, 'layoutProgress'),
+  setLeftPanelWidth: fieldSetter(set, 'leftPanelWidth'),
+  setRightPanelWidth: fieldSetter(set, 'rightPanelWidth'),
   setAutoGraphModalVisible: fieldSetter(set, 'autoGraphModalVisible'),
   setForceSimModalVisible: fieldSetter(set, 'forceSimModalVisible'),
 
