@@ -3,10 +3,11 @@
  * with the effects that decide which one shows. Both moved verbatim from
  * NodeCanvas. The host subscribes to what those effects react to (selection,
  * edge selection, carousel, prompts, orbit, marquee, preview, the panel
- * settings and the latches in canvasUIStore); NodeCanvas passes the panels'
- * handlers and derived data as `ctx`.
+ * settings and the latches in canvasUIStore). Since P5.05b the panels' action
+ * handlers and the exit-animation latches live here too; NodeCanvas passes the
+ * canvas values and setters they need as `ctx`.
  */
-import { Profiler } from 'react';
+import { Profiler, useCallback, useMemo, useRef } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
@@ -18,6 +19,12 @@ import { useEffect } from 'react';
 import { CONNECTION_DEFAULT_COLOR } from '../../../constants';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { connectionFacts } from '../../../wizard/prompts/facts.js';
+import { NODE_DEFAULT_COLOR } from '../../../constants';
+import { useControlPanelActions } from '../../../hooks/useControlPanelActions.js';
+import { copySelection, pasteClipboard } from '../../../utils/clipboard.js';
+import { getNodeDimensions } from '../../../utils.js';
+import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
+import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 
 export default function ControlPanelsHost({ ctx }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
@@ -53,21 +60,272 @@ export default function ControlPanelsHost({ ctx }) {
   const selectedGroupId = useCanvasUIStore((s) => s.selectedGroupId);
   const selectedGroup = useGraphStore((s) => (selectedGroupId ? s.graphs.get(s.activeGraphId)?.groups?.get(selectedGroupId) ?? null : null));
   const {
-    decomposePanelInfo, nodePrototypesForPanel, typeListVisible, handleNodeControlPanelAnimationComplete,
-    storeActions, handleNodePanelDelete, handleNodePanelAdd, startHurtleAnimation, handleNodePanelUp,
-    handleNodePanelOpenInPanel, graphsMap, activeGraphId, setSelectedInstanceIds, handleNodePanelDecompose,
-    handleNodePanelAbstraction, handleNodePanelEdit, handleNodePanelSave, handleNodePanelPalette,
-    handleNodePanelOrbit, handleNodePanelGroup, handleNodePanelCopy, handleNodePanelDuplicate,
-    nodePieMenuPages, singleSelectedInstanceId, handlePieMenuHoverChange, wizardEnabled, groupPanelMode,
-    handleGroupControlPanelAnimationComplete, groupPanelTarget, handleGroupPanelUngroup,
-    handleGroupPanelEdit, handleGroupPanelColor, handleGroupPanelConvertToNodeGroup,
-    handleNodeGroupDiveIntoDefinition, handleNodeGroupOpenInPanel, handleNodeGroupCombine,
-    handleNodeGroupUpdateDefinition, handleNodeGroupRefreshFromDefinition, edgesMap,
-    handleConnectionControlPanelAnimationComplete, edgePieMenuButtons, setConnectionNamePrompt,
-    startHurtleAnimationFromPanel, openWizardPicker, currentAbstractionDimension, abstractionDimensions,
-    handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
-    handleExpandAbstractionDimension, handleAbstractionControlPanelAnimationComplete, onCarouselClose,
+    decomposePanelInfo, typeListVisible, storeActions, startHurtleAnimation, graphsMap, activeGraphId,
+    setSelectedInstanceIds, nodePieMenuPages, singleSelectedInstanceId, handlePieMenuHoverChange, wizardEnabled,
+    edgesMap, edgePieMenuButtons, setConnectionNamePrompt, startHurtleAnimationFromPanel, openWizardPicker,
+    currentAbstractionDimension, abstractionDimensions, handleAbstractionDimensionChange,
+    handleAddAbstractionDimension, handleDeleteAbstractionDimension, handleExpandAbstractionDimension,
+    handleAbstractionControlPanelAnimationComplete, onCarouselClose, nodes, nodePrototypesMap, setNodeNamePrompt,
+    setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible,
+    setSelectedNodeIdForPieMenu, rightPanelExpanded, setEditingNodeIdOnCanvas, captureDeletionGhosts, clipboardRef,
+    markClipboardChanged, setEditingGroupId, setTempGroupName, setNodeGroupPrompt,
   } = ctx;
+
+  // ---- Moved from NodeCanvas (P5.05b) ----
+  // Preserve last selections during exit animations
+  // Latched during render below (not an effect + store write, which cost a second
+  // NodeCanvas render on every selection change): the node panel's exit animation.
+  const lastSelectedNodePrototypesRef = useRef([]);
+  // Snapshot for the exit animation (even of a just-deleted group); latched in render (P2.03).
+  const lastSelectedGroupRef = useRef(null);
+  if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
+  const lastSelectedGroup = lastSelectedGroupRef.current;
+
+  const handleNodeControlPanelAnimationComplete = useCallback(() => {
+    setNodeControlPanelShouldShow(false);
+    // Clear the last selected prototypes when animation completes
+    lastSelectedNodePrototypesRef.current = [];
+  }, [setNodeControlPanelShouldShow]);
+
+  const handleConnectionControlPanelAnimationComplete = useCallback(() => {
+    setConnectionControlPanelShouldShow(false);
+  }, [setConnectionControlPanelShouldShow]);
+
+  const handleGroupControlPanelAnimationComplete = useCallback(() => {
+    setGroupControlPanelShouldShow(false);
+    setGroupControlPanelVisible(false);
+    lastSelectedGroupRef.current = null;
+    setSelectedGroup(null);
+  }, []);
+
+  const selectedNodePrototypes = useMemo(() => {
+    const list = [];
+    if (!nodes || nodes.length === 0) return list;
+    selectedInstanceIds.forEach((instanceId) => {
+      const inst = nodes.find(n => n.id === instanceId);
+      if (inst && inst.prototypeId) {
+        const proto = nodePrototypesMap.get(inst.prototypeId);
+        if (proto) list.push(proto);
+      }
+    });
+    return list;
+  }, [selectedInstanceIds, nodes, nodePrototypesMap]);
+
+  if (selectedNodePrototypes.length > 0) lastSelectedNodePrototypesRef.current = selectedNodePrototypes;
+  const lastSelectedNodePrototypes = lastSelectedNodePrototypesRef.current;
+
+  // Use last selected prototypes if current ones are empty but panel is still visible
+  const nodePrototypesForPanel = useMemo(() => {
+    if (selectedNodePrototypes.length > 0) {
+      return selectedNodePrototypes;
+    }
+    // If no current selection but panel is still visible (during exit animation), use last known selection
+    if (nodeControlPanelVisible && lastSelectedNodePrototypes.length > 0) {
+      return lastSelectedNodePrototypes;
+    }
+    return [];
+  }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
+
+  const groupPanelTarget = selectedGroup || lastSelectedGroup;
+  const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
+
+  // Group control panel action handlers
+  const handleGroupPanelUngroup = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    try {
+      storeActions.deleteGroup(activeGraphId, selectedGroup.id);
+      setSelectedGroup(null);
+      setGroupControlPanelVisible(false);
+    } catch (e) {
+
+    }
+  }, [activeGraphId, selectedGroup, storeActions.deleteGroup, setGroupControlPanelVisible]);
+
+  const handleGroupPanelEdit = useCallback(() => {
+    if (!selectedGroup) return;
+    // Start inline editing; a node-group's prototype owns the name, so seed from it.
+    const linkedPrototype = selectedGroup.linkedNodePrototypeId
+      ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
+      : null;
+    setEditingGroupId(selectedGroup.id);
+    setTempGroupName(linkedPrototype?.name || selectedGroup.name || 'Group');
+  }, [selectedGroup, nodePrototypesMap]);
+
+  const handleGroupPanelColor = useCallback((e) => {
+    if (!activeGraphId || !selectedGroup) return;
+    openGroupColorPicker(selectedGroup.id, e);
+  }, [activeGraphId, selectedGroup]);
+
+  const handleGroupPanelConvertToNodeGroup = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    // Open UnifiedSelector in node-group-creation mode
+    setNodeGroupPrompt({
+      visible: true,
+      name: selectedGroup.name || 'Group',
+      color: selectedGroup.color || '#8B0000',
+      groupId: selectedGroup.id
+    });
+  }, [activeGraphId, selectedGroup]);
+
+  // Callback for activating semantic orbit from control panel
+  const activateSemanticOrbit = useCallback(() => {
+    useCanvasUIStore.getState().dispatchPie({ type: 'ORBIT', active: true, clearTarget: true });
+    setNodeControlPanelVisible(false);
+  }, []);
+
+  // Use unified control panel actions hook (depends on startHurtleAnimationFromPanel above)
+  const {
+    handleNodePanelDelete,
+    handleNodePanelAdd,
+    handleNodePanelUp,
+    handleNodePanelOpenInPanel,
+    handleNodePanelDecompose,
+    handleNodePanelAbstraction,
+    handleNodePanelEdit,
+    handleNodePanelSave,
+    handleNodePanelOrbit,
+    handleNodePanelPalette,
+    handleNodePanelGroup
+  } = useControlPanelActions({
+    activeGraphId,
+    selectedInstanceIds,
+    selectedNodePrototypes,
+    nodes,
+    storeActions,
+    setSelectedInstanceIds,
+    setSelectedGroup,
+    setGroupControlPanelShouldShow,
+    setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible,
+    setNodeNamePrompt,
+    setPreviewingNodeId,
+    setAbstractionCarouselNode,
+    setCarouselAnimationState,
+    setAbstractionCarouselVisible,
+    setSelectedNodeIdForPieMenu,
+    rightPanelExpanded,
+    setRightPanelExpanded: storeActions.setRightPanelExpanded,
+    setEditingNodeIdOnCanvas,
+    NODE_DEFAULT_COLOR,
+    onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel,
+    onOpenColorPicker: togglePieMenuColorPicker,
+    onActivateSemanticOrbit: activateSemanticOrbit,
+    onCaptureDeletionGhosts: captureDeletionGhosts
+  });
+
+  // Copy the whole selection (and any edges running between its members) to the
+  // clipboard — same path as Ctrl/Cmd+C and the single-Thing pie menu's Copy, so
+  // a multi-selection pastes back as one shape rather than a pile of loose Things.
+  const handleNodePanelCopy = useCallback(() => {
+    const currentGraph = graphsMap.get(activeGraphId);
+    if (!currentGraph || selectedInstanceIds.size === 0) return;
+    const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+    if (copied) {
+      clipboardRef.current = copied;
+      markClipboardChanged();
+    }
+  }, [activeGraphId, selectedInstanceIds, graphsMap, nodePrototypesMap, edgesMap, markClipboardChanged]);
+
+  // Duplicate the selection in place. Built from copy+paste rather than a loop of
+  // addNodeInstance so the edges running between the selected Things come along —
+  // duplicating a shape and getting back a pile of disconnected Things isn't a
+  // duplicate. Deliberately does NOT touch clipboardRef: duplicating shouldn't
+  // silently overwrite whatever the user has copied.
+  const handleNodePanelDuplicate = useCallback(() => {
+    const currentGraph = graphsMap.get(activeGraphId);
+    if (!currentGraph || selectedInstanceIds.size === 0) return;
+    const copied = copySelection(selectedInstanceIds, currentGraph, nodePrototypesMap, edgesMap);
+    if (!copied) return;
+    // Same down-right offset the single-Thing Duplicate uses, so the copy reads as
+    // a copy. pasteClipboard spirals further out if that lands on something.
+    const offset = 40;
+    const result = pasteClipboard(
+      copied,
+      activeGraphId,
+      { x: copied.originalCenter.x + offset, y: copied.originalCenter.y + offset },
+      storeActions,
+      currentGraph,
+      getNodeDimensions
+    );
+    // Move the selection to the new copies, matching the single-Thing Duplicate
+    // and paste — the panel stays up, now acting on what was just made.
+    if (result?.newInstanceIds?.length) {
+      setSelectedInstanceIds(new Set(result.newInstanceIds));
+    }
+  }, [activeGraphId, selectedInstanceIds, graphsMap, nodePrototypesMap, edgesMap, storeActions, setSelectedInstanceIds]);
+
+  // Node-group control panel action handlers
+  const handleNodeGroupDiveIntoDefinition = useCallback((a0) => diveIntoNodeGroupDefinition(a0, {
+    activeGraphId, nodePrototypesMap, selectedGroup, setGroupControlPanelVisible, setSelectedGroup, startHurtleAnimationFromPanel,
+    storeActions,
+  }), [
+    activeGraphId,
+    selectedGroup,
+    nodePrototypesMap,
+    storeActions,
+    startHurtleAnimationFromPanel,
+    setGroupControlPanelVisible,
+    setSelectedGroup
+  ]);
+
+  const handleNodeGroupOpenInPanel = useCallback(() => {
+    if (!activeGraphId || !selectedGroup?.linkedNodePrototypeId) return;
+
+    const linkedPrototype = nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId);
+    if (!linkedPrototype) {
+      console.warn('Linked node prototype not found');
+      return;
+    }
+
+    if (typeof storeActions.openRightPanelNodeTab === 'function') {
+      storeActions.openRightPanelNodeTab(selectedGroup.linkedNodePrototypeId);
+    } else {
+      console.warn('openRightPanelNodeTab action is unavailable on storeActions');
+    }
+  }, [activeGraphId, selectedGroup, nodePrototypesMap, storeActions]);
+
+  const handleNodeGroupCombine = useCallback(() => {
+    if (!activeGraphId || !selectedGroup?.id) return;
+    if (typeof storeActions.combineNodeGroup !== 'function') {
+      console.warn('combineNodeGroup action is unavailable on storeActions');
+      return;
+    }
+
+    const newInstanceId = storeActions.combineNodeGroup(activeGraphId, selectedGroup.id);
+
+    setGroupControlPanelVisible(false);
+    setSelectedGroup(null);
+
+    if (newInstanceId) {
+      setSelectedInstanceIds(new Set([newInstanceId]));
+    }
+  }, [activeGraphId, selectedGroup, storeActions, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
+
+  // Push the node-group's current contents into its linked definition graph, overwriting it.
+  const handleNodeGroupUpdateDefinition = useCallback(() => {
+    if (!activeGraphId || !selectedGroup?.id) return;
+    if (typeof storeActions.updateDefinitionFromNodeGroup !== 'function') {
+      console.warn('updateDefinitionFromNodeGroup action is unavailable on storeActions');
+      return;
+    }
+    storeActions.updateDefinitionFromNodeGroup(activeGraphId, selectedGroup.id);
+  }, [activeGraphId, selectedGroup, storeActions]);
+
+  // Refresh the node-group from its linked definition graph, discarding the group's current members.
+  const handleNodeGroupRefreshFromDefinition = useCallback(() => {
+    if (!activeGraphId || !selectedGroup?.id) return;
+    if (typeof storeActions.refreshNodeGroupFromDefinition !== 'function') {
+      console.warn('refreshNodeGroupFromDefinition action is unavailable on storeActions');
+      return;
+    }
+    storeActions.refreshNodeGroupFromDefinition(activeGraphId, selectedGroup.id);
+
+    const gs = useGraphStore.getState();
+    const refreshedGroup = gs.graphs?.get(activeGraphId)?.groups?.get(selectedGroup.id);
+    if (refreshedGroup) {
+      setSelectedGroup(refreshedGroup);
+    }
+  }, [activeGraphId, selectedGroup, storeActions, setSelectedGroup]);
 
   // --- Abstraction Control Panel Management ---
   useEffect(() => {
