@@ -46,6 +46,7 @@ const median = (xs) => {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+const fmtHosts = (hosts) => Object.entries(hosts || {}).map(([pid, n]) => `${pid} ${fmt(n)}`).join(', ') || '—';
 
 function run(cmd, args, env = {}) {
   const r = spawnSync(cmd, args, { cwd: ROOT, stdio: 'inherit', env: { ...process.env, ...env } });
@@ -70,7 +71,15 @@ export function summarize(rows) {
     maxMs: median(rs.map((r) => r.maxMs)),
     wallMs: median(rs.map((r) => r.wallMs)),
     commitsRange: [Math.min(...rs.map((r) => r.commits)), Math.max(...rs.map((r) => r.commits))],
+    hosts: medianHosts(rs),
   }));
+}
+
+// Median commits per host Profiler. A host that never committed in a run has
+// no byId entry there, which counts as 0.
+function medianHosts(rs) {
+  const ids = new Set(rs.flatMap((r) => Object.keys(r.hosts || {})));
+  return Object.fromEntries([...ids].sort().map((pid) => [pid, median(rs.map((r) => r.hosts?.[pid] ?? 0))]));
 }
 
 function main() {
@@ -116,10 +125,10 @@ function main() {
   fs.writeFileSync(raw.replace(/\.jsonl$/, '.json'), JSON.stringify({ sha, dirty, runs: args.runs, table, rows }, null, 2));
 
   console.log(`\nNodeCanvas perf @ ${sha}${dirty ? ' (+ uncommitted src changes)' : ''}, median of ${args.runs} runs, profile build\n`);
-  console.log('| Scenario | Fixture | Commits (range) | NodeCanvas ran (rendered) | Total ms | Max ms | Wall ms |');
-  console.log('|---|---|---|---|---|---|---|');
+  console.log('| Scenario | Fixture | Commits (range) | NodeCanvas ran (rendered) | Hosts (commits) | Total ms | Max ms | Wall ms |');
+  console.log('|---|---|---|---|---|---|---|---|');
   for (const t of table) {
-    console.log(`| ${t.id} | ${t.fixture} (${t.instances}) | ${fmt(t.commits)} (${t.commitsRange.join('–')}) | ${fmt(t.ncRan)} (${fmt(t.ncRendered)}) | ${fmt(t.totalMs)} | ${fmt(t.maxMs)} | ${fmt(t.wallMs)} |`);
+    console.log(`| ${t.id} | ${t.fixture} (${t.instances}) | ${fmt(t.commits)} (${t.commitsRange.join('–')}) | ${fmt(t.ncRan)} (${fmt(t.ncRendered)}) | ${fmtHosts(t.hosts)} | ${fmt(t.totalMs)} | ${fmt(t.maxMs)} | ${fmt(t.wallMs)} |`);
   }
   console.log(`\nRaw runs: ${path.relative(ROOT, raw)}`);
   return code;

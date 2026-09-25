@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import useGraphStore from '../store/graphStore.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 import { isInsideNode } from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import {
@@ -787,7 +788,9 @@ export const useGamepad = ({
   const [active, setActive] = useState(false);
   const [mode, setMode] = useState(MODE.CANVAS);
   const [pieFocusedIndex, setPieFocusedIndex] = useState(-1);
-  const [headerFocusedGraphId, setHeaderFocusedGraphId] = useState(null);
+  // The header's outlined tab lives in canvasUIStore (P2.08): HeaderHost reads
+  // it there, so moving it doesn't re-render the canvas.
+  const setHeaderFocusedGraphId = useCanvasUIStore.getState().setGamepadHeaderFocusedGraphId;
 
   // Ref mirrors so the tick can read current values without being rebuilt.
   const activeRef = useRef(false);
@@ -2468,7 +2471,6 @@ export const useGamepad = ({
     gamepadActive: active,
     gamepadMode: mode,
     pieFocusedIndex,
-    headerFocusedGraphId,
   };
 };
 
