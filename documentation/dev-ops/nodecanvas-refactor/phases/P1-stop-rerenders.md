@@ -127,7 +127,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:** debugLogSync POSTs from render went from 3 to 0. ArrowheadAudit DELETED rather than flag-gated: Grant's real universe has 0 stale arrowsToward ids. DIAGNOSE_ZOOM_FLICKER and its blocks removed.
 
 ### P1.08: Stable `nodes` identity; fold `hydratedNodes` into it
-- **Status:** todo
+- **Status:** done (1247e9b; report reports/P1.08.md; merged fa65a73)
 - **Lane:** A · **Size:** M · **Depends:** P0.01 (to measure)
 - **Findings:** F-20
 - **Change:**
@@ -138,6 +138,10 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - Consumers to check: the groups IIFE, `EdgeGlowIndicator`, `Panel`, `ForceSimulationModal`, and the node hitbox debug overlay.
 - **Accept:** Under S10b and S11, `nodeById`, `baseDimsById` and the routing memos don't recompute. Prove it with a dev-only memo-run counter, then remove the counter.
 - **Handoff:**
+  - `nodes` keeps its array when nothing changed.
+  - The reuse check had never matched for image-less nodes (undefined vs null `thumbnailSrc`); fixed.
+  - `hydratedNodes` stays separate (different data; `nodes` can be stale on uncompared fields) but reuses objects exactly.
+  - S10b: 41 → 23 commits; the node-derived memos no longer run on off-graph writes.
 
 ### P1.09: Skip store writes that change nothing
 - **Status:** done (2aaa2cf, 4f97ba0, f85a6f5; report reports/P1.09.md)

@@ -13,6 +13,23 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P1.08 done; wave 2 complete on integration (Claude, orchestrator)
+
+- **P1.08** (fa65a73):
+  - `nodes` keeps its array when nothing changed. The reuse check had never matched image-less nodes (fixed).
+  - `hydratedNodes` reuses objects exactly.
+  - S10b: 41 → 23 commits; the node-derived memos stop running on off-graph writes.
+- **Integration fa65a73:**
+  - `lint:undef` PASS
+  - `test:ci` PASS (3,515 tests, 68 known, 0 new)
+  - Playwright 35/35
+  - build OK
+  - NodeCanvas.jsx 18,412
+- **P1 is done** apart from B-03 (welcome-screen host, D-17, outside NodeCanvas).
+- **Next:** Grant smoke-tests wave 2, then fast-forwards `main`. After that, P2 kickoff: re-verify findings, refine cards, and get Grant's OK on the card list.
+
+---
+
 ## 2026-09-25: P1.12b, P1.10 (+ B-06), P1.05 done by the orchestrator (Claude)
 
 - **P1.12b** (fb328e3): selecting a node re-solves only labels whose own route changed. Labels stay put on select (D-18); at-rest placement is identical. S7: 68 → 64 ms (lombardi), 54 → 46 ms (manhattan).

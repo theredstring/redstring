@@ -115,7 +115,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 
 ## Render cost (F-20 – F-39)
 
-**F-20. `nodes` is always a new array.** VERIFIED.
+**F-20. `nodes` is always a new array.** VERIFIED. **→ resolved in P1.08 (1247e9b). Also found: the per-node reuse check never matched for nodes without an image (`undefined` vs `null` `thumbnailSrc`), so those were rebuilt on every recompute; fixed.**
 - The `nodes` memo (~2005) reuses element objects through `prevNodesRef`, but it always returns a new `result` array (~2100).
 - So `nodeById`, `baseDimsById`, `cleanLaneOffsets`, `lombardiTangents`, `labelCrossingIndex`, the culling effect and `edgeRenderCtx` all invalidate on *any* write to instances, prototypes or images.
 - `hydratedNodes` (~1633) is a second O(N) hydration of the same data, with no object reuse.

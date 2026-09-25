@@ -92,6 +92,7 @@ Filled in by P0.04; details and method are in reports/P0.04.md.
 | 2026-09-25 | P1.12b | S7 select, labels on (chambers, 3 runs) | lombardi 67.9 ms, manhattan 54 ms | 63.6 ms, 46.1 ms | d8f9e53 | Commits unchanged (20); label re-solves on select: all → only changed routes (jsdom) |
 | 2026-09-25 | P1.10 | S6 pie open/close (`--explain`, 1 run) | 30 commits, 19 NC runs | 28, 18 | 8385536 | Camera-settle rebuild of the pie gone |
 | 2026-09-25 | P1.05 | S9 panel resize (chambers, 3 runs) | 71 commits, 65 NC runs, 187 ms | 17, 7, 40 ms | e5a7e82 | |
+| 2026-09-25 | P1.08 | S10b off-graph thumbnails (chambers, 3 runs) | 41 commits, 52.5 ms | 23 (20 NC renders, no bailouts), 48.9 ms | 1247e9b | Node-derived memos under off-graph writes: 20 runs → 0 (jsdom counter, removed) |
 
 ## Size history
 
