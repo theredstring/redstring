@@ -63,6 +63,8 @@ import { createGroupInputHandlers } from './components/canvas/groups/groupInput.
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { createCameraController } from './components/canvas/camera/cameraController.js';
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
+import { runCullingPass } from './components/canvas/data/culling.js';
+import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
 import { dispatchWizardIntent } from './components/canvas/actions/wizardIntent.js';
 import { diveIntoNodeGroupDefinition } from './components/canvas/actions/nodeGroupDive.js';
@@ -144,6 +146,9 @@ import { conceptToPrototypeFields, backfillConceptLinks } from './services/candi
 import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
+import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
+import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
+import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED } from './components/canvas/camera/framing.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -1697,19 +1702,6 @@ function NodeCanvas() {
     viewportBoundsRef.current = viewportBounds;
   }, [viewportBounds]);
 
-  // How much canvas an open overlay panel has to leave behind before framing
-  // bothers aiming at the gap rather than at the whole region — see
-  // getFramingRegion. Below this a phone-sized window with a near-full-width
-  // panel would zoom out to nothing chasing a sliver.
-  const FRAMING_MIN_REGION_PX = 320;
-  const FRAMING_MIN_REGION_FRACTION = 0.45;
-  // Same idea on the vertical axis, for the bottom control panel. No px floor to go with
-  // it: a landscape phone's whole region is shorter than the one above, so a px floor
-  // would switch the reserve off in the layout that needs it most. And unlike the width
-  // rule this one clamps rather than gives up — an unusually tall panel still gets what
-  // room there is, instead of being ignored outright.
-  const FRAMING_MIN_HEIGHT_FRACTION = 0.5;
-
   // How much of the framing region's bottom the bottom control panel is covering, in px,
   // or 0 when none is up.
   //
@@ -1731,25 +1723,9 @@ function NodeCanvas() {
   // it will actually sit. #root carries an identity transform (see appViewport.js) and is
   // therefore the containing block for these fixed panels, so that `bottom` is measured
   // from the app box — the same space viewportBounds lives in, no safe-area correction.
-  const getBottomPanelReserve = useCallback(() => {
-    if (typeof document === 'undefined') return 0;
-    let band = 0;
-    document.querySelectorAll('.unified-bottom-panel').forEach((el) => {
-      // Mid-exit it is about to stop occluding anything, so it doesn't get to hold space
-      // — otherwise deselecting one Thing and picking another reserves for a panel that
-      // is already flying out.
-      if (el.classList.contains('exiting')) return;
-      const height = el.offsetHeight;
-      if (!height) return;
-      const bottom = parseFloat(window.getComputedStyle(el).bottom) || 0;
-      band = Math.max(band, bottom + height);
-    });
-    if (band <= 0) return 0;
-    // `band` runs up from the bottom of the app box, and the region already stops short
-    // of that by the TypeList bar, so only the remainder actually eats into it.
-    const belowRegion = Math.max(0, getAppViewportSize().height - (viewportBounds.y + viewportBounds.height));
-    return Math.max(0, band - belowRegion);
-  }, [viewportBounds]);
+  const getBottomPanelReserve = useCallback((...args) => getBottomPanelReserveWith({
+    viewportBounds,
+  }, ...args), [viewportBounds]);
 
   // The rect every framing animation (focus-on-select, the abstraction carousel,
   // decompose, the semantic orbit, search navigation) should aim at, in CONTAINER
@@ -1784,42 +1760,9 @@ function NodeCanvas() {
   //    subject the panel is about to sit under; `reservedBottom` on the result reports
   //    how much was actually taken, so those callers can drop their own hand-tuned
   //    "lift it a bit so the panel has room" nudge rather than double-compensating.
-  const getFramingRegion = useCallback(({ reserveBottomPanel = false } = {}) => {
-    const vb = viewportBounds;
-    let x = vb.x;
-    let width = vb.width;
-    let height = vb.height;
-    let reservedBottom = 0;
-
-    if (reserveBottomPanel) {
-      const reserve = getBottomPanelReserve();
-      if (reserve > 0) {
-        reservedBottom = Math.min(reserve, height * (1 - FRAMING_MIN_HEIGHT_FRACTION));
-        height -= reservedBottom;
-      }
-    }
-
-    if (vb.isExclusiveMode) {
-      const { leftPanelWidth, rightPanelWidth } = useCanvasUIStore.getState(); // committed widths (P2.12)
-      const openLeft = leftPanelExpanded ? leftPanelWidth : 0;
-      const openRight = rightPanelExpanded ? rightPanelWidth : 0;
-      if (openLeft || openRight) {
-        const remaining = width - openLeft - openRight;
-        const floor = Math.max(FRAMING_MIN_REGION_PX, width * FRAMING_MIN_REGION_FRACTION);
-        if (remaining >= floor) {
-          x += openLeft;
-          width = remaining;
-        }
-      }
-    }
-
-    const rect = containerRef.current?.getBoundingClientRect();
-    const origin = getFixedOverlayOrigin();
-    const containerX = rect ? rect.left - origin.x : 0;
-    const containerY = rect ? rect.top - origin.y : vb.y;
-
-    return { ...vb, x: x - containerX, y: vb.y - containerY, width, height, reservedBottom };
-  }, [viewportBounds, leftPanelExpanded, rightPanelExpanded, getBottomPanelReserve]);
+  const getFramingRegion = useCallback((...args) => getFramingRegionWith({
+    viewportBounds, getBottomPanelReserve, leftPanelExpanded, rightPanelExpanded, containerRef,
+  }, ...args), [viewportBounds, leftPanelExpanded, rightPanelExpanded, getBottomPanelReserve]);
 
   // Framing fires from the same effect flush that switches the bottom control panel on,
   // so on a fresh selection the panel React is about to mount is not in the DOM yet —
@@ -2193,302 +2136,12 @@ function NodeCanvas() {
   // can react to pan/zoom transform changes in lockstep with culling (one
   // RAF-coalesced tick per frame), without running its own free-running RAF loop.
   const glowUpdateRef = useRef(null);
-  const runCulling = useCallback(() => {
-    if (cullingRafIdRef.current != null) return;
-
-    cullingRafIdRef.current = requestAnimationFrame(() => {
-      cullingRafIdRef.current = null;
-      const perfOn = typeof window !== 'undefined' && window.__zoomPerf;
-      const perfStart = perfOn ? performance.now() : 0;
-      const perfDone = () => {
-        if (!perfOn) return;
-        const ms = performance.now() - perfStart;
-        const p = zoomPerfRef.current;
-        p.cullingRuns++;
-        p.cullingMs += ms;
-        if (ms > p.cullingWorstMs) p.cullingWorstMs = ms;
-      };
-
-      // Notify EdgeGlowIndicator (and any other transform-driven subscribers)
-      // BEFORE the culling guards, so the glow still tracks transform updates
-      // during node drag / pinch animation where culling itself is skipped.
-      glowUpdateRef.current?.();
-
-      try {
-      if (!ENABLE_CULLING) {
-        // CULLING DISABLED - Show all nodes and edges.
-        //
-        // This branch runs on EVERY pan/zoom mutation (via onTransformChangeRef),
-        // so it must not hand React fresh state identities each frame — doing so
-        // forces a full NodeCanvas commit at ~60Hz and tanks framerate on large
-        // graphs. The visible set here is a pure function of nodes/edges, so bail
-        // out unless membership actually changed.
-        const all = nodesRef.current;
-        const allEdges = edgesRef.current;
-
-        const prevIds = visibleNodeIdsRef.current;
-        let nodesUnchanged = prevIds.size === all.length;
-        if (nodesUnchanged) {
-          for (let i = 0; i < all.length; i++) {
-            if (!prevIds.has(all[i].id)) { nodesUnchanged = false; break; }
-          }
-        }
-        if (!nodesUnchanged) {
-          const allIds = new Set();
-          for (let i = 0; i < all.length; i++) allIds.add(all[i].id);
-          visibleNodeIdsRef.current = allIds;
-          setVisibleNodeIds(allIds);
-        }
-
-        if (visibleEdgesRef.current !== allEdges) {
-          visibleEdgesRef.current = allEdges;
-          setVisibleEdges(allEdges);
-        }
-        return;
-      }
-
-      const viewport = viewportSizeRef.current;
-      const canvas = canvasSizeRef.current;
-      if (!viewport || !canvas) return;
-
-      // An interaction that may not lose mounted content mid-flight: a node drag
-      // (whose edge auto-pan reveals new canvas while the dragged node's own
-      // position is DOM-bypassed and must not be re-culled from under it). It
-      // used to skip culling outright, which under a moving viewport means
-      // staring at blank canvas until the finger lifts. Under the grow-only
-      // policy below there is nothing left for it to jitter, so it only forbids
-      // the prune half — and when the viewport ISN'T moving the containment gate
-      // below costs one rect test and returns. (A pinch-smoothing lerp loop used
-      // to hold removals here too; it was never started and has been removed.)
-      //
-      // Drag-zoom-out (`isAnimatingZoomRef`) is deliberately not included, so it
-      // still gets full culling exactly as before.
-      const holdRemovals = !!draggingNodeInfoRef.current && !isAnimatingZoomRef.current;
-
-      // Read live pan/zoom directly from refs — this is the whole point of the fix.
-      const pan = panOffsetRef.current;
-      const zoom = zoomLevelRef.current;
-
-      // Derive canvas-space viewport
-      const minX = (-pan.x) / zoom + canvas.offsetX;
-      const minY = (-pan.y) / zoom + canvas.offsetY;
-      const maxX = minX + viewport.width / zoom;
-      const maxY = minY + viewport.height / zoom;
-
-      // COMMIT POLICY — this is what makes culling survivable during a zoom.
-      //
-      // Every membership change is a synchronous setState, i.e. a full canvas
-      // render mid-gesture. Pan barely produces any (the viewport translates
-      // rigidly and the hysteresis band absorbs the rest), but zoom scales
-      // screen space about the cursor, so distant content crosses the whole band
-      // between two frames and membership oscillates. That churn is what got
-      // culling switched off.
-      //
-      // So while the view is in motion the set may only GROW. Additions have to
-      // be prompt — a node that entered the viewport but isn't mounted IS the
-      // flicker — while removals are by definition invisible and can wait for
-      // the settle prune. In-motion commits are therefore bounded by how much
-      // content the gesture reveals, not by how often membership oscillates.
-      // A pending prune request survives until a tick can actually honour it —
-      // clearing it on a tick that isn't allowed to prune (mid-drag, mid-pinch)
-      // would silently drop the recompute a deletion or resize asked for.
-      const prune = !holdRemovals && (cullPruneRef.current || !isViewMovingRef.current);
-      if (prune) cullPruneRef.current = false;
-
-      // Containment gate. The last computed cull mounted everything inside its
-      // inner rect, and content is only actually on screen once it enters the
-      // true viewport rect — so there is a whole padding band of slack between
-      // "covered" and "visible". While the view is moving, spend it: skip the
-      // O(nodes + edges) pass entirely until the viewport has eaten half of it.
-      // Zooming IN never leaves the guard at all (the viewport only shrinks), so
-      // an in-zoom costs zero culling work and zero commits.
-      if (!prune) {
-        const guard = cullGuardRectRef.current;
-        if (guard
-          && minX >= guard.minX && minY >= guard.minY
-          && maxX <= guard.maxX && maxY <= guard.maxY) {
-          return;
-        }
-      }
-
-      // Two-zone hysteresis: `inner` is the threshold to ADD a node/edge to
-      // the visible set; `outer` (= inner + HYSTERESIS_BAND) is the threshold
-      // to REMOVE one that's already visible.
-      //
-      // Band is specified in SCREEN pixels, then converted to canvas units via
-      // zoom. A canvas-unit band collapses visually at low zoom (e.g. 100
-      // canvas units = 50 screen px at zoom 0.5), making it easy for a single
-      // wheel tick or pinch delta to cross the entire deadband in one frame
-      // and defeat hysteresis. Screen-space keeps the visual "sticky zone"
-      // constant at every zoom level so per-frame deltas never cross it.
-      const HYSTERESIS_BAND_SCREEN_PX = 400;
-      const HYSTERESIS_BAND = HYSTERESIS_BAND_SCREEN_PX / zoom;
-      const innerPadding = Math.max(200, Math.min(2000, 500 / zoom));
-      const outerPadding = innerPadding + HYSTERESIS_BAND;
-      const innerRect = {
-        minX: minX - innerPadding,
-        minY: minY - innerPadding,
-        maxX: maxX + innerPadding,
-        maxY: maxY + innerPadding,
-      };
-      const outerRect = {
-        minX: minX - outerPadding,
-        minY: minY - outerPadding,
-        maxX: maxX + outerPadding,
-        maxY: maxY + outerPadding,
-      };
-
-      // Half the padding is the roaming allowance for the gate above: from here
-      // the viewport can grow or slide by innerPadding/2 (250 screen px at the
-      // unclamped default, at any zoom, since innerPadding is 500/zoom) before
-      // anything it might reveal could reach the screen unmounted.
-      const guardMargin = innerPadding / 2;
-      cullGuardRectRef.current = {
-        minX: innerRect.minX + guardMargin,
-        minY: innerRect.minY + guardMargin,
-        maxX: innerRect.maxX - guardMargin,
-        maxY: innerRect.maxY - guardMargin,
-      };
-
-      const currentNodes = nodesRef.current;
-      const currentEdges = edgesRef.current;
-      const dimsMap = baseDimsByIdRef.current;
-      const nodeMap = nodeByIdRef.current;
-      const prevVisibleNodeIds = visibleNodeIdsRef.current;
-      // Build Set<edgeId> for O(1) prev-visibility lookup (visibleEdgesRef is an array).
-      const prevVisibleEdgesArr = visibleEdgesRef.current;
-      const prevVisibleEdgeIds = new Set();
-      for (let i = 0; i < prevVisibleEdgesArr.length; i++) {
-        prevVisibleEdgeIds.add(prevVisibleEdgesArr[i].id);
-      }
-
-      // Visible nodes with hysteresis
-      const nextVisibleNodeIds = new Set();
-      for (const n of currentNodes) {
-        const dims = dimsMap.get(n.id);
-        if (!dims) continue;
-
-        const nx1 = n.x;
-        const ny1 = n.y;
-        const nx2 = n.x + dims.currentWidth;
-        const ny2 = n.y + dims.currentHeight;
-
-        // Previously visible → use outer rect (stays visible until clearly outside)
-        // Not previously visible → use inner rect (must come clearly inside to appear)
-        const wasVisible = prevVisibleNodeIds.has(n.id);
-        const rect = wasVisible ? outerRect : innerRect;
-        const isVisible = !(nx2 < rect.minX || nx1 > rect.maxX || ny2 < rect.minY || ny1 > rect.maxY);
-
-        if (isVisible) {
-          nextVisibleNodeIds.add(n.id);
-        }
-      }
-
-      // Visible edges — include if either endpoint node is visible, OR if the
-      // straight line between node centers crosses the viewport area (handles
-      // long edges where both endpoints are off-screen but the edge itself is visible).
-      // Hysteresis applied to the slow-path line intersection test as well.
-      const nextVisibleEdges = [];
-      for (const edge of currentEdges) {
-        const s = nodeMap.get(edge.sourceId);
-        const d = nodeMap.get(edge.destinationId);
-        if (!s || !d) continue;
-
-        // Fast path: if either node is visible, the edge is visible
-        // (node hysteresis already prevents endpoint flicker, so this is stable).
-        if (nextVisibleNodeIds.has(edge.sourceId) || nextVisibleNodeIds.has(edge.destinationId)) {
-          nextVisibleEdges.push(edge);
-          continue;
-        }
-
-        // Slow path: both nodes off-screen, check if edge line crosses viewport.
-        // Apply hysteresis: previously-visible edges test against outer rect.
-        const sDims = dimsMap.get(s.id);
-        const dDims = dimsMap.get(d.id);
-        if (!sDims || !dDims) continue;
-        const sx = s.x + sDims.currentWidth / 2;
-        const sy = s.y + sDims.currentHeight / 2;
-        const dx = d.x + dDims.currentWidth / 2;
-        const dy = d.y + dDims.currentHeight / 2;
-        const edgeRect = prevVisibleEdgeIds.has(edge.id) ? outerRect : innerRect;
-        if (GeometryUtils.lineIntersectsRect(sx, sy, dx, dy, edgeRect)) {
-          nextVisibleEdges.push(edge);
-        }
-      }
-
-      // Grow-only merge (see COMMIT POLICY). Anything the previous tick had
-      // stays for this one; only a prune tick is allowed to drop it. Entities
-      // deleted from the graph can't be resurrected by this: nodes are re-checked
-      // against nodeMap, and the edge list is rebuilt by filtering the CURRENT
-      // edges array, which also keeps edge order stable for the identity-compare
-      // bail-out below.
-      let commitNodeIds = nextVisibleNodeIds;
-      let commitEdges = nextVisibleEdges;
-      if (!prune) {
-        let grewNodes = false;
-        for (const id of prevVisibleNodeIds) {
-          if (!nextVisibleNodeIds.has(id) && nodeMap.has(id)) {
-            if (!grewNodes) { commitNodeIds = new Set(nextVisibleNodeIds); grewNodes = true; }
-            commitNodeIds.add(id);
-          }
-        }
-
-        const nextEdgeIds = new Set();
-        for (let i = 0; i < nextVisibleEdges.length; i++) nextEdgeIds.add(nextVisibleEdges[i].id);
-        let grewEdges = false;
-        for (let i = 0; i < prevVisibleEdgesArr.length; i++) {
-          if (!nextEdgeIds.has(prevVisibleEdgesArr[i].id)) {
-            nextEdgeIds.add(prevVisibleEdgesArr[i].id);
-            grewEdges = true;
-          }
-        }
-        if (grewEdges) {
-          commitEdges = [];
-          for (const edge of currentEdges) {
-            if (nextEdgeIds.has(edge.id)) commitEdges.push(edge);
-          }
-        }
-      }
-
-      // Update refs synchronously — these are the hysteresis "previous visible
-      // set" for the NEXT runCulling tick. The useEffect sync at the bottom of
-      // the component is too late because passive effects can lag behind
-      // consecutive RAF ticks under zoom pressure (worse in large graphs where
-      // commits are expensive), causing hysteresis to evaluate against a stale
-      // prev and flicker edges at viewport edges. These refs are read only
-      // inside runCulling itself, so owning them here is safe.
-      visibleNodeIdsRef.current = commitNodeIds;
-      visibleEdgesRef.current = commitEdges;
-
-      // Synchronous visibility commit (no startTransition) so the visible set
-      // always lands in lockstep with the SVG DOM transform — using transitions
-      // here causes edges to flicker during zoom because the transform updates
-      // immediately but the deferred visibility commit lags by a frame or two.
-      // The updaters return prev when membership is unchanged, and useTrackedState
-      // then skips the set, so a steady-state pan costs no render (F-79).
-      setVisibleNodeIds(prev => {
-        if (prev.size === commitNodeIds.size) {
-          let same = true;
-          for (const id of commitNodeIds) {
-            if (!prev.has(id)) { same = false; break; }
-          }
-          if (same) return prev;
-        }
-        return commitNodeIds;
-      });
-      setVisibleEdges(prev => {
-        if (prev.length === commitEdges.length) {
-          let same = true;
-          for (let i = 0; i < prev.length; i++) {
-            if (prev[i] !== commitEdges[i]) { same = false; break; }
-          }
-          if (same) return prev;
-        }
-        return commitEdges;
-      });
-      } finally { perfDone(); }
-    });
-  }, [isViewMovingRef]); // Refs only — the one dep is a ref OBJECT, so identity stays stable forever.
+  const runCulling = useCallback((...args) => runCullingPass({
+    cullingRafIdRef, zoomPerfRef, glowUpdateRef, ENABLE_CULLING, nodesRef, edgesRef, visibleNodeIdsRef,
+    setVisibleNodeIds, visibleEdgesRef, setVisibleEdges, viewportSizeRef, canvasSizeRef, draggingNodeInfoRef,
+    isAnimatingZoomRef, panOffsetRef, zoomLevelRef, cullPruneRef, isViewMovingRef, cullGuardRectRef,
+    baseDimsByIdRef, nodeByIdRef,
+  }, ...args), [isViewMovingRef]); // Refs only — the one dep is a ref OBJECT, so identity stays stable forever.
 
   // Wire runCulling into the transform hook so pan/zoom mutations trigger culling
   // synchronously (without waiting for settled-state debounce).
@@ -4404,125 +4057,14 @@ function NodeCanvas() {
     animateCanvasView(finalPan, tz);
   }, [previewingNodeId, nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM]);
 
-  // When a node is selected (single click), gently frame it on the canvas so the
-  // PieMenu buttons and page chevrons have room — the same animated zoom used by the
-  // abstraction carousel / decompose views, but for ordinary selection. Frames
-  // against the usable region (panels/header/typelist excluded) — the same bounds
-  // the edge glow uses — and sizes the zoom off the pie-menu button cluster so the
-  // buttons and chevrons stay on-screen. Flip FOCUS_ON_SELECT_ENABLED to disable.
-  const FOCUS_ON_SELECT_ENABLED = true;
-  // How much of the usable region's half-extent the pie-menu cluster is fitted to.
-  // Past 1.0 on purpose: clusterHalfReach below is a deliberately generous bound
-  // (3 button rings), while the menu actually draws a single ring at bPad + bSize
-  // from the node edge — roughly a third of that. Fitting to the conservative
-  // reach at 0.96 therefore landed noticeably further out than the menu needs,
-  // so selection reads as zoomed-out. These overfill it to close that gap; the
-  // real buttons and chevrons still sit well inside the region.
-  const FOCUS_FILL_WIDE = 1.1;   // desktop
-  const FOCUS_FILL_NARROW = 1.1; // mobile
-  const FOCUS_WIDTH_WIDE = 1200;  // px: at/above this usable width, use WIDE
-  const FOCUS_WIDTH_NARROW = 480; // px: at/below this usable width, use NARROW
-  // There is deliberately no vertical bias here. A 10% lift used to stand in for the
-  // bottom control panel — the node was nudged up so the panel had somewhere to be —
-  // and that proxy is now measured for real (see getBottomPanelReserve), so the region
-  // this centres in already ends where the panel begins. Keeping the nudge as well put
-  // the node visibly high in the far more common case where NO panel is up and nothing
-  // fills the space it was making. Centre of the visible gap, nothing else.
-  //
-  // Vertical fill for the tall-node bound below. Deliberately NOT the 1.1 overfill:
-  // that exists to claw back the slack in the 3-ring WIDTH bound, and the vertical
-  // bound has no slack to claw back — PieMenu draws its north/south bubbles exactly
-  // where that bound says they are.
-  const FOCUS_TALL_FILL = 0.95;
-  // Skip the animation when the node is already essentially framed, so we don't yank
-  // the view on every click — only re-frame when the menu would otherwise be clipped
-  // or the node is small/off to the side.
-  const FOCUS_SKIP_ZOOM_RATIO = 0.12; // within 12% of target zoom → close enough
-  const FOCUS_SKIP_PAN_PX = 48;       // within 48px of target pan → close enough
   const prevFocusPieNodeIdRef = useRef(null);
-
-  // Connection (edge) menu framing. Deliberately gentler than the node numbers above:
-  // the edge menu's box is a short wide strip, so filling the region with it magnifies
-  // far harder than the node's roughly-square cluster does at the same fill fraction.
-  const FOCUS_EDGE_FILL_WIDE = 0.62;   // desktop: box fills ~62% of the usable region
-  const FOCUS_EDGE_FILL_NARROW = 0.78; // mobile: closer to the full width, space is scarce
-  const FOCUS_EDGE_PADDING_RATIO = 1.0; // extra margin around the box, in bubble diameters
-  const FOCUS_EDGE_MAX_ZOOM = 0.85;     // hard ceiling: framing a connection never magnifies
-  const FOCUS_EDGE_LABEL_MAX_GROWTH = 1.6; // stop honoring the label past 1.6x box growth
 
   // Frame a single node with the pie-menu-aware zoom. Shared by focus-on-select and
   // recompose (collapsing a decomposed node) so both land at the exact same view.
-  const focusNodeInView = useCallback((nodeId) => {
-    if (!FOCUS_ON_SELECT_ENABLED || !nodeId) return;
-    const node = nodes.find(n => n.id === nodeId);
-    if (!node) return;
-    runFramingAfterCommit(() => {
-    const dims = getNodeDimensions(node, false, null);
-    const centerX = node.x + dims.currentWidth / 2;
-    const centerY = node.y + dims.currentHeight / 2;
-
-    // Aim at the gap above the node control panel when one is up — it sits directly
-    // under the node it belongs to, and the pie menu's south bubbles are what lands
-    // behind it. Nothing is reserved when the panel is off, which is the default.
-    const vb = getFramingRegion({ reserveBottomPanel: true });
-    const regionCenterX = vb.x + vb.width / 2;
-    const regionCenterY = vb.y + vb.height / 2;
-
-    // 0 on wide regions → 1 on narrow regions, interpolated by usable width.
-    const narrowness = Math.max(0, Math.min(1,
-      (FOCUS_WIDTH_WIDE - vb.width) / (FOCUS_WIDTH_WIDE - FOCUS_WIDTH_NARROW)
-    ));
-
-    // Half horizontal reach of the pie-menu cluster (node half-width + outer button
-    // ring) in canvas units — same derivation as the carousel framing, so it tracks
-    // BUBBLE_SIZE/BUBBLE_PADDING and the node/pie scale settings automatically:
-    // halfW + 3·bSize + 3·bPad.
-    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
-    const bSize = 120 * pieScale; // BUBBLE_SIZE
-    const bPad = 32 * pieScale;   // BUBBLE_PADDING
-    const clusterHalfReach = dims.currentWidth / 2 + 3 * bSize + 3 * bPad;
-    const fillFrac = FOCUS_FILL_WIDE + (FOCUS_FILL_NARROW - FOCUS_FILL_WIDE) * narrowness;
-    // The pie menu is radial — its buttons extend up/down as far as left/right — so
-    // fit the cluster to BOTH the region width and its (typelist-reduced) height,
-    // taking the tighter of the two. Otherwise the bottom row of buttons spills into
-    // the TypeList bar when it's open, since vb.height already excludes it.
-    const referenceZoomH = (vb.width * 0.5 * fillFrac) / clusterHalfReach;
-    const referenceZoomV = (vb.height * 0.5 * fillFrac) / clusterHalfReach;
-    // ...but clusterHalfReach is derived from the node's WIDTH, and using it on the
-    // vertical axis too quietly assumes every node is wider than it is tall. An image
-    // node isn't: its height is the text area plus an image slot of up to
-    // IMAGE_MAX_ASPECT times the expanded width (see getNodeDimensions), so a portrait
-    // node runs ~2x taller than it is wide and the fit above came out ~1.4x too loose —
-    // zooming in until the node's name, which on an image node sits at the TOP, was
-    // above the region entirely. So bound the vertical axis by the node's own extent as
-    // well: PieMenu hugs the node's box, putting the north/south bubble centres at
-    // halfH + bPad + bSize/2 and their outer edges half a bubble past that. Exact, so
-    // it takes FOCUS_TALL_FILL rather than the width bound's overfill. For a node that
-    // is wider than it is tall this lands far outside the two fits above and never
-    // binds, which is why ordinary selection framing is unchanged.
-    const menuHalfHeight = dims.currentHeight / 2 + bSize + bPad;
-    const tallZoomV = (vb.height * 0.5 * FOCUS_TALL_FILL) / menuHalfHeight;
-    // The user's framing-tightness setting scales the fit rather than any of the
-    // constants above, so all three bounds keep meaning what they say and 1.0 is
-    // byte-for-byte the tuned behaviour.
-    const referenceZoom = Math.min(referenceZoomH, referenceZoomV, tallZoomV) * focusOnSelectZoomAmount;
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, referenceZoom));
-
-    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
-    const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
-
-    // Already essentially framed? Leave the view where it is.
-    const curZoom = zoomLevelRef.current;
-    const curPan = panOffsetRef.current;
-    const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
-    const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
-      && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
-    if (zoomClose && panClose) return;
-
-    animateCanvasView(finalPan, tz);
-    });
-  }, [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit, focusOnSelectZoomAmount]);
+  const focusNodeInView = useCallback((...args) => focusNodeInViewWith({
+    nodes, runFramingAfterCommit, getFramingRegion, textSettings, focusOnSelectZoomAmount, MIN_ZOOM,
+    canvasSize, viewportSize, zoomLevelRef, panOffsetRef, animateCanvasView,
+  }, ...args), [nodes, animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit, focusOnSelectZoomAmount]);
 
   // Frame the connection (edge) pie menu the same way focusNodeInView frames a node:
   // fit the menu's own bounds into the usable region. The edge menu is one or more
@@ -4536,93 +4078,10 @@ function NodeCanvas() {
   // it says, not just its buttons. It's a want, not a requirement: a label longer than
   // the button row would drag the zoom down, so it's only honored while it doesn't
   // cost more than FOCUS_EDGE_LABEL_MAX_GROWTH of extra box.
-  const focusEdgePieMenuInView = useCallback((anchor, buttonCount, labelRect = null) => {
-    if (!FOCUS_ON_SELECT_ENABLED || !anchor || !buttonCount) return;
-    runFramingAfterCommit(() => {
-
-    // Framed against the layout PieMenu actually draws (utils/pieMenuLayout.js),
-    // rather than a second copy of the geometry here — the row wraps now, and two
-    // hand-kept copies of where it wraps would only agree until one of them moved.
-    // BUBBLE_SIZE / BUBBLE_PADDING, scaled by the same node + pie menu settings.
-    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
-    const bSize = 120 * pieScale;
-    const bPad = 32 * pieScale;
-
-    // Includes the anchor itself, so the connection the menu belongs to stays
-    // framed alongside its buttons.
-    const bounds = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
-      count: buttonCount,
-      angle: anchor.angle ?? 0,
-      step: bSize + bPad,
-      perpOffset: bSize + bPad * 2,
-      rowGap: bSize + bPad,
-    });
-    let { minX, maxX, minY, maxY } = bounds;
-
-    // Fold in the label if it doesn't blow the frame out. A very long connection
-    // name would otherwise dominate the box and zoom the buttons down to nothing,
-    // so past the growth cap we keep the menu framing and let the label overflow.
-    if (labelRect && Number.isFinite(labelRect.minX)) {
-      const grownW = Math.max(maxX, labelRect.maxX) - Math.min(minX, labelRect.minX);
-      const grownH = Math.max(maxY, labelRect.maxY) - Math.min(minY, labelRect.minY);
-      const growth = Math.max(grownW / Math.max(1, maxX - minX), grownH / Math.max(1, maxY - minY));
-      if (growth <= FOCUS_EDGE_LABEL_MAX_GROWTH) {
-        minX = Math.min(minX, labelRect.minX);
-        maxX = Math.max(maxX, labelRect.maxX);
-        minY = Math.min(minY, labelRect.minY);
-        maxY = Math.max(maxY, labelRect.maxY);
-      }
-    }
-
-    // Breathing room so the outermost bubbles don't sit flush against the edges
-    // of the usable region.
-    const boundsPad = bSize * FOCUS_EDGE_PADDING_RATIO;
-    const boundsW = Math.max(1, maxX - minX + boundsPad * 2);
-    const boundsH = Math.max(1, maxY - minY + boundsPad * 2);
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    // Selecting a single connection puts up the connection control panel as well as
-    // this menu (showConnectionControlPanel, on by default), and the panel is wide and
-    // tall enough to swallow a button row framed into the full region — so aim at the
-    // gap above it when it's there.
-    const vb = getFramingRegion({ reserveBottomPanel: true });
-    const regionCenterX = vb.x + vb.width / 2;
-    const regionCenterY = vb.y + vb.height / 2;
-    const narrowness = Math.max(0, Math.min(1,
-      (FOCUS_WIDTH_WIDE - vb.width) / (FOCUS_WIDTH_WIDE - FOCUS_WIDTH_NARROW)
-    ));
-    const fillFrac = FOCUS_EDGE_FILL_WIDE + (FOCUS_EDGE_FILL_NARROW - FOCUS_EDGE_FILL_WIDE) * narrowness;
-    const referenceZoom = Math.min(
-      (vb.width * fillFrac) / boundsW,
-      (vb.height * fillFrac) / boundsH
-    ) * focusOnSelectZoomAmount;
-    // A connection menu is a short, wide box — fitting it edge-to-edge lands at
-    // ~1.8x, which reads as being thrown at the connection. Cap the zoom-IN side:
-    // framing should never magnify past near-native scale, only pull back when the
-    // row genuinely doesn't fit.
-    // The ceiling moves with the setting too — otherwise asking for tighter
-    // framing would silently do nothing on connections, which is where the cap
-    // binds most often.
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, FOCUS_EDGE_MAX_ZOOM * focusOnSelectZoomAmount, referenceZoom));
-
-    // No vertical bias here — unlike a node's radial menu, the row already sits to
-    // one side of the anchor, so its bounds centered in the region is the right frame.
-    const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-    const targetPanY = regionCenterY - (centerY - canvasSize.offsetY) * tz;
-    const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
-
-    // Already essentially framed? Leave the view alone rather than yanking it.
-    const curZoom = zoomLevelRef.current;
-    const curPan = panOffsetRef.current;
-    const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
-    const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
-      && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
-    if (zoomClose && panClose) return;
-
-    animateCanvasView(finalPan, tz);
-    });
-  }, [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit, focusOnSelectZoomAmount]);
+  const focusEdgePieMenuInView = useCallback((...args) => focusEdgePieMenuInViewWith({
+    runFramingAfterCommit, textSettings, getFramingRegion, focusOnSelectZoomAmount, MIN_ZOOM, canvasSize,
+    viewportSize, zoomLevelRef, panOffsetRef, animateCanvasView,
+  }, ...args), [animateCanvasView, viewportSize, getFramingRegion, canvasSize, MIN_ZOOM, MAX_ZOOM, textSettings, runFramingAfterCommit, focusOnSelectZoomAmount]);
 
   useEffect(() => {
     const was = prevFocusPieNodeIdRef.current;
@@ -5073,197 +4532,10 @@ function NodeCanvas() {
 
   const [, drop] = useDrop(() => ({
     accept: SPAWNABLE_NODE,
-    drop: (item, monitor) => {
-      if (!activeGraphId) return;
-
-      const offset = monitor.getClientOffset();
-      if (!offset || !containerRef.current) return;
-
-      // After the guards that can abort the drop, so a spawn that doesn't land
-      // stays silent. Forced past the rate limit: react-dnd can deliver this in
-      // the same tick as other release-time feedback.
-      haptic('nodeSpawn', { force: true });
-
-      // Convert drop position to canvas coordinates
-      const { x, y } = clientToCanvasCoordinates(offset.x, offset.y);
-
-      // Handle semantic concepts that need materialization
-      if (item.needsMaterialization && item.conceptData) {
-
-        // Check if this semantic concept already exists as a prototype
-        const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
-          proto.semanticMetadata?.isSemanticNode &&
-          proto.name === item.conceptData.name &&
-          proto.semanticMetadata?.originMetadata?.source === item.conceptData.source &&
-          proto.semanticMetadata?.originMetadata?.originalUri === item.conceptData.semanticMetadata?.originalUri
-        );
-
-        let prototypeId;
-
-        if (existingPrototype) {
-          // Use existing prototype, topping up any links it predates.
-          prototypeId = existingPrototype.id;
-          const patch = backfillConceptLinks(existingPrototype, item.conceptData);
-          if (patch) {
-            storeActions.updateNodePrototype(prototypeId, (draft) => {
-              draft.externalLinks = patch.externalLinks;
-              draft.semanticMetadata = patch.semanticMetadata;
-            });
-          }
-
-        } else {
-          // Create new prototype
-          prototypeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-          // Carries the concept's own URI onto the prototype as a real
-          // externalLinks entry, not just into the semanticMetadata blob.
-          const fields = conceptToPrototypeFields(item.conceptData);
-
-          // Add the prototype to the store
-          storeActions.addNodePrototype({
-            id: prototypeId,
-            name: item.conceptData.name,
-            description: '', // No custom bio - will show origin info instead
-            color: item.conceptData.color,
-            typeNodeId: 'base-thing-prototype',
-            definitionGraphIds: [],
-            externalLinks: fields.externalLinks,
-            semanticMetadata: fields.semanticMetadata,
-            originalDescription: fields.originalDescription
-          });
-
-          // Auto-save semantic nodes to Library. // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
-          if (!useGraphStore.getState().savedNodeIds.has(prototypeId)) storeActions.toggleSavedNode(prototypeId);
-
-          // Description and picture arrive a moment later, from the article
-          // this concept already names — no second search, no guessing.
-          enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
-
-        }
-
-        // Now use the prototype ID for positioning
-        const prototype = {
-          ...item.conceptData,
-          id: prototypeId,
-          name: item.conceptData.name,
-          color: item.conceptData.color
-        };
-        const dimensions = getNodeDimensions(prototype, false, null);
-
-        // Create position
-        let position = {
-          x: x - (dimensions.currentWidth / 2),
-          y: y - (dimensions.currentHeight / 2)
-        };
-
-        // Apply grid snapping if enabled
-        if (gridMode !== 'off') {
-          const snapped = snapToGridAnimated(x, y, dimensions.currentWidth, dimensions.currentHeight, null);
-          position = { x: snapped.x, y: snapped.y };
-        }
-
-        // Add instance to the canvas
-        storeActions.addNodeInstance(activeGraphId, prototypeId, position);
-
-        // If there is exactly one node selected (focus), and the dragged concept carried a predicate,
-        // create an edge from the focused node to this new instance with provenance
-        try {
-          if (selectedInstanceIds.size === 1) {
-            const focusedInstanceId = [...selectedInstanceIds][0];
-            const newInstanceId = (() => {
-              // Find the just-created instance id at that position (closest by distance)
-              const g = useGraphStore.getState().graphs.get(activeGraphId);
-              let closestId = null, best = Infinity;
-              if (g?.instances) {
-                g.instances.forEach(inst => {
-                  if (inst.prototypeId === prototypeId) {
-                    const dx = inst.x - position.x; const dy = inst.y - position.y;
-                    const d2 = dx * dx + dy * dy;
-                    if (d2 < best) { best = d2; closestId = inst.id; }
-                  }
-                });
-              }
-              return closestId;
-            })();
-
-            if (newInstanceId) {
-              const edgeId = `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-              const predicate = item.conceptData.defaultPredicate || 'relatedTo';
-              storeActions.addEdge(activeGraphId, {
-                id: edgeId,
-                sourceId: focusedInstanceId,
-                destinationId: newInstanceId,
-                label: predicate,
-                color: '#666666',
-                provenance: {
-                  source: item.conceptData.source,
-                  uri: item.conceptData.semanticMetadata?.originalUri || null,
-                  predicate,
-                  claims: item.conceptData.relationships || [],
-                  retrieved_at: item.conceptData.discoveredAt || new Date().toISOString()
-                }
-              });
-            }
-          }
-        } catch { }
-
-        return;
-      }
-
-      // Handle regular nodes (existing logic)
-      const { prototypeId } = item;
-      if (!prototypeId) {
-
-        return;
-      }
-
-      const prototype = nodePrototypesMap.get(prototypeId);
-      if (!prototype) {
-
-        // Try to find a prototype with the same name as a fallback
-        const potentialMatches = Array.from(nodePrototypesMap.values()).filter(p =>
-          item.nodeName && p.name.toLowerCase() === item.nodeName.toLowerCase()
-        );
-
-        if (potentialMatches.length > 0) {
-
-          // Use the first match as a fallback
-          const fallbackPrototype = potentialMatches[0];
-          const dimensions = getNodeDimensions(fallbackPrototype, false, null);
-
-          let position = {
-            x: x - (dimensions.currentWidth / 2),
-            y: y - (dimensions.currentHeight / 2)
-          };
-
-          if (gridMode !== 'off') {
-            const snapped = snapToGridAnimated(x, y, dimensions.currentWidth, dimensions.currentHeight, null);
-            position = { x: snapped.x, y: snapped.y };
-          }
-
-          storeActions.addNodeInstance(activeGraphId, fallbackPrototype.id, position);
-          return;
-        }
-
-        return;
-      }
-
-      const dimensions = getNodeDimensions(prototype, false, null);
-
-      // With the new model, we ALWAYS create a new instance.
-      let position = {
-        x: x - (dimensions.currentWidth / 2),
-        y: y - (dimensions.currentHeight / 2)
-      };
-
-      // Apply smooth grid snapping when creating new nodes via drag and drop if grid is enabled
-      if (gridMode !== 'off') {
-        const snapped = snapToGridAnimated(x, y, dimensions.currentWidth, dimensions.currentHeight, null);
-        position = { x: snapped.x, y: snapped.y };
-      }
-
-      storeActions.addNodeInstance(activeGraphId, prototypeId, position);
-    },
+    drop: (item, monitor) => handleCanvasDrop({
+      activeGraphId, containerRef, clientToCanvasCoordinates, nodePrototypesMap, storeActions, gridMode,
+      snapToGridAnimated, selectedInstanceIds,
+    }, item, monitor),
   }), [activeGraphId, clientToCanvasCoordinates, nodePrototypesMap, storeActions, gridMode, snapToGridAnimated]);
 
   const setCanvasAreaRef = useCallback(node => {
@@ -6345,83 +5617,9 @@ function NodeCanvas() {
   }, [leftPanelExpanded, rightPanelExpanded, shouldPanelsBeExclusive, storeActions]);
 
   // Panel toggle and TypeList keyboard shortcuts - work even when inputs are focused
-  useEffect(() => {
-    /**
-     * Global keydown handler registered on `document` (not the SVG element).
-     *
-     * Runs even when focus is inside a text input so panel shortcuts remain
-     * available while editing node descriptions. Text-input-aware: destructive
-     * shortcuts (Delete, Backspace) are suppressed when the active element is
-     * editable. Handled keys:
-     * - **Cmd/Ctrl+F**: opens the graph search header.
-     * - **Escape**: closes search, dismisses PieMenu, clears edge-creation state.
-     * - **Delete / Backspace**: deletes the selected node(s) or edge when canvas has focus.
-     * - **Cmd/Ctrl+Z**: undo; **Cmd/Ctrl+Shift+Z** or **Cmd/Ctrl+Y**: redo.
-     * - **Tab**: cycles the right-panel tab focus.
-     *
-     * @param {KeyboardEvent} e - The keydown event.
-     */
-    const handleGlobalKeyDown = (e) => {
-      // Check for Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open Graph Search
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setHeaderSearchVisible(true);
-        return;
-      }
-
-      // Cmd/Ctrl+N: the header's + by keyboard. Deliberately not guarded on
-      // text input, same as Cmd+F above — it is a global command, not a
-      // canvas one.
-      //
-      // Browsers reserve Cmd/Ctrl+N for "new window" and never deliver the
-      // keydown here, so in a normal tab this listener simply never runs. It
-      // does run in the desktop app (which routes it through the File menu's
-      // accelerator, see electron/main.cjs) and in an installed PWA window.
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        setNewWebPrompt({ visible: true });
-        return;
-      }
-
-      // Check if focus is on a text input to prevent conflicts
-      const activeElement = document.activeElement;
-      const isTextInput = activeElement && (
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        activeElement.contentEditable === 'true' ||
-        activeElement.type === 'text' ||
-        activeElement.type === 'search' ||
-        activeElement.type === 'password' ||
-        activeElement.type === 'email' ||
-        activeElement.type === 'number'
-      );
-
-      // Only handle these specific keys if NOT in a text input
-      if (!isTextInput) {
-        if (e.key === '1') {
-          e.preventDefault();
-          handleToggleLeftPanel();
-        } else if (e.key === '2') {
-          e.preventDefault();
-          handleToggleRightPanel();
-        } else if (e.key === '3') {
-          e.preventDefault();
-
-          // Cycle TypeList mode: connection -> node -> component -> closed -> connection
-          const currentMode = useGraphStore.getState().typeListMode;
-          const newMode = currentMode === 'connection' ? 'node' :
-            currentMode === 'node' ? 'component' :
-              currentMode === 'component' ? 'closed' : 'connection';
-
-          storeActions.setTypeListMode(newMode);
-
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleGlobalKeyDown);
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [handleToggleLeftPanel, handleToggleRightPanel, storeActions]);
+  useEffect(() => listenForShellShortcuts({
+    setHeaderSearchVisible, setNewWebPrompt, handleToggleLeftPanel, handleToggleRightPanel, storeActions,
+  }), [handleToggleLeftPanel, handleToggleRightPanel, storeActions]);
 
   // Integrated keyboard handling via custom hook
   // --- Game controller -------------------------------------------------------
@@ -7803,171 +7001,15 @@ function NodeCanvas() {
   }, []);
 
   // Listen for selectNode events from the Wizard AI
-  useEffect(() => {
-    const handleSelectNode = (event) => {
-      const { instanceId, prototypeId, name } = event.detail || {};
-      if (!nodes || nodes.length === 0) return;
-
-      // Find the node by instanceId, prototypeId, or name
-      let targetNode = null;
-      if (instanceId) {
-        targetNode = nodes.find(n => n.id === instanceId);
-      }
-      if (!targetNode && prototypeId) {
-        targetNode = nodes.find(n => n.prototypeId === prototypeId);
-      }
-      if (!targetNode && name) {
-        const nameLower = name.toLowerCase();
-        targetNode = nodes.find(n => (n.name || '').toLowerCase() === nameLower);
-        if (!targetNode) {
-          // Fuzzy: find best partial match
-          targetNode = nodes.find(n => (n.name || '').toLowerCase().includes(nameLower) || nameLower.includes((n.name || '').toLowerCase()));
-        }
-      }
-
-      if (targetNode) {
-        console.log('[NodeCanvas] Selecting node from Wizard:', targetNode.name, targetNode.id);
-        // Select the node (highlight it)
-        setSelectedInstanceIds(new Set([targetNode.id]));
-        setSelectedNodeIdForPieMenu(targetNode.id);
-
-        // Navigate to focus on the node
-        window.dispatchEvent(new CustomEvent('rs-navigate-to', {
-          detail: {
-            mode: 'FOCUS_NODES',
-            nodeIds: [targetNode.id],
-            padding: 200,
-            maxZoom: 1.2
-          }
-        }));
-      } else {
-        console.warn('[NodeCanvas] Could not find node to select:', { instanceId, prototypeId, name });
-      }
-    };
-
-    window.addEventListener('rs-select-node', handleSelectNode);
-    return () => {
-      window.removeEventListener('rs-select-node', handleSelectNode);
-    };
-  }, [nodes, setSelectedInstanceIds, setSelectedNodeIdForPieMenu]);
+  useEffect(() => listenForSelectNode({
+    nodes, setSelectedInstanceIds, setSelectedNodeIdForPieMenu,
+  }), [nodes, setSelectedInstanceIds, setSelectedNodeIdForPieMenu]);
 
   // Listen for navigation events from the Wizard and other systems
-  useEffect(() => {
-    const handleNavigateTo = (event) => {
-      // Skip navigation during drag to prevent interference with drag zoom animation
-      if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) return;
-
-      const detail = event.detail || {};
-      const { mode, graphId, nodeIds, targetX, targetY, targetZoom, padding = 100, minZoom = 0.3, maxZoom: navMaxZoom = 1.5 } = detail;
-
-      // Only navigate if this is the active graph (or no graphId specified)
-      if (graphId && graphId !== activeGraphId) return;
-
-      // Handle different navigation modes
-      switch (mode) {
-        case NavigationMode.FIT_CONTENT: {
-          // Use existing back-to-civilization logic to fit all content
-          handleBackToCivilizationClick();
-          break;
-        }
-
-        case NavigationMode.FOCUS_NODES: {
-          // Navigate to focus on specific nodes
-          if (!nodeIds || nodeIds.length === 0 || !nodes || nodes.length === 0) {
-            handleBackToCivilizationClick();
-            return;
-          }
-
-          // Find the specified nodes
-          const targetNodes = nodes.filter(n => nodeIds.includes(n.id));
-          if (targetNodes.length === 0) {
-            console.warn('[CanvasNav] No matching nodes found for IDs:', nodeIds);
-            handleBackToCivilizationClick();
-            return;
-          }
-
-          // Calculate bounding box of target nodes
-          let minX = Infinity, minY = Infinity;
-          let maxX = -Infinity, maxY = -Infinity;
-
-          targetNodes.forEach(node => {
-            const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
-            minX = Math.min(minX, node.x);
-            minY = Math.min(minY, node.y);
-            maxX = Math.max(maxX, node.x + dims.currentWidth);
-            maxY = Math.max(maxY, node.y + dims.currentHeight);
-          });
-
-          // Calculate navigation parameters
-          const navParams = calculateNavigationParams(
-            { minX, minY, maxX, maxY },
-            viewportSize,
-            canvasSize,
-            { padding, minZoom, maxZoom: Math.min(navMaxZoom, MAX_ZOOM) }
-          );
-
-          // Apply navigation
-          transform.jumpTo({ x: navParams.panX, y: navParams.panY }, navParams.zoom);
-          console.log('[CanvasNav] Navigated to nodes:', { nodeIds, zoom: navParams.zoom });
-          break;
-        }
-
-        case NavigationMode.COORDINATES: {
-          // Navigate to specific coordinates
-          if (typeof targetX !== 'number' || typeof targetY !== 'number') {
-            console.warn('[CanvasNav] Invalid coordinates:', { targetX, targetY });
-            return;
-          }
-
-          const effectiveZoom = Math.max(minZoom, Math.min(targetZoom || 1, navMaxZoom, MAX_ZOOM));
-
-          // Calculate pan to center on target coordinates
-          const targetPanX = (viewportSize.width / 2) - (targetX - canvasSize.offsetX) * effectiveZoom;
-          const targetPanY = (viewportSize.height / 2) - (targetY - canvasSize.offsetY) * effectiveZoom;
-
-          // Apply bounds constraints
-          const maxPanX = 0;
-          const minPanX = viewportSize.width - canvasSize.width * effectiveZoom;
-          const maxPanY = 0;
-          const minPanY = viewportSize.height - canvasSize.height * effectiveZoom;
-
-          transform.jumpTo({
-            x: Math.min(Math.max(targetPanX, minPanX), maxPanX),
-            y: Math.min(Math.max(targetPanY, minPanY), maxPanY)
-          }, effectiveZoom);
-          console.log('[CanvasNav] Navigated to coordinates:', { x: targetX, y: targetY, zoom: effectiveZoom });
-          break;
-        }
-
-        case NavigationMode.CENTER: {
-          // Navigate to canvas center
-          const defaultZoom = 1;
-          const centerPanX = viewportSize.width / 2 - (canvasSize.width / 2) * defaultZoom;
-          const centerPanY = viewportSize.height / 2 - (canvasSize.height / 2) * defaultZoom;
-
-          const maxPanX = 0;
-          const minPanX = viewportSize.width - canvasSize.width * defaultZoom;
-          const maxPanY = 0;
-          const minPanY = viewportSize.height - canvasSize.height * defaultZoom;
-
-          transform.jumpTo({
-            x: Math.min(Math.max(centerPanX, minPanX), maxPanX),
-            y: Math.min(Math.max(centerPanY, minPanY), maxPanY)
-          }, defaultZoom);
-          console.log('[CanvasNav] Navigated to center');
-          break;
-        }
-
-        default:
-          console.warn('[CanvasNav] Unknown navigation mode:', mode);
-      }
-    };
-
-    window.addEventListener('rs-navigate-to', handleNavigateTo);
-    return () => {
-      window.removeEventListener('rs-navigate-to', handleNavigateTo);
-    };
-  }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, handleBackToCivilizationClick, MAX_ZOOM]);
+  useEffect(() => listenForNavigateTo({
+    draggingNodeInfoRef, isAnimatingZoomRef, activeGraphId, handleBackToCivilizationClick, nodes, baseDimsById,
+    viewportSize, canvasSize, transform,
+  }), [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, handleBackToCivilizationClick, MAX_ZOOM]);
 
   // Node's memo ignores function props, so a Node that hasn't re-rendered keeps
   // its first handlers (B-05: e.g. the context menu kept offering "Save" after a
