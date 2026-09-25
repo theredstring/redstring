@@ -45,7 +45,6 @@ import { LABEL_ANGLE_QUANTUM, LABEL_ANGLE_QUANTUM_MIN_COUNT, LABEL_ANGLE_QUANTUM
 import { EMPTY_ORBIT } from './components/canvas/orbit/orbitConstants.js';
 import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
-import { choosePlusSignNode } from './components/canvas/actions/plusSignSelection.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
@@ -111,7 +110,6 @@ import CanvasOverlaysHost from './components/canvas/hosts/CanvasOverlaysHost.jsx
 import { edgeHitboxHandlersFor, edgeTouchHandlersFor, commitEdgeTouchWith, resolveTouchEdgeTargetWith, edgePointerDownTouchWith, selectEdgeFromClickWith, findEdgeAtClientPointWith } from './components/canvas/input/edgeInput.js';
 import { handlePieCommandWith } from './components/canvas/pie/pieCommands.js';
 import { rebuildPieMenuDataWith } from './components/canvas/pie/pieData.js';
-import { finishPlusSignMorph, finishVideoAnimation } from './components/canvas/actions/plusSignMorph.js';
 import { useActiveGraphData } from './components/canvas/data/activeGraphData.js';
 import EmptyWebPrompt from './components/canvas/layers/EmptyWebPrompt.jsx';
 import CanvasChrome from './components/canvas/layers/CanvasChrome.jsx';
@@ -125,11 +123,10 @@ import PieMenusLayer from './components/canvas/layers/PieMenusLayer.jsx';
 import { useAutoLayoutListener } from './components/canvas/actions/autoLayoutListener.js';
 import { useBackToCivilization } from './components/canvas/data/backToCivilization.js';
 import { useTransformWiring } from './components/canvas/camera/transformWiring.js';
+import { useControllerTargets } from './components/canvas/input/controllerTargets.js';
+import { usePlusSignActions } from './components/canvas/actions/plusSign.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
-
-
-
 
 
 // A multi-node delete fires its ghosts in shuffled order, one step apart, rather
@@ -182,34 +179,6 @@ const DEFAULT_DRAG_ZOOM_SETTINGS = { enabled: true, zoomAmount: 0.45 };
 const DEFAULT_KEYBOARD_SETTINGS = { zoomSensitivity: 0.5 };
 const DEFAULT_TOUCH_SETTINGS = { zoomSensitivity: 0.7, panSensitivity: 0.5 };
 const DEFAULT_FORCE_TUNER_SETTINGS = { layoutScale: 'balanced', layoutScaleMultiplier: 1, layoutIterations: 'balanced' };
-
-// Resolves true once `src` is decoded and ready to paint without a stall, false on
-// error or if it takes longer than `timeoutMs` (the caller proceeds either way).
-const decodeThumbnail = (src, timeoutMs = 600) => {
-  const img = new Image();
-  img.src = src;
-  const decoded = (img.decode
-    ? img.decode()
-    : new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; })
-  ).then(() => true, () => false);
-  return Promise.race([decoded, new Promise(resolve => setTimeout(() => resolve(false), timeoutMs))]);
-};
-
-// Resolves with a prototype's imageCache entry once its fetch lands, or null if the
-// fetch fails or `timeoutMs` passes first.
-const waitForCachedImage = (protoId, timeoutMs) => new Promise((resolve) => {
-  const existing = useImageCache.getState().images[protoId];
-  if (existing) { resolve(existing); return; }
-  let timer = null;
-  const unsubscribe = useImageCache.subscribe((state) => {
-    const entry = state.images[protoId];
-    if (!entry && !state.failed[protoId]) return;
-    clearTimeout(timer);
-    unsubscribe();
-    resolve(entry || null);
-  });
-  timer = setTimeout(() => { unsubscribe(); resolve(null); }, timeoutMs);
-});
 
 function NodeCanvas() {
   // ORBIT DIM — the scrim behind the orbit overlay. Set false to drop it
@@ -3076,86 +3045,17 @@ function NodeCanvas() {
   });
 
 
-  const handlePlusSignClick = () => {
-    if (!plusSign) return;
-    if (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
+  const keysPressed = useKeyboardShortcuts();
 
-    // Special Y-key video animation mode (session-only)
-    if (keysPressed.current['y']) {
-      // Store position and trigger video animation
-      setVideoAnimation({ x: plusSign.x, y: plusSign.y, active: true });
-      setPlusSign(null); // Immediately remove plus sign
-      return;
-    }
-
-    setNodeNamePrompt({ visible: true, name: '' });
-  };
-
-  const handleNodeSelection = (nodePrototype) => choosePlusSignNode(nodePrototype, {
-    activeGraphId, decodeThumbnail, getPlusSignMorphNode, nodePrototypesMap, plusSign, setNodeNamePrompt,
-    setPlusSign, waitForCachedImage,
+  const {
+    handlePlusSignClick, handleNodeSelection, getPlusSignMorphTarget, handleMorphDone,
+    handleVideoAnimationComplete,
+  } = usePlusSignActions({
+    activeGraphId, gridMode, keysPressed, nodePrototypesMap, plusSign,
+    setNodeNamePrompt, setPlusSign, setVideoAnimation, snapToGridAnimated, storeActions,
+    videoAnimation, visibleNodeIds,
   });
 
-  // The node the morph is turning into, shaped the way the `nodes` memo will hydrate
-  // it — including its image. A name-only stand-in sizes the morph (and the final
-  // placement) as a text node, so an image node snaps to its real height on landing.
-  const getPlusSignMorphNode = (ps) => {
-    const proto = ps.selectedPrototype
-      ? (nodePrototypesMap.get(ps.selectedPrototype.id) || ps.selectedPrototype)
-      : null;
-    if (!proto) return { name: ps.tempName };
-    // Mirrors the image resolution in the `nodes` memo. Read live, not from the
-    // render-time imageCacheMap: the fetch in handleNodeSelection can land after
-    // the render whose closures the morph callbacks captured.
-    const cached = useImageCache.getState().images[proto.id];
-    const thumbnailSrc = (cached && !proto.thumbnailSrc) ? cached.thumbnailSrc : (proto.thumbnailSrc || null);
-    const imageAspectRatio = (cached && !proto.thumbnailSrc)
-      ? cached.imageAspectRatio
-      : (proto.imageAspectRatio ?? proto.semanticMetadata?.imageAspectRatio);
-    return { name: proto.name, thumbnailSrc, imageAspectRatio };
-  };
-
-  // Where the morph ends: the node's full dims and the canvas point its center
-  // lands on. With the grid on that's the snapped vertex, and the PlusSign glides
-  // there DURING the morph — placing the node at the snap afterwards made it
-  // teleport from the plus position to the grid on landing.
-  const getPlusSignMorphTarget = (ps) => {
-    const morphNode = getPlusSignMorphNode(ps);
-    const dims = getNodeDimensions(morphNode, false, null);
-    let center = { x: ps.x, y: ps.y };
-    if (gridMode !== 'off') {
-      const snapped = snapToGridAnimated(ps.x, ps.y, dims.currentWidth, dims.currentHeight, null);
-      center = { x: snapped.x + dims.currentWidth / 2, y: snapped.y + dims.currentHeight / 2 };
-    }
-    return { morphNode, dims, center };
-  };
-
-  // After the morph, the PlusSign holds its last frame ('landed') until the new
-  // instance is actually in the visible set. Culling admits it a frame or two after
-  // the store commit (effect → rAF → setVisibleNodeIds), and dropping the PlusSign
-  // in the same commit as the add left that gap empty — a one-frame flash.
-  // Layout effect so the swap lands in a single paint.
-  const landedInstanceId = plusSign?.mode === 'landed' ? plusSign.landedInstanceId : null;
-  useLayoutEffect(() => {
-    if (!landedInstanceId) return;
-    if (visibleNodeIds.has(landedInstanceId)) {
-      setPlusSign(null);
-      return;
-    }
-    // Safety net: never leave the placeholder stranded if the node doesn't show up.
-    const t = setTimeout(() => setPlusSign(ps => (ps?.landedInstanceId === landedInstanceId ? null : ps)), 500);
-    return () => clearTimeout(t);
-  }, [landedInstanceId, visibleNodeIds]);
-
-  const handleMorphDone = (...args) => finishPlusSignMorph({
-    plusSign, activeGraphId, getPlusSignMorphTarget, storeActions, setPlusSign,
-  }, ...args);
-
-  const handleVideoAnimationComplete = (...args) => finishVideoAnimation({
-    videoAnimation, activeGraphId, gridMode, snapToGridAnimated, storeActions, setVideoAnimation,
-  }, ...args);
-
-  const keysPressed = useKeyboardShortcuts();
 
   // Effect to mark component as mounted
   useEffect(() => {
@@ -3223,171 +3123,19 @@ function NodeCanvas() {
   edgeAnchorAngleRef.current = selectedEdgeMidpoint?.angle ?? 0;
   const findEdgeAtClientPointRef = useRef(null);
   findEdgeAtClientPointRef.current = findEdgeAtClientPoint;
-  // A connection's endpoint orbs, as the controller sees them: what the
-  // crosshair is standing on, and the one thing A does with it.
-  //
-  // Orbs only exist while their connection is hovered or selected, so this is
-  // empty almost all of the time — which is what keeps a target this large from
-  // shadowing the nodes it sits against. The padding is 1 (the disc as drawn):
-  // the crosshair is a cursor, not a finger, and it has the auto-aim drift
-  // pulling the orb under it besides.
-  const connectionOrbControlRef = useRef(null);
-  connectionOrbControlRef.current = {
-    findAt: (clientX, clientY) => findConnectionOrbAtPoint(clientX, clientY, 1),
-    toggle: (orb) => toggleConnectionOrbArrow(orb),
-  };
-  // The plus sign, as the controller sees it: where it is, how big its target
-  // is, and the three things A and B can do to it. Bundled into one ref rather
-  // than five because they are only ever used together, and because the hook
-  // needs the CURRENT sign each frame — a captured value would go stale the
-  // moment the sign appeared.
-  const plusSignControlRef = useRef(null);
-  plusSignControlRef.current = {
-    // Only a settled plus sign is a target. One that is animating away, or
-    // morphing into a node, is already committed to an outcome.
-    sign: plusSign && plusSign.mode === 'appear' ? plusSign : null,
-    // Half-extent of the hit square, in canvas units. Mirrors the invisible
-    // rect PlusSign draws for touch (max(44, size)), so the controller's target
-    // is the same size as everyone else's.
-    halfHit: Math.max(44, PLUS_SIGN_SIZE * (textSettings?.plusSignScale ?? 1.0)) / 2,
-    create: (clientX, clientY) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-      setPlusSign({ x, y, mode: 'appear', tempName: '' });
-    },
-    activate: () => handlePlusSignClick(),
-    dismiss: () => {
-      // Same guard the canvas click path uses: a morphing plus is committed.
-      if (!plusSign || plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed') return;
-      setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-    },
-  };
-
-  /**
-   * Groups, as the controller sees them: what the crosshair is over, and the
-   * three things it can do with one.
-   *
-   * A group's whole interactive surface is its title pill — that is what the
-   * mouse clicks to select, double-clicks to rename, and long-presses to drag
-   * the group by — so the pad aims at the same pill rather than at the box,
-   * which would otherwise swallow every node inside it.
-   */
-  const groupControlRef = useRef(null);
-  groupControlRef.current = {
-    /**
-     * The group whose title pill is under this point, with the pill's rect.
-     *
-     * Reads groupTitleRectsRef, which carries EVERY group — not
-     * findGroupTitleAtPoint, whose map only ever held node-group anchors and so
-     * made plain groups invisible to the pad. Deepest-first, because a nested
-     * group's pill sits on top of its parent's shell and is the one drawn over
-     * the point; findGroupTitleAtPoint's insertion-order scan would hand back
-     * the parent.
-     */
-    findAt: (clientX, clientY) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return null;
-      const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-      const depths = groupDepthByGroupIdRef.current;
-      let best = null;
-      let bestDepth = -Infinity;
-      for (const [groupId, info] of groupTitleRectsRef.current.entries()) {
-        if (canvasX < info.x || canvasX > info.x + info.width
-          || canvasY < info.y || canvasY > info.y + info.height) continue;
-        const depth = depths.get(groupId) ?? 0;
-        if (depth < bestDepth) continue;
-        bestDepth = depth;
-        best = {
-          groupId,
-          anchorInstanceId: info.anchorInstanceId,
-          // Canvas-space centre of the pill: where the auto-aim drift pulls to,
-          // the same way a node drifts to its centre.
-          center: { x: info.x + info.width / 2, y: info.y + info.height / 2 },
-        };
-      }
-      return best;
-    },
-    /**
-     * Select a group, exactly as a single click on its title does — including
-     * clearing the node and edge selections. Those clears are not tidiness:
-     * without them the Node and Connection panel effects see a stale selection
-     * and stomp selectedGroup back to null in the same flush.
-     */
-    select: (groupId) => {
-      const group = groupsByIdRef.current.get(groupId);
-      if (!group) return false;
-      setSelectedGroup(group);
-      setSelectedInstanceIds(new Set());
-      storeActions.setSelectedEdgeId(null);
-      storeActions.clearSelectedEdgeIds();
-      setGroupControlPanelShouldShow(true);
-      setNodeControlPanelShouldShow(false);
-      setNodeControlPanelVisible(false);
-      setAbstractionControlPanelVisible(false);
-      setAbstractionControlPanelShouldShow(false);
-      setConnectionControlPanelVisible(false);
-      setConnectionControlPanelShouldShow(false);
-      return true;
-    },
-    dismiss: () => setSelectedGroup(null),
-    /** Whether a group is selected right now — the pad re-derives its mode from this. */
-    selectedId: () => selectedGroup?.id ?? null,
-    startDrag: (groupId, clientX, clientY) => startGroupDragAtPointRef.current?.(groupId, clientX, clientY) === true,
-  };
-
-  /**
-   * The selection box, as the controller draws it.
-   *
-   * A mouse marquee is a pointer travelling across a still canvas. A pad's is
-   * the opposite — the crosshair is nailed to the middle of the screen and the
-   * CANVAS travels underneath it — but the rectangle itself is in canvas
-   * coordinates either way, so anchoring one corner and tracking the crosshair
-   * with the other produces the same box from the opposite motion.
-   */
-  const marqueeControlRef = useRef(null);
-  marqueeControlRef.current = {
-    begin: (clientX, clientY) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return false;
-      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-      beginMarquee(x, y);
-      return true;
-    },
-    /**
-     * Called every frame the box is live, from inside the controller's rAF
-     * tick. Same path as the mouse: the box is written to the DOM at once and
-     * the selection follows at most a frame later.
-     */
-    update: (clientX, clientY) => {
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-      updateMarquee(x, y);
-    },
-    /**
-     * Ends the box and reports how many instances it leaves selected, as
-     * endMarquee computed them.
-     */
-    end: () => endMarquee().size,
-  };
-
-  /**
-   * The canvas context menu, as the controller raises it.
-   *
-   * Declared here and FILLED IN further down, after getCanvasContextMenuOptions
-   * exists — the options are assembled from clipboard contents and feature
-   * flags that are themselves derived below this point, and the controller only
-   * ever calls through the ref from inside its own tick, long after the render
-   * that populates it.
-   */
-  const canvasContextMenuControlRef = useRef(null);
-
-  const startConnectionFromNodeRef = useRef(null);
-  startConnectionFromNodeRef.current = (instanceId, clientX, clientY) => {
-    startedOnNode.current = true;
-    return beginConnectionDrawFromNode(instanceId, clientX, clientY);
-  };
+  const {
+    connectionOrbControlRef, plusSignControlRef, groupControlRef, marqueeControlRef,
+    canvasContextMenuControlRef, startConnectionFromNodeRef,
+  } = useControllerTargets({
+    beginConnectionDrawFromNode, beginMarquee, canvasSize, containerRef, endMarquee,
+    findConnectionOrbAtPoint, groupDepthByGroupIdRef, groupTitleRectsRef, groupsByIdRef,
+    handlePlusSignClick, panOffsetRef, plusSign, selectedGroup,
+    setAbstractionControlPanelShouldShow, setAbstractionControlPanelVisible,
+    setConnectionControlPanelShouldShow, setConnectionControlPanelVisible,
+    setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible,
+    setPlusSign, setSelectedGroup, setSelectedInstanceIds, startGroupDragAtPointRef, startedOnNode,
+    storeActions, textSettings, toggleConnectionOrbArrow, updateMarquee, zoomLevelRef,
+  });
 
   const {
     gamepadTickRef,
@@ -3857,7 +3605,10 @@ function NodeCanvas() {
     setSelectedNodeIdForPieMenu, setSemanticOrbitActive, startHurtleAnimation, storeActions, targetPieMenuButtons, zoomLevelRef,
   }), [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, startHurtleAnimation, useGraphStore]);
 
-  const { backToCivilizationDelayComplete, enableClustering, clusterAnalysis, shouldShowBackToCivilization, handleBackToCivilizationClick } = useBackToCivilization({
+  const {
+    backToCivilizationDelayComplete, enableClustering, clusterAnalysis,
+    shouldShowBackToCivilization, handleBackToCivilizationClick,
+  } = useBackToCivilization({
     abstractionCarouselVisible, abstractionPrompt, activeGraphId, baseDimsById, canvasSize,
     connectionNamePrompt, containerRef, draggingNodeInfo, draggingNodeInfoRef,
     drawingConnectionFrom, hasUniverseFile, isAnimatingZoomRef, isPanning, isUniverseLoaded,
