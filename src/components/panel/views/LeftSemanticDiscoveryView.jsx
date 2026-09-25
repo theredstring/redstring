@@ -1226,8 +1226,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         originalDescription: fields.originalDescription
       });
 
-      // Auto-save semantic nodes to Library
-      storeActions?.toggleSavedNode(newNodeId);
+      // Auto-save semantic nodes to Library. // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
+      if (!useGraphStore.getState().savedNodeIds.has(newNodeId)) storeActions?.toggleSavedNode(newNodeId);
 
       // Fill in the description and picture from the article this concept
       // already names. Fire and forget so the node appears immediately.

@@ -58,7 +58,6 @@ import apiKeyManager from './services/apiKeyManager.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
-  getHydratedNodesForGraph, // New selector
   TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
 import useCanvasUIStore from './store/canvasUIStore.js';
@@ -69,6 +68,12 @@ import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
+import { placeOrbitCandidate } from './components/canvas/orbit/orbitActions.js';
+import { startHurtle } from './components/canvas/camera/hurtle.js';
+import { backToCivilization } from './components/canvas/camera/backToCivilization.js';
+import { convertNodeToNodeGroup } from './components/canvas/actions/nodeGroupConversion.js';
+import { computeCleanLaneOffsets } from './utils/canvas/cleanLaneOffsets.js';
+import { submitAbstraction } from './components/canvas/actions/abstractionSubmit.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
@@ -128,7 +133,7 @@ import {
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import PanelResizers from './components/canvas/PanelResizers.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
-import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
+import { DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
   buildWizardConnectionPrompt,
   buildWizardNodeDefinitionPrompt,
@@ -185,8 +190,6 @@ import { useCanvasTransform } from './hooks/useCanvasTransform';
 import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
-import { interpolateColor } from './utils/canvas/colorUtils.js';
-import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
@@ -200,7 +203,7 @@ import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantize
 import { likelyTouch } from './utils/inputDeviceAnalysis';
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
-import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
+import { conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
 import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
@@ -3643,126 +3646,10 @@ function NodeCanvas() {
 
   // Port-based routing with intelligent edge distribution - inspired by circuit board routing
   const prevCleanLaneOffsetsRef = useRef(new Map());
-  const cleanLaneOffsets = useMemo(() => {
-    const portAssignments = new Map(); // edgeId -> { sourcePort, destPort }
-    // PERF: Skip expensive port assignment during drag — reuse cached result
-    if (draggingNodeInfo) return prevCleanLaneOffsetsRef.current || portAssignments;
-    // NOTE: iterate ALL edges (not visibleEdges) so port stagger indices stay
-    // stable as the visible set changes during pan/zoom. Otherwise, when a
-    // neighboring edge pops in/out of visibility at high zoom, the stagger
-    // length shifts and the still-visible edge jumps to a new lane = flicker.
-    if (!enableAutoRouting || routingStyle !== 'clean' || !edges?.length) return portAssignments;
-
-    try {
-      // Step 1: Group edges by node pairs and assign ports intelligently
-      const nodePortUsage = new Map(); // nodeId -> { top: [], bottom: [], left: [], right: [] }
-
-      // Initialize port usage tracking for all nodes
-      for (const node of nodes) {
-        nodePortUsage.set(node.id, { top: [], bottom: [], left: [], right: [] });
-      }
-
-      // Step 2: Pick a side for each edge end, and only then stagger along it.
-      //
-      // Two passes, not one. Fitting a fan onto a side needs to know how many
-      // edges will end up on it, and that isn't known until every edge has
-      // chosen its sides — a single pass can only see the edges before it. The
-      // old one-pass version handled the overflow by wrapping the port index
-      // modulo the lane count, which is exactly how several connections between
-      // the same pair of nodes ended up sharing one port and drawing as one
-      // line.
-      const sideChoices = [];
-      for (const edge of edges) {
-        const sRaw = nodeById.get(edge.sourceId);
-        const dRaw = nodeById.get(edge.destinationId);
-        if (!sRaw || !dRaw) continue;
-
-        const sDimsRaw = baseDimsById.get(sRaw.id);
-        const dDimsRaw = baseDimsById.get(dRaw.id);
-        if (!sDimsRaw || !dDimsRaw) continue;
-
-        // Ports go on the box the connection actually meets — the title pill
-        // for a group anchor. See anchorGeometryFor.
-        const { node: s, dims: sDims } = anchorGeometryFor(sRaw, sDimsRaw);
-        const { node: d, dims: dDims } = anchorGeometryFor(dRaw, dDimsRaw);
-
-        // Calculate node centers
-        const sCenterX = s.x + sDims.currentWidth / 2;
-        const sCenterY = s.y + sDims.currentHeight / 2;
-        const dCenterX = d.x + dDims.currentWidth / 2;
-        const dCenterY = d.y + dDims.currentHeight / 2;
-
-        // Determine optimal ports based on relative position - favor left/right sides
-        const deltaX = dCenterX - sCenterX;
-        const deltaY = dCenterY - sCenterY;
-
-        let sourceSide, destSide;
-
-        // Bias toward left/right sides (where text is) unless the connection is strongly vertical
-        const isStronglyVertical = Math.abs(deltaY) > Math.abs(deltaX) * 1.5; // 1.5x bias toward horizontal
-
-        if (isStronglyVertical) {
-          // Strong vertical connection - use top/bottom
-          sourceSide = deltaY > 0 ? 'bottom' : 'top';
-          destSide = deltaY > 0 ? 'top' : 'bottom';
-        } else {
-          // Horizontal or diagonal - prefer left/right sides
-          sourceSide = deltaX > 0 ? 'right' : 'left';
-          destSide = deltaX > 0 ? 'left' : 'right';
-        }
-
-        // Calculate port positions on the non-rounded edge segments.
-        //
-        // Take the radius from each node's OWN dimensions. Recomputing it from
-        // the global slider (as this used to) was wrong twice over: it dropped
-        // the 1.4 geometry factor that getNodeDimensions applies, and it ignored
-        // per-instance sizeMul entirely — so an independently-resized node
-        // reported a 40px corner while actually drawing a ~112px one, and its
-        // ports landed inside the rounded corner where the connection visibly
-        // detaches from the node outline.
-        const sCornerRadius = sDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
-        const dCornerRadius = dDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
-
-        // Claim a slot on each side; the fan gets sized in pass two.
-        const sourceUsage = nodePortUsage.get(s.id)[sourceSide];
-        const destUsage = nodePortUsage.get(d.id)[destSide];
-        const sourceIndex = sourceUsage.length;
-        const destIndex = destUsage.length;
-        sourceUsage.push(edge.id);
-        destUsage.push(edge.id);
-
-        sideChoices.push({
-          edgeId: edge.id, s, d, sDims, dDims, sCornerRadius, dCornerRadius,
-          sourceSide, destSide, sourceIndex, destIndex, sourceUsage, destUsage,
-        });
-      }
-
-      // Pass two: stagger, now that every side knows its full occupancy.
-      for (const c of sideChoices) {
-        const sourcePortPos = getPortPosition(c.s, c.sDims, c.sourceSide, c.sCornerRadius);
-        const destPortPos = getPortPosition(c.d, c.dDims, c.destSide, c.dCornerRadius);
-
-        portAssignments.set(c.edgeId, {
-          sourcePort: calculateStaggeredPosition(
-            sourcePortPos, c.sourceSide, c.sourceIndex, c.sDims, c.sCornerRadius,
-            cleanLaneSpacing, c.sourceUsage.length
-          ),
-          destPort: calculateStaggeredPosition(
-            destPortPos, c.destSide, c.destIndex, c.dDims, c.dCornerRadius,
-            cleanLaneSpacing, c.destUsage.length
-          ),
-          sourceSide: c.sourceSide,
-          destSide: c.destSide,
-        });
-      }
-
-      prevCleanLaneOffsetsRef.current = portAssignments;
-      return portAssignments;
-    } catch (error) {
-
-      return new Map();
-    }
-  }, [enableAutoRouting, routingStyle, edges, nodeById, baseDimsById, nodes, draggingNodeInfo, anchorGeometryFor]);
+  const cleanLaneOffsets = useMemo(() => computeCleanLaneOffsets({
+    anchorGeometryFor, baseDimsById, cleanLaneSpacing, draggingNodeInfo, edges, enableAutoRouting,
+    nodeById, nodes, prevCleanLaneOffsetsRef, routingStyle, textSettings,
+  }), [enableAutoRouting, routingStyle, edges, nodeById, baseDimsById, nodes, draggingNodeInfo, anchorGeometryFor]);
 
   // Mirror the port assignments into a ref for the DOM-bypass drag updater.
   useEffect(() => { cleanLaneOffsetsRef.current = cleanLaneOffsets; }, [cleanLaneOffsets]);
@@ -6162,165 +6049,10 @@ function NodeCanvas() {
   }, [activeGraphId, selectedGroup]);
 
   // Handler to convert a node instance to a node group
-  const handleNodeConvertToNodeGroup = useCallback((instanceId, prototypeId, definitionGraphId) => {
-    if (!activeGraphId) return;
-
-    // Get the node instance data
-    const graphData = graphsMap.get(activeGraphId);
-    if (!graphData) return;
-
-    const instanceData = graphData.instances?.get(instanceId);
-    if (!instanceData) return;
-
-    // Get the node prototype data
-    const prototypeData = nodePrototypesMap.get(prototypeId);
-    if (!prototypeData) return;
-
-    // Get the definition graph
-    const defGraph = graphsMap.get(definitionGraphId);
-    if (!defGraph) {
-      console.error('[Convert Node to Node-Group] Definition graph not found:', definitionGraphId);
-      return;
-    }
-
-    console.log(`[Convert Node to Node-Group] Converting node ${instanceId} (${prototypeData.name}) to node-group with definition ${definitionGraphId}`);
-
-    // Copy all instances from the definition graph to the active graph
-    const instanceIdMap = new Map(); // Maps old instance IDs to new instance IDs
-    const newInstanceIds = [];
-    let createdGroupId = null;
-
-    // One gesture, one undo step. Without the transaction these calls split into
-    // several entries, and ensureGroupAnchor (a repair-typed, non-recordable
-    // action outside a transaction) dropped out entirely — so undoing a convert
-    // left a group with no anchor behind.
-    storeActions.withHistoryTransaction('Converted to node-group', () => {
-
-    // Calculate offset to position the copied network at the original node's position
-    let offsetX = instanceData.x;
-    let offsetY = instanceData.y;
-
-    // Find the center or top-left of the definition graph to use as reference
-    if (defGraph.instances && defGraph.instances.size > 0) {
-      const defInstances = Array.from(defGraph.instances.values());
-      const minX = Math.min(...defInstances.map(inst => inst.x));
-      const minY = Math.min(...defInstances.map(inst => inst.y));
-      offsetX = instanceData.x - minX;
-      offsetY = instanceData.y - minY;
-    }
-
-    // Copy instances
-    if (defGraph.instances) {
-      defGraph.instances.forEach((defInstance, defInstanceId) => {
-        const newInstanceId = uuidv4();
-        instanceIdMap.set(defInstanceId, newInstanceId);
-        newInstanceIds.push(newInstanceId);
-
-        // Create the instance in the active graph
-        storeActions.addNodeInstance(
-          activeGraphId,
-          defInstance.prototypeId,
-          { x: defInstance.x + offsetX, y: defInstance.y + offsetY },
-          newInstanceId
-        );
-      });
-    }
-
-    // Copy edges between instances
-    if (defGraph.edgeIds) {
-      defGraph.edgeIds.forEach(edgeId => {
-        const edge = edgesMap.get(edgeId);
-        if (!edge) return;
-
-        const newSourceId = instanceIdMap.get(edge.sourceId);
-        const newDestId = instanceIdMap.get(edge.destinationId);
-
-        // Only copy edges where both endpoints were copied
-        if (newSourceId && newDestId) {
-          // Remap arrowsToward IDs
-          const directionality = edge.directionality || {};
-          const arrowsToward = directionality.arrowsToward || new Set();
-          const newArrowsToward = new Set();
-          arrowsToward.forEach(oldId => {
-            const newId = instanceIdMap.get(oldId);
-            if (newId) newArrowsToward.add(newId);
-          });
-
-          const clonedEdgeId = uuidv4();
-          storeActions.addEdge(
-            activeGraphId,
-            {
-              id: clonedEdgeId,
-              sourceId: newSourceId,
-              destinationId: newDestId,
-              connectionName: edge.connectionName,
-              graphId: activeGraphId,
-              color: edge.color,
-              typeNodeId: edge.typeNodeId,
-              definitionNodeIds: edge.definitionNodeIds ? [...edge.definitionNodeIds] : [],
-              directionality: {
-                type: directionality.type || 'none',
-                arrowsToward: newArrowsToward
-              },
-              metadata: edge.metadata ? { ...edge.metadata } : {}
-            }
-          );
-        }
-      });
-    }
-
-    // Create a new node-group with all the copied instances
-    createdGroupId = storeActions.createGroup(activeGraphId, {
-      name: prototypeData.name,
-      color: prototypeData.color || '#8B0000',
-      memberInstanceIds: newInstanceIds
-    });
-
-    if (!createdGroupId) {
-      console.error('[Convert Node to Node-Group] Failed to create group');
-      return;
-    }
-
-    // Update the group with position and linked prototype
-    storeActions.updateGroup(activeGraphId, createdGroupId, (group) => {
-      group.x = instanceData.x;
-      group.y = instanceData.y;
-      group.linkedNodePrototypeId = prototypeId;
-    });
-
-    // Reuse the original node instance as the group's anchor instead of deleting it.
-    // This keeps the group a usable connection target AND preserves every pre-existing
-    // edge to/from the original node (deleting it would take those edges with it).
-    storeActions.ensureGroupAnchor(activeGraphId, createdGroupId, { preferredAnchorInstanceId: instanceId });
-
-    // A no-op on the group itself — they're already members — but now that it is
-    // anchored on the original instance, this resolves the groups that instance
-    // was inside and pushes the new members up to them. Without it a node
-    // converted inside another group is born un-nested and paints beneath it.
-    storeActions.addInstancesToGroup(activeGraphId, createdGroupId, newInstanceIds);
-    });
-
-    if (!createdGroupId) return;
-
-    // Get the updated group data from store
-    const currentState = useGraphStore.getState();
-    const graph = currentState.graphs?.get(activeGraphId);
-    const newGroup = graph?.groups?.get(createdGroupId);
-
-    if (newGroup) {
-      // Select the new group
-      setSelectedGroup(newGroup);
-
-      // Clear node selection and show group control panel
-      setSelectedInstanceIds(new Set());
-      setPreviewingNodeId(null);
-      setGroupControlPanelShouldShow(true);
-      setNodeControlPanelShouldShow(false);
-      setNodeControlPanelVisible(false);
-
-      console.log(`[Convert Node to Node-Group] Created node-group ${createdGroupId} with ${newInstanceIds.length} instances at position (${instanceData.x}, ${instanceData.y})`);
-    }
-  }, [activeGraphId, graphsMap, edgesMap, nodePrototypesMap, storeActions, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
+  const handleNodeConvertToNodeGroup = useCallback((instanceId, prototypeId, definitionGraphId) => convertNodeToNodeGroup(instanceId, prototypeId, definitionGraphId, {
+    activeGraphId, edgesMap, graphsMap, nodePrototypesMap, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, storeActions,
+  }), [activeGraphId, graphsMap, edgesMap, nodePrototypesMap, storeActions, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
 
   // Handle abstraction control panel callbacks
   const handleAbstractionDimensionChange = useCallback((newDimension) => {
@@ -6419,8 +6151,8 @@ function NodeCanvas() {
             originalDescription: fields.originalDescription
           });
 
-          // Auto-save semantic nodes to Library
-          storeActions.toggleSavedNode(prototypeId);
+          // Auto-save semantic nodes to Library. // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
+          if (!useGraphStore.getState().savedNodeIds.has(prototypeId)) storeActions.toggleSavedNode(prototypeId);
 
           // Description and picture arrive a moment later, from the article
           // this concept already names — no second search, no guessing.
@@ -8962,151 +8694,10 @@ function NodeCanvas() {
     setDialogColorPickerVisible(false); // Close color picker when closing prompt
   };
 
-  const handleAbstractionSubmit = ({ name, color, existingPrototypeId }) => {
-
-    if (name.trim() && abstractionPrompt.nodeId && abstractionCarouselNode) {
-      // The nodeId could be either a canvas instance ID or a prototype ID (from focused carousel node)
-      let currentlySelectedNode = nodes.find(n => n.id === abstractionPrompt.nodeId);
-      let targetPrototypeId = null;
-
-      if (currentlySelectedNode) {
-        // Found canvas instance - use its prototype ID
-        targetPrototypeId = currentlySelectedNode.prototypeId;
-        console.log(`[Abstraction Submit] Found canvas instance node:`, {
-          id: currentlySelectedNode.id,
-          name: currentlySelectedNode.name,
-          prototypeId: currentlySelectedNode.prototypeId
-        });
-      } else {
-        // Not found as canvas instance - might be a prototype ID from focused carousel node
-        const nodePrototype = nodePrototypesMap.get(abstractionPrompt.nodeId);
-        if (nodePrototype) {
-          targetPrototypeId = abstractionPrompt.nodeId;
-          // Create a mock node object for the rest of the function
-          currentlySelectedNode = {
-            id: nodePrototype.id,
-            name: nodePrototype.name,
-            prototypeId: nodePrototype.id,
-            color: nodePrototype.color
-          };
-          console.log(`[Abstraction Submit] Found prototype node:`, {
-            id: nodePrototype.id,
-            name: nodePrototype.name,
-            prototypeId: nodePrototype.id
-          });
-        }
-      }
-
-      console.log(`[Abstraction Submit] RESOLVED NODE INFO:`, {
-        promptNodeId: abstractionPrompt.nodeId,
-        foundNodeId: currentlySelectedNode?.id,
-        foundNodeName: currentlySelectedNode?.name,
-        targetPrototypeId: targetPrototypeId,
-        carouselNodeId: abstractionCarouselNode.id,
-        carouselNodeProtoId: abstractionCarouselNode.prototypeId,
-        direction: abstractionPrompt.direction
-      });
-
-      if (!currentlySelectedNode || !targetPrototypeId) {
-
-        return;
-      }
-
-      // Resolve the chain owner EXACTLY the way the carousel does, anchored on the
-      // carousel's own node (abstractionCarouselNode), NOT the focused node. The
-      // carousel displays the anchor's chain: its own chain if it owns one, else
-      // the chain that contains the anchor. If we instead searched by the focused
-      // node's prototype (as before), it could match a *different*, pre-existing
-      // axis chain that happens to contain that prototype — so the add would land
-      // in an axis you're not looking at and never appear in the open carousel.
-      // We still insert relative to the focused node (targetPrototypeId) within
-      // that resolved chain.
-      //
-      // Resolution goes through the shared helper so it cannot drift from what the
-      // carousel drew. A plain "does the anchor own a chain?" test no longer answers
-      // this: every node carries a seeded chain, so that test is always true, and the
-      // ladder the anchor is actually a rung of would never be found. The add would then
-      // splice this ladder's rungs into the anchor's trivial chain and leave two
-      // competing chains over the same nodes.
-      const currentStateForChain = useGraphStore.getState();
-      const allPrototypes = currentStateForChain.nodePrototypes;
-      const anchorPrototypeId = abstractionCarouselNode.prototypeId;
-      let chainOwnerPrototypeId = anchorPrototypeId;
-      try {
-        chainOwnerPrototypeId = resolveChain(
-          anchorPrototypeId,
-          currentAbstractionDimension,
-          allPrototypes.values()
-        ).ownerId;
-      } catch (_) {
-        // Fall back to the carousel node as owner
-      }
-
-      // Determine the node to insert into the chain: existing or new.
-      // Wrapped so creating the prototype and wiring it into the chain are one
-      // undo step — previously only the prototype was recorded, so undo left an
-      // orphan prototype with the chain untouched (and recorded nothing at all
-      // when an existing prototype was chosen).
-      let newNodeId = existingPrototypeId;
-      storeActions.withHistoryTransaction('Added abstraction layer', () => {
-      if (!newNodeId) {
-        // Create new node with color gradient
-        let newNodeColor = color;
-        if (!newNodeColor) {
-          const isAbove = abstractionPrompt.direction === 'above';
-          const abstractionLevel = isAbove ? 0.3 : -0.2;
-          const targetColor = isAbove ? '#EFE8E5' : '#000000';
-          newNodeColor = interpolateColor(currentlySelectedNode.color || '#8B0000', targetColor, Math.abs(abstractionLevel));
-        }
-
-        // Create the new node prototype
-        storeActions.addNodePrototype({
-          id: (newNodeId = uuidv4()),
-          name: name.trim(),
-          color: newNodeColor,
-          typeNodeId: 'base-thing-prototype',
-          definitionGraphIds: []
-        });
-      } else {
-
-      }
-
-      // Add to the abstraction chain relative to the currently selected/focused node
-      // Use the resolved chain owner rather than always the carousel node
-      console.log(`[Abstraction Submit] About to call addToAbstractionChain with:`, {
-        chainOwnerNodeId: chainOwnerPrototypeId,
-        dimension: currentAbstractionDimension,
-        direction: abstractionPrompt.direction,
-        newNodeId: newNodeId,
-        insertRelativeToNodeId: currentlySelectedNode.prototypeId
-      });
-
-      storeActions.addToAbstractionChain(
-        chainOwnerPrototypeId,                   // the node whose chain we're modifying (actual chain owner)
-        currentAbstractionDimension,            // dimension (Physical, Conceptual, etc.)
-        abstractionPrompt.direction,            // 'above' or 'below'
-        newNodeId,                              // the node to add (existing or newly created)
-        targetPrototypeId                       // insert relative to this node (focused node in carousel)
-      );
-      });
-
-      // Close the abstraction prompt and keep the carousel visible.
-      setAbstractionPrompt({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
-      setAbstractionCarouselVisible(true); // Ensure carousel stays visible
-
-      // Move the carousel focus to the layer we just added so the user sees it,
-      // then drop straight back to stage 1 (the main Swap/Add/Delete/Expand menu)
-      // — like the plus button cycles you in and right back out after each add.
-      setCarouselFocusPrototypeRequest(newNodeId);
-      setCarouselPieMenuStage(1);
-      setIsCarouselStageTransition(false);
-
-      // Ensure the carousel node is still selected for pie menu
-      if (abstractionCarouselNode) {
-        setSelectedNodeIdForPieMenu(abstractionCarouselNode.id);
-      }
-    }
-  };
+  const handleAbstractionSubmit = (a0) => submitAbstraction(a0, {
+    abstractionCarouselNode, abstractionPrompt, currentAbstractionDimension, nodePrototypesMap, nodes, setAbstractionCarouselVisible,
+    setAbstractionPrompt, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage, setIsCarouselStageTransition, setSelectedNodeIdForPieMenu, storeActions,
+  });
 
   const handleNodeSelection = (nodePrototype) => {
     if (!plusSign || !activeGraphId) return;
@@ -10112,135 +9703,10 @@ function NodeCanvas() {
    * which are not necessarily the orbit item's, since the prototype may carry a
    * type or definitions the orbit preview did not.
    */
-  const handleOrbitItemClick = useCallback((candidate, centerX, centerY, dims) => {
-    if (!activeGraphId || !candidate) return;
-
-    // Convert candidate to concept data
-    const conceptData = candidateToConcept(candidate);
-
-    // --- 1. Create or reuse node prototype ---
-    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
-      proto.semanticMetadata?.isSemanticNode &&
-      proto.name === conceptData.name &&
-      proto.semanticMetadata?.originMetadata?.source === conceptData.source &&
-      proto.semanticMetadata?.originMetadata?.originalUri === conceptData.semanticMetadata?.originalUri
-    );
-
-    let prototypeId;
-    if (existingPrototype) {
-      prototypeId = existingPrototype.id;
-      const patch = backfillConceptLinks(existingPrototype, conceptData);
-      if (patch) {
-        storeActions.updateNodePrototype(prototypeId, (draft) => {
-          draft.externalLinks = patch.externalLinks;
-          draft.semanticMetadata = patch.semanticMetadata;
-        });
-      }
-    } else {
-      prototypeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-      const fields = conceptToPrototypeFields(conceptData);
-
-      storeActions.addNodePrototype({
-        id: prototypeId,
-        name: conceptData.name,
-        description: '',
-        color: conceptData.color,
-        typeNodeId: 'base-thing-prototype',
-        definitionGraphIds: [],
-        externalLinks: fields.externalLinks,
-        semanticMetadata: fields.semanticMetadata
-      });
-
-      storeActions.toggleSavedNode(prototypeId);
-      enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
-    }
-
-    // --- 2. Calculate position (centre → top-left) ---
-    const prototype = nodePrototypesMap.get(prototypeId) || { id: prototypeId, name: conceptData.name, color: conceptData.color };
-    const nodeDims = getNodeDimensions(prototype, false, null);
-
-    // snapToGrid takes a CENTRE and returns a top-left, same as the branch
-    // below — so both paths are fed the centre, and neither offsets it twice.
-    const position = gridMode !== 'off'
-      ? snapToGridAnimated(centerX, centerY, nodeDims.currentWidth, nodeDims.currentHeight, null)
-      : { x: centerX - nodeDims.currentWidth / 2, y: centerY - nodeDims.currentHeight / 2 };
-
-    // --- 3. Place instance ---
-    storeActions.addNodeInstance(activeGraphId, prototypeId, position);
-
-    // --- 4. Create edge with predicate and connection definition node ---
-    try {
-      if (selectedInstanceIds.size >= 1) {
-        const focusedInstanceId = [...selectedInstanceIds][0];
-
-        // Find the just-created instance
-        const freshState = useGraphStore.getState();
-        const g = freshState.graphs.get(activeGraphId);
-        let newInstanceId = null;
-        let best = Infinity;
-        if (g?.instances) {
-          g.instances.forEach(inst => {
-            if (inst.prototypeId === prototypeId) {
-              const dx = inst.x - position.x;
-              const dy = inst.y - position.y;
-              const d2 = dx * dx + dy * dy;
-              if (d2 < best) { best = d2; newInstanceId = inst.id; }
-            }
-          });
-        }
-
-        if (newInstanceId) {
-          const rawPredicate = conceptData.defaultPredicate || candidate.predicate || 'relatedTo';
-          const predicateLabel = formatPredicate(rawPredicate);
-
-          // Find or create a connection definition node prototype by predicate name
-          let connectionProtoId = null;
-          freshState.nodePrototypes.forEach((proto, pid) => {
-            if (proto.name?.toLowerCase() === predicateLabel.toLowerCase()) {
-              connectionProtoId = pid;
-            }
-          });
-
-          if (!connectionProtoId) {
-            connectionProtoId = `proto-conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            storeActions.addNodePrototype({
-              id: connectionProtoId,
-              name: predicateLabel,
-              description: `Defines the "${predicateLabel}" relationship`,
-              color: candidate.color || '#666666',
-              typeNodeId: null,
-              definitionGraphIds: []
-            });
-            storeActions.toggleSavedNode(connectionProtoId);
-          }
-
-          const edgeId = `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-          storeActions.addEdge(activeGraphId, {
-            id: edgeId,
-            sourceId: focusedInstanceId,
-            destinationId: newInstanceId,
-            name: predicateLabel,
-            type: predicateLabel,
-            typeNodeId: 'base-connection-prototype',
-            definitionNodeIds: [connectionProtoId],
-            directionality: { arrowsToward: new Set([newInstanceId]) },
-            provenance: {
-              source: conceptData.source,
-              uri: conceptData.semanticMetadata?.originalUri || null,
-              predicate: rawPredicate,
-              retrieved_at: conceptData.discoveredAt || new Date().toISOString()
-            }
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[handleOrbitItemClick] Edge creation failed:', err);
-    }
-
-    // --- 5. Exit orbit mode ---
-    exitOrbitMode();
-  }, [activeGraphId, nodePrototypesMap, selectedInstanceIds, storeActions, gridMode, snapToGridAnimated, exitOrbitMode]);
+  const handleOrbitItemClick = useCallback((candidate, centerX, centerY, dims) => placeOrbitCandidate(candidate, centerX, centerY, dims, {
+    activeGraphId, exitOrbitMode, gridMode, nodePrototypesMap, selectedInstanceIds, snapToGridAnimated,
+    storeActions,
+  }), [activeGraphId, nodePrototypesMap, selectedInstanceIds, storeActions, gridMode, snapToGridAnimated, exitOrbitMode]);
 
   // --- Hurtle ---
   // The orb's flight runs in <HurtleOrb> (P1.06, F-05). NodeCanvas only
@@ -10287,73 +9753,10 @@ function NodeCanvas() {
   }, []);
 
   // Simple Particle Transfer Animation - always use fresh coordinates
-  const startHurtleAnimation = useCallback((nodeId, targetGraphId, definitionNodeId, sourceGraphId = null) => {
-    const currentState = useGraphStore.getState();
-
-    // If a sourceGraphId is provided, look for the node there. Otherwise, use the current active graph.
-    const graphIdToFindNodeIn = sourceGraphId || currentState.activeGraphId;
-
-    const nodesInSourceGraph = getHydratedNodesForGraph(graphIdToFindNodeIn)(currentState);
-    const nodeData = nodesInSourceGraph.find(n => n.id === nodeId);
-
-    if (!nodeData) {
-
-      return;
-    }
-
-    // Get fresh viewport state
-    const containerElement = containerRef.current;
-    if (!containerElement) return;
-
-    // Current zoom (for orb sizing) from the authoritative ref.
-    const currentZoom = zoomLevelRef.current || 1;
-
-    // Get node dimensions — use the EXPANDED size when this node is being previewed, so the
-    // hurtle launches from the expanded node's true center. Using the collapsed size here put
-    // the origin up-and-to-the-left (the small node's center sits near the expanded top-left).
-    const isNodePreviewing = nodeId === previewingNodeId;
-    const descriptionContent = isNodePreviewing ? getNodeDescriptionContent(nodeData, true) : null;
-    const nodeDimensions = getNodeDimensions(nodeData, isNodePreviewing, descriptionContent);
-
-    // Node center in canvas coordinates
-    const nodeCenterCanvasX = nodeData.x + nodeDimensions.currentWidth / 2;
-    const nodeCenterCanvasY = nodeData.y + nodeDimensions.currentHeight / 2;
-
-    // Map canvas coords -> client coords: the container's rect plus the live
-    // pan/zoom, which is the exact inverse of the client→canvas math every input
-    // handler uses, so it accounts for pan, zoom, header, side panels and scroll
-    // and matches the position:fixed orb. Stays in pure client space, avoiding
-    // getScreenCTM() — that sits ~safe-area-inset-top below client coords under
-    // Capacitor (see the note in appViewport.js).
-    //
-    // Measured off the CONTAINER rather than the <svg> or the content group's
-    // CTM: during a zoom gesture the canvas freezes the group's attribute and
-    // carries the remainder as a CSS transform on the gesture layer, so both of
-    // those disagree with the refs mid-gesture. .canvas-area never transforms.
-    const containerRect = containerElement.getBoundingClientRect();
-    const panNow = panOffsetRef.current || { x: 0, y: 0 };
-    const nodeScreenX = containerRect.left
-      + (nodeCenterCanvasX * currentZoom + (panNow.x - canvasSize.offsetX * currentZoom));
-    const nodeScreenY = containerRect.top
-      + (nodeCenterCanvasY * currentZoom + (panNow.y - canvasSize.offsetY * currentZoom));
-
-    // Calculate orb size proportional to current zoom
-    const orbSize = Math.max(12, Math.round(30 * currentZoom));
-
-    const animationData = {
-      nodeId,
-      targetGraphId,
-      definitionNodeId,
-      startTime: performance.now(),
-      duration: 400, // slower, more satisfying arc
-      startPos: { x: nodeScreenX, y: nodeScreenY },
-      targetPos: getHeaderTabTarget(),
-      nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
-      orbSize,
-    };
-
-    setHurtleFlight(animationData);
-  }, [containerRef, previewingNodeId, getHeaderTabTarget, canvasSize]);
+  const startHurtleAnimation = useCallback((a0, a1, a2, a3) => startHurtle(a0, a1, a2, a3, {
+    canvasSize, containerRef, getHeaderTabTarget, getNodeDescriptionContent, panOffsetRef, previewingNodeId,
+    setHurtleFlight, zoomLevelRef,
+  }), [containerRef, previewingNodeId, getHeaderTabTarget, canvasSize]);
 
   const startHurtleAnimationFromPanel = useCallback((nodeId, targetGraphId, definitionNodeId, startRect) => {
     const currentState = useGraphStore.getState();
@@ -10944,82 +10347,10 @@ function NodeCanvas() {
   }, [shouldShowBackToCivilization]);
 
   // Handler for BackToCivilization click - center view on relevant nodes
-  const handleBackToCivilizationClick = useCallback(() => {
-    // Skip navigation during drag to prevent interference with drag zoom animation
-    if (draggingNodeInfoRef.current || isAnimatingZoomRef.current) return;
-    if (!nodes || nodes.length === 0 || !containerRef.current) return;
-
-    // Determine which nodes to navigate to based on clustering settings
-    const nodesToNavigateTo = enableClustering && clusterAnalysis.mainCluster && clusterAnalysis.mainCluster.length > 0
-      ? clusterAnalysis.mainCluster
-      : nodes;
-
-    const navigationMode = enableClustering && clusterAnalysis.mainCluster
-      ? 'main-cluster'
-      : 'all-nodes';
-
-    console.log('[BackToCivilization] Starting navigation...', {
-      navigationMode,
-      totalNodes: nodes.length,
-      nodesToNavigate: nodesToNavigateTo.length,
-      clusteringEnabled: enableClustering,
-      outlierCount: clusterAnalysis.statistics?.outlierCount || 0
-    });
-
-    // Calculate bounding box of relevant nodes
-    let minX = Infinity, minY = Infinity;
-    let maxX = -Infinity, maxY = -Infinity;
-
-    nodesToNavigateTo.forEach(node => {
-      const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
-      minX = Math.min(minX, node.x);
-      minY = Math.min(minY, node.y);
-      maxX = Math.max(maxX, node.x + dims.currentWidth);
-      maxY = Math.max(maxY, node.y + dims.currentHeight);
-    });
-
-    // Calculate the center of relevant nodes
-    const nodesCenterX = (minX + maxX) / 2;
-    const nodesCenterY = (minY + maxY) / 2;
-    const nodesWidth = maxX - minX;
-    const nodesHeight = maxY - minY;
-
-    console.log('[BackToCivilization] Target area:', {
-      center: { x: Math.round(nodesCenterX), y: Math.round(nodesCenterY) },
-      size: { width: Math.round(nodesWidth), height: Math.round(nodesHeight) },
-      bounds: { minX: Math.round(minX), minY: Math.round(minY), maxX: Math.round(maxX), maxY: Math.round(maxY) }
-    });
-
-    // Calculate appropriate zoom level with padding
-    const padding = 150;
-    const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
-    const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
-    let targetZoom = Math.min(targetZoomX, targetZoomY);
-
-    // Clamp zoom to reasonable bounds
-    targetZoom = Math.max(Math.min(targetZoom, MAX_ZOOM), 0.2);
-
-    // Calculate pan to center the target area (accounting for canvas offset)
-    const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;
-    const targetPanY = (viewportSize.height / 2) - (nodesCenterY - canvasSize.offsetY) * targetZoom;
-
-    // Apply bounds constraints
-    const maxPanX = 0;
-    const minPanX = viewportSize.width - canvasSize.width * targetZoom;
-    const maxPanY = 0;
-    const minPanY = viewportSize.height - canvasSize.height * targetZoom;
-
-    const finalPanX = Math.min(Math.max(targetPanX, minPanX), maxPanX);
-    const finalPanY = Math.min(Math.max(targetPanY, minPanY), maxPanY);
-
-    console.log('[BackToCivilization] Applying navigation:', {
-      targetZoom: Math.round(targetZoom * 1000) / 1000,
-      finalPan: { x: Math.round(finalPanX), y: Math.round(finalPanY) }
-    });
-
-    // Apply the new view state
-    transform.jumpTo({ x: finalPanX, y: finalPanY }, targetZoom);
-  }, [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
+  const handleBackToCivilizationClick = useCallback(() => backToCivilization({
+    baseDimsById, canvasSize, clusterAnalysis, containerRef, draggingNodeInfoRef, enableClustering,
+    isAnimatingZoomRef, nodes, transform, viewportSize,
+  }), [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
 
   // Listen for auto-layout trigger events from AI operations (mutations).
   //
