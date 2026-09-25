@@ -39,9 +39,18 @@ const SCENES = [
 for (const scene of SCENES) {
   test(`shell shot: ${scene.name}`, async ({ page }) => {
     await page.setViewportSize(scene.viewport);
-    if (scene.shell) {
-      await page.addInitScript(() => localStorage.setItem('redstring_landscape_shell_mode', 'on'));
+    // The fixture sandbox isolates localStorage and takes seeds from
+    // window.__fixtureStorageSeed. SHELL_SHOTS_PANEL_WIDTH seeds a persisted
+    // panel width, as anyone who has resized a panel has.
+    const seed = {};
+    if (scene.shell) seed.redstring_landscape_shell_mode = 'on';
+    if (process.env.SHELL_SHOTS_PANEL_WIDTH) {
+      seed.panelWidth_left = process.env.SHELL_SHOTS_PANEL_WIDTH;
+      seed.panelWidth_right = process.env.SHELL_SHOTS_PANEL_WIDTH;
     }
+    await page.addInitScript((s) => {
+      window.__fixtureStorageSeed = { ...(window.__fixtureStorageSeed || {}), ...s };
+    }, seed);
     await openFixture(page, 'small');
     await setUI(page, scene.setup);
     await storeEval(page, () => true);
