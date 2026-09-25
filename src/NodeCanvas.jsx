@@ -13970,6 +13970,7 @@ function NodeCanvas() {
   // runCanvasCommand(name) rather than props, so they don't render with us.
   useCanvasCommands({
     autoLayout: triggerAutoLayout,
+    snapToGrid,
     condense: condenseGraphNodes,
     // Interim: the header's hover chip, until the hover slice (P2.13).
     actionHover: handlePieMenuHoverChange,
@@ -14828,8 +14829,6 @@ function NodeCanvas() {
       }}
       tabIndex="0"
     >
-      {/* Main content uncommented */}
-
       {/* Header (and with it the Redstring button and its menu) is dropped in
           the fullscreen landscape shell — see useMobileLandscapeShell.js. */}
       <HeaderHost hidden={mobileLandscapeShell} />

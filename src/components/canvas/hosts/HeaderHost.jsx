@@ -115,10 +115,12 @@ const handleOpenForceSim = () => ui().setForceSimModalVisible(true);
 // Interim: a command until the hover slice lands (P2.13).
 const handleActionHoverChange = (button) => runCanvasCommand('actionHover', button);
 const handleAutoLayout = () => runCanvasCommand('autoLayout');
+const handleSnapToGrid = () => runCanvasCommand('snapToGrid');
 const handleCondenseNodes = () => runCanvasCommand('condense');
 const handleLoadFromExternalLink = () => window.dispatchEvent(new CustomEvent('redstring:open-external-link'));
 const handleSetGridMode = (mode) => graph().setGridMode(mode);
 const handleSetGridSize = (size) => graph().setGridSize(size);
+const handleSetGridAppearance = (appearance) => graph().setGridAppearance(appearance);
 const handleToggleDragZoom = () => graph().toggleDragZoomEnabled();
 const handleSetDragZoomAmount = (amount) => graph().setDragZoomAmount(amount);
 const exportAs = (formatId) => () => exportActiveUniverse(formatId);
@@ -148,6 +150,7 @@ function HeaderHost({ hidden = false }) {
   const setManhattanBends = useGraphStore(s => s.setManhattanBends);
   const gridMode = useGraphStore(s => s.gridSettings?.mode || 'off');
   const gridSize = useGraphStore(s => s.gridSettings?.size || 200);
+  const gridAppearance = useGraphStore(s => s.gridSettings?.appearance || 'lattice');
   const dragZoomEnabled = useGraphStore(s => (s.dragZoomSettings ? s.dragZoomSettings.enabled : true));
   const dragZoomAmount = useGraphStore(s => (s.dragZoomSettings ? s.dragZoomSettings.zoomAmount : 0.45));
 
@@ -190,12 +193,15 @@ function HeaderHost({ hidden = false }) {
         onSetGridMode={handleSetGridMode}
         gridSize={gridSize}
         onSetGridSize={handleSetGridSize}
+        gridAppearance={gridAppearance}
+        onSetGridAppearance={handleSetGridAppearance}
         dragZoomEnabled={dragZoomEnabled}
         dragZoomAmount={dragZoomAmount}
         onToggleDragZoom={handleToggleDragZoom}
         onSetDragZoomAmount={handleSetDragZoomAmount}
         onOpenForceSim={handleOpenForceSim}
         onAutoLayoutGraph={handleAutoLayout}
+        onSnapToGrid={handleSnapToGrid}
         onCondenseNodes={handleCondenseNodes}
         onLoadFromExternalLink={handleLoadFromExternalLink}
         onNewUniverse={newUniverse}

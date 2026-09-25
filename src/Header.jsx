@@ -92,6 +92,9 @@ const Header = ({
   onSetGridMode,
   gridSize,
   onSetGridSize,
+  gridAppearance,
+  onSetGridAppearance,
+  onSnapToGrid,
   // Drag zoom controls
   dragZoomEnabled,
   dragZoomAmount,
@@ -1037,6 +1040,9 @@ const Header = ({
           onSetGridMode={onSetGridMode}
           gridSize={gridSize}
           onSetGridSize={onSetGridSize}
+          gridAppearance={gridAppearance}
+          onSetGridAppearance={onSetGridAppearance}
+          onSnapToGrid={onSnapToGrid}
           dragZoomEnabled={dragZoomEnabled}
           dragZoomAmount={dragZoomAmount}
           onToggleDragZoom={onToggleDragZoom}
@@ -1138,6 +1144,9 @@ const Header = ({
           onSetGridMode={onSetGridMode}
           gridSize={gridSize}
           onSetGridSize={onSetGridSize}
+          gridAppearance={gridAppearance}
+          onSetGridAppearance={onSetGridAppearance}
+          onSnapToGrid={onSnapToGrid}
           dragZoomEnabled={dragZoomEnabled}
           dragZoomAmount={dragZoomAmount}
           onToggleDragZoom={onToggleDragZoom}

@@ -58,6 +58,42 @@ test('F19 header buttons: bookmark, new web, both searches, and renaming the web
   await expect.poll(() => ui(page, 'isHeaderEditing')).toBe(false);
 });
 
+// B-12: Header took neither onSnapToGrid nor the grid appearance props, so
+// these two menu items did nothing.
+test('F19c View > Snap to Grid and View > Grid > Dot reach the canvas (B-12)', async ({ page }) => {
+  await openFixture(page, 'small');
+  const { graphId, instanceId } = await storeEval(page, (st) => {
+    const g = st.graphs.get(st.activeGraphId);
+    const [id] = [...g.instances].find(([, inst]) => !inst.isGroupAnchor);
+    st.updateNodeInstance(st.activeGraphId, id, (draft) => { draft.x += 37; draft.y += 23; });
+    return { graphId: st.activeGraphId, instanceId: id };
+  });
+  const position = () => storeEval(page, (st, [g, i]) => {
+    const inst = st.graphs.get(g).instances.get(i);
+    return { x: inst.x, y: inst.y };
+  }, [graphId, instanceId]);
+  const offGrid = await position();
+
+  const openView = async () => {
+    await page.locator('.header-logo-button').click();
+    await page.locator('.menu-item', { hasText: /^View$/ }).first().hover();
+  };
+
+  await openView();
+  await page.locator('.submenu-item', { hasText: 'Snap to Grid' }).click();
+  await expect.poll(async () => {
+    const p = await position();
+    return Math.abs(p.x - offGrid.x) + Math.abs(p.y - offGrid.y);
+  }, { timeout: 10_000 }).toBeGreaterThan(0.5);
+
+  const appearance = () => storeEval(page, (st) => st.gridSettings?.appearance || 'lattice');
+  expect(await appearance()).toBe('lattice');
+  await openView();
+  await page.locator('.submenu-item.has-submenu', { hasText: /^Grid/ }).hover();
+  await page.locator('.submenu-item', { hasText: /^Dot/ }).click();
+  await expect.poll(appearance).toBe('dot');
+});
+
 test("F19b the Redstring menu's View > Auto Layout reaches the canvas", async ({ page }) => {
   await openFixture(page, 'small');
   const before = await activeGraphSnapshot(page);
