@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
-import Node from './Node.jsx';
 import PlusSign from './PlusSign.jsx'; // Import the new PlusSign component
 import VideoNodeAnimation from './VideoNodeAnimation.jsx'; // Import the video animation component
 import PieMenu from './PieMenu.jsx'; // Import the PieMenu component
@@ -134,6 +133,7 @@ import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
+import NodeLayer from './components/canvas/layers/NodeLayer.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
@@ -3728,7 +3728,7 @@ function NodeCanvas() {
   const currentPieMenuNodeId = useCanvasUIStore(s => s.currentPieMenuData?.node?.id ?? null);
   const hasPieMenuData = useCanvasUIStore(s => s.currentPieMenuData != null), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData);
   const [pieMenuPage, setPieMenuPage] = useTrackedState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
-  const editingNodeIdOnCanvas = useCanvasUIStore(s => s.editingNodeIdOnCanvas), setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
+  const setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
   const groupEditInputRef = useRef(null); // The inline rename <input>, for touch outside-tap dismissal
@@ -7977,8 +7977,9 @@ function NodeCanvas() {
     handleNodeMouseDown, touch, getContextMenuOptions, handleCommitCanvasEdit,
     startHurtleAnimation, activeGraphId, handleNodeConvertToNodeGroup,
   });
-  // The Node callbacks that were copied into all three Node blocks.
-  const nodeCallbacks = {
+  // The Node callbacks that were copied into all three Node blocks. Memoized so
+  // NodeLayer's memo holds: each reads through nodeScope, refs or stable setters.
+  const nodeCallbacks = useMemo(() => ({
     onCancelCanvasEdit: () => setEditingNodeIdOnCanvas(null),
     onCreateDefinition: (prototypeId) => {
       if (mouseMoved.current) return;
@@ -8004,7 +8005,8 @@ function NodeCanvas() {
       const contextKey = `${prototypeId}-${nodeScope.current.activeGraphId}`;
       setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
     },
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- every callback reads through nodeScope, refs or stable setters
+  }), [storeActions]);
 
   // The shell (Header, Panels, TypeList) is CanvasShell's since P2.11. The
   // screen-level overlays below the canvas still live here until their hosts
@@ -8087,6 +8089,32 @@ function NodeCanvas() {
     storeActions,
     textSettings,
     visibleNodeIds,
+  };
+
+  // The orbit overlay around the active node while orbiting (NodeLayer places it).
+  const renderOrbitOverlay = useCallback((centerX, centerY, focusWidth, focusHeight) => (
+    <OrbitOverlay
+      centerX={centerX}
+      centerY={centerY}
+      focusWidth={focusWidth}
+      focusHeight={focusHeight}
+      ring1Candidates={orbitData.ring1 || []}
+      ring2Candidates={orbitData.ring2 || []}
+      ring3Candidates={orbitData.ring3 || []}
+      ring4Candidates={orbitData.ring4 || []}
+      onOrbitItemClick={handleOrbitItemClick}
+      onExtentChange={setOrbitFrame}
+      onCandidateHover={handleOrbitCandidateHover}
+      controlRef={orbitControlRef}
+      onExit={exitOrbitMode}
+      isLoading={orbitLoading}
+    />
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrbitFrame and orbitControlRef are stable
+  ), [orbitData, orbitLoading, handleOrbitItemClick, handleOrbitCandidateHover, exitOrbitMode]);
+  const nodeLayerProps = {
+    nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds: groupLayouts.thingGroupMemberIds,
+    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart,
+    activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
   };
 
   // The pointer handlers' context (P4.04a), assigned during render for the same
@@ -8365,440 +8393,291 @@ function NodeCanvas() {
                     );
                   })()}
 
-                  {(() => {
-                    const draggingNodeId = draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId;
+                  {/* Nodes: ordinary, then node-group members (P3.08b: NodeLayer reads selection and preview itself). */}
+                  <NodeLayer part="rest" {...nodeLayerProps} />
 
-                    // Determine which node should be treated as "active" for stacking,
-                    // Priority order: previewing > pie menu > single selection (for orbit overlay)
-                    let nodeIdToKeepActiveForStacking = previewingNodeId || currentPieMenuNodeId || selectedNodeIdForPieMenu;
+                  {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
+                  {groupElements.titles}
 
-                    // If no higher-priority node is active, use the selected node for orbit overlay
-                    if (!nodeIdToKeepActiveForStacking &&
-                      selectedInstanceIds.size === 1 &&
-                      !selectionStart &&
-                      !abstractionCarouselVisible) {
-                      nodeIdToKeepActiveForStacking = [...selectedInstanceIds][0];
-                    }
+                  {/* Delete ghost rects (P2.07) */}
+                  <DeletionGhostLayer />
 
-                    if (nodeIdToKeepActiveForStacking === draggingNodeId) {
-                      nodeIdToKeepActiveForStacking = null; // Dragging node is handled separately
-                    }
+                  {/* Render The PieMenu next (it will be visually under the active node) */}
+                  {isPieMenuRendered && hasPieMenuData && (
+                    <NodePieMenuLayer
+                      nodeScale={textSettings?.nodeScale ?? 1.0}
+                      focusedNode={carouselFocusedNode}
+                      pageCount={/* Counted off nodePieMenuPages rather than written down here, so
+                                    adding a page to that list grows the chevrons' range on its own.
+                                    Carousel and decomposition build their own single-page sets. */
+                        (!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? nodePieMenuPages.length : 1}
+                      currentPage={pieMenuPage}
+                      onPageChange={setPieMenuPage}
+                      focusedButtonIndex={gamepadMode === 'node' ? gamepadPieFocusedIndex : -1}
+                      isVisible={(
+                        currentPieMenuNodeId === selectedNodeIdForPieMenu &&
+                        // Orbit owns the screen while it is up. Hiding via
+                        // isVisible (rather than clearing the target) keeps
+                        // the menu mounted and its page intact, so leaving
+                        // orbit animates it back exactly where it was.
+                        !semanticOrbitActive &&
+                        (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
+                        !(draggingNodeInfo &&
+                          (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu || draggingNodeInfo.instanceId === selectedNodeIdForPieMenu)
+                        )
+                      )}
+                      onHoverChange={handlePieMenuHoverChange}
+                      onAutoClose={() => {
+                        console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
+                        setSelectedNodeIdForPieMenu(null);
+                      }}
+                      onExitAnimationComplete={() => {
+                        setIsPieMenuRendered(false);
+                        setCurrentPieMenuData(null);
+                        const wasTransitioning = isTransitioningPieMenu;
+                        const pendingAbstractionId = pendingAbstractionNodeId;
+                        const pendingDecomposeId = pendingDecomposeNodeId;
+                        const wasInCarousel = abstractionCarouselVisible; // Check if we were in carousel mode before transition
 
-                    const allOtherNodes = nodes.filter(node =>
-                      node.id !== nodeIdToKeepActiveForStacking &&
-                      node.id !== draggingNodeId &&
-                      visibleNodeIds.has(node.id) &&
-                      !node.isGroupAnchor
-                    );
-                    // Split into normal nodes and thing-group member nodes for z-ordering
-                    const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIdsRef.current.has(n.id));
-                    const thingGroupMemberNodes = allOtherNodes.filter(n => thingGroupMemberIdsRef.current.has(n.id));
+                        // The node that was just active before the pie menu disappeared
+                        const lastActiveNodeId = selectedNodeIdForPieMenu;
+                        setPendingAbstractionNodeId(null);
+                        setPendingDecomposeNodeId(null);
 
-                    const activeNodeToRender = nodeIdToKeepActiveForStacking
-                      ? nodes.find(n => n.id === nodeIdToKeepActiveForStacking)
-                      : null;
+                        if (wasTransitioning && pendingAbstractionId) {
+                          // This was an abstraction transition - set up the carousel with entrance animation
+                          setIsTransitioningPieMenu(false);
+                          const nodeData = nodes.find(n => n.id === pendingAbstractionId);
+                          if (nodeData) {
+                            setAbstractionCarouselNode(nodeData);
+                            setCarouselAnimationState('entering');
+                            setAbstractionCarouselVisible(true);
+                            // IMPORTANT: Re-select the node to show the new abstraction pie menu
+                            setSelectedNodeIdForPieMenu(pendingAbstractionId);
+                          }
+                        } else if (wasTransitioning && pendingDecomposeId) {
+                          // This was a decompose transition - toggle the preview state for the node
+                          setIsTransitioningPieMenu(false);
+                          const nodeData = nodes.find(n => n.id === pendingDecomposeId);
+                          if (nodeData) {
+                            // Toggle preview state: if already previewing this node, turn off preview; otherwise turn it on
+                            const isCurrentlyPreviewing = previewingNodeId === pendingDecomposeId;
+                            setPreviewingNodeId(isCurrentlyPreviewing ? null : pendingDecomposeId);
+                            // Re-select the node to show the pie menu again
+                            setSelectedNodeIdForPieMenu(pendingDecomposeId);
+                          }
+                        } else if (wasTransitioning && wasInCarousel) {
+                          // Check if this was an internal stage transition vs carousel exit
+                          if (isCarouselStageTransition) {
+                            // This was an internal stage transition - stay in carousel, just update PieMenu
+                            setIsCarouselStageTransition(false); // Reset the flag
+                            setIsTransitioningPieMenu(false);
 
-                    const draggingNodeToRender = draggingNodeId
-                      ? nodes.find(n => n.id === draggingNodeId)
-                      : null;
+                            // Change the stage here after the shrink animation completes
+                            if (carouselPieMenuStage === 1) {
+                              setCarouselPieMenuStage(2);
 
-                    // Helper to render a Node component with all its props (avoids duplication)
-                    const renderNodeElement = (node, isDragging = false) => {
-                      const isPreviewing = previewingNodeId === node.id;
-                      const baseDimensions = baseDimsById.get(node.id);
-                      const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
-                      const dimensions = isPreviewing
-                        ? getNodeDimensions(node, true, descriptionContent)
-                        : baseDimensions || getNodeDimensions(node, false, null);
-                      if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) return null;
-                      return (
-                        <Node
-                          key={node.id}
-                          node={node}
-                          currentWidth={dimensions.currentWidth}
-                          currentHeight={dimensions.currentHeight}
-                          textAreaHeight={dimensions.textAreaHeight}
-                          imageWidth={dimensions.imageWidth}
-                          imageHeight={dimensions.calculatedImageHeight}
-                          scaledPadding={dimensions.scaledPadding}
-                          scaledCornerRadius={dimensions.scaledCornerRadius}
-                          innerNetworkWidth={dimensions.innerNetworkWidth}
-                          innerNetworkHeight={dimensions.innerNetworkHeight}
-                          descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                          isSelected={selectedInstanceIds.has(node.id)}
-                          isDragging={isDragging}
-                          onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(node, e)}
-                          onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(node, e)}
-                          onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(node, e)}
-                          onPointerUp={(e) => nodeScope.current.touch.handleNodePointerUp(node, e)}
-                          onPointerCancel={(e) => nodeScope.current.touch.handleNodePointerCancel(node, e)}
-                          onTouchStart={(e) => nodeScope.current.touch.handleNodeTouchStart(node, e)}
-                          onTouchMove={(e) => nodeScope.current.touch.handleNodeTouchMove(node, e)}
-                          onTouchEnd={(e) => nodeScope.current.touch.handleNodeTouchEnd(node, e)}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            showContextMenu(e.clientX, e.clientY, nodeScope.current.getContextMenuOptions(node.id));
-                          }}
-                          isPreviewing={isPreviewing}
-                          isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
-                          onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
-                            nodeScope.current.handleCommitCanvasEdit(node.prototypeId, newName, isRealTime, isAbort)}
-                          {...nodeCallbacks}
-                          storeActions={storeActions}
-                          currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
-                        />
-                      );
-                    };
+                            } else if (carouselPieMenuStage === 2) {
+                              setCarouselPieMenuStage(1);
 
-                    return (
-                      <>
-                        {/* Normal nodes (not thing-group members) */}
-                        {otherNodes.map((n) => renderNodeElement(n))}
-
-                        {/* Thing-group member nodes (above normal nodes) */}
-                        {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
-
-                        {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
-                        {groupElements.titles}
-
-                        {/* Delete ghost rects (P2.07) */}
-                        <DeletionGhostLayer />
-
-                        {/* Render The PieMenu next (it will be visually under the active node) */}
-                        {isPieMenuRendered && hasPieMenuData && (
-                          <NodePieMenuLayer
-                            nodeScale={textSettings?.nodeScale ?? 1.0}
-                            focusedNode={carouselFocusedNode}
-                            pageCount={/* Counted off nodePieMenuPages rather than written down here, so
-                                          adding a page to that list grows the chevrons' range on its own.
-                                          Carousel and decomposition build their own single-page sets. */
-                              (!abstractionCarouselVisible && !(previewingNodeId && previewingNodeId === selectedNodeIdForPieMenu)) ? nodePieMenuPages.length : 1}
-                            currentPage={pieMenuPage}
-                            onPageChange={setPieMenuPage}
-                            focusedButtonIndex={gamepadMode === 'node' ? gamepadPieFocusedIndex : -1}
-                            isVisible={(
-                              currentPieMenuNodeId === selectedNodeIdForPieMenu &&
-                              // Orbit owns the screen while it is up. Hiding via
-                              // isVisible (rather than clearing the target) keeps
-                              // the menu mounted and its page intact, so leaving
-                              // orbit animates it back exactly where it was.
-                              !semanticOrbitActive &&
-                              (!isTransitioningPieMenu || abstractionPrompt.visible || carouselAnimationState === 'exiting') &&
-                              !(draggingNodeInfo &&
-                                (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu || draggingNodeInfo.instanceId === selectedNodeIdForPieMenu)
-                              )
-                            )}
-                            onHoverChange={handlePieMenuHoverChange}
-                            onAutoClose={() => {
-                              console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
-                              setSelectedNodeIdForPieMenu(null);
-                            }}
-                            onExitAnimationComplete={() => {
-                              setIsPieMenuRendered(false);
-                              setCurrentPieMenuData(null);
-                              const wasTransitioning = isTransitioningPieMenu;
-                              const pendingAbstractionId = pendingAbstractionNodeId;
-                              const pendingDecomposeId = pendingDecomposeNodeId;
-                              const wasInCarousel = abstractionCarouselVisible; // Check if we were in carousel mode before transition
-
-                              // The node that was just active before the pie menu disappeared
-                              const lastActiveNodeId = selectedNodeIdForPieMenu;
-                              setPendingAbstractionNodeId(null);
-                              setPendingDecomposeNodeId(null);
-
-                              if (wasTransitioning && pendingAbstractionId) {
-                                // This was an abstraction transition - set up the carousel with entrance animation
-                                setIsTransitioningPieMenu(false);
-                                const nodeData = nodes.find(n => n.id === pendingAbstractionId);
-                                if (nodeData) {
-                                  setAbstractionCarouselNode(nodeData);
-                                  setCarouselAnimationState('entering');
-                                  setAbstractionCarouselVisible(true);
-                                  // IMPORTANT: Re-select the node to show the new abstraction pie menu
-                                  setSelectedNodeIdForPieMenu(pendingAbstractionId);
-                                }
-                              } else if (wasTransitioning && pendingDecomposeId) {
-                                // This was a decompose transition - toggle the preview state for the node
-                                setIsTransitioningPieMenu(false);
-                                const nodeData = nodes.find(n => n.id === pendingDecomposeId);
-                                if (nodeData) {
-                                  // Toggle preview state: if already previewing this node, turn off preview; otherwise turn it on
-                                  const isCurrentlyPreviewing = previewingNodeId === pendingDecomposeId;
-                                  setPreviewingNodeId(isCurrentlyPreviewing ? null : pendingDecomposeId);
-                                  // Re-select the node to show the pie menu again
-                                  setSelectedNodeIdForPieMenu(pendingDecomposeId);
-                                }
-                              } else if (wasTransitioning && wasInCarousel) {
-                                // Check if this was an internal stage transition vs carousel exit
-                                if (isCarouselStageTransition) {
-                                  // This was an internal stage transition - stay in carousel, just update PieMenu
-                                  setIsCarouselStageTransition(false); // Reset the flag
-                                  setIsTransitioningPieMenu(false);
-
-                                  // Change the stage here after the shrink animation completes
-                                  if (carouselPieMenuStage === 1) {
-                                    setCarouselPieMenuStage(2);
-
-                                  } else if (carouselPieMenuStage === 2) {
-                                    setCarouselPieMenuStage(1);
-
-                                  }
-
-                                  // Re-select the node to show the new stage PieMenu
-                                  if (lastActiveNodeId) {
-                                    setSelectedNodeIdForPieMenu(lastActiveNodeId);
-                                  }
-                                } else {
-                                  // This was a "back" transition from the carousel - start exit animation now
-                                  setCarouselAnimationState('exiting');
-                                  // DON'T set isTransitioningPieMenu(false) yet - wait for carousel to finish
-                                  // The carousel's onExitAnimationComplete will show the regular pie menu
-                                }
-                              } else if (wasTransitioning) {
-                                // Generic pie menu transition completion (non-carousel). If the carousel
-                                // was closed via click-away, do not toggle decompose preview.
-                                setIsTransitioningPieMenu(false);
-                                if (carouselClosedByClickAwayRef.current) {
-                                  // Consume and reset the flag here too, since defensive closures may skip
-                                  // the carousel's own exit completion callback.
-                                  carouselClosedByClickAwayRef.current = false;
-                                } else {
-                                  const currentlySelectedNodeId = [...selectedInstanceIds][0];
-                                  if (currentlySelectedNodeId) {
-                                    const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
-                                    if (selectedNodeIsPreviewing) {
-                                      setPreviewingNodeId(null);
-                                    } else {
-                                      setPreviewingNodeId(currentlySelectedNodeId);
-                                    }
-                                    setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
-                                  } else {
-                                    setPreviewingNodeId(null);
-                                  }
-                                }
-                              } else {
-                                // Not transitioning, just clean exit
-                                setIsTransitioningPieMenu(false);
-                              }
-                            }}
-                          />
-                        )}
-
-                        {/* Edge pie menu — rendered inline at the edge midpoint */}
-                        {(() => {
-                          // Live midpoint wins whenever there is one; the frozen ref only stands in
-                          // once the edge is deselected, which is the case it exists for — the
-                          // bubbles have to finish shrinking where they were.
-                          //
-                          // Same reasoning as frozenButtons below, and for the same reason: the
-                          // effect that maintains this ref writes it AFTER the render that changed
-                          // the selection, and a ref write re-renders nothing. Reading the ref first
-                          // therefore pinned the menu to the previous connection until an unrelated
-                          // render came along — the visible stall when clicking from one connection
-                          // straight to another. The glide to the new midpoint is a CSS transition on
-                          // the bubbles (see PieMenu's line mode), so it plays either way; this only
-                          // decides whether it starts now or whenever something else happens to render.
-                          const anchor = selectedEdgeMidpoint || edgePieMenuAnchorRef.current;
-                          // Live buttons win whenever there are any; the frozen ref only stands in once
-                          // the list empties out, which is exactly the case it exists for — the edge is
-                          // deselected while the menu is still animating away, and the bubbles have to
-                          // finish shrinking on the set they were showing.
-                          //
-                          // Deliberately not the other way round: this list changes under an open menu
-                          // (Copy makes Paste available, pasting a definition makes Palette and Copy
-                          // available), and a ref write re-renders nothing — so preferring the ref would
-                          // pin the menu to whatever it had when it opened until some unrelated render
-                          // happened to come along.
-                          const frozenButtons = edgePieMenuButtons.length > 0
-                            ? edgePieMenuButtons
-                            : edgePieMenuButtonsRef.current;
-                          if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
-
-                          // Hide (outro) while a node this edge is attached to is being dragged —
-                          // mirrors the node's own PieMenu (isVisible gated on draggingNodeInfo above).
-                          // The anchor position is frozen mid-drag (nodeById doesn't update during
-                          // DOM-bypass drag), so without this the menu would float detached from the
-                          // connection until it snaps to the new spot on drop.
-                          const draggedNodeIds = !draggingNodeInfo ? null
-                            : draggingNodeInfo.instanceId ? new Set([draggingNodeInfo.instanceId])
-                            : draggingNodeInfo.primaryId ? new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})])
-                            : (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) ? new Set(draggingNodeInfo.memberOffsets.map(m => m.id))
-                            : null;
-                          const edgeAttachedToDraggedNode = Boolean(draggedNodeIds && (draggedNodeIds.has(anchor.sourceId) || draggedNodeIds.has(anchor.destinationId)));
-
-                          // No compact/"..." fallback: focusEdgePieMenuInView (see the
-                          // focus-on-select effect) zooms the view to the menu's own bounds
-                          // whenever the row wouldn't fit, so the full row is always reachable.
-                          const displayButtons = frozenButtons;
-
-                          return (
-                            <PieMenu
-                              anchor={anchor}
-                              anchorAngle={anchor.angle ?? 0}
-                              buttons={displayButtons}
-                              focusedButtonIndex={gamepadMode === 'edge' ? gamepadPieFocusedIndex : -1}
-                              nodeScale={textSettings?.nodeScale ?? 1.0}
-                              isVisible={edgePieMenuVisible && !edgeAttachedToDraggedNode}
-                              onHoverChange={handlePieMenuHoverChange}
-                              onExitAnimationComplete={() => {
-                                edgePieMenuAnchorRef.current = null;
-                                edgePieMenuButtonsRef.current = null;
-                                setEdgePieMenuRendered(false);
-                              }}
-                            />
-                          );
-                        })()}
-
-                        {/* Dim overlay for semantic orbit mode.
-                            Plain SVG rect (not foreignObject) so it stays in proper paint order
-                            on iOS WebKit — foreignObject with backdrop-filter punches itself to
-                            the top of the stack and eats taps on orbit items. */}
-                        {semanticOrbitActive && (
-                          <rect
-                            /* Geometry is set imperatively (viewport-sized, tracks
-                               every pan/zoom tick) — see updateOrbitDimRect. Kept out
-                               of JSX so React re-renders don't clobber it. */
-                            ref={(el) => {
-                              orbitDimRectRef.current = el;
-                              if (el) updateOrbitDimRect();
-                            }}
-                            data-orbit-dim=""
-                            /* Dimming off: transparent and static at full canvas
-                               size — nothing to paint, nothing to blend through,
-                               no per-tick geometry writes, and still the click
-                               target that exits orbit mode. */
-                            {...(ENABLE_ORBIT_DIM ? null : {
-                              x: canvasSize.offsetX,
-                              y: canvasSize.offsetY,
-                              width: canvasSize.width,
-                              height: canvasSize.height,
-                            })}
-                            fill={ENABLE_ORBIT_DIM ? 'rgba(0, 0, 0, 0.7)' : 'transparent'}
-                            /* touchAction 'none', like the canvas surface this
-                               covers — every gesture here is the app's to
-                               interpret. It read 'manipulation' before, copied
-                               from a small button where handing pan and pinch
-                               back to the browser is harmless; on something
-                               spanning the whole canvas it is not. */
-                            style={{ cursor: 'pointer', touchAction: 'none' }}
-                            onMouseDown={(e) => {
-                              orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
-                            }}
-                            onClick={(e) => {
-                              const down = orbitClickDownPos.current;
-                              orbitClickDownPos.current = null;
-                              // No matching mousedown means this is a synthesized click after a
-                              // touch gesture (pan) — ignore. Real mouse clicks always come with
-                              // a mousedown right before.
-                              if (!down) return;
-                              const dx = e.clientX - down.x;
-                              const dy = e.clientY - down.y;
-                              if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
-                              e.stopPropagation();
-                              exitOrbitMode();
-                            }}
-                            onTouchStart={(e) => {
-                              // Only a one-finger sequence can be a tap. A second finger
-                              // means a pinch, which is the canvas's gesture, not ours.
-                              const t = e.touches?.length === 1 ? e.touches[0] : null;
-                              orbitClickDownPos.current = t ? { x: t.clientX, y: t.clientY } : null;
-                            }}
-                            onTouchEnd={(e) => {
-                              const down = orbitClickDownPos.current;
-                              orbitClickDownPos.current = null;
-                              // Suppress the synthetic click that follows touchend either way,
-                              // so a pan-then-lift can't fall through to onClick and exit.
-                              if (e.cancelable) e.preventDefault();
-
-                              const t = e.changedTouches?.[0];
-                              const isTap = down && t
-                                && e.touches?.length === 0            // last finger up
-                                && (t.clientX - down.x) ** 2 + (t.clientY - down.y) ** 2 <= 25;
-
-                              // Deliberately does NOT stop propagation, for any outcome.
-                              //
-                              // The canvas's own touchend is where a gesture gets torn down —
-                              // the pinch flag cleared, pan momentum launched — and it is also
-                              // what removes the document-level touchmove/touchend listeners
-                              // that handleTouchStartCanvas attached for this gesture. Stopping
-                              // propagation here (which React forwards to the native event, so
-                              // the document listeners never fire either) meant that in orbit
-                              // mode none of it ran: pans lost their inertia, every touch leaked
-                              // a live touchmove listener, and after a pinch the pinch flag
-                              // stayed set, so every later touch was read as a continuing pinch
-                              // and panning stopped working at all.
-                              //
-                              // The canvas will read a tap here as a bare-canvas tap and clear
-                              // the selection, which exits orbit by way of the deselect effect.
-                              // Exiting explicitly as well is harmless and does not depend on
-                              // that chain holding.
-                              if (isTap) exitOrbitMode();
-                            }}
-                          />
-                        )}
-
-                        {/* Render the "Active" Node (if it exists and not being dragged) */}
-                        {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
-                          (() => {
-                            const isPreviewing = previewingNodeId === activeNodeToRender.id;
-                            const baseDimensions = baseDimsById.get(activeNodeToRender.id);
-                            const descriptionContent = isPreviewing ? getNodeDescriptionContent(activeNodeToRender, true) : null;
-                            const dimensions = isPreviewing
-                              ? getNodeDimensions(activeNodeToRender, true, descriptionContent)
-                              : baseDimensions || getNodeDimensions(activeNodeToRender, false, null);
-
-                            // Hide if its carousel is open
-                            if (abstractionCarouselVisible && abstractionCarouselNode?.id === activeNodeToRender.id) {
-                              return null;
                             }
 
-                            const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
-                            const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
+                            // Re-select the node to show the new stage PieMenu
+                            if (lastActiveNodeId) {
+                              setSelectedNodeIdForPieMenu(lastActiveNodeId);
+                            }
+                          } else {
+                            // This was a "back" transition from the carousel - start exit animation now
+                            setCarouselAnimationState('exiting');
+                            // DON'T set isTransitioningPieMenu(false) yet - wait for carousel to finish
+                            // The carousel's onExitAnimationComplete will show the regular pie menu
+                          }
+                        } else if (wasTransitioning) {
+                          // Generic pie menu transition completion (non-carousel). If the carousel
+                          // was closed via click-away, do not toggle decompose preview.
+                          setIsTransitioningPieMenu(false);
+                          if (carouselClosedByClickAwayRef.current) {
+                            // Consume and reset the flag here too, since defensive closures may skip
+                            // the carousel's own exit completion callback.
+                            carouselClosedByClickAwayRef.current = false;
+                          } else {
+                            const currentlySelectedNodeId = [...selectedInstanceIds][0];
+                            if (currentlySelectedNodeId) {
+                              const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
+                              if (selectedNodeIsPreviewing) {
+                                setPreviewingNodeId(null);
+                              } else {
+                                setPreviewingNodeId(currentlySelectedNodeId);
+                              }
+                              setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
+                            } else {
+                              setPreviewingNodeId(null);
+                            }
+                          }
+                        } else {
+                          // Not transitioning, just clean exit
+                          setIsTransitioningPieMenu(false);
+                        }
+                      }}
+                    />
+                  )}
 
-                            // While orbiting, the focus node and its overlay render
-                            // into the orbit layer instead — above the scrim, so the
-                            // graph dims behind them without a translucent element
-                            // inside the canvas raster. Portalled rather than moved
-                            // so this stays one block of JSX with one set of
-                            // handlers; React events still bubble through the React
-                            // tree, so nothing about interaction changes.
-                            const portalTarget = semanticOrbitActive ? overlayGroupEl : null;
-                            const content = (
-                              <>
-                                {/* Only mount while orbit mode is on. The overlay owns an
-                                    animation loop, so mounting it for any plain selection
-                                    put a permanent per-frame loop in the canvas subtree. */}
-                                {semanticOrbitActive && (
-                                  <OrbitOverlay
-                                    centerX={centerX}
-                                    centerY={centerY}
-                                    focusWidth={dimensions.currentWidth}
-                                    focusHeight={dimensions.currentHeight}
-                                    ring1Candidates={orbitData.ring1 || []}
-                                    ring2Candidates={orbitData.ring2 || []}
-                                    ring3Candidates={orbitData.ring3 || []}
-                                    ring4Candidates={orbitData.ring4 || []}
-                                    onOrbitItemClick={handleOrbitItemClick}
-                                    onExtentChange={setOrbitFrame}
-                                    onCandidateHover={handleOrbitCandidateHover}
-                                    controlRef={orbitControlRef}
-                                    onExit={exitOrbitMode}
-                                    isLoading={orbitLoading}
-                                  />
-                                )}
-                                {renderNodeElement(activeNodeToRender)}
-                              </>
-                            );
-                            return portalTarget ? createPortal(content, portalTarget) : content;
-                          })()
-                        )}
+                  {/* Edge pie menu — rendered inline at the edge midpoint */}
+                  {(() => {
+                    // Live midpoint wins whenever there is one; the frozen ref only stands in
+                    // once the edge is deselected, which is the case it exists for — the
+                    // bubbles have to finish shrinking where they were.
+                    //
+                    // Same reasoning as frozenButtons below, and for the same reason: the
+                    // effect that maintains this ref writes it AFTER the render that changed
+                    // the selection, and a ref write re-renders nothing. Reading the ref first
+                    // therefore pinned the menu to the previous connection until an unrelated
+                    // render came along — the visible stall when clicking from one connection
+                    // straight to another. The glide to the new midpoint is a CSS transition on
+                    // the bubbles (see PieMenu's line mode), so it plays either way; this only
+                    // decides whether it starts now or whenever something else happens to render.
+                    const anchor = selectedEdgeMidpoint || edgePieMenuAnchorRef.current;
+                    // Live buttons win whenever there are any; the frozen ref only stands in once
+                    // the list empties out, which is exactly the case it exists for — the edge is
+                    // deselected while the menu is still animating away, and the bubbles have to
+                    // finish shrinking on the set they were showing.
+                    //
+                    // Deliberately not the other way round: this list changes under an open menu
+                    // (Copy makes Paste available, pasting a definition makes Palette and Copy
+                    // available), and a ref write re-renders nothing — so preferring the ref would
+                    // pin the menu to whatever it had when it opened until some unrelated render
+                    // happened to come along.
+                    const frozenButtons = edgePieMenuButtons.length > 0
+                      ? edgePieMenuButtons
+                      : edgePieMenuButtonsRef.current;
+                    if (!edgePieMenuRendered || !anchor || !frozenButtons || frozenButtons.length === 0) return null;
 
-                        {/* Render the Dragging Node last (on top) */}
-                        {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
-                      </>
+                    // Hide (outro) while a node this edge is attached to is being dragged —
+                    // mirrors the node's own PieMenu (isVisible gated on draggingNodeInfo above).
+                    // The anchor position is frozen mid-drag (nodeById doesn't update during
+                    // DOM-bypass drag), so without this the menu would float detached from the
+                    // connection until it snaps to the new spot on drop.
+                    const draggedNodeIds = !draggingNodeInfo ? null
+                      : draggingNodeInfo.instanceId ? new Set([draggingNodeInfo.instanceId])
+                      : draggingNodeInfo.primaryId ? new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})])
+                      : (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) ? new Set(draggingNodeInfo.memberOffsets.map(m => m.id))
+                      : null;
+                    const edgeAttachedToDraggedNode = Boolean(draggedNodeIds && (draggedNodeIds.has(anchor.sourceId) || draggedNodeIds.has(anchor.destinationId)));
+
+                    // No compact/"..." fallback: focusEdgePieMenuInView (see the
+                    // focus-on-select effect) zooms the view to the menu's own bounds
+                    // whenever the row wouldn't fit, so the full row is always reachable.
+                    const displayButtons = frozenButtons;
+
+                    return (
+                      <PieMenu
+                        anchor={anchor}
+                        anchorAngle={anchor.angle ?? 0}
+                        buttons={displayButtons}
+                        focusedButtonIndex={gamepadMode === 'edge' ? gamepadPieFocusedIndex : -1}
+                        nodeScale={textSettings?.nodeScale ?? 1.0}
+                        isVisible={edgePieMenuVisible && !edgeAttachedToDraggedNode}
+                        onHoverChange={handlePieMenuHoverChange}
+                        onExitAnimationComplete={() => {
+                          edgePieMenuAnchorRef.current = null;
+                          edgePieMenuButtonsRef.current = null;
+                          setEdgePieMenuRendered(false);
+                        }}
+                      />
                     );
                   })()}
+
+                  {/* Dim overlay for semantic orbit mode.
+                      Plain SVG rect (not foreignObject) so it stays in proper paint order
+                      on iOS WebKit — foreignObject with backdrop-filter punches itself to
+                      the top of the stack and eats taps on orbit items. */}
+                  {semanticOrbitActive && (
+                    <rect
+                      /* Geometry is set imperatively (viewport-sized, tracks
+                         every pan/zoom tick) — see updateOrbitDimRect. Kept out
+                         of JSX so React re-renders don't clobber it. */
+                      ref={(el) => {
+                        orbitDimRectRef.current = el;
+                        if (el) updateOrbitDimRect();
+                      }}
+                      data-orbit-dim=""
+                      /* Dimming off: transparent and static at full canvas
+                         size — nothing to paint, nothing to blend through,
+                         no per-tick geometry writes, and still the click
+                         target that exits orbit mode. */
+                      {...(ENABLE_ORBIT_DIM ? null : {
+                        x: canvasSize.offsetX,
+                        y: canvasSize.offsetY,
+                        width: canvasSize.width,
+                        height: canvasSize.height,
+                      })}
+                      fill={ENABLE_ORBIT_DIM ? 'rgba(0, 0, 0, 0.7)' : 'transparent'}
+                      /* touchAction 'none', like the canvas surface this
+                         covers — every gesture here is the app's to
+                         interpret. It read 'manipulation' before, copied
+                         from a small button where handing pan and pinch
+                         back to the browser is harmless; on something
+                         spanning the whole canvas it is not. */
+                      style={{ cursor: 'pointer', touchAction: 'none' }}
+                      onMouseDown={(e) => {
+                        orbitClickDownPos.current = { x: e.clientX, y: e.clientY };
+                      }}
+                      onClick={(e) => {
+                        const down = orbitClickDownPos.current;
+                        orbitClickDownPos.current = null;
+                        // No matching mousedown means this is a synthesized click after a
+                        // touch gesture (pan) — ignore. Real mouse clicks always come with
+                        // a mousedown right before.
+                        if (!down) return;
+                        const dx = e.clientX - down.x;
+                        const dy = e.clientY - down.y;
+                        if (dx * dx + dy * dy > 25) return; // moved >5px = was a pan
+                        e.stopPropagation();
+                        exitOrbitMode();
+                      }}
+                      onTouchStart={(e) => {
+                        // Only a one-finger sequence can be a tap. A second finger
+                        // means a pinch, which is the canvas's gesture, not ours.
+                        const t = e.touches?.length === 1 ? e.touches[0] : null;
+                        orbitClickDownPos.current = t ? { x: t.clientX, y: t.clientY } : null;
+                      }}
+                      onTouchEnd={(e) => {
+                        const down = orbitClickDownPos.current;
+                        orbitClickDownPos.current = null;
+                        // Suppress the synthetic click that follows touchend either way,
+                        // so a pan-then-lift can't fall through to onClick and exit.
+                        if (e.cancelable) e.preventDefault();
+
+                        const t = e.changedTouches?.[0];
+                        const isTap = down && t
+                          && e.touches?.length === 0            // last finger up
+                          && (t.clientX - down.x) ** 2 + (t.clientY - down.y) ** 2 <= 25;
+
+                        // Deliberately does NOT stop propagation, for any outcome.
+                        //
+                        // The canvas's own touchend is where a gesture gets torn down —
+                        // the pinch flag cleared, pan momentum launched — and it is also
+                        // what removes the document-level touchmove/touchend listeners
+                        // that handleTouchStartCanvas attached for this gesture. Stopping
+                        // propagation here (which React forwards to the native event, so
+                        // the document listeners never fire either) meant that in orbit
+                        // mode none of it ran: pans lost their inertia, every touch leaked
+                        // a live touchmove listener, and after a pinch the pinch flag
+                        // stayed set, so every later touch was read as a continuing pinch
+                        // and panning stopped working at all.
+                        //
+                        // The canvas will read a tap here as a bare-canvas tap and clear
+                        // the selection, which exits orbit by way of the deselect effect.
+                        // Exiting explicitly as well is harmless and does not depend on
+                        // that chain holding.
+                        if (isTap) exitOrbitMode();
+                      }}
+                    />
+                  )}
+
+
+                  {/* The active node (with the orbit overlay while orbiting), then the dragged node, on top. */}
+                  <NodeLayer part="top" {...nodeLayerProps} />
 
                   {/* Marquee: geometry is written by setMarqueeRectEl, never by React. */}
                   {selectionStart && (

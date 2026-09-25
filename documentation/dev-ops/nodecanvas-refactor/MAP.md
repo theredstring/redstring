@@ -140,7 +140,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Node hitbox debug | `showNodeHitboxes && hydratedNodes` | 17067–17091 | overlay (debug) | P3.09 |
 | **Edges IIFE** | `isViewReady && (() =>`, `const edgeRenderCtx`, `renderEdgeCached` | 17092–17355 | **moved (P3.07, P3.06a):** cache and painter deleted; the pass is `components/canvas/layers/EdgeLayer.jsx`; `edgeRenderCtx` is built just before the JSX | P1.07, P3.06 |
 | Connection-draw line, self-loop preview | `drawingConnectionFrom && !draggingNodeInfo` | 17356–17397 | `OverlayLayer` | P3.09 |
-| **Nodes + pie menus IIFE** | `const renderNodeElement`, `<PieMenu`, `onExitAnimationComplete={() =>` | 17398–18051 | `NodeLayer`; pie layers | P3.08, P5.03 |
+| **Nodes + pie menus IIFE** | `const renderNodeElement`, `<PieMenu`, `onExitAnimationComplete={() =>` | 17398–18051 | **nodes moved (P3.08b)** to `components/canvas/layers/NodeLayer.jsx` (two instances); the node pie, edge pie and orbit dim stay inline in NodeCanvas between them for P5.02b/P5.03/P5.08 | P3.08, P5.03 |
 | Selection rect, PlusSign, VideoNodeAnimation | `selectionRect &&`, `<PlusSign`, `<VideoNodeAnimation` | 18052–18112 | `OverlayLayer` | P1.04, P3.09 |
 | Orbit scrim/overlay svg, HoverVisionAid, GamepadCrosshair | `semanticOrbitActive &&`, `<HoverVisionAid`, `<GamepadCrosshair` | 18113–18184 | orbit module; hover slice | P5.08, P2.13 |
 | EdgeGlowIndicator, BackToCivilization, DownloadAppPill, resizers | `edgeGlowMode !== 'off'`, `<BackToCivilization`, `renderPanelResizers()` | 18185–18233 | leaves on the viewport store; `PanelResizers` | P3.10, P2.12 |

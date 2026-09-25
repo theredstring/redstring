@@ -111,7 +111,7 @@
 - **Accept:** The decision is recorded in DECISIONS, and the code and flags are removed or scoped.
 
 ### P3.08: `NodeLayer`
-- **Status:** part a done: the active and dragging `<Node>` copies go through `renderNodeElement` (one prop block); markup identical with no selection, pie open and mid-drag. Open: the partition memo, the layer and its subscriptions, the rename draft inside Node.
+- **Status:** parts a and b done. Part b (wave 6): `components/canvas/layers/NodeLayer.jsx`, memoized, rendered twice in the z-order (`part="rest"`: ordinary nodes then node-group members; `part="top"`: the active node with the orbit overlay, then the dragged node), with titles, delete ghosts and the pie menus between them in NodeCanvas as before. It subscribes to selection, preview, pie target, carousel, on-canvas rename and definition indices itself; `nodeCallbacks` is memoized; NodeCanvas no longer subscribes to `editingNodeIdOnCanvas`. Markup identical to `main` in 28 scenes (one font-timing truncation flip); all 61 flows pass; S4–S7 unchanged, as expected while NodeCanvas still subscribes to selection (P5). Open: the rename draft inside Node.
 - **Lane:** A + B · **Size:** L
 - **Findings:** F-24, F-15
 - **Change:**
