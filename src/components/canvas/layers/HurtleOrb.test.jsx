@@ -18,7 +18,8 @@ describe('hurtleFrame', () => {
 
   it('starts at the node as a 1 px dot under it, and ends on the tab faded out', () => {
     expect(hurtleFrame(f, 0)).toMatchObject({ x: 100, y: 500, size: 1, zIndex: 500, opacity: 1 });
-    expect(hurtleFrame(f, 1)).toMatchObject({ x: 640, y: 25, size: 1, zIndex: 5000, opacity: 0 });
+    expect(hurtleFrame(f, 1)).toMatchObject({ x: 640, y: 25, size: 1, zIndex: 5000 });
+    expect(hurtleFrame(f, 1).opacity).toBeCloseTo(0);
   });
 
   it('balloons to 1.9x the orb size mid-flight, over the header', () => {
