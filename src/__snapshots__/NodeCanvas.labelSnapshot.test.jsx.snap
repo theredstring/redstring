@@ -1,0 +1,6641 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`connection labels, clean routing > at rest, then with hub selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+      "hit path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+      "hit path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+      "hit path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1636|445|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 445)",
+        "x": "1636",
+        "y": "445",
+      },
+      {
+        "frame": "s|1636|445|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 445)",
+        "x": "1636",
+        "y": "445",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+      "hit path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 L 700,570",
+      "hit path M 96.5,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+      "hit path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
+        "y": "713",
+      },
+      {
+        "frame": "s|1646.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
+        "y": "713",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+      "hit path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1140|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
+        "y": "641.5",
+      },
+      {
+        "frame": "s|1140|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
+        "y": "641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1496.5,570",
+      "hit path M 784,570 L 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 810,1070",
+      "hit path M 164.5,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|538.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
+        "y": "1021",
+      },
+      {
+        "frame": "s|538.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+      "hit path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1539|350|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
+      },
+      {
+        "frame": "s|1539|350|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+      "hit path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1567.5|280|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
+      },
+      {
+        "frame": "s|1567.5|280|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|392.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|392.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+      "hit path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+      "hit path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, clean routing > at rest, then with hub selected > hub selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+      "hit path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+      "hit path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+      "hit path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1636|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 320)",
+        "x": "1636",
+        "y": "320",
+      },
+      {
+        "frame": "s|1636|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 320)",
+        "x": "1636",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+      "hit path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 L 700,570",
+      "hit path M 96.5,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+      "hit path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1694.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1694.5, 713)",
+        "x": "1694.5",
+        "y": "713",
+      },
+      {
+        "frame": "s|1694.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1694.5, 713)",
+        "x": "1694.5",
+        "y": "713",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+      "hit path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1197|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1197, 641.5)",
+        "x": "1197",
+        "y": "641.5",
+      },
+      {
+        "frame": "s|1197|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1197, 641.5)",
+        "x": "1197",
+        "y": "641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1496.5,570",
+      "hit path M 784,570 L 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 810,1070",
+      "hit path M 164.5,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|501.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 501.5, 1021)",
+        "x": "501.5",
+        "y": "1021",
+      },
+      {
+        "frame": "s|501.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 501.5, 1021)",
+        "x": "501.5",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+      "hit path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1724.5|212.5|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1724.5, 212.5)",
+        "x": "1724.5",
+        "y": "212.5",
+      },
+      {
+        "frame": "s|1724.5|212.5|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1724.5, 212.5)",
+        "x": "1724.5",
+        "y": "212.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+      "hit path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1539|360|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1539, 360)",
+        "x": "1539",
+        "y": "360",
+      },
+      {
+        "frame": "s|1539|360|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1539, 360)",
+        "x": "1539",
+        "y": "360",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|321|490|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 321, 490)",
+        "x": "321",
+        "y": "490",
+      },
+      {
+        "frame": "s|321|490|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 321, 490)",
+        "x": "321",
+        "y": "490",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+      "hit path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+      "hit path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, clean routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
+[
+  "l-long",
+  "l-par2",
+  "l-par3",
+  "l-spans",
+  "l-mirror2",
+  "l-leads",
+  "l-hubne",
+]
+`;
+
+exports[`connection labels, clean routing > at rest, then with leaf selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+      "hit path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+      "hit path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+      "hit path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1636|445|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 445)",
+        "x": "1636",
+        "y": "445",
+      },
+      {
+        "frame": "s|1636|445|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 445)",
+        "x": "1636",
+        "y": "445",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+      "hit path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 L 700,570",
+      "hit path M 96.5,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+      "hit path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
+        "y": "713",
+      },
+      {
+        "frame": "s|1646.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
+        "y": "713",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+      "hit path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1140|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
+        "y": "641.5",
+      },
+      {
+        "frame": "s|1140|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
+        "y": "641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1496.5,570",
+      "hit path M 784,570 L 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 810,1070",
+      "hit path M 164.5,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|538.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
+        "y": "1021",
+      },
+      {
+        "frame": "s|538.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+      "hit path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1539|350|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
+      },
+      {
+        "frame": "s|1539|350|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+      "hit path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1567.5|280|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
+      },
+      {
+        "frame": "s|1567.5|280|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|392.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|392.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+      "hit path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+      "hit path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, clean routing > at rest, then with leaf selected > leaf selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+      {
+        "frame": "s|741|820|90",
+        "full": "contains",
+        "text": "contains",
+        "transform": "rotate(90, 741, 820)",
+        "x": "741",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+      "hit path M 784,570 L 784,1062 Q 784,1070 792,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+      {
+        "frame": "s|453.5|27|0",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(0, 453.5, 27)",
+        "x": "453.5",
+        "y": "27",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+      "hit path M 810,70 L 104.5,70 Q 96.5,70 96.5,78 L 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+      {
+        "frame": "s|1051.5|504.5|0",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(0, 1051.5, 504.5)",
+        "x": "1051.5",
+        "y": "504.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+      "hit path M 810,1070 L 810,584 Q 810,576 818,576 L 1400,576",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1636|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 320)",
+        "x": "1636",
+        "y": "320",
+      },
+      {
+        "frame": "s|1636|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1636, 320)",
+        "x": "1636",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+      "hit path M 784,570 L 1556.5,570 Q 1564.5,570 1564.5,562 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+      {
+        "frame": "s|424|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 424, 570)",
+        "x": "424",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 L 700,570",
+      "hit path M 96.5,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "inner link",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+      {
+        "frame": "s|164.5|1261.5|90",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(90, 164.5, 1261.5)",
+        "x": "164.5",
+        "y": "1261.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+      "hit path M 164.5,1070 L 164.5,1352.5 Q 164.5,1360.5 172.5,1360.5 L 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
+        "y": "713",
+      },
+      {
+        "frame": "s|1646.5|713|0",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
+        "y": "713",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+      "hit path M 1796.5,1120 L 1796.5,721 Q 1796.5,713 1788.5,713 L 1504.5,713 Q 1496.5,713 1496.5,705 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1140|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
+        "y": "641.5",
+      },
+      {
+        "frame": "s|1140|641.5|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliberatel…",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
+        "y": "641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 1496.5,570",
+      "hit path M 784,570 L 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+      {
+        "frame": "s|487.5|1113|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 487.5, 1113)",
+        "x": "487.5",
+        "y": "1113",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 L 810,1070",
+      "hit path M 164.5,1070 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|501.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 501.5, 1021)",
+        "x": "501.5",
+        "y": "1021",
+      },
+      {
+        "frame": "s|501.5|1021|0",
+        "full": "reflects",
+        "text": "reflects",
+        "transform": "rotate(0, 501.5, 1021)",
+        "x": "501.5",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+      "hit path M 329,1064 L 807,1064 Q 810,1064 810,1067 L 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1453.5|320|90",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(90, 1453.5, 320)",
+        "x": "1453.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1724.5|212.5|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1724.5, 212.5)",
+        "x": "1724.5",
+        "y": "212.5",
+      },
+      {
+        "frame": "s|1724.5|212.5|90",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(90, 1724.5, 212.5)",
+        "x": "1724.5",
+        "y": "212.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+      "hit path M 1496.5,570 L 1496.5,244.5 Q 1496.5,236.5 1504.5,236.5 L 1645,236.5 Q 1653,236.5 1653,228.5 L 1653,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1539|360|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1539, 360)",
+        "x": "1539",
+        "y": "360",
+      },
+      {
+        "frame": "s|1539|360|90",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(90, 1539, 360)",
+        "x": "1539",
+        "y": "360",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+      "hit path M 1496.5,570 L 1496.5,78 Q 1496.5,70 1504.5,70 L 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|321|490|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 321, 490)",
+        "x": "321",
+        "y": "490",
+      },
+      {
+        "frame": "s|321|490|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(90, 321, 490)",
+        "x": "321",
+        "y": "490",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+      "hit path M 1564.5,70 L 400.5,70 Q 392.5,70 392.5,78 L 392.5,1062 Q 392.5,1070 384.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+      {
+        "frame": "s|784|334.5|90",
+        "full": "supports",
+        "text": "suppor…",
+        "transform": "rotate(90, 784, 334.5)",
+        "x": "784",
+        "y": "334.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+      "hit path M 784,570 L 784,221 Q 784,213 792,213 L 802,213 Q 810,213 810,205 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, clean routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `
+[
+  "l-par2",
+  "l-par3",
+  "l-spans",
+  "l-mirror2",
+  "l-hubne",
+]
+`;
+
+exports[`connection labels, lombardi routing > at rest, then with hub selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+      "hit path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 A 484,484 0 0 0 96.5,570",
+      "hit path M 810,70 A 484,484 0 0 0 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+      "hit path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 569,569 0 0 1 1564.5,70",
+      "hit path M 784,570 A 569,569 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 A 540.5,540.5 0 0 0 645,653",
+      "hit path M 96.5,570 A 540.5,540.5 0 0 0 645,653",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+      "hit path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+      "hit path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
+      },
+      {
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+      "hit path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+      "hit path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+      "hit path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1546.5,201.5",
+      "hit path M 1496.5,570 L 1546.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+      "hit path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 798,798 0 0 0 834.5,201.5",
+      "hit path M 784,570 A 798,798 0 0 0 834.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, lombardi routing > at rest, then with hub selected > hub selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+      "hit path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 A 484,484 0 0 0 96.5,570",
+      "hit path M 810,70 A 484,484 0 0 0 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+      "hit path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 569,569 0 0 1 1564.5,70",
+      "hit path M 784,570 A 569,569 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 A 540.5,540.5 0 0 0 639,655.5",
+      "hit path M 96.5,570 A 540.5,540.5 0 0 0 639,655.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+      "hit path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+      "hit path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "g|908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320|673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5|9.5 8 7 5.5 4 2.5 0.5 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320",
+        "y": "673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5",
+      },
+      {
+        "frame": "g|908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320|673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5|9.5 8 7 5.5 4 2.5 0.5 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320",
+        "y": "673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+      "hit path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+      "hit path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+      "hit path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1546.5,201.5",
+      "hit path M 1496.5,570 L 1546.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+      "hit path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 798,798 0 0 0 834.5,201.5",
+      "hit path M 784,570 A 798,798 0 0 0 834.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, lombardi routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
+[
+  "l-long",
+]
+`;
+
+exports[`connection labels, lombardi routing > at rest, then with leaf selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+      "hit path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 A 484,484 0 0 0 96.5,570",
+      "hit path M 810,70 A 484,484 0 0 0 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+      "hit path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 569,569 0 0 1 1564.5,70",
+      "hit path M 784,570 A 569,569 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 A 540.5,540.5 0 0 0 645,653",
+      "hit path M 96.5,570 A 540.5,540.5 0 0 0 645,653",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+      "hit path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+      "hit path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
+      },
+      {
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+      "hit path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+      "hit path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+      "hit path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1546.5,201.5",
+      "hit path M 1496.5,570 L 1546.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+      "hit path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 798,798 0 0 0 834.5,201.5",
+      "hit path M 784,570 A 798,798 0 0 0 834.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, lombardi routing > at rest, then with leaf selected > leaf selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|792.5|820|85.5",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(85.5, 792.5, 820)",
+        "x": "792.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+      "hit path M 784,570 A 6752.5,6752.5 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+      {
+        "frame": "g|172.5 200 221.5 254.5 290 328 368.5|222 185.5 160.5 129 100.5 75.5 54|-53.5 -48.5 -44 -38.5 -33 -28 -22.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "172.5 200 221.5 254.5 290 328 368.5",
+        "y": "222 185.5 160.5 129 100.5 75.5 54",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,70 A 484,484 0 0 0 96.5,570",
+      "hit path M 810,70 A 484,484 0 0 0 96.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+      {
+        "frame": "g|1089 1119 1159 1180 1201 1238.5 1289.5|1012.5 999 978 965.5 953 927.5 885.5|-24.5 -27.5 -30 -32 -34.5 -39 -43.5",
+        "full": "follows",
+        "text": "follows",
+        "transform": null,
+        "x": "1089 1119 1159 1180 1201 1238.5 1289.5",
+        "y": "1012.5 999 978 965.5 953 927.5 885.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+      "hit path M 810,1070 A 729,729 0 0 0 1441.5,695.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+      {
+        "frame": "g|951 982 1006 1041.5 1079.5 1119.5 1161.5|256.5 223.5 201 172.5 147 125 107|-47 -43 -38.5 -33.5 -28.5 -23.5 -18.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": null,
+        "x": "951 982 1006 1041.5 1079.5 1119.5 1161.5",
+        "y": "256.5 223.5 201 172.5 147 125 107",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 569,569 0 0 1 1564.5,70",
+      "hit path M 784,570 A 569,569 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+      {
+        "frame": "g|232.5 255 298.5 330.5 354.5 400 445.5 491 536|652 661 675 682.5 687 692.5 694 691.5 685.5|21.5 17.5 13.5 10.5 6.5 2 -3 -8 -12.5",
+        "full": "influences",
+        "text": "influenc…",
+        "transform": null,
+        "x": "232.5 255 298.5 330.5 354.5 400 445.5 491 536",
+        "y": "652 661 675 682.5 687 692.5 694 691.5 685.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 96.5,570 A 540.5,540.5 0 0 0 645,653",
+      "hit path M 96.5,570 A 540.5,540.5 0 0 0 645,653",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|403|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1641.5)",
+        "x": "403",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 178,1570 L 628,1570",
+      "hit path M 178,1570 L 628,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+      {
+        "frame": "g|135.5 143 163.5 175.5|1178.5 1201.5 1242.5 1263.5|70.5 64.5 58.5 52",
+        "full": "joins",
+        "text": "joi…",
+        "transform": null,
+        "x": "135.5 143 163.5 175.5",
+        "y": "1178.5 1201.5 1242.5 1263.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+      "hit path M 164.5,1070 A 281,281 0 0 0 403,1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+      {
+        "frame": "s|1674|880.5|63",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(63, 1674, 880.5)",
+        "x": "1674",
+        "y": "880.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+      "hit path M 1796.5,1120 A 6749.5,6749.5 0 0 0 1569,692.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
+      },
+      {
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a deliber…",
+        "transform": null,
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+      "hit path M 784,570 A 1237,1237 0 0 0 1496.5,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+      {
+        "frame": "g|375.5 441 465 498 530.5 576 609|1025.5 1021 1020 1020 1020.5 1023.5 1026.5|-4.5 -2 -0.5 1.5 3.5 5.5 8",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": null,
+        "x": "375.5 441 465 498 530.5 576 609",
+        "y": "1025.5 1021 1020 1020 1020.5 1023.5 1026.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+      "hit path M 164.5,1070 A 1067,1067 0 0 1 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+      {
+        "frame": "g|444 477 522.5 555.5 579.5 625|1119.5 1120 1119.5 1118 1116.5 1111.5|1.5 -0.5 -3 -4.5 -6 -8.5",
+        "full": "reflects",
+        "text": "refle…",
+        "transform": null,
+        "x": "444 477 522.5 555.5 579.5 625",
+        "y": "1119.5 1120 1119.5 1118 1116.5 1111.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+      "hit path M 390.5,1115.5 A 1067,1067 0 0 0 810,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+      {
+        "frame": "g|1437 1429.5 1427.5 1430 1435 1438.5 1452.5|439.5 394.5 349 316 284 267 223.5|-99.5 -92.5 -86.5 -81 -77.5 -72.5 -66.5",
+        "full": "part of",
+        "text": "part of",
+        "transform": null,
+        "x": "1437 1429.5 1427.5 1430 1435 1438.5 1452.5",
+        "y": "439.5 394.5 349 316 284 267 223.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 1 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+      {
+        "frame": "s|1567|368|-81",
+        "full": "precedes",
+        "text": "prec…",
+        "transform": "rotate(-81, 1567, 368)",
+        "x": "1567",
+        "y": "368",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 L 1546.5,201.5",
+      "hit path M 1496.5,570 L 1546.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+      {
+        "frame": "g|1636 1653.5 1666 1673.5 1676.5 1674|462 419.5 376 331 285 239.5|-67.5 -74 -80.5 -86.5 -93 -99.5",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": null,
+        "x": "1636 1653.5 1666 1673.5 1676.5 1674",
+        "y": "462 419.5 376 331 285 239.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+      "hit path M 1496.5,570 A 368.5,368.5 0 0 0 1564.5,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+      {
+        "frame": "g|550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373|63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78|-32 -29.5 -27 -24.5 -22 -20.5 -19 -17 -14.5 -12.5 -10 -7 -4.5 -2.5 -1 1 2.5 5 7.5 10 12.5 15",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": null,
+        "x": "550.5 589.5 629 669.5 711 753.5 769.5 800.5 844 888.5 905 969.5 1015 1060.5 1084.5 1130 1147.5 1193 1238.5 1283.5 1328.5 1373",
+        "y": "63 38.5 16 -5 -24 -40.5 -46.5 -57.5 -70.5 -81.5 -86 -97.5 -103 -106.5 -108 -108.5 -108 -106 -102 -96 -88 -78",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+      "hit path M 1564.5,70 A 967.5,967.5 0 0 0 154.5,938",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+      {
+        "frame": "g|814.5 824.5 831.5 836.5 838.5|476 431 386 341 295|-77.5 -81 -84 -87.5 -90.5",
+        "full": "supports",
+        "text": "supp…",
+        "transform": null,
+        "x": "814.5 824.5 831.5 836.5 838.5",
+        "y": "476 431 386 341 295",
+      },
+    ],
+    "strokes": [
+      "stroke path M 784,570 A 798,798 0 0 0 834.5,201.5",
+      "hit path M 784,570 A 798,798 0 0 0 834.5,201.5",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, lombardi routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `[]`;
+
+exports[`connection labels, manhattan routing > at rest, then with hub selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 640",
+      "stroke line 810 1000 810 1070",
+      "stroke path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+      "hit path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 700 70",
+      "stroke line 193 570 96.5 570",
+      "stroke path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+      "hit path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 920 1070",
+      "stroke path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+      "hit path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 70 1564.5 70",
+      "stroke path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+      "hit path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 193 570",
+      "stroke path M 193,570 L 700,570",
+      "hit path M 193,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 356.5 1570",
+      "stroke line 450 1570 628 1570",
+      "stroke path M 356.5,1570 L 450,1570",
+      "hit path M 356.5,1570 L 450,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 164.5 1140",
+      "stroke line 403 1317 403 1360.5",
+      "stroke path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+      "hit path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1796.5 1050",
+      "stroke path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+      "hit path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1001|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
+        "y": "613",
+      },
+      {
+        "frame": "s|1001|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 570 1496.5 570",
+      "stroke path M 868,570 L 1400,570",
+      "hit path M 868,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 329 1064",
+      "stroke line 700 1064 810 1070",
+      "stroke path M 329,1064 L 700,1064",
+      "hit path M 329,1064 L 700,1064",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+    ],
+    "strokes": [
+      "stroke line 700 1076 810 1070",
+      "stroke path M 329,1076 L 700,1076",
+      "hit path M 329,1076 L 700,1076",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1464 500",
+      "stroke line 1532 140 1564.5 70",
+      "stroke path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+      "hit path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1496.5 500",
+      "stroke path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+      "hit path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1529 500",
+      "stroke line 1597 140 1564.5 70",
+      "stroke path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+      "hit path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|907.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|907.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 1400 70",
+      "stroke path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+      "hit path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 500",
+      "stroke path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+      "hit path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, manhattan routing > at rest, then with hub selected > hub selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 640",
+      "stroke line 810 1000 810 1070",
+      "stroke path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+      "hit path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 700 70",
+      "stroke line 193 570 96.5 570",
+      "stroke path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+      "hit path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 920 1070",
+      "stroke path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+      "hit path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 70 1564.5 70",
+      "stroke path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+      "hit path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 193 570",
+      "stroke path M 193,570 L 700,570",
+      "hit path M 193,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 356.5 1570",
+      "stroke line 450 1570 628 1570",
+      "stroke path M 356.5,1570 L 450,1570",
+      "hit path M 356.5,1570 L 450,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 164.5 1140",
+      "stroke line 403 1317 403 1360.5",
+      "stroke path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+      "hit path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1796.5 1050",
+      "stroke path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+      "hit path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1267|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1267, 613)",
+        "x": "1267",
+        "y": "613",
+      },
+      {
+        "frame": "s|1267|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1267, 613)",
+        "x": "1267",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 570 1496.5 570",
+      "stroke path M 868,570 L 1400,570",
+      "hit path M 868,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 329 1064",
+      "stroke line 700 1064 810 1070",
+      "stroke path M 329,1064 L 700,1064",
+      "hit path M 329,1064 L 700,1064",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+    ],
+    "strokes": [
+      "stroke line 700 1076 810 1070",
+      "stroke path M 329,1076 L 700,1076",
+      "hit path M 329,1076 L 700,1076",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1464 500",
+      "stroke line 1532 140 1564.5 70",
+      "stroke path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+      "hit path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1496.5 500",
+      "stroke path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+      "hit path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1529 500",
+      "stroke line 1597 140 1564.5 70",
+      "stroke path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+      "hit path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|936|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 936, 570)",
+        "x": "936",
+        "y": "570",
+      },
+      {
+        "frame": "s|936|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 936, 570)",
+        "x": "936",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 1400 70",
+      "stroke path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+      "hit path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 500",
+      "stroke path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+      "hit path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, manhattan routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
+[
+  "l-long",
+  "l-spans",
+]
+`;
+
+exports[`connection labels, manhattan routing > at rest, then with leaf selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 640",
+      "stroke line 810 1000 810 1070",
+      "stroke path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+      "hit path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 700 70",
+      "stroke line 193 570 96.5 570",
+      "stroke path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+      "hit path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 920 1070",
+      "stroke path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+      "hit path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 70 1564.5 70",
+      "stroke path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+      "hit path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 193 570",
+      "stroke path M 193,570 L 700,570",
+      "hit path M 193,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 356.5 1570",
+      "stroke line 450 1570 628 1570",
+      "stroke path M 356.5,1570 L 450,1570",
+      "hit path M 356.5,1570 L 450,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 164.5 1140",
+      "stroke line 403 1317 403 1360.5",
+      "stroke path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+      "hit path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1796.5 1050",
+      "stroke path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+      "hit path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1001|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
+        "y": "613",
+      },
+      {
+        "frame": "s|1001|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 570 1496.5 570",
+      "stroke path M 868,570 L 1400,570",
+      "hit path M 868,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 329 1064",
+      "stroke line 700 1064 810 1070",
+      "stroke path M 329,1064 L 700,1064",
+      "hit path M 329,1064 L 700,1064",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+    ],
+    "strokes": [
+      "stroke line 700 1076 810 1070",
+      "stroke path M 329,1076 L 700,1076",
+      "hit path M 329,1076 L 700,1076",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1464 500",
+      "stroke line 1532 140 1564.5 70",
+      "stroke path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+      "hit path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1496.5 500",
+      "stroke path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+      "hit path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1529 500",
+      "stroke line 1597 140 1564.5 70",
+      "stroke path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+      "hit path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|907.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|907.5|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 1400 70",
+      "stroke path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+      "hit path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 500",
+      "stroke path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+      "hit path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, manhattan routing > at rest, then with leaf selected > leaf selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|0",
+        "full": "contains",
+        "text": "co…",
+        "transform": "rotate(0, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 640",
+      "stroke line 810 1000 810 1070",
+      "stroke path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+      "hit path M 784,640 L 784,812 Q 784,820 792,820 L 802,820 Q 810,820 810,828 L 810,1000",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|446.5|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 446.5, 320)",
+        "x": "446.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 700 70",
+      "stroke line 193 570 96.5 570",
+      "stroke path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+      "hit path M 700,70 L 454.5,70 Q 446.5,70 446.5,78 L 446.5,562 Q 446.5,570 438.5,570 L 193,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+      {
+        "frame": "s|1160|820|90",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(90, 1160, 820)",
+        "x": "1160",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 920 1070",
+      "stroke path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+      "hit path M 920,1070 L 1152,1070 Q 1160,1070 1160,1062 L 1160,578 Q 1160,570 1168,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+      {
+        "frame": "s|1134|320|90",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(90, 1134, 320)",
+        "x": "1134",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 70 1564.5 70",
+      "stroke path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+      "hit path M 868,570 L 1126,570 Q 1134,570 1134,562 L 1134,78 Q 1134,70 1142,70 L 1400,70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+      {
+        "frame": "s|340|613|0",
+        "full": "influences",
+        "text": "influ…",
+        "transform": "rotate(0, 340, 613)",
+        "x": "340",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 193 570",
+      "stroke path M 193,570 L 700,570",
+      "hit path M 193,570 L 700,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+      {
+        "frame": "s|391.5|1641.5|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 391.5, 1641.5)",
+        "x": "391.5",
+        "y": "1641.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 356.5 1570",
+      "stroke line 450 1570 628 1570",
+      "stroke path M 356.5,1570 L 450,1570",
+      "hit path M 356.5,1570 L 450,1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+      {
+        "frame": "s|284|1228.5|0",
+        "full": "joins",
+        "text": "joins",
+        "transform": "rotate(0, 284, 1228.5)",
+        "x": "284",
+        "y": "1228.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 164.5 1140",
+      "stroke line 403 1317 403 1360.5",
+      "stroke path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+      "hit path M 164.5,1140 L 164.5,1220.5 Q 164.5,1228.5 172.5,1228.5 L 395,1228.5 Q 403,1228.5 403,1236.5 L 403,1317",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|0",
+        "full": "leads to",
+        "text": "leads…",
+        "transform": "rotate(0, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1796.5 1050",
+      "stroke path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+      "hit path M 1796.5,1050 L 1796.5,853 Q 1796.5,845 1788.5,845 L 1504.5,845 Q 1496.5,845 1496.5,837 L 1496.5,640",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1267|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1267, 613)",
+        "x": "1267",
+        "y": "613",
+      },
+      {
+        "frame": "s|1267|613|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a…",
+        "transform": "rotate(0, 1267, 613)",
+        "x": "1267",
+        "y": "613",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 868 570",
+      "stroke line 1400 570 1496.5 570",
+      "stroke path M 868,570 L 1400,570",
+      "hit path M 868,570 L 1400,570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+      {
+        "frame": "s|425|1021|0",
+        "full": "mirrors",
+        "text": "mir…",
+        "transform": "rotate(0, 425, 1021)",
+        "x": "425",
+        "y": "1021",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 329 1064",
+      "stroke line 700 1064 810 1070",
+      "stroke path M 329,1064 L 700,1064",
+      "hit path M 329,1064 L 700,1064",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+      {
+        "frame": "s|604.5|1119|0",
+        "full": "reflects",
+        "text": "ref…",
+        "transform": "rotate(0, 604.5, 1119)",
+        "x": "604.5",
+        "y": "1119",
+      },
+    ],
+    "strokes": [
+      "stroke line 700 1076 810 1070",
+      "stroke path M 329,1076 L 700,1076",
+      "hit path M 329,1076 L 700,1076",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+      {
+        "frame": "s|1421|394|90",
+        "full": "part of",
+        "text": "par…",
+        "transform": "rotate(90, 1421, 394)",
+        "x": "1421",
+        "y": "394",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1464 500",
+      "stroke line 1532 140 1564.5 70",
+      "stroke path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+      "hit path M 1464,500 L 1464,295.5 Q 1464,287.5 1472,287.5 L 1524,287.5 Q 1532,287.5 1532,279.5 L 1532,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+      {
+        "frame": "s|1530.5|363|0",
+        "full": "precedes",
+        "text": "pr…",
+        "transform": "rotate(0, 1530.5, 363)",
+        "x": "1530.5",
+        "y": "363",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1496.5 500",
+      "stroke path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+      "hit path M 1496.5,500 L 1496.5,328 Q 1496.5,320 1504.5,320 L 1556.5,320 Q 1564.5,320 1564.5,312 L 1564.5,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+      {
+        "frame": "s|1639.5|246|90",
+        "full": "echoes",
+        "text": "ech…",
+        "transform": "rotate(90, 1639.5, 246)",
+        "x": "1639.5",
+        "y": "246",
+      },
+    ],
+    "strokes": [
+      "stroke line 1496.5 570 1529 500",
+      "stroke line 1597 140 1564.5 70",
+      "stroke path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+      "hit path M 1529,500 L 1529,360.5 Q 1529,352.5 1537,352.5 L 1589,352.5 Q 1597,352.5 1597,344.5 L 1597,140",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|936|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 936, 570)",
+        "x": "936",
+        "y": "570",
+      },
+      {
+        "frame": "s|936|570|90",
+        "full": "spans the whole canvas",
+        "text": "spans the whole can…",
+        "transform": "rotate(90, 936, 570)",
+        "x": "936",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 1400 70",
+      "stroke path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+      "hit path M 1400,70 L 872.5,70 Q 864.5,70 864.5,78 L 864.5,1062 Q 864.5,1070 856.5,1070 L 329,1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|0",
+        "full": "supports",
+        "text": "su…",
+        "transform": "rotate(0, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 784 500",
+      "stroke path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+      "hit path M 784,500 L 784,328 Q 784,320 792,320 L 802,320 Q 810,320 810,312 L 810,140",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, manhattan routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `
+[
+  "l-long",
+  "l-spans",
+]
+`;
+
+exports[`connection labels, straight routing > at rest, then with hub selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|87",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(87, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|87",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(87, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 810 1070",
+      "hit line 784 570 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 96.5 570",
+      "hit line 810 70 96.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 1392.5 646",
+      "hit line 810 1070 1392.5 646",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1163.5|327|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1163.5, 327)",
+        "x": "1163.5",
+        "y": "327",
+      },
+      {
+        "frame": "s|1163.5|327|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1163.5, 327)",
+        "x": "1163.5",
+        "y": "327",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1564.5 70",
+      "hit line 784 570 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|446.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 446.5, 570)",
+        "x": "446.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|446.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 446.5, 570)",
+        "x": "446.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 686 570",
+      "hit line 96.5 570 686 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 628 1570",
+      "hit line 178 1570 628 1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 403 1360.5",
+      "hit line 164.5 1070 403 1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1541 651.5",
+      "hit line 1796.5 1120 1541 651.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1134|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1134, 570)",
+        "x": "1134",
+        "y": "570",
+      },
+      {
+        "frame": "s|1134|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1134, 570)",
+        "x": "1134",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1496.5 570",
+      "hit line 784 570 1496.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5 1070 Q 487.5 970 810 1070",
+      "hit path M 164.5 1070 Q 487.5 970 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+    ],
+    "strokes": [
+      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
+      "hit path M 343 1070 Q 576.5 1170 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1332.5 293 1564.5 70",
+      "hit path M 1496.5 570 Q 1332.5 293 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1508.5 482.5 Q 1525 362 1541 241",
+      "hit path M 1496.5 570 Q 1525 362 1553 154",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1728.5 347 1564.5 70",
+      "hit path M 1496.5 570 Q 1728.5 347 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 270.5 994.5",
+      "hit line 1564.5 70 270.5 994.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 805.5 154",
+      "hit line 784 570 805.5 154",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, straight routing > at rest, then with hub selected > hub selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|823|87",
+        "full": "contains",
+        "text": "conta…",
+        "transform": "rotate(87, 797, 823)",
+        "x": "797",
+        "y": "823",
+      },
+      {
+        "frame": "s|797|823|87",
+        "full": "contains",
+        "text": "conta…",
+        "transform": "rotate(87, 797, 823)",
+        "x": "797",
+        "y": "823",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 810 1070",
+      "hit line 784 570 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 96.5 570",
+      "hit line 810 70 96.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 1392.5 646",
+      "hit line 810 1070 1392.5 646",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1166.5|325|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1166.5, 325)",
+        "x": "1166.5",
+        "y": "325",
+      },
+      {
+        "frame": "s|1166.5|325|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1166.5, 325)",
+        "x": "1166.5",
+        "y": "325",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1564.5 70",
+      "hit line 784 570 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|443.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 443.5, 570)",
+        "x": "443.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|443.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 443.5, 570)",
+        "x": "443.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 680 570",
+      "hit line 96.5 570 680 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 628 1570",
+      "hit line 178 1570 628 1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 403 1360.5",
+      "hit line 164.5 1070 403 1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1541 651.5",
+      "hit line 1796.5 1120 1541 651.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1137|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1137, 570)",
+        "x": "1137",
+        "y": "570",
+      },
+      {
+        "frame": "s|1137|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1137, 570)",
+        "x": "1137",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1496.5 570",
+      "hit line 784 570 1496.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5 1070 Q 487.5 970 810 1070",
+      "hit path M 164.5 1070 Q 487.5 970 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+    ],
+    "strokes": [
+      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
+      "hit path M 343 1070 Q 576.5 1170 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1332.5 293 1564.5 70",
+      "hit path M 1496.5 570 Q 1332.5 293 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1508.5 482.5 Q 1525 362 1541 241",
+      "hit path M 1496.5 570 Q 1525 362 1553 154",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1728.5 347 1564.5 70",
+      "hit path M 1496.5 570 Q 1728.5 347 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 270.5 994.5",
+      "hit line 1564.5 70 270.5 994.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|317|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 317)",
+        "x": "797",
+        "y": "317",
+      },
+      {
+        "frame": "s|797|317|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 317)",
+        "x": "797",
+        "y": "317",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 805.5 154",
+      "hit line 784 570 805.5 154",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, straight routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
+[
+  "l-supports",
+  "l-contains",
+  "l-influences",
+  "l-long",
+  "l-hubne",
+]
+`;
+
+exports[`connection labels, straight routing > at rest, then with leaf selected > at rest 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|87",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(87, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|87",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(87, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 810 1070",
+      "hit line 784 570 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 96.5 570",
+      "hit line 810 70 96.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 1392.5 646",
+      "hit line 810 1070 1392.5 646",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1163.5|327|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1163.5, 327)",
+        "x": "1163.5",
+        "y": "327",
+      },
+      {
+        "frame": "s|1163.5|327|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1163.5, 327)",
+        "x": "1163.5",
+        "y": "327",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1564.5 70",
+      "hit line 784 570 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|446.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 446.5, 570)",
+        "x": "446.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|446.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 446.5, 570)",
+        "x": "446.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 686 570",
+      "hit line 96.5 570 686 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 628 1570",
+      "hit line 178 1570 628 1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 403 1360.5",
+      "hit line 164.5 1070 403 1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1646.5|845|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+      {
+        "frame": "s|1646.5|845|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1646.5, 845)",
+        "x": "1646.5",
+        "y": "845",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1541 651.5",
+      "hit line 1796.5 1120 1541 651.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1134|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1134, 570)",
+        "x": "1134",
+        "y": "570",
+      },
+      {
+        "frame": "s|1134|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1134, 570)",
+        "x": "1134",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1496.5 570",
+      "hit line 784 570 1496.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5 1070 Q 487.5 970 810 1070",
+      "hit path M 164.5 1070 Q 487.5 970 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+    ],
+    "strokes": [
+      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
+      "hit path M 343 1070 Q 576.5 1170 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1332.5 293 1564.5 70",
+      "hit path M 1496.5 570 Q 1332.5 293 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1508.5 482.5 Q 1525 362 1541 241",
+      "hit path M 1496.5 570 Q 1525 362 1553 154",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1728.5 347 1564.5 70",
+      "hit path M 1496.5 570 Q 1728.5 347 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 270.5 994.5",
+      "hit line 1564.5 70 270.5 994.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 805.5 154",
+      "hit line 784 570 805.5 154",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, straight routing > at rest, then with leaf selected > leaf selected 1`] = `
+{
+  "l-contains": {
+    "labels": [
+      {
+        "frame": "s|797|820|87",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(87, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+      {
+        "frame": "s|797|820|87",
+        "full": "contains",
+        "text": "contai…",
+        "transform": "rotate(87, 797, 820)",
+        "x": "797",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 810 1070",
+      "hit line 784 570 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-crosses": {
+    "labels": [
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+      {
+        "frame": "s|453|320.5|325",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(325, 453, 320.5)",
+        "x": "453",
+        "y": "320.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 70 96.5 570",
+      "hit line 810 70 96.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-follows": {
+    "labels": [
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+      {
+        "frame": "s|1153.5|820|-36",
+        "full": "follows",
+        "text": "follows",
+        "transform": "rotate(-36, 1153.5, 820)",
+        "x": "1153.5",
+        "y": "820",
+      },
+    ],
+    "strokes": [
+      "stroke line 810 1070 1392.5 646",
+      "hit line 810 1070 1392.5 646",
+    ],
+    "wrappers": 1,
+  },
+  "l-hubne": {
+    "labels": [
+      {
+        "frame": "s|1163.5|327|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1163.5, 327)",
+        "x": "1163.5",
+        "y": "327",
+      },
+      {
+        "frame": "s|1163.5|327|-32.5",
+        "full": "crosses",
+        "text": "crosses",
+        "transform": "rotate(-32.5, 1163.5, 327)",
+        "x": "1163.5",
+        "y": "327",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1564.5 70",
+      "hit line 784 570 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-influences": {
+    "labels": [
+      {
+        "frame": "s|446.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 446.5, 570)",
+        "x": "446.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|446.5|570|0",
+        "full": "influences",
+        "text": "influences",
+        "transform": "rotate(0, 446.5, 570)",
+        "x": "446.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 96.5 570 686 570",
+      "hit line 96.5 570 686 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-inner": {
+    "labels": [
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+      {
+        "frame": "s|403|1570|0",
+        "full": "inner link",
+        "text": "i…",
+        "transform": "rotate(0, 403, 1570)",
+        "x": "403",
+        "y": "1570",
+      },
+    ],
+    "strokes": [
+      "stroke line 178 1570 628 1570",
+      "hit line 178 1570 628 1570",
+    ],
+    "wrappers": 1,
+  },
+  "l-joins": {
+    "labels": [
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+      {
+        "frame": "s|282.5|1213.5|50.5",
+        "full": "joins",
+        "text": "joi…",
+        "transform": "rotate(50.5, 282.5, 1213.5)",
+        "x": "282.5",
+        "y": "1213.5",
+      },
+    ],
+    "strokes": [
+      "stroke line 164.5 1070 403 1360.5",
+      "hit line 164.5 1070 403 1360.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-leads": {
+    "labels": [
+      {
+        "frame": "s|1645|842|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1645, 842)",
+        "x": "1645",
+        "y": "842",
+      },
+      {
+        "frame": "s|1645|842|61.5",
+        "full": "leads to",
+        "text": "leads to",
+        "transform": "rotate(61.5, 1645, 842)",
+        "x": "1645",
+        "y": "842",
+      },
+    ],
+    "strokes": [
+      "stroke line 1796.5 1120 1541 651.5",
+      "hit line 1796.5 1120 1541 651.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-long": {
+    "labels": [
+      {
+        "frame": "s|1134|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1134, 570)",
+        "x": "1134",
+        "y": "570",
+      },
+      {
+        "frame": "s|1134|570|0",
+        "full": "is a deliberately long relation name that has to be cut to fit",
+        "text": "is a delibe…",
+        "transform": "rotate(0, 1134, 570)",
+        "x": "1134",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 1496.5 570",
+      "hit line 784 570 1496.5 570",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror1": {
+    "labels": [
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+      {
+        "frame": "s|514.5|1020|0",
+        "full": "mirrors",
+        "text": "mirrors",
+        "transform": "rotate(0, 514.5, 1020)",
+        "x": "514.5",
+        "y": "1020",
+      },
+    ],
+    "strokes": [
+      "stroke path M 164.5 1070 Q 487.5 970 810 1070",
+      "hit path M 164.5 1070 Q 487.5 970 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-mirror2": {
+    "labels": [
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+      {
+        "frame": "s|514.5|1120|0",
+        "full": "reflects",
+        "text": "reflec…",
+        "transform": "rotate(0, 514.5, 1120)",
+        "x": "514.5",
+        "y": "1120",
+      },
+    ],
+    "strokes": [
+      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
+      "hit path M 343 1070 Q 576.5 1170 810 1070",
+    ],
+    "wrappers": 1,
+  },
+  "l-par1": {
+    "labels": [
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+      {
+        "frame": "s|1431.5|306.5|-82",
+        "full": "part of",
+        "text": "part of",
+        "transform": "rotate(-82, 1431.5, 306.5)",
+        "x": "1431.5",
+        "y": "306.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1332.5 293 1564.5 70",
+      "hit path M 1496.5 570 Q 1332.5 293 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-par2": {
+    "labels": [
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+      {
+        "frame": "s|1530.5|320|-82",
+        "full": "precedes",
+        "text": "prece…",
+        "transform": "rotate(-82, 1530.5, 320)",
+        "x": "1530.5",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1508.5 482.5 Q 1525 362 1541 241",
+      "hit path M 1496.5 570 Q 1525 362 1553 154",
+    ],
+    "wrappers": 1,
+  },
+  "l-par3": {
+    "labels": [
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+      {
+        "frame": "s|1629.5|333.5|-82",
+        "full": "echoes",
+        "text": "echoes",
+        "transform": "rotate(-82, 1629.5, 333.5)",
+        "x": "1629.5",
+        "y": "333.5",
+      },
+    ],
+    "strokes": [
+      "stroke path M 1496.5 570 Q 1728.5 347 1564.5 70",
+      "hit path M 1496.5 570 Q 1728.5 347 1564.5 70",
+    ],
+    "wrappers": 1,
+  },
+  "l-spans": {
+    "labels": [
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+      {
+        "frame": "s|864.5|570|324.5",
+        "full": "spans the whole canvas",
+        "text": "spans the whole canvas",
+        "transform": "rotate(324.5, 864.5, 570)",
+        "x": "864.5",
+        "y": "570",
+      },
+    ],
+    "strokes": [
+      "stroke line 1564.5 70 270.5 994.5",
+      "hit line 1564.5 70 270.5 994.5",
+    ],
+    "wrappers": 1,
+  },
+  "l-supports": {
+    "labels": [
+      {
+        "frame": "s|797|320|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+      {
+        "frame": "s|797|320|-87",
+        "full": "supports",
+        "text": "suppo…",
+        "transform": "rotate(-87, 797, 320)",
+        "x": "797",
+        "y": "320",
+      },
+    ],
+    "strokes": [
+      "stroke line 784 570 805.5 154",
+      "hit line 784 570 805.5 154",
+    ],
+    "wrappers": 1,
+  },
+}
+`;
+
+exports[`connection labels, straight routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `
+[
+  "l-leads",
+]
+`;
