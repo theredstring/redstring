@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildEdgeSegmentIndex,
+  samePolylines,
   countCrossingEdges,
   chooseRoutedLabelPlacement,
   placeLabelOnRoute,
@@ -70,6 +71,30 @@ describe('buildEdgeSegmentIndex / countCrossingEdges', () => {
     expect(buildEdgeSegmentIndex(new Map())).toBeNull();
     expect(buildEdgeSegmentIndex(null)).toBeNull();
     expect(countCrossingEdges(rect(0, 0, 10, 10), null, null)).toBe(0);
+  });
+});
+
+describe('samePolylines', () => {
+  const line = (...xy) => xy.map(([x, y]) => ({ x, y }));
+  const map = (entries) => new Map(entries);
+
+  it('matches equal geometry held in different arrays', () => {
+    const a = map([['e1', line([0, 0], [10, 5])], ['e2', line([3, 3], [4, 4], [9, 1])]]);
+    const b = map([['e1', line([0, 0], [10, 5])], ['e2', line([3, 3], [4, 4], [9, 1])]]);
+    expect(samePolylines(a, b)).toBe(true);
+  });
+
+  it('notices a moved point, a changed length, or a different set of edges', () => {
+    const a = map([['e1', line([0, 0], [10, 5])]]);
+    expect(samePolylines(a, map([['e1', line([0, 0], [10, 6])]]))).toBe(false);
+    expect(samePolylines(a, map([['e1', line([0, 0], [5, 2], [10, 5])]]))).toBe(false);
+    expect(samePolylines(a, map([['e2', line([0, 0], [10, 5])]]))).toBe(false);
+    expect(samePolylines(a, map([['e1', line([0, 0], [10, 5])], ['e2', line([1, 1], [2, 2])]]))).toBe(false);
+  });
+
+  it('never matches a missing map', () => {
+    expect(samePolylines(null, new Map())).toBe(false);
+    expect(samePolylines(new Map(), undefined)).toBe(false);
   });
 });
 
