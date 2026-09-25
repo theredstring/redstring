@@ -640,7 +640,6 @@ function NodeCanvas() {
   // outer <svg> off the GPU compositor path so a 100k SVG can't trigger
   // tile-raster-on-scale flicker.
   const contentGroupRef = useRef(null);
-  const wrapperRef = useRef(null);
   // Content group of the orbit layer — a second <svg> above the scrim, carrying
   // the same pan/zoom transform as the main one. Held in state as well as a ref
   // because the focus node and orbit overlay are portalled into it, and a portal
@@ -904,7 +903,6 @@ function NodeCanvas() {
 
   // <<< OPTIMIZED: Individual stable subscriptions - Zustand auto-batches these >>>
   const activeGraphId = useGraphStore(state => state.activeGraphId);
-  const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
   const selectedEdgeId = useCanvasUIStore(s => s.selectedEdgeId); // canvasUIStore since P2.03c (D-22)
   const selectedEdgeIds = useCanvasUIStore(s => s.selectedEdgeIds);
   const typeListMode = useGraphStore(state => state.typeListMode);
@@ -999,10 +997,8 @@ function NodeCanvas() {
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
-  const savedGraphIds = useGraphStore(state => state.savedGraphIds);
   const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
   const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
-  const universeLoadingError = useGraphStore(state => state.universeLoadingError);
   const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
 
 
@@ -1140,12 +1136,6 @@ function NodeCanvas() {
       }
     }
   }, [nodePrototypesMap, activeGraphInstances]);
-
-  // <<< Derive active graph data directly >>>
-  // OPTIMIZED: Use activeGraph directly instead of re-querying graphsMap
-  const activeGraphData = activeGraph || null;
-  const activeGraphName = activeGraphData?.name ?? 'Loading...';
-  const activeGraphDescription = activeGraphData?.description ?? '';
 
   useEffect(() => {
     if (!activeGraphId || !graphsMap || typeof graphsMap?.has !== 'function') return;
@@ -2165,7 +2155,6 @@ function NodeCanvas() {
   const longPressingInstanceIdRef = nodeDrag.longPressingInstanceIdRef;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
   const wasDraggingRef = nodeDrag.wasDraggingRef;
-  const isEdgePanningRef = nodeDrag.isEdgePanningRef;
   const startDragForNode = nodeDrag.startDragForNode;
   const startDragForNodeRef = nodeDrag.startDragForNodeRef;
 
@@ -4807,7 +4796,7 @@ function NodeCanvas() {
 
   }, [carouselPieMenuStage]);
 
-  const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing), setIsHeaderEditing = useCanvasUIStore(s => s.setIsHeaderEditing);
+  const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing);
   const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
   const currentPieMenuData = useCanvasUIStore(s => s.currentPieMenuData), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData); // Holds { node, buttons, nodeDimensions }
   const [pieMenuPage, setPieMenuPage] = useState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
@@ -5518,9 +5507,6 @@ function NodeCanvas() {
       carouselExitInProgressRef.current = false;
     }, 300); // Quick timeout - allows normal interaction almost immediately
   }, [abstractionCarouselNode?.id, pendingSwapOperation, activeGraphId, storeActions]);
-  // Use the local state values populated by subscribe
-  const projectTitle = activeGraphName ?? 'Loading...';
-  const projectBio = activeGraphDescription ?? '';
   const previewingNodeId = useCanvasUIStore(s => s.previewingNodeId), setPreviewingNodeId = useCanvasUIStore(s => s.setPreviewingNodeId);
 
   // When a node is decomposed into its preview (decomposition view), frame it on
@@ -7925,7 +7911,6 @@ function NodeCanvas() {
     return GeometryUtils.clampCoordinates(x, y, canvasSize);
   };
 
-  const lineIntersectsRect = GeometryUtils.lineIntersectsRect;
 
   // Helper function to get description content for a node when previewing
   const getNodeDescriptionContent = (node, isNodePreviewing) => {
@@ -8724,13 +8709,6 @@ function NodeCanvas() {
     }
   };
 
-  const handleSaveNodeData = (prototypeId, newData) => { // Operates on prototype
-    if (!activeGraphId) return;
-    storeActions.updateNodePrototype(prototypeId, draft => {
-      Object.assign(draft, newData);
-    });
-  };
-
   /**
    * Handles wheel events for zoom and pan, with cross-platform input discrimination.
    *
@@ -9003,7 +8981,6 @@ function NodeCanvas() {
     if (!container) return;
     let gestureAnchor = { x: 0, y: 0 };
     let gestureStartZoom = zoomLevelRef.current;
-    let gestureActive = false;
 
     const onGestureStart = (e) => {
       if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
@@ -9034,7 +9011,6 @@ function NodeCanvas() {
       pinchRef.current.active = true;
       pinchRef.current.centerClient = { x: clientX, y: clientY };
       isPanningOrZooming.current = true;
-      gestureActive = true;
       armGestureBlock();
     };
 
@@ -9073,7 +9049,6 @@ function NodeCanvas() {
         pinchRef.current.active = false;
       }
       isPanningOrZooming.current = false;
-      gestureActive = false;
       ignoreCanvasClick.current = true;
       armGestureBlock();
       scheduleGestureBlockClear();
@@ -11070,15 +11045,6 @@ function NodeCanvas() {
     }
     if (!isRealTime) setEditingNodeIdOnCanvas(null);
   }, [storeActions]);
-
-  const handleProjectBioChange = (newBio) => {
-    // Get CURRENT activeGraphId directly from store
-    const currentActiveId = useGraphStore.getState().activeGraphId;
-    if (currentActiveId) {
-      // Use localStoreActions
-      storeActions.updateGraph(currentActiveId, draft => { draft.description = newBio; });
-    }
-  };
 
   // Effect to manage PieMenu visibility and data for animations
   useEffect(() => {
@@ -13446,7 +13412,6 @@ function NodeCanvas() {
                       const strokeColor = effectiveGroupColor;
                       const fontSize = groupLabelFontSize;
 
-                      const currentText = editingGroupId === group.id ? tempGroupName : effectiveGroupName;
                       const labelText = effectiveGroupName;
                       // Wrapped lines from the same box the layout measured, so the
                       // drawn text can never be wider than the tab it sits in.
