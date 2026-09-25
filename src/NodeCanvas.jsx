@@ -7,10 +7,7 @@ import PlusSign from './PlusSign.jsx'; // Import the new PlusSign component
 import VideoNodeAnimation from './VideoNodeAnimation.jsx'; // Import the video animation component
 import PieMenu from './PieMenu.jsx'; // Import the PieMenu component
 import AbstractionCarousel from './AbstractionCarousel.jsx'; // Import the AbstractionCarousel component
-import AbstractionControlPanel from './AbstractionControlPanel.jsx'; // Import the AbstractionControlPanel component
-import NodeControlPanel from './NodeControlPanel.jsx';
-import ConnectionControlPanel from './ConnectionControlPanel.jsx';
-import UnifiedBottomControlPanel from './UnifiedBottomControlPanel.jsx';
+ // Import the AbstractionControlPanel component
 import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import DownloadAppPill from './DownloadAppPill.jsx';
@@ -100,7 +97,7 @@ import {
 } from './wizard/prompts/intents.js';
 import {
 } from './wizard/prompts/intentPrompts.js';
-import { thingFacts, connectionFacts, ladderFacts } from './wizard/prompts/facts.js';
+import { thingFacts, ladderFacts } from './wizard/prompts/facts.js';
 import WizardIntentModal from './components/wizard/WizardIntentModal.jsx';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
@@ -133,6 +130,7 @@ import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
 import NodeLayer from './components/canvas/layers/NodeLayer.jsx';
+import ControlPanelsHost from './components/canvas/hosts/ControlPanelsHost.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { quantizeAngle } from './utils/canvas/edgeLabelPlacement.js';
@@ -780,12 +778,7 @@ function NodeCanvas() {
   const connectionLabelTruncate = useGraphStore(state => state.connectionLabelTruncate ?? DEFAULT_CONNECTION_LABEL_TRUNCATE);
   const connectionLabelSprites = useGraphStore(state => state.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
   const edgeGlowMode = useGraphStore(state => state.edgeGlowMode);
-  const showNodeControlPanel = useGraphStore(state => state.showNodeControlPanel ?? false);
-  const showMultipleNodesControlPanel = useGraphStore(state => state.showMultipleNodesControlPanel ?? true);
-  const showConnectionControlPanel = useGraphStore(state => state.showConnectionControlPanel ?? true);
-  const showGroupControlPanel = useGraphStore(state => state.showGroupControlPanel ?? true);
   const gamepadCrosshairScale = useGraphStore(state => state.gamepadSettings?.crosshairScale ?? 1.0);
-  const showAbstractionControlPanel = useGraphStore(state => state.showAbstractionControlPanel ?? true);
   const darkMode = useGraphStore(state => state.darkMode);
   const inputMode = useGraphStore(state => state.inputMode);
   useEffect(() => { inputModeRef.current = inputMode; }, [inputMode]);
@@ -3198,16 +3191,16 @@ function NodeCanvas() {
   const [currentAbstractionDimension, setCurrentAbstractionDimension] = useState('Generalization Axis');
 
   // Abstraction control panel states
-  const [abstractionControlPanelVisible, setAbstractionControlPanelVisible] = useTrackedState(false);
-  const [abstractionControlPanelShouldShow, setAbstractionControlPanelShouldShow] = useTrackedState(false);
+  const abstractionControlPanelVisible = useCanvasUIStore(s => s.abstractionControlPanelVisible), setAbstractionControlPanelVisible = useCanvasUIStore(s => s.setAbstractionControlPanelVisible);
+  const abstractionControlPanelShouldShow = useCanvasUIStore(s => s.abstractionControlPanelShouldShow), setAbstractionControlPanelShouldShow = useCanvasUIStore(s => s.setAbstractionControlPanelShouldShow);
   // The carousel's 100 ms click guard and pending Swap live in canvasUIStore, where
   // the pie machine writes them (P5.02b step 4).
   const isPieMenuActionInProgress = useCanvasUIStore(s => s.isPieMenuActionInProgress);
   const setIsPieMenuActionInProgress = useCallback((v) => useCanvasUIStore.setState({ isPieMenuActionInProgress: v }), []);
-  const [nodeControlPanelVisible, setNodeControlPanelVisible] = useTrackedState(false);
-  const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useTrackedState(false);
-  const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useTrackedState(false);
-  const [groupControlPanelVisible, setGroupControlPanelVisible] = useTrackedState(false);
+  const nodeControlPanelVisible = useCanvasUIStore(s => s.nodeControlPanelVisible), setNodeControlPanelVisible = useCanvasUIStore(s => s.setNodeControlPanelVisible);
+  const nodeControlPanelShouldShow = useCanvasUIStore(s => s.nodeControlPanelShouldShow), setNodeControlPanelShouldShow = useCanvasUIStore(s => s.setNodeControlPanelShouldShow);
+  const groupControlPanelShouldShow = useCanvasUIStore(s => s.groupControlPanelShouldShow), setGroupControlPanelShouldShow = useCanvasUIStore(s => s.setGroupControlPanelShouldShow);
+  const groupControlPanelVisible = useCanvasUIStore(s => s.groupControlPanelVisible), setGroupControlPanelVisible = useCanvasUIStore(s => s.setGroupControlPanelVisible);
   // P2.03b: id in canvasUIStore, group read from the active web (was a stale snapshot).
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   const selectedGroup = useMemo(() => (selectedGroupId ? graphsMap.get(activeGraphId)?.groups?.get(selectedGroupId) ?? null : null), [selectedGroupId, graphsMap, activeGraphId]);
@@ -3231,8 +3224,8 @@ function NodeCanvas() {
   const lastSelectedGroupRef = useRef(null);
   if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
   const lastSelectedGroup = lastSelectedGroupRef.current;
-  const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useTrackedState(false);
-  const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useTrackedState(false);
+  const connectionControlPanelVisible = useCanvasUIStore(s => s.connectionControlPanelVisible), setConnectionControlPanelVisible = useCanvasUIStore(s => s.setConnectionControlPanelVisible);
+  const connectionControlPanelShouldShow = useCanvasUIStore(s => s.connectionControlPanelShouldShow), setConnectionControlPanelShouldShow = useCanvasUIStore(s => s.setConnectionControlPanelShouldShow);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
   const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
   const edgePieMenuAnchorRef = useRef(null);   // frozen on show, held through exit animation
@@ -3424,73 +3417,8 @@ function NodeCanvas() {
     useCanvasUIStore.getState().dispatchPie({ type: 'GRAPH_CHANGED' });
   }, [activeGraphId]);
 
-  // --- Abstraction Control Panel Management ---
-  useEffect(() => {
-    const shouldShow = Boolean(abstractionCarouselVisible && abstractionCarouselNode && showAbstractionControlPanel);
-
-    if (shouldShow) {
-      // Show the panel immediately when carousel is visible and hide others
-      setAbstractionControlPanelShouldShow(true);
-      setAbstractionControlPanelVisible(true);
-      // Hide other control panels
-      setNodeControlPanelVisible(false);
-      setNodeControlPanelShouldShow(false);
-    } else if (!abstractionCarouselVisible && abstractionControlPanelVisible) {
-      // Carousel was hidden - start exit animation but keep panel mounted
-      setAbstractionControlPanelVisible(false);
-      // Don't set abstractionControlPanelShouldShow to false yet - let the animation complete
-    } else if (!shouldShow) {
-      // Other cases where panel should be hidden
-      setAbstractionControlPanelVisible(false);
-    }
-  }, [abstractionCarouselVisible, abstractionCarouselNode, abstractionControlPanelVisible, showAbstractionControlPanel]);
-
-  // --- Node Control Panel Management ---
-  useEffect(() => {
-    const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
-    const isBoxSelecting = selectionStart !== null;
-    // Also show while previewing/decomposing a node, even if it isn't in selectedInstanceIds —
-    // the panel switches to 'decompose' mode in that case (see NodeControlPanel render).
-    const multipleSelected = selectedInstanceIds.size > 1;
-    const panelAllowed = nodesSelected
-      ? (multipleSelected ? showMultipleNodesControlPanel : showNodeControlPanel)
-      : (previewingNodeId ? showNodeControlPanel : false);
-    const shouldShow = Boolean(panelAllowed && (nodesSelected || previewingNodeId) && !edgeSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible && !semanticOrbitActive && !isBoxSelecting);
-    if (shouldShow) {
-      setNodeControlPanelShouldShow(true);
-      setNodeControlPanelVisible(true);
-      // Hide ALL other control panels
-      setAbstractionControlPanelVisible(false);
-      setAbstractionControlPanelShouldShow(false);
-      setConnectionControlPanelVisible(false);
-      setConnectionControlPanelShouldShow(false);
-      setGroupControlPanelVisible(false);
-      setSelectedGroup(null);
-    } else if (!shouldShow && nodeControlPanelVisible) {
-      setNodeControlPanelVisible(false);
-    }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, selectionStart, previewingNodeId, showNodeControlPanel, showMultipleNodesControlPanel]);
-
-  // --- Connection Control Panel Management (multi-edge selection only) ---
-  useEffect(() => {
-    const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
-    const shouldShow = Boolean(showConnectionControlPanel && edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
-    if (shouldShow) {
-      setConnectionControlPanelShouldShow(true);
-      setConnectionControlPanelVisible(true);
-      // Hide ALL other control panels
-      setNodeControlPanelVisible(false);
-      setNodeControlPanelShouldShow(false);
-      setAbstractionControlPanelVisible(false);
-      setAbstractionControlPanelShouldShow(false);
-      setGroupControlPanelVisible(false);
-      setSelectedGroup(null);
-    } else if (!shouldShow && connectionControlPanelVisible) {
-      setConnectionControlPanelVisible(false);
-    }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible, showConnectionControlPanel]);
+  // The node, group, connection and abstraction panel management effects live in
+  // ControlPanelsHost with the panels (P5.05a). The edge pie stays here for now.
 
   // --- Edge Pie Menu Management (single edge selection) ---
   useEffect(() => {
@@ -3523,23 +3451,6 @@ function NodeCanvas() {
     // menu plays its intro (pop) animation back in on release.
   }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, edgePieMenuVisible, selectedEdgeMidpoint, draggingNodeInfo]);
 
-  // --- Group Control Panel Management ---
-  useEffect(() => {
-    const shouldShow = Boolean(showGroupControlPanel && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
-    if (shouldShow) {
-      setGroupControlPanelShouldShow(true);
-      setGroupControlPanelVisible(true);
-      // Hide ALL other control panels
-      setNodeControlPanelVisible(false);
-      setNodeControlPanelShouldShow(false);
-      setAbstractionControlPanelVisible(false);
-      setAbstractionControlPanelShouldShow(false);
-      setConnectionControlPanelVisible(false);
-      setConnectionControlPanelShouldShow(false);
-    } else if (!shouldShow && groupControlPanelVisible) {
-      setGroupControlPanelVisible(false);
-    }
-  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel]);
 
 
   const handleNodeControlPanelAnimationComplete = useCallback(() => {
@@ -5961,6 +5872,24 @@ function NodeCanvas() {
     activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
   };
 
+  // The control panels' handlers and derived data (P5.05a).
+  const controlPanelsCtx = {
+    decomposePanelInfo, nodePrototypesForPanel, typeListVisible, handleNodeControlPanelAnimationComplete,
+    storeActions, handleNodePanelDelete, handleNodePanelAdd, startHurtleAnimation, handleNodePanelUp,
+    handleNodePanelOpenInPanel, graphsMap, activeGraphId, setSelectedInstanceIds, handleNodePanelDecompose,
+    handleNodePanelAbstraction, handleNodePanelEdit, handleNodePanelSave, handleNodePanelPalette,
+    handleNodePanelOrbit, handleNodePanelGroup, handleNodePanelCopy, handleNodePanelDuplicate,
+    nodePieMenuPages, singleSelectedInstanceId, handlePieMenuHoverChange, wizardEnabled, groupPanelMode,
+    handleGroupControlPanelAnimationComplete, groupPanelTarget, handleGroupPanelUngroup,
+    handleGroupPanelEdit, handleGroupPanelColor, handleGroupPanelConvertToNodeGroup,
+    handleNodeGroupDiveIntoDefinition, handleNodeGroupOpenInPanel, handleNodeGroupCombine,
+    handleNodeGroupUpdateDefinition, handleNodeGroupRefreshFromDefinition, edgesMap,
+    handleConnectionControlPanelAnimationComplete, edgePieMenuButtons, setConnectionNamePrompt,
+    startHurtleAnimationFromPanel, openWizardPicker, currentAbstractionDimension, abstractionDimensions,
+    handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
+    handleExpandAbstractionDimension, handleAbstractionControlPanelAnimationComplete, onCarouselClose,
+  };
+
   // The pointer handlers' context (P4.04a), assigned during render for the same
   // reason as the camera's: effects in this commit see this render's values.
   pointerCtxRef.current = {
@@ -6906,148 +6835,8 @@ function NodeCanvas() {
 
       {placeOverlays(<>
 
-      {/* NodeControlPanel Component - with animation */}
-      {
-        (nodeControlPanelShouldShow || nodeControlPanelVisible) && (
-          <NodeControlPanel
-            mode={decomposePanelInfo ? 'decompose' : 'nodes'}
-            selectedNodePrototypes={decomposePanelInfo ? [decomposePanelInfo.prototype] : nodePrototypesForPanel}
-            isVisible={nodeControlPanelVisible}
-            typeListOpen={typeListVisible}
-            onAnimationComplete={handleNodeControlPanelAnimationComplete}
-            decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
-            onCompose={() => useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null })}
-            onDelete={decomposePanelInfo ? () => {
-              const { defIds, index, currentGraphId, prototypeId, setIndex } = decomposePanelInfo;
-              if (!currentGraphId) return;
-              const newLen = defIds.length - 1;
-              if (newLen > 0 && index >= newLen) setIndex(newLen - 1);
-              else if (newLen <= 0) setIndex(0);
-              storeActions.removeDefinitionFromNode(prototypeId, currentGraphId);
-            } : handleNodePanelDelete}
-            onAdd={decomposePanelInfo
-              ? () => storeActions.createAndAssignGraphDefinitionWithoutActivation(decomposePanelInfo.prototypeId)
-              : handleNodePanelAdd}
-            onUp={decomposePanelInfo
-              ? () => { if (decomposePanelInfo.currentGraphId) startHurtleAnimation(decomposePanelInfo.instanceId, decomposePanelInfo.currentGraphId, decomposePanelInfo.prototypeId); }
-              : handleNodePanelUp}
-            onOpenInPanel={handleNodePanelOpenInPanel}
-            onDecompose={decomposePanelInfo ? () => {
-              const { instanceId, prototypeId, index, currentGraphId } = decomposePanelInfo;
-              const currentDefGraph = currentGraphId ? graphsMap.get(currentGraphId) : null;
-              const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
-              const createdGroupId = isCurrentDefEmpty
-                ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, prototypeId, index, instanceId)
-                : storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index, instanceId);
-              if (!createdGroupId) return;
-              useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null });
-              const gs = useGraphStore.getState();
-              const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
-              if (newGroup) {
-                setSelectedGroup(newGroup);
-                setSelectedInstanceIds(new Set());
-                setGroupControlPanelShouldShow(true);
-                setNodeControlPanelShouldShow(false);
-                setNodeControlPanelVisible(false);
-              }
-            } : handleNodePanelDecompose}
-            onAbstraction={handleNodePanelAbstraction}
-            onEdit={handleNodePanelEdit}
-            onSave={handleNodePanelSave}
-            onPalette={handleNodePanelPalette}
-            onOrbit={handleNodePanelOrbit}
-            onGroup={handleNodePanelGroup}
-            onCopy={handleNodePanelCopy}
-            onDuplicate={handleNodePanelDuplicate}
-            pieMenuPages={/* Decomposition builds its own single-page button set, so it
-                              opts out and keeps the hand-written decompose buttons. */
-              decomposePanelInfo ? null : nodePieMenuPages}
-            pieMenuTargetInstanceId={decomposePanelInfo ? null : singleSelectedInstanceId}
-            onLeftNav={decomposePanelInfo ? () => { if (decomposePanelInfo.hasPrev) decomposePanelInfo.setIndex(decomposePanelInfo.index - 1); } : undefined}
-            onRightNav={decomposePanelInfo ? () => { if (decomposePanelInfo.hasNext) decomposePanelInfo.setIndex(decomposePanelInfo.index + 1); } : undefined}
-            hasLeftNav={decomposePanelInfo ? decomposePanelInfo.hasPrev : false}
-            hasRightNav={decomposePanelInfo ? decomposePanelInfo.hasNext : false}
-            onActionHoverChange={handlePieMenuHoverChange}
-            wizardEnabled={wizardEnabled}
-            onDismiss={() => setSelectedInstanceIds(new Set())}
-          />
-        )
-      }
-
-      {/* GroupControlPanel Component - with animation */}
-      {
-        (groupControlPanelShouldShow || groupControlPanelVisible) && (
-          <UnifiedBottomControlPanel
-            mode={groupPanelMode}
-            isVisible={groupControlPanelVisible}
-            typeListOpen={typeListVisible}
-            onAnimationComplete={handleGroupControlPanelAnimationComplete}
-            selectedGroup={groupPanelTarget}
-            onUngroup={handleGroupPanelUngroup}
-            onGroupEdit={handleGroupPanelEdit}
-            onGroupColor={handleGroupPanelColor}
-            onConvertToNodeGroup={handleGroupPanelConvertToNodeGroup}
-            onDiveIntoDefinition={handleNodeGroupDiveIntoDefinition}
-            onOpenNodePrototypeInPanel={handleNodeGroupOpenInPanel}
-            onCombineNodeGroup={handleNodeGroupCombine}
-            onUpdateDefinitionFromGroup={handleNodeGroupUpdateDefinition}
-            onRefreshGroupFromDefinition={handleNodeGroupRefreshFromDefinition}
-            onActionHoverChange={handlePieMenuHoverChange}
-            onDismiss={() => setSelectedGroup(null)}
-          />
-        )
-      }
-
-      {/* ConnectionControlPanel Component - with animation */}
-      {
-        (connectionControlPanelShouldShow || connectionControlPanelVisible) && (
-          <ConnectionControlPanel
-            selectedEdge={edgesMap.get(selectedEdgeId)}
-            selectedEdges={Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean)}
-            isVisible={connectionControlPanelVisible}
-            typeListOpen={typeListVisible}
-            onAnimationComplete={handleConnectionControlPanelAnimationComplete}
-            pieMenuButtons={edgePieMenuButtons}
-            pieMenuTargetEdgeId={selectedEdgeId}
-            onClose={() => {
-              storeActions.setSelectedEdgeId(null);
-              storeActions.setSelectedEdgeIds(new Set());
-            }}
-            onOpenConnectionDialog={(edgeId) => {
-              setConnectionNamePrompt({ visible: true, name: '', color: CONNECTION_DEFAULT_COLOR, edgeId });
-            }}
-            onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
-            onActionHoverChange={handlePieMenuHoverChange}
-            onAskWizard={(edges) => {
-              openWizardPicker(WIZARD_SURFACES.CONNECTION, { edges }, {
-                facts: connectionFacts(edges),
-                subjectLabel: edges.length > 1 ? `${edges.length} Connections` : 'this Connection'
-              });
-            }}
-            wizardEnabled={wizardEnabled}
-          />
-        )
-      }
-
-      {/* AbstractionControlPanel Component - with animation */}
-      {
-        (abstractionControlPanelShouldShow || abstractionControlPanelVisible) && (
-          <AbstractionControlPanel
-            selectedNode={abstractionCarouselNode}
-            currentDimension={currentAbstractionDimension}
-            availableDimensions={abstractionDimensions}
-            onDimensionChange={handleAbstractionDimensionChange}
-            onAddDimension={handleAddAbstractionDimension}
-            onDeleteDimension={handleDeleteAbstractionDimension}
-            onExpandDimension={handleExpandAbstractionDimension}
-            typeListOpen={typeListVisible}
-            isVisible={abstractionControlPanelVisible}
-            onAnimationComplete={handleAbstractionControlPanelAnimationComplete}
-            onActionHoverChange={handlePieMenuHoverChange}
-            onDismiss={onCarouselClose}
-          />
-        )
-      }
+      {/* The bottom control panels and the effects that choose between them (P5.05a). */}
+      <ControlPanelsHost ctx={controlPanelsCtx} />
 
       {/* AbstractionCarousel Component */}
       {

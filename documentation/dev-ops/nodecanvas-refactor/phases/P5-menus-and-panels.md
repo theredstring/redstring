@@ -92,6 +92,7 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
 - **Accept:** S12 causes no per-frame NodeCanvas commits. F9 passes.
 
 ### P5.05: Control-panel hosts
+- **Status:** part a done (wave 6): the eight show/visible latches live in canvasUIStore; `components/canvas/hosts/ControlPanelsHost.jsx` holds the node, group, connection and abstraction panels and their management effects (moved verbatim; the marquee check reads `marqueeActive`), subscribing to what those effects react to. NodeCanvas passes the panels' handlers and derived data as `controlPanelsCtx` and no longer subscribes to the five panel settings. Lifecycle traces: the store view is drop-only in all 17 scenarios, and each panel's own show/hide sequence is identical; the one difference is that a panel can mount or unmount one commit apart from the pie (the host renders from its own subscription), which is at most a frame between two 200–300 ms animations. Checked with `test/e2e/canvas/lifecycleTraceViews.py`. All flows pass (F35 once flaky under load, 3/3 alone). Open (part b): the panel handlers and derived data (`useControlPanelActions`, the group-panel handlers, `nodePrototypesForPanel`, `decomposePanelInfo`) into the host; the edge pie latch with P5.03.
 - **Lane:** A + B + C (`useControlPanelActions`) · **Size:** L
 - **Change:**
   - Node, group, connection and abstraction panels move to App-level hosts that use the builders and the UI store.

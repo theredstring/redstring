@@ -114,6 +114,17 @@ export function createCanvasUIDefaults() {
     // on every edge click. graphStore keeps its five action names as shims.
     selectedEdgeId: null,
     selectedEdgeIds: new Set(),
+    // Bottom control-panel latches (P5.05): `…ShouldShow` keeps a panel mounted,
+    // `…Visible` drives its enter/exit animation; the panel clears ShouldShow
+    // when its exit animation ends. Were NodeCanvas `useTrackedState`s.
+    nodeControlPanelShouldShow: false,
+    nodeControlPanelVisible: false,
+    groupControlPanelShouldShow: false,
+    groupControlPanelVisible: false,
+    connectionControlPanelShouldShow: false,
+    connectionControlPanelVisible: false,
+    abstractionControlPanelShouldShow: false,
+    abstractionControlPanelVisible: false,
     // The connection under the pointer, `{ edgeId }` or null (P3.06a: was
     // NodeCanvas state, so every hover change re-rendered all of NodeCanvas).
     // Written by useHoverIntent; read by EdgeLayer, and by handlers at event time.
@@ -403,6 +414,15 @@ const useCanvasUIStore = create((set, get) => ({
   },
   // edge selection (P2.03c)
   setSelectedEdgeId: fieldSetter(set, 'selectedEdgeId'),
+  // control-panel latches (P5.05)
+  setNodeControlPanelShouldShow: fieldSetter(set, 'nodeControlPanelShouldShow'),
+  setNodeControlPanelVisible: fieldSetter(set, 'nodeControlPanelVisible'),
+  setGroupControlPanelShouldShow: fieldSetter(set, 'groupControlPanelShouldShow'),
+  setGroupControlPanelVisible: fieldSetter(set, 'groupControlPanelVisible'),
+  setConnectionControlPanelShouldShow: fieldSetter(set, 'connectionControlPanelShouldShow'),
+  setConnectionControlPanelVisible: fieldSetter(set, 'connectionControlPanelVisible'),
+  setAbstractionControlPanelShouldShow: fieldSetter(set, 'abstractionControlPanelShouldShow'),
+  setAbstractionControlPanelVisible: fieldSetter(set, 'abstractionControlPanelVisible'),
   // Equal when it names the same edge: the renderer reads only `edgeId`.
   setHoveredEdgeInfo: fieldSetter(set, 'hoveredEdgeInfo', (a, b) => (a?.edgeId ?? null) === (b?.edgeId ?? null)),
   // Always stores a copy, never the caller's Set.
