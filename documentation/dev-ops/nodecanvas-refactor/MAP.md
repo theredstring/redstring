@@ -136,7 +136,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Loading / error / empty states | `isUniverseLoading ?` | 16053–16256 | `UniverseHost` | P2.06c |
 | `<svg>` + content group | `<g ref={contentGroupRef}>` | 16258–16274 | stays | — |
 | Cluster hulls (debug), grid | `showClusterHulls`, `gridActive` | 16275–16362 | `GridLayer` | P3.09 |
-| **Groups IIFE** | "Groups Phase 1" comment | 16363–17066 | `useGroupLayouts` + `GroupLayer` | P3.03, P3.04 |
+| **Groups IIFE** | "Groups Phase 1" comment | 16363–17066 | **moved (P3.03a, P3.04):** layout `components/canvas/groups/groupLayouts.js`, elements `groupElements.jsx` (memo `groupElements`), input `groupInput.js` (stable handlers over `groupInputCtxRef`) | P3.03, P3.04 |
 | Node hitbox debug | `showNodeHitboxes && hydratedNodes` | 17067–17091 | overlay (debug) | P3.09 |
 | **Edges IIFE** | `isViewReady && (() =>`, `const edgeRenderCtx`, `renderEdgeCached` | 17092–17355 | `EdgeLayer` / `ConnectionEdge` | P1.07, P3.06 |
 | Connection-draw line, self-loop preview | `drawingConnectionFrom && !draggingNodeInfo` | 17356–17397 | `OverlayLayer` | P3.09 |

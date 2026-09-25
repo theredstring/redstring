@@ -63,7 +63,7 @@
   - The anchor flush no longer runs after every commit.
 
 ### P3.04: `GroupLayer` components
-- **Status:** todo
+- **Status:** done (wave 6). The groups pass is `buildGroupElements` (`components/canvas/groups/groupElements.jsx`), memoized on the layouts, the dragged group, the rename draft, theme and grid; its handlers are one stable set from `createGroupInputHandlers` (`groupInput.js`) that reads NodeCanvas's latest values from a ref when it fires. A render that changes nothing about groups hands React the same elements, so it skips them. Built as memoized elements rather than three components: the shells and titles are placed at different z-levels by NodeCanvas, and element identity gives the same skip. Canvas markup is byte-identical to `main` in ten scenes (small, grid, dark, rename draft, group selected, mid group-drag, dropped, stress, chambers framed and zoomed out). New flow F32 (title click, rename Enter/Escape, touch tap and long-press drag) passes on both. Found and fixed B-17 on the way.
 - **Lane:** A + B · **Size:** M
 - **Change:**
   - Add memoized `RegularGroups`, `GroupShells` (one per depth) and `GroupTitles`, fed by `useGroupLayouts`.

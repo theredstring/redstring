@@ -65,6 +65,8 @@ import { useTrackedState } from './hooks/useTrackedState.js';
 import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
 import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js';
+import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
+import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { recordTrackpadZoom, runPanMomentum, runZoomMomentum } from './components/canvas/camera/momentum.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
@@ -406,12 +408,6 @@ const openLeftPanelView = (view) => useCanvasUIStore.getState().openLeftPanelVie
 // texture rather than a rattle, and well under the ~25/sec ceiling the shared
 // rate limit imposes. Larger = sparser clicks; smaller = denser.
 const CONNECTION_DETENT_PX = 44;
-// How much of a thing-group's defining prototype color bleeds into its interior
-// surface. Just enough that the inside of a group reads as belonging to its
-// Thing without competing with the nodes sitting on it — the colored band above
-// carries the identity, this is a whisper of it. Mixed opaquely rather than laid
-// on as alpha so nested groups don't compound into mud.
-const NODE_GROUP_INTERIOR_TINT = 0.07;
 
 // The scrim drawn behind the orbit overlay. Lives on an HTML layer above the
 // <svg>, never as a rect inside it — see the orbit scrim in the render tree.
@@ -10052,6 +10048,43 @@ function NodeCanvas() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getTextWidth is a stateless wrapper; labelFontVersion re-measures once the font arrives
   }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion]);
 
+  // Group input (P3.04): one stable handler set reading the latest values here.
+  const groupInputCtxRef = useLatestRef({
+    wasDraggingRef, mouseMoved, isDoublePress, setEditingGroupId, setTempGroupName, setSelectedGroup,
+    setSelectedInstanceIds, storeActions, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible, setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow,
+    setConnectionControlPanelVisible, setConnectionControlPanelShouldShow, editingGroupId, isMouseDown,
+    mouseDownPosition, mouseInsideNode, startedOnNode, setLongPressingInstanceId, groupLongPressTimeout,
+    drawingConnectionFrom, startGroupDragAtPointRef, nodeLiftDelay, isViewMoving, groupTouchStartRef, touch,
+    nodeDrag, TOUCH_MOVEMENT_THRESHOLD, handleMouseMove, handleMouseUp, groupTouchCleanupRef, containerRef,
+    panOffsetRef, zoomLevelRef, canvasSize, nodes, childGroupIdsByGroupIdRef, groupsByIdRef, ignoreCanvasClick,
+    lastGroupTapRef, tempGroupName, activeGraphId, selectedGroup, draggingNodeInfo, nodeNamePrompt,
+    groupControlPanelShouldShow, groupControlPanelVisible, setGroupControlPanelVisible, abstractionCarouselVisible,
+    selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState,
+    setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState,
+    selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, selectedEdgeId, selectedEdgeIds,
+    hoveredEdgeInfo,
+  });
+  const groupInputHandlers = useMemo(() => createGroupInputHandlers(groupInputCtxRef), [groupInputCtxRef]);
+  const draggingGroupId = draggingNodeInfo?.groupId ?? null;
+  const groupElements = useMemo(() => buildGroupElements({
+    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, editingGroupId, tempGroupName,
+    theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers,
+  }), [groupLayouts, groupStructure, draggingGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
+
+  // Publish the layout to the refs the rest of the canvas reads (drag, gamepad,
+  // edges, the anchor flush). Rebuilt, not accumulated: a group that is gone (or
+  // has become undrawable — emptied, or its layout bailed) must leave no rect
+  // behind, or the controller keeps aiming at a pill nobody draws.
+  groupTitleRectsRef.current.clear();
+  for (const [id, r] of groupLayouts.titleRects) groupTitleRectsRef.current.set(id, r);
+  for (const [id, a] of groupLayouts.anchorPositions) anchorPositionUpdatesRef.current.set(id, a);
+  nodeGroupBackgroundsByDepthRef.current = groupElements.backgroundsByDepth;
+  nodeGroupTitlesRef.current = groupElements.titles;
+  thingGroupMemberIdsRef.current = groupLayouts.thingGroupMemberIds;
+  anchorInstanceIdsRef.current = groupLayouts.anchorIds;
+  nestedRegularGroupsByDepthRef.current = groupElements.nestedRegularByDepth;
+
   return (
     <>
         <div
@@ -10169,589 +10202,8 @@ function NodeCanvas() {
                     />
                   )}
 
-                  {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
-                    Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
-                  {(() => {
-                    // Layouts come from the groupLayouts memo (P3.03a); this pass only
-                    // builds elements and publishes the rects the rest of the canvas reads.
-                    const groupDepths = groupStructure.groupDepths;
-                    const { entries: groupEntries, groupCount, titleRects, anchorPositions, groupLabelScale, groupLabelFontSize } = groupLayouts;
-                    const ngBackgroundsByDepth = new Map();
-                    const ngTitles = [];
-                    const tgMemberIds = groupLayouts.thingGroupMemberIds;
-                    const anchorIds = groupLayouts.anchorIds;
-                    const pushAtDepth = (map, depth, element) => {
-                      let bucket = map.get(depth);
-                      if (!bucket) { bucket = []; map.set(depth, bucket); }
-                      bucket.push(element);
-                    };
-                    const pushBackgroundAtDepth = (depth, element) => pushAtDepth(ngBackgroundsByDepth, depth, element);
-                    // Nested plain groups (depth > 0). They live inside an opaque
-                    // node-group shell, so emitting them with the depth-0 ones at the
-                    // bottom of the stack would bury them. Bucketed by depth and
-                    // interleaved with the shells instead — see Phase 2.
-                    const nestedRegularByDepth = new Map();
-                    // Rebuilt, not accumulated: a group that is gone (or has become
-                    // undrawable — emptied, or its layout bailed) must leave no rect
-                    // behind, or the controller keeps aiming at a pill nobody draws.
-                    groupTitleRectsRef.current.clear();
-                    for (const [id, r] of titleRects) groupTitleRectsRef.current.set(id, r);
-                    for (const [id, a] of anchorPositions) anchorPositionUpdatesRef.current.set(id, a);
-
-                    if (!groupCount) {
-                      nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
-                      nodeGroupTitlesRef.current = ngTitles;
-                      thingGroupMemberIdsRef.current = tgMemberIds;
-                      anchorInstanceIdsRef.current = anchorIds;
-                      nestedRegularGroupsByDepthRef.current = nestedRegularByDepth;
-                      return null;
-                    }
-
-                    const regularGroupElements = [];
-
-                    // Downstream JSX still references GROUP_SPACING (e.g. innerCanvasBorder
-                    // for the inner-canvas inset rect). Keep an alias.
-                    const GROUP_SPACING = GROUP_LAYOUT_CONSTANTS;
-
-                    groupEntries.forEach(({ group, members, layout, effectiveGroupName, effectiveGroupColor }) => {
-                      const { rect, label, nodeGroupRect, innerCanvasY, isNodeGroup } = layout;
-                      const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
-                      const labelX = label.x, labelY = label.y;
-                      const labelWidth = label.w, labelHeight = label.h;
-                      const nodeGroupRectY = nodeGroupRect.y, nodeGroupRectH = nodeGroupRect.h;
-
-                      const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
-                      const strokeColor = effectiveGroupColor;
-                      const fontSize = groupLabelFontSize;
-
-                      const labelText = effectiveGroupName;
-                      // Wrapped lines from the same box the layout measured, so the
-                      // drawn text can never be wider than the tab it sits in.
-                      const labelLines = label.lines?.length ? label.lines : [labelText];
-                      const labelLineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
-                      const isGroupDragging = draggingNodeInfo?.groupId === group.id;
-
-                      const nodeGroupColor = effectiveGroupColor;
-
-                      if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
-                        console.log('[GROUP-STATIC]', {
-                          groupId: group.id,
-                          name: group.name,
-                          isNodeGroup,
-                          memberIdsInStore: group.memberInstanceIds,
-                          membersResolved: members.map(m => ({ id: m.id, x: Math.round(m.x), y: Math.round(m.y) })),
-                          droppedFromHydration: layout.droppedOrphanIds,
-                          anchorInstanceId: group.anchorInstanceId || null,
-                          bbox: { minX: Math.round(layout.bbox.minX), minY: Math.round(layout.bbox.minY), maxX: Math.round(layout.bbox.maxX), maxY: Math.round(layout.bbox.maxY) },
-                          rect: { x: Math.round(rectX), y: Math.round(rectY), w: Math.round(rectW), h: Math.round(rectH) },
-                          nodeGroupRect: { y: Math.round(nodeGroupRectY), h: Math.round(nodeGroupRectH) },
-                          label: { x: Math.round(labelX), y: Math.round(labelY), w: Math.round(labelWidth), h: Math.round(labelHeight) },
-                          nestedContributors: layout.nestedContributors,
-                        });
-                      }
-
-                      const groupScale = isGroupDragging ? 1.05 : 1;
-                      const centerX = rectX + rectW / 2;
-                      const centerY = rectY + rectH / 2;
-                      const groupTransform = isGroupDragging
-                        ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
-                        : '';
-
-                      const groupStyle = {
-                        transform: groupTransform,
-                        transformOrigin: `${centerX}px ${centerY}px`,
-                        transition: isGroupDragging ? 'none' : 'transform 0.2s ease-out',
-                        filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
-                      };
-
-                      const groupDepth = groupDepths.get(group.id) ?? 0;
-
-                      // Lift-scale for the title pill + text while dragging: an explicit
-                      // centered matrix on the `transform` ATTRIBUTE (local user space), NOT
-                      // CSS transform-box:fill-box (which + the drag drop-shadow filter clips
-                      // the pill stroke). Both share this so the text pops with the pill.
-                      // During an active drag the pivot is re-centered per-frame in useNodeDrag.
-                      const groupLiftCx = labelX + labelWidth / 2;
-                      const groupLiftCy = labelY + labelHeight / 2;
-                      const groupLiftTransform = isGroupDragging
-                        ? `translate(${groupLiftCx} ${groupLiftCy}) scale(1.08) translate(${-groupLiftCx} ${-groupLiftCy})`
-                        : undefined;
-
-                      // --- Build JSX for the title label (shared between regular and thing groups) ---
-                      const titleLabel = (
-                        <g className="group-label" style={{ cursor: 'pointer' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (wasDraggingRef.current || mouseMoved.current) return;
-                            // Same gate as a Thing's double-click, and it matters
-                            // more here: a node-group's title IS the Thing (drawn
-                            // without its pill), so clicking along a chain of them
-                            // at speed used to drop the last one into an inline
-                            // rename. See lastPressRef.
-                            if (isDoublePress(`group:${group.id}`, e.clientX, e.clientY, e.detail)) {
-                              setEditingGroupId(group.id);
-                              setTempGroupName(effectiveGroupName);
-                            } else {
-                              setSelectedGroup(group);
-                              // Clear node/edge selection so the Node/Connection Control Panel
-                              // effects don't see stale selections and stomp selectedGroup back
-                              // to null in the same effect flush (was causing the group panel to
-                              // "double open" and need two clicks to dismiss).
-                              setSelectedInstanceIds(new Set());
-                              storeActions.setSelectedEdgeId(null);
-                              storeActions.clearSelectedEdgeIds();
-                              setGroupControlPanelShouldShow(true);
-                              setNodeControlPanelShouldShow(false);
-                              setNodeControlPanelVisible(false);
-                              setAbstractionControlPanelVisible(false);
-                              setAbstractionControlPanelShouldShow(false);
-                              setConnectionControlPanelVisible(false);
-                              setConnectionControlPanelShouldShow(false);
-                            }
-                          }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            if (editingGroupId === group.id) return;
-                            if (isNodeGroup && group.anchorInstanceId) {
-                              isMouseDown.current = true;
-                              mouseDownPosition.current = { x: e.clientX, y: e.clientY };
-                              mouseMoved.current = false;
-                              mouseInsideNode.current = true;
-                              startedOnNode.current = true;
-                              setLongPressingInstanceId(group.anchorInstanceId);
-                            }
-                            clearTimeout(groupLongPressTimeout.current);
-                            const downX = e.clientX; const downY = e.clientY;
-                            groupLongPressTimeout.current = setTimeout(() => {
-                              if (drawingConnectionFrom) return;
-                              setLongPressingInstanceId(null);
-                              startGroupDragAtPointRef.current?.(group.id, downX, downY);
-                            }, nodeLiftDelay);
-                          }}
-                          onMouseUp={() => {
-                            clearTimeout(groupLongPressTimeout.current);
-                            if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                          }}
-                          onMouseLeave={() => {
-                            clearTimeout(groupLongPressTimeout.current);
-                          }}
-                          onTouchStart={(e) => {
-                            // Mirror onMouseDown for touch. Without this, touching a
-                            // group title only triggers canvas pan — the long-press
-                            // group-drag path never runs.
-                            //
-                            // Unless the view is moving: that finger is catching it, not
-                            // grabbing this title. Hand the gesture to the canvas pan
-                            // pipeline and drop the tap origin, so this gesture's
-                            // touchend can't read as a title tap (see
-                            // handleNodeTouchStart for the same rule on nodes).
-                            if (isViewMoving()) {
-                              clearTimeout(groupLongPressTimeout.current);
-                              groupTouchStartRef.current = null;
-                              touch.handleTouchStartCanvas(e, { claimed: true });
-                              e.stopPropagation();
-                              return;
-                            }
-                            e.stopPropagation();
-                            if (editingGroupId === group.id) return;
-                            if (!e.touches || e.touches.length !== 1) {
-                              // Multi-touch (pinch intent) — bail and let canvas handle it.
-                              clearTimeout(groupLongPressTimeout.current);
-                              return;
-                            }
-                            const firstTouch = e.touches[0];
-                            const downX = firstTouch.clientX;
-                            const downY = firstTouch.clientY;
-                            // Record the touch origin so onTouchEnd can distinguish a tap
-                            // (select the group) from a drag (move it).
-                            groupTouchStartRef.current = { groupId: group.id, downX, downY };
-                            // Reset unconditionally — a prior pan can leave mouseMoved
-                            // sticky-true, which would suppress the synthetic click's
-                            // selection bailout (`if (mouseMoved.current) return;`).
-                            mouseMoved.current = false;
-                            if (isNodeGroup && group.anchorInstanceId) {
-                              isMouseDown.current = true;
-                              mouseDownPosition.current = { x: downX, y: downY };
-                              mouseInsideNode.current = true;
-                              startedOnNode.current = true;
-                              setLongPressingInstanceId(group.anchorInstanceId);
-                            }
-                            clearTimeout(groupLongPressTimeout.current);
-
-                            // Document-level listeners so the drag survives the finger
-                            // leaving the title rect (it will, once dragging starts).
-                            const moveListener = (ev) => {
-                              const t = ev.touches?.[0];
-                              if (!t) return;
-                              if (ev.touches.length > 1) {
-                                // Second finger landed — abandon the group gesture.
-                                clearTimeout(groupLongPressTimeout.current);
-                                if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                                cleanup();
-                                return;
-                              }
-                              // Cancel the long-press timer if finger moves past threshold
-                              // before the timer fires (matches mouseLeave behavior).
-                              if (!nodeDrag.draggingNodeInfoRef.current) {
-                                const dx = t.clientX - downX;
-                                const dy = t.clientY - downY;
-                                if (Math.hypot(dx, dy) > TOUCH_MOVEMENT_THRESHOLD) {
-                                  clearTimeout(groupLongPressTimeout.current);
-                                  if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                                }
-                                return;
-                              }
-                              // Group drag is active — drive movement.
-                              handleMouseMove({
-                                clientX: t.clientX,
-                                clientY: t.clientY,
-                                preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
-                                stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
-                              });
-                            };
-                            const endListener = (ev) => {
-                              clearTimeout(groupLongPressTimeout.current);
-                              if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                              const t = ev.changedTouches?.[0];
-                              const wasDragging = !!nodeDrag.draggingNodeInfoRef.current;
-                              cleanup();
-                              if (t && wasDragging) {
-                                handleMouseUp({
-                                  clientX: t.clientX,
-                                  clientY: t.clientY,
-                                  changedTouches: ev.changedTouches,
-                                  preventDefault: () => { try { if (ev.cancelable) ev.preventDefault(); } catch { } },
-                                  stopPropagation: () => { try { ev.stopPropagation(); } catch { } }
-                                });
-                              }
-                              // A tap (no drag) is handled by the element-level onTouchEnd,
-                              // which runs before this and stopPropagation()s — so on a tap
-                              // this document listener typically won't fire at all. Selection
-                              // lives there so it can claim the tap from the canvas handler.
-                            };
-                            const cleanup = () => {
-                              try {
-                                document.removeEventListener('touchmove', moveListener);
-                                document.removeEventListener('touchend', endListener);
-                                document.removeEventListener('touchcancel', endListener);
-                              } catch { }
-                              groupTouchCleanupRef.current = null;
-                            };
-                            // Exposed so the element-level onTouchEnd can tear these down
-                            // itself — on a tap it stopPropagation()s, which prevents the
-                            // document-level endListener (the usual cleanup site) from firing.
-                            groupTouchCleanupRef.current = cleanup;
-                            document.addEventListener('touchmove', moveListener, { passive: true });
-                            document.addEventListener('touchend', endListener, { passive: true });
-                            document.addEventListener('touchcancel', endListener, { passive: true });
-
-                            groupLongPressTimeout.current = setTimeout(() => {
-                              if (drawingConnectionFrom) return;
-                              setLongPressingInstanceId(null);
-                              const rect = containerRef.current.getBoundingClientRect();
-                              const { x: mouseCanvasX, y: mouseCanvasY } = clientToCanvas(downX, downY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-                              const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
-                              if (group.anchorInstanceId) {
-                                const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-                                if (anchorNode) {
-                                  offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
-                                }
-                              }
-                              // Empty node-group placeholder: track its own independent position
-                              // (never the anchor's) so it drags live using the exact same
-                              // offset-preserving math as a real member — see groupLayout.js for
-                              // why deriving it from the anchor's position doesn't work.
-                              if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
-                                offsets.push({
-                                  id: placeholderIdForGroup(group.id),
-                                  dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
-                                  dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
-                                });
-                              }
-                              // Nested EMPTY child groups ride along too: their box position
-                              // lives in emptyPlaceholderOrigin (no member instance to move),
-                              // so without an explicit placeholder offset a parent drag would
-                              // leave their shells behind. Non-empty children need nothing —
-                              // their members are already in the parent's offset list.
-                              const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
-                              if (nestedChildIds) {
-                                nestedChildIds.forEach(childId => {
-                                  const childGroup = groupsByIdRef.current.get(childId);
-                                  if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
-                                  offsets.push({
-                                    id: placeholderIdForGroup(childId),
-                                    dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
-                                    dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
-                                  });
-                                });
-                              }
-                              // startGroupDrag fires the lift haptic itself.
-                              nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
-                            }, nodeLiftDelay);
-                          }}
-                          onTouchEnd={(e) => {
-                            clearTimeout(groupLongPressTimeout.current);
-                            if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-
-                            const wasDragging = !!nodeDrag.draggingNodeInfoRef.current;
-                            const t = e.changedTouches?.[0];
-                            const start = groupTouchStartRef.current;
-                            // A tap = no group drag started and the finger barely moved.
-                            const isTap = !wasDragging && !!t && !!start && start.groupId === group.id &&
-                              Math.hypot(t.clientX - start.downX, t.clientY - start.downY) <= TOUCH_MOVEMENT_THRESHOLD;
-
-                            if (!isTap) return; // drag-end is handled by the document endListener
-
-                            // This tap belongs to the group title. Tear down our own
-                            // document listeners (the endListener won't fire once we
-                            // stopPropagation), claim the tap so the canvas touch handler
-                            // doesn't deselect us or spawn a plus sign, and stop the touch
-                            // from bubbling to that handler at all.
-                            groupTouchCleanupRef.current?.();
-                            ignoreCanvasClick.current = true;
-                            e.stopPropagation();
-                            // Without preventDefault, the browser follows this touchend with a
-                            // synthetic click at the same point, which re-hits the title's own
-                            // onClick below and double-selects the group (visible as the control
-                            // panel flickering / replaying its intro animation). Mirrors the
-                            // preventDefault call in handleNodeTouchEnd (useCanvasTouch.js).
-                            if (e.cancelable) e.preventDefault();
-
-                            if (editingGroupId === group.id) return;
-                            const now = Date.now();
-                            const last = lastGroupTapRef.current;
-                            if (last.id === group.id && (now - last.time) < 400) {
-                              // Double tap → inline rename (mirrors mouse dblclick).
-                              lastGroupTapRef.current = { id: null, time: 0 };
-                              setEditingGroupId(group.id);
-                              setTempGroupName(effectiveGroupName);
-                            } else {
-                              // Single tap → select (mirrors the mouse onClick path).
-                              lastGroupTapRef.current = { id: group.id, time: now };
-                              setSelectedGroup(group);
-                              setSelectedInstanceIds(new Set());
-                              storeActions.setSelectedEdgeId(null);
-                              storeActions.clearSelectedEdgeIds();
-                              setGroupControlPanelShouldShow(true);
-                              setNodeControlPanelShouldShow(false);
-                              setNodeControlPanelVisible(false);
-                              setAbstractionControlPanelVisible(false);
-                              setAbstractionControlPanelShouldShow(false);
-                              setConnectionControlPanelVisible(false);
-                              setConnectionControlPanelShouldShow(false);
-                            }
-                          }}
-                          onTouchCancel={() => {
-                            clearTimeout(groupLongPressTimeout.current);
-                            if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
-                            groupTouchStartRef.current = null;
-                          }}
-                        >
-                          <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20 * groupLabelScale} ry={20 * groupLabelScale}
-                            fill={isNodeGroup ? "none" : theme.canvas.bg}
-                            stroke={isNodeGroup ? "none" : strokeColor}
-                            strokeWidth={isNodeGroup ? 0 : 6 * groupLabelScale}
-                            pointerEvents="all"
-                            transform={groupLiftTransform}
-                          />
-                          {editingGroupId === group.id ? (
-                            <foreignObject x={labelX} y={labelY} width={labelWidth} height={labelHeight}
-                              style={{ pointerEvents: 'auto' }}>
-                              <div style={{
-                                width: '100%', height: '100%',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                boxSizing: 'border-box'
-                              }}>
-                                {/* textarea, not input: the tab wraps long names, and a
-                                    single-line field would scroll its text sideways out
-                                    of a box that is already the right shape for it. */}
-                                <textarea
-                                  ref={groupEditInputRef}
-                                  rows={labelLines.length}
-                                  value={tempGroupName}
-                                  onChange={(e) => { setTempGroupName(e.target.value); }}
-                                  onKeyDown={(e) => {
-                                    e.stopPropagation();
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      const newName = tempGroupName.trim();
-                                      if (newName && activeGraphId) {
-                                        storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
-                                        if (selectedGroup?.id === group.id) {
-                                          setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
-                                        }
-                                      }
-                                      setEditingGroupId(null);
-                                    } else if (e.key === 'Escape') {
-                                      setEditingGroupId(null);
-                                      setTempGroupName('');
-                                    }
-                                  }}
-                                  onBlur={() => {
-                                    const newName = tempGroupName.trim();
-                                    if (newName && activeGraphId && newName !== effectiveGroupName) {
-                                      storeActions.updateGroup(activeGraphId, group.id, (draft) => { draft.name = newName; });
-                                      if (selectedGroup?.id === group.id) {
-                                        setSelectedGroup(prev => prev ? { ...prev, name: newName } : null);
-                                      }
-                                    }
-                                    setEditingGroupId(null);
-                                  }}
-                                  autoFocus
-                                  style={{
-                                    width: `calc(100% - ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2 * groupLabelScale}px)`,
-                                    // Exactly its own lines tall, then centred by the flex
-                                    // parent — a textarea won't centre its text the way the
-                                    // <input> this replaced did, so it would ride high in a
-                                    // box whose one-line interior is taller than one line box.
-                                    height: `${labelLines.length * labelLineHeight}px`,
-                                    margin: `0 ${GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * groupLabelScale}px`,
-                                    fontSize: `${fontSize}px`,
-                                    fontFamily: 'EmOne, sans-serif',
-                                    fontWeight: 'bold',
-                                    lineHeight: `${labelLineHeight}px`,
-                                    color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
-                                    backgroundColor: 'transparent',
-                                    border: 'none', outline: 'none',
-                                    padding: 0, resize: 'none', overflow: 'hidden',
-                                    overflowWrap: 'break-word', wordBreak: 'break-word',
-                                    textAlign: 'center', boxSizing: 'border-box'
-                                  }}
-                                />
-                              </div>
-                            </foreignObject>
-                          ) : (
-                            <text x={labelX + labelWidth / 2} y={labelY + labelHeight / 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-                              fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
-                              fontWeight="bold" stroke="none" strokeWidth={0}
-                              paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
-                              transform={groupLiftTransform}
-                            >
-                              {labelLines.length === 1 ? labelText : labelLines.map((line, i) => (
-                                <tspan
-                                  key={i}
-                                  x={labelX + labelWidth / 2}
-                                  // Centre the whole block on the tab: first line sits
-                                  // (n-1)/2 line boxes above the middle.
-                                  dy={i === 0 ? -((labelLines.length - 1) / 2) * labelLineHeight : labelLineHeight}
-                                >
-                                  {line}
-                                </tspan>
-                              ))}
-                            </text>
-                          )}
-                        </g>
-                      );
-
-                      if (isNodeGroup) {
-                        const innerCanvasFill = blendColors(theme.canvas.bg, nodeGroupColor, NODE_GROUP_INTERIOR_TINT);
-                        const innerCanvasRect = {
-                          x: rectX + GROUP_SPACING.innerCanvasBorder,
-                          y: innerCanvasY,
-                          w: rectW - (GROUP_SPACING.innerCanvasBorder * 2),
-                          h: (rectY + rectH) - innerCanvasY - GROUP_SPACING.innerCanvasBorder,
-                          r: GROUP_LAYOUT_CONSTANTS.innerCanvasCornerRadius,
-                        };
-                        // The whole shell — band and interior together — sits at this group's
-                        // nesting depth in the z-interleave, so it occludes exactly the
-                        // connections that don't have an endpoint inside it. See edgeZSlotFor.
-                        pushBackgroundAtDepth(groupDepth,
-                          <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
-                            {/* Colored band is purely decorative — pointer-events:none lets
-                                connections routing under it stay clickable. Selection happens
-                                via the title label; deselection via the inner canvas-bg rect. */}
-                            <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
-                              rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none"
-                              pointerEvents="none" />
-                            <rect
-                              x={innerCanvasRect.x} y={innerCanvasRect.y}
-                              width={innerCanvasRect.w}
-                              height={innerCanvasRect.h}
-                              rx={innerCanvasRect.r} ry={innerCanvasRect.r} fill={innerCanvasFill} stroke="none"
-                              style={{ cursor: 'default', pointerEvents: 'auto' }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || nodeNamePrompt.visible || !activeGraphId) return;
-                                if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
-                                  if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
-                                  if (selectedGroup) setSelectedGroup(null);
-                                  return;
-                                }
-                                if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
-                                  setAbstractionCarouselVisible(false); setAbstractionCarouselNode(null);
-                                  setCarouselAnimationState('hidden'); setCarouselPieMenuStage(1);
-                                  setCarouselFocusedNode(null); setCarouselFocusedNodeDimensions(null);
-                                  return;
-                                }
-                                if (abstractionCarouselVisible && carouselAnimationState === 'exiting') return;
-                                if (selectedInstanceIds.size > 0) {
-                                  if (justCompletedCarouselExit || carouselExitInProgressRef.current) return;
-                                  setSelectedInstanceIds(new Set()); return;
-                                }
-                                if ((selectedEdgeId || selectedEdgeIds.size > 0) && !hoveredEdgeInfo) {
-                                  storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
-                                }
-                              }}
-                            />
-                            {/* The base grid is painted at the bottom of the z-stack, so this
-                                opaque interior would otherwise cut a blank hole in it. Repaint
-                                the same <pattern> on top: it's patternUnits="userSpaceOnUse" in
-                                world coordinates and this rect carries no transform of its own,
-                                so the tiling lines up continuously with the grid outside the
-                                group — and with every other group's, at any nesting depth.
-                                Always rendered (fill="none" when the grid is off) so the drag
-                                path's cached rect list keeps a stable shape. */}
-                            <rect
-                              className="node-group-grid"
-                              x={innerCanvasRect.x} y={innerCanvasRect.y}
-                              width={innerCanvasRect.w}
-                              height={innerCanvasRect.h}
-                              rx={innerCanvasRect.r} ry={innerCanvasRect.r}
-                              fill={gridActive ? `url(#${gridPatternId})` : 'none'}
-                              stroke="none"
-                              pointerEvents="none"
-                            />
-                          </g>
-                        );
-                        // Thing-group titles → Phase 3 (rendered after member nodes)
-                        ngTitles.push(
-                          <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
-                            {titleLabel}
-                          </g>
-                        );
-                      } else {
-                        // Regular group: dashed outline + title, emitted together.
-                        // Where depends on nesting — a top-level one goes to the
-                        // bottom of the stack (under everything, as always), while a
-                        // nested one has to clear the shell of the node-group it sits
-                        // in or it renders behind opaque paint and vanishes.
-                        const regularElement = (
-                          <g key={group.id} className="group" data-group-id={group.id} style={groupStyle}>
-                            <rect x={rectX} y={rectY} width={rectW} height={rectH}
-                              rx={nodeGroupCornerR} ry={nodeGroupCornerR}
-                              fill="none" stroke={strokeColor} strokeWidth={12}
-                              strokeDasharray="16 12" />
-                            {titleLabel}
-                          </g>
-                        );
-                        if (groupDepth > 0) {
-                          pushAtDepth(nestedRegularByDepth, groupDepth, regularElement);
-                        } else {
-                          regularGroupElements.push(regularElement);
-                        }
-                      }
-                    });
-
-                    nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
-                    nodeGroupTitlesRef.current = ngTitles;
-                    thingGroupMemberIdsRef.current = tgMemberIds;
-                    anchorInstanceIdsRef.current = anchorIds;
-                    nestedRegularGroupsByDepthRef.current = nestedRegularByDepth;
-
-                    return regularGroupElements.length > 0 ? (
-                      <g className="regular-groups-layer">{regularGroupElements}</g>
-                    ) : null;
-                  })()}
+                  {/* Regular groups, at the bottom of the stack (P3.04: built by the groupElements memo). */}
+                  {groupElements.regular}
                   {/* Debug: Node Hitbox Visualization */}
                   {showNodeHitboxes && hydratedNodes.map(node => {
                     const dims = baseDimsById.get(node.id);
@@ -10785,8 +10237,8 @@ function NodeCanvas() {
                     // why keying the layer off "is either end an anchor" hid a node-group
                     // wired to a node inside a sibling node-group.
                     const edgeZSlots = groupStructure.edgeZSlots;
-                    const nodeGroupShellsByDepth = nodeGroupBackgroundsByDepthRef.current;
-                    const nestedRegularGroupsByDepth = nestedRegularGroupsByDepthRef.current;
+                    const nodeGroupShellsByDepth = groupElements.backgroundsByDepth;
+                    const nestedRegularGroupsByDepth = groupElements.nestedRegularByDepth;
                     const shellDepths = Array.from(nodeGroupShellsByDepth.keys());
                     const topEdgeSlot = (shellDepths.length ? Math.max(...shellDepths) : 0) + 1;
                     const edgesBySlot = new Map();
@@ -11134,7 +10586,7 @@ function NodeCanvas() {
                         {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
 
                         {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
-                        {nodeGroupTitlesRef.current}
+                        {groupElements.titles}
 
                         {/* Delete ghost rects (P2.07) */}
                         <DeletionGhostLayer />
