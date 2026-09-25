@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { runLayout, cancelLayout } from '../services/layoutRunner.js';
 import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
@@ -266,7 +267,9 @@ export const useGraphLayout = ({
     // indicator; because the solve happens in a worker, these updates actually
     // render while it runs.
     // { progress: 0..1, nodeCount, estimatedMs }
-    const [layoutProgress, setLayoutProgress] = useState(null);
+    // In canvasUIStore (P2.06f): the indicator renders from ForceSimHost, and
+    // progress ticks no longer re-render the canvas.
+    const setLayoutProgress = useCanvasUIStore.getState().setLayoutProgress;
     const reportLayoutProgress = useCallback((state) => setLayoutProgress(state), []);
 
     // Abandon an in-flight solve. Nodes keep their current positions — nothing
@@ -908,7 +911,6 @@ export const useGraphLayout = ({
         cancelAutoLayoutAnimation,
         // Solver state for the layout indicator: null when idle, otherwise
         // { progress, nodeCount, estimatedMs }
-        layoutProgress,
         cancelAutoLayout
     };
 };

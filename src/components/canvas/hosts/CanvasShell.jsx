@@ -7,6 +7,7 @@ import ModalHosts from './ModalHosts.jsx';
 import SyncDebugHost from './SyncDebugHost.jsx';
 import SearchHosts from './SearchHosts.jsx';
 import UniverseHost from './UniverseHost.jsx';
+import ForceSimHost from './ForceSimHost.jsx';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { CanvasOverlaySlot } from './canvasOverlaySlot.js';
@@ -60,6 +61,7 @@ function CanvasShell() {
       <ModalHosts />
       <SyncDebugHost />
       <SearchHosts />
+      <ForceSimHost />
     </div>
   );
 }

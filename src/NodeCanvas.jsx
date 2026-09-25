@@ -36,8 +36,6 @@ import * as folderPersistence from './services/folderPersistence.js';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
-import LayoutProgressIndicator from './components/LayoutProgressIndicator.jsx';
-import ForceSimulationModal from './components/ForceSimulationModal';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
@@ -56,7 +54,7 @@ import {
   buildShellCutoutPath,
   placeholderIdForGroup,
 } from './services/groupLayout.js';
-import { NavigationMode, calculateNavigationParams, navigateAfterLayout } from './services/canvasNavigationService.js';
+import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
 import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection, getNodeEdgeIntersection } from './utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
@@ -1477,9 +1475,6 @@ function NodeCanvas() {
   const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
   const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
   const forceTunerSettings = useGraphStore(state => state.forceTunerSettings || DEFAULT_FORCE_TUNER_SETTINGS);
-  const forceLayoutScalePreset = forceTunerSettings.layoutScale || 'balanced';
-  const forceLayoutScaleMultiplier = forceTunerSettings.layoutScaleMultiplier ?? 1;
-  const forceLayoutIterationPreset = forceTunerSettings.layoutIterations || 'balanced';
   const keyboardSettings = useGraphStore(state => state.keyboardSettings || DEFAULT_KEYBOARD_SETTINGS);
   const middleMouseZoomEnabled = useGraphStore(state => state.mouseSettings?.middleMouseZoomEnabled ?? false);
   const nodeLiftDelay = useGraphStore(state => state.mouseSettings?.nodeLiftDelay ?? 250);
@@ -3005,7 +3000,6 @@ function NodeCanvas() {
     condenseGraphNodes,
     snapActiveGraphToGrid,
     cancelAutoLayoutAnimation,
-    layoutProgress,
     cancelAutoLayout
   } = useGraphLayout({
     activeGraphId,
@@ -5978,7 +5972,8 @@ function NodeCanvas() {
   // Header search state
   // The searches render from SearchHosts (P2.06d); the keyboard shortcut opens one.
   const setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
-  const forceSimModalVisible = useCanvasUIStore(s => s.forceSimModalVisible), setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
+  // The force-sim tuner renders from ForceSimHost (P2.06f); the canvas menu opens it.
+  const setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
 
 
@@ -12972,6 +12967,45 @@ function NodeCanvas() {
     startHurtleFromPanel: startHurtleAnimationFromPanel,
     // The header's component search flies to the Thing's instances (P2.06d).
     navigateToPrototypeInstances,
+    // The force-simulation tuner reads the live canvas while it runs (P2.06f).
+    layoutNodes: () => hydratedNodes.map(n => {
+      const dims = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
+      return {
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        name: n.name,
+        width: dims?.currentWidth,
+        height: dims?.currentHeight,
+        imageHeight: dims?.calculatedImageHeight ?? 0
+      };
+    }),
+    layoutEdges: () => edges.map(e => {
+      let connName = e.connectionName || '';
+      if (!connName && e.definitionNodeIds?.length > 0) {
+        const defNode = nodePrototypesMap.get(e.definitionNodeIds[0]);
+        if (defNode?.name) connName = defNode.name;
+      }
+      if (!connName && e.typeNodeId) {
+        const proto = edgePrototypesMap.get(e.typeNodeId);
+        if (proto?.name) connName = proto.name;
+      }
+      return { sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
+    }),
+    draggedNodeIds: () => {
+      if (!draggingNodeInfo) return new Set();
+      // Single node drag
+      if (draggingNodeInfo.instanceId) return new Set([draggingNodeInfo.instanceId]);
+      // Multi-select drag (primaryId + all selected)
+      if (draggingNodeInfo.primaryId) return new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})]);
+      // Group drag
+      if (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) {
+        return new Set(draggingNodeInfo.memberOffsets.map(m => m.id));
+      }
+      return new Set();
+    },
+    resetConnectionLabelCache,
+    cancelAutoLayout,
   });
 
   // Context Menu options for canvas background.
@@ -16383,77 +16417,9 @@ function NodeCanvas() {
       )}
 
 
-      {/* Force Simulation Modal */}
-      <ForceSimulationModal
-        isOpen={forceSimModalVisible}
-        onClose={() => {
-          setForceSimModalVisible(false);
-        }}
-        onSimulationComplete={() => {
-          navigateAfterLayout(activeGraphId, hydratedNodes?.length || 0);
-        }}
-        // Safety ceiling only — the sim stops itself on alpha convergence
-        // (usually ~1-1.5s with substepped auto-layout speed)
-        autoLayoutDuration={6000}
-        // Resolved label font so labeled edges reserve real rendered width
-        connectionFontSize={resolveEdgeLabelFontSize(textSettings, connectionLabelSize)}
-        graphId={activeGraphId}
-        storeActions={storeActions}
-        layoutScalePreset={forceLayoutScalePreset}
-        layoutScaleMultiplier={forceLayoutScaleMultiplier}
-        onLayoutScalePresetChange={storeActions.setForceTunerScalePreset}
-        onLayoutScaleMultiplierChange={storeActions.setForceTunerScaleMultiplier}
-        layoutIterationPreset={forceLayoutIterationPreset}
-        onLayoutIterationPresetChange={storeActions.setForceTunerIterationPreset}
-        onCopyToAutoLayout={storeActions.copyForceTunerSettingsToAutoLayout}
-        getNodes={() => hydratedNodes.map(n => {
-          const dims = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
-          return {
-            id: n.id,
-            x: n.x,
-            y: n.y,
-            name: n.name,
-            width: dims?.currentWidth,
-            height: dims?.currentHeight,
-            imageHeight: dims?.calculatedImageHeight ?? 0
-          };
-        })}
-        getEdges={() => edges.map(e => {
-          let connName = e.connectionName || '';
-          if (!connName && e.definitionNodeIds?.length > 0) {
-            const defNode = nodePrototypesMap.get(e.definitionNodeIds[0]);
-            if (defNode?.name) connName = defNode.name;
-          }
-          if (!connName && e.typeNodeId) {
-            const proto = edgePrototypesMap.get(e.typeNodeId);
-            if (proto?.name) connName = proto.name;
-          }
-          return { sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
-        })}
-        getGroups={() => {
-          const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-          return graphData?.groups ? Array.from(graphData.groups.values()) : [];
-        }}
-        getDraggedNodeIds={() => {
-          if (!draggingNodeInfo) return new Set();
-          // Single node drag
-          if (draggingNodeInfo.instanceId) return new Set([draggingNodeInfo.instanceId]);
-          // Multi-select drag (primaryId + all selected)
-          if (draggingNodeInfo.primaryId) return new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})]);
-          // Group drag
-          if (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) {
-            return new Set(draggingNodeInfo.memberOffsets.map(m => m.id));
-          }
-          return new Set();
-        }}
-        onNodePositionsUpdated={resetConnectionLabelCache}
-      />
 
 
 
-      {/* Auto-layout progress. Non-modal — the solve runs in a worker, so the
-          canvas stays interactive while this counts up. */}
-      <LayoutProgressIndicator state={layoutProgress} onCancel={cancelAutoLayout} />
 
       </>)}
     </>
