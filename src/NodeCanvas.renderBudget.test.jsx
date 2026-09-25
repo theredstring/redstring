@@ -162,7 +162,11 @@ const mountAndSettle = async () => {
   await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
   act(() => { holdUniverseOpen(); });
   flushFrames(5);
-  await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+  // NodeCanvas sets isInitialLoadComplete 2 s after mount (a real timer). Let it
+  // fire here: otherwise it lands wherever the test has got to by then, which
+  // under a loaded full run was the marquee's hold window. Scheduled after
+  // mount, this wait always fires after it.
+  await act(async () => { await new Promise((r) => setTimeout(r, 2100)); });
   flushFrames(5);
   return document.querySelector('svg.canvas');
 };

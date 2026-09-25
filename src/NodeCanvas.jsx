@@ -41,10 +41,8 @@ import universeManagerService from './services/universeManagerService.js';
 import UniverseLoadingScreen from './components/UniverseLoadingScreen.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
-import AutoGraphModal from './components/AutoGraphModal';
 import LayoutProgressIndicator from './components/LayoutProgressIndicator.jsx';
 import ForceSimulationModal from './components/ForceSimulationModal';
-import { parseInputData, generateGraph } from './services/autoGraphGenerator';
 import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
@@ -178,9 +176,6 @@ import StorageSetupModal from './components/StorageSetupModal.jsx';
 import GitReconnectModal from './components/modals/GitReconnectModal.jsx';
 import { runPendingCallbacks, RECONNECT_RESUME_KEY } from './services/githubAuthCallbacks.js';
 import { persistentAuth } from './services/persistentAuth.js';
-import HelpModal from './components/HelpModal.jsx';
-import SettingsModal from './components/SettingsModal.jsx';
-import MergeThingsModal from './components/merge/MergeThingsModal.jsx';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
@@ -2263,13 +2258,6 @@ function NodeCanvas() {
     openLeftPanelView('federation');
   }, [storeActions]);
 
-  // Help modal state
-  const showHelpModal = useCanvasUIStore(s => s.showHelpModal), setShowHelpModal = useCanvasUIStore(s => s.setShowHelpModal);
-
-  // Settings modal state
-  const showSettingsModal = useCanvasUIStore(s => s.showSettingsModal), setShowSettingsModal = useCanvasUIStore(s => s.setShowSettingsModal);
-  const showMergeThingsModal = useCanvasUIStore(s => s.showMergeThingsModal), setShowMergeThingsModal = useCanvasUIStore(s => s.setShowMergeThingsModal);
-
   // Helper to get storage key with test mode support
 
 
@@ -2545,44 +2533,6 @@ function NodeCanvas() {
     };
     window.addEventListener('redstring:open-external-link', handler);
     return () => window.removeEventListener('redstring:open-external-link', handler);
-  }, []);
-
-  // Open Help modal when event is dispatched
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const handler = () => {
-      try {
-        setShowHelpModal(true);
-      } catch { }
-    };
-
-    window.addEventListener('openHelpModal', handler);
-    return () => window.removeEventListener('openHelpModal', handler);
-  }, []);
-
-  // Open Settings modal when event is dispatched from menu
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const handler = () => {
-      try {
-        setShowSettingsModal(true);
-      } catch { }
-    };
-
-    window.addEventListener('openSettingsModal', handler);
-    return () => window.removeEventListener('openSettingsModal', handler);
-  }, []);
-
-  // Open the things-merge modal. One listener and one mount, beside the
-  // settings modal — it used to be rendered from three panel views, each with
-  // its own copy of the overlay and its own local open/closed state.
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const handler = () => setShowMergeThingsModal(true);
-    window.addEventListener('openMergeModal', handler);
-    return () => window.removeEventListener('openMergeModal', handler);
   }, []);
 
   // Open Onboarding modal when event is dispatched from Help menu
@@ -6975,15 +6925,8 @@ function NodeCanvas() {
   // Header search state
   const headerSearchVisible = useCanvasUIStore(s => s.headerSearchVisible), setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
   const headerAllThingsSearchVisible = useCanvasUIStore(s => s.headerAllThingsSearchVisible), setHeaderAllThingsSearchVisible = useCanvasUIStore(s => s.setHeaderAllThingsSearchVisible);
-  const autoGraphModalVisible = useCanvasUIStore(s => s.autoGraphModalVisible), setAutoGraphModalVisible = useCanvasUIStore(s => s.setAutoGraphModalVisible);
   const forceSimModalVisible = useCanvasUIStore(s => s.forceSimModalVisible), setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
-  // Opened from the Debug settings page, which has no way to reach this state.
-  useEffect(() => {
-    const handler = () => setAutoGraphModalVisible(true);
-    window.addEventListener('redstring:open-auto-graph-modal', handler);
-    return () => window.removeEventListener('redstring:open-auto-graph-modal', handler);
-  }, []);
 
 
   // Define carousel callbacks outside conditional rendering to avoid hook violations
@@ -17779,55 +17722,6 @@ function NodeCanvas() {
         />
       )}
 
-      {/* Auto Graph Generation Modal */}
-      <AutoGraphModal
-        isOpen={autoGraphModalVisible}
-        onClose={() => setAutoGraphModalVisible(false)}
-        onGenerate={(inputData, inputFormat, options) => {
-          try {
-            const parsedData = parseInputData(inputData, inputFormat);
-            const targetGraphId = options.createNewGraph ? null : activeGraphId;
-
-            // Get fresh state - will be updated after graph creation if needed
-            let storeState = useGraphStore.getState();
-            const mergedLayoutOptions = {
-              ...options.layoutOptions,
-              layoutScale: layoutScalePreset,
-              layoutScaleMultiplier,
-              iterationPreset: layoutIterationPreset
-            };
-            const patchedOptions = {
-              ...options,
-              layoutOptions: mergedLayoutOptions
-            };
-
-            const results = generateGraph(
-              parsedData,
-              targetGraphId,
-              storeState,
-              storeActions,
-              patchedOptions,
-              () => useGraphStore.getState() // Function to get fresh state
-            );
-
-            // Close modal
-            setAutoGraphModalVisible(false);
-
-            // Show results notification
-            const message = `Generated ${results.instancesCreated.length} nodes and ${results.edgesCreated.length} edges.\n` +
-              `Prototypes: ${results.prototypesCreated.length} new, ${results.prototypesReused.length} reused.` +
-              (results.errors.length > 0 ? `\n\nWarnings: ${results.errors.length}` : '');
-
-            alert(message);
-
-            console.log('[AutoGraph] Generation results:', results);
-          } catch (error) {
-            console.error('[AutoGraph] Generation failed:', error);
-            alert(`Failed to generate graph: ${error.message}`);
-          }
-        }}
-        activeGraphId={activeGraphId}
-      />
 
       {/* Force Simulation Modal */}
       <ForceSimulationModal
@@ -17895,23 +17789,6 @@ function NodeCanvas() {
         onNodePositionsUpdated={resetConnectionLabelCache}
       />
 
-      {/* Help Modal */}
-      <HelpModal
-        isVisible={showHelpModal}
-        onClose={() => setShowHelpModal(false)}
-      />
-
-      {/* Settings Modal */}
-      <SettingsModal
-        isVisible={showSettingsModal}
-        onClose={() => setShowSettingsModal(false)}
-      />
-
-      {/* Things-merge Modal */}
-      <MergeThingsModal
-        isVisible={showMergeThingsModal}
-        onClose={() => setShowMergeThingsModal(false)}
-      />
 
       {/* On-screen sync diagnostics — visible only when debug mode is on
           (toggle from logo right-click → Show Debug Menu → Show Debug Overlay).

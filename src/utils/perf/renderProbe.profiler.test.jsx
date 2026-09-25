@@ -12,6 +12,7 @@ vi.mock('../../SpawningNodeDragLayer', nullComponent);
 vi.mock('../../components/canvas/hosts/HeaderHost.jsx', nullComponent);
 vi.mock('../../components/canvas/hosts/PanelHost.jsx', nullComponent);
 vi.mock('../../components/canvas/hosts/TypeListHost.jsx', nullComponent);
+vi.mock('../../components/canvas/hosts/ModalHosts.jsx', nullComponent);
 vi.mock('../../ai/BridgeClient.jsx', nullComponent);
 vi.mock('../../components/GlobalContextMenu.jsx', nullComponent);
 vi.mock('../../components/UniverseManagerBootstrap.jsx', nullComponent);
