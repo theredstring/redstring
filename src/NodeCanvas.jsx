@@ -10359,9 +10359,9 @@ function NodeCanvas() {
                               clearTimeout(groupLongPressTimeout.current);
                               return;
                             }
-                            const touch = e.touches[0];
-                            const downX = touch.clientX;
-                            const downY = touch.clientY;
+                            const firstTouch = e.touches[0];
+                            const downX = firstTouch.clientX;
+                            const downY = firstTouch.clientY;
                             // Record the touch origin so onTouchEnd can distinguish a tap
                             // (select the group) from a drag (move it).
                             groupTouchStartRef.current = { groupId: group.id, downX, downY };

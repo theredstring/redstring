@@ -471,6 +471,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-14 | The group control panel showed the selected group as a snapshot taken at selection time, so a rename or recolor made elsewhere left it stale (found by P2.03b) | **FIXED** (P2.03b): the group is derived from `selectedGroupId`. F27 fails on the old code | done |
 | B-15 | `useViewportBounds` fell back to a 280 px panel width while panels open at 250, so on a fresh profile the save pill, edge glows and modals placed off the viewport bounds sat 30 px off (found by P2.12) | **FIXED** (P2.12): one width source in canvasUIStore | done |
 | B-16 | Semantic concepts added to a web were **unsaved**: `addNodePrototype` saves a new prototype, and the orbit placement, canvas drop and discovery-panel add then toggled it (meaning to save) | **FIXED** 0e03477: save only if not saved; `orbitActions.test.js` | sweep 4 |
+| B-17 | Touching a group title while the view was still moving threw `Cannot access 'touch' before initialization`: the title's `onTouchStart` called `touch.handleTouchStartCanvas` in its view-moving branch, but a `const touch = e.touches[0]` later in the same function shadowed NodeCanvas's `touch` (TDZ). The error was logged and the touch bubbled to the canvas unclaimed (found by P3.04) | **FIXED** (wave 6): the inner const is `firstTouch` | P3.04 |
 
 ---
 
