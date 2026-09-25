@@ -13,6 +13,15 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Sweep 4, six blocks out + B-16 (Claude, orchestrator)
+
+- Verbatim moves: orbit placement, hurtle, back-to-civilization, node-group conversion, abstraction submit and clean lane offsets, each with 12 or fewer inputs. Blocks with 19+ inputs are left for their controller or layer cards (reports/sweep4-moves.md). **NodeCanvas.jsx 13,742 → 13,073.**
+- New flows F30 (back to civilization) and F31 (carousel Add Above), mutation-checked; unit tests for clean lanes and orbit placement.
+- **B-16** (found by the orbit test): semantic concepts added to a web were unsaved by a toggle after `addNodePrototype`'s default save. Fixed at four sites.
+- **Gates:** `test:ci` PASS, Playwright 58 passed, build passes.
+
+---
+
 ## 2026-09-25: P5.07, context-menu builders (Claude, orchestrator)
 
 - The canvas and node right-click menus moved verbatim into `components/canvas/menus/contextMenus.jsx` (the P5.01a method, now also counting JSX names). 39 orphaned imports pruned (reports/P5.07.md).

@@ -470,6 +470,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-13 | Clicking a type in the TypeList with nodes selected typed nothing: selection holds instance ids, `setNodeType` takes a prototype id, so every call warned "prototype not found" (since the initial release; found by P2.10) | **FIXED** 391a992 (P2.10). F21 fails without the fix | done |
 | B-14 | The group control panel showed the selected group as a snapshot taken at selection time, so a rename or recolor made elsewhere left it stale (found by P2.03b) | **FIXED** (P2.03b): the group is derived from `selectedGroupId`. F27 fails on the old code | done |
 | B-15 | `useViewportBounds` fell back to a 280 px panel width while panels open at 250, so on a fresh profile the save pill, edge glows and modals placed off the viewport bounds sat 30 px off (found by P2.12) | **FIXED** (P2.12): one width source in canvasUIStore | done |
+| B-16 | Semantic concepts added to a web were **unsaved**: `addNodePrototype` saves a new prototype, and the orbit placement, canvas drop and discovery-panel add then toggled it (meaning to save) | **FIXED** 0e03477: save only if not saved; `orbitActions.test.js` | sweep 4 |
 
 ---
 
