@@ -1597,25 +1597,28 @@ function NodeCanvas() {
     storeActions.cleanupOrphanedGroupAnchors(activeGraphId);
   }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
 
-  // Get hydrated nodes for the active graph
-  // OPTIMIZED: Depend only on specific graph's instances, not entire graphsMap
+  // Hydrated nodes for the active graph: prototype + cached image + instance, nothing
+  // derived (unlike `nodes`) and never stale. An object is reused only when its
+  // instance, prototype and cache entry are the same objects (Immer keeps untouched ones).
+  const hydratedPrevRef = useRef({ byId: new Map(), list: [] });
   const hydratedNodes = useMemo(() => {
     if (!activeGraphId || !activeGraphInstances || !nodePrototypesMap) return [];
-
-    return Array.from(activeGraphInstances.values()).map(instance => {
+    const prev = hydratedPrevRef.current;
+    const byId = new Map(), list = [];
+    for (const [id, instance] of activeGraphInstances) {
       const prototype = nodePrototypesMap.get(instance.prototypeId);
-      if (!prototype) return null;
-      // Merge in cached thumbnail for auto-enriched nodes (not in main store)
-      const cached = imageCacheMap[instance.prototypeId];
-      const imageOverrides = (cached && !prototype.thumbnailSrc)
-        ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio }
-        : {};
-      return {
-        ...prototype,
-        ...imageOverrides,
-        ...instance,
-      };
-    }).filter(Boolean);
+      if (!prototype) continue;
+      const cached = imageCacheMap[instance.prototypeId]; // auto-enriched thumbnails live outside the store
+      const was = prev.byId.get(id);
+      const node = (was && was.instance === instance && was.prototype === prototype && was.cached === cached)
+        ? was.node
+        : { ...prototype, ...((cached && !prototype.thumbnailSrc) ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio } : {}), ...instance };
+      byId.set(id, { instance, prototype, cached, node });
+      list.push(node);
+    }
+    const same = prev.list.length === list.length && list.every((n, i) => n === prev.list[i]);
+    hydratedPrevRef.current = { byId, list: same ? prev.list : list };
+    return same ? prev.list : list;
   }, [activeGraphId, activeGraphInstances, nodePrototypesMap, imageCacheMap]);
 
   // Reconcile the image cache against the prototypes of the active graph.
@@ -1954,23 +1957,16 @@ function NodeCanvas() {
     // Intentionally do nothing here. We no longer auto-create a default graph.
   }, [graphsMap, activeGraphId, openGraphIds, isUniverseLoaded, hasUniverseFile]);
 
-  // Raw per-graph collections, read straight off the active graph rather than
-  // through a memo over `graphsMap`.
-  //
-  // These were useMemos whose only dependency was the thing they returned, so
-  // they never did any work — but they did re-RUN on every `graphsMap` identity
-  // change, and Immer replaces that Map on every graph mutation in the universe,
-  // including a pan/zoom viewport save. Reading the sub-collections directly is
-  // the same value with none of that: Immer preserves untouched siblings by
-  // reference, so `instances` and `edgeIds` keep their identity across any write
-  // that didn't touch them, and everything memoized downstream bails out.
+  // Raw per-graph collections, read straight off the active graph rather than through
+  // a memo over `graphsMap` (which Immer replaces on every write in the universe).
+  // Immer keeps untouched siblings by reference, so `instances` and `edgeIds` keep
+  // their identity across any write that didn't touch them.
   const instances = activeGraphInstances ?? null;
   const graphEdgeIds = activeGraph?.edgeIds ?? null;
-  // Derive nodes and edges using useMemo for stable references
-  // PERF: Reuse previous node objects when content+position unchanged to preserve
-  // referential identity — combined with Node's custom memo comparator, this ensures
-  // only the dragged node(s) re-render during drag, not all visible nodes.
+  // Nodes reuse their previous objects when content and position are unchanged, so
+  // with Node's memo comparator only the dragged node(s) re-render during a drag.
   const prevNodesRef = useRef(new Map()); // id → previous node object
+  const prevNodesListRef = useRef([]);
   const nodes = useMemo(() => {
     if (!instances || !nodePrototypesMap) return [];
     const prevMap = prevNodesRef.current;
@@ -2026,7 +2022,7 @@ function NodeCanvas() {
         prev.anchorForGroupId === instance.anchorForGroupId &&
         prev.name === prototype.name &&
         prev.color === prototype.color &&
-        prev.thumbnailSrc === effectiveThumb &&
+        (prev.thumbnailSrc || null) === effectiveThumb && // a node without an image has it undefined
         // The ratio drives node height and can arrive after the thumbnail does
         // (async imageCache fetch), so reusing the old object here would pin the
         // node at its square placeholder height until something else invalidated it.
@@ -2056,7 +2052,11 @@ function NodeCanvas() {
     }
 
     prevNodesRef.current = newMap;
-
+    // All reused, same order: keep the previous array too, so a write that changed nothing
+    // here (a thumbnail for another graph) doesn't invalidate what's keyed on `nodes` (F-20).
+    const prevList = prevNodesListRef.current;
+    if (prevList.length === result.length && result.every((n, i) => n === prevList[i])) return prevList;
+    prevNodesListRef.current = result;
     return result;
   }, [instances, nodePrototypesMap, imageCacheMap, loadingImagesMap, failedImagesMap]);
 
