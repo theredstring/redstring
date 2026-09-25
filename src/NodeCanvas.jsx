@@ -1451,8 +1451,8 @@ function NodeCanvas() {
     return map;
   }, [nodes, textSettings?.fontSize, textSettings?.lineSpacing, textSettings?.nodeScale]);
   // Defer viewport-dependent culling until pan/zoom state is initialized below
-  const [visibleNodeIds, setVisibleNodeIds] = useState(() => new Set());
-  const [visibleEdges, setVisibleEdges] = useState(() => []);
+  const [visibleNodeIds, setVisibleNodeIds] = useTrackedState(() => new Set());
+  const [visibleEdges, setVisibleEdges] = useTrackedState(() => []);
 
   // Debug visualization state
   const [showNodeHitboxes, setShowNodeHitboxes] = useState(false);
@@ -3349,8 +3349,8 @@ function NodeCanvas() {
       // always lands in lockstep with the SVG DOM transform — using transitions
       // here causes edges to flicker during zoom because the transform updates
       // immediately but the deferred visibility commit lags by a frame or two.
-      // Functional updaters bail out (return prev) when membership is unchanged,
-      // skipping the render entirely during steady-state pans.
+      // The updaters return prev when membership is unchanged, and useTrackedState
+      // then skips the set, so a steady-state pan costs no render (F-79).
       setVisibleNodeIds(prev => {
         if (prev.size === commitNodeIds.size) {
           let same = true;
