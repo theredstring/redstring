@@ -8846,9 +8846,10 @@ function NodeCanvas() {
         id: 'copy', label: 'Copy', icon: ClipboardCopy, action: (instanceId) => {
           // Copy this node (and any edges among the selection) to the clipboard,
           // same path as Ctrl/Cmd+C so it can be pasted anywhere.
-          const currentGraph = graphsMap.get(activeGraphId);
+          const st = useGraphStore.getState(); // at click time, so the menu needn't track the maps
+          const currentGraph = st.graphs.get(activeGraphId);
           if (!currentGraph || !instanceId) return;
-          const copied = copySelection(new Set([instanceId]), currentGraph, nodePrototypesMap, edgesMap);
+          const copied = copySelection(new Set([instanceId]), currentGraph, st.nodePrototypes, st.edges);
           if (copied) {
             clipboardRef.current = copied;
             markClipboardChanged();
@@ -8998,7 +8999,7 @@ function NodeCanvas() {
     ];
 
     return [primaryPage, secondaryPage];
-  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, markClipboardChanged, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, carouselAnimationState, markClipboardChanged, handlePieMenuColorPickerOpen, savedNodeIds]);
 
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => {
@@ -9621,7 +9622,7 @@ function NodeCanvas() {
       // page that no longer exists.
       return nodePieMenuPages[pieMenuPage] ?? nodePieMenuPages[0] ?? [];
     }
-  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, currentAbstractionDimension, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, graphsMap, edgesMap, nodePrototypesMap, clipboardRef, PackageOpen, Package, ArrowUpFromDot, Edit3, Trash2, Bookmark, ArrowLeft, SendToBack, Plus, ChevronLeft, ChevronRight, CornerUpLeft, CornerDownLeft, Palette, Orbit, Copy, CopyPlus, Sparkles, Scaling, TextSearch, ImagePlus, SendToBack, zoomLevel, panOffset, containerRef, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, currentAbstractionDimension, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
@@ -13840,8 +13841,7 @@ function NodeCanvas() {
     }
 
     return buttons;
-  }, [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, openWizardWithPrompt, rightPanelExpanded,
-    handleEdgeColorPickerOpen, clipboardRef, clipboardVersion, markClipboardChanged]);
+  }, [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, rightPanelExpanded, handleEdgeColorPickerOpen, clipboardRef, clipboardVersion, markClipboardChanged]);
 
   // Freeze edge pie menu buttons when visible so they survive edge deselection during exit animation
   useEffect(() => {
@@ -14303,7 +14303,7 @@ function NodeCanvas() {
       });
     }
     return options;
-  }, [triggerAutoLayout, snapToGrid, condenseGraphNodes, setForceSimModalVisible, wizardEnabled, openGrowGraphWizardWithPrompt, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
+  }, [triggerAutoLayout, snapToGrid, condenseGraphNodes, setForceSimModalVisible, wizardEnabled, activeGraphId, graphsMap, storeActions, canvasSize, setSelectedInstanceIds]);
 
   // The controller's handle on that menu — see the ref's declaration above.
   // `force`, because the pad's trigger tap is not the long-press gesture the
@@ -14515,7 +14515,7 @@ function NodeCanvas() {
         }
       }
     ];
-  }, [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, zoomLevel, panOffset, handlePieMenuColorPickerOpen, startHurtleAnimation, useGraphStore, setIsTransitioningPieMenu]);
+  }, [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, handlePieMenuColorPickerOpen, startHurtleAnimation, useGraphStore]);
 
   // Track if the component has been mounted long enough to show BackToCivilization
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
