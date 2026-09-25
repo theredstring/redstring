@@ -429,6 +429,14 @@ This state is used across clusters and must move to a store before the clusters 
 - The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
 - → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
 
+**F-81. The canvas flows never failed on an uncaught page error (P4.02).** VERIFIED; **fixed** (wave 6).
+- A handler that throws usually leaves enough working that a flow still passes. During the camera move, a missing `panMomentumRef` alias threw on every mouseup and surfaced only as selection flows timing out.
+- The shared fixture in `test/e2e/canvas/helpers.js` now fails any flow during which the page threw. `main` and wave 6 both pass with it, so no existing flow was hiding one.
+- Lint can't catch a destructured property that doesn't exist: `test/components/cameraController.test.js` checks every name NodeCanvas takes from the camera.
+
+**F-80. `forceLayout.test.js` has a wall-clock test that fails under load.** VERIFIED (flaky), not a canvas test.
+- "a converged run stops before exhausting its iteration budget" compares two `Date.now()` spans. It failed once during a wave-6 `test:ci` run that overlapped a Playwright run, then passed 3/3 alone.
+
 **F-79. A same-value set still re-ran NodeCanvas: half of S5's runs (bailout sweep).** VERIFIED with `--explain` (dispatch logging, 35319ed); **fixed** e0abe3c.
 - zustand store changes render at SyncLane. A `setX(sameValue)` in the same event or in a following effect can't take React's eager bailout (the fiber just rendered from an update), so it's queued at a lower lane. The sync render skips it, and React then runs NodeCanvas again only to find nothing changed.
 - The offenders: `hoveredEdgeInfo = null` on every mouse move; the orbit, pie colour-picker, pie-page and control-panel resets in selection/pie effects; `isPanning = false` on every release.
