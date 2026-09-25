@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.03b done, with B-14 (Claude, orchestrator)
+
+- **P2.03b:** `selectedGroup` is derived from `selectedGroupId` in canvasUIStore; the exit latch is a render-time ref. **B-14** fixed (the group panel went stale after edits elsewhere); F27.
+- A whitespace-only commit collapsed 95 runs of blank lines so the ratchet held. NodeCanvas.jsx **16,320**.
+- **Gates:** `test:ci` PASS, Playwright 54 passed (F12 expected), `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P2.07 done (Claude, orchestrator)
 
 - **P2.07:** deletion ghosts in canvasUIStore; `DeletionGhostLayer` renders and removes them, so ghost cleanup no longer renders NodeCanvas. NodeCanvas.jsx **16,415**. F26 added.

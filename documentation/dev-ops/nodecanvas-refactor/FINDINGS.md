@@ -458,6 +458,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-11 | `PanelContentWrapper` read `nodeDefinitionIndices` from graphStore, which has no such field, so a node's Components list always showed its first definition (found by P2.03) | **FIXED** 144d898 (P2.03): reads `canvasUIStore`. F17 fails without the fix | done |
 | B-12 | View → Snap to Grid and View → Grid → Lattice / Dot did nothing: RedstringMenu takes `onSnapToGrid`, `gridAppearance`, `onSetGridAppearance`, but Header never accepted or forwarded them (since 1eca3a8), so Lattice always showed the checkmark (found by P2.08) | **FIXED** 90120ef (P2.08). F19c fails without the fix | done |
 | B-13 | Clicking a type in the TypeList with nodes selected typed nothing: selection holds instance ids, `setNodeType` takes a prototype id, so every call warned "prototype not found" (since the initial release; found by P2.10) | **FIXED** 391a992 (P2.10). F21 fails without the fix | done |
+| B-14 | The group control panel showed the selected group as a snapshot taken at selection time, so a rename or recolor made elsewhere left it stale (found by P2.03b) | **FIXED** (P2.03b): the group is derived from `selectedGroupId`. F27 fails on the old code | done |
 
 ---
 

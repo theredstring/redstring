@@ -80,12 +80,12 @@ After this phase:
   - One extra S6 NodeCanvas run remains: a bailout when the PieMenu mounts (body runs, nothing changed).
 
 ### P2.03b: `selectedGroup` → `selectedGroupId`
-- **Status:** todo
+- **Status:** done (reports/P2.03b.md)
 - **Lane:** A · **Size:** S · **Depends:** P2.03
 - **Findings:** F-47 item 2
 - **Change:** Store the id in `canvasUIStore` (`selectedGroupId` already exists there) and derive the group object from the active graph, which fixes the stale snapshot. The same for `lastSelectedGroupId`.
 - **Accept:** Group selection, the group control panel and group editing behave as before; the panel shows a renamed group's new name without reselecting.
-- **Handoff:**
+- **Handoff:** `selectedGroup` is derived from `selectedGroupId` (canvasUIStore); `setSelectedGroup` still takes a group/null/updater. The exit latch is a render-time ref. B-14 fixed; F27.
 
 ### P2.03c: Edge selection: decide, then move or keep
 - **Status:** todo
