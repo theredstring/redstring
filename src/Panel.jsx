@@ -32,6 +32,7 @@ import './ai/AICollaborationPanel.css';
 import APIKeySetup from './ai/components/APIKeySetup.jsx';
 import mcpClient from './services/mcpClient.js';
 import * as fileStorage from './store/fileStorage.js';
+import useCanvasUIStore from './store/canvasUIStore.js';
 // import { bridgeFetch } from './services/bridgeConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
 import { enhancedSemanticSearch } from './services/semanticWebQuery.js';
@@ -478,7 +479,6 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
  * @property {string} graphName - Display name of the active graph.
  * @property {string} graphDescription - Description of the active graph.
  * @property {string|null} activeDefinitionNodeId - Prototype ID of the node whose definition is being browsed.
- * @property {Map<string, number>} [nodeDefinitionIndices] - Active definition index per "nodeId-graphId" composite key.
  * @property {function(): void} onStartHurtleAnimationFromPanel - Triggers the hurtle zoom animation from panel context.
  * @property {boolean} [leftPanelExpanded=true] - Whether the left panel is currently open (used for exclusive-mode logic).
  * @property {Set<string>} [selectedInstanceIds] - Instance IDs of nodes currently selected on the canvas.
@@ -513,7 +513,6 @@ const Panel = memo(forwardRef(
     graphName,
     graphDescription,
     activeDefinitionNodeId: propActiveDefinitionNodeId,
-    nodeDefinitionIndices = new Map(), // Context-specific definition indices 
     onStartHurtleAnimationFromPanel, // <<< Add new prop for animation
     leftPanelExpanded = true,
     selectedInstanceIds = new Set(), // Add selected node instances from canvas
@@ -521,6 +520,9 @@ const Panel = memo(forwardRef(
     rightPanelExpanded = true,
     initialViewActive,
   }, ref) => {
+    // From the UI store, not a prop: the memo comparator ignored the prop, so the
+    // panel could show a stale definition (B-08, P2.03).
+    const nodeDefinitionIndices = useCanvasUIStore(s => s.nodeDefinitionIndices);
     const [isScrolling, setIsScrolling] = useState(false);
     const [isHoveringScrollbar, setIsHoveringScrollbar] = useState(false);
     const scrollTimeoutRef = useRef(null);

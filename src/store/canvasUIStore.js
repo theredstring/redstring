@@ -118,12 +118,33 @@ export function createCanvasUIDefaults() {
     selectedGroupId: null,
     /** @type {string|null} */
     lastSelectedGroupId: null,
+    // What the node control panel keeps showing while it animates out. Latched by
+    // effects on selection, next to the pie target they're written with (P2.03).
+    /** @type {object[]} Prototypes of the last non-empty selection. */
+    lastSelectedNodePrototypes: [],
+    /** @type {string|null} The last single selected instance (null after a multi-select). */
+    lastSingleSelectedInstanceId: null,
 
     // pie menu (F-47 #3)
     /** @type {string|null} Instance id the node pie menu is open on. */
     selectedNodeIdForPieMenu: null,
     /** @type {boolean} Latch held while a pie menu plays its exit animation. */
     isTransitioningPieMenu: false,
+    // What the pie is drawing, kept with its target so a write outside a React
+    // event can't render the new target over the old menu (P2.01 §4, P2.03).
+    /** @type {boolean} Whether the PieMenu is mounted (through its exit animation). */
+    isPieMenuRendered: false,
+    /** @type {{ node: object, buttons: object[], nodeDimensions: object }|null} */
+    currentPieMenuData: null,
+    // The pie's transitions, written in the same exit callback as the fields above.
+    /** @type {1|2} Carousel pie stage: 1 = main, 2 = position selection. */
+    carouselPieMenuStage: 1,
+    /** @type {boolean} The pie is shrinking for a carousel stage change, not closing. */
+    isCarouselStageTransition: false,
+    /** @type {string|null} Opens the carousel on this node once the pie has shrunk. */
+    pendingAbstractionNodeId: null,
+    /** @type {string|null} Toggles the decompose preview on this node once the pie has shrunk. */
+    pendingDecomposeNodeId: null,
 
     // decompose preview (F-47 #4)
     /** @type {string|null} */
@@ -244,10 +265,18 @@ const useCanvasUIStore = create((set) => ({
   // group selection
   setSelectedGroupId: fieldSetter(set, 'selectedGroupId'),
   setLastSelectedGroupId: fieldSetter(set, 'lastSelectedGroupId'),
+  setLastSelectedNodePrototypes: fieldSetter(set, 'lastSelectedNodePrototypes'),
+  setLastSingleSelectedInstanceId: fieldSetter(set, 'lastSingleSelectedInstanceId'),
 
   // pie menu
   setSelectedNodeIdForPieMenu: fieldSetter(set, 'selectedNodeIdForPieMenu'),
   setIsTransitioningPieMenu: fieldSetter(set, 'isTransitioningPieMenu'),
+  setIsPieMenuRendered: fieldSetter(set, 'isPieMenuRendered'),
+  setCurrentPieMenuData: fieldSetter(set, 'currentPieMenuData'),
+  setCarouselPieMenuStage: fieldSetter(set, 'carouselPieMenuStage'),
+  setIsCarouselStageTransition: fieldSetter(set, 'isCarouselStageTransition'),
+  setPendingAbstractionNodeId: fieldSetter(set, 'pendingAbstractionNodeId'),
+  setPendingDecomposeNodeId: fieldSetter(set, 'pendingDecomposeNodeId'),
 
   // decompose preview
   setPreviewingNodeId: fieldSetter(set, 'previewingNodeId'),

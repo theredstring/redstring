@@ -3,6 +3,7 @@ import { THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
 import { generateThumbnail, loadImageFileAsDataUrl } from '../../utils.js';
 import SharedPanelContent from './SharedPanelContent.jsx';
 import useGraphStore from "../../store/graphStore.js";
+import useCanvasUIStore from '../../store/canvasUIStore.js';
 import useImageCache from '../../services/imageCache.js';
 import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
@@ -32,7 +33,9 @@ const PanelContentWrapper = memo(({
   // This prevents re-renders when viewport state (panOffset/zoomLevel) changes
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
   const activeGraphId = useGraphStore(state => state.activeGraphId);
-  const nodeDefinitionIndices = useGraphStore(state => state.nodeDefinitionIndices);
+  // canvasUIStore, where NodeCanvas keeps it. graphStore never had this field, so
+  // the component list always showed the first definition (B-11, P2.03).
+  const nodeDefinitionIndices = useCanvasUIStore(state => state.nodeDefinitionIndices);
 
   // CRITICAL PERFORMANCE FIX: Don't subscribe to graphs changes!
   // The graphs Map contains panOffset/zoomLevel which change during zoom.

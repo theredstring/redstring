@@ -896,7 +896,7 @@ function NodeCanvas() {
   }, []);
   const [orbitData, setOrbitData] = useState(EMPTY_ORBIT);
   const [orbitLoading, setOrbitLoading] = useState(false);
-  const [semanticOrbitActive, setSemanticOrbitActive] = useState(false);
+  const semanticOrbitActive = useCanvasUIStore(s => s.semanticOrbitActive), setSemanticOrbitActive = useCanvasUIStore(s => s.setSemanticOrbitActive);
   const semanticOrbitActiveRef = useRef(false);
   // The orbit's imperative surface, written by OrbitOverlay while it is mounted
   // and read by the controller every frame — aiming, activating, exiting. See
@@ -2238,7 +2238,7 @@ function NodeCanvas() {
   // when the clipboard holds something a connection can use, so it has to know
   // when that changes — Copy on a connection is what makes Paste appear. Every
   // write to clipboardRef goes through markClipboardChanged.
-  const [clipboardVersion, setClipboardVersion] = useState(0);
+  const clipboardVersion = useCanvasUIStore(s => s.clipboardVersion), setClipboardVersion = useCanvasUIStore(s => s.setClipboardVersion);
   const markClipboardChanged = useCallback(() => setClipboardVersion(v => v + 1), []);
 
   // Onboarding / Storage Setup state
@@ -6417,8 +6417,8 @@ function NodeCanvas() {
   const [swapPrompt, setSwapPrompt] = useState({ visible: false, instanceId: null, name: '', color: null });
 
   // Carousel PieMenu stage state
-  const [carouselPieMenuStage, setCarouselPieMenuStage] = useState(1); // 1 = main stage, 2 = position selection stage
-  const [isCarouselStageTransition, setIsCarouselStageTransition] = useState(false); // Flag to track internal stage transitions
+  const carouselPieMenuStage = useCanvasUIStore(s => s.carouselPieMenuStage), setCarouselPieMenuStage = useCanvasUIStore(s => s.setCarouselPieMenuStage); // 1 = main stage, 2 = position selection stage
+  const isCarouselStageTransition = useCanvasUIStore(s => s.isCarouselStageTransition), setIsCarouselStageTransition = useCanvasUIStore(s => s.setIsCarouselStageTransition); // Flag to track internal stage transitions
   // Request for AbstractionCarousel to move focus relative to current (up/down)
   const [carouselRelativeMoveRequest, setCarouselRelativeMoveRequest] = useState(null); // 'up' | 'down' | null
   // Request for AbstractionCarousel to focus a specific prototype by id (e.g. a freshly added layer)
@@ -6432,10 +6432,10 @@ function NodeCanvas() {
   const [isHeaderEditing, setIsHeaderEditing] = useState(false);
   const [isRightPanelInputFocused, setIsRightPanelInputFocused] = useState(false);
   const [isLeftPanelInputFocused, setIsLeftPanelInputFocused] = useState(false);
-  const [isPieMenuRendered, setIsPieMenuRendered] = useState(false); // Controls if PieMenu is in DOM for animation
-  const [currentPieMenuData, setCurrentPieMenuData] = useState(null); // Holds { node, buttons, nodeDimensions }
+  const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
+  const currentPieMenuData = useCanvasUIStore(s => s.currentPieMenuData), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData); // Holds { node, buttons, nodeDimensions }
   const [pieMenuPage, setPieMenuPage] = useState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
-  const [editingNodeIdOnCanvas, setEditingNodeIdOnCanvas] = useState(null); // For panel-less editing
+  const editingNodeIdOnCanvas = useCanvasUIStore(s => s.editingNodeIdOnCanvas), setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
   const groupEditInputRef = useRef(null); // The inline rename <input>, for touch outside-tap dismissal
@@ -6791,8 +6791,8 @@ function NodeCanvas() {
 
 
   // New states for PieMenu transition
-  const [selectedNodeIdForPieMenu, setSelectedNodeIdForPieMenu] = useState(null);
-  const [isTransitioningPieMenu, setIsTransitioningPieMenu] = useState(false);
+  const selectedNodeIdForPieMenu = useCanvasUIStore(s => s.selectedNodeIdForPieMenu), setSelectedNodeIdForPieMenu = useCanvasUIStore(s => s.setSelectedNodeIdForPieMenu);
+  const isTransitioningPieMenu = useCanvasUIStore(s => s.isTransitioningPieMenu), setIsTransitioningPieMenu = useCanvasUIStore(s => s.setIsTransitioningPieMenu);
   // Ghost rects rendered after node deletion so the shrink animation plays on a decoupled element
   const [deletionAnimations, setDeletionAnimations] = useState([]);
 
@@ -6849,10 +6849,10 @@ function NodeCanvas() {
   };
 
   // Abstraction Carousel states
-  const [abstractionCarouselVisible, setAbstractionCarouselVisible] = useState(false);
-  const [abstractionCarouselNode, setAbstractionCarouselNode] = useState(null);
-  const [pendingAbstractionNodeId, setPendingAbstractionNodeId] = useState(null);
-  const [pendingDecomposeNodeId, setPendingDecomposeNodeId] = useState(null);
+  const abstractionCarouselVisible = useCanvasUIStore(s => s.abstractionCarouselVisible), setAbstractionCarouselVisible = useCanvasUIStore(s => s.setAbstractionCarouselVisible);
+  const abstractionCarouselNode = useCanvasUIStore(s => s.abstractionCarouselNode), setAbstractionCarouselNode = useCanvasUIStore(s => s.setAbstractionCarouselNode);
+  const pendingAbstractionNodeId = useCanvasUIStore(s => s.pendingAbstractionNodeId), setPendingAbstractionNodeId = useCanvasUIStore(s => s.setPendingAbstractionNodeId);
+  const pendingDecomposeNodeId = useCanvasUIStore(s => s.pendingDecomposeNodeId), setPendingDecomposeNodeId = useCanvasUIStore(s => s.setPendingDecomposeNodeId);
   const [carouselFocusedNodeScale, setCarouselFocusedNodeScale] = useState(1.2);
   const [carouselFocusedNodeDimensions, setCarouselFocusedNodeDimensions] = useState(null);
   const [carouselFocusedNode, setCarouselFocusedNode] = useState(null); // Track which node is currently focused in carousel
@@ -7051,8 +7051,8 @@ function NodeCanvas() {
   }, [semanticOrbitActive, orbitFrame, getFramingRegion, viewportSize, canvasSize, animateCanvasView, zoomLevelRef, MIN_ZOOM, MAX_ZOOM]);
 
   // Animation states for carousel
-  const [carouselAnimationState, setCarouselAnimationState] = useState('hidden'); // 'hidden', 'entering', 'visible', 'exiting'
-  const [justCompletedCarouselExit, setJustCompletedCarouselExit] = useState(false);
+  const carouselAnimationState = useCanvasUIStore(s => s.carouselAnimationState), setCarouselAnimationState = useCanvasUIStore(s => s.setCarouselAnimationState); // 'hidden', 'entering', 'visible', 'exiting'
+  const justCompletedCarouselExit = useCanvasUIStore(s => s.justCompletedCarouselExit), setJustCompletedCarouselExit = useCanvasUIStore(s => s.setJustCompletedCarouselExit);
 
   // Abstraction dimension management
   const [abstractionDimensions, setAbstractionDimensions] = useState(['Generalization Axis']);
@@ -7077,7 +7077,7 @@ function NodeCanvas() {
   // document-level endListener from ever firing).
   const groupTouchCleanupRef = useRef(null);
   // Preserve last selections during exit animations
-  const [lastSelectedNodePrototypes, setLastSelectedNodePrototypes] = useState([]);
+  const lastSelectedNodePrototypes = useCanvasUIStore(s => s.lastSelectedNodePrototypes), setLastSelectedNodePrototypes = useCanvasUIStore(s => s.setLastSelectedNodePrototypes);
   const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
   const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
@@ -7299,7 +7299,7 @@ function NodeCanvas() {
   // Use the local state values populated by subscribe
   const projectTitle = activeGraphName ?? 'Loading...';
   const projectBio = activeGraphDescription ?? '';
-  const [previewingNodeId, setPreviewingNodeId] = useState(null);
+  const previewingNodeId = useCanvasUIStore(s => s.previewingNodeId), setPreviewingNodeId = useCanvasUIStore(s => s.setPreviewingNodeId);
 
   // When a node is decomposed into its preview (decomposition view), frame it on
   // the canvas with the same animated zoom-in used for the abstraction carousel.
@@ -7639,7 +7639,7 @@ function NodeCanvas() {
   }, [abstractionCarouselVisible, focusNodeInView]);
 
   // Track current definition index for each node per graph context (nodeId-graphId -> index)
-  const [nodeDefinitionIndices, setNodeDefinitionIndices] = useState(new Map());
+  const nodeDefinitionIndices = useCanvasUIStore(s => s.nodeDefinitionIndices), setNodeDefinitionIndices = useCanvasUIStore(s => s.setNodeDefinitionIndices);
 
   // Ref to track carousel exit process to prevent cleanup interference
   const carouselExitInProgressRef = useRef(false);
@@ -7933,7 +7933,7 @@ function NodeCanvas() {
   // selection: every action in nodePieMenuPages is written against one instance,
   // so with two Things selected the panel falls back to its own selection-wide
   // buttons rather than silently applying Delete to whichever one sorted first.
-  const [lastSingleSelectedInstanceId, setLastSingleSelectedInstanceId] = useState(null);
+  const lastSingleSelectedInstanceId = useCanvasUIStore(s => s.lastSingleSelectedInstanceId), setLastSingleSelectedInstanceId = useCanvasUIStore(s => s.setLastSingleSelectedInstanceId);
 
   useEffect(() => {
     if (selectedInstanceIds.size === 1) {
@@ -15241,7 +15241,6 @@ function NodeCanvas() {
           storeActions={storeActions}
           graphName={activeGraphName}
           graphDescription={activeGraphDescription}
-          nodeDefinitionIndices={nodeDefinitionIndices}
           onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
@@ -17736,7 +17735,6 @@ function NodeCanvas() {
           storeActions={storeActions}
           graphName={activeGraphName}
           graphDescription={activeGraphDescription}
-          nodeDefinitionIndices={nodeDefinitionIndices}
           onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
