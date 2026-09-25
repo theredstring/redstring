@@ -163,12 +163,12 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
-**In flight** (edit this when you claim or finish a task). Wave 3 is `refactor/wave3-integration`, based on `main` at 4daa4d1 (wave 2):
-- ~~Lane A: P2.02~~ (f29b9f0), ~~P2.03 (+ B-08, B-11)~~ (4fbb562), ~~P2.04 (D-19)~~ (2d4c315), ~~P2.05~~ (87f11e7), ~~P2.08 (+ P2.06e, B-12; D-20)~~ (5bce422)
-
-Wave 4 is `refactor/wave4-integration`, based on wave 3 (1c15fc7):
+**In flight** (edit this when you claim or finish a task). Wave 4 is `refactor/wave4-integration`, based on wave 3 (1c15fc7):
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94)
 - Next: P2.10 (TypeList), P2.11, the rest of P2.06, P2.03b, P2.03c, P2.07, P2.12, P2.13
+
+Wave 3 (smoke-tested by Grant; `main` fast-forwards to 1c15fc7), based on 4daa4d1:
+- ~~Lane A: P2.02~~ (f29b9f0), ~~P2.03 (+ B-08, B-11)~~ (4fbb562), ~~P2.04 (D-19)~~ (2d4c315), ~~P2.05~~ (87f11e7), ~~P2.08 (+ P2.06e, B-12; D-20)~~ (5bce422)
 
 Wave 2 (pushed to `main` at 4daa4d1):
 - ~~Lane A: P1.03, P1.04 (+ B-01)~~ merged (7c188ba); ~~P1.06 (+ B-04)~~ merged (ebe2242)
