@@ -165,7 +165,7 @@ import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.j
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
+import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
 import TypeList from './TypeList'; // Re-add TypeList component
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
@@ -5018,30 +5018,28 @@ function NodeCanvas() {
   // every pan, and since a changed index re-solves every label, labels would
   // visibly reshuffle for the whole of a pan.
   const labelCrossingGenerationRef = useRef(0);
+  const labelCrossingLastRef = useRef(null); // { polylines, index } of the last build
   const labelCrossingIndex = useMemo(() => {
     if (!showConnectionNames || !isRoutedStyle) return null;
     if (edges.length < 2 || edges.length > LABEL_CROSSING_BUDGET) return null;
 
-    // A label may only dodge what is actually DRAWN.
+    // A label may only dodge what is actually DRAWN. Every routed style runs its
+    // geometry to the node CENTRES and lets the node body cover the ends, so the
+    // raw polyline carries a stretch nobody can see; indexing it makes the placer
+    // count crossings against lines that aren't there, and since betterPlacement
+    // ranks crossings above everything else, one phantom pushes a label off a
+    // connection that had clear space. Between two ordinary nodes the phantom is
+    // a node-radius at each end; on a THING-GROUP anchor it's the group's whole
+    // outer box, which is why labels near a group were floating off their lines.
     //
-    // Every routed style runs its geometry to the node CENTRES and lets the node
-    // body cover the ends, so the raw polyline always carries a stretch nobody
-    // can see. Indexing that stretch makes the placer count crossings against
-    // lines that aren't there, and since betterPlacement ranks crossings above
-    // everything else, one phantom is enough to push a label radially off a
-    // connection that had clear space on it.
-    //
-    // Between two ordinary nodes the phantom is a node-radius at each end. On a
-    // THING-GROUP anchor the occluder is the group's entire outer box, so the
-    // undrawn stretch can be most of the connection — which is why labels near a
-    // group were the ones floating off their lines.
+    // Always the UNSELECTED hitbox: trimming by the 6 px selection outline made
+    // every selection re-solve every label, which reshuffles a few (F-21, F-72).
+    // Labels stay put on select instead (D-18).
     const occluderFor = (node, dims) => {
-      const vb = node.isGroupAnchor
-        ? anchorPositionUpdatesRef.current.get(node.id)?.outerBounds
-        : null;
+      const vb = node.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id)?.outerBounds : null;
       return vb
         ? { minX: vb.x, minY: vb.y, maxX: vb.x + vb.width, maxY: vb.y + vb.height }
-        : getNodeHitbox(node, dims, selectedInstanceIds.has(node.id));
+        : getNodeHitbox(node, dims, false);
     };
     const visibleOnly = (pts, srcNode, dstNode, sDims, dDims) => {
       if (!pts || pts.length < 2) return pts;
@@ -5087,18 +5085,20 @@ function NodeCanvas() {
       }
       polylines.set(edge.id, visibleOnly(raw, srcNode, dstNode, sDims, dDims));
     }
+    // Same geometry as last time (a write that replaced `edges` without moving
+    // anything)? Keep the index and its generation: a new one re-solves every label.
+    const last = labelCrossingLastRef.current;
+    if (last && samePolylines(last.polylines, polylines)) return last.index;
     const index = buildEdgeSegmentIndex(polylines);
-    // Stamped so a cached placement can name the crossing landscape it was
-    // solved against — see where labelSignature is built. Bumping a ref from a
-    // memo body is a side effect in render, which is tolerable only because the
-    // value is write-only and monotonic: nothing reads it to decide what to
-    // render, and a double invocation just skips a number.
+    // Stamped so a cached placement names the landscape it was solved against
+    // (labelSignature). Refs written in a memo body: nothing renders from them.
     if (index) index.generation = ++labelCrossingGenerationRef.current;
+    labelCrossingLastRef.current = { polylines, index };
     return index;
   }, [showConnectionNames, isRoutedStyle, edges, nodeById, baseDimsById,
     routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing,
     lombardiTangents, lombardiCurvature, edgeCurveInfo,
-    orthogonalLaneSpacing, lombardiLaneSpacing, selectedInstanceIds, anchorGeometryFor]);
+    orthogonalLaneSpacing, lombardiLaneSpacing, anchorGeometryFor]);
 
   // The obstacle set every label dodges. Identical for every edge, so build it
   // once — each placement call used to rebuild it from all visible nodes, which

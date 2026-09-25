@@ -485,20 +485,20 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-hubne": {
     "labels": [
       {
-        "frame": "s|1636|320|90",
+        "frame": "s|1636|445|90",
         "full": "crosses",
         "text": "crosses",
-        "transform": "rotate(90, 1636, 320)",
+        "transform": "rotate(90, 1636, 445)",
         "x": "1636",
-        "y": "320",
+        "y": "445",
       },
       {
-        "frame": "s|1636|320|90",
+        "frame": "s|1636|445|90",
         "full": "crosses",
         "text": "crosses",
-        "transform": "rotate(90, 1636, 320)",
+        "transform": "rotate(90, 1636, 445)",
         "x": "1636",
-        "y": "320",
+        "y": "445",
       },
     ],
     "strokes": [
@@ -585,19 +585,19 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-leads": {
     "labels": [
       {
-        "frame": "s|1694.5|713|0",
+        "frame": "s|1646.5|713|0",
         "full": "leads to",
         "text": "leads to",
-        "transform": "rotate(0, 1694.5, 713)",
-        "x": "1694.5",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
         "y": "713",
       },
       {
-        "frame": "s|1694.5|713|0",
+        "frame": "s|1646.5|713|0",
         "full": "leads to",
         "text": "leads to",
-        "transform": "rotate(0, 1694.5, 713)",
-        "x": "1694.5",
+        "transform": "rotate(0, 1646.5, 713)",
+        "x": "1646.5",
         "y": "713",
       },
     ],
@@ -610,19 +610,19 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-long": {
     "labels": [
       {
-        "frame": "s|1197|641.5|0",
+        "frame": "s|1140|641.5|0",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a deliberatel…",
-        "transform": "rotate(0, 1197, 641.5)",
-        "x": "1197",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
         "y": "641.5",
       },
       {
-        "frame": "s|1197|641.5|0",
+        "frame": "s|1140|641.5|0",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a deliberatel…",
-        "transform": "rotate(0, 1197, 641.5)",
-        "x": "1197",
+        "transform": "rotate(0, 1140, 641.5)",
+        "x": "1140",
         "y": "641.5",
       },
     ],
@@ -660,19 +660,19 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-mirror2": {
     "labels": [
       {
-        "frame": "s|501.5|1021|0",
+        "frame": "s|538.5|1021|0",
         "full": "reflects",
         "text": "reflects",
-        "transform": "rotate(0, 501.5, 1021)",
-        "x": "501.5",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
         "y": "1021",
       },
       {
-        "frame": "s|501.5|1021|0",
+        "frame": "s|538.5|1021|0",
         "full": "reflects",
         "text": "reflects",
-        "transform": "rotate(0, 501.5, 1021)",
-        "x": "501.5",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
         "y": "1021",
       },
     ],
@@ -710,20 +710,20 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-par2": {
     "labels": [
       {
-        "frame": "s|1724.5|212.5|90",
+        "frame": "s|1539|350|90",
         "full": "precedes",
         "text": "prece…",
-        "transform": "rotate(90, 1724.5, 212.5)",
-        "x": "1724.5",
-        "y": "212.5",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
       },
       {
-        "frame": "s|1724.5|212.5|90",
+        "frame": "s|1539|350|90",
         "full": "precedes",
         "text": "prece…",
-        "transform": "rotate(90, 1724.5, 212.5)",
-        "x": "1724.5",
-        "y": "212.5",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
       },
     ],
     "strokes": [
@@ -735,20 +735,20 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-par3": {
     "labels": [
       {
-        "frame": "s|1539|360|90",
+        "frame": "s|1567.5|280|90",
         "full": "echoes",
         "text": "echoes",
-        "transform": "rotate(90, 1539, 360)",
-        "x": "1539",
-        "y": "360",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
       },
       {
-        "frame": "s|1539|360|90",
+        "frame": "s|1567.5|280|90",
         "full": "echoes",
         "text": "echoes",
-        "transform": "rotate(90, 1539, 360)",
-        "x": "1539",
-        "y": "360",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
       },
     ],
     "strokes": [
@@ -760,20 +760,20 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
   "l-spans": {
     "labels": [
       {
-        "frame": "s|321|490|90",
+        "frame": "s|392.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole canvas",
-        "transform": "rotate(90, 321, 490)",
-        "x": "321",
-        "y": "490",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
       },
       {
-        "frame": "s|321|490|90",
+        "frame": "s|392.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole canvas",
-        "transform": "rotate(90, 321, 490)",
-        "x": "321",
-        "y": "490",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
       },
     ],
     "strokes": [
@@ -810,17 +810,7 @@ exports[`connection labels, clean routing > at rest, then with hub selected > hu
 }
 `;
 
-exports[`connection labels, clean routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
-[
-  "l-long",
-  "l-par2",
-  "l-par3",
-  "l-spans",
-  "l-mirror2",
-  "l-leads",
-  "l-hubne",
-]
-`;
+exports[`connection labels, clean routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `[]`;
 
 exports[`connection labels, clean routing > at rest, then with leaf selected > at rest 1`] = `
 {
@@ -1307,20 +1297,20 @@ exports[`connection labels, clean routing > at rest, then with leaf selected > l
   "l-hubne": {
     "labels": [
       {
-        "frame": "s|1636|320|90",
+        "frame": "s|1636|445|90",
         "full": "crosses",
         "text": "crosses",
-        "transform": "rotate(90, 1636, 320)",
+        "transform": "rotate(90, 1636, 445)",
         "x": "1636",
-        "y": "320",
+        "y": "445",
       },
       {
-        "frame": "s|1636|320|90",
+        "frame": "s|1636|445|90",
         "full": "crosses",
         "text": "crosses",
-        "transform": "rotate(90, 1636, 320)",
+        "transform": "rotate(90, 1636, 445)",
         "x": "1636",
-        "y": "320",
+        "y": "445",
       },
     ],
     "strokes": [
@@ -1482,19 +1472,19 @@ exports[`connection labels, clean routing > at rest, then with leaf selected > l
   "l-mirror2": {
     "labels": [
       {
-        "frame": "s|501.5|1021|0",
+        "frame": "s|538.5|1021|0",
         "full": "reflects",
         "text": "reflects",
-        "transform": "rotate(0, 501.5, 1021)",
-        "x": "501.5",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
         "y": "1021",
       },
       {
-        "frame": "s|501.5|1021|0",
+        "frame": "s|538.5|1021|0",
         "full": "reflects",
         "text": "reflects",
-        "transform": "rotate(0, 501.5, 1021)",
-        "x": "501.5",
+        "transform": "rotate(0, 538.5, 1021)",
+        "x": "538.5",
         "y": "1021",
       },
     ],
@@ -1532,20 +1522,20 @@ exports[`connection labels, clean routing > at rest, then with leaf selected > l
   "l-par2": {
     "labels": [
       {
-        "frame": "s|1724.5|212.5|90",
+        "frame": "s|1539|350|90",
         "full": "precedes",
         "text": "prece…",
-        "transform": "rotate(90, 1724.5, 212.5)",
-        "x": "1724.5",
-        "y": "212.5",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
       },
       {
-        "frame": "s|1724.5|212.5|90",
+        "frame": "s|1539|350|90",
         "full": "precedes",
         "text": "prece…",
-        "transform": "rotate(90, 1724.5, 212.5)",
-        "x": "1724.5",
-        "y": "212.5",
+        "transform": "rotate(90, 1539, 350)",
+        "x": "1539",
+        "y": "350",
       },
     ],
     "strokes": [
@@ -1557,20 +1547,20 @@ exports[`connection labels, clean routing > at rest, then with leaf selected > l
   "l-par3": {
     "labels": [
       {
-        "frame": "s|1539|360|90",
+        "frame": "s|1567.5|280|90",
         "full": "echoes",
         "text": "echoes",
-        "transform": "rotate(90, 1539, 360)",
-        "x": "1539",
-        "y": "360",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
       },
       {
-        "frame": "s|1539|360|90",
+        "frame": "s|1567.5|280|90",
         "full": "echoes",
         "text": "echoes",
-        "transform": "rotate(90, 1539, 360)",
-        "x": "1539",
-        "y": "360",
+        "transform": "rotate(90, 1567.5, 280)",
+        "x": "1567.5",
+        "y": "280",
       },
     ],
     "strokes": [
@@ -1582,20 +1572,20 @@ exports[`connection labels, clean routing > at rest, then with leaf selected > l
   "l-spans": {
     "labels": [
       {
-        "frame": "s|321|490|90",
+        "frame": "s|392.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole canvas",
-        "transform": "rotate(90, 321, 490)",
-        "x": "321",
-        "y": "490",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
       },
       {
-        "frame": "s|321|490|90",
+        "frame": "s|392.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole canvas",
-        "transform": "rotate(90, 321, 490)",
-        "x": "321",
-        "y": "490",
+        "transform": "rotate(90, 392.5, 570)",
+        "x": "392.5",
+        "y": "570",
       },
     ],
     "strokes": [
@@ -1632,15 +1622,7 @@ exports[`connection labels, clean routing > at rest, then with leaf selected > l
 }
 `;
 
-exports[`connection labels, clean routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `
-[
-  "l-par2",
-  "l-par3",
-  "l-spans",
-  "l-mirror2",
-  "l-hubne",
-]
-`;
+exports[`connection labels, clean routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `[]`;
 
 exports[`connection labels, lombardi routing > at rest, then with hub selected > at rest 1`] = `
 {
@@ -2252,20 +2234,20 @@ exports[`connection labels, lombardi routing > at rest, then with hub selected >
   "l-long": {
     "labels": [
       {
-        "frame": "g|908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320|673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5|9.5 8 7 5.5 4 2.5 0.5 -1 -2 -3.5 -5.5 -7 -9",
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a deliber…",
         "transform": null,
-        "x": "908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320",
-        "y": "673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5",
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
       },
       {
-        "frame": "g|908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320|673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5|9.5 8 7 5.5 4 2.5 0.5 -1 -2 -3.5 -5.5 -7 -9",
+        "frame": "g|905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317|643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653|10 8.5 7 5.5 4.5 3 1 -1 -2 -3.5 -5.5 -7 -9",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a deliber…",
         "transform": null,
-        "x": "908.5 932.5 977.5 994.5 1040 1057 1102.5 1148 1172.5 1196.5 1242 1287.5 1320",
-        "y": "673 677.5 683.5 685.5 690 691 693.5 693.5 693.5 692.5 690 685.5 681.5",
+        "x": "905.5 929 974.5 991.5 1037 1054 1099.5 1145 1169 1193.5 1239 1284.5 1317",
+        "y": "643.5 648 654.5 656.5 661 662.5 664.5 665 665 664.5 661.5 657 653",
       },
     ],
     "strokes": [
@@ -2452,11 +2434,7 @@ exports[`connection labels, lombardi routing > at rest, then with hub selected >
 }
 `;
 
-exports[`connection labels, lombardi routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
-[
-  "l-long",
-]
-`;
+exports[`connection labels, lombardi routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `[]`;
 
 exports[`connection labels, lombardi routing > at rest, then with leaf selected > at rest 1`] = `
 {
@@ -3918,19 +3896,19 @@ exports[`connection labels, manhattan routing > at rest, then with hub selected 
   "l-long": {
     "labels": [
       {
-        "frame": "s|1267|613|0",
+        "frame": "s|1001|613|0",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a…",
-        "transform": "rotate(0, 1267, 613)",
-        "x": "1267",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
         "y": "613",
       },
       {
-        "frame": "s|1267|613|0",
+        "frame": "s|1001|613|0",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a…",
-        "transform": "rotate(0, 1267, 613)",
-        "x": "1267",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
         "y": "613",
       },
     ],
@@ -4078,19 +4056,19 @@ exports[`connection labels, manhattan routing > at rest, then with hub selected 
   "l-spans": {
     "labels": [
       {
-        "frame": "s|936|570|90",
+        "frame": "s|907.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole can…",
-        "transform": "rotate(90, 936, 570)",
-        "x": "936",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
         "y": "570",
       },
       {
-        "frame": "s|936|570|90",
+        "frame": "s|907.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole can…",
-        "transform": "rotate(90, 936, 570)",
-        "x": "936",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
         "y": "570",
       },
     ],
@@ -4130,12 +4108,7 @@ exports[`connection labels, manhattan routing > at rest, then with hub selected 
 }
 `;
 
-exports[`connection labels, manhattan routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `
-[
-  "l-long",
-  "l-spans",
-]
-`;
+exports[`connection labels, manhattan routing > at rest, then with hub selected > hub selected: labels that moved 1`] = `[]`;
 
 exports[`connection labels, manhattan routing > at rest, then with leaf selected > at rest 1`] = `
 {
@@ -4785,19 +4758,19 @@ exports[`connection labels, manhattan routing > at rest, then with leaf selected
   "l-long": {
     "labels": [
       {
-        "frame": "s|1267|613|0",
+        "frame": "s|1001|613|0",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a…",
-        "transform": "rotate(0, 1267, 613)",
-        "x": "1267",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
         "y": "613",
       },
       {
-        "frame": "s|1267|613|0",
+        "frame": "s|1001|613|0",
         "full": "is a deliberately long relation name that has to be cut to fit",
         "text": "is a…",
-        "transform": "rotate(0, 1267, 613)",
-        "x": "1267",
+        "transform": "rotate(0, 1001, 613)",
+        "x": "1001",
         "y": "613",
       },
     ],
@@ -4945,19 +4918,19 @@ exports[`connection labels, manhattan routing > at rest, then with leaf selected
   "l-spans": {
     "labels": [
       {
-        "frame": "s|936|570|90",
+        "frame": "s|907.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole can…",
-        "transform": "rotate(90, 936, 570)",
-        "x": "936",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
         "y": "570",
       },
       {
-        "frame": "s|936|570|90",
+        "frame": "s|907.5|570|90",
         "full": "spans the whole canvas",
         "text": "spans the whole can…",
-        "transform": "rotate(90, 936, 570)",
-        "x": "936",
+        "transform": "rotate(90, 907.5, 570)",
+        "x": "907.5",
         "y": "570",
       },
     ],
@@ -4997,12 +4970,7 @@ exports[`connection labels, manhattan routing > at rest, then with leaf selected
 }
 `;
 
-exports[`connection labels, manhattan routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `
-[
-  "l-long",
-  "l-spans",
-]
-`;
+exports[`connection labels, manhattan routing > at rest, then with leaf selected > leaf selected: labels that moved 1`] = `[]`;
 
 exports[`connection labels, straight routing > at rest, then with hub selected > at rest 1`] = `
 {

@@ -769,6 +769,25 @@ const segmentHitsRect = (segment, rect) => {
 };
 
 /**
+ * Whether two polyline maps (as passed to buildEdgeSegmentIndex) hold exactly
+ * the same geometry. Lets a caller keep an index, and its generation, when a
+ * rebuild would produce the same one: a new index re-solves every label, and a
+ * re-solve can move a label even when nothing moved (FINDINGS F-72).
+ */
+export const samePolylines = (a, b) => {
+    if (!a || !b || a.size !== b.size) return false;
+    for (const [edgeId, pts] of b) {
+        const prev = a.get(edgeId);
+        if (prev === pts) continue;
+        if (!prev || !pts || prev.length !== pts.length) return false;
+        for (let i = 0; i < pts.length; i++) {
+            if (prev[i].x !== pts[i].x || prev[i].y !== pts[i].y) return false;
+        }
+    }
+    return true;
+};
+
+/**
  * How many DISTINCT other connections would strike through a label placed here.
  *
  * A count rather than a boolean because the placer often has no clean spot at
