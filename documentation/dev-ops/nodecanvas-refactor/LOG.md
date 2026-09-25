@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.06b done; render-budget flake fixed (Claude, orchestrator)
+
+- **P2.06b:** `ModalHosts` renders Help, Settings, Merge and Auto Graph and owns their open events. NodeCanvas.jsx 17,945 → **17,822**. F22 added.
+- **F-77:** the marquee render-budget test's intermittent `test:ci` failure was NodeCanvas's 2 s mount timer landing mid-test under load; the test now waits it out. Two full runs clean.
+- **Gates:** `test:ci` PASS ×2, Playwright 46 passed (F12 expected), `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P2.11 done; D-21 (Claude, orchestrator)
 
 - **D-21:** Grant smoke-tests at phase ends (or truly critical points) only. Wave 5 continues from wave 4; next smoke test is the end of P2.

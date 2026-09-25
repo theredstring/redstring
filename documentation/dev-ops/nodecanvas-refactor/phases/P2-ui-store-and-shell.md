@@ -123,7 +123,7 @@ After this phase:
 One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card adds a Profiler to its host.
 
 - **P2.06a SyncDebugHost + DebugOverlay** (F-48). About 515 lines leave NodeCanvas. Status: todo.
-- **P2.06b ModalHosts: Help, Settings, Merge, AutoGraph.** These already open through window events or store flags. Status: todo.
+- **P2.06b ModalHosts: Help, Settings, Merge, AutoGraph.** These already open through window events or store flags. Status: **done** (93c5764; reports/P2.06b.md). `hosts/ModalHosts` in CanvasShell after the overlay slot; owns the four open events.
 - **P2.06c UniverseHost:**
   - the loading, error and empty states (the empty state's "create" button calls `openNewWebPrompt`, which becomes a store action)
   - `GitReconnectModal`, `StorageSetupModal`, `SaveStatusDisplay`

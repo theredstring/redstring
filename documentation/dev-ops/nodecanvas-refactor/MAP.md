@@ -69,7 +69,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Core derived data | `const nodes = useMemo`, `const edges = useMemo`, `nodeById`, `baseDimsById`, `groupStructure`, mirror refs (`nodeByIdRef`, …) | 2005–2280 | stable identity, then selector hooks | P1.08, P3.01 |
 | Selection + culling state | `selectedInstanceIds`, `visibleNodeIds`, `visibleEdges`, `showNodeHitboxes` | 2162–2175 | UI store / viewport store | P2.02, P3.11 |
 | Clipboard version | `clipboardVersion`, `markClipboardChanged` | 2282 | UI store | P2.03 |
-| Modal flags | `showHelpModal`, `showSettingsModal`, `showMergeThingsModal` | 2412–2416, 2701–2745 | `hosts/ModalHosts` | P2.06b |
+| Modal flags | — | — | **moved:** `hosts/ModalHosts` (P2.06b) | done |
 | Connection drawing | `setDrawingConnectionFrom`, `applyDrawingConnection`, `setDrawingConnectionEnd`, `reprojectDrawingConnectionEnd`, `selfLoopPreviewActive`, `selfLoopDialog` | 2788–2933, 3381–3477 | `useConnectionDraw` | P4.03 |
 | Pan-state wrappers | `const [isPanning`, `panStart`, `setIsPanning`, `setPanStart`, `selectionRect`, `selectionStart`, `recentlyPanned` | 2949–2987 | dead state removed; the rest → gesture machine | P1.01, P1.02, P4.04 |
 | Viewport + transform wiring | `windowSize`, `viewportSize`, `canvasSize`, `const transform = useCanvasTransform`, `getBottomPanelReserve`, `getFramingRegion`, `runFramingAfterCommit` | 3019–3240 | camera controller | P4.02 |

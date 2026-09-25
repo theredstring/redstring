@@ -429,6 +429,10 @@ This state is used across clusters and must move to a store before the clusters 
 - The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
 - → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
 
+**F-77. The render-budget marquee test failed about one full run in two (P2.06b).** VERIFIED; **fixed** 3d10fbb.
+- NodeCanvas sets `isInitialLoadComplete` on a real 2 s timer after mount. The test never let it fire, so under the loaded full suite it landed in the marquee's hold window ("expected 1 to be +0").
+- The test's settle step now waits 2.1 s. Any new render-budget test should settle the same way.
+
 **F-76. The hidden wizard view re-rendered every 3 s (P2.09).** VERIFIED with `--explain S1`; **fixed** aa07e76.
 - LeftAIView stays mounted while hidden (to keep wizard sessions). It polled `fileStorage.getFileStatus()` every 3 s into state that nothing read; the call returns a new object each time.
 - So the left Panel committed every 3 s for as long as the app was open. That was the only left-panel activity left in S1 after P2.09.
