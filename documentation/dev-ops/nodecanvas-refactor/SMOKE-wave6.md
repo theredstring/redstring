@@ -10,7 +10,7 @@ This is the last of the refactor. NodeCanvas went from 12,190 lines to about 3,6
 
 Everything below passed the automated checks:
 - the unit suite and the undefined-names check;
-- 77 browser flows (four of them new this wave);
+- 78 browser flows (four of them new this wave);
 - the pie and carousel sequence checks in 17 scenarios;
 - markup comparisons against wave 5 in 28 scenes.
 

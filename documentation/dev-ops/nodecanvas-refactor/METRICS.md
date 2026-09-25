@@ -78,6 +78,49 @@ Filled in by P0.04; details and method are in reports/P0.04.md.
 - S9 is confirmed at one render per move.
 - S10/S11 are a render plus a bailout per write.
 
+## Wave 6 close (P6.02)
+
+Full suite, profile build, median of 5 runs, at 0815adb (raw: `test/perf/canvas/results/2026-09-25T23-27-44-0815adb.jsonl`). Pre-refactor is the P0 baseline above.
+
+| Scenario | Fixture | Pre-refactor: commits · total ms | Close: commits · total ms · max ms | NodeCanvas ran (rendered) at close |
+|---|---|---|---|---|
+| S1 | chambers | 246 · 315.7 | **3** · 6.8 · 3.1 | 3 (3) |
+| L-S1 | stress | 160 · 898.7 | **7** · 65.6 · 16.2 | 7 (7) |
+| S1t | chambers | 209 · 356.1 | **4** · 8.8 · 2.9 | 4 (4) |
+| S2 | chambers | 9 · 13.2 | 6 · 8.7 · 4.1 | 1 (1) |
+| S3 | chambers | 11 · 16.4 | 6 · 7.9 · 4.2 | 1 (1) |
+| S4 | chambers | 18 · 55.6 | 11 · 13.6 · 6.9 | 3 (3) |
+| L-S4 | stress | 31 · 248 | 20 · 190.1 · 27.8 | 13 (12) |
+| S5 | chambers | 100 · 244.6 | 40 · 74.4 · 7.5 | 21 (21) |
+| S6 | chambers | 30 · 62.8 | 21 · **29.4** · 6.7 | 11 (10) |
+| L-S6 | stress | 29 · 141.7 | 21 · 84.3 · 23.8 | 11 (10) |
+| S7-lombardi | chambers | 20 · 72.1 | 12 · 45 · 15 | 6 (6) |
+| L-S7-lombardi | stress | 17 · 101.7 | 12 · 70.3 · 25.5 | 6 (6) |
+| S7-manhattan | chambers | 21 · 57.2 | 12 · **28.7** · 6.2 | 6 (6) |
+| L-S7-manhattan | stress | 18 · 103.4 | 12 · 72.8 · 26.5 | 6 (6) |
+| S8 | chambers | 61 · 218.4 | 55 · 50.9 · 7.3 | **0 (0)** |
+| S9 | chambers | 71 · 206.7 | 15 · 26.9 · 7.3 | 1 (1) |
+| S10a | chambers | 47 · 87 | 32 · 76.2 · 7 | 25 (25) |
+| S10b | chambers | 40 · 57.1 | **0** · 0 · 0 | 0 (0) |
+| S11 | chambers | 21 · 79.5 | 2 (Header's Undo) · 2 · 1.9 | **0 (0)** |
+| S12 | chambers | 198 · 390.3 | 190 · 107.2 · 12 | 18 (18) |
+| S13 | chambers | 35 · 93.7 | 10 · 18.7 · 12.3 | 6 (6) |
+
+S12's commits are the carousel's own per-frame physics renders (the carousel component, not NodeCanvas); NodeCanvas went 161 → 18.
+
+**Success criteria (README):**
+1. **Met.** No NodeCanvas commits per frame in any of drag-pan (S1, S1t), zoom (S2, S3), node drag (S4), marquee (S5: one per selection change), panel resize (S9: 1), hurtle (S13: 6) or carousel scroll (S12: 18 for the whole scenario). `NodeCanvas.renderBudget.test.jsx` holds the pan, touch-pan and marquee cases in CI.
+2. **Partly met.** Hover re-renders only EdgeLayer, and inside it only the two connections whose hover changed (S8: NodeCanvas 0). No shell component re-renders for hover, selection or the pie. Selecting or opening a pie still renders NodeCanvas (6–10 times), and EdgeLayer renders with it. The labels cache-hit, but every visible connection's element is rebuilt. The per-edge memo that ends that is P3.06b, deferred with the label work (D-28).
+3. **Met.** S10b 0 commits; S11 0 canvas commits (Header's Undo button, outside the canvas, renders twice). Guarded in CI.
+4. **Met for S6 and S7-manhattan; not for S7-lombardi.**
+   - S6: 62.8 → 29.4 ms.
+   - S7-manhattan: 57.2 → 28.7 ms.
+   - S7-lombardi: 72.1 → 45 ms (62%). What remains is the lombardi routing and label solve on the selection render, which the deferred P3.05/P3.06b address.
+   - On the large fixture, L-S6 is 59% and L-S7 is 69–70%.
+5. **Met.** All 78 flows pass (F1–F40), and the lifecycle traces are drop-only against the P5.02 baselines.
+6. **Met.** NodeCanvas.jsx is 3,646 lines (≤ 4,000), and the ratchet budget sits at that.
+7. **Met for every hook call** (D-27). The largest are useCanvasKeyboard 15, useSemanticOrbit 15, useEdgePieFraming 15 and useCanvasTouch 13. The three controller contexts assigned during render (pointer, camera, group input) are still large; they shrink with P4.04b.
+
 ## Per-task results
 
 | Date | Task | Scenario | Before | After | Commit | Notes |

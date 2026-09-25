@@ -13,6 +13,36 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Wave 6, the rest of the refactor in one sweep; closed (Claude, orchestrator)
+
+- **Why one sweep:** Grant fast-forwarded `main` to wave 5 and asked for everything else before his next test (D-24: engineering calls are mine, look-and-feel questions go on one smoke list). Branch `refactor/wave6` (lane-a), 50 commits on 8e3d7f1.
+- **Layers and controllers:** P3.04 groups, P3.06a EdgeLayer (hover in canvasUIStore; hover-only renders touch two edges), P3.07 (edge cache and painter deleted), P3.08b NodeLayer, P4.02a camera controller, P4.04a pointer handlers, the JSX as a list of layers.
+- **Pie machine (P5.02b):** step 0 traces and flows F33–F37; the reducer and `dispatchPie`; steps 4–8 wired it (every lifecycle write is an event; the selection → pie rule, cleanup and watchdog live in it); step 11 fixed NEW-2/NEW-4 (B-18, B-19).
+- **Hosts:** control panels (P5.05a/b), prompts (P5.06a/b), colour pickers, confirmations, Ask The Wizard, the carousel's callbacks and axes (P5.04b), the semantic orbit (P5.08); both pie menus memoized (P5.03).
+- **Hooks:** four effect clusters, controller targets and plus-sign actions moved as hooks called in place (`extract_hook.mjs`; F-85); the input hooks and useGraphLayout take controllers and groups (criterion 7, D-27).
+- **Bugs:** B-03 (Show Welcome Screen), B-17 (group-title touch TDZ), B-18, B-19.
+- **New flows:** F22c/d, F32, F33–F40 (F38 colour pickers, F39 orbit, F40 add to group). The fixture fails any flow with a page error (F-81).
+- **Close-out:** P6.01 (D-26), P6.02 (METRICS "Wave 6 close"), P6.03 (`documentation/core-system/CANVAS_ARCHITECTURE.md`, CLAUDE.md, compendium), P6.04 (render-budget guardrails for S8, S10b, S11 in `test:ci`). Deferred cards: D-28.
+- **NodeCanvas.jsx 12,190 → 3,646.**
+- **Measurements (full suite, METRICS "Wave 6 close"):**
+  - S1 246 → 3 commits;
+  - S8 NodeCanvas 0;
+  - S10b/S11 0 canvas commits;
+  - S6 62.8 → 29.4 ms;
+  - S7-manhattan 57.2 → 28.7 ms;
+  - S7-lombardi 72.1 → 45 ms (not halved; waits on P3.05/P3.06b);
+  - S12 NodeCanvas 161 → 18.
+  Criteria 1, 3, 5, 6 and 7 are met; 2 and 4 are partly met.
+- **Gates at close:**
+  - build OK, `lint:undef` PASS;
+  - `test:ci` 3,622 passed, 67 known failures (the render-budget guardrails pass);
+  - Playwright 78 passed;
+  - lifecycle traces drop-only in all 17 scenarios;
+  - markup 28/28 scenes byte-identical to `main`.
+- **Next:** Grant's smoke test (SMOKE-wave6.md), then his fast-forward of `main`. After that, the deferred cards when someone picks them up.
+
+---
+
 ## 2026-09-25: Sweep 5, nine more blocks out (Claude, orchestrator)
 
 - `nodes`/`baseDimsById` memos, the pan and zoom momentum and trackpad zoom sampler (P4.02 seeds), framing a prototype's instances, and three actions moved verbatim (reports/sweep5-moves.md). **NodeCanvas.jsx 12,204.**
