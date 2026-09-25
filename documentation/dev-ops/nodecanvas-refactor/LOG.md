@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Culling bailouts (Claude, orchestrator)
+
+- `runCulling`'s same-membership sets were F-79 bailouts. `visibleNodeIds`/`visibleEdges` now use `useTrackedState` (reports/culling-bailouts.md).
+- **S1 drag-pan 6 → 3 commits, S1t 7 → 4, S10a NodeCanvas 36 → 25 runs.** No NodeCanvas bailouts left in S1, S1t, S4, S5, S6, S7, S10a or S12.
+- **Gates:** `test:ci` PASS, Playwright 56 passed.
+
+---
+
 ## 2026-09-25: P5.04a, carousel frames skip NodeCanvas (Claude, orchestrator)
 
 - F-06's per-frame half: the carousel's scale and size reports are refs, and a size report rebuilds the pie data directly. `NodePieMenuLayer` reads `currentPieMenuData`, so NodeCanvas subscribes only to the target id (reports/P5.04a.md).
