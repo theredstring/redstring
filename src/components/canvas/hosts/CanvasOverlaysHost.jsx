@@ -5,13 +5,13 @@
  * NodeCanvas passes their state and handlers as `ctx`. P5.04 and P5.06b move
  * that state and those handlers in here.
  */
-import { Profiler, useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { Profiler } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import AbstractionCarousel from '../../../AbstractionCarousel.jsx';
 import ColorPicker from '../../../ColorPicker';
 import { NODE_DEFAULT_COLOR, CONNECTION_DEFAULT_COLOR } from '../../../constants';
 import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
-import WizardIntentModal from '../../wizard/WizardIntentModal.jsx';
+import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
 
 export default function CanvasOverlaysHost({ ctx }) {
@@ -30,7 +30,7 @@ export default function CanvasOverlaysHost({ ctx }) {
     handlePieMenuColorCommit, nodes, pieMenuColorPickerPosition, edgeColorPickerVisible,
     activeEdgeColorPrototypeId, handleEdgeColorPickerClose, handleEdgeColorChange, handleEdgeColorCommit,
     nodePrototypesMap, edgeColorPickerPosition, addToGroupDialog, setAddToGroupDialog, activeGraphId,
-    askWizardPicker, wizardDestination, chooseWizardDestination, setAskWizardPicker, runWizardIntent,
+    runWizardIntent,
     selfLoopDialog, setSelfLoopDialog,
   } = ctx;
 
@@ -169,22 +169,8 @@ export default function CanvasOverlaysHost({ ctx }) {
         )
       }
 
-      {/* Ask The Wizard — one picker for every entry point. Replaces four
-          near-identical confirm dialogs that only ever asked new-or-current. */}
-      <WizardIntentModal
-        isOpen={!!askWizardPicker}
-        surface={askWizardPicker?.surface}
-        facts={askWizardPicker?.facts}
-        subjectLabel={askWizardPicker?.subjectLabel}
-        destination={wizardDestination}
-        onDestinationChange={chooseWizardDestination}
-        onClose={() => setAskWizardPicker(null)}
-        onConfirm={({ intent, destination, freeText }) => {
-          const payload = askWizardPicker?.payload;
-          setAskWizardPicker(null);
-          runWizardIntent({ intent, destination, payload, freeText });
-        }}
-      />
+      {/* Ask The Wizard: the picker and its window events (P5.06b). */}
+      <WizardHost />
 
       {/* Self-referential connection confirmation */}
       {selfLoopDialog && (

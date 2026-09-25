@@ -3,7 +3,7 @@
  * name and Add Above/Below, one UnifiedSelector at a time. Moved verbatim from
  * NodeCanvas, which passes the prompts' state and handlers as `ctx`.
  */
-import { Profiler, useEffect, useCallback, useMemo, useRef, useState } from 'react';
+import { Profiler } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import UnifiedSelector from '../../../UnifiedSelector';
 import { v4 as uuidv4 } from 'uuid';

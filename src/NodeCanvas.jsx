@@ -26,7 +26,7 @@ import {
 } from './services/groupLayout.js';
 import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
-import apiKeyManager from './services/apiKeyManager.js';
+
 
 // Import Zustand store and selectors/actions
 import useGraphStore from "./store/graphStore.js";
@@ -40,6 +40,7 @@ import { buildGroupElements } from './components/canvas/groups/groupElements.jsx
 import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { storeFieldRef } from './utils/storeFieldRef.js';
+import { openWizardPicker, useWizardEnabled } from './components/canvas/wizard/canvasWizard.js';
 import { createCameraController } from './components/canvas/camera/cameraController.js';
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass, ENABLE_CULLING } from './components/canvas/data/culling.js';
@@ -47,7 +48,6 @@ import { LABEL_ANGLE_QUANTUM, LABEL_ANGLE_QUANTUM_MIN_COUNT, LABEL_ANGLE_QUANTUM
 import { EMPTY_ORBIT } from './components/canvas/orbit/orbitConstants.js';
 import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
-import { dispatchWizardIntent } from './components/canvas/actions/wizardIntent.js';
 import { diveIntoNodeGroupDefinition } from './components/canvas/actions/nodeGroupDive.js';
 import { choosePlusSignNode } from './components/canvas/actions/plusSignSelection.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
@@ -68,21 +68,7 @@ import { selectionInRect, groupTitleAtCanvasPoint, groupDragOffsets } from './ut
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
 import {
-  buildWizardConnectionPrompt,
-  buildWizardNodeDefinitionPrompt,
-  buildWizardAbstractionPrompt,
-  buildWizardGrowGraphPrompt,
-  sendWizardAsk,
-  resolveIncludeInstructions
-} from './wizard/prompts/index.js';
-import {
-  SURFACES as WIZARD_SURFACES,
-  shouldSkipPicker,
-  defaultIntentForSurface,
-} from './wizard/prompts/intents.js';
-import {
 } from './wizard/prompts/intentPrompts.js';
-import { thingFacts, ladderFacts } from './wizard/prompts/facts.js';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
 import { getAppViewportSize } from './utils/appViewport.js';
@@ -2316,186 +2302,9 @@ function NodeCanvas() {
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
 
-  // Ask The Wizard intent picker. One piece of state for every entry point —
-  // Connection, Thing, Web and abstraction ladder all open the same modal, which
-  // asks WHAT you want to ask rather than merely where the answer should land.
-  // { surface, facts, subjectLabel, payload }
-  const [askWizardPicker, setAskWizardPicker] = useState(null);
-  // Where the next ask goes. Sticky rather than a per-element tri-state with an
-  // "ask me" option: the modal always opens now, so there is nothing left for an
-  // "ask me" setting to trigger.
-  const [wizardDestination, setWizardDestinationState] = useState(() => {
-    try { return debugConfig.getWizardDestination(); } catch { return 'new'; }
-  });
-  const chooseWizardDestination = useCallback((value) => {
-    setWizardDestinationState(value);
-    try { debugConfig.setWizardDestination(value); } catch { }
-  }, []);
-  const [wizardEnabled, setWizardEnabled] = useState(() => {
-    try { return debugConfig.isWizardEnabled(); } catch { return false; }
-  });
-  useEffect(() => {
-    const handler = (newConfig) => {
-      setWizardEnabled(!!newConfig?.enableWizard);
-    };
-    const unsubscribe = debugConfig.addListener(handler);
-    return unsubscribe;
-  }, []);
-
-  // Gate for every "Ask The Wizard" entry point: if no AI API key is configured,
-  // open Settings directly to the AI & API Keys section instead of invoking the wizard.
-  // Returns true if a key exists (caller may proceed), false if it opened settings.
-  const ensureWizardApiKey = useCallback(async () => {
-    try {
-      if (await apiKeyManager.hasAPIKey()) return true;
-    } catch (err) {
-      console.error('[NodeCanvas] API key check failed:', err);
-    }
-    try {
-      window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }));
-    } catch { }
-    return false;
-  }, []);
-
-  // Shared helper used by both wizard prompts to emit an "About this graph" block.
-  // Returns an array of lines (already prefixed with bullets) — caller handles surrounding header/blank lines.
-  // The prompt builders live in src/wizard/prompts/. They were always pure over
-  // useGraphStore.getState() — none of them closed over anything in this component,
-  // which is why each declared an empty dependency array — so what remains here is
-  // only the part that genuinely belongs to the canvas: the API-key gate, opening
-  // the AI panel, and clearing whatever selection the ask consumed.
-  const openWizardAsk = useCallback(async (build, { newConversation, afterSend, toolPolicy } = {}) => {
-    if (!(await ensureWizardApiKey())) return;
-    // Build BEFORE opening the panel. Three of the four openers used to do this the
-    // other way round, which left the panel expanded over nothing when a builder
-    // bailed on missing state.
-    const built = build();
-    if (!built || !built.message) return;
-    try {
-      storeActions.setLeftPanelExpanded(true);
-    } catch { }
-    openLeftPanelView('ai');
-    sendWizardAsk(built, { newConversation, toolPolicy });
-    afterSend?.();
-  }, [ensureWizardApiKey, storeActions]);
-
-  const openWizardWithPrompt = useCallback(async (edges, { newConversation }) => {
-    if (!edges || edges.length === 0) return;
-    await openWizardAsk(
-      () => buildWizardConnectionPrompt(edges, {
-        includeInstructions: resolveIncludeInstructions('refine-connections', newConversation)
-      }),
-      {
-        newConversation,
-        afterSend: () => {
-          try {
-            storeActions.setSelectedEdgeId(null);
-            storeActions.setSelectedEdgeIds(new Set());
-          } catch { }
-        }
-      }
-    );
-  }, [openWizardAsk, storeActions]);
-
-  const openNodeWizardWithPrompt = useCallback(async (prototype, { newConversation }) => {
-    if (!prototype) return;
-    await openWizardAsk(
-      () => buildWizardNodeDefinitionPrompt(prototype, {
-        includeInstructions: resolveIncludeInstructions('define-node', newConversation)
-      }),
-      { newConversation, afterSend: () => setSelectedInstanceIds(new Set()) }
-    );
-  }, [openWizardAsk]);
-
-  const openAbstractionWizardWithPrompt = useCallback(async (prototype, dimension, { newConversation }) => {
-    if (!prototype || !dimension) return;
-    await openWizardAsk(
-      () => buildWizardAbstractionPrompt(prototype, dimension, {
-        includeInstructions: resolveIncludeInstructions('refine-abstraction', newConversation)
-      }),
-      { newConversation }
-    );
-  }, [openWizardAsk]);
-
-  const openGrowGraphWizardWithPrompt = useCallback(async ({ newConversation }) => {
-    if (!useGraphStore.getState().activeGraphId) return;
-    await openWizardAsk(
-      () => buildWizardGrowGraphPrompt({
-        includeInstructions: resolveIncludeInstructions('grow-graph', newConversation)
-      }),
-      { newConversation }
-    );
-  }, [openWizardAsk]);
-
-  // Run whichever intent the picker settled on.
-  //
-  // Routing is by intent id, not by surface: a Thing has five different asks and
-  // they are not interchangeable. The four original openers keep their own paths
-  // because they carry per-ask side effects (clearing the selection) and the
-  // full/short instruction dedupe; everything else goes through one branch.
-  const runWizardIntent = useCallback((a0) => dispatchWizardIntent(a0, {
-    openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt, openNodeWizardWithPrompt, openWizardAsk, openWizardWithPrompt,
-  }), [
-    openWizardWithPrompt, openNodeWizardWithPrompt,
-    openAbstractionWizardWithPrompt, openGrowGraphWizardWithPrompt, openWizardAsk
-  ]);
-
-  // The single entry point every Ask The Wizard button now goes through.
-  //
-  // Opens the picker — except on a surface with only one thing to ask, where a
-  // picker would be a confirm dialog wearing a costume. That is the abstraction
-  // ladder today, and the rule maintains itself: give the ladder a second ask and
-  // its picker reappears without anything here changing.
-  const openWizardPicker = useCallback((surface, payload, { facts, subjectLabel }) => {
-    if (shouldSkipPicker(surface, facts)) {
-      const intent = defaultIntentForSurface(surface, facts);
-      if (intent) runWizardIntent({ intent, destination: wizardDestination, payload });
-      return;
-    }
-    setAskWizardPicker({ surface, facts, subjectLabel, payload });
-  }, [runWizardIntent, wizardDestination]);
-
-  // "Ask The Wizard" on a Thing, dispatched from the right panel and the pie menu.
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const handler = (e) => {
-      const protoId = e?.detail?.prototypeId;
-      if (!protoId) return;
-      const proto = useGraphStore.getState().nodePrototypes.get(protoId);
-      if (!proto) {
-        console.error('[NodeCanvas] rs-ask-wizard-define-node: prototype not found:', protoId);
-        return;
-      }
-      openWizardPicker(WIZARD_SURFACES.THING, { prototype: proto }, {
-        facts: thingFacts(proto),
-        subjectLabel: `"${proto.name || 'this Thing'}"`
-      });
-    };
-    window.addEventListener('rs-ask-wizard-define-node', handler);
-    return () => window.removeEventListener('rs-ask-wizard-define-node', handler);
-  }, [openWizardPicker]);
-
-  // "Ask The Wizard" from the abstraction carousel. This surface has a single
-  // intent, so openWizardPicker fires it directly and no modal ever appears.
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-    const handler = (e) => {
-      const protoId = e?.detail?.prototypeId;
-      const dimension = e?.detail?.dimension;
-      if (!protoId || !dimension) return;
-      const proto = useGraphStore.getState().nodePrototypes.get(protoId);
-      if (!proto) {
-        console.error('[NodeCanvas] rs-ask-wizard-abstraction: prototype not found:', protoId);
-        return;
-      }
-      openWizardPicker(WIZARD_SURFACES.LADDER, { prototype: proto, dimension }, {
-        facts: ladderFacts(proto, dimension),
-        subjectLabel: `"${proto.name || 'this Thing'}" · ${dimension}`
-      });
-    };
-    window.addEventListener('rs-ask-wizard-abstraction', handler);
-    return () => window.removeEventListener('rs-ask-wizard-abstraction', handler);
-  }, [openWizardPicker]);
+  // Ask The Wizard: the picker's state, the destination and every opener live in
+  // components/canvas/wizard/canvasWizard.js; WizardHost renders the picker (P5.06b).
+  const wizardEnabled = useWizardEnabled();
 
   // Pie menu color picker state
   const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useTrackedState(false);
@@ -5223,7 +5032,6 @@ function NodeCanvas() {
     handlePieMenuColorCommit, nodes, pieMenuColorPickerPosition, edgeColorPickerVisible,
     activeEdgeColorPrototypeId, handleEdgeColorPickerClose, handleEdgeColorChange, handleEdgeColorCommit,
     nodePrototypesMap, edgeColorPickerPosition, addToGroupDialog, setAddToGroupDialog, activeGraphId,
-    askWizardPicker, wizardDestination, chooseWizardDestination, setAskWizardPicker, runWizardIntent,
     selfLoopDialog, setSelfLoopDialog,
   };
 

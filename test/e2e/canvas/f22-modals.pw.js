@@ -65,3 +65,22 @@ test('F22c Show Welcome Screen opens onboarding, and closing it keeps the univer
   await expect(page.getByText('Welcome to Redstring')).toHaveCount(0, { timeout: 5_000 });
   await expect(nodes).toHaveCount(before);
 });
+
+// P5.06b: the Ask The Wizard picker left NodeCanvas for WizardHost, with its
+// state in canvasWizard.js. Asking about a Thing still opens it, titled for that
+// Thing, and closing it clears the picker.
+test('F22d asking the Wizard about a Thing opens the picker; closing clears it', async ({ page }) => {
+  await openFixture(page, 'small');
+  const protoId = await page.evaluate(() => [...window.useGraphStore.getState().nodePrototypes.values()].find((p) => p.name === 'Alpha')?.id);
+  expect(protoId).toBeTruthy();
+  await page.evaluate((id) => window.dispatchEvent(new CustomEvent('rs-ask-wizard-define-node', { detail: { prototypeId: id } })), protoId);
+  await expect(page.getByText('Ask The Wizard').first()).toBeVisible();
+  await expect(page.getByText('"Alpha"').first()).toBeVisible();
+  const picker = () => page.evaluate(async () => {
+    const { useCanvasWizardStore } = await import('/src/components/canvas/wizard/canvasWizard.js');
+    return useCanvasWizardStore.getState().picker?.surface ?? null;
+  });
+  expect(await picker()).toBeTruthy();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(picker).toBe(null);
+});
