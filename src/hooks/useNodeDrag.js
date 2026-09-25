@@ -175,17 +175,13 @@ export const useNodeDrag = ({
   mousePositionRef,
 
   // Graph data
-  activeGraphId,
   nodes,
   nodeById,
-  selectedInstanceIds,
 
   // Store actions
   storeActions,
 
   // Grid settings
-  gridMode,
-  gridSize,
 
   // Drag zoom settings
   dragZoomSettings,
@@ -215,6 +211,12 @@ export const useNodeDrag = ({
   anchorPositionUpdatesRef,
   groupTitleRectsRef,
 }) => {
+  // Store-backed inputs, subscribed here rather than passed in (P4.07): the same
+  // fields and selectors NodeCanvas subscribes to, so the values match its render.
+  const activeGraphId = useGraphStore(state => state.activeGraphId);
+  const selectedInstanceIds = useCanvasUIStore(s => s.selectedInstanceIds);
+  const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
+  const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
   // ---------------------------------------------------------------------------
   // State & Refs
   // ---------------------------------------------------------------------------

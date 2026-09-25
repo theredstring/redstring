@@ -124,6 +124,7 @@ import { useAutoLayoutListener } from './components/canvas/actions/autoLayoutLis
 import { useBackToCivilization } from './components/canvas/data/backToCivilization.js';
 import { useTransformWiring } from './components/canvas/camera/transformWiring.js';
 import { useControllerTargets } from './components/canvas/input/controllerTargets.js';
+import { layoutNodesOf, layoutEdgesOf, draggedNodeIdsOf } from './components/canvas/actions/layoutSnapshot.js';
 import { usePlusSignActions } from './components/canvas/actions/plusSign.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
@@ -1121,13 +1122,9 @@ function NodeCanvas() {
     viewportSizeRef,
     viewportBoundsRef,
     mousePositionRef,
-    activeGraphId,
     nodes,
     nodeById,
-    selectedInstanceIds,
     storeActions,
-    gridMode,
-    gridSize,
     dragZoomSettings,
     pinchSmoothingRef,
     placedLabelsRef,
@@ -2962,7 +2959,6 @@ function NodeCanvas() {
     panOffsetRef,
     zoomLevelRef,
     canvasSize,
-    activeGraphId,
     startDragForNode,
     handleMouseMove,
     handleMouseUp,
@@ -2976,16 +2972,8 @@ function NodeCanvas() {
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
-    selectedInstanceIds,
-    setSelectedInstanceIds,
-    selectedEdgeId,
-    selectedEdgeIds,
     plusSign,
     setPlusSign,
-    nodeNamePrompt,
-    previewingNodeId,
-    selectedNodeIdForPieMenu,
-    setSelectedNodeIdForPieMenu,
     drawingConnectionFrom,
     setDrawingConnectionFrom,
     draggingNodeInfo,
@@ -3000,12 +2988,6 @@ function NodeCanvas() {
     startedOnNode,
     mouseInsideNode,
     mouseDownPosition,
-    groupControlPanelShouldShow,
-    groupControlPanelVisible,
-    setGroupControlPanelVisible,
-    connectionControlPanelShouldShow,
-    connectionControlPanelVisible,
-    setConnectionControlPanelVisible,
     selectedGroup,
     setSelectedGroup,
     isInsideNode,
@@ -3187,15 +3169,8 @@ function NodeCanvas() {
   });
 
   useCanvasKeyboard({
-    activeGraphId,
     storeActions,
     graphsMap,
-    nodePrototypesMap,
-    edgesMap,
-    selectedInstanceIds,
-    setSelectedInstanceIds,
-    selectedEdgeId,
-    selectedEdgeIds,
     clipboardRef,
     onClipboardChange: markClipboardChanged,
     keysPressed,
@@ -3224,12 +3199,6 @@ function NodeCanvas() {
     minZoom: MIN_ZOOM,
     maxZoom: MAX_ZOOM,
     gamepadTickRef,
-    nodeNamePrompt,
-    connectionNamePrompt,
-    abstractionPrompt,
-    newWebPrompt,
-    isHeaderEditing,
-    abstractionCarouselVisible,
     keyboardSettings,
     onDeleteNodes: deleteMultipleNodesWithAnimation,
   });
@@ -3513,42 +3482,9 @@ function NodeCanvas() {
     // The header's component search flies to the Thing's instances (P2.06d).
     navigateToPrototypeInstances,
     // The force-simulation tuner reads the live canvas while it runs (P2.06f).
-    layoutNodes: () => hydratedNodes.map(n => {
-      const dims = baseDimsById.get(n.id) || getNodeDimensions(n, false, null);
-      return {
-        id: n.id,
-        x: n.x,
-        y: n.y,
-        name: n.name,
-        width: dims?.currentWidth,
-        height: dims?.currentHeight,
-        imageHeight: dims?.calculatedImageHeight ?? 0
-      };
-    }),
-    layoutEdges: () => edges.map(e => {
-      let connName = e.connectionName || '';
-      if (!connName && e.definitionNodeIds?.length > 0) {
-        const defNode = nodePrototypesMap.get(e.definitionNodeIds[0]);
-        if (defNode?.name) connName = defNode.name;
-      }
-      if (!connName && e.typeNodeId) {
-        const proto = edgePrototypesMap.get(e.typeNodeId);
-        if (proto?.name) connName = proto.name;
-      }
-      return { sourceId: e.sourceId, destinationId: e.destinationId, name: connName };
-    }),
-    draggedNodeIds: () => {
-      if (!draggingNodeInfo) return new Set();
-      // Single node drag
-      if (draggingNodeInfo.instanceId) return new Set([draggingNodeInfo.instanceId]);
-      // Multi-select drag (primaryId + all selected)
-      if (draggingNodeInfo.primaryId) return new Set([draggingNodeInfo.primaryId, ...Object.keys(draggingNodeInfo.relativeOffsets || {})]);
-      // Group drag
-      if (draggingNodeInfo.groupId && draggingNodeInfo.memberOffsets) {
-        return new Set(draggingNodeInfo.memberOffsets.map(m => m.id));
-      }
-      return new Set();
-    },
+    layoutNodes: () => layoutNodesOf(hydratedNodes, baseDimsById),
+    layoutEdges: () => layoutEdgesOf(edges, nodePrototypesMap, edgePrototypesMap),
+    draggedNodeIds: () => draggedNodeIdsOf(draggingNodeInfo),
     resetConnectionLabelCache,
     cancelAutoLayout,
   });

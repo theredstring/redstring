@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCanvasKeyboard } from '../../src/hooks/useCanvasKeyboard.js';
+import useGraphStore from '../../src/store/graphStore.js';
+import useCanvasUIStore from '../../src/store/canvasUIStore.js';
 
 /**
  * P1.11 / F-14 — the shortcut listener attaches once per mount and reads the
@@ -66,6 +68,25 @@ function makeParams(overrides = {}) {
   };
 }
 
+// The hook subscribes to its store-backed inputs itself (P4.08), so each render's
+// params are also written to the stores before that render. Setters go in as-is,
+// so the spies in the params still see the calls.
+const UI_FIELDS = [
+  'selectedInstanceIds', 'setSelectedInstanceIds', 'selectedEdgeId', 'selectedEdgeIds', 'nodeNamePrompt',
+  'connectionNamePrompt', 'abstractionPrompt', 'newWebPrompt', 'isHeaderEditing', 'abstractionCarouselVisible',
+];
+function seedStores(p) {
+  useGraphStore.setState({ activeGraphId: p.activeGraphId, nodePrototypes: p.nodePrototypesMap, edges: p.edgesMap });
+  const patch = {};
+  for (const k of UI_FIELDS) patch[k] = p[k];
+  useCanvasUIStore.setState(patch);
+}
+function renderKeyboard(initialProps) {
+  seedStores(initialProps);
+  const r = renderHook((p) => useCanvasKeyboard(p), { initialProps });
+  return { ...r, rerender: (p) => { act(() => seedStores(p)); r.rerender(p); } };
+}
+
 const pressOn = (target, key) => {
   target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 };
@@ -90,9 +111,7 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
   });
 
   it('attaches once per mount, however the params change', () => {
-    const { rerender, unmount } = renderHook((p) => useCanvasKeyboard(p), {
-      initialProps: makeParams(),
-    });
+    const { rerender, unmount } = renderKeyboard(makeParams());
     const addsAtMount = keydownAdds();
     expect(addsAtMount).toBeGreaterThan(0);
     expect(keydownRemoves()).toBe(0);
@@ -130,7 +149,7 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
 
   it('the handler sees the latest params', () => {
     const first = makeParams();
-    const { rerender } = renderHook((p) => useCanvasKeyboard(p), { initialProps: first });
+    const { rerender } = renderKeyboard(first);
 
     const latest = makeParams({ selectedInstanceIds: new Set(['i1', 'i2']) });
     rerender(latest);
@@ -145,7 +164,7 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
   });
 
   it('uses the latest edge selection and store actions', () => {
-    const { rerender } = renderHook((p) => useCanvasKeyboard(p), { initialProps: makeParams() });
+    const { rerender } = renderKeyboard(makeParams());
 
     const latest = makeParams({ selectedEdgeIds: new Set(['e1', 'e2']) });
     rerender(latest);
@@ -158,9 +177,7 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
   });
 
   it('is still suppressed while the header title is being edited, using the latest flag', () => {
-    const { rerender } = renderHook((p) => useCanvasKeyboard(p), {
-      initialProps: makeParams({ selectedInstanceIds: new Set(['i1']) }),
-    });
+    const { rerender } = renderKeyboard(makeParams({ selectedInstanceIds: new Set(['i1']) }));
 
     const focused = makeParams({ selectedInstanceIds: new Set(['i1']), isHeaderEditing: true });
     rerender(focused);
@@ -175,7 +192,7 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
 
   it('is still suppressed while a text field has focus', () => {
     const params = makeParams({ selectedInstanceIds: new Set(['i1']) });
-    renderHook((p) => useCanvasKeyboard(p), { initialProps: params });
+    renderKeyboard(params);
 
     const input = document.createElement('input');
     document.body.appendChild(input);
@@ -190,9 +207,7 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
   });
 
   it('is still suppressed while the node name prompt is open', () => {
-    const { rerender } = renderHook((p) => useCanvasKeyboard(p), {
-      initialProps: makeParams({ selectedInstanceIds: new Set(['i1']) }),
-    });
+    const { rerender } = renderKeyboard(makeParams({ selectedInstanceIds: new Set(['i1']) }));
     const prompt = makeParams({ selectedInstanceIds: new Set(['i1']), nodeNamePrompt: { visible: true } });
     rerender(prompt);
 

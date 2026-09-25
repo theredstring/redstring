@@ -3,6 +3,7 @@ import { useRef, useEffect } from 'react';
 import { useWindowGestureEnd } from './useWindowGestureEnd';
 import { haptic } from '../services/haptics.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
+import useGraphStore from '../store/graphStore.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -38,7 +39,6 @@ export const useCanvasTouch = ({
     panOffsetRef,
     zoomLevelRef,
     canvasSize,
-    activeGraphId,
     startDragForNode,
     handleMouseMove,
     handleMouseUp,
@@ -57,15 +57,8 @@ export const useCanvasTouch = ({
     startZoomMomentum,
     stopZoomMomentum,
     storeActions,
-    selectedInstanceIds,
-    setSelectedInstanceIds,
-    selectedEdgeId,
-    selectedEdgeIds,
     plusSign,
     setPlusSign,
-    nodeNamePrompt,
-    previewingNodeId,
-    selectedNodeIdForPieMenu,
     drawingConnectionFrom,
     setDrawingConnectionFrom,
     draggingNodeInfo,
@@ -80,12 +73,6 @@ export const useCanvasTouch = ({
     startedOnNode,
     mouseInsideNode,
     mouseDownPosition,
-    groupControlPanelShouldShow,
-    groupControlPanelVisible,
-    setGroupControlPanelVisible,
-    connectionControlPanelShouldShow,
-    connectionControlPanelVisible,
-    setConnectionControlPanelVisible,
     selectedGroup,
     setSelectedGroup,
     isInsideNode,
@@ -107,6 +94,23 @@ export const useCanvasTouch = ({
     // single-finger touch across the whole viewport — see yieldsToCarousel below.
     abstractionCarouselVisibleRef,
 }) => {
+    // Store-backed inputs, subscribed here rather than passed in (P4.06): the
+    // same fields and selectors NodeCanvas subscribes to, so the values match
+    // its render and nothing re-renders more often.
+    const activeGraphId = useGraphStore(state => state.activeGraphId);
+    const selectedInstanceIds = useCanvasUIStore(s => s.selectedInstanceIds);
+    const setSelectedInstanceIds = useCanvasUIStore(s => s.setSelectedInstanceIds);
+    const selectedEdgeId = useCanvasUIStore(s => s.selectedEdgeId);
+    const selectedEdgeIds = useCanvasUIStore(s => s.selectedEdgeIds);
+    const nodeNamePrompt = useCanvasUIStore(s => s.nodeNamePrompt);
+    const previewingNodeId = useCanvasUIStore(s => s.previewingNodeId);
+    const selectedNodeIdForPieMenu = useCanvasUIStore(s => s.selectedNodeIdForPieMenu);
+    const groupControlPanelShouldShow = useCanvasUIStore(s => s.groupControlPanelShouldShow);
+    const groupControlPanelVisible = useCanvasUIStore(s => s.groupControlPanelVisible);
+    const setGroupControlPanelVisible = useCanvasUIStore(s => s.setGroupControlPanelVisible);
+    const connectionControlPanelShouldShow = useCanvasUIStore(s => s.connectionControlPanelShouldShow);
+    const connectionControlPanelVisible = useCanvasUIStore(s => s.connectionControlPanelVisible);
+    const setConnectionControlPanelVisible = useCanvasUIStore(s => s.setConnectionControlPanelVisible);
     // Pie-menu target changes go through the pie machine (P5.02b step 5), which
     // re-applies the selection → pie rule in the same write.
     const setPieTarget = (id) => useCanvasUIStore.getState().dispatchPie({ type: 'PIE_TARGET', id });

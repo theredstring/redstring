@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../store/graphStore.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 import { performUndo, performRedo } from '../store/historyActions.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
@@ -14,15 +15,8 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.0;
 
 export const useCanvasKeyboard = ({
-    activeGraphId,
     storeActions,
     graphsMap,
-    nodePrototypesMap,
-    edgesMap,
-    selectedInstanceIds,
-    setSelectedInstanceIds,
-    selectedEdgeId,
-    selectedEdgeIds,
     clipboardRef,
     // Fired after every write to clipboardRef. A ref write re-renders nothing,
     // and the connection menu's Paste button only exists while the clipboard
@@ -67,16 +61,24 @@ export const useCanvasKeyboard = ({
     // this loop folds them in alongside the keyboard's, inheriting the clamp,
     // the label suppression, the drag re-projection and the settle bookkeeping.
     gamepadTickRef,
-    // UI State flags
-    nodeNamePrompt,
-    connectionNamePrompt,
-    abstractionPrompt,
-    newWebPrompt,
-    isHeaderEditing,
-    abstractionCarouselVisible,
     keyboardSettings,
     onDeleteNodes,
 }) => {
+    // Store-backed inputs, subscribed here rather than passed in (P4.08): the same
+    // fields and selectors NodeCanvas subscribes to, so the values match its render.
+    const activeGraphId = useGraphStore(state => state.activeGraphId);
+    const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
+    const edgesMap = useGraphStore(state => state.edges);
+    const selectedInstanceIds = useCanvasUIStore(s => s.selectedInstanceIds);
+    const setSelectedInstanceIds = useCanvasUIStore(s => s.setSelectedInstanceIds);
+    const selectedEdgeId = useCanvasUIStore(s => s.selectedEdgeId);
+    const selectedEdgeIds = useCanvasUIStore(s => s.selectedEdgeIds);
+    const nodeNamePrompt = useCanvasUIStore(s => s.nodeNamePrompt);
+    const connectionNamePrompt = useCanvasUIStore(s => s.connectionNamePrompt);
+    const abstractionPrompt = useCanvasUIStore(s => s.abstractionPrompt);
+    const newWebPrompt = useCanvasUIStore(s => s.newWebPrompt);
+    const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing);
+    const abstractionCarouselVisible = useCanvasUIStore(s => s.abstractionCarouselVisible);
     // Remember panel state for toggle behavior
     const panelStateBeforeHide = useRef({ left: true, right: true });
 

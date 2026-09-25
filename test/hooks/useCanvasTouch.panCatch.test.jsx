@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { useCanvasTouch } from '../../src/hooks/useCanvasTouch';
+import { seedTouchStores } from './seedCanvasTouchStores.js';
 
 vi.mock('../../src/services/haptics.js', () => ({ haptic: () => { } }));
 
@@ -111,6 +112,7 @@ describe('touch on a node while the view is coasting', () => {
   beforeEach(() => {
     props = makeProps({ isViewMoving: vi.fn(() => true) });
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
   });
 
@@ -174,6 +176,7 @@ describe('touch on a node while the view is still', () => {
   it('is handled by the node as usual', () => {
     const props = makeProps({ isViewMoving: vi.fn(() => false) });
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const node = screen.getByTestId('node');
 

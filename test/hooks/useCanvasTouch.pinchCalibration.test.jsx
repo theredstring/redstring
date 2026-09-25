@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { useCanvasTouch } from '../../src/hooks/useCanvasTouch';
+import { seedTouchStores } from './seedCanvasTouchStores.js';
 
 vi.mock('../../src/services/haptics.js', () => ({ haptic: () => { } }));
 
@@ -117,6 +118,7 @@ describe('pinch calibration', () => {
   it('holds the grabbed point under the midpoint through a symmetric spread', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const canvas = screen.getByTestId('canvas-area');
 
@@ -136,6 +138,7 @@ describe('pinch calibration', () => {
   it('moves the content 1:1 with the midpoint when both fingers translate', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const canvas = screen.getByTestId('canvas-area');
 
@@ -157,6 +160,7 @@ describe('pinch calibration', () => {
   it('keeps both fingers on their content when one stays put and the other spreads', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const canvas = screen.getByTestId('canvas-area');
 
@@ -177,6 +181,7 @@ describe('pinch calibration', () => {
   it('anchors the same way when the pinch starts on a node', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const canvas = screen.getByTestId('canvas-area');
     const nodeA = screen.getByTestId('nodeA');
@@ -195,6 +200,7 @@ describe('pinch calibration', () => {
   it('leaves the glide anchored where the pinch ended', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const canvas = screen.getByTestId('canvas-area');
 

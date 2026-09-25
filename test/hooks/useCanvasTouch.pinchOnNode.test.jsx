@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { useCanvasTouch } from '../../src/hooks/useCanvasTouch';
+import { seedTouchStores } from './seedCanvasTouchStores.js';
 
 vi.mock('../../src/services/haptics.js', () => ({ haptic: () => { } }));
 
@@ -90,6 +91,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('abandons an in-flight connection draw when the second finger lands on canvas', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
     const canvas = screen.getByTestId('canvas-area');
@@ -107,6 +109,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('still zooms after the draw is abandoned', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
     const canvas = screen.getByTestId('canvas-area');
@@ -124,6 +127,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('starts a pinch when BOTH fingers land on nodes', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
     const nodeB = screen.getByTestId('nodeB');
@@ -142,6 +146,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('never draws a connection once two fingers are down', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
     const nodeB = screen.getByTestId('nodeB');
@@ -164,6 +169,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('tears the pinch down when both fingers lift off nodes', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
     const nodeB = screen.getByTestId('nodeB');
@@ -181,6 +187,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('leaves an in-flight node drag alone', () => {
     const props = makeProps({ draggingNodeInfoRef: { current: { instanceId: 'inst-a' } } });
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
     const nodeB = screen.getByTestId('nodeB');
@@ -196,6 +203,7 @@ describe('a second finger turns a node gesture into a pinch', () => {
   it('leaves the one-finger draw alone', () => {
     const props = makeProps();
     hookProps = props;
+    seedTouchStores(props);
     render(<Harness />);
     const nodeA = screen.getByTestId('nodeA');
 
