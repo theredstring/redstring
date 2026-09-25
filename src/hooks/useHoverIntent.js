@@ -23,11 +23,23 @@ export function useHoverIntent({ setHoveredEdgeInfo, semanticOrbitActiveRef }) {
   const committedHoverKeyRef = useRef('none');
   const pendingHoverKeyRef = useRef('none');
 
+  // hoveredEdgeInfo as this hook last wrote it. Clearing is called on every
+  // mouse move; a same-value setState there still cost NodeCanvas an extra
+  // render (React re-runs it at the setter's lower lane after the store's sync
+  // render). Only this hook writes a non-null value, so a null here is safe to
+  // trust; NodeCanvas's own reset to null can only make it write once too often.
+  const edgeInfoRef = useRef(null);
+  const setEdgeInfo = useCallback((info) => {
+    if (info === null && edgeInfoRef.current === null) return;
+    edgeInfoRef.current = info;
+    setHoveredEdgeInfo(info);
+  }, []);
+
   const applyHoverCandidate = useCallback((candidate) => {
     if (candidate.kind === 'node') {
       setHoveredNodeForVision(candidate.node);
       setHoveredConnectionForVision(null);
-      setHoveredEdgeInfo(null);
+      setEdgeInfo(null);
     } else if (candidate.kind === 'connection' || candidate.kind === 'orbitItem') {
       // An orbit item previews as the triplet it would become — focus node,
       // predicate, candidate — not as a lone box. The box on its own says
@@ -36,11 +48,11 @@ export function useHoverIntent({ setHoveredEdgeInfo, semanticOrbitActiveRef }) {
       // no edge on the canvas to glow yet.
       setHoveredNodeForVision(null);
       setHoveredConnectionForVision(candidate.connection);
-      setHoveredEdgeInfo(candidate.edgeInfo ?? null);
+      setEdgeInfo(candidate.edgeInfo ?? null);
     } else {
       setHoveredNodeForVision(null);
       setHoveredConnectionForVision(null);
-      setHoveredEdgeInfo(null);
+      setEdgeInfo(null);
     }
   }, []);
 
@@ -54,7 +66,7 @@ export function useHoverIntent({ setHoveredEdgeInfo, semanticOrbitActiveRef }) {
     committedHoverKeyRef.current = 'none';
     setHoveredNodeForVision(null);
     setHoveredConnectionForVision(null);
-    setHoveredEdgeInfo(null);
+    setEdgeInfo(null);
   }, []);
 
   // The connection the hover hit-test should favour on the next frame: the one

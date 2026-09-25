@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
-import { X } from 'lucide-react';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import Node from './Node.jsx';
@@ -20,24 +19,22 @@ import HoverVisionAidLayer from './components/canvas/layers/HoverVisionAidLayer.
 import { setActionHover, getActionHoverItem } from './utils/canvas/actionHover.js';
 import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-mode reticle
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
-import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
-import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
+import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
+import { getTextColor, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, blendColors } from './utils/colorUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
 import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
-import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
+import { analyzeNodeDistribution } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Package, PackageOpen, ArrowUpFromDot, Layers, ArrowLeft, SendToBack, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, LayoutGrid, Grid3x3, ChevronLeft, ChevronRight, Sparkles, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
-import * as folderPersistence from './services/folderPersistence.js';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
-import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
-import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { getClusterGeometries } from './services/graphLayoutService.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
@@ -52,24 +49,19 @@ import {
   computeGroupDepths,
   buildEdgeZSlotIndex,
   edgeZSlotFor,
-  buildShellCutoutPath,
   placeholderIdForGroup,
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
-import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection, getNodeEdgeIntersection } from './utils/canvas/nodeHitbox.js';
-import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
+import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
+import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
-  getActiveGraphId,
   getHydratedNodesForGraph, // New selector
-  getEdgesForGraph,
-  getNodePrototypeById, // New selector for prototypes
   TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
-import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
@@ -163,29 +155,17 @@ import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.j
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
-  LERP_SPEED,
   HEADER_HEIGHT,
   MOVEMENT_THRESHOLD,
   MAX_ZOOM,
-  SCROLL_SENSITIVITY,
   PLUS_SIGN_SIZE,
-  PLUS_SIGN_ANIMATION_DURATION,
-  NODE_PADDING,
   NODE_CORNER_RADIUS,
-  NAME_AREA_FACTOR,
-  EXPANDED_NODE_WIDTH,
-  AVERAGE_CHAR_WIDTH,
-  WRAPPED_NODE_HEIGHT,
-  LINE_HEIGHT_ESTIMATE,
-  EDGE_MARGIN,
   PAN_DRAG_SENSITIVITY,
   SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY,
   MIDDLE_MOUSE_ZOOM_SENSITIVITY,
   NODE_DEFAULT_COLOR,
   CONNECTION_DEFAULT_COLOR,
   CONNECTION_WIDTH_BASE_SCALE,
-  DARK_MODE_BG_COLOR,
-  LIGHT_MODE_BG_COLOR,
   EXCLUSIVE_PANEL_MODE_THRESHOLD,
   THUMBNAIL_MAX_DIMENSION,
   nextNodeSizeStep,
@@ -204,26 +184,24 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline, edgeHitScore } from './utils/canvas/geometryUtils.js';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
-import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
-import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
+import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
+import { likelyTouch } from './utils/inputDeviceAnalysis';
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
 import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
-import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -714,8 +692,13 @@ function NodeCanvas() {
       gestureBlockClearTimerRef.current = null;
     }, delay);
   }, []);
-  const [orbitData, setOrbitData] = useState(EMPTY_ORBIT);
-  const [orbitLoading, setOrbitLoading] = useState(false);
+  const [orbitData, setOrbitDataState] = useState(EMPTY_ORBIT);
+  const [orbitLoading, setOrbitLoadingState] = useState(false);
+  // What each was last set to, pending updates included, so the search
+  // effect's reset can skip a same-value set (render sweep).
+  const orbitSetRef = useRef({ data: EMPTY_ORBIT, loading: false });
+  const setOrbitData = useCallback((v) => { orbitSetRef.current.data = v; setOrbitDataState(v); }, []);
+  const setOrbitLoading = useCallback((v) => { orbitSetRef.current.loading = v; setOrbitLoadingState(v); }, []);
   const semanticOrbitActive = useCanvasUIStore(s => s.semanticOrbitActive), setSemanticOrbitActive = useCanvasUIStore(s => s.setSemanticOrbitActive);
   const semanticOrbitActiveRef = useRef(false);
   // The orbit's imperative surface, written by OrbitOverlay while it is mounted
@@ -11325,8 +11308,11 @@ function NodeCanvas() {
     (async () => {
       try {
         if (!semanticOrbitActive || selectedInstanceIds.size !== 1) {
-          setOrbitData(EMPTY_ORBIT);
-          setOrbitLoading(false);
+          // Reset only what isn't reset already. This runs on every selection
+          // change, and a same-value set from an effect still costs a
+          // NodeCanvas run that React throws away.
+          if (orbitSetRef.current.data !== EMPTY_ORBIT) setOrbitData(EMPTY_ORBIT);
+          if (orbitSetRef.current.loading) setOrbitLoading(false);
           return;
         }
 
