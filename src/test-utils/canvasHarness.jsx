@@ -33,6 +33,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 
 import NodeCanvas from '../NodeCanvas.jsx';
 import useGraphStore from '../store/graphStore.js';
+import useCanvasUIStore, { createCanvasUIDefaults } from '../store/canvasUIStore.js';
 
 // --- hand-driven rAF ---------------------------------------------------------
 // A queue, not a synchronous recursive stub: NodeCanvas runs lerp/momentum
@@ -80,6 +81,8 @@ export const installCanvasStubs = () => {
   rafQueue = [];
   now = 0;
   stubCanvas2D();
+  // The canvas UI store outlives a test's canvas (P2.02); start each test clean.
+  useCanvasUIStore.setState(createCanvasUIDefaults());
 
   // LeftAIView scrolls a ref into view in a passive effect; jsdom lacks it.
   Element.prototype.scrollIntoView = vi.fn();

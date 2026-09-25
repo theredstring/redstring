@@ -2,6 +2,7 @@
 import { useRef, useEffect } from 'react';
 import { useWindowGestureEnd } from './useWindowGestureEnd';
 import { haptic } from '../services/haptics.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -182,8 +183,6 @@ export const useCanvasTouch = ({
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
-    const selectedInstanceIdsRef = useRef(selectedInstanceIds);
-    useEffect(() => { selectedInstanceIdsRef.current = selectedInstanceIds; });
 
     // Window-scoped pointer tracking for connection-draw and node-drag.
     // Element-routed events stop firing once the finger leaves the originating
@@ -1578,7 +1577,7 @@ export const useCanvasTouch = ({
                     // sites: if a drag or connection-draw is in flight by now,
                     // the user is manipulating the node, not selecting it.
                     if (touchState.current.isDragging || draggingNodeInfoRef?.current || drawingConnectionFromRef.current) return;
-                    const currentSelection = selectedInstanceIdsRef.current;
+                    const currentSelection = useCanvasUIStore.getState().selectedInstanceIds;
                     const wasSelected = currentSelection.has(tapNodeId);
                     setSelectedInstanceIds(prev => {
                         const newSelected = new Set(prev);
