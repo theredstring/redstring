@@ -132,3 +132,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | bf2c9b8 | 15,562 | — | P4.01a (inputTuning, clampPan) |
 | 2026-09-25 | c56074e | 15,556 | — | render sweep |
 | 2026-09-25 | e0abe3c | 15,491 | — | bailout sweep (dead code, unused imports) |
+| 2026-09-25 | 65ef61d | 15,134 | — | P4.01b (clientToCanvas, edgeHitTest, canvasHitTest) |

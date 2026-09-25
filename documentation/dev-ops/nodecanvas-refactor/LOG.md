@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P4.01b (Claude, orchestrator)
+
+- `clientToCanvas` replaces 17 inline conversions (bit-identical arithmetic). The edge hit test (`findNearestEdgeAtCanvasPoint`, `edgeHitThreshold`) and the canvas-space hit tests (`selectionInRect`, `groupTitleAtCanvasPoint`, `groupDragOffsets`) move verbatim into `utils/canvas/edgeHitTest.js` and `canvasHitTest.js`, with 20 new unit tests (reports/P4.01b.md).
+- Left open: `zoomAboutAnchor`, the differently-shaped `clampPan` copies (→ P4.02) and Q5.
+- **Gates:** `test:ci` PASS, Playwright 55 passed, `lint:undef` PASS, build passes. S5 and S8 renders unchanged. NodeCanvas.jsx **15,134**.
+
+---
+
 ## 2026-09-25: Bailout sweep (Claude, orchestrator)
 
 - S5 still ran NodeCanvas 41 times for 21 renders. `--explain` now names every update behind a commit, including zustand notifies and React's own dispatches (35319ed). That showed the cause: same-value "resets" (`hoveredEdgeInfo` on every mouse move; the orbit, pie and control-panel flags in effects) queue at a lower lane behind the store's sync render, so React re-runs NodeCanvas for them and throws the result away (reports/bailout-sweep.md).
