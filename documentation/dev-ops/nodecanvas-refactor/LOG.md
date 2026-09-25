@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Sweep 5, nine more blocks out (Claude, orchestrator)
+
+- `nodes`/`baseDimsById` memos, the pan and zoom momentum and trackpad zoom sampler (P4.02 seeds), framing a prototype's instances, and three actions moved verbatim (reports/sweep5-moves.md). **NodeCanvas.jsx 12,204.**
+- Pan and zoom scenarios unchanged. F2/F10 fail with pan momentum disabled.
+- **Gates:** `test:ci` PASS, Playwright 58 passed.
+
+---
+
 ## 2026-09-25: P3.08a, one Node element builder (Claude, orchestrator)
 
 - The active and dragging `<Node>` elements use `renderNodeElement(node, isDragging)`. The maps call it with the node only; passing it by reference would have handed the index in as `isDragging`, which the markup check would have caught. Markup identical with no selection, pie open and mid-drag. **NodeCanvas.jsx 12,796.**

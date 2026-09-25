@@ -142,3 +142,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | P3.09 merge | 12,994 | — | GridLayer, ClusterHullsLayer |
 | 2026-09-25 | P3.03a merge | 12,884 | — | computeGroupLayouts |
 | 2026-09-25 | P3.08a merge | 12,796 | — | one Node element builder |
+| 2026-09-25 | sweep 5 merge | 12,204 | — | nodes/dims memos, momentum, 3 actions, framing |
