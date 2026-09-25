@@ -8,7 +8,7 @@
  * labels placed before them (placedLabelsRef), so their order matters until
  * placement is computed up front (P3.05).
  */
-import React, { Profiler } from 'react';
+import React, { Profiler, useRef } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { edgeZSlotFor } from '../../../services/groupLayout.js';
 import { renderConnectionEdge } from '../renderConnectionEdge.jsx';
@@ -53,6 +53,35 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
 
   const edgeRenderCtx = { ...ctx, hoveredEdgeInfo };
 
+  // Hover-only renders. When NodeCanvas hasn't rendered since this layer's last
+  // pass (same ctx object, same edges and slots), the only thing that can have
+  // changed is the hovered connection, and hover moves no label: placement
+  // doesn't read it, and every label reuses its cached placement on a render
+  // like this. So only the connection losing hover and the one gaining it are
+  // re-rendered; every other connection gets back the element it produced last
+  // time, and React skips it. Anything else takes the full pass, in order.
+  const hoveredId = hoveredEdgeInfo?.edgeId ?? null;
+  const lastPassRef = useRef(null);
+  const last = lastPassRef.current;
+  const hoverOnly = !!last && last.ctx === ctx && last.visibleEdges === visibleEdges
+    && last.edgeZSlots === edgeZSlots && last.shells === nodeGroupShellsByDepth
+    && last.nested === nestedRegularGroupsByDepth;
+  const elements = new Map();
+  const renderEdge = (edge) => {
+    let element;
+    if (hoverOnly && edge.id !== hoveredId && edge.id !== last.hoveredId && last.elements.has(edge.id)) {
+      element = last.elements.get(edge.id);
+    } else {
+      element = renderConnectionEdge(edge, edgeRenderCtx);
+    }
+    elements.set(edge.id, element);
+    return element;
+  };
+  lastPassRef.current = {
+    ctx, visibleEdges, edgeZSlots, shells: nodeGroupShellsByDepth, nested: nestedRegularGroupsByDepth,
+    hoveredId, elements,
+  };
+
   return (
     <Profiler id="EdgeLayer" onRender={onRenderProbe}>
       <>
@@ -74,7 +103,7 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
               const bucket = edgesBySlot.get(slot) || [];
               const perfOn = typeof window !== 'undefined' && window.__edgePerf;
               const t0 = perfOn ? performance.now() : 0;
-              const painted = bucket.map(edge => renderConnectionEdge(edge, edgeRenderCtx));
+              const painted = bucket.map(renderEdge);
               if (perfOn) {
                 edgePerfRef.current.ms += performance.now() - t0;
                 edgePerfRef.current.edges += bucket.length;

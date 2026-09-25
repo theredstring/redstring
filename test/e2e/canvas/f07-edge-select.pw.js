@@ -51,3 +51,31 @@ test('F7 hover highlights an edge, click selects it, Cmd/Ctrl-click adds another
   await page.mouse.click(p3.x, p3.y);
   await expect.poll(() => selectedEdgeIds(page)).toEqual(['e-alpha-delta']);
 });
+
+// Hover moving straight from one connection to another. Since P3.06a a render
+// that only changes hover re-renders just the connection losing hover and the
+// one gaining it; every other connection keeps its element. This checks both
+// glows follow the pointer and an unrelated connection doesn't change at all.
+test('F7b hover moves from one connection to another; the others are untouched', async ({ page }) => {
+  await openFixture(page, 'small');
+  const bare = { x: 1000, y: 620 };
+  await expectBareCanvas(page, bare);
+  await page.mouse.move(bare.x, bare.y);
+  const markup = (id) => page.evaluate((edgeId) => document.querySelector(`svg.canvas [data-edge-id="${edgeId}"]`)?.outerHTML, id);
+  const bystander = await markup('e-alpha-delta');
+  expect(bystander).toBeTruthy();
+
+  const pa = await edgePoint(page, 'e-beta-gamma', 0.35);
+  await page.mouse.move(pa.x, pa.y, { steps: 4 });
+  await expect.poll(() => edgeGlow(page, 'e-beta-gamma')).toBe('hover');
+
+  const pb = await edgePoint(page, 'e-alpha-beta', 0.4);
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(() => edgeGlow(page, 'e-alpha-beta')).toBe('hover');
+  expect(await edgeGlow(page, 'e-beta-gamma')).toBeNull();
+  expect(await markup('e-alpha-delta')).toBe(bystander);
+
+  await page.mouse.move(bare.x, bare.y, { steps: 4 });
+  await expect.poll(() => edgeGlow(page, 'e-alpha-beta')).toBeNull();
+  expect(await markup('e-alpha-delta')).toBe(bystander);
+});
