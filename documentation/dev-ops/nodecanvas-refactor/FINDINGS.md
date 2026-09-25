@@ -429,6 +429,11 @@ This state is used across clusters and must move to a store before the clusters 
 - The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
 - → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
 
+**F-79. A same-value set still re-ran NodeCanvas: half of S5's runs (bailout sweep).** VERIFIED with `--explain` (dispatch logging, 35319ed); **fixed** e0abe3c.
+- zustand store changes render at SyncLane. A `setX(sameValue)` in the same event or in a following effect can't take React's eager bailout (the fiber just rendered from an update), so it's queued at a lower lane. The sync render skips it, and React then runs NodeCanvas again only to find nothing changed.
+- The offenders: `hoveredEdgeInfo = null` on every mouse move; the orbit, pie colour-picker, pie-page and control-panel resets in selection/pie effects; `isPanning = false` on every release.
+- **Rule for new code:** state that an effect or handler resets unconditionally should use `useTrackedState` (`src/hooks/useTrackedState.js`), or guard on the last *requested* value. Not on the committed one: a pending lower-lane set would land after a skipped reset.
+
 **F-78. Every modal re-rendered on every store write (P3.01).** VERIFIED with `--explain S11`; **fixed** bda014c.
 - `CanvasModal` (the frame of help, settings, merge, reconnect and storage setup), `PanelModal` and `ConnectionBrowser` called `useGraphStore()` with no selector, which subscribes to the entire store. All five CanvasModals, open or closed, re-rendered on every write anywhere.
 - They now subscribe to the three (four) fields they read. S11: 12 commits → 2 (Header's Undo turning on).
