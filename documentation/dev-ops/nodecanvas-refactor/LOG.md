@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P3.09 grid layer (Claude, orchestrator)
+
+- `GridLayer` and `ClusterHullsLayer` are memoized layers. Screenshots with the grid as lattice, dots, size 400 and off are pixel-identical to the wave5 tip. **NodeCanvas.jsx 12,994.**
+- The overlays stay where they are. They are interleaved at different z-levels, so one layer would reorder them.
+- **Gates:** `test:ci` PASS, Playwright 58 passed.
+
+---
+
 ## 2026-09-25: Sweep 4, six blocks out + B-16 (Claude, orchestrator)
 
 - Verbatim moves: orbit placement, hurtle, back-to-civilization, node-group conversion, abstraction submit and clean lane offsets, each with 12 or fewer inputs. Blocks with 19+ inputs are left for their controller or layer cards (reports/sweep4-moves.md). **NodeCanvas.jsx 13,742 → 13,073.**

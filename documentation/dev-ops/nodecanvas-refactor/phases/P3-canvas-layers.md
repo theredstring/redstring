@@ -124,7 +124,7 @@
   - F1, F6 and F14 pass.
 
 ### P3.09: Overlay and grid layers
-- **Status:** todo
+- **Status:** grid part done: `GridLayer` and `ClusterHullsLayer` (memoized, primitives in); grid screenshots pixel-identical in four settings. The overlays (marquee rect, PlusSign, VideoNodeAnimation, hitbox debug) are already small components interleaved at different z-levels; grouping them into one layer would change z-order, so they stay until P3.08's NodeLayer settles the stacking.
 - **Lane:** A + B · **Size:** M
 - **Change:**
   - `GridLayer`, which includes the cluster hulls debug view.
