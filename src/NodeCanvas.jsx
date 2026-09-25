@@ -168,9 +168,6 @@ import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
-
-
-
 const SPAWNABLE_NODE = 'spawnable_node';
 
 // ---------------------------------------------------------------------------
@@ -404,7 +401,6 @@ const EMPTY_OBSTACLES = Object.freeze([]);
 // Single identity for "no orbit data", so resetting an already-empty orbit
 // bails out of the render instead of handing OrbitOverlay fresh arrays.
 const EMPTY_ORBIT = Object.freeze({ ring1: [], ring2: [], ring3: [], ring4: [], all: [] });
-
 
 // Above this many visible connections, labels stop trying to dodge the ones
 // they land under. The dodge needs every connection's routed geometry plus a
@@ -984,8 +980,6 @@ function NodeCanvas() {
     }
   }, []);
 
-
-
   // Panel overlay resizers rendered in canvas (do not overlap panel DOM)
   const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
     try { return clampOverlayPanelWidth(JSON.parse(localStorage.getItem('panelWidth_left') || '250')); } catch { return clampOverlayPanelWidth(250); }
@@ -1022,7 +1016,6 @@ function NodeCanvas() {
   // NOTE: touchState and docTouchListenersRef removed (moved to useCanvasTouch)
 
   // Track long press state synchronously to avoid race conditions in event handlers
-
 
   // Touch interaction constants
   const TOUCH_MOVEMENT_THRESHOLD = 10; // pixels
@@ -1123,7 +1116,6 @@ function NodeCanvas() {
 
     return unsubscribe;
   }, []);
-
 
   const MIN_WIDTH = PANEL_OVERLAY_MIN_WIDTH;
 
@@ -1387,10 +1379,6 @@ function NodeCanvas() {
     );
   };
 
-
-
-
-
   // storeActions is now defined above with defensive initialization
 
   // <<< OPTIMIZED: Individual stable subscriptions - Zustand auto-batches these >>>
@@ -1495,7 +1483,6 @@ function NodeCanvas() {
   const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
   const universeLoadingError = useGraphStore(state => state.universeLoadingError);
   const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
-
 
   useEffect(() => {
     const timerApi = typeof window !== 'undefined' ? window : globalThis;
@@ -1750,7 +1737,6 @@ function NodeCanvas() {
 
   // View option: allow browser-level trackpad pinch zoom (toggled from Header).
   const trackpadZoomEnabled = useCanvasUIStore(s => s.trackpadZoomEnabled);
-
 
   // <<< Prevent Page Zoom >>>
   useEffect(() => {
@@ -3041,7 +3027,6 @@ function NodeCanvas() {
     draggingNodeInfoRef
   });
 
-
   // Expose functions to window for manual use (for debugging/testing)
   useEffect(() => {
     window.moveOutOfBoundsNodesInBounds = moveOutOfBoundsNodesInBounds;
@@ -3050,7 +3035,6 @@ function NodeCanvas() {
       delete window.moveOutOfBoundsNodesInBounds;
     };
   }, [moveOutOfBoundsNodesInBounds]);
-
 
   /**
    * Transforms client/screen coordinates to canvas coordinates.
@@ -4092,10 +4076,6 @@ function NodeCanvas() {
     runCulling();
   }, [panOffset, zoomLevel, runCulling]);
 
-
-
-
-
   // When a drag starts, discard any in-flight connection draw that leaked
   // through from the long-press → drag transition. Prevents both the phantom
   // static "black stub" line and an unintended edge-create on mouse-up.
@@ -4801,7 +4781,6 @@ function NodeCanvas() {
     lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing,
     connectionWidth]);
 
-
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.
   // NOTE: iterate ALL edges (not visibleEdges) so the index stays stable across culling
   // changes — otherwise drag start misses connections whose sibling edges just culled out,
@@ -5058,7 +5037,6 @@ function NodeCanvas() {
   const [dialogColorPickerVisible, setDialogColorPickerVisible] = useState(false);
   const [dialogColorPickerPosition, setDialogColorPickerPosition] = useState({ x: 0, y: 0 });
   const [colorPickerTarget, setColorPickerTarget] = useState(null); // { type: 'node_prompt' | 'connection_prompt' | 'group', id: string }
-
 
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
@@ -5663,7 +5641,6 @@ function NodeCanvas() {
 
   // Connection control panel animation state
 
-
   // New states for PieMenu transition
   const selectedNodeIdForPieMenu = useCanvasUIStore(s => s.selectedNodeIdForPieMenu), setSelectedNodeIdForPieMenu = useCanvasUIStore(s => s.setSelectedNodeIdForPieMenu);
   const isTransitioningPieMenu = useCanvasUIStore(s => s.isTransitioningPieMenu), setIsTransitioningPieMenu = useCanvasUIStore(s => s.setIsTransitioningPieMenu);
@@ -5790,7 +5767,6 @@ function NodeCanvas() {
     };
     carouselViewAnimRef.current = requestAnimationFrame(step);
   }, [setPanAndZoom, panOffsetRef, zoomLevelRef, isAnimatingZoomRef]);
-
 
   // Center on open. On close we intentionally leave the canvas where it is —
   // the carousel framing becomes the new resting view rather than snapping back.
@@ -5940,7 +5916,12 @@ function NodeCanvas() {
   const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useState(false);
   const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useState(false);
   const [groupControlPanelVisible, setGroupControlPanelVisible] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  // P2.03b: id in canvasUIStore, group read from the active web (was a stale snapshot).
+  const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
+  const selectedGroup = useMemo(() => (selectedGroupId ? graphsMap.get(activeGraphId)?.groups?.get(selectedGroupId) ?? null : null), [selectedGroupId, graphsMap, activeGraphId]);
+  const selectedGroupRef = useRef(selectedGroup);
+  selectedGroupRef.current = selectedGroup;
+  const setSelectedGroup = useCallback((next) => useCanvasUIStore.getState().setSelectedGroupId((typeof next === 'function' ? next(selectedGroupRef.current) : next)?.id ?? null), []);
   // Tracks the last group-title tap ({ id, time }) for touch double-tap (rename) detection.
   const lastGroupTapRef = useRef({ id: null, time: 0 });
   // Start position of an in-progress group-title touch, used by onTouchEnd to tell a
@@ -5952,7 +5933,10 @@ function NodeCanvas() {
   const groupTouchCleanupRef = useRef(null);
   // Preserve last selections during exit animations
   const lastSelectedNodePrototypes = useCanvasUIStore(s => s.lastSelectedNodePrototypes), setLastSelectedNodePrototypes = useCanvasUIStore(s => s.setLastSelectedNodePrototypes);
-  const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
+  // Snapshot for the exit animation (even of a just-deleted group); latched in render (P2.03).
+  const lastSelectedGroupRef = useRef(null);
+  if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
+  const lastSelectedGroup = lastSelectedGroupRef.current;
   const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
@@ -5975,8 +5959,6 @@ function NodeCanvas() {
   const setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
   // The force-sim tuner renders from ForceSimHost (P2.06f); the canvas menu opens it.
   const setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
-
-
 
   // Define carousel callbacks outside conditional rendering to avoid hook violations
   const onCarouselAnimationStateChange = useCallback((newState) => {
@@ -6051,8 +6033,6 @@ function NodeCanvas() {
   useEffect(() => {
     if (abstractionPrompt.visible && carouselPieMenuStage !== 2) {
 
-
-
       setCarouselPieMenuStage(2);
       // Don't mark this as a stage transition to avoid hiding the pie menu
       // setIsCarouselStageTransition(true);
@@ -6076,8 +6056,6 @@ function NodeCanvas() {
     // Execute pending swap operation if it exists
     if (pendingSwapOperation) {
       const { originalNodeId, originalInstance, focusedPrototypeId, newPrototype } = pendingSwapOperation;
-
-
 
       // Calculate original dimensions before the swap
       const originalDimensions = getNodeDimensions(originalInstance, false, null);
@@ -6128,8 +6106,6 @@ function NodeCanvas() {
           y: newY
         });
       }
-
-
 
       // Clear the pending operation
       setPendingSwapOperation(null);
@@ -6560,7 +6536,6 @@ function NodeCanvas() {
       return;
     }
 
-
     setSelectedInstanceIds(new Set());
     setPreviewingNodeId(null);
     setEditingNodeIdOnCanvas(null);
@@ -6598,14 +6573,10 @@ function NodeCanvas() {
     // Clear pending swap operation
     setPendingSwapOperation(null);
 
-
-
     // Clear abstraction control panel
     setAbstractionControlPanelVisible(false);
     setAbstractionControlPanelShouldShow(false);
   }, [activeGraphId, abstractionCarouselVisible, justCompletedCarouselExit, isTransitioningPieMenu]); // Protect from cleanup during carousel transitions
-
-
 
   // --- Abstraction Control Panel Management ---
   useEffect(() => {
@@ -6755,7 +6726,7 @@ function NodeCanvas() {
   const handleGroupControlPanelAnimationComplete = useCallback(() => {
     setGroupControlPanelShouldShow(false);
     setGroupControlPanelVisible(false);
-    setLastSelectedGroup(null);
+    lastSelectedGroupRef.current = null;
     setSelectedGroup(null);
   }, []);
 
@@ -6778,12 +6749,6 @@ function NodeCanvas() {
       setLastSelectedNodePrototypes(selectedNodePrototypes);
     }
   }, [selectedNodePrototypes]);
-
-  useEffect(() => {
-    if (selectedGroup) {
-      setLastSelectedGroup(selectedGroup);
-    }
-  }, [selectedGroup]);
 
   // Use last selected prototypes if current ones are empty but panel is still visible
   const nodePrototypesForPanel = useMemo(() => {
@@ -6825,8 +6790,7 @@ function NodeCanvas() {
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
   const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
 
-  // For a node-group the linked prototype owns name/color; selectedGroup is a snapshot
-  // taken at selection time, so read identity through the prototype wherever it's shown.
+  // A node-group's name/color live on its linked prototype; read identity through it.
   const selectedGroupEffectiveColor = useMemo(() => {
     if (!selectedGroup) return null;
     const linkedPrototype = selectedGroup.linkedNodePrototypeId
@@ -6849,8 +6813,7 @@ function NodeCanvas() {
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
-    // Start inline editing mode. For a node-group the prototype owns the name, so seed
-    // from it — selectedGroup is a snapshot and may lag a prototype edit made elsewhere.
+    // Start inline editing; a node-group's prototype owns the name, so seed from it.
     const linkedPrototype = selectedGroup.linkedNodePrototypeId
       ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
       : null;
@@ -7104,7 +7067,6 @@ function NodeCanvas() {
       // Handle semantic concepts that need materialization
       if (item.needsMaterialization && item.conceptData) {
 
-
         // Check if this semantic concept already exists as a prototype
         const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
           proto.semanticMetadata?.isSemanticNode &&
@@ -7153,7 +7115,6 @@ function NodeCanvas() {
           // Description and picture arrive a moment later, from the article
           // this concept already names — no second search, no guessing.
           enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
-
 
         }
 
@@ -7223,7 +7184,6 @@ function NodeCanvas() {
           }
         } catch { }
 
-
         return;
       }
 
@@ -7236,7 +7196,6 @@ function NodeCanvas() {
 
       const prototype = nodePrototypesMap.get(prototypeId);
       if (!prototype) {
-
 
         // Try to find a prototype with the same name as a fallback
         const potentialMatches = Array.from(nodePrototypesMap.values()).filter(p =>
@@ -7584,7 +7543,6 @@ function NodeCanvas() {
             return;
           }
 
-
           setPendingDecomposeNodeId(instanceId); // Store the instance ID for later
           setIsTransitioningPieMenu(true); // Start transition, current menu will hide
           // previewingNodeId (which is an instanceId) will be set in onExitAnimationComplete after animation
@@ -7597,7 +7555,6 @@ function NodeCanvas() {
 
             return;
           }
-
 
           setPendingAbstractionNodeId(instanceId); // Store the instance ID for later
           setIsTransitioningPieMenu(true); // Start transition, current menu will hide
@@ -7899,8 +7856,6 @@ function NodeCanvas() {
                 return;
               }
 
-
-
               // Store the swap operation to be executed after animations complete
               const currentState = useGraphStore.getState();
               const newPrototype = currentState.nodePrototypes.get(focusedPrototypeId);
@@ -7911,8 +7866,6 @@ function NodeCanvas() {
                 focusedPrototypeId,
                 newPrototype
               });
-
-
 
               // Start the exit animation sequence
               setSelectedNodeIdForPieMenu(null);
@@ -7925,7 +7878,6 @@ function NodeCanvas() {
             icon: Plus,
             position: 'right-second',
             action: (nodeId) => {
-
 
               console.log(`[PieMenu Action] State before transition:`, {
                 carouselPieMenuStage,
@@ -7949,8 +7901,6 @@ function NodeCanvas() {
             action: (nodeId) => {
               setIsPieMenuActionInProgress(true);
               setTimeout(() => setIsPieMenuActionInProgress(false), 100);
-
-
 
               const selectedNode = carouselFocusedNode || nodes.find(n => n.id === nodeId);
               if (!selectedNode) {
@@ -8205,9 +8155,6 @@ function NodeCanvas() {
             position: 'right-top',
             action: (nodeId) => {
 
-
-
-
               // In stage 2, use the focused carousel node, otherwise use the clicked node
               const targetNode = carouselPieMenuStage === 2 && carouselFocusedNode
                 ? carouselFocusedNode
@@ -8237,7 +8184,6 @@ function NodeCanvas() {
                 carouselLevel: abstractionCarouselNode // Pass the carousel state
               });
 
-
             }
           },
           {
@@ -8246,9 +8192,6 @@ function NodeCanvas() {
             icon: CornerDownLeft,
             position: 'right-bottom',
             action: (nodeId) => {
-
-
-
 
               // In stage 2, use the focused carousel node, otherwise use the clicked node
               const targetNode = carouselPieMenuStage === 2 && carouselFocusedNode
@@ -8278,7 +8221,6 @@ function NodeCanvas() {
                 nodeId: targetPrototypeBelow,
                 carouselLevel: abstractionCarouselNode // Pass the carousel state
               });
-
 
             }
           }
@@ -9870,7 +9812,6 @@ function NodeCanvas() {
   // Prevent native long-press context menu on touch devices (iOS/Android)
   useEffect(() => {
 
-
     const preventContextMenu = (e) => {
       if (isTouchDeviceRef.current || likelyTouch()) {
         try { e.preventDefault(); } catch { }
@@ -10934,7 +10875,6 @@ function NodeCanvas() {
         return;
       }
 
-
       setSelectedInstanceIds(new Set());
       setPreviewingNodeId(null);
       // Pie menu will be handled by useEffect on selectedInstanceIds, no direct setShowPieMenu here
@@ -10990,9 +10930,6 @@ function NodeCanvas() {
   };
 
   const handleAbstractionSubmit = ({ name, color, existingPrototypeId }) => {
-
-
-
 
     if (name.trim() && abstractionPrompt.nodeId && abstractionCarouselNode) {
       // The nodeId could be either a canvas instance ID or a prototype ID (from focused carousel node)
@@ -11089,8 +11026,6 @@ function NodeCanvas() {
           newNodeColor = interpolateColor(currentlySelectedNode.color || '#8B0000', targetColor, Math.abs(abstractionLevel));
         }
 
-
-
         // Create the new node prototype
         storeActions.addNodePrototype({
           id: (newNodeId = uuidv4()),
@@ -11121,9 +11056,6 @@ function NodeCanvas() {
         targetPrototypeId                       // insert relative to this node (focused node in carousel)
       );
       });
-
-
-
 
       // Close the abstraction prompt and keep the carousel visible.
       setAbstractionPrompt({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
@@ -11435,8 +11367,6 @@ function NodeCanvas() {
         activeElement.type === 'number'
       );
 
-
-
       // Only handle these specific keys if NOT in a text input
       if (!isTextInput) {
         if (e.key === '1') {
@@ -11463,8 +11393,6 @@ function NodeCanvas() {
     document.addEventListener('keydown', handleGlobalKeyDown);
     return () => document.removeEventListener('keydown', handleGlobalKeyDown);
   }, [handleToggleLeftPanel, handleToggleRightPanel, storeActions]);
-
-
 
   // Integrated keyboard handling via custom hook
   // --- Game controller -------------------------------------------------------
@@ -11914,7 +11842,6 @@ function NodeCanvas() {
         return;
       }
 
-
       setSelectedNodeIdForPieMenu(null);
     }
   }, [selectedInstanceIds, isTransitioningPieMenu, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState, justCompletedCarouselExit, selectionStart]); // Added carousel protection flags + box-selection gate
@@ -11958,8 +11885,6 @@ function NodeCanvas() {
             y: carouselCenterY - dimensions.currentHeight / 2
           };
         }
-
-
 
         setCurrentPieMenuData({
           node: nodeForPieMenu,
@@ -13244,8 +13169,6 @@ function NodeCanvas() {
             return;
           }
 
-
-
           // Open the pie menu for this node
           setSelectedInstanceIds(new Set([instanceId]));
           setSelectedNodeIdForPieMenu(instanceId);
@@ -13484,8 +13407,6 @@ function NodeCanvas() {
     draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart
   ]);
 
-
-
   // Expose clustering functions to window for manual use (for debugging/testing)
   useEffect(() => {
     // Expose clustering functions for other parts of the codebase
@@ -13501,7 +13422,6 @@ function NodeCanvas() {
       delete window.isClusteringEnabled;
     };
   }, [clusterAnalysis, enableClustering]);
-
 
   // Add appearance delay when conditions are met
   useEffect(() => {
@@ -15297,8 +15217,6 @@ function NodeCanvas() {
                           />
                         )}
 
-
-
                         {/* Edge pie menu — rendered inline at the edge midpoint */}
                         {(() => {
                           // Live midpoint wins whenever there is one; the frozen ref only stands in
@@ -16316,13 +16234,6 @@ function NodeCanvas() {
         )
       }
 
-
-
-
-
-
-
-
       {/* Add to Group Dialog */}
       {
         addToGroupDialog && (
@@ -16401,15 +16312,9 @@ function NodeCanvas() {
         />
       )}
 
-
-
-
-
-
       </>)}
     </>
   );
 }
 
 export default NodeCanvas;
-
