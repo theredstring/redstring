@@ -11,6 +11,7 @@ import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import AbstractionCarousel from '../../../AbstractionCarousel.jsx';
 import ColorPickersHost from '../colorPickers/ColorPickersHost.jsx';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { useCanvasDialogStore, setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
 import {
   onCarouselAnimationStateChange, onCarouselClose, requestCarouselClose, onCarouselReplaceNode,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -28,9 +29,10 @@ export default function CanvasOverlaysHost({ ctx }) {
     carouselRelativeMoveRequest, setCarouselRelativeMoveRequest, carouselFocusPrototypeRequest,
     setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension,
     setAbstractionControlPanelVisible,
-    addToGroupDialog, setAddToGroupDialog, activeGraphId,
-    selfLoopDialog, setSelfLoopDialog,
+    activeGraphId,
   } = ctx;
+  const addToGroupDialog = useCanvasDialogStore((s) => s.addToGroupDialog);
+  const selfLoopDialog = useCanvasDialogStore((s) => s.selfLoopDialog);
   const abstractionDimensions = useCanvasUIStore((s) => s.abstractionDimensions);
 
   return (

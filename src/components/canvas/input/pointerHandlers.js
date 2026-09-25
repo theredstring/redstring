@@ -20,6 +20,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { collectAncestorGroupIds } from '../../../services/groupLayout.js';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
 
 /** @param {{ current: object }} ctxRef */
 export function createPointerHandlers(ctxRef) {
@@ -715,7 +716,7 @@ export function createPointerHandlers(ctxRef) {
    * @param {MouseEvent} e - The mouseup event.
    */
   async function handleMouseUp(e) {
-    const { middleMouseZoomRef, isPanningOrZooming, storeActions, rightPanelExpanded, handleMouseUpInProgressRef, activeGraphId, longPressTimeout, setLongPressingInstanceId, mouseInsideNode, drawingConnectionFrom, connectionDrawAbandonedRef, wasDrawingConnection, nodes, isInsideNode, findGroupTitleAtPoint, connectionExitedSourceRef, setSelfLoopDialog, setDrawingConnectionFrom, connectionHoverTargetRef, draggingNodeInfoRef, dragPhaseRef, ignoreCanvasClick, nodeDrag, graphsMap, groupStructure, gridSize, setAddToGroupDialog, selectionStartRef, mouseMoved, justCompletedBoxSelectRef, containerRef, panOffsetRef, zoomLevelRef, canvasSize, clampCoordinates, updateMarquee, endMarquee, isPanningRef, panStartRef, panSourceRef, panVelocityHistoryRef, lastPanVelocityRef, startPanMomentum, panMomentumRef, stopPanMomentum, setIsPanning, lastPanSampleRef, isMouseDown, startedOnNode, armGestureBlock, scheduleGestureBlockClear } = ctxRef.current;
+    const { middleMouseZoomRef, isPanningOrZooming, storeActions, rightPanelExpanded, handleMouseUpInProgressRef, activeGraphId, longPressTimeout, setLongPressingInstanceId, mouseInsideNode, drawingConnectionFrom, connectionDrawAbandonedRef, wasDrawingConnection, nodes, isInsideNode, findGroupTitleAtPoint, connectionExitedSourceRef, setDrawingConnectionFrom, connectionHoverTargetRef, draggingNodeInfoRef, dragPhaseRef, ignoreCanvasClick, nodeDrag, graphsMap, groupStructure, gridSize, selectionStartRef, mouseMoved, justCompletedBoxSelectRef, containerRef, panOffsetRef, zoomLevelRef, canvasSize, clampCoordinates, updateMarquee, endMarquee, isPanningRef, panStartRef, panSourceRef, panVelocityHistoryRef, lastPanVelocityRef, startPanMomentum, panMomentumRef, stopPanMomentum, setIsPanning, lastPanSampleRef, isMouseDown, startedOnNode, armGestureBlock, scheduleGestureBlockClear } = ctxRef.current;
 
     // console.log('[Mouse Up] Called, history length:', panVelocityHistoryRef.current.length, 'Stack:', new Error().stack.split('\n').slice(1, 4).join('\n'));
 

@@ -717,7 +717,6 @@ function NodeCanvas() {
   // target, or null. Edge-triggering the target haptic off this is what keeps it
   // from repeating while the finger sits still on a node.
   const connectionHoverTargetRef = useRef(null);
-  const [selfLoopDialog, setSelfLoopDialog] = useState(null);
 
   // Write the in-flight endpoint straight to the <line>. Mirrors
   // useCanvasTransform.applyTransform — same reason (per-frame updates must not
@@ -1782,8 +1781,6 @@ function NodeCanvas() {
     return () => window.removeEventListener('redstring:new-web', handler);
   }, []);
 
-  // Add to group dialog state
-  const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
 
   // Ask The Wizard: the picker's state, the destination and every opener live in
   // components/canvas/wizard/canvasWizard.js; WizardHost renders the picker (P5.06b).
@@ -3377,8 +3374,7 @@ function NodeCanvas() {
     setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension,
     setAbstractionControlPanelVisible, selectedGroupEffectiveColor,
     nodeNamePrompt, connectionNamePrompt, setNodeNamePrompt, setConnectionNamePrompt, setSelectedGroup, nodes,
-    nodePrototypesMap, addToGroupDialog, setAddToGroupDialog, activeGraphId,
-    selfLoopDialog, setSelfLoopDialog,
+    nodePrototypesMap, activeGraphId,
   };
 
   // EmptyWebPrompt's inputs (moved JSX, wave 6).
@@ -3463,11 +3459,11 @@ function NodeCanvas() {
     pinchRef, plusSign, potentialClickNodeRef, previewingNodeId, rightPanelExpanded, scheduleGestureBlockClear,
     selectEdgeFromClick, selectedEdgeId, selectedEdgeIds, selectedGroup, selectedInstanceIds,
     selectedNodeIdForPieMenu, selectionStartRef, semanticOrbitActive, semanticOrbitActiveRef,
-    setAbstractionCarouselNode, setAbstractionCarouselVisible, setAddToGroupDialog, setCarouselAnimationState,
+    setAbstractionCarouselNode, setAbstractionCarouselVisible, setCarouselAnimationState,
     setCarouselFocusedNode, setCarouselFocusedNodeDimensions, setCarouselPieMenuStage,
     setConnectionControlPanelVisible, setDrawingConnectionEnd, setDrawingConnectionFrom, setEdgePieMenuVisible,
     setGroupControlPanelVisible, setIsPanning, setLongPressingInstanceId, setPanAndZoom, setPanOffset,
-    setPanStart, setPlusSign, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, setSelfLoopDialog,
+    setPanStart, setPlusSign, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds,
     startDragForNodeRef, startPanMomentum, startedOnNode, stopPanMomentum, stopTrackpadZoom, stopZoomMomentum,
     storeActions, suppressNextMouseDownRef, touchSettingsRef, updateMarquee, viewportSize, visibleNodeIds,
     wasDrawingConnection, zoomLevelRef, zoomOpIdRef,
