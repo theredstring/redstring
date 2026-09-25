@@ -130,7 +130,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - the reconnect and retry logic
   - About 1,000 lines. Status: todo.
 - **P2.06d SearchHosts:** header searches plus the New Web prompt. Navigation goes through the existing `rs-navigate-to` event or a canvas command. Status: todo.
-- **P2.06e Header file operations → a plain module** (`src/services/` or `src/utils/`), about 170 lines inlined in the Header JSX. Status: todo.
+- **P2.06e Header file operations → a plain module** (`src/services/` or `src/utils/`), about 170 lines inlined in the Header JSX. Status: done with P2.08 (`src/services/universeFileActions.js`).
 - **P2.06f ForceSim + LayoutProgress.**
   - They need `hydratedNodes`, `baseDimsById`, `edges`, `draggingNodeInfo` and `layoutProgress` from inside the canvas. Expose these through a selector hook or a command.
   - Rated B; do it last in P2.06.
@@ -153,7 +153,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **Handoff:**
 
 ### P2.08: Canvas command registry; move Header to App
-- **Status:** todo
+- **Status:** done (0d54da5 + B-12 90120ef, merged 5bce422; report reports/P2.08.md). Header renders from NodeCanvas's slot as a one-prop host; App takes the element in P2.11
 - **Lane:** A + C (Header) · **Size:** L · **Depends:** P2.03, P2.04
 - **Findings:** F-47 item 16, F-13
 - **Change:**
@@ -169,6 +169,10 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - Every Header action still works: tabs, the new-web prompt, both searches, auto-layout, snap, condense, force sim, fullscreen, bookmark and file operations.
   - Header shows 0 commits in S1, S4, S5 and S7.
 - **Handoff:**
+  - `HeaderHost` (`src/components/canvas/hosts/`) wires Header to the stores, the command registry (D-20) and `services/universeFileActions.js`; its only prop is `hidden`. Header commits: S1/S5/S7 0, S4 1 (Undo turning on), S13 2.
+  - Registered commands: `autoLayout`, `snapToGrid`, `condense`, `actionHover` (interim, P2.13). Add the Panels' needs in P2.09 with `useCanvasCommands`.
+  - `trackpadZoomEnabled` and the gamepad's header focus live in canvasUIStore. NodeCanvas no longer subscribes to `openGraphIds`.
+  - The orphan-graph cleanup effect stayed in NodeCanvas on purpose (see the report).
 
 ### P2.09: Move the left and right Panel to App
 - **Status:** todo

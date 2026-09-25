@@ -96,7 +96,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - Header, TypeList, NodeControlPanel, UnifiedBottomControlPanel, ConnectionControlPanel, AbstractionControlPanel, PieMenu, AbstractionCarousel, and ColorPicker ×3.
 - SettingsModal (54 store subscriptions), HelpModal, MergeThingsModal, StorageSetupModal and GitReconnectModal.
 - Panel has a custom memo comparator (see F-50).
-- → P2
+- → P2. **Header done** (P2.08: one-prop `HeaderHost`, 0 commits in S1/S5/S7).
 
 **F-14. The keyboard listener is torn down and re-added on every render.** VERIFIED. **→ resolved in P1.11 (9e4cdfe)**
 - The `useCanvasKeyboard` keydown effect has about 22 dependencies (`useCanvasKeyboard.js` ~784).
@@ -447,6 +447,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-09 | A self-loop's arrowhead draws at about 80% size during a node drag, then snaps back on drop: `useNodeDrag.js` ~1015 drops `scale(connectionWidth)` (found by P0.05) | **FIXED** 2c9a1e7 (P0.03b). Measured in the browser at 0.80× mid-drag before the fix, 1.00× after. F1b guards it | done |
 | B-10 | After a pinch or drag-pan ends with the finger held still, the final camera isn't saved until the next move. The view-save effect (~9859) drops saves during gestures and has no retry of its own (found by P1.09) | VERIFIED code, INFERRED effect | P3.10 / P4.02 |
 | B-11 | `PanelContentWrapper` read `nodeDefinitionIndices` from graphStore, which has no such field, so a node's Components list always showed its first definition (found by P2.03) | **FIXED** 144d898 (P2.03): reads `canvasUIStore`. F17 fails without the fix | done |
+| B-12 | View → Snap to Grid and View → Grid → Lattice / Dot did nothing: RedstringMenu takes `onSnapToGrid`, `gridAppearance`, `onSetGridAppearance`, but Header never accepted or forwarded them (since 1eca3a8), so Lattice always showed the checkmark (found by P2.08) | **FIXED** 90120ef (P2.08). F19c fails without the fix | done |
 
 ---
 

@@ -122,3 +122,8 @@ This file records calls that nobody should re-argue mid-task.
 - `onFocusChange` went from NodeCanvas through Panel to `PanelContentWrapper`, which never called it, so `isLeftPanelInputFocused` / `isRightPanelInputFocused` were never true.
 - Typing in panel fields was already kept from the canvas by the DOM focus check in `utils/textEntry.js` (F13 covers it). Wiring the flags up would have added a second mechanism for the same job.
 - So the flags, their setters, `handleLeftPanelFocusChange` and every `onFocusChange` prop are gone. `selectIsTextEntryActive` is `isHeaderEditing` only: the header title editor is the one field that reports its focus.
+
+**D-20. UI outside the canvas asks it to act through a command registry, not window events (P2.08).** *Decided (orchestrator, per the P2.08 card), 2026-09-25.*
+- `src/utils/canvas/canvasCommands.js`: NodeCanvas registers named handlers with `useCanvasCommands` while mounted; callers use `runCanvasCommand(name, …args)`. An unregistered command does nothing and returns undefined.
+- Why not callbacks as props: they tie the receiver's renders to NodeCanvas's. Why not new window events: they are global, untyped, and a grep for the handler doesn't find the caller.
+- Existing window events (`redstring:open-federation`, `rs-navigate-to`, …) stay; new canvas actions use commands. State that isn't an action (open flags, selection) goes in a store, not a command.

@@ -13,6 +13,19 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.08 done, with P2.06e and B-12 (Claude, orchestrator)
+
+- **P2.08** (5bce422): Header is wired by `HeaderHost`, a one-prop host that reads the stores itself. Canvas actions go through a new command registry (**D-20**). Header's file operations became `services/universeFileActions.js` (**P2.06e** done).
+  - Header commits: S1/S5/S7 0 (before: one per NodeCanvas render, e.g. 38 in S5). S4 1 and S11 1 (Undo turning on), S13 2 (tab change).
+  - NodeCanvas stopped subscribing to `openGraphIds` (an empty effect was the only reader) and lost a `headerGraphs` check that could never fire.
+  - HeaderHost still renders in NodeCanvas's header slot; App takes the element in P2.11 with the layout.
+- **B-12** found and fixed: View → Snap to Grid and Grid → Lattice / Dot were dead, since Header dropped their props. F19c guards it.
+- Perf harness: rows record commits per host Profiler; the table has a "Hosts (commits)" column.
+- **Integration 5bce422:** `test:ci` PASS (3,547 tests, 68 known, 0 new), Playwright 40 passed (F12 expected), `lint:undef` PASS. NodeCanvas.jsx 18,362 → **17,994**.
+- **Next:** P2.09 (Panels to App): `useActiveGraphNodes`, the hurtle command, the comparator re-check.
+
+---
+
 ## 2026-09-25: P2.02–P2.05 done; wave 3 under way (Claude, orchestrator)
 
 - Wave 2 smoke-tested by Grant and pushed (`main` 4daa4d1). Wave 3 integration starts from it.

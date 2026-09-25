@@ -65,7 +65,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Store subscriptions | `const activeGraphId = useGraphStore` … `hasUniverseFile` | 1426–1529 | narrowed to the active graph; shell-only ones leave with the shell | P3.01, P2 |
 | Universe loading / onboarding / git reconnect | `loadingUniverseName`, `resolveGitReconnectTarget`, `openReconnect`, `retryUniverseLoad`, `openUniversesPanel`, `showStorageSetupModal` | 1537–1564, 2282–2786 | `hosts/UniverseHost` | P2.06c |
 | hydratedNodes | `const hydratedNodes` | 1633 | folded into `nodes` / `useActiveGraphNodes` | P1.08, P2.09 |
-| Header data | `headerGraphs`, `cleanupOrphanedGraphs` effect, `isFullscreen`, `toggleFullscreen`, `trackpadZoomEnabled` | 1757–1914 | Header | P2.08 |
+| Header data | `headerGraphs`, `cleanupOrphanedGraphs` effect, `isFullscreen`, `toggleFullscreen`, `trackpadZoomEnabled` | 1757–1914 | **moved** to `hosts/HeaderHost` (P2.08); `trackpadZoomEnabled` → canvasUIStore. The orphan cleanup effect stays (data hygiene on `nodePrototypes`) | P2.08 |
 | Core derived data | `const nodes = useMemo`, `const edges = useMemo`, `nodeById`, `baseDimsById`, `groupStructure`, mirror refs (`nodeByIdRef`, …) | 2005–2280 | stable identity, then selector hooks | P1.08, P3.01 |
 | Selection + culling state | `selectedInstanceIds`, `visibleNodeIds`, `visibleEdges`, `showNodeHitboxes` | 2162–2175 | UI store / viewport store | P2.02, P3.11 |
 | Clipboard version | `clipboardVersion`, `markClipboardChanged` | 2282 | UI store | P2.03 |
@@ -97,7 +97,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Definition indices | `nodeDefinitionIndices` | 7744 | UI store | P2.03 |
 | Graph-change cleanup + control-panel management | "Graph Change Cleanup", "… Control Panel Management" comments | 7755–7996 | pie machine / control-panel hosts | P5.02, P5.05 |
 | Selection-derived data, group-panel actions | `selectedNodePrototypes`, `nodePrototypesForPanel`, `singleSelectedInstanceId`, `selectedGroupEffectiveColor`, `handleGroupPanel*`, `handleNodeConvertToNodeGroup` | 7997–8287 | control-panel hosts | P5.05 |
-| Abstraction dimensions, bookmark | `handleAbstractionDimensionChange` …, `bookmarkActive`, `handleToggleBookmark` | 8288–8345 | carousel host; Header | P5.04, P2.08 |
+| Abstraction dimensions, bookmark | `handleAbstractionDimensionChange` … (bookmark **moved** to HeaderHost, P2.08) | 8288–8345 | carousel host | P5.04 |
 | Shared gesture refs | `isMouseDown`, `mouseMoved`, `mouseDownPosition`, `startedOnNode`, `mouseInsideNode`, `longPressTimeout`, `ignoreCanvasClick`, `clickTimeoutIdRef`, `potentialClickNodeRef`, `isDoublePress` | 8345–8640 | gesture machine | P4.04 |
 | Instance swap | `performInstanceSwap` | 8739 | prompt hosts | P5.06 |
 | **Pie button builders** | `nodePieMenuPages`, `targetPieMenuButtons`, `decomposePanelInfo`, the pie→state sync effect (~9777) | 8784–9790 | pure builders | P1.10, P5.01 |
@@ -116,13 +116,13 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Panel toggles and focus | `shouldPanelsBeExclusive`, `handleToggleRightPanel`, `handleToggleLeftPanel`, `handleLeftPanelFocusChange` | 13150–13260 | App shell | P2.08–P2.12 |
 | Gamepad glue | "Game controller" comment, the control refs, `useGamepad(` | 13260–13539 | `useGamepadBindings` | P4.07 |
 | Keyboard hook | `useCanvasKeyboard(` (48 parameters) | 13541–13590 | stable listener, fewer parameters | P1.11, P4.09 |
-| Canvas edit + project title | `handleCommitCanvasEdit`, `handleProjectTitleChange`, `handleProjectBioChange` | 13602–13632 | node layer; Header | P3.08, P2.08 |
+| Canvas edit + project bio | `handleCommitCanvasEdit`, `handleProjectBioChange` (title **moved** to HeaderHost, P2.08) | 13602–13632 | node layer | P3.08 |
 | Selection → pie/control-panel effects | effects at ~13690–13840 | 13690–13840 | pie machine | P5.02 |
 | Semantic orbit | `updateOrbitDimRect`, `handleOrbitCandidateHover`, `exitOrbitMode`, `handleOrbitItemClick`, `activateSemanticOrbit` | 13840–14192, ~14650 | orbit module | P5.08 |
 | Hurtle | `hurtleAnimation`, `runHurtleAnimation`, `getHeaderTabTarget`, `startHurtleAnimation`, `startHurtleAnimationFromPanel` | 14192–14417 | `layers/HurtleOrb` + command | P1.06 |
 | Edge pie buttons | `const edgePieMenuButtons = useMemo` | 14431–14575 | pure builder | P5.01 |
 | Node-panel and node-group actions | `handleNodePanelCopy`, `handleNodePanelDuplicate`, `useControlPanelActions(`, `handleNodeGroup*` | 14593–14852 | control-panel hosts / commands | P5.05 |
-| Canvas commands + context menus | `triggerAutoLayout`, `snapToGrid`, `runActiveExport`, `getCanvasContextMenuOptions`, `getContextMenuOptions` | 14853–15251 | `canvasCommands` + menu builders | P2.08, P5.07 |
+| Canvas commands + context menus | `triggerAutoLayout`, `snapToGrid`, `useCanvasCommands({`, `getCanvasContextMenuOptions`, `getContextMenuOptions` | 14853–15251 | commands registered (P2.08); `runActiveExport` → `services/universeFileActions.js`; menu builders | P5.07 |
 | Back to civilization / clustering | `isInitialLoadComplete`, `nodesVisibleInStrictViewport` (dead), `clusterAnalysis`, `relevantNodesVisibleInStrictViewport`, `shouldShowBackToCivilization`, `handleBackToCivilizationClick` | 15262–15525 | leaf component on the viewport store | P3.10 |
 | Misc (text width, …) | `getTextWidth` | 15525–15764 | — | — |
 
@@ -130,7 +130,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 
 | Region | Anchor | ~Lines | Destination | Task |
 |---|---|---|---|---|
-| Shell root + Header, with inline file operations | `className="node-canvas-container"`, `<Header` | 15765–16005 | App shell; file operations → module | P2.06e, P2.08, P2.11 |
+| Shell root + Header slot | `className="node-canvas-container"`, `<HeaderHost` | 15765–16005 | App shell. Header is `<HeaderHost hidden>` (P2.08) and file operations are a module (P2.06e); App takes the element in P2.11 | P2.11 |
 | Left Panel | first `<Panel` | 16006–16024 | App | P2.09 |
 | `.canvas-area` div + its handlers | `className="canvas-area"` | 16026–16052 | stays | — |
 | Loading / error / empty states | `isUniverseLoading ?` | 16053–16256 | `UniverseHost` | P2.06c |
