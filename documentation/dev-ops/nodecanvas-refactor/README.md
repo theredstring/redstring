@@ -141,6 +141,7 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 - Each wave has an integration branch, `refactor/waveN-integration`, checked out at `.claude/worktrees/integration-waveN`.
 - Agents branch from it (see "Step 0" in their prompts) and work on `worktree-agent-<id>`.
 - `main` changes only after Grant smoke-tests. **Grant fast-forwards `main` and pushes. Don't merge to `main` without his OK.**
+- **Grant smoke-tests at phase ends or truly critical points only, not per wave (D-21).** Waves are a merge structure; keep going card to card and verify each one yourself.
 
 **Per finished agent**
 1. **Check scope.**
@@ -156,16 +157,18 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 6. **Build.** `NODE_OPTIONS=--max-old-space-size=4096 npm run build` (CI uses the same heap).
 7. **Fold the report into the docs.** Update the card, FINDINGS, METRICS, MAP, LOG and In flight, then commit on the integration branch.
 
-**Handing a wave to Grant**
-1. Give him a visual smoke-test list covering what changed and what "wrong" looks like.
+**Handing a phase to Grant** (D-21: at the end of a phase, or at a point you truly can't verify yourself or that needs his decision)
+1. Give him one visual smoke-test list covering everything since his last smoke test, and what "wrong" looks like.
 2. He smoke-tests, then fast-forwards `main` to the integration branch and pushes.
-3. Start the next wave's integration branch from the new `main`.
+3. Between smoke tests, start each new wave's integration branch from the previous one.
 
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
-**In flight** (edit this when you claim or finish a task). Wave 4 is `refactor/wave4-integration`, based on wave 3 (1c15fc7):
-- ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)
+**In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). Next smoke test: end of P2.
 - Next: P2.11 (App layout), the rest of P2.06, P2.03b, P2.03c, P2.07, P2.12, P2.13
+
+Wave 4 (smoke-tested by Grant), based on wave 3:
+- ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)
 
 Wave 3 (smoke-tested by Grant; `main` fast-forwards to 1c15fc7), based on 4daa4d1:
 - ~~Lane A: P2.02~~ (f29b9f0), ~~P2.03 (+ B-08, B-11)~~ (4fbb562), ~~P2.04 (D-19)~~ (2d4c315), ~~P2.05~~ (87f11e7), ~~P2.08 (+ P2.06e, B-12; D-20)~~ (5bce422)

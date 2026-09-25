@@ -127,3 +127,8 @@ This file records calls that nobody should re-argue mid-task.
 - `src/utils/canvas/canvasCommands.js`: NodeCanvas registers named handlers with `useCanvasCommands` while mounted; callers use `runCanvasCommand(name, …args)`. An unregistered command does nothing and returns undefined.
 - Why not callbacks as props: they tie the receiver's renders to NodeCanvas's. Why not new window events: they are global, untyped, and a grep for the handler doesn't find the caller.
 - Existing window events (`redstring:open-federation`, `rs-navigate-to`, …) stay; new canvas actions use commands. State that isn't an action (open flags, selection) goes in a store, not a command.
+
+**D-21. Smoke tests at phase ends only (or truly critical points).** *Decided (Grant: "i think i'm being offered to smoke test too much. i want to do this faster personally but idc how long you do it."), 2026-09-25.*
+- Grant smoke-tests at the end of each phase, or when something can't be verified without him or needs his decision (e.g. P5.02a). Not at the end of each wave.
+- Between smoke tests the orchestrator verifies each card itself (tests, Playwright, targeted perf, screenshots where visuals can change) and keeps going.
+- `main` still moves only when Grant fast-forwards it after a smoke test.
