@@ -947,22 +947,6 @@ const LeftAIView = ({ compact = false,
     return lines.join('\n');
   }, [contextUsage, costBreakdown]);
 
-  const [fileStatus, setFileStatus] = React.useState(null);
-  React.useEffect(() => {
-    let mounted = true;
-    const fetchFileStatus = async () => {
-      try {
-        const mod = fileStorage;
-        if (typeof mod.getFileStatus === 'function') {
-          const status = mod.getFileStatus();
-          if (mounted) setFileStatus(status);
-        }
-      } catch { }
-    };
-    fetchFileStatus();
-    const t = setInterval(fetchFileStatus, 3000);
-    return () => { mounted = false; clearInterval(t); };
-  }, []);
 
   // Auto-sync context chips with active graph
   React.useEffect(() => {
