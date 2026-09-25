@@ -1,10 +1,11 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
-import PropTypes from 'prop-types';
 import './TypeList.css';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from './constants';
 import NodeType from './NodeType'; // Import NodeType
 import EdgeType from './EdgeType'; // Import EdgeType
 import useGraphStore from './store/graphStore.js';
+import useCanvasUIStore from './store/canvasUIStore.js';
+import { useStableSelector, shallowArrayEqual, arrayOfRecordsEqual } from './hooks/useStableSelector.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 // Placeholder icons (replace with actual icons later)
 import { ChevronUp, Tag, Share2, LayoutGrid } from 'lucide-react';
@@ -15,7 +16,81 @@ import { useTheme } from './hooks/useTheme.js';
 const TOGGLE_IDLE_DELAY_MS = 1000;
 const TOGGLE_IDLE_OPACITY = 0.3;
 
-const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
+// What the list shows, derived from the active web without its positions
+// (P2.10). `graphs` is a new Map on every node move; these selectors, with their
+// equality checks, keep a move from re-rendering the list.
+
+// The footer's source colour: the active web's defining node (as Header does).
+const selectFooterNodeColor = (state) => {
+  const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
+  if (!activeGraph) return null;
+  const definingNodeId = activeGraph.definingNodeIds?.[0];
+  const definingNode = definingNodeId ? state.nodePrototypes.get(definingNodeId) : null;
+  return definingNode?.color || activeGraph.color || NODE_DEFAULT_COLOR;
+};
+
+// The type nodes used on the active web; the base "Thing" when there are none.
+const selectAvailableTypeNodes = (state) => {
+  const usedTypeIds = new Set();
+  const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
+  if (activeGraph?.instances) {
+    for (const instance of activeGraph.instances.values()) {
+      const prototype = state.nodePrototypes.get(instance.prototypeId);
+      if (prototype?.typeNodeId) usedTypeIds.add(prototype.typeNodeId);
+    }
+  }
+  const typeNodes = Array.from(usedTypeIds)
+    .map(id => state.nodePrototypes.get(id))
+    .filter(Boolean);
+  if (typeNodes.length > 0) return typeNodes;
+  const baseThing = state.nodePrototypes.get('base-thing-prototype');
+  return baseThing ? [baseThing] : [];
+};
+
+// Every node instance on the active web, by name.
+const selectAvailableComponents = (state) => {
+  const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
+  if (!activeGraph?.instances) return [];
+  return Array.from(activeGraph.instances.values())
+    .map(instance => {
+      const prototype = state.nodePrototypes.get(instance.prototypeId);
+      if (!prototype) return null;
+      return {
+        instanceId: instance.id,
+        prototypeId: instance.prototypeId,
+        name: prototype.name,
+        color: prototype.color,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
+};
+const sameComponents = arrayOfRecordsEqual(['instanceId', 'prototypeId', 'name', 'color']);
+
+// The connection types used on the active web; the base "Connection" when there
+// are none. Connection types are node prototypes (edge.definitionNodeIds) or,
+// for edges created through the store, edge prototypes (edge.typeNodeId).
+const selectAvailableConnectionTypes = (state) => {
+  const usedConnectionTypeIds = new Set();
+  const activeGraph = state.activeGraphId ? state.graphs.get(state.activeGraphId) : null;
+  for (const edgeId of activeGraph?.edgeIds || []) {
+    const edge = state.edges.get(edgeId);
+    if (!edge) continue;
+    if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
+      edge.definitionNodeIds.forEach(nodeId => usedConnectionTypeIds.add(nodeId));
+    } else if (edge.typeNodeId) {
+      usedConnectionTypeIds.add(edge.typeNodeId);
+    }
+  }
+  const connectionTypes = Array.from(usedConnectionTypeIds)
+    .map(id => state.nodePrototypes.get(id) || state.edgePrototypes.get(id))
+    .filter(Boolean);
+  if (connectionTypes.length > 0) return connectionTypes;
+  const baseConnectionPrototype = state.edgePrototypes.get('base-connection-prototype');
+  return baseConnectionPrototype ? [baseConnectionPrototype] : [];
+};
+
+const TypeList = () => {
   const theme = useTheme();
   // Use shared state from store for TypeList mode
   const mode = useGraphStore((state) => state.typeListMode);
@@ -47,45 +122,22 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
     localStorage.setItem('redstring_typelist_mode', mode);
   }, [mode]);
 
-  // Get store data for finding type nodes and edges
-  const activeGraphId = useGraphStore((state) => state.activeGraphId);
-  const graphsMap = useGraphStore((state) => state.graphs);
-  const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
-  const edgePrototypesMap = useGraphStore((state) => state.edgePrototypes);
-  const edgesMap = useGraphStore((state) => state.edges);
-  const setNodeTypeAction = useGraphStore((state) => state.setNodeType);
-
-  // Derive footer colors from defining node's color (matching Header.jsx headerGraphs pattern)
+  const footerNodeColor = useGraphStore(selectFooterNodeColor);
   const headerBg = useMemo(() => {
-    const fallbackBg = '#260000';
-    if (!activeGraphId) return fallbackBg;
-
-    const activeGraph = graphsMap.get(activeGraphId);
-    if (!activeGraph) return fallbackBg;
-
-    // Header.jsx derives color from the defining node prototype, not graph.color
-    const definingNodeId = activeGraph.definingNodeIds?.[0];
-    const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
-    const nodeColor = definingNode?.color || activeGraph.color || NODE_DEFAULT_COLOR;
-
-    const { h, s } = hexToHsl(nodeColor);
+    if (!footerNodeColor) return '#260000';
+    const { h, s } = hexToHsl(footerNodeColor);
     return hslToHex(h, Math.min(s, 100), 7.5);
-  }, [activeGraphId, graphsMap, nodePrototypesMap]);
+  }, [footerNodeColor]);
 
   const footerHeaderText = useMemo(() => {
     return getTextColor(headerBg, theme.darkMode);
   }, [headerBg, theme.darkMode]);
-  
+
   // Ensure base "Thing" prototype exists (side effect, must be in useEffect)
+  const hasBaseThingPrototype = useGraphStore(state => state.nodePrototypes.has('base-thing-prototype'));
   useEffect(() => {
-    const hasBaseThingPrototype = Array.from(nodePrototypesMap.values())
-      .some(prototype => prototype.id === 'base-thing-prototype');
-    
     if (!hasBaseThingPrototype) {
-      // console.log(`[TypeList] Base "Thing" prototype missing, creating it...`);
-      // Create the missing base "Thing" prototype
-      const storeActions = useGraphStore.getState();
-      storeActions.addNodePrototype({
+      useGraphStore.getState().addNodePrototype({
         id: 'base-thing-prototype',
         name: 'Thing',
         description: 'The base type for all things. Things are nodes, ideas, nouns, concepts, objects, whatever you want them to be. They will always be at the bottom of the abstraction stack. They are the "atoms" of your Redstring universe.',
@@ -94,143 +146,46 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
         definitionGraphIds: []
       });
     }
-  }, [nodePrototypesMap]);
+  }, [hasBaseThingPrototype]);
 
-  // Get the type nodes available for the current active graph
-  const availableTypeNodes = useMemo(() => {
-    
-    const usedTypeIds = new Set();
-    
-    // If there's an active graph with instances, collect types being used
-    if (activeGraphId) {
-      const activeGraph = graphsMap.get(activeGraphId);
-      if (activeGraph && activeGraph.instances) {
-        const instances = Array.from(activeGraph.instances.values());
-        // For each instance, get its prototype and collect the types being used
-        instances.forEach(instance => {
-          const prototype = nodePrototypesMap.get(instance.prototypeId);
-          if (prototype && prototype.typeNodeId) {
-            usedTypeIds.add(prototype.typeNodeId);
-          }
-        });
-      }
-    }
-    
-    // Get the actual prototype objects for the used types
-    let typeNodes = Array.from(usedTypeIds)
-      .map(id => nodePrototypesMap.get(id))
-      .filter(Boolean);
-      
-    // If no specific types are used (or no active graph), include base types
-    if (typeNodes.length === 0) {
-      const baseThing = nodePrototypesMap.get('base-thing-prototype');
-      typeNodes = baseThing ? [baseThing] : [];
-    }
-    
-    return typeNodes;
-  }, [activeGraphId, graphsMap, nodePrototypesMap]);
-
-  // Get all component nodes (instances) for the current active graph
-  const availableComponents = useMemo(() => {
-    if (!activeGraphId) return [];
-
-    const activeGraph = graphsMap.get(activeGraphId);
-    if (!activeGraph || !activeGraph.instances) return [];
-
-    return Array.from(activeGraph.instances.values())
-      .map(instance => {
-        const prototype = nodePrototypesMap.get(instance.prototypeId);
-        if (!prototype) return null;
-        return {
-          instanceId: instance.id,
-          prototypeId: instance.prototypeId,
-          name: prototype.name,
-          color: prototype.color,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [activeGraphId, graphsMap, nodePrototypesMap]);
-
-  // Get the connection types available for the current active graph
-  const availableConnectionTypes = useMemo(() => {
-    const usedConnectionTypeIds = new Set();
-    
-    // If there's an active graph with edges, collect connection types being used
-    if (activeGraphId) {
-      const activeGraph = graphsMap.get(activeGraphId);
-      if (activeGraph && activeGraph.edgeIds) {
-        activeGraph.edgeIds.forEach(edgeId => {
-          const edge = edgesMap.get(edgeId);
-          if (edge) {
-            // Check definitionNodeIds first, then fallback to typeNodeId
-            if (edge.definitionNodeIds && edge.definitionNodeIds.length > 0) {
-              // Connection types are stored as node prototypes referenced by definitionNodeIds
-              edge.definitionNodeIds.forEach(nodeId => {
-                usedConnectionTypeIds.add(nodeId);
-              });
-            } else if (edge.typeNodeId) {
-              // Fallback to typeNodeId (for edges created through the store)
-              usedConnectionTypeIds.add(edge.typeNodeId);
-            }
-          }
-        });
-      }
-    }
-    
-    // Get the actual connection type prototypes
-    let connectionTypes = Array.from(usedConnectionTypeIds)
-      .map(id => {
-        // Try both nodePrototypesMap (for definitionNodeIds) and edgePrototypesMap (for typeNodeId)
-        return nodePrototypesMap.get(id) || edgePrototypesMap.get(id);
-      })
-      .filter(Boolean);
-      
-    // If no specific connection types are used, show the base Connection type
-    if (connectionTypes.length === 0) {
-      // Check if base "Connection" prototype exists
-      const baseConnectionPrototype = edgePrototypesMap.get('base-connection-prototype');
-      if (baseConnectionPrototype) {
-        connectionTypes = [baseConnectionPrototype];
-      }
-    }
-    
-    return connectionTypes;
-  }, [activeGraphId, graphsMap, nodePrototypesMap, edgesMap]);
+  const availableTypeNodes = useStableSelector(useGraphStore, selectAvailableTypeNodes, shallowArrayEqual);
+  const availableComponents = useStableSelector(useGraphStore, selectAvailableComponents, sameComponents);
+  const availableConnectionTypes = useStableSelector(useGraphStore, selectAvailableConnectionTypes, shallowArrayEqual);
 
   const handleNodeTypeClick = (nodeType) => {
+    const { selectedInstanceIds, setSelectedInstanceIds } = useCanvasUIStore.getState();
+    const store = useGraphStore.getState();
     // If there are selected nodes, set their type to the clicked node type
-    if (selectedNodes.size > 0) {
-      selectedNodes.forEach(nodeId => {
+    if (selectedInstanceIds.size > 0) {
+      selectedInstanceIds.forEach(nodeId => {
         // Don't allow a node to be typed by itself or change the base Thing prototype
         if (nodeId !== nodeType.id && nodeId !== 'base-thing-prototype') {
-          setNodeTypeAction(nodeId, nodeType.id);
+          store.setNodeType(nodeId, nodeType.id);
         }
       });
-      // console.log(`Set type of ${selectedNodes.size} nodes to ${nodeType.name}`);
     } else {
       // If no nodes are selected, select all nodes of this type
-      const nodesOfType = nodes.filter(node => {
-        // Find the prototype for this node instance
-        const prototype = nodePrototypesMap.get(node.prototypeId);
-        return prototype?.typeNodeId === nodeType.id;
-      });
-      const nodeIds = nodesOfType.map(node => node.id);
-      setSelectedNodes(new Set(nodeIds));
-      // console.log(`Selected ${nodeIds.length} nodes of type ${nodeType.name}`);
+      const instances = store.graphs.get(store.activeGraphId)?.instances;
+      const nodeIds = instances
+        ? Array.from(instances.values())
+          .filter(instance => store.nodePrototypes.get(instance.prototypeId)?.typeNodeId === nodeType.id)
+          .map(instance => instance.id)
+        : [];
+      setSelectedInstanceIds(new Set(nodeIds));
     }
   };
 
   const handleComponentClick = (component) => {
     // Select the instance node on the canvas. Don't open the right panel —
     // double-tapping the node on canvas is how you open it.
-    setSelectedNodes(new Set([component.instanceId]));
+    useCanvasUIStore.getState().setSelectedInstanceIds(new Set([component.instanceId]));
   };
 
   const handleEdgeTypeClick = (edgeType) => {
     // Find all edges of this type in the current graph
     const edgesOfType = [];
-    
+    const { activeGraphId, graphs: graphsMap, edges: edgesMap } = useGraphStore.getState();
+
     if (activeGraphId) {
       const activeGraph = graphsMap.get(activeGraphId);
       if (activeGraph && activeGraph.edgeIds) {
@@ -513,10 +468,5 @@ const TypeList = ({ nodes, setSelectedNodes, selectedNodes = new Set() }) => {
   );
 };
 
-TypeList.propTypes = {
-  nodes: PropTypes.array.isRequired,
-  setSelectedNodes: PropTypes.func.isRequired,
-  selectedNodes: PropTypes.instanceOf(Set)
-};
 
 export default TypeList;

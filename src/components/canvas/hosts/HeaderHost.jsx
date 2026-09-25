@@ -1,9 +1,10 @@
-import React, { Profiler, memo, useCallback, useRef, useSyncExternalStore } from 'react';
+import React, { Profiler, memo, useSyncExternalStore } from 'react';
 import Header from '../../../Header.jsx';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { runCanvasCommand } from '../../../utils/canvas/canvasCommands.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
+import { useStableSelector, arrayOfRecordsEqual } from '../../../hooks/useStableSelector.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
 import { EXCLUSIVE_PANEL_MODE_THRESHOLD, NODE_DEFAULT_COLOR } from '../../../constants';
 import {
@@ -50,24 +51,9 @@ function selectHeaderGraphs(state) {
   return tabs;
 }
 
-const sameHeaderGraphs = (a, b) => a.length === b.length && a.every((tab, i) => {
-  const other = b[i];
-  return tab.id === other.id && tab.name === other.name && tab.color === other.color
-    && tab.isActive === other.isActive && tab.definingNodeId === other.definingNodeId;
-});
-
-// The tabs, as a value that only changes when a tab does. `graphs` is a new Map
-// on every node move, so selecting straight from it would re-render the header
-// on every drag frame.
-function useHeaderGraphs() {
-  const lastRef = useRef(null);
-  return useGraphStore(useCallback((state) => {
-    const next = selectHeaderGraphs(state);
-    if (lastRef.current && sameHeaderGraphs(lastRef.current, next)) return lastRef.current;
-    lastRef.current = next;
-    return next;
-  }, []));
-}
+// The tabs change only when a tab does. `graphs` is a new Map on every node
+// move, so without the equality check the header re-rendered every drag frame.
+const sameHeaderGraphs = arrayOfRecordsEqual(['id', 'name', 'color', 'isActive', 'definingNodeId']);
 
 const selectBookmarkActive = (state) => {
   const definingNodeId = state.graphs.get(state.activeGraphId)?.definingNodeIds?.[0];
@@ -132,7 +118,7 @@ const handleExportTxt = exportAs('txt');
 const handleExportTtl = exportAs('ttl');
 
 function HeaderHost({ hidden = false }) {
-  const headerGraphs = useHeaderGraphs();
+  const headerGraphs = useStableSelector(useGraphStore, selectHeaderGraphs, sameHeaderGraphs);
   const bookmarkActive = useGraphStore(selectBookmarkActive);
   const isExclusivePanelMode = useSyncExternalStore(subscribeResize, getExclusivePanelMode);
   const isFullscreen = useSyncExternalStore(subscribeFullscreen, getIsFullscreen);
