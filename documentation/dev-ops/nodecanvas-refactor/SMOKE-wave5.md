@@ -65,6 +65,9 @@ Items marked **★** changed the most, or can't be exercised by the flows at all
 24. **Back to Civilization.** Pan into empty space and the pill appears; clicking it brings the nodes back.
 25. **Hurtle** into a definition graph from the panel and from the pie. The orb should be sized to the zoom.
 26. **Node ↔ node-group.** Convert a node into a node-group. Double-click a group title to rename it; the tab should grow with the text.
+26b. **Plus sign → pick an existing Thing** (not typing a new one). It morphs into that Thing, with its image if it has one.
+26c. **Diving into a node-group's definition** from its control panel.
+26d. **Wizard entry points** (Ask the Wizard from the pie, the edge pie and the canvas menu) open the right wizard surface.
 
 ## Grid, groups, deletion (P3.09, P3.03a, P2.07)
 27. **Grid:** always, and while moving; lattice and dots; a size change; the grid inside node-groups.
