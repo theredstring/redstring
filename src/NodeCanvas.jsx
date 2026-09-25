@@ -6,15 +6,13 @@ import { useCanvasWorker } from './useCanvasWorker.js';
 import { setActionHover } from './utils/canvas/actionHover.js';
 import { getNodeDimensions } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
-import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
-import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT } from './utils/colorUtils.js';
-import { analyzeNodeDistribution } from './utils/clusterAnalysis.js';
+import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom } from './services/labelSpriteCache.js';
+import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from './utils/colorUtils.js';
 import { useDrop } from 'react-dnd';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
-import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import {
   buildChildGroupIdsIndex,
   buildParentGroupIdsIndex,
@@ -53,7 +51,6 @@ import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
 import { placeOrbitCandidate } from './components/canvas/orbit/orbitActions.js';
 import { startHurtle, startHurtleFromPanelWith } from './components/canvas/camera/hurtle.js';
-import { backToCivilization } from './components/canvas/camera/backToCivilization.js';
 import { convertNodeToNodeGroup } from './components/canvas/actions/nodeGroupConversion.js';
 import { computeCleanLaneOffsets } from './utils/canvas/cleanLaneOffsets.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
@@ -66,7 +63,7 @@ import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.js
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
 import {
 } from './wizard/prompts/intentPrompts.js';
-import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
+import useImageCache from './services/imageCache.js';
 
 import { getAppViewportSize } from './utils/appViewport.js';
 import {
@@ -107,7 +104,6 @@ import { restoreUniverseOnMount } from './components/canvas/actions/universeRest
 import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
 import { runConnectionEdgePan, writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
 import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect, fitOrbitInView } from './components/canvas/orbit/orbitData.js';
-import { computeShouldShowBackToCivilization, computeRelevantNodesVisible } from './components/canvas/data/backToCivilization.js';
 import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
 import { resolveStoreActions } from './components/canvas/data/storeActions.js';
 import PromptsHost from './components/canvas/hosts/PromptsHost.jsx';
@@ -116,6 +112,7 @@ import { edgeHitboxHandlersFor, edgeTouchHandlersFor, commitEdgeTouchWith, resol
 import { handlePieCommandWith } from './components/canvas/pie/pieCommands.js';
 import { rebuildPieMenuDataWith } from './components/canvas/pie/pieData.js';
 import { finishPlusSignMorph, finishVideoAnimation } from './components/canvas/actions/plusSignMorph.js';
+import { useActiveGraphData } from './components/canvas/data/activeGraphData.js';
 import EmptyWebPrompt from './components/canvas/layers/EmptyWebPrompt.jsx';
 import CanvasChrome from './components/canvas/layers/CanvasChrome.jsx';
 import CanvasHud from './components/canvas/layers/CanvasHud.jsx';
@@ -125,16 +122,12 @@ import ConnectionDrawOverlay from './components/canvas/layers/ConnectionDrawOver
 import HitboxDebugLayer from './components/canvas/layers/HitboxDebugLayer.jsx';
 import OrbitLayers from './components/canvas/orbit/OrbitLayers.jsx';
 import PieMenusLayer from './components/canvas/layers/PieMenusLayer.jsx';
+import { useAutoLayoutListener } from './components/canvas/actions/autoLayoutListener.js';
+import { useBackToCivilization } from './components/canvas/data/backToCivilization.js';
+import { useTransformWiring } from './components/canvas/camera/transformWiring.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-
-// How long to keep connection labels down after a node drag ends, covering the
-// drag-zoom restore animation. useNodeDrag's DRAG_ZOOM_ANIMATION_DURATION is
-// 250ms; the margin absorbs the frame the animation finishes on. Releasing at
-// the drop instead would fade the labels back in over a running zoom, which is
-// the one moment with no budget for it.
-const DRAG_ZOOM_RESTORE_HOLD_MS = 300;
 
 
 
@@ -560,175 +553,10 @@ function NodeCanvas() {
   const loadingImagesMap = usePickedEntries(useImageCache, 'loading', activeProtoIds);
   const failedImagesMap = usePickedEntries(useImageCache, 'failed', activeProtoIds);
 
-  // Repair node-groups missing their anchor instance. Node-groups need an anchor (the
-  // invisible instance edges connect to) to be a usable connection target. Legacy files,
-  // and groups created via paths that set linkedNodePrototypeId without minting an anchor,
-  // load without one — making them impossible to connect from/to. ensureGroupAnchor is
-  // idempotent, so this settles after a single pass per graph.
-  useEffect(() => {
-    if (!activeGraphId || !activeGraph?.groups) return;
-    const brokenGroupIds = [];
-    activeGraph.groups.forEach((group, groupId) => {
-      if (!group.linkedNodePrototypeId) return;
-      if (!group.anchorInstanceId || !activeGraphInstances?.has(group.anchorInstanceId)) {
-        brokenGroupIds.push(groupId);
-        return;
-      }
-      // A memberless node-group with no frozen shell origin lays out to ok:false, so the
-      // shell is skipped — and its anchor is hidden from the node layer for being an
-      // anchor, leaving the Thing with nothing on canvas at all. ensureGroupAnchor seeds
-      // the origin on its idempotent path; see seedEmptyPlaceholderOrigin.
-      const hasMember = (group.memberInstanceIds || []).some(id => activeGraphInstances?.has(id));
-      if (!hasMember && !group.emptyPlaceholderOrigin) {
-        brokenGroupIds.push(groupId);
-      }
-    });
-    if (brokenGroupIds.length === 0) return;
-    brokenGroupIds.forEach(groupId => storeActions.ensureGroupAnchor(activeGraphId, groupId));
-  }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
-
-  // Sweep the reverse case: anchor instances left holding the flag with no group that
-  // names them back — the group is gone, it anchors a different instance now, or the
-  // anchorForGroupId was lost. All three are hidden from rendering unconditionally, so
-  // without this they stay invisible-but-connected indefinitely (visible only while
-  // singly selected, which takes a render path that doesn't check the flag).
-  useEffect(() => {
-    if (!activeGraphId || !activeGraphInstances) return;
-    let hasOrphan = false;
-    for (const inst of activeGraphInstances.values()) {
-      if (!inst.isGroupAnchor) continue;
-      const group = inst.anchorForGroupId ? activeGraph?.groups?.get(inst.anchorForGroupId) : null;
-      if (!group || group.anchorInstanceId !== inst.id) {
-        hasOrphan = true;
-        break;
-      }
-    }
-    if (!hasOrphan) return;
-    storeActions.cleanupOrphanedGroupAnchors(activeGraphId);
-  }, [activeGraphId, activeGraph?.groups, activeGraphInstances, storeActions]);
-
-  // Hydrated nodes for the active graph: prototype + cached image + instance, nothing
-  // derived (unlike `nodes`) and never stale. An object is reused only when its
-  // instance, prototype and cache entry are the same objects (Immer keeps untouched ones).
-  const hydratedPrevRef = useRef({ byId: new Map(), list: [] });
-  const hydratedNodes = useMemo(() => {
-    if (!activeGraphId || !activeGraphInstances || !nodePrototypesMap) return [];
-    const prev = hydratedPrevRef.current;
-    const byId = new Map(), list = [];
-    for (const [id, instance] of activeGraphInstances) {
-      const prototype = nodePrototypesMap.get(instance.prototypeId);
-      if (!prototype) continue;
-      const cached = imageCacheMap[instance.prototypeId]; // auto-enriched thumbnails live outside the store
-      const was = prev.byId.get(id);
-      const node = (was && was.instance === instance && was.prototype === prototype && was.cached === cached)
-        ? was.node
-        : { ...prototype, ...((cached && !prototype.thumbnailSrc) ? { thumbnailSrc: cached.thumbnailSrc, imageAspectRatio: cached.imageAspectRatio } : {}), ...instance };
-      byId.set(id, { instance, prototype, cached, node });
-      list.push(node);
-    }
-    const same = prev.list.length === list.length && list.every((n, i) => n === prev.list[i]);
-    hydratedPrevRef.current = { byId, list: same ? prev.list : list };
-    return same ? prev.list : list;
-  }, [activeGraphId, activeGraphInstances, nodePrototypesMap, imageCacheMap]);
-
-  // Reconcile the image cache against the prototypes of the active graph.
-  //
-  // imageCache is never saved, so the Wikipedia URL in semanticMetadata is the
-  // source of truth and the cache is derived from it. This keeps the two in
-  // sync in BOTH directions:
-  //   - URL present, nothing cached  → fetch it (file load, undo of a deletion)
-  //   - URL gone, something cached   → drop it (redo of a deletion)
-  // Running this only on activeGraphId meant undo restored the URL but nothing
-  // re-fetched, so a deleted image stayed missing from the canvas until reload.
-  // Driving it off nodePrototypesMap instead catches every path that changes an
-  // image — undo, redo, jumpTo, wizard edits — rather than enumerating them.
-  //
-  // Depending on nodePrototypesMap does NOT loop the way depending on
-  // imageCacheMap would: setImage changes only the cache, which this effect no
-  // longer reads reactively, so the write cannot retrigger the effect.
-  // OPTIMIZED: Only touch prototypes actually used in the active graph.
-  useEffect(() => {
-    if (!nodePrototypesMap || !activeGraphInstances) return;
-    const cache = useImageCache.getState();
-    // Build set of prototype IDs in the active graph
-    const activeProtoIds = new Set();
-    for (const instance of activeGraphInstances.values()) {
-      activeProtoIds.add(instance.prototypeId);
-    }
-    for (const protoId of activeProtoIds) {
-      const proto = nodePrototypesMap.get(protoId);
-      if (!proto) continue;
-      // A user-uploaded image lives in the main store and wins outright; the
-      // cache is not involved, so leave whatever it holds alone.
-      if (proto.thumbnailSrc) continue;
-
-      const thumbUrl = proto.semanticMetadata?.wikipediaThumbnail;
-      const cached = cache.getImage(protoId);
-
-      if (thumbUrl && !cached) {
-        const ratio = proto.semanticMetadata.imageAspectRatio || 1;
-        queueThumbnailFetch(protoId, thumbUrl, ratio, proto.name || '');
-      } else if (!thumbUrl && cached) {
-        // The graph no longer references an image, but the canvas renders
-        // whatever the cache holds — without this the image survives the redo.
-        cancelThumbnailFetch(protoId);
-      }
-    }
-  }, [nodePrototypesMap, activeGraphInstances]);
-
-  useEffect(() => {
-    if (!activeGraphId || !graphsMap || typeof graphsMap?.has !== 'function') return;
-    if (graphsMap.has(activeGraphId)) return;
-    if (!storeActions || typeof storeActions.createGraphWithId !== 'function') return;
-
-    let fallbackName = 'New Thing';
-    let fallbackDescription = '';
-    let fallbackColor = NODE_DEFAULT_COLOR;
-
-    if (nodePrototypesMap && typeof nodePrototypesMap.values === 'function') {
-      for (const prototype of nodePrototypesMap.values()) {
-        if (!prototype) continue;
-        const definitionGraphIds = Array.isArray(prototype.definitionGraphIds)
-          ? prototype.definitionGraphIds
-          : Array.isArray(prototype.definitionGraphs)
-            ? prototype.definitionGraphs
-            : [];
-        if (definitionGraphIds.includes(activeGraphId)) {
-          if (prototype.name) {
-            fallbackName = prototype.name;
-          }
-          if (prototype.description) {
-            fallbackDescription = prototype.description;
-          }
-          if (prototype.color) {
-            if (typeof prototype.color === 'string') {
-              fallbackColor = prototype.color;
-            } else if (typeof prototype.color === 'object') {
-              if (typeof prototype.color.hex === 'string' && prototype.color.hex.trim()) {
-                fallbackColor = prototype.color.hex;
-              } else if (typeof prototype.color.toString === 'function') {
-                const colorString = prototype.color.toString();
-                if (typeof colorString === 'string' && colorString.trim()) {
-                  fallbackColor = colorString;
-                }
-              }
-            }
-          }
-          break;
-        }
-      }
-    }
-
-    try {
-      storeActions.createGraphWithId(activeGraphId, {
-        name: fallbackName,
-        description: fallbackDescription,
-        color: fallbackColor,
-      });
-    } catch (error) {
-      console.warn('[NodeCanvas] Failed to auto-create graph canvas for', activeGraphId, error);
-    }
-  }, [activeGraphId, graphsMap, nodePrototypesMap, storeActions]);
+  const { hydratedNodes } = useActiveGraphData({
+    activeGraph, activeGraphId, activeGraphInstances, graphsMap, imageCacheMap, nodePrototypesMap,
+    storeActions,
+  });
 
   // <<< Universe File Loading >>>
   useEffect(() => restoreUniverseOnMount({ storeActions }), []); // Run once on mount
@@ -1587,153 +1415,11 @@ function NodeCanvas() {
     baseDimsByIdRef, nodeByIdRef,
   }, ...args), [isViewMovingRef]); // Refs only — the one dep is a ref OBJECT, so identity stays stable forever.
 
-  // Wire runCulling into the transform hook so pan/zoom mutations trigger culling
-  // synchronously (without waiting for settled-state debounce).
-  // Depend on the underlying ref object (stable across renders), NOT `transform`
-  // itself (which is a fresh object literal each render).
-  //
-  // When culling is disabled the visible set is static w.r.t. pan/zoom, so we
-  // skip runCulling on transform changes and fire only the glow update. The
-  // reactive effect below still invokes runCulling on data changes.
-  const onTransformChangeRef = transform.onTransformChangeRef;
-  useEffect(() => {
-    const base = ENABLE_CULLING ? runCulling : () => { glowUpdateRef.current?.(); };
-    onTransformChangeRef.current = () => {
-      // Every pan/zoom write funnels through here, whatever drove it — the one
-      // place that can answer "is the view moving right now?" for touch.
-      sampleViewMotion();
-      base();
-      // Notify fixed-position overlays that anchor to live on-screen node
-      // coordinates (e.g. AbstractionCarousel). Pan/zoom write the DOM transform
-      // directly and only update settledPan/settledZoom ~150ms after the
-      // interaction stops, so these overlays must re-anchor off this signal to
-      // track the canvas live instead of jumping once panning settles.
-      if (typeof window !== 'undefined') {
-        // Carries the live zoom so listeners can tell a zoom from a pan — the
-        // orbit overlay holds its animation longer for zooms, since zoom
-        // arrives in discrete steps and it should stay still across the whole
-        // interaction rather than waking up between them. Plain Event
-        // listeners are unaffected; they simply ignore the detail.
-        window.dispatchEvent(new CustomEvent('canvas-transform-change', {
-          detail: { zoom: zoomLevelRef.current },
-        }));
-      }
-    };
-    return () => { onTransformChangeRef.current = null; };
-  }, [onTransformChangeRef, runCulling, sampleViewMotion]);
-
-  // Tell the transform layer when NOT to drop the connection labels for a move.
-  //
-  // Two independent reasons to leave them up, both funnelled through the one
-  // predicate the transform layer reads.
-  //
-  // The camera is being ANIMATED rather than driven by hand. `isAnimatingZoomRef`
-  // is already exactly this signal: the drag lift's zoom-out, its restore on
-  // release, and animateCanvasView (orbit fit, decompose framing) all raise it,
-  // and every one of those is a short move to a target that was known before it
-  // started — nothing accumulates, so there is nothing to protect against.
-  //
-  // Or the user has said not to, via `connectionLabelMoveFade`. 'large' reads
-  // the same visible-edge count every other label budget reads, so it tracks
-  // what is ON SCREEN rather than how big the universe is.
-  //
-  // Read through refs rather than closed over: this predicate runs on the
-  // per-frame transform path, and re-assigning it on every settings change or
-  // culling commit would re-run the effect far more often than the signal
-  // actually changes. The count comes from `visibleEdgesRef`, which runCulling
-  // writes synchronously, rather than from the settled React state — a gesture
-  // that pulls a crowd of edges into view should be gated on what is on screen
-  // NOW. See LABEL SUPPRESSION in useCanvasTransform.
-  const moveFadeModeRef = useRef(connectionLabelMoveFade);
-  moveFadeModeRef.current = connectionLabelMoveFade;
-
-  // Does the setting want the labels faded at all right now? Shared by both
-  // paths — the view-gesture predicate below and the node-drag hold after it —
-  // so a drag can never fade labels the settings say to leave alone.
-  const shouldFadeLabelsRef = useRef(null);
-  shouldFadeLabelsRef.current = () => {
-    const mode = moveFadeModeRef.current;
-    if (mode === 'off') return false;
-    if (mode === 'large') {
-      return (visibleEdgesRef.current?.length ?? 0) >= CONNECTION_LABEL_MOVE_FADE_MIN_COUNT;
-    }
-    return true;
-  };
-
-  const isProgrammaticMoveRef = transform.isProgrammaticMoveRef;
-  useEffect(() => {
-    isProgrammaticMoveRef.current = () => {
-      if (!shouldFadeLabelsRef.current()) return true;
-      // The controller's aim drift is a short, bounded camera move like the
-      // others here, so it gets the same exemption — but through its own flag,
-      // never by borrowing isAnimatingZoomRef.
-      return isAnimatingZoomRef.current === true || gamepadDriftingRef.current === true;
-    };
-    return () => { isProgrammaticMoveRef.current = null; };
-  }, [isProgrammaticMoveRef, isAnimatingZoomRef]);
-
-  // The label sprite bakery follows the labels themselves.
-  //
-  // While they are down, every millisecond it spends is spent on something that
-  // is not on screen — and spent against the frame budget of the gesture that
-  // put them down, since a PNG encode cannot be interrupted once begun and a
-  // landed batch costs a full canvas render. When they are up it runs, which is
-  // the right answer even for the exempt cases: a label visible during a move is
-  // a label being drawn as <text>, which is the expensive form this replaces.
-  //
-  // Wired here rather than inside labelSpriteCache because that module has no
-  // business knowing what a gesture is — see setBakingPaused.
-  const onLabelsHiddenRef = transform.onLabelsHiddenRef;
-  useEffect(() => {
-    onLabelsHiddenRef.current = (hidden) => setBakingPaused(hidden);
-    return () => {
-      onLabelsHiddenRef.current = null;
-      // Never leave the bakery paused behind an unmounting canvas.
-      setBakingPaused(false);
-    };
-  }, [onLabelsHiddenRef]);
-
-  // Hold the labels down for the WHOLE of a node drag, lift through restore.
-  //
-  // The camera-animation exemption above is right for an orbit fit or a
-  // decompose framing — short moves that neither accumulate cost nor benefit
-  // from shedding anything. It is wrong for the drag lift, and the reason is
-  // that the lift is not the move: it is the opening of a much longer span in
-  // which the user drags a node around a web whose edges all re-route under it.
-  // Exempting the lift left the labels painting through that entire span, which
-  // is exactly where a big web hurts.
-  //
-  // Held as one continuous span rather than re-derived at each end, so the
-  // labels fade once on lift and return once after the drop, instead of
-  // blinking at both ends of the drag.
-  //
-  // The release waits out the restore. `draggingNodeInfo` clears at the drop,
-  // but the camera then animates back over DRAG_ZOOM_ANIMATION_DURATION — and
-  // fading labels back IN over a running zoom animation is the last place there
-  // is budget for it.
-  //
-  // Keyed on the SETTING rather than on `isAnimatingZoomRef`, which looks like
-  // the more precise signal and is actually a race: the restore is kicked off
-  // by the drop handler, so this effect can run in the window before the
-  // animation has raised that flag, read false, and release into exactly the
-  // frames it was meant to protect. Whether drag-zoom is on is knowable without
-  // that timing. A timer rather than a poll — if the animation is interrupted
-  // the labels return a little later, which is harmless.
-  const setDragLabelsHidden = transform.setDragLabelsHidden;
-  const dragZoomEnabled = dragZoomSettings.enabled;
-  useEffect(() => {
-    if (draggingNodeInfo) {
-      setDragLabelsHidden(shouldFadeLabelsRef.current());
-      return undefined;
-    }
-    if (!dragZoomEnabled) {
-      setDragLabelsHidden(false);
-      return undefined;
-    }
-    const id = setTimeout(() => setDragLabelsHidden(false), DRAG_ZOOM_RESTORE_HOLD_MS);
-    return () => clearTimeout(id);
-  }, [draggingNodeInfo, setDragLabelsHidden, dragZoomEnabled]);
-
+  useTransformWiring({
+    connectionLabelMoveFade, dragZoomSettings, draggingNodeInfo,
+    gamepadDriftingRef, glowUpdateRef, isAnimatingZoomRef, runCulling, sampleViewMotion, transform,
+    visibleEdgesRef, zoomLevelRef,
+  });
   // Unmount cleanup for any in-flight culling RAF.
   useEffect(() => {
     return () => {
@@ -4171,172 +3857,17 @@ function NodeCanvas() {
     setSelectedNodeIdForPieMenu, setSemanticOrbitActive, startHurtleAnimation, storeActions, targetPieMenuButtons, zoomLevelRef,
   }), [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, startHurtleAnimation, useGraphStore]);
 
-  // Track if the component has been mounted long enough to show BackToCivilization
-  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
-  const [backToCivilizationDelayComplete, setBackToCivilizationDelayComplete] = useState(false);
+  const { backToCivilizationDelayComplete, enableClustering, clusterAnalysis, shouldShowBackToCivilization, handleBackToCivilizationClick } = useBackToCivilization({
+    abstractionCarouselVisible, abstractionPrompt, activeGraphId, baseDimsById, canvasSize,
+    connectionNamePrompt, containerRef, draggingNodeInfo, draggingNodeInfoRef,
+    drawingConnectionFrom, hasUniverseFile, isAnimatingZoomRef, isPanning, isUniverseLoaded,
+    isViewReady, nodeNamePrompt, nodes, panOffset, plusSign, selectedNodeIdForPieMenu,
+    selectionStart, transform, viewportSize, zoomLevel,
+  });
 
-  // Add startup delay to prevent showing during initial load
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsInitialLoadComplete(true);
-    }, 2000); // 2 second delay after mount
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Optional clustering feature - disabled by default to avoid computational overhead
-  const [enableClustering, setEnableClustering] = useState(false);
-
-  // Cluster analysis for the current graph (only when enabled)
-  const clusterAnalysis = useMemo(() => {
-    if (!enableClustering || !nodes || nodes.length === 0) {
-      return { clusters: [], outliers: [], mainCluster: null, statistics: {}, civilizationCenter: null };
-    }
-
-    return analyzeNodeDistribution(
-      nodes,
-      (node) => baseDimsById.get(node.id) || getNodeDimensions(node, false, null),
-      {
-        adaptiveEpsilon: true,
-        minPoints: 2
-      }
-    );
-  }, [enableClustering, nodes, baseDimsById]);
-
-  // Calculate if relevant nodes are visible in strict viewport
-  // Uses main cluster if clustering is enabled, otherwise all nodes
-  const relevantNodesVisibleInStrictViewport = useMemo(() => computeRelevantNodesVisible({
-    enableClustering, clusterAnalysis, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById,
-  }), [enableClustering, clusterAnalysis.mainCluster, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById]);
-
-  // Determine if BackToCivilization should be shown
-  const shouldShowBackToCivilization = useMemo(() => computeShouldShowBackToCivilization({
-    isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodeNamePrompt,
-    connectionNamePrompt, abstractionPrompt, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
-    draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart, nodes,
-    relevantNodesVisibleInStrictViewport,
-  }), [isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodes, relevantNodesVisibleInStrictViewport, nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign, draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart]);
-
-  // Expose clustering functions to window for manual use (for debugging/testing)
-  useEffect(() => {
-    // Expose clustering functions for other parts of the codebase
-    window.enableNodeClustering = () => setEnableClustering(true);
-    window.disableNodeClustering = () => setEnableClustering(false);
-    window.getClusterAnalysis = () => clusterAnalysis;
-    window.isClusteringEnabled = () => enableClustering;
-
-    return () => {
-      delete window.enableNodeClustering;
-      delete window.disableNodeClustering;
-      delete window.getClusterAnalysis;
-      delete window.isClusteringEnabled;
-    };
-  }, [clusterAnalysis, enableClustering]);
-
-  // Add appearance delay when conditions are met
-  useEffect(() => {
-    if (shouldShowBackToCivilization) {
-      setBackToCivilizationDelayComplete(false);
-      const timer = setTimeout(() => {
-        setBackToCivilizationDelayComplete(true);
-      }, 800); // 800ms delay before appearing
-
-      return () => clearTimeout(timer);
-    } else {
-      setBackToCivilizationDelayComplete(false);
-    }
-  }, [shouldShowBackToCivilization]);
-
-  // Handler for BackToCivilization click - center view on relevant nodes
-  const handleBackToCivilizationClick = useCallback(() => backToCivilization({
-    baseDimsById, canvasSize, clusterAnalysis, containerRef, draggingNodeInfoRef, enableClustering,
-    isAnimatingZoomRef, nodes, transform, viewportSize,
-  }), [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
-
-  // Listen for auto-layout trigger events from AI operations (mutations).
-  //
-  // The pending debounce lives in a ref, and the listener is registered ONCE,
-  // because `triggerAutoLayout` changes identity on essentially every store
-  // mutation (it closes over `nodes`/`edges`/`baseDimsById`/`graphsMap`). When
-  // the timer was an effect-local `let` with the effect keyed on
-  // [triggerAutoLayout, activeGraphId], the cleanup cancelled the pending
-  // layout every time anything in the active graph changed — and nothing ever
-  // rescheduled it. The wizard's first createPopulatedGraph is exactly that
-  // case: it flips activeGraphId to the new graph and then keeps churning the
-  // store (bulk update → cleanupOrphanedData → composition/unfold → Wikipedia
-  // enrichment → thumbnail cache) straight through the 500ms window, so the
-  // graph rendered with its random seed positions and layout never ran.
-  const autoLayoutDebounceRef = useRef(null);
-  const triggerAutoLayoutRef = useRef(triggerAutoLayout);
-  useEffect(() => { triggerAutoLayoutRef.current = triggerAutoLayout; }, [triggerAutoLayout]);
-
-  useEffect(() => {
-    // Bound the "user is holding a node" retry so a held pointer can't re-arm
-    // the timer forever.
-    const MAX_HELD_RETRIES = 20; // 20 × 500ms = 10s
-    let heldRetries = 0;
-
-    // Tell the requester the canvas took responsibility for this graph. Wizard
-    // mutations arm an offscreen-layout fallback on every dispatch and cancel it
-    // on this ack — without it, a request that reached no live canvas would
-    // leave the graph at its seed-random positions forever.
-    const ack = (graphId) => {
-      window.dispatchEvent(new CustomEvent('rs-auto-layout-ack', { detail: { graphId } }));
-    };
-
-    const runWhenFree = (graphId) => {
-      autoLayoutDebounceRef.current = null;
-      // Don't yank a node the user is currently grabbing/holding/dragging.
-      // applyAutoLayoutToActiveGraph also guards the drag case, but the
-      // pre-lift hold (mouse down on a node, not yet lifted) isn't a drag yet.
-      if (draggingNodeInfoRef.current || (isMouseDown.current && startedOnNode.current)) {
-        // Deferred, not dropped — ack so the fallback doesn't snap the graph out
-        // from under the hand that's holding it, and retry.
-        ack(graphId);
-        if (heldRetries++ < MAX_HELD_RETRIES) {
-          autoLayoutDebounceRef.current = setTimeout(() => runWhenFree(graphId), 500);
-        }
-        return;
-      }
-      heldRetries = 0;
-      clearLabelStabilization();
-      triggerAutoLayoutRef.current?.();
-      ack(graphId);
-    };
-
-    const handleTriggerAutoLayout = (event) => {
-      const { graphId } = event.detail || {};
-      // Read the store rather than the render closure — the listener is
-      // registered once, and the active graph may have changed since.
-      const currentActiveGraphId = useGraphStore.getState().activeGraphId;
-
-      if (!graphId || graphId === currentActiveGraphId) {
-        // Active graph: use DOM-aware layout with debounce to batch rapid mutations
-        if (autoLayoutDebounceRef.current) {
-          clearTimeout(autoLayoutDebounceRef.current);
-        }
-        heldRetries = 0;
-        autoLayoutDebounceRef.current = setTimeout(() => runWhenFree(graphId), 500);
-      } else {
-        // Non-active graph: apply offscreen layout so wizard-created graphs are
-        // laid out even when the user isn't watching
-        try { applyOffscreenLayout(graphId); } catch (e) {
-          console.error('[NodeCanvas] Offscreen layout failed for non-active graph', graphId, e);
-        }
-        ack(graphId);
-      }
-    };
-
-    window.addEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
-
-    return () => {
-      if (autoLayoutDebounceRef.current) {
-        clearTimeout(autoLayoutDebounceRef.current);
-        autoLayoutDebounceRef.current = null;
-      }
-      window.removeEventListener('rs-trigger-auto-layout', handleTriggerAutoLayout);
-    };
-  }, []);
+  useAutoLayoutListener({
+    draggingNodeInfoRef, isMouseDown, startedOnNode, triggerAutoLayout,
+  });
 
   // Listen for selectNode events from the Wizard AI
   useEffect(() => listenForSelectNode({

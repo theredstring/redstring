@@ -1,4 +1,8 @@
 import { getNodeDimensions } from '../../../utils.js';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { analyzeNodeDistribution } from '../../../utils/clusterAnalysis.js';
+import { backToCivilization } from '../camera/backToCivilization.js';
+import { MAX_ZOOM } from '../../../constants';
 /**
  * Back to Civilization (moved verbatim from NodeCanvas): which nodes count as
  * "the content", and whether none of them is on screen.
@@ -81,4 +85,97 @@ export function computeRelevantNodesVisible(ctx) {
   }
 
   return false; // No relevant nodes are visible
+}
+
+/** Back to Civilization: when the button shows (after the startup and appearance delays), the optional cluster analysis it aims at, and the click (moved verbatim from NodeCanvas, wave 6). */
+export function useBackToCivilization({
+  abstractionCarouselVisible, abstractionPrompt, activeGraphId, baseDimsById, canvasSize,
+  connectionNamePrompt, containerRef, draggingNodeInfo, draggingNodeInfoRef, drawingConnectionFrom,
+  hasUniverseFile, isAnimatingZoomRef, isPanning, isUniverseLoaded, isViewReady, nodeNamePrompt,
+  nodes, panOffset, plusSign, selectedNodeIdForPieMenu, selectionStart, transform, viewportSize,
+  zoomLevel,
+}) {
+  // Track if the component has been mounted long enough to show BackToCivilization
+  const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
+  const [backToCivilizationDelayComplete, setBackToCivilizationDelayComplete] = useState(false);
+
+  // Add startup delay to prevent showing during initial load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitialLoadComplete(true);
+    }, 2000); // 2 second delay after mount
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Optional clustering feature - disabled by default to avoid computational overhead
+  const [enableClustering, setEnableClustering] = useState(false);
+
+  // Cluster analysis for the current graph (only when enabled)
+  const clusterAnalysis = useMemo(() => {
+    if (!enableClustering || !nodes || nodes.length === 0) {
+      return { clusters: [], outliers: [], mainCluster: null, statistics: {}, civilizationCenter: null };
+    }
+
+    return analyzeNodeDistribution(
+      nodes,
+      (node) => baseDimsById.get(node.id) || getNodeDimensions(node, false, null),
+      {
+        adaptiveEpsilon: true,
+        minPoints: 2
+      }
+    );
+  }, [enableClustering, nodes, baseDimsById]);
+
+  // Calculate if relevant nodes are visible in strict viewport
+  // Uses main cluster if clustering is enabled, otherwise all nodes
+  const relevantNodesVisibleInStrictViewport = useMemo(() => computeRelevantNodesVisible({
+    enableClustering, clusterAnalysis, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById,
+  }), [enableClustering, clusterAnalysis.mainCluster, nodes, panOffset, zoomLevel, viewportSize, canvasSize, baseDimsById]);
+
+  // Determine if BackToCivilization should be shown
+  const shouldShowBackToCivilization = useMemo(() => computeShouldShowBackToCivilization({
+    isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodeNamePrompt,
+    connectionNamePrompt, abstractionPrompt, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
+    draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart, nodes,
+    relevantNodesVisibleInStrictViewport,
+  }), [isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodes, relevantNodesVisibleInStrictViewport, nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign, draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart]);
+
+  // Expose clustering functions to window for manual use (for debugging/testing)
+  useEffect(() => {
+    // Expose clustering functions for other parts of the codebase
+    window.enableNodeClustering = () => setEnableClustering(true);
+    window.disableNodeClustering = () => setEnableClustering(false);
+    window.getClusterAnalysis = () => clusterAnalysis;
+    window.isClusteringEnabled = () => enableClustering;
+
+    return () => {
+      delete window.enableNodeClustering;
+      delete window.disableNodeClustering;
+      delete window.getClusterAnalysis;
+      delete window.isClusteringEnabled;
+    };
+  }, [clusterAnalysis, enableClustering]);
+
+  // Add appearance delay when conditions are met
+  useEffect(() => {
+    if (shouldShowBackToCivilization) {
+      setBackToCivilizationDelayComplete(false);
+      const timer = setTimeout(() => {
+        setBackToCivilizationDelayComplete(true);
+      }, 800); // 800ms delay before appearing
+
+      return () => clearTimeout(timer);
+    } else {
+      setBackToCivilizationDelayComplete(false);
+    }
+  }, [shouldShowBackToCivilization]);
+
+  // Handler for BackToCivilization click - center view on relevant nodes
+  const handleBackToCivilizationClick = useCallback(() => backToCivilization({
+    baseDimsById, canvasSize, clusterAnalysis, containerRef, draggingNodeInfoRef, enableClustering,
+    isAnimatingZoomRef, nodes, transform, viewportSize,
+  }), [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
+
+  return { backToCivilizationDelayComplete, enableClustering, clusterAnalysis, shouldShowBackToCivilization, handleBackToCivilizationClick };
 }
