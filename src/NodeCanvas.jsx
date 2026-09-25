@@ -150,6 +150,9 @@ import PromptsHost from './components/canvas/hosts/PromptsHost.jsx';
 import CanvasOverlaysHost from './components/canvas/hosts/CanvasOverlaysHost.jsx';
 import { performInstanceSwapWith } from './components/canvas/actions/instanceSwap.js';
 import { edgeHitboxHandlersFor, edgeTouchHandlersFor, commitEdgeTouchWith, resolveTouchEdgeTargetWith, edgePointerDownTouchWith, selectEdgeFromClickWith, findEdgeAtClientPointWith } from './components/canvas/input/edgeInput.js';
+import { handlePieCommandWith } from './components/canvas/pie/pieCommands.js';
+import { rebuildPieMenuDataWith } from './components/canvas/pie/pieData.js';
+import { finishPlusSignMorph, finishVideoAnimation } from './components/canvas/actions/plusSignMorph.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -3953,78 +3956,13 @@ function NodeCanvas() {
     return () => clearTimeout(t);
   }, [landedInstanceId, visibleNodeIds]);
 
-  const handleMorphDone = () => {
-    if (!plusSign || !activeGraphId) return;
+  const handleMorphDone = (...args) => finishPlusSignMorph({
+    plusSign, activeGraphId, getPlusSignMorphTarget, storeActions, setPlusSign,
+  }, ...args);
 
-    // Same target the morph animated to, so the node lands exactly under it.
-    const { dims, center } = getPlusSignMorphTarget(plusSign);
-    const position = {
-      x: center.x - dims.currentWidth / 2,
-      y: center.y - dims.currentHeight / 2,
-    };
-
-    const newInstanceId = uuidv4();
-    let added = false;
-    if (plusSign.selectedPrototype) {
-      // A prototype was selected from the grid - create instance of existing prototype
-      storeActions.addNodeInstance(activeGraphId, plusSign.selectedPrototype.id, position, newInstanceId);
-      added = true;
-    } else if (plusSign.tempName) {
-      // A custom name was entered - create new prototype
-      const name = plusSign.tempName;
-      const newPrototypeId = uuidv4();
-
-      // 1. Create the new prototype
-      const newPrototypeData = {
-        id: newPrototypeId,
-        name: name,
-        description: '',
-        color: plusSign.selectedColor || 'maroon', // Use selected color or default
-        definitionGraphIds: [],
-        typeNodeId: 'base-thing-prototype', // Type all new nodes as "Thing"
-      };
-      storeActions.addNodePrototype(newPrototypeData);
-
-      // 2. Create the first instance of this prototype on the canvas
-      storeActions.addNodeInstance(activeGraphId, newPrototypeId, position, newInstanceId);
-      added = true;
-    }
-
-    setPlusSign(added ? { ...plusSign, mode: 'landed', landedInstanceId: newInstanceId } : null);
-  };
-
-  const handleVideoAnimationComplete = () => {
-    if (!videoAnimation || !activeGraphId) return;
-
-    // Calculate position (centered)
-    const mockNode = { name: "Hello, World" };
-    const dims = getNodeDimensions(mockNode, false, null);
-    const position = {
-      x: videoAnimation.x - dims.currentWidth / 2,
-      y: videoAnimation.y - dims.currentHeight / 2
-    };
-
-    // Apply smooth grid snapping when creating new nodes if grid is enabled
-    if (gridMode !== 'off') {
-      const snapped = snapToGridAnimated(videoAnimation.x, videoAnimation.y, dims.currentWidth, dims.currentHeight, null);
-      position.x = snapped.x;
-      position.y = snapped.y;
-    }
-
-    // Create node prototype and instance
-    const newPrototypeId = uuidv4();
-    storeActions.addNodePrototype({
-      id: newPrototypeId,
-      name: "Hello, World",
-      description: '',
-      color: 'maroon',
-      definitionGraphIds: [],
-      typeNodeId: 'base-thing-prototype'
-    });
-    storeActions.addNodeInstance(activeGraphId, newPrototypeId, position);
-
-    setVideoAnimation(null);
-  };
+  const handleVideoAnimationComplete = (...args) => finishVideoAnimation({
+    videoAnimation, activeGraphId, gridMode, snapToGridAnimated, storeActions, setVideoAnimation,
+  }, ...args);
 
   // Dialog color picker handlers
   const handleDialogColorPickerClose = () => {
@@ -4421,61 +4359,11 @@ function NodeCanvas() {
   // change and marquee start/commit dispatches, and the machine applies the rule
   // (reconcileWrites in pieMachine.js; it was an effect here until P5.02b step 6).
   // Prepare and render PieMenu when its target changes (assigned each render: see setCarouselFocusedNodeDimensions).
-  rebuildPieMenuDataRef.current = () => {
-    if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
-      // If the pie-menu node is being lifted/dragged, FREEZE currentPieMenuData so the
-      // shrink-out animation keeps playing from where the menu was. `nodes` is a dep of
-      // this effect and the lift writes a LIFT_SCALE onto the node every frame, so without
-      // this early return we'd rebuild the menu data mid-shrink and re-pop the bubbles.
-      const isDraggingThisNode = draggingNodeInfo &&
-        (draggingNodeInfo.primaryId === selectedNodeIdForPieMenu ||
-         draggingNodeInfo.instanceId === selectedNodeIdForPieMenu);
-      if (isDraggingThisNode) {
-        return;
-      }
-      const node = nodes.find(n => n.id === selectedNodeIdForPieMenu);
-      if (node) {
-        // Check if we're in carousel mode and have dynamic dimensions
-        const isInCarouselMode = abstractionCarouselVisible && abstractionCarouselNode && node.id === abstractionCarouselNode.id;
-
-        // Use dynamic carousel dimensions if available, otherwise calculate from the actual node
-        const carouselDims = carouselFocusedNodeDimensionsRef.current;
-        const dimensions = isInCarouselMode && carouselDims
-          ? carouselDims
-          : getNodeDimensions(node, previewingNodeId === node.id, null);
-
-        // In carousel mode, create a virtual node positioned at the carousel center
-        // Keep the original node for PieMenu, but store focused node info for button actions
-        let nodeForPieMenu = node;
-
-        if (isInCarouselMode && abstractionCarouselNode) {
-          // Calculate carousel center position in canvas coordinates
-          const originalNodeDimensions = getNodeDimensions(abstractionCarouselNode, false, null);
-          const carouselCenterX = abstractionCarouselNode.x + originalNodeDimensions.currentWidth / 2;
-          const carouselCenterY = abstractionCarouselNode.y + originalNodeDimensions.currentHeight / 2; // Perfect center alignment
-
-          // Create virtual node at carousel center
-          nodeForPieMenu = {
-            ...nodeForPieMenu,
-            x: carouselCenterX - dimensions.currentWidth / 2,
-            y: carouselCenterY - dimensions.currentHeight / 2
-          };
-        }
-
-        setCurrentPieMenuData({
-          node: nodeForPieMenu,
-          buttons: targetPieMenuButtons,
-          nodeDimensions: dimensions
-        });
-        setIsPieMenuRendered(true); // Ensure PieMenu is in DOM to animate in
-      } else {
-        setCurrentPieMenuData(null); // Keep this for safety if node genuinely disappears
-        // isPieMenuRendered will be set to false by onExitAnimationComplete if it was visible
-      }
-    }
-    // With no target, or mid-transition, currentPieMenuData is left alone: PieMenu needs it to
-    // animate out (isVisible hides it), and onExitAnimationComplete nulls it.
-  };
+  rebuildPieMenuDataRef.current = (...args) => rebuildPieMenuDataWith({
+    selectedNodeIdForPieMenu, isTransitioningPieMenu, semanticOrbitActive, draggingNodeInfo, nodes,
+    abstractionCarouselVisible, abstractionCarouselNode, carouselFocusedNodeDimensionsRef, previewingNodeId,
+    setCurrentPieMenuData, targetPieMenuButtons, setIsPieMenuRendered,
+  }, ...args);
   // semanticOrbitActive is a dep because leaving orbit has to rebuild the data (the exit
   // animation nulled it) and put the menu back in the DOM.
   useEffect(() => { rebuildPieMenuDataRef.current(); }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, semanticOrbitActive, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNode, draggingNodeInfo]);
@@ -5383,94 +5271,13 @@ function NodeCanvas() {
   // Commands from the pie machine (P5.02b): camera framing, the carousel Swap,
   // and resets of state that still lives here. Reassigned every render so it
   // runs with this render's setters and values; registered once, on mount.
-  pieCommandHandlerRef.current = (cmd) => {
-    if (cmd.type === 'frame') {
-      // Only the return to the carousel's node so far. The other kinds still come
-      // from NodeCanvas's own framing effects until later steps remove them.
-      if (cmd.kind === 'returnFocus' && cmd.nodeId) focusNodeInView(cmd.nodeId);
-      return;
-    }
-    if (cmd.type === 'graph' && cmd.action === 'applyCarouselSwap') {
-      const { swap, graphId } = cmd.args;
-      if (swap) {
-        const { originalNodeId, originalInstance, focusedPrototypeId, newPrototype } = swap;
-
-        // Calculate original dimensions before the swap
-        const originalDimensions = getNodeDimensions(originalInstance, false, null);
-
-        // Create a temporary node with the new prototype to calculate new dimensions
-        const tempNodeWithNewPrototype = {
-          ...originalInstance,
-          prototypeId: focusedPrototypeId,
-          name: newPrototype?.name || originalInstance.name,
-          color: newPrototype?.color || originalInstance.color,
-          thumbnailSrc: newPrototype?.thumbnailSrc || originalInstance.thumbnailSrc,
-          definitionGraphIds: newPrototype?.definitionGraphIds || []
-        };
-        const newDimensions = getNodeDimensions(tempNodeWithNewPrototype, false, null);
-
-        // Calculate the center point of the original node
-        const originalCenterX = originalInstance.x + (originalDimensions.currentWidth / 2);
-        const originalCenterY = originalInstance.y + (originalDimensions.currentHeight / 2);
-
-        // Calculate new position to keep the same center point
-        const newX = originalCenterX - (newDimensions.currentWidth / 2);
-        const newY = originalCenterY - (newDimensions.currentHeight / 2);
-
-        console.log(`[NodeCanvas] Adjusting position for dimension change:`, {
-          originalPos: { x: originalInstance.x, y: originalInstance.y },
-          originalDims: { w: originalDimensions.currentWidth, h: originalDimensions.currentHeight },
-          newDims: { w: newDimensions.currentWidth, h: newDimensions.currentHeight },
-          newPos: { x: newX, y: newY }
-        });
-
-        // Update the instance to use the focused node's prototype and adjust position
-        storeActions.updateNodeInstance(graphId, originalNodeId, (instance) => {
-          instance.prototypeId = focusedPrototypeId;
-          instance.x = newX;
-          instance.y = newY;
-        }, { finalize: true });
-      }
-      return;
-    }
-    if (cmd.type !== 'local') return;
-    switch (cmd.action) {
-      case 'fullReset':
-        setEditingGroupId(null);
-        setTempGroupName('');
-        setPlusSign(null);
-        selectionStartRef.current = null; // a pending marquee pass must not outlive the graph
-        setSelectionStart(null);
-        setDrawingConnectionFrom(null);
-        setPieMenuColorPickerVisible(false);
-        setActivePieMenuColorNodeId(null);
-        setCarouselFocusedNodeScale(1.2);
-        setCarouselFocusedNodeDimensions(null);
-        setCarouselFocusedNode(null);
-        setAbstractionControlPanelVisible(false);
-        setAbstractionControlPanelShouldShow(false);
-        break;
-      case 'closeAllPanels':
-        setNodeControlPanelVisible(false);
-        setConnectionControlPanelVisible(false);
-        setAbstractionControlPanelVisible(false);
-        setGroupControlPanelVisible(false);
-        break;
-      case 'closePieColorPicker':
-        setPieMenuColorPickerVisible(false);
-        setActivePieMenuColorNodeId(null);
-        break;
-      case 'clearCarouselFocus':
-        setCarouselFocusedNode(null);
-        setCarouselFocusedNodeDimensions(null);
-        break;
-      case 'carouselFocusPrototypeRequest':
-        setCarouselFocusPrototypeRequest(cmd.args?.prototypeId ?? null);
-        break;
-      default:
-        break;
-    }
-  };
+  pieCommandHandlerRef.current = (...args) => handlePieCommandWith({
+    focusNodeInView, storeActions, setEditingGroupId, setTempGroupName, setPlusSign, selectionStartRef,
+    setSelectionStart, setDrawingConnectionFrom, setPieMenuColorPickerVisible, setActivePieMenuColorNodeId,
+    setCarouselFocusedNodeScale, setCarouselFocusedNodeDimensions, setCarouselFocusedNode,
+    setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow, setNodeControlPanelVisible,
+    setConnectionControlPanelVisible, setGroupControlPanelVisible, setCarouselFocusPrototypeRequest,
+  }, ...args);
 
   // The camera controller's context (P4.02). Assigned during render rather than
   // in a layout effect so that effects in this commit, which call into the
