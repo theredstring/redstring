@@ -29,3 +29,20 @@ test('F22 each modal opens from its window event and closes from the store', asy
     await expect(page.locator(m.selector), `${m.event} closed`).toHaveCount(0, { timeout: 5_000 });
   }
 });
+
+// Since P2.06a the sync diagnostics live in SyncDebugHost.
+test('F22b the debug overlay follows the Settings switch and fills with sync data', async ({ page }) => {
+  await openFixture(page, 'small');
+  const setOverlay = (on) => page.evaluate(async (v) => {
+    const { default: debugConfig } = await import('/src/utils/debugConfig.js');
+    debugConfig.setDebugOverlayEnabled(v);
+  }, on);
+  const overlay = page.locator('.debug-overlay');
+  await expect(overlay).toHaveCount(0);
+  await setOverlay(true);
+  await expect(overlay).toBeVisible();
+  // The 2 s refresh fills it with the engine/auth/universe snapshot.
+  await expect(overlay).toContainText(/universe|engine|auth/i, { timeout: 6_000 });
+  await setOverlay(false);
+  await expect(overlay).toHaveCount(0);
+});
