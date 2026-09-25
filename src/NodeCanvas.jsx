@@ -38,7 +38,6 @@ import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
 import { suggestAbstractionName, suggestArrowDirection } from './wizard/tools/utils/suggestionCalls.js';
 import {
-  computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
   buildChildGroupIdsIndex,
   buildParentGroupIdsIndex,
@@ -65,6 +64,7 @@ import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
 import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
+import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
@@ -10650,6 +10650,14 @@ function NodeCanvas() {
     return overlaySlot ? createPortal(overlays, overlaySlot) : null;
   };
 
+  // Group layouts as data (P3.03a): recomputed when groups, nodes, sizes, the
+  // rename draft or the label font change, not on every render.
+  const groupLayouts = useMemo(() => computeGroupLayouts({
+    graphData: activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName,
+    nodePrototypesMap, baseDimsById, gridSize, getTextWidth,
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- getTextWidth is a stateless wrapper; labelFontVersion re-measures once the font arrives
+  }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion]);
+
   return (
     <>
         <div
@@ -10770,19 +10778,14 @@ function NodeCanvas() {
                   {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
                     Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
                   {(() => {
-                    const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-                    // Shallowest-first so nested shells/titles emit after (above) their
-                    // parents within each z-layer; stable sort keeps insertion order
-                    // among siblings at the same depth.
+                    // Layouts come from the groupLayouts memo (P3.03a); this pass only
+                    // builds elements and publishes the rects the rest of the canvas reads.
                     const groupDepths = groupStructure.groupDepths;
-                    const groups = graphData?.groups
-                      ? Array.from(graphData.groups.values())
-                        .sort((a, b) => (groupDepths.get(a.id) ?? 0) - (groupDepths.get(b.id) ?? 0))
-                      : [];
+                    const { entries: groupEntries, groupCount, titleRects, anchorPositions, groupLabelScale, groupLabelFontSize } = groupLayouts;
                     const ngBackgroundsByDepth = new Map();
                     const ngTitles = [];
-                    const tgMemberIds = new Set();
-                    const anchorIds = new Set();
+                    const tgMemberIds = groupLayouts.thingGroupMemberIds;
+                    const anchorIds = groupLayouts.anchorIds;
                     const pushAtDepth = (map, depth, element) => {
                       let bucket = map.get(depth);
                       if (!bucket) { bucket = []; map.set(depth, bucket); }
@@ -10798,8 +10801,10 @@ function NodeCanvas() {
                     // undrawable — emptied, or its layout bailed) must leave no rect
                     // behind, or the controller keeps aiming at a pill nobody draws.
                     groupTitleRectsRef.current.clear();
+                    for (const [id, r] of titleRects) groupTitleRectsRef.current.set(id, r);
+                    for (const [id, a] of anchorPositions) anchorPositionUpdatesRef.current.set(id, a);
 
-                    if (!groups.length) {
+                    if (!groupCount) {
                       nodeGroupBackgroundsByDepthRef.current = ngBackgroundsByDepth;
                       nodeGroupTitlesRef.current = ngTitles;
                       thingGroupMemberIdsRef.current = tgMemberIds;
@@ -10810,91 +10815,11 @@ function NodeCanvas() {
 
                     const regularGroupElements = [];
 
-                    // Build layout context once for the whole pass. computeGroupLayout uses
-                    // this for both bbox math (orphan-skipping, nested overhang) and label
-                    // sizing. Shared cache means each group's layout is computed once even
-                    // when referenced as a child by multiple parents.
-                    const layoutNodesById = new Map();
-                    for (let i = 0; i < hydratedNodes.length; i++) {
-                      const n = hydratedNodes[i];
-                      layoutNodesById.set(n.id, { id: n.id, x: n.x, y: n.y });
-                    }
-                    // Group labels scale with node size (not the text-size setting),
-                    // so the whole tab — box and font — grows proportionally when nodes
-                    // are enlarged instead of staying a fixed 36px.
-                    const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-                    // Match the on-canvas node title size (45 * fontSize * nodeScale) so the
-                    // group tab reads at the same size as an average node and its box is sized
-                    // from that text.
-                    const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * groupLabelScale;
-
-                    // The name every part of the layout pass measures against, resolved
-                    // ONCE into the map itself rather than at each group's own top-level
-                    // call. A parent folds its children in by reading `groupsById`, and
-                    // the shared `_cache` means whichever call runs first wins — so a
-                    // nested group whose parent was laid out before it got served its
-                    // parent's view of the name. Renaming a nested group then sized its
-                    // tab from the OLD name while the text drew the new one, and a title
-                    // that had grown a line spilled up out of the tab into the shell.
-                    // Two readers, two names; one map, one name.
-                    const effectiveNameFor = (g) => {
-                      if (editingGroupId === g.id) return tempGroupName;
-                      const proto = g.linkedNodePrototypeId ? nodePrototypesMap.get(g.linkedNodePrototypeId) : null;
-                      return proto?.name || g.name || 'Group';
-                    };
-                    let groupsForLayout = graphData.groups;
-                    const renamedForLayout = groups
-                      .map(g => [g, effectiveNameFor(g)])
-                      .filter(([g, name]) => name !== g.name);
-                    if (renamedForLayout.length) {
-                      groupsForLayout = new Map(graphData.groups);
-                      for (const [g, name] of renamedForLayout) groupsForLayout.set(g.id, { ...g, name });
-                    }
-
-                    const layoutContext = {
-                      nodesById: layoutNodesById,
-                      dimsById: baseDimsById,
-                      groupsById: groupsForLayout,
-                      groupsByMemberId: groupsByNodeIdRef.current,
-                      childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current,
-                      gridSize,
-                      measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
-                      labelScale: groupLabelScale,
-                      labelFontSize: groupLabelFontSize,
-                      _cache: new Map(),
-                    };
-
                     // Downstream JSX still references GROUP_SPACING (e.g. innerCanvasBorder
                     // for the inner-canvas inset rect). Keep an alias.
                     const GROUP_SPACING = GROUP_LAYOUT_CONSTANTS;
 
-                    groups.forEach(group => {
-                      const memberIdSet = new Set(group.memberInstanceIds);
-                      const members = hydratedNodes.filter(n => memberIdSet.has(n.id));
-                      // Empty node-groups (no members yet) still render as a held-open
-                      // placeholder anchored at their own instance — computeGroupLayout
-                      // synthesizes a box for that case. Plain (non-prototype) groups have
-                      // no anchor to fall back to, so they still skip when empty.
-                      if (!members.length && !group.linkedNodePrototypeId) return;
-
-                      // A node-group's identity IS its linked prototype's — editing the
-                      // group's title or color edits the Thing itself. The group record
-                      // keeps mirrored name/color fields (that's what serializes), but the
-                      // prototype is authoritative, so read through to it here and the
-                      // title tracks prototype edits made from any other surface.
-                      const nodeGroupPrototype = group.linkedNodePrototypeId
-                        ? nodePrototypesMap.get(group.linkedNodePrototypeId)
-                        : null;
-                      const effectiveGroupName = nodeGroupPrototype?.name || group.name || 'Group';
-                      const effectiveGroupColor = nodeGroupPrototype?.color || group.color || '#8B0000';
-
-                      // The same override-named copy the rest of the pass reads (see
-                      // groupsForLayout above), so a nested group and its parent can
-                      // never disagree about what this group is called.
-                      const groupForLayout = groupsForLayout.get(group.id) || group;
-                      const layout = computeGroupLayout(groupForLayout, layoutContext);
-                      if (!layout.ok) return;
-
+                    groupEntries.forEach(({ group, members, layout, effectiveGroupName, effectiveGroupColor }) => {
                       const { rect, label, nodeGroupRect, innerCanvasY, isNodeGroup } = layout;
                       const rectX = rect.x, rectY = rect.y, rectW = rect.w, rectH = rect.h;
                       const labelX = label.x, labelY = label.y;
@@ -10938,33 +10863,6 @@ function NodeCanvas() {
                         ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
                         : '';
 
-                      // Sync anchor instance position to group title center. Also record the
-                      // group's full outer bounds (title tab + member box) so a connection label
-                      // can clip against the whole group box and center on the visible segment.
-                      // Every group records its pill here, including plain ones — this is
-                      // the map the controller aims at. Rebuilt from scratch each pass
-                      // (cleared above), so a deleted group leaves nothing behind.
-                      groupTitleRectsRef.current.set(group.id, {
-                        x: labelX, y: labelY,
-                        width: labelWidth, height: labelHeight,
-                        groupId: group.id,
-                        anchorInstanceId: isNodeGroup ? (group.anchorInstanceId || null) : null,
-                      });
-
-                      if (isNodeGroup && group.anchorInstanceId) {
-                        const vb = layout.visualBounds;
-                        anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
-                          x: labelX, y: labelY,
-                          width: labelWidth, height: labelHeight,
-                          groupId: group.id,
-                          outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
-                          // The shell exactly as drawn (rounded rect, not the AABB above), so a
-                          // connection clipped against it is cut along the same curve the rim
-                          // paints. See buildShellCutoutPath.
-                          shellRect: { x: rectX, y: nodeGroupRectY, w: rectW, h: nodeGroupRectH, r: GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius },
-                        });
-                      }
-
                       const groupStyle = {
                         transform: groupTransform,
                         transformOrigin: `${centerX}px ${centerY}px`,
@@ -10972,15 +10870,7 @@ function NodeCanvas() {
                         filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
                       };
 
-                      // Collect thing-group member IDs (including anchor) for edge/node z-splitting
                       const groupDepth = groupDepths.get(group.id) ?? 0;
-                      if (isNodeGroup) {
-                        group.memberInstanceIds.forEach(id => tgMemberIds.add(id));
-                        if (group.anchorInstanceId) {
-                          tgMemberIds.add(group.anchorInstanceId);
-                          anchorIds.add(group.anchorInstanceId);
-                        }
-                      }
 
                       // Lift-scale for the title pill + text while dragging: an explicit
                       // centered matrix on the `transform` ATTRIBUTE (local user space), NOT
