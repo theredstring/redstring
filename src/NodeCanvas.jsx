@@ -1,8 +1,7 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
-import HeaderHost from './components/canvas/hosts/HeaderHost.jsx';
 import DebugOverlay from './DebugOverlay.jsx';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
@@ -35,7 +34,6 @@ import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
-import PanelHost from './components/canvas/hosts/PanelHost.jsx';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
@@ -82,6 +80,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
+import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
 import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
   buildWizardConnectionPrompt,
@@ -169,7 +168,6 @@ import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
-import TypeListHost from './components/canvas/hosts/TypeListHost.jsx';
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
@@ -1422,6 +1420,7 @@ function NodeCanvas() {
   // Redstring menu, no TypeList — just the canvas and the two panel toggles.
   // See hooks/useMobileLandscapeShell.js.
   const mobileLandscapeShell = useMobileLandscapeShell();
+  const overlaySlot = useContext(CanvasOverlaySlot);
   const headerHeight = mobileLandscapeShell ? 0 : HEADER_HEIGHT;
   const typeListVisible = typeListMode !== 'closed' && !mobileLandscapeShell;
 
@@ -14815,27 +14814,17 @@ function NodeCanvas() {
     };
   }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, handleBackToCivilizationClick, MAX_ZOOM]);
 
-  return (
-    <div
-      className="node-canvas-container"
-      style={{
-        // 100% of the safe-area-padded #root. 100vh would include the insets
-        // under viewport-fit=cover and push the container past the app box.
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        backgroundColor: 'transparent',
-        transition: 'background-color 0.3s ease',
-      }}
-      tabIndex="0"
-    >
-      {/* Header (and with it the Redstring button and its menu) is dropped in
-          the fullscreen landscape shell — see useMobileLandscapeShell.js. */}
-      <HeaderHost hidden={mobileLandscapeShell} />
-      <div style={{ display: 'flex', flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
-        <PanelHost key="left-panel" side="left" />
+  // The shell (Header, Panels, TypeList) is CanvasShell's since P2.11. The
+  // screen-level overlays below the canvas still live here until their hosts
+  // land (P2.06, P5); they go into the shell's slot after TypeList, so they lay
+  // out and paint where they always did.
+  const placeOverlays = (overlays) => {
+    if (overlaySlot === undefined) return overlays; // no shell (tests)
+    return overlaySlot ? createPortal(overlays, overlaySlot) : null;
+  };
 
+  return (
+    <>
         <div
           ref={setCanvasAreaRef}
           className="canvas-area"
@@ -17304,13 +17293,7 @@ function NodeCanvas() {
 
         <HurtleOrb flight={hurtleFlight} onLand={handleHurtleLand} />
 
-        <PanelHost key="right-panel" side="right" />
-      </div>
-
-      {/* TypeList Component — dropped in the fullscreen landscape shell, along
-          with its bottom-left toggle button (both live inside TypeList). */}
-      {!mobileLandscapeShell && <TypeListHost />}
-
+      {placeOverlays(<>
       {/* SaveStatusDisplay Component */}
       <SaveStatusDisplay hidden={showStorageSetupModal} />
 
@@ -17953,8 +17936,8 @@ function NodeCanvas() {
           canvas stays interactive while this counts up. */}
       <LayoutProgressIndicator state={layoutProgress} onCancel={cancelAutoLayout} />
 
-      {/* <div>NodeCanvas Simplified - Testing Loop</div> */}
-    </div >
+      </>)}
+    </>
   );
 }
 

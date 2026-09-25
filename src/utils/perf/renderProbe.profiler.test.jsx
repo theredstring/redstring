@@ -9,6 +9,9 @@ import { createRenderProbe, renderProbe } from './renderProbe.js';
 const { nullComponent } = vi.hoisted(() => ({ nullComponent: () => ({ default: () => null }) }));
 vi.mock('../../NodeCanvas', () => ({ default: () => <div data-testid="node-canvas-stub" /> }));
 vi.mock('../../SpawningNodeDragLayer', nullComponent);
+vi.mock('../../components/canvas/hosts/HeaderHost.jsx', nullComponent);
+vi.mock('../../components/canvas/hosts/PanelHost.jsx', nullComponent);
+vi.mock('../../components/canvas/hosts/TypeListHost.jsx', nullComponent);
 vi.mock('../../ai/BridgeClient.jsx', nullComponent);
 vi.mock('../../components/GlobalContextMenu.jsx', nullComponent);
 vi.mock('../../components/UniverseManagerBootstrap.jsx', nullComponent);
@@ -126,8 +129,8 @@ describe('renderProbe with React Profiler (jsdom, dev build)', () => {
   });
 });
 
-describe('App.jsx wraps NodeCanvas in <Profiler id="NodeCanvas">', () => {
-  it('reports NodeCanvas commits to window.__renderProbe', async () => {
+describe('App renders NodeCanvas inside <Profiler id="NodeCanvas"> (CanvasShell, P2.11)', () => {
+  it('reports NodeCanvas commits to window.__renderProbe, and an App re-render does not reach it', async () => {
     const { default: App } = await import('../../App.jsx');
     const { default: useGraphStore } = await import('../../store/graphStore.js');
 
@@ -136,11 +139,14 @@ describe('App.jsx wraps NodeCanvas in <Profiler id="NodeCanvas">', () => {
     window.__renderProbe.start('app');
     const { getByTestId } = render(<App />);
     expect(getByTestId('node-canvas-stub')).toBeTruthy();
+    // App re-renders on darkMode; the memoized shell keeps that from NodeCanvas.
     act(() => useGraphStore.setState({ darkMode: true }));
     const r = window.__renderProbe.stop();
 
     expect(r.label).toBe('app');
-    expect(r.byId.NodeCanvas).toMatchObject({ commits: 2, phases: { mount: 1, update: 1 } });
+    // The mount, then the shell's overlay slot attaching (a nested update in
+    // the same commit's layout phase).
+    expect(r.byId.NodeCanvas).toMatchObject({ commits: 2, phases: { mount: 1, update: 0, 'nested-update': 1 } });
     expect(r.byId.NodeCanvas.totalMs).toBeGreaterThanOrEqual(0);
   });
 });
