@@ -393,7 +393,14 @@ const useCanvasUIStore = create((set, get) => ({
   ...createCanvasUIDefaults(),
 
   // selection
-  setSelectedInstanceIds: fieldSetter(set, 'selectedInstanceIds', setsEqual, toSet),
+  // A real change goes through the pie machine, which applies the selection → pie
+  // rule in the same write (P5.02b step 6; it was a NodeCanvas effect).
+  setSelectedInstanceIds: (valueOrUpdater) => {
+    const prev = get().selectedInstanceIds;
+    const next = toSet(resolveNext(valueOrUpdater, prev));
+    if (setsEqual(prev, next)) return;
+    get().dispatchPie({ type: 'SELECTION_CHANGED', ids: next });
+  },
   // edge selection (P2.03c)
   setSelectedEdgeId: fieldSetter(set, 'selectedEdgeId'),
   // Equal when it names the same edge: the renderer reads only `edgeId`.

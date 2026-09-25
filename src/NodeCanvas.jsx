@@ -1399,7 +1399,7 @@ function NodeCanvas() {
   // The pie machine reads whether a marquee is being drawn (P5.02b).
   const setSelectionStart = useCallback((v) => {
     setSelectionStartState(v);
-    useCanvasUIStore.setState({ marqueeActive: !!v });
+    useCanvasUIStore.getState().dispatchPie({ type: 'MARQUEE', active: !!v });
   }, []);
   // Set synchronously by beginMarquee/endMarquee; the effect covers resets.
   const selectionStartRef = useRef(null);
@@ -3309,21 +3309,8 @@ function NodeCanvas() {
 
   }, []);
 
-  // Prevent carousel stage resets while abstraction prompt is open
-  useEffect(() => {
-    if (abstractionPrompt.visible && carouselPieMenuStage !== 2) {
-
-      setCarouselPieMenuStage(2);
-      // Don't mark this as a stage transition to avoid hiding the pie menu
-      // setIsCarouselStageTransition(true);
-
-      // Ensure the pie menu remains visible during abstraction prompt
-      if (!selectedNodeIdForPieMenu && abstractionCarouselNode) {
-
-        setSelectedNodeIdForPieMenu(abstractionCarouselNode.id);
-      }
-    }
-  }, [abstractionPrompt.visible, carouselPieMenuStage, selectedNodeIdForPieMenu, abstractionCarouselNode]);
+  // While the abstraction prompt is open the carousel stays in stage 2 on its node:
+  // an invariant of the pie machine's selection rule (was an effect, P5.02b step 6).
 
   // The carousel has faded out: apply a pending Swap, hide it, restore the node's
   // selection and pie, and frame it (CAROUSEL_EXITED; the Swap and the framing
@@ -5146,69 +5133,9 @@ function NodeCanvas() {
     if (!isRealTime) setEditingNodeIdOnCanvas(null);
   }, [storeActions]);
 
-  // Effect to manage PieMenu visibility and data for animations
-  useEffect(() => {
-    console.log(`[NodeCanvas] selectedInstanceIds changed:`, {
-      size: selectedInstanceIds.size,
-      ids: [...selectedInstanceIds],
-      isTransitioningPieMenu,
-      abstractionCarouselVisible,
-      selectedNodeIdForPieMenu,
-      abstractionPromptVisible: abstractionPrompt.visible
-    });
-
-    // Add stack trace for unexpected clears to debug the issue
-    if (selectedInstanceIds.size === 0 && selectedNodeIdForPieMenu && !justCompletedCarouselExit) {
-
-    }
-
-    // While a rubber-band selection box is still being dragged, don't pop the pie
-    // menu (or trigger the focus-on-select zoom) for whatever it momentarily covers.
-    // Wait until mouse-up commits the selection — selectionStart clears to null then,
-    // re-running this effect (it's a dep) so a committed single-node landing frames.
-    if (selectionStart) {
-      return;
-    }
-
-    if (selectedInstanceIds.size === 1) {
-      const instanceId = [...selectedInstanceIds][0];
-
-      if (!isTransitioningPieMenu) {
-        setSelectedNodeIdForPieMenu(instanceId);
-      } else {
-        // If transitioning, PieMenu's onExitAnimationComplete will handle setting the next selectedNodeIdForPieMenu
-      }
-    } else {
-      // Not a single selection (0 or multiple)
-
-      // SPECIAL CASE: If abstraction prompt is visible, don't close pie menu yet
-      if (abstractionPrompt.visible && abstractionCarouselVisible) {
-
-        return;
-      }
-
-      // SPECIAL CASE: If carousel is exiting, don't clear the pie menu - let the exit complete first
-      if (carouselAnimationState === 'exiting') {
-
-        return;
-      }
-
-      // SPECIAL CASE: If we just completed carousel exit, don't clear the pie menu 
-      if (justCompletedCarouselExit) {
-
-        return;
-      }
-
-      // SPECIAL CASE: If carousel is visible and we're losing selection, start exit animation
-      if (abstractionCarouselVisible && selectedNodeIdForPieMenu) {
-
-        setCarouselAnimationState('exiting');
-        return;
-      }
-
-      setSelectedNodeIdForPieMenu(null);
-    }
-  }, [selectedInstanceIds, isTransitioningPieMenu, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState, justCompletedCarouselExit, selectionStart]); // Added carousel protection flags + box-selection gate
+  // The pie target follows the selection through the pie machine: every selection
+  // change and marquee start/commit dispatches, and the machine applies the rule
+  // (reconcileWrites in pieMachine.js; it was an effect here until P5.02b step 6).
   // Prepare and render PieMenu when its target changes (assigned each render: see setCarouselFocusedNodeDimensions).
   rebuildPieMenuDataRef.current = () => {
     if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
