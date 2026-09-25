@@ -59,8 +59,9 @@ const mountApp = () => {
   )
 }
 
-if (import.meta.env.DEV && window.__REDSTRING_FIXTURE_MODE__) {
-  // Fixture mode (dev only): load the fixture and disable persistence before
+if ((import.meta.env.DEV || import.meta.env.MODE === 'profile') && window.__REDSTRING_FIXTURE_MODE__) {
+  // Fixture mode (dev server and the profiling build only; the perf scenarios,
+  // P0.04, run on the latter): load the fixture and disable persistence before
   // the app mounts. If that fails, don't mount at all: a half-initialised
   // fixture session must never fall through to the real storage bootstrap.
   import('./dev/fixtureLoader.js')

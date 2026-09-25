@@ -113,6 +113,19 @@ describe('renderProbe: sessions and labels', () => {
   });
 });
 
+describe('renderProbe: peek', () => {
+  it('reads the running totals without ending the session', () => {
+    const probe = createRenderProbe({ enabled: true });
+    expect(probe.peek()).toBeNull();
+    probe.start('S1');
+    report(probe, 'NodeCanvas', 'update', 3, 100);
+    expect(probe.peek()).toEqual({ commits: 1, totalMs: 3, maxMs: 3 });
+    report(probe, 'NodeCanvas', 'update', 5, 200);
+    expect(probe.stop()).toMatchObject({ commits: 2, totalMs: 8, maxMs: 5 });
+    expect(probe.peek()).toBeNull();
+  });
+});
+
 describe('renderProbe: inert when off', () => {
   it('records nothing and refuses to start while disabled', () => {
     const probe = createRenderProbe();

@@ -39,6 +39,7 @@
     "build:cap": "vite build --mode capacitor",
     "build:profile": "vite build --mode profile",
     "preview:profile": "vite preview --mode profile --port 4830 --strictPort",
+    "perf:canvas": "node scripts/perf-canvas.mjs",
     "cap:sync": "npm run build:cap && npx cap sync ios",
     "cap:ios": "npm run cap:sync && npx cap open ios",
     "cap:sync:android": "npm run build:cap && npx cap sync android",
