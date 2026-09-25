@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P5.07, context-menu builders (Claude, orchestrator)
+
+- The canvas and node right-click menus moved verbatim into `components/canvas/menus/contextMenus.jsx` (the P5.01a method, now also counting JSX names). 39 orphaned imports pruned (reports/P5.07.md).
+- **NodeCanvas.jsx 14,054 → 13,742.** F12 (exact menu lists) passes.
+- **Gates:** `test:ci` PASS, Playwright 56 passed, build passes.
+
+---
+
 ## 2026-09-25: P5.01a, pie button builders (Claude, orchestrator)
 
 - `nodePieMenuPages`, `targetPieMenuButtons`, `decomposePanelInfo` and `edgePieMenuButtons` (about 1,100 lines) moved verbatim into `components/canvas/pie/`, taking their closed-over values as `ctx`, with the same memo dependencies (reports/P5.01a.md).

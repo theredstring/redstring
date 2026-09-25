@@ -102,6 +102,7 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
 - **Accept:** F5, F6, F14 and the prompt flows pass.
 
 ### P5.07: Context-menu builders
+- **Status:** builders done (reports/P5.07.md): verbatim move into `components/canvas/menus/contextMenus.jsx`; F12 passes. Open: actions through commands / `getState()`.
 - **Lane:** A + B · **Size:** M
 - **Change:** `getCanvasContextMenuOptions` and `getContextMenuOptions` become pure builders plus commands.
 - **Accept:** F12 passes.
