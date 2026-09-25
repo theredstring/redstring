@@ -11683,7 +11683,7 @@ function NodeCanvas() {
                       : null;
 
                     // Helper to render a Node component with all its props (avoids duplication)
-                    const renderNodeElement = (node) => {
+                    const renderNodeElement = (node, isDragging = false) => {
                       const isPreviewing = previewingNodeId === node.id;
                       const baseDimensions = baseDimsById.get(node.id);
                       const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
@@ -11706,7 +11706,7 @@ function NodeCanvas() {
                           innerNetworkHeight={dimensions.innerNetworkHeight}
                           descriptionAreaHeight={dimensions.descriptionAreaHeight}
                           isSelected={selectedInstanceIds.has(node.id)}
-                          isDragging={false}
+                          isDragging={isDragging}
                           onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(node, e)}
                           onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(node, e)}
                           onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(node, e)}
@@ -11734,10 +11734,10 @@ function NodeCanvas() {
                     return (
                       <>
                         {/* Normal nodes (not thing-group members) */}
-                        {otherNodes.map(renderNodeElement)}
+                        {otherNodes.map((n) => renderNodeElement(n))}
 
                         {/* Thing-group member nodes (above normal nodes) */}
-                        {thingGroupMemberNodes.map(renderNodeElement)}
+                        {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
 
                         {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
                         {nodeGroupTitlesRef.current}
@@ -12067,42 +12067,7 @@ function NodeCanvas() {
                                     isLoading={orbitLoading}
                                   />
                                 )}
-                                <Node
-                                  key={activeNodeToRender.id}
-                                  node={activeNodeToRender}
-                                  currentWidth={dimensions.currentWidth}
-                                  currentHeight={dimensions.currentHeight}
-                                  textAreaHeight={dimensions.textAreaHeight}
-                                  imageWidth={dimensions.imageWidth}
-                                  imageHeight={dimensions.calculatedImageHeight}
-                                  scaledPadding={dimensions.scaledPadding}
-                                  scaledCornerRadius={dimensions.scaledCornerRadius}
-                                  innerNetworkWidth={dimensions.innerNetworkWidth}
-                                  innerNetworkHeight={dimensions.innerNetworkHeight}
-                                  descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                                  isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
-                                  isDragging={false} // Explicitly not the dragging node if rendered here
-                                  onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(activeNodeToRender, e)}
-                                  onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(activeNodeToRender, e)}
-                                  onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(activeNodeToRender, e)}
-                                  onPointerUp={(e) => nodeScope.current.touch.handleNodePointerUp(activeNodeToRender, e)}
-                                  onPointerCancel={(e) => nodeScope.current.touch.handleNodePointerCancel(activeNodeToRender, e)}
-                                  onTouchStart={(e) => nodeScope.current.touch.handleNodeTouchStart(activeNodeToRender, e)}
-                                  onTouchMove={(e) => nodeScope.current.touch.handleNodeTouchMove(activeNodeToRender, e)}
-                                  onTouchEnd={(e) => nodeScope.current.touch.handleNodeTouchEnd(activeNodeToRender, e)}
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    showContextMenu(e.clientX, e.clientY, nodeScope.current.getContextMenuOptions(activeNodeToRender.id));
-                                  }}
-                                  isPreviewing={isPreviewing}
-                                  isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
-                                  onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
-                            nodeScope.current.handleCommitCanvasEdit(activeNodeToRender.prototypeId, newName, isRealTime, isAbort)}
-                                  {...nodeCallbacks}
-                                  storeActions={storeActions}
-                                  currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
-                                />
+                                {renderNodeElement(activeNodeToRender)}
                               </>
                             );
                             return portalTarget ? createPortal(content, portalTarget) : content;
@@ -12110,60 +12075,7 @@ function NodeCanvas() {
                         )}
 
                         {/* Render the Dragging Node last (on top) */}
-                        {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && (
-                          (() => {
-                            const isPreviewing = previewingNodeId === draggingNodeToRender.id;
-                            const baseDimensions = baseDimsById.get(draggingNodeToRender.id);
-                            const descriptionContent = isPreviewing ? getNodeDescriptionContent(draggingNodeToRender, true) : null;
-                            const dimensions = isPreviewing
-                              ? getNodeDimensions(draggingNodeToRender, true, descriptionContent)
-                              : baseDimensions || getNodeDimensions(draggingNodeToRender, false, null);
-
-                            // Hide if its carousel is open
-                            if (abstractionCarouselVisible && abstractionCarouselNode?.id === draggingNodeToRender.id) {
-                              return null;
-                            }
-
-                            return (
-                              <Node
-                                key={draggingNodeToRender.id}
-                                node={draggingNodeToRender}
-                                currentWidth={dimensions.currentWidth}
-                                currentHeight={dimensions.currentHeight}
-                                textAreaHeight={dimensions.textAreaHeight}
-                                imageWidth={dimensions.imageWidth}
-                                imageHeight={dimensions.calculatedImageHeight}
-                                scaledPadding={dimensions.scaledPadding}
-                                scaledCornerRadius={dimensions.scaledCornerRadius}
-                                innerNetworkWidth={dimensions.innerNetworkWidth}
-                                innerNetworkHeight={dimensions.innerNetworkHeight}
-                                descriptionAreaHeight={dimensions.descriptionAreaHeight}
-                                isSelected={selectedInstanceIds.has(draggingNodeToRender.id)}
-                                isDragging={true} // This is the dragging node
-                                onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(draggingNodeToRender, e)}
-                                onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(draggingNodeToRender, e)}
-                                onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(draggingNodeToRender, e)}
-                                onPointerUp={(e) => nodeScope.current.touch.handleNodePointerUp(draggingNodeToRender, e)}
-                                onPointerCancel={(e) => nodeScope.current.touch.handleNodePointerCancel(draggingNodeToRender, e)}
-                                onTouchStart={(e) => nodeScope.current.touch.handleNodeTouchStart(draggingNodeToRender, e)}
-                                onTouchMove={(e) => nodeScope.current.touch.handleNodeTouchMove(draggingNodeToRender, e)}
-                                onTouchEnd={(e) => nodeScope.current.touch.handleNodeTouchEnd(draggingNodeToRender, e)}
-                                onContextMenu={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  showContextMenu(e.clientX, e.clientY, nodeScope.current.getContextMenuOptions(draggingNodeToRender.id));
-                                }}
-                                isPreviewing={isPreviewing}
-                                isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
-                                onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
-                            nodeScope.current.handleCommitCanvasEdit(draggingNodeToRender.prototypeId, newName, isRealTime, isAbort)}
-                                {...nodeCallbacks}
-                                storeActions={storeActions}
-                                currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
-                              />
-                            );
-                          })()
-                        )}
+                        {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
                       </>
                     );
                   })()}
