@@ -3,6 +3,7 @@ import Header from '../../../Header.jsx';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { runCanvasCommand } from '../../../utils/canvas/canvasCommands.js';
+import { setActionHover } from '../../../utils/canvas/actionHover.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { useStableSelector, arrayOfRecordsEqual } from '../../../hooks/useStableSelector.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
@@ -98,8 +99,6 @@ const handleOpenComponentSearch = () => ui().setHeaderSearchVisible(true);
 const handleOpenAllThingsSearch = () => ui().setHeaderAllThingsSearchVisible(true);
 const handleToggleTrackpadZoom = () => ui().setTrackpadZoomEnabled(prev => !prev);
 const handleOpenForceSim = () => ui().setForceSimModalVisible(true);
-// Interim: a command until the hover slice lands (P2.13).
-const handleActionHoverChange = (button) => runCanvasCommand('actionHover', button);
 const handleAutoLayout = () => runCanvasCommand('autoLayout');
 const handleSnapToGrid = () => runCanvasCommand('snapToGrid');
 const handleCondenseNodes = () => runCanvasCommand('condense');
@@ -157,7 +156,7 @@ function HeaderHost({ hidden = false }) {
         onCreateNewThing={handleCreateNewThing}
         onOpenComponentSearch={handleOpenComponentSearch}
         onOpenAllThingsSearch={handleOpenAllThingsSearch}
-        onActionHoverChange={handleActionHoverChange}
+        onActionHoverChange={setActionHover}
         isExclusivePanelMode={isExclusivePanelMode}
         trackpadZoomEnabled={trackpadZoomEnabled}
         onToggleTrackpadZoom={handleToggleTrackpadZoom}
