@@ -1,5 +1,5 @@
 {
-  "budget": 4025,
+  "budget": 4000,
   "floor": 1000,
   "note": "Line budget for src/NodeCanvas.jsx, counted like `wc -l`. It only goes down: any commit that shrinks the file sets `budget` to the new count in that same commit. Raising it needs a DECISION in documentation/dev-ops/nodecanvas-refactor/DECISIONS.md. `floor` is a wipe detector (FINDINGS F-64), not a target. Plan: documentation/dev-ops/nodecanvas-refactor/ (P0.07; success criterion 6 is <= 4000)."
 }

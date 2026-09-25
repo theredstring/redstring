@@ -46,7 +46,6 @@ import { EMPTY_ORBIT } from './components/canvas/orbit/orbitConstants.js';
 import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
-import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
 import { placeOrbitCandidate } from './components/canvas/orbit/orbitActions.js';
 import { startHurtle, startHurtleFromPanelWith } from './components/canvas/camera/hurtle.js';
@@ -96,7 +95,7 @@ import { likelyTouch } from './utils/inputDeviceAnalysis';
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
-import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameEdgePieOnOpen, frameCarouselOnOpen, animateCanvasViewWith } from './components/canvas/camera/framing.js';
+import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameCarouselOnOpen, animateCanvasViewWith } from './components/canvas/camera/framing.js';
 import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex, computeEdgeCurveInfo, computeLabelObstacleOptions } from './components/canvas/edges/edgeGeometry.js';
 import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
@@ -126,6 +125,7 @@ import { useTransformWiring } from './components/canvas/camera/transformWiring.j
 import { useControllerTargets } from './components/canvas/input/controllerTargets.js';
 import { layoutNodesOf, layoutEdgesOf, draggedNodeIdsOf } from './components/canvas/actions/layoutSnapshot.js';
 import { usePlusSignActions } from './components/canvas/actions/plusSign.js';
+import { useEdgePieButtons, useEdgePieFraming } from './components/canvas/pie/edgePie.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -3402,31 +3402,12 @@ function NodeCanvas() {
     containerRef, zoomLevelRef, getHeaderTabTarget, setHurtleFlight,
   }, ...args), [containerRef, getHeaderTabTarget]);
 
-  /**
-   * The connection menu's buttons, in display order.
-   *
-   * One list, two consumers, exactly as nodePieMenuPages is: PieMenu draws it on
-   * the canvas (wrapping it into rows once it outgrows one — see
-   * utils/pieMenuLayout.js) and the bottom control panel renders the same
-   * buttons in its own strip. The panel used to hand-transcribe a subset, which
-   * is how the two drifted apart in the first place.
-   *
-   * Half of these come and go: Palette and Copy need a definition to act on,
-   * Paste needs a clipboard that holds one. That's what makes the row's length a
-   * layout problem rather than a constant.
-   */
-  const edgePieMenuButtons = useMemo(() => buildEdgePieMenuButtons({
-    clipboardRef, edgesMap, markClipboardChanged, nodePrototypesMap, openWizardPicker,
-    rightPanelExpanded, selectedEdgeId, setConnectionNamePrompt, setEdgePieMenuVisible, startHurtleAnimationFromPanel, storeActions,
+  const { edgePieMenuButtons } = useEdgePieButtons({
+    clipboardRef, clipboardVersion, edgePieMenuButtonsRef, edgePieMenuVisible, edgesMap,
+    markClipboardChanged, nodePrototypesMap, rightPanelExpanded, selectedEdgeId,
+    setConnectionNamePrompt, setEdgePieMenuVisible, startHurtleAnimationFromPanel, storeActions,
     wizardEnabled,
-  }), [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, rightPanelExpanded, clipboardRef, clipboardVersion, markClipboardChanged]);
-
-  // Freeze edge pie menu buttons when visible so they survive edge deselection during exit animation
-  useEffect(() => {
-    if (edgePieMenuVisible && edgePieMenuButtons.length > 0) {
-      edgePieMenuButtonsRef.current = edgePieMenuButtons;
-    }
-  }, [edgePieMenuVisible, edgePieMenuButtons]);
+  });
 
   // Raise the pie-menu label chip for whichever bubble the controller is
   // aiming at, so a stick-aimed menu shows the same chip a moused one does.
@@ -3443,18 +3424,12 @@ function NodeCanvas() {
     handlePieMenuHoverChange(btn ? { id: btn.id, label: btn.label } : null);
   }, [gamepadPieFocusedIndex, gamepadMode, targetPieMenuButtons, edgePieMenuButtons, handlePieMenuHoverChange]);
 
-  // Focus-on-select for connections: when an edge's pie menu first appears, frame it
-  // the same way selecting a node frames its menu. Only on a fresh show (new edge),
-  // never on re-renders while the same menu is up — otherwise every button press or
-  // pan would re-yank the view. Mid-drag is skipped: the anchor is frozen then, and
-  // the menu is outroing anyway.
-  const prevFocusPieEdgeIdRef = useRef(null);
-  useEffect(() => frameEdgePieOnOpen({
-    prevFocusPieEdgeIdRef, edgePieMenuVisible, selectedEdgeId, focusOnSelectEnabled,
-    abstractionCarouselVisible, draggingNodeInfoRef, selectedEdgeMidpoint, edgePieMenuButtons,
-    showConnectionNames, placedLabelsRef, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings,
-    connectionLabelSize, focusEdgePieMenuInView,
-  }), [edgePieMenuVisible, selectedEdgeId, selectedEdgeMidpoint, edgePieMenuButtons, abstractionCarouselVisible, focusEdgePieMenuInView, focusOnSelectEnabled, showConnectionNames, edgesMap, nodePrototypesMap, edgePrototypesMap, textSettings, connectionLabelSize]);
+  useEdgePieFraming({
+    abstractionCarouselVisible, connectionLabelSize, draggingNodeInfoRef, edgePieMenuButtons,
+    edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView, focusOnSelectEnabled,
+    nodePrototypesMap, placedLabelsRef, selectedEdgeId, selectedEdgeMidpoint, showConnectionNames,
+    textSettings,
+  });
 
   // Trigger auto-layout: batch engine computes the final positions, then
   // nodes tween directly to their targets (edges/labels follow the nodes).
