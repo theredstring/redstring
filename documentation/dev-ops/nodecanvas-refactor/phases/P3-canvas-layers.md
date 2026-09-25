@@ -16,7 +16,7 @@
 ---
 
 ### P3.01: Narrow the store subscriptions
-- **Status:** todo
+- **Status:** done (reports/P3.01.md): S10b 0 commits, S11 0 NodeCanvas runs. `nodePrototypesMap`/`edgesMap` not narrowed yet (see report)
 - **Lane:** A · **Size:** M
 - **Findings:** F-07
 - **Change:**

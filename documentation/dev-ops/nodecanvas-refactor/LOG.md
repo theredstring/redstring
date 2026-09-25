@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P3.01 done (Claude, orchestrator)
+
+- **P3.01:** `graphsMap` is a live view whose identity follows only the active web; the image-cache maps are narrowed to active-web prototypes. **S10b: 0 commits; S11: 0 NodeCanvas runs** (success criterion 3 for those writes). Prototype/edge maps not narrowed yet. **F-78** logged (a closed modal re-renders on graph writes).
+- **Gates:** `test:ci` PASS, Playwright 55 passed, `lint:undef` PASS. NodeCanvas.jsx 15,732.
+
+---
+
 ## 2026-09-25: P3 kickoff; P3.02 done (B-05) (Claude, orchestrator)
 
 - **P3.02:** Node handlers read the latest render through `useLatestRef`, fixing **B-05**; the definition callbacks copied into three Node blocks are one `nodeCallbacks` object. Playwright is fully green for the first time (55/55, F12's `test.fail()` removed). NodeCanvas.jsx **15,718**.
