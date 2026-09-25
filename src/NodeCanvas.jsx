@@ -71,6 +71,7 @@ import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
 import { clampPan, clientToCanvas } from './utils/canvas/viewportMath.js';
 import { findNearestEdgeAtCanvasPoint as findNearestEdge, edgeHitThreshold } from './utils/canvas/edgeHitTest.js';
+import { selectionInRect, groupTitleAtCanvasPoint, groupDragOffsets } from './utils/canvas/canvasHitTest.js';
 import {
   isMac,
   isIOS,
@@ -7883,35 +7884,8 @@ function NodeCanvas() {
     return GeometryUtils.isInsideNode(nodeData, clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize, previewingNodeId);
   };
 
-  /**
-   * Which instances a live selection box covers, merged with whatever was
-   * already selected when the box began.
-   *
-   * Additive against `selectionBaseRef`, not absolute: dragging a box while
-   * holding a prior selection extends it, and shrinking the box back off a node
-   * only deselects nodes the box itself added. Anchors are skipped — they are
-   * invisible bookkeeping instances for node-groups, and selecting one selects
-   * something the user cannot see.
-   *
-   * Shared by the mouse's live marquee and the controller's, so the two cannot
-   * drift into selecting different things from the same rectangle.
-   */
-  const selectionFromRect = (rect) => {
-    const base = selectionBaseRef.current || new Set();
-    const final = new Set([...base]);
-    nodes.forEach(nd => {
-      if (nd.isGroupAnchor) return;
-      if (base.has(nd.id)) return;
-      const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
-      const intersects = !(rect.x > nd.x + dims.currentWidth ||
-        rect.x + rect.width < nd.x ||
-        rect.y > nd.y + dims.currentHeight ||
-        rect.y + rect.height < nd.y);
-      if (intersects) final.add(nd.id);
-      else final.delete(nd.id);
-    });
-    return final;
-  };
+  // The selection a live box leaves (utils/canvas/canvasHitTest.js).
+  const selectionFromRect = (rect) => selectionInRect(rect, nodes, selectionBaseRef.current, previewingNodeId);
 
   // The marquee, for mouse and pad alike (P1.04). The box is written straight
   // to the <rect>; the selection is re-derived at most once a frame and reaches
@@ -7965,65 +7939,14 @@ function NodeCanvas() {
     // Convert client to canvas coordinates
     const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
 
-    for (const [anchorId, info] of anchorPositionUpdatesRef.current.entries()) {
-      // info: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, groupId }
-      if (canvasX >= info.x && canvasX <= info.x + info.width &&
-        canvasY >= info.y && canvasY <= info.y + info.height) {
-        return { anchorInstanceId: anchorId, groupId: info.groupId };
-      }
-    }
-    return null;
+    return groupTitleAtCanvasPoint(canvasX, canvasY, anchorPositionUpdatesRef.current);
   };
 
-  /**
-   * The member/anchor/placeholder offsets a group drag needs, measured from one
-   * canvas-space grab point.
-   *
-   * Hoisted out of the title pill's long-press handler so the controller can
-   * start the SAME drag rather than a parallel reimplementation of it. The list
-   * is not obvious — an empty node-group tracks its placeholder rather than its
-   * anchor, and nested EMPTY child groups need explicit entries or a parent drag
-   * leaves their shells behind — which is exactly why there must only be one
-   * copy of it.
-   */
-  const buildGroupDragOffsets = (group, members, isNodeGroup, canvasX, canvasY) => {
-    const offsets = members.map(m => ({ id: m.id, dx: canvasX - m.x, dy: canvasY - m.y }));
-    if (group.anchorInstanceId) {
-      const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-      if (anchorNode) {
-        offsets.push({ id: anchorNode.id, dx: canvasX - anchorNode.x, dy: canvasY - anchorNode.y });
-      }
-    }
-    // Empty node-group placeholder: track its own independent position (never
-    // the anchor's) so it drags live using the exact same offset-preserving
-    // math as a real member — see groupLayout.js for why deriving it from the
-    // anchor's position doesn't work.
-    if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
-      offsets.push({
-        id: placeholderIdForGroup(group.id),
-        dx: canvasX - group.emptyPlaceholderOrigin.x,
-        dy: canvasY - group.emptyPlaceholderOrigin.y
-      });
-    }
-    // Nested EMPTY child groups ride along too: their box position lives in
-    // emptyPlaceholderOrigin (no member instance to move), so without an
-    // explicit placeholder offset a parent drag would leave their shells
-    // behind. Non-empty children need nothing — their members are already in
-    // the parent's offset list.
-    const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
-    if (nestedChildIds) {
-      nestedChildIds.forEach(childId => {
-        const childGroup = groupsByIdRef.current.get(childId);
-        if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
-        offsets.push({
-          id: placeholderIdForGroup(childId),
-          dx: canvasX - childGroup.emptyPlaceholderOrigin.x,
-          dy: canvasY - childGroup.emptyPlaceholderOrigin.y
-        });
-      });
-    }
-    return offsets;
-  };
+  // The offsets a group drag needs (utils/canvas/canvasHitTest.js).
+  const buildGroupDragOffsets = (group, members, isNodeGroup, canvasX, canvasY) => groupDragOffsets(
+    group, members, isNodeGroup, canvasX, canvasY,
+    { nodes, childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current, groupsById: groupsByIdRef.current },
+  );
 
   /**
    * Start a group drag from a client point — the pill's long-press path and the
