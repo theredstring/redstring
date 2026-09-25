@@ -71,6 +71,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
+import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
 import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
@@ -5666,8 +5667,8 @@ function NodeCanvas() {
   // New states for PieMenu transition
   const selectedNodeIdForPieMenu = useCanvasUIStore(s => s.selectedNodeIdForPieMenu), setSelectedNodeIdForPieMenu = useCanvasUIStore(s => s.setSelectedNodeIdForPieMenu);
   const isTransitioningPieMenu = useCanvasUIStore(s => s.isTransitioningPieMenu), setIsTransitioningPieMenu = useCanvasUIStore(s => s.setIsTransitioningPieMenu);
-  // Ghost rects rendered after node deletion so the shrink animation plays on a decoupled element
-  const [deletionAnimations, setDeletionAnimations] = useState([]);
+  // Ghost rects rendered after node deletion so the shrink animation plays on a
+  // decoupled element. They live in canvasUIStore and DeletionGhostLayer (P2.07).
 
   const _captureGhost = (instanceId) => {
     const node = nodes.find(n => n.id === instanceId);
@@ -5707,7 +5708,7 @@ function NodeCanvas() {
       : 0;
     ghosts.forEach((ghost, i) => { ghost.delay = i * step; });
 
-    setDeletionAnimations(prev => [...prev, ...ghosts]);
+    useCanvasUIStore.getState().addDeletionGhosts(ghosts);
   };
 
   const deleteNodeWithAnimation = (instanceId) => {
@@ -15169,24 +15170,8 @@ function NodeCanvas() {
                         {/* Groups Phase 3: Thing-group titles (above member nodes, below active/dragging) */}
                         {nodeGroupTitlesRef.current}
 
-                        {/* Delete ghost rects — plain <rect> elements safe for CSS transform animation */}
-                        {deletionAnimations.map(ghost => (
-                          <rect
-                            key={ghost.id}
-                            className="node-delete-ghost"
-                            x={ghost.x}
-                            y={ghost.y}
-                            width={ghost.width}
-                            height={ghost.height}
-                            rx={ghost.rx}
-                            ry={ghost.rx}
-                            fill={ghost.color}
-                            style={{ pointerEvents: 'none', animationDelay: `${ghost.delay}ms` }}
-                            onAnimationEnd={() =>
-                              setDeletionAnimations(prev => prev.filter(a => a.id !== ghost.id))
-                            }
-                          />
-                        ))}
+                        {/* Delete ghost rects (P2.07) */}
+                        <DeletionGhostLayer />
 
                         {/* Render The PieMenu next (it will be visually under the active node) */}
                         {isPieMenuRendered && currentPieMenuData && (

@@ -417,4 +417,22 @@ describe('canvasUIStore (P2.01)', () => {
       expect(st().setSelectedInstanceIds).toBe(before);
     });
   });
+
+  describe('deletion ghosts (P2.07)', () => {
+    const ghost = (id) => ({ id, x: 0, y: 0, width: 10, height: 10, rx: 2, color: '#800000', delay: 0 });
+
+    it('adds ghosts and removes them one at a time', () => {
+      st().addDeletionGhosts([ghost('a'), ghost('b')]);
+      expect(st().deletionGhosts.map((g) => g.id)).toEqual(['a', 'b']);
+      st().removeDeletionGhost('a');
+      expect(st().deletionGhosts.map((g) => g.id)).toEqual(['b']);
+    });
+
+    it('adding nothing or removing an unknown ghost writes nothing', () => {
+      const before = st().deletionGhosts;
+      st().addDeletionGhosts([]);
+      st().removeDeletionGhost('nope');
+      expect(st().deletionGhosts).toBe(before);
+    });
+  });
 });
