@@ -169,7 +169,7 @@ import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
-import TypeList from './TypeList'; // Re-add TypeList component
+import TypeListHost from './components/canvas/hosts/TypeListHost.jsx';
 import SaveStatusDisplay from './SaveStatusDisplay'; // Import the save status display
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
@@ -17309,13 +17309,7 @@ function NodeCanvas() {
 
       {/* TypeList Component — dropped in the fullscreen landscape shell, along
           with its bottom-left toggle button (both live inside TypeList). */}
-      {!mobileLandscapeShell && (
-        <TypeList
-          nodes={nodes}
-          setSelectedNodes={setSelectedInstanceIds}
-          selectedNodes={selectedInstanceIds}
-        />
-      )}
+      {!mobileLandscapeShell && <TypeListHost />}
 
       {/* SaveStatusDisplay Component */}
       <SaveStatusDisplay hidden={showStorageSetupModal} />
