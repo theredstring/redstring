@@ -6,8 +6,6 @@ import { useCanvasWorker } from './useCanvasWorker.js';
 import PlusSign from './PlusSign.jsx'; // Import the new PlusSign component
 import VideoNodeAnimation from './VideoNodeAnimation.jsx'; // Import the video animation component
 import PieMenu from './PieMenu.jsx'; // Import the PieMenu component
-import AbstractionCarousel from './AbstractionCarousel.jsx'; // Import the AbstractionCarousel component
- // Import the AbstractionControlPanel component
 import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import DownloadAppPill from './DownloadAppPill.jsx';
@@ -23,7 +21,6 @@ import { CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
 import { Plus } from 'lucide-react'; // Icons for PieMenu
-import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
@@ -98,7 +95,6 @@ import {
 import {
 } from './wizard/prompts/intentPrompts.js';
 import { thingFacts, ladderFacts } from './wizard/prompts/facts.js';
-import WizardIntentModal from './components/wizard/WizardIntentModal.jsx';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
 import { getAppViewportSize } from './utils/appViewport.js';
@@ -110,7 +106,6 @@ import {
   PLUS_SIGN_SIZE,
   NODE_CORNER_RADIUS,
   NODE_DEFAULT_COLOR,
-  CONNECTION_DEFAULT_COLOR,
   CONNECTION_WIDTH_BASE_SCALE,
   EXCLUSIVE_PANEL_MODE_THRESHOLD,
 } from './constants';
@@ -135,9 +130,7 @@ import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { quantizeAngle } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch } from './utils/inputDeviceAnalysis';
-import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
-import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
 import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameEdgePieOnOpen } from './components/canvas/camera/framing.js';
@@ -151,6 +144,8 @@ import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect } from './c
 import { computeShouldShowBackToCivilization, computeRelevantNodesVisible } from './components/canvas/data/backToCivilization.js';
 import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
 import { resolveStoreActions } from './components/canvas/data/storeActions.js';
+import PromptsHost from './components/canvas/hosts/PromptsHost.jsx';
+import CanvasOverlaysHost from './components/canvas/hosts/CanvasOverlaysHost.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -5890,6 +5885,36 @@ function NodeCanvas() {
     handleExpandAbstractionDimension, handleAbstractionControlPanelAnimationComplete, onCarouselClose,
   };
 
+  // The name prompts' state and handlers (P5.06a).
+  const promptsCtx = {
+    nodeNamePrompt, connectionNamePrompt, abstractionPrompt, nodeGroupPrompt, swapPrompt, setSwapPrompt,
+    leftPanelExpanded, rightPanelExpanded, setDialogColorPickerVisible, storeActions, performInstanceSwap,
+    handleClosePrompt, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection,
+    finalizeConnectionSuggestion, setConnectionNamePrompt, suggestEdgeArrowDirection, setNodeGroupPrompt,
+    activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible, finalizeAbstractionSuggestion, handleAbstractionSubmit,
+  };
+
+  // The shell-slot overlays' state and handlers (P5.06a).
+  const canvasOverlaysCtx = {
+    abstractionCarouselVisible, abstractionCarouselNode, panOffset, zoomLevel, zoomLevelRef, panOffsetRef,
+    containerRef, canvasSize, debugMode, carouselAnimationState, onCarouselAnimationStateChange,
+    onCarouselClose, requestCarouselClose, onCarouselReplaceNode, setCarouselFocusedNodeScale,
+    setCarouselFocusedNodeDimensions, setCarouselFocusedNode, onCarouselExitAnimationComplete,
+    carouselRelativeMoveRequest, setCarouselRelativeMoveRequest, carouselFocusPrototypeRequest,
+    setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension, abstractionDimensions,
+    handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
+    handleExpandAbstractionDimension, setAbstractionControlPanelVisible, dialogColorPickerVisible,
+    handleDialogColorPickerClose, handleDialogColorChange, colorPickerTarget, selectedGroupEffectiveColor,
+    nodeNamePrompt, connectionNamePrompt, dialogColorPickerPosition, pieMenuColorPickerVisible,
+    activePieMenuColorNodeId, handlePieMenuColorPickerClose, handlePieMenuColorChange,
+    handlePieMenuColorCommit, nodes, pieMenuColorPickerPosition, edgeColorPickerVisible,
+    activeEdgeColorPrototypeId, handleEdgeColorPickerClose, handleEdgeColorChange, handleEdgeColorCommit,
+    nodePrototypesMap, edgeColorPickerPosition, addToGroupDialog, setAddToGroupDialog, activeGraphId,
+    askWizardPicker, wizardDestination, chooseWizardDestination, setAskWizardPicker, runWizardIntent,
+    selfLoopDialog, setSelfLoopDialog,
+  };
+
   // The pointer handlers' context (P4.04a), assigned during render for the same
   // reason as the camera's: effects in this commit see this render's values.
   pointerCtxRef.current = {
@@ -6627,207 +6652,7 @@ function NodeCanvas() {
           {/* Overlay panel resizers (outside panels) */}
           <PanelResizers controlRef={panelResizeControlRef} />
 
-          {/* Single UnifiedSelector instance with dynamic props */}
-          {(() => {
-            const anyVisible = nodeNamePrompt.visible || connectionNamePrompt.visible || abstractionPrompt.visible || nodeGroupPrompt.visible || swapPrompt.visible;
-            if (!anyVisible) return null;
-            if (swapPrompt.visible) {
-              const closeSwap = () => setSwapPrompt({ visible: false, instanceId: null, name: '', color: null });
-              return (
-                <UnifiedSelector
-                  mode="node-creation"
-                  isVisible={true}
-                  leftPanelExpanded={leftPanelExpanded}
-                  rightPanelExpanded={rightPanelExpanded}
-                  onClose={() => { setDialogColorPickerVisible(false); closeSwap(); }}
-                  onSubmit={({ name, color }) => {
-                    // Make a new Thing and swap this instance onto it.
-                    if (name.trim() && swapPrompt.instanceId) {
-                      const newProtoId = uuidv4();
-                      storeActions.addNodePrototype({ id: newProtoId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
-                      performInstanceSwap(swapPrompt.instanceId, newProtoId);
-                    }
-                    setDialogColorPickerVisible(false);
-                    closeSwap();
-                  }}
-                  onNodeSelect={(prototype) => {
-                    // Swap this instance onto the chosen existing Thing.
-                    if (prototype?.id && swapPrompt.instanceId) {
-                      performInstanceSwap(swapPrompt.instanceId, prototype.id);
-                    }
-                    setDialogColorPickerVisible(false);
-                    closeSwap();
-                  }}
-                  initialName={swapPrompt.name}
-                  initialColor={swapPrompt.color}
-                  title="Swap Thing"
-                  subtitle="Choose a Thing to swap to, or make a new one.<br />Connections are kept."
-                  searchTerm={swapPrompt.name}
-                />
-              );
-            }
-            if (nodeNamePrompt.visible) {
-              return (
-                <UnifiedSelector
-                  mode="node-creation"
-                  isVisible={true}
-                  leftPanelExpanded={leftPanelExpanded}
-                  rightPanelExpanded={rightPanelExpanded}
-                  onClose={() => { setDialogColorPickerVisible(false); handleClosePrompt(); }}
-                  onSubmit={({ name, color }) => {
-                    if (name && plusSign) {
-                      setPlusSign(ps => ps && { ...ps, mode: 'morph', tempName: name, selectedColor: color });
-                    } else {
-                      setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-                    }
-                    setNodeNamePrompt({ visible: false, name: '', color: null });
-                    setDialogColorPickerVisible(false);
-                  }}
-                  onNodeSelect={handleNodeSelection}
-                  initialName={nodeNamePrompt.name}
-                  initialColor={nodeNamePrompt.color}
-                  title="Name Your Thing"
-                  subtitle="Add a new Thing to this Web."
-                  searchTerm={nodeNamePrompt.name}
-                />
-              );
-            }
-            if (connectionNamePrompt.visible) {
-              return (
-                <UnifiedSelector
-                  mode="connection-creation"
-                  isVisible={true}
-                  leftPanelExpanded={leftPanelExpanded}
-                  rightPanelExpanded={rightPanelExpanded}
-                  onClose={() => { finalizeConnectionSuggestion(null); setDialogColorPickerVisible(false); setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null }); }}
-                  onSubmit={({ name, color }) => {
-                    if (name.trim()) {
-                      finalizeConnectionSuggestion(name);
-                      const newConnectionNodeId = uuidv4();
-                      // Creating the type and applying it to the edge is one
-                      // gesture. It only held together before because the
-                      // context-less updateEdge inherited addNodePrototype's
-                      // leaked context.
-                      storeActions.withHistoryTransaction(`Defined connection "${name.trim()}"`, () => {
-                        storeActions.addNodePrototype({ id: newConnectionNodeId, name: name.trim(), description: '', picture: null, color: color || NODE_DEFAULT_COLOR, typeNodeId: null, definitionGraphIds: [] });
-                        if (connectionNamePrompt.edgeId) {
-                          storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [newConnectionNodeId]; });
-                        }
-                      });
-                      // Async, and deliberately its own entry — it lands whenever
-                      // the model answers, long after this gesture is over.
-                      if (connectionNamePrompt.edgeId) suggestEdgeArrowDirection(connectionNamePrompt.edgeId, name.trim());
-                      setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
-                      setDialogColorPickerVisible(false);
-                    }
-                  }}
-                  onNodeSelect={(node) => {
-                    finalizeConnectionSuggestion(node?.name);
-                    if (connectionNamePrompt.edgeId) {
-                      storeActions.updateEdge(connectionNamePrompt.edgeId, (draft) => { draft.definitionNodeIds = [node.id]; });
-                      suggestEdgeArrowDirection(connectionNamePrompt.edgeId, node?.name);
-                    }
-                    setConnectionNamePrompt({ visible: false, name: '', color: null, edgeId: null });
-                    setDialogColorPickerVisible(false);
-                  }}
-                  initialName={connectionNamePrompt.name}
-                  initialColor={connectionNamePrompt.color}
-                  title="Name Your Connection"
-                  subtitle="The Thing that will define your Connection,<br />in verb form if available."
-                  searchTerm={connectionNamePrompt.name}
-                />
-              );
-            }
-            // Node-group prompt
-            if (nodeGroupPrompt.visible) {
-              return (
-                <UnifiedSelector
-                  mode="node-group-creation"
-                  isVisible={true}
-                  leftPanelExpanded={leftPanelExpanded}
-                  rightPanelExpanded={rightPanelExpanded}
-                  onClose={() => setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null })}
-                  onSubmit={({ name, color }) => {
-                    if (name.trim() && activeGraphId && nodeGroupPrompt.groupId) {
-                      storeActions.convertGroupToNodeGroup(
-                        activeGraphId,
-                        nodeGroupPrompt.groupId,
-                        null, // nodePrototypeId (not used when creating new)
-                        true, // createNewPrototype
-                        name.trim(),
-                        color
-                      );
-                      setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null });
-                      const currentState = useGraphStore.getState();
-                      const graph = currentState.graphs?.get(activeGraphId);
-                      const updatedGroup = graph?.groups?.get(nodeGroupPrompt.groupId);
-                      if (updatedGroup) {
-                        setSelectedGroup(updatedGroup);
-                        setGroupControlPanelShouldShow(true);
-                        setNodeControlPanelShouldShow(false);
-                        setNodeControlPanelVisible(false);
-                      }
-                    }
-                  }}
-                  onNodeSelect={(prototype) => {
-                    if (activeGraphId && nodeGroupPrompt.groupId) {
-                      storeActions.convertGroupToNodeGroup(
-                        activeGraphId,
-                        nodeGroupPrompt.groupId,
-                        prototype.id, // Link to existing prototype
-                        false // Don't create new
-                      );
-                      setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null });
-                      const currentState = useGraphStore.getState();
-                      const graph = currentState.graphs?.get(activeGraphId);
-                      const updatedGroup = graph?.groups?.get(nodeGroupPrompt.groupId);
-                      if (updatedGroup) {
-                        setSelectedGroup(updatedGroup);
-                        setGroupControlPanelShouldShow(true);
-                        setNodeControlPanelShouldShow(false);
-                        setNodeControlPanelVisible(false);
-                      }
-                    }
-                  }}
-                  initialName={nodeGroupPrompt.name}
-                  initialColor={nodeGroupPrompt.color}
-                  title="Name Your Thing"
-                  subtitle="Add a new Thing that will be defined by this Group."
-                  searchTerm={nodeGroupPrompt.name}
-                />
-              );
-            }
-            // Abstraction prompt
-            return (
-              <UnifiedSelector
-                mode="abstraction-node-creation"
-                isVisible={true}
-                leftPanelExpanded={leftPanelExpanded}
-                rightPanelExpanded={rightPanelExpanded}
-                onClose={() => {
-                  finalizeAbstractionSuggestion(null);
-                  // Back to stage 1 on the carousel node (PROMPT_CANCELLED).
-                  useCanvasUIStore.getState().dispatchPie({ type: 'PROMPT_CANCELLED' });
-                }}
-                onSubmit={(payload) => { finalizeAbstractionSuggestion(payload?.name); handleAbstractionSubmit(payload); }}
-                onNodeSelect={(prototype) => {
-                  if (!prototype) return;
-                  finalizeAbstractionSuggestion(prototype.name);
-                  handleAbstractionSubmit({
-                    name: prototype.name || '',
-                    color: prototype.color,
-                    existingPrototypeId: prototype.id
-                  });
-                }}
-                initialName={abstractionPrompt.name}
-                initialColor={abstractionPrompt.color}
-                title={`Add ${abstractionPrompt.direction === 'above' ? 'Above' : 'Below'}`}
-                subtitle={`Create a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} node in the abstraction chain`}
-                abstractionDirection={abstractionPrompt.direction}
-              />
-            );
-          })()}
-
+          <PromptsHost ctx={promptsCtx} />
           {/* Debug overlay disabled */}
         </div>
 
@@ -6838,183 +6663,7 @@ function NodeCanvas() {
       {/* The bottom control panels and the effects that choose between them (P5.05a). */}
       <ControlPanelsHost ctx={controlPanelsCtx} />
 
-      {/* AbstractionCarousel Component */}
-      {
-        abstractionCarouselVisible && abstractionCarouselNode && (
-          <AbstractionCarousel
-            isVisible={abstractionCarouselVisible}
-            selectedNode={abstractionCarouselNode}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-            liveZoomRef={zoomLevelRef}
-            livePanRef={panOffsetRef}
-            containerRef={containerRef}
-            canvasSize={canvasSize}
-            debugMode={debugMode}
-            animationState={carouselAnimationState}
-            onAnimationStateChange={onCarouselAnimationStateChange}
-            onClose={onCarouselClose}
-            onRequestClose={requestCarouselClose}
-            onReplaceNode={onCarouselReplaceNode}
-            onScaleChange={setCarouselFocusedNodeScale}
-            onFocusedNodeDimensions={setCarouselFocusedNodeDimensions}
-            onFocusedNodeChange={setCarouselFocusedNode}
-            onExitAnimationComplete={onCarouselExitAnimationComplete}
-            relativeMoveRequest={carouselRelativeMoveRequest}
-            onRelativeMoveHandled={() => setCarouselRelativeMoveRequest(null)}
-            focusPrototypeRequest={carouselFocusPrototypeRequest}
-            onFocusPrototypeHandled={() => setCarouselFocusPrototypeRequest(null)}
-            onOpenNodeInPanel={(item) => {
-              const prototypeId = item?.prototypeId || item?.id;
-              if (prototypeId && typeof storeActions.openRightPanelNodeTab === 'function') {
-                storeActions.openRightPanelNodeTab(prototypeId, item?.name);
-              }
-            }}
-            currentDimension={currentAbstractionDimension}
-            availableDimensions={abstractionDimensions}
-            onDimensionChange={handleAbstractionDimensionChange}
-            onAddDimension={handleAddAbstractionDimension}
-            onDeleteDimension={handleDeleteAbstractionDimension}
-            onExpandDimension={handleExpandAbstractionDimension}
-            onOpenInPanel={() => {
-              // Open the abstraction control panel when user wants to open in panel
-              setAbstractionControlPanelVisible(true);
-            }}
-          />
-        )
-      }
-
-      {/* Dialog Color Picker Component */}
-      {
-        dialogColorPickerVisible && (
-          <ColorPicker
-            isVisible={dialogColorPickerVisible}
-            onClose={handleDialogColorPickerClose}
-            onColorChange={handleDialogColorChange}
-            currentColor={
-              colorPickerTarget?.type === 'group'
-                ? (selectedGroupEffectiveColor || 'maroon')
-                : (nodeNamePrompt.visible
-                  ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
-                  : (connectionNamePrompt.color || NODE_DEFAULT_COLOR))
-            }
-            position={dialogColorPickerPosition}
-            direction="down-left"
-          />
-        )
-      }
-
-      {/* Pie Menu Color Picker Component */}
-      {
-        pieMenuColorPickerVisible && activePieMenuColorNodeId && (
-          <ColorPicker
-            isVisible={pieMenuColorPickerVisible}
-            onClose={handlePieMenuColorPickerClose}
-            onColorChange={handlePieMenuColorChange}
-            onColorCommit={handlePieMenuColorCommit}
-            currentColor={(() => {
-              const node = nodes.find(n => n.id === activePieMenuColorNodeId);
-              return node?.color || 'maroon';
-            })()}
-            position={pieMenuColorPickerPosition}
-            direction="down-left"
-          />
-        )
-      }
-
-      {/* Connection Color Picker — recolours the Thing that defines the connection */}
-      {
-        edgeColorPickerVisible && activeEdgeColorPrototypeId && (
-          <ColorPicker
-            isVisible={edgeColorPickerVisible}
-            onClose={handleEdgeColorPickerClose}
-            onColorChange={handleEdgeColorChange}
-            onColorCommit={handleEdgeColorCommit}
-            currentColor={nodePrototypesMap.get(activeEdgeColorPrototypeId)?.color || CONNECTION_DEFAULT_COLOR}
-            position={edgeColorPickerPosition}
-            direction="down-left"
-          />
-        )
-      }
-
-      {/* Add to Group Dialog */}
-      {
-        addToGroupDialog && (
-          <CanvasConfirmDialog
-            isOpen={true}
-            onClose={() => setAddToGroupDialog(null)}
-            onConfirm={() => {
-              // Add all dragged nodes to the group
-              if (activeGraphId && addToGroupDialog.groupId && addToGroupDialog.nodeIds) {
-                // Not a plain updateGroup: dropping into a nested group has to add
-                // the node to its containing groups as well, or the group falls out
-                // of the containment hierarchy. See addInstancesToGroup.
-                storeActions.addInstancesToGroup(
-                  activeGraphId,
-                  addToGroupDialog.groupId,
-                  addToGroupDialog.nodeIds
-                );
-                console.log(`Added ${addToGroupDialog.nodeIds.length} node(s) to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'group'} "${addToGroupDialog.groupName}"`);
-              }
-              setAddToGroupDialog(null);
-            }}
-            title={`Add to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'Group'}?`}
-            message={`Add ${addToGroupDialog.nodeIds.length > 1 ? `${addToGroupDialog.nodeIds.length} nodes` : 'this node'} to ${addToGroupDialog.isNodeGroup ? 'the Thing' : 'the group'} "${addToGroupDialog.groupName}"?`}
-            confirmLabel="Add"
-            cancelLabel="Cancel"
-            variant="default"
-            position={addToGroupDialog.position}
-            containerRect={containerRef.current?.getBoundingClientRect()}
-            panOffset={panOffset}
-            zoomLevel={zoomLevel}
-          />
-        )
-      }
-
-      {/* Ask The Wizard — one picker for every entry point. Replaces four
-          near-identical confirm dialogs that only ever asked new-or-current. */}
-      <WizardIntentModal
-        isOpen={!!askWizardPicker}
-        surface={askWizardPicker?.surface}
-        facts={askWizardPicker?.facts}
-        subjectLabel={askWizardPicker?.subjectLabel}
-        destination={wizardDestination}
-        onDestinationChange={chooseWizardDestination}
-        onClose={() => setAskWizardPicker(null)}
-        onConfirm={({ intent, destination, freeText }) => {
-          const payload = askWizardPicker?.payload;
-          setAskWizardPicker(null);
-          runWizardIntent({ intent, destination, payload, freeText });
-        }}
-      />
-
-      {/* Self-referential connection confirmation */}
-      {selfLoopDialog && (
-        <CanvasConfirmDialog
-          isOpen={true}
-          onClose={() => setSelfLoopDialog(null)}
-          onConfirm={() => {
-            if (activeGraphId && selfLoopDialog.sourceInstanceId) {
-              storeActions.addEdge(activeGraphId, {
-                id: uuidv4(),
-                sourceId: selfLoopDialog.sourceInstanceId,
-                destinationId: selfLoopDialog.sourceInstanceId
-              });
-            }
-            setSelfLoopDialog(null);
-          }}
-          title="Self-referential connection?"
-          message="Connect this Thing to itself?"
-          confirmLabel="Connect"
-          cancelLabel="Cancel"
-          variant="default"
-          position={selfLoopDialog.position}
-          containerRect={containerRef.current?.getBoundingClientRect()}
-          panOffset={panOffset}
-          zoomLevel={zoomLevel}
-        />
-      )}
-
+      <CanvasOverlaysHost ctx={canvasOverlaysCtx} />
       </>)}
     </>
   );

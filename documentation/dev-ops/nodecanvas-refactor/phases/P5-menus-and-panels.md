@@ -101,6 +101,7 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
 - **Accept:** Every control-panel action works, and the panels animate the same way.
 
 ### P5.06: Remaining hosts
+- **Status:** part a done (wave 6): the JSX moved verbatim into `hosts/PromptsHost.jsx` (swap, new Thing, connection, node-group and Add Above/Below prompts) and `hosts/CanvasOverlaysHost.jsx` (the carousel, the three colour pickers, the add-to-group and self-loop confirmations and the Wizard picker), each taking NodeCanvas's state and handlers as `ctx`. Traces: drop-only in both views (panels excluded, as for P5.05a); all flows pass. Open (part b): the prompts', pickers', dialogs' and Wizard's state and handlers into the hosts, so NodeCanvas stops holding them.
 - **Lane:** A + B · **Size:** L (**split**)
 - **Change:**
   - `ColorPickerHost` covers the dialog, pie and edge pickers.
