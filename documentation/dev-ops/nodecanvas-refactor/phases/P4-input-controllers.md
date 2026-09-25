@@ -30,6 +30,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 ---
 
 ### P4.01: Pure modules and constant reconciliation
+- **Status:** part a done (reports/P4.01a.md): `inputTuning.js` (verbatim move, values pinned), `clampPan` for the 4 identical copies. Open: `clientToCanvas`, `zoomAboutAnchor`, `canvasHitTest.js`, `edgeHitTest.js`, Q5 reconciliation.
 - **Lane:** B, then A · **Size:** M
 - **Findings:** F-43, F-44
 - **Change:**

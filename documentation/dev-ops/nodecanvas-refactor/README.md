@@ -167,8 +167,9 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 **In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). Next smoke test: end of P2.
 - ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~, ~~P2.06a~~, ~~P2.06d~~, ~~P2.06c~~, ~~P2.06f~~, ~~P2.07~~, ~~P2.03b (+ B-14)~~, ~~P2.03c (D-22)~~
 - ~~P2.12 (+ B-15)~~, ~~P2.13~~ — **P2 complete**
-- ~~P3.02 (B-05)~~ (f6007f7), ~~P3.01~~ (27d51a3)
-- Next: P3.10, P3.11, then the layer cards
+- ~~P3.02 (B-05)~~ (f6007f7), ~~P3.01~~ (27d51a3), ~~P4.01a~~ (bf2c9b8)
+- Deferred to a session with Grant: P3.05/P3.06 (label placement changes need his review), then P3.10/P3.11 which lean on them
+- Next: P3.11, then the layer cards
 
 Wave 4 (smoke-tested by Grant), based on wave 3:
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)

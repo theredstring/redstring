@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P4.01 part a (Claude, orchestrator)
+
+- Judgement call: P3.05/P3.06 (label placement, edge layer) and P3.10/P3.11 (viewport store, culling) are entangled with render-order label placement, and label changes need Grant's review by the plan's own rule, so they wait for a session with him. Took safe, verifiable P4.01 work instead.
+- **P4.01a:** input tuning constants → `utils/canvas/input/inputTuning.js` (verbatim, pinned by a test); `clampPan` for the four identical pan-clamp copies. NodeCanvas.jsx **15,562**.
+- **Gates:** `test:ci` PASS, Playwright 55 passed, `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P3.01 done (Claude, orchestrator)
 
 - **P3.01:** `graphsMap` is a live view whose identity follows only the active web; the image-cache maps are narrowed to active-web prototypes. **S10b: 0 commits; S11: 0 NodeCanvas runs** (success criterion 3 for those writes). Prototype/edge maps not narrowed yet. **F-78** logged (a closed modal re-renders on graph writes).
