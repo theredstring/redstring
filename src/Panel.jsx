@@ -461,7 +461,7 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
   }
 
   // Callbacks are stable due to useCallback, so reference equality should work
-  // storeActions, onToggleExpand, onFocusChange, onStartHurtleAnimationFromPanel
+  // storeActions, onToggleExpand, onStartHurtleAnimationFromPanel
   // should be stable references
 
   return true;
@@ -471,7 +471,6 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
  * @typedef {Object} PanelProps
  * @property {boolean} isExpanded - Whether the panel is open.
  * @property {function(): void} onToggleExpand - Callback to open/close the panel.
- * @property {function(boolean): void} onFocusChange - Called when the panel gains or loses keyboard focus.
  * @property {'left'|'right'} [side='right'] - Which side of the canvas this panel occupies.
  * @property {string|null} activeGraphId - ID of the graph currently displayed on the canvas.
  * @property {Object} storeActions - Bound Zustand store actions passed from NodeCanvas.
@@ -504,7 +503,6 @@ const Panel = memo(forwardRef(
   ({
     isExpanded,
     onToggleExpand,
-    onFocusChange,
     side = 'right',
     // Add props for store data/actions
     activeGraphId,
@@ -2006,7 +2004,6 @@ const Panel = memo(forwardRef(
             <PanelContentWrapper
               tabType="home"
               storeActions={storeActions}
-              onFocusChange={onFocusChange}
               onTypeSelect={handleTypeNodeSelection}
               onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
               isUltraSlim={isUltraSlim}
@@ -2030,8 +2027,7 @@ const Panel = memo(forwardRef(
                 tabType="node"
                 nodeId={nodeId}
                 storeActions={storeActions}
-                onFocusChange={onFocusChange}
-                onTypeSelect={handleTypeNodeSelection}
+                  onTypeSelect={handleTypeNodeSelection}
                 onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
                 isUltraSlim={isUltraSlim}
               />

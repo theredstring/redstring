@@ -185,11 +185,10 @@ export function createCanvasUIDefaults() {
     autoGraphModalVisible: false,
     forceSimModalVisible: false,
 
-    // text entry (F-47 #8). Only keyboard suppression reads these. The panel
-    // flags are never set today (F-50); P2.04 decides whether to wire or drop.
+    // text entry (F-47 #8). Only keyboard suppression reads this. The panels'
+    // focus flags were never set (F-50) and were dropped in P2.04 (D-19): the
+    // DOM check in utils/textEntry.js covers every panel field.
     isHeaderEditing: false,
-    isLeftPanelInputFocused: false,
-    isRightPanelInputFocused: false,
     /** @type {string|null} Node whose name is being edited on the canvas (P2.03). */
     editingNodeIdOnCanvas: null,
 
@@ -325,8 +324,6 @@ const useCanvasUIStore = create((set) => ({
 
   // text entry
   setIsHeaderEditing: fieldSetter(set, 'isHeaderEditing'),
-  setIsLeftPanelInputFocused: fieldSetter(set, 'isLeftPanelInputFocused'),
-  setIsRightPanelInputFocused: fieldSetter(set, 'isRightPanelInputFocused'),
   setEditingNodeIdOnCanvas: fieldSetter(set, 'editingNodeIdOnCanvas'),
 
   /**
@@ -366,8 +363,8 @@ const useCanvasUIStore = create((set) => ({
 
 /**
  * True while a text field that reports its focus to the canvas is active, so
- * keyboard shortcuts must stand down. P2.04 replaces the three flags with
- * this selector.
+ * keyboard shortcuts must stand down. Only the header's title editor reports
+ * its focus (D-19).
  *
  * This covers only the store flags. `isTextEntryActive(event)` in
  * `src/utils/textEntry.js` is a different thing: it asks the DOM, which also
@@ -377,9 +374,7 @@ const useCanvasUIStore = create((set) => ({
  * @param {ReturnType<typeof createCanvasUIDefaults>} state
  * @returns {boolean}
  */
-export const selectIsTextEntryActive = (state) => Boolean(
-  state.isHeaderEditing || state.isLeftPanelInputFocused || state.isRightPanelInputFocused
-);
+export const selectIsTextEntryActive = (state) => Boolean(state.isHeaderEditing);
 
 export { useCanvasUIStore };
 export default useCanvasUIStore;

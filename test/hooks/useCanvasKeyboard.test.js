@@ -59,8 +59,6 @@ function makeParams(overrides = {}) {
     abstractionPrompt: { visible: false },
     newWebPrompt: { visible: false },
     isHeaderEditing: false,
-    isRightPanelInputFocused: false,
-    isLeftPanelInputFocused: false,
     abstractionCarouselVisible: false,
     keyboardSettings: {},
     onDeleteNodes: vi.fn(),
@@ -107,8 +105,6 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
         selectedEdgeId: `e${i}`,
         selectedEdgeIds: new Set([`e${i}`]),
         isHeaderEditing: i % 2 === 0,
-        isRightPanelInputFocused: i % 2 === 1,
-        isLeftPanelInputFocused: i % 3 === 0,
         nodeNamePrompt: { visible: i === 3 },
         connectionNamePrompt: { visible: i === 4 },
         abstractionCarouselVisible: i === 5,
@@ -161,12 +157,12 @@ describe('useCanvasKeyboard shortcut listener (P1.11)', () => {
     expect(latest.storeActions.clearSelectedEdgeIds).toHaveBeenCalledTimes(1);
   });
 
-  it('is still suppressed while a panel reports text focus, using the latest flag', () => {
+  it('is still suppressed while the header title is being edited, using the latest flag', () => {
     const { rerender } = renderHook((p) => useCanvasKeyboard(p), {
       initialProps: makeParams({ selectedInstanceIds: new Set(['i1']) }),
     });
 
-    const focused = makeParams({ selectedInstanceIds: new Set(['i1']), isRightPanelInputFocused: true });
+    const focused = makeParams({ selectedInstanceIds: new Set(['i1']), isHeaderEditing: true });
     rerender(focused);
     act(() => { pressOn(document.body, 'Delete'); });
     expect(focused.onDeleteNodes).not.toHaveBeenCalled();
