@@ -195,11 +195,11 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - `useActiveGraphNodes` was not needed here; build it in P2.10 for TypeList.
 
 ### P2.10: Move TypeList to App
-- **Status:** todo
+- **Status:** done (4c09950 + B-13 391a992, merged 5a573a5; report reports/P2.10.md). TypeListHost renders from NodeCanvas's slot; App takes it in P2.11
 - **Lane:** A + C · **Size:** S · **Depends:** P2.02, P2.09
 - **Change:** TypeList reads its nodes through `useActiveGraphNodes` (add `src/hooks/useActiveGraphNodes.js` here; P2.09 didn't need it) and reads selection from the store. Wrap it in a host with a Profiler, as P2.08/P2.09 did.
 - **Accept:** TypeList shows 0 commits in S1 and S4.
-- **Handoff:**
+- **Handoff:** TypeList takes no props: its lists come from `useStableSelector` (new, `src/hooks/`) and its click handlers read the stores. `useActiveGraphNodes` wasn't needed. TypeList commits: 0 in S1/S4/S5/S7; S5 total render ms 103 → 59. B-13 fixed (typing selected nodes from the TypeList).
 
 ### P2.11: App owns the shell layout
 - **Status:** todo

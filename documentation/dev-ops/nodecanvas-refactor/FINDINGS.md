@@ -96,7 +96,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - Header, TypeList, NodeControlPanel, UnifiedBottomControlPanel, ConnectionControlPanel, AbstractionControlPanel, PieMenu, AbstractionCarousel, and ColorPicker ×3.
 - SettingsModal (54 store subscriptions), HelpModal, MergeThingsModal, StorageSetupModal and GitReconnectModal.
 - Panel has a custom memo comparator (see F-50).
-- → P2. **Header done** (P2.08: one-prop `HeaderHost`, 0 commits in S1/S5/S7). **Panels done** (P2.09: `PanelHost`, plain memo, 0 commits in S1/S4/S5/S7).
+- → P2. **Header done** (P2.08: one-prop `HeaderHost`, 0 commits in S1/S5/S7). **Panels done** (P2.09: `PanelHost`, plain memo, 0 commits in S1/S4/S5/S7). **TypeList done** (P2.10: no props, `TypeListHost`, 0 commits in S1/S4/S5/S7).
 
 **F-14. The keyboard listener is torn down and re-added on every render.** VERIFIED. **→ resolved in P1.11 (9e4cdfe)**
 - The `useCanvasKeyboard` keydown effect has about 22 dependencies (`useCanvasKeyboard.js` ~784).
@@ -411,7 +411,7 @@ This state is used across clusters and must move to a store before the clusters 
 - **Every selection change and every `graphs` write** also re-renders the right panel's whole content: about 270 `LazySection`, 270 `ChevronRight` and 270 `StandardDivider`. A `graphs` write also re-renders the left panel's 51 `DraggableNodeComponent`s.
 - So one NodeCanvas render in real use is several hundred component renders. F-13 (unmemoized shell) and F-50 (Panel's comparator) are where this comes from.
 - → P2 (the shell leaves NodeCanvas; Header tabs and Panel get their own subscriptions).
-- **Header and Panels resolved:** P2.08 (Header 0 commits per NodeCanvas render) and P2.09 (Panels 0 commits in S1/S4/S5/S7; Panel no longer subscribes to `graphs`).
+- **Header, Panels and TypeList resolved:** P2.10 (TypeList and its 35 `EdgeType`s: 0 commits; S5 total render ms 103 → 59), P2.08 (Header 0 commits per NodeCanvas render) and P2.09 (Panels 0 commits in S1/S4/S5/S7; Panel no longer subscribes to `graphs`).
 
 **F-75. What a pie open and close actually renders (S6, 19 NodeCanvas runs) (P0.04).** VERIFIED with `--explain`.
 
@@ -453,6 +453,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-10 | After a pinch or drag-pan ends with the finger held still, the final camera isn't saved until the next move. The view-save effect (~9859) drops saves during gestures and has no retry of its own (found by P1.09) | VERIFIED code, INFERRED effect | P3.10 / P4.02 |
 | B-11 | `PanelContentWrapper` read `nodeDefinitionIndices` from graphStore, which has no such field, so a node's Components list always showed its first definition (found by P2.03) | **FIXED** 144d898 (P2.03): reads `canvasUIStore`. F17 fails without the fix | done |
 | B-12 | View → Snap to Grid and View → Grid → Lattice / Dot did nothing: RedstringMenu takes `onSnapToGrid`, `gridAppearance`, `onSetGridAppearance`, but Header never accepted or forwarded them (since 1eca3a8), so Lattice always showed the checkmark (found by P2.08) | **FIXED** 90120ef (P2.08). F19c fails without the fix | done |
+| B-13 | Clicking a type in the TypeList with nodes selected typed nothing: selection holds instance ids, `setNodeType` takes a prototype id, so every call warned "prototype not found" (since the initial release; found by P2.10) | **FIXED** 391a992 (P2.10). F21 fails without the fix | done |
 
 ---
 

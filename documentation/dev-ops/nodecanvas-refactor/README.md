@@ -164,8 +164,8 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
 **In flight** (edit this when you claim or finish a task). Wave 4 is `refactor/wave4-integration`, based on wave 3 (1c15fc7):
-- ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94)
-- Next: P2.10 (TypeList), P2.11, the rest of P2.06, P2.03b, P2.03c, P2.07, P2.12, P2.13
+- ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)
+- Next: P2.11 (App layout), the rest of P2.06, P2.03b, P2.03c, P2.07, P2.12, P2.13
 
 Wave 3 (smoke-tested by Grant; `main` fast-forwards to 1c15fc7), based on 4daa4d1:
 - ~~Lane A: P2.02~~ (f29b9f0), ~~P2.03 (+ B-08, B-11)~~ (4fbb562), ~~P2.04 (D-19)~~ (2d4c315), ~~P2.05~~ (87f11e7), ~~P2.08 (+ P2.06e, B-12; D-20)~~ (5bce422)
@@ -196,7 +196,7 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 |---|---|---|---|
 | P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | **done**: P0.01–P0.07 (P0.03 + P0.03b) |
 | P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | **done** except P1.13's B-03, which becomes the welcome-screen host (D-17), built outside NodeCanvas |
-| P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | **in progress**: P2.01–P2.05, P2.08, P2.06e done (wave 3); P2.09 (wave 4) |
+| P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | **in progress**: P2.01–P2.05, P2.08, P2.06e done (wave 3); P2.09, P2.10 (wave 4) |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |
 | P5 | [phases/P5-menus-and-panels.md](phases/P5-menus-and-panels.md) | Pie menu, carousel and abstraction state machine; control panels; remaining hosts | not started |

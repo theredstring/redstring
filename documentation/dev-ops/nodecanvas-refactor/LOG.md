@@ -13,6 +13,16 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.10 done, with B-13 (Claude, orchestrator)
+
+- **P2.10** (5a573a5): TypeList takes no props. Its lists come from selectors with equality checks (`useStableSelector`, new) and its click handlers read the stores. `TypeListHost` adds memo and a Profiler. `useActiveGraphNodes` turned out unnecessary.
+  - TypeList commits 0 in S1/S4/S5/S7. Total render ms: S5 103 → 59, S4 22 → 14, S7 43 → 27.
+- **B-13** found and fixed: typing selected nodes from the TypeList did nothing (instance ids passed as prototype ids, since the initial release). F21 guards it.
+- **Integration 5a573a5:** `test:ci` PASS (3,549, 68 known, 0 new), Playwright 45 passed (F12 expected), `lint:undef` PASS. NodeCanvas.jsx **17,962**.
+- **Next:** P2.11 (App owns the shell layout; Header, Panels and TypeList elements move to App).
+
+---
+
 ## 2026-09-25: wave 3 smoke-tested; P2.09 done on wave 4 (Claude, orchestrator)
 
 - Grant smoke-tested wave 3 ("looks great"); he fast-forwards `main` to 1c15fc7. Wave 4 (`refactor/wave4-integration`) starts from 1c15fc7.

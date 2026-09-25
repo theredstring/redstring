@@ -17,7 +17,7 @@ src/store/
   canvasUIStore.js          P2.01  shared UI state (the spine, F-47); NOT graphStore (D-04)
   viewportStore.js          P3.10  settled pan/zoom, visible node/edge sets
 src/hooks/
-  useActiveGraphNodes.js    P2.10  selector hook for TypeList (P2.09 didn't need it)
+  useStableSelector.js      P2.10  derived store values with an equality check (useActiveGraphNodes turned out unnecessary)
   useGroupLayouts.js        P3.03  group layout as pure data (no render-phase ref writes)
   useLabelPlacements.js     P3.05  deterministic whole-graph label pass
   useViewportCulling.js     P3.11
@@ -64,7 +64,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Panel widths + resizers | `leftPanelWidth`, `beginDrag`, `applyResizeUpdate`, `onDragMove`, `endDrag`, `renderPanelResizers` | 1013–1421 | `hosts/PanelResizers` | P1.05, P2.12 |
 | Store subscriptions | `const activeGraphId = useGraphStore` … `hasUniverseFile` | 1426–1529 | narrowed to the active graph; shell-only ones leave with the shell | P3.01, P2 |
 | Universe loading / onboarding / git reconnect | `loadingUniverseName`, `resolveGitReconnectTarget`, `openReconnect`, `retryUniverseLoad`, `openUniversesPanel`, `showStorageSetupModal` | 1537–1564, 2282–2786 | `hosts/UniverseHost` | P2.06c |
-| hydratedNodes | `const hydratedNodes` | 1633 | folded into `nodes` / `useActiveGraphNodes` (no longer a Panel prop since P2.09) | P1.08, P2.10 |
+| hydratedNodes | `const hydratedNodes` | 1633 | canvas-internal (no longer a Panel prop since P2.09; TypeList reads the stores since P2.10) | P1.08, P3 |
 | Header data | `headerGraphs`, `cleanupOrphanedGraphs` effect, `isFullscreen`, `toggleFullscreen`, `trackpadZoomEnabled` | 1757–1914 | **moved** to `hosts/HeaderHost` (P2.08); `trackpadZoomEnabled` → canvasUIStore. The orphan cleanup effect stays (data hygiene on `nodePrototypes`) | P2.08 |
 | Core derived data | `const nodes = useMemo`, `const edges = useMemo`, `nodeById`, `baseDimsById`, `groupStructure`, mirror refs (`nodeByIdRef`, …) | 2005–2280 | stable identity, then selector hooks | P1.08, P3.01 |
 | Selection + culling state | `selectedInstanceIds`, `visibleNodeIds`, `visibleEdges`, `showNodeHitboxes` | 2162–2175 | UI store / viewport store | P2.02, P3.11 |
@@ -147,7 +147,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Header searches, New Web prompt, prompts IIFE | `headerSearchVisible &&`, `newWebPrompt.visible &&` | 18234–18544 | `SearchHosts`, `PromptHosts` | P2.06d, P5.06 |
 | Hurtle orb | `hurtleAnimation &&` | 18545–18562 | `HurtleOrb` | P1.06 |
 | Right Panel | `<PanelHost key="right-panel"` | 18563–18585 | `hosts/PanelHost` (P2.09); App takes the element in P2.11 | P2.11 |
-| TypeList, SaveStatusDisplay | `<TypeList`, `<SaveStatusDisplay` | 18586–18596 | App | P2.10, P2.06c |
+| TypeList, SaveStatusDisplay | `<TypeListHost`, `<SaveStatusDisplay` | 18586–18596 | TypeList: `hosts/TypeListHost` (P2.10), App takes it in P2.11; SaveStatusDisplay → UniverseHost | P2.11, P2.06c |
 | Control panels, carousel, colour pickers | `<NodeControlPanel`, `<UnifiedBottomControlPanel`, `<ConnectionControlPanel`, `<AbstractionControlPanel`, `<AbstractionCarousel`, `<ColorPicker` | 18597–18845 | P5 hosts | P5.04–P5.06 |
 | GitReconnect, StorageSetup, confirm dialogs, WizardIntentModal, self-loop dialog | `<GitReconnectModal`, `<StorageSetupModal`, `<CanvasConfirmDialog`, `<WizardIntentModal` | 18847–19088 | `UniverseHost`, `PromptHosts`, `WizardHost` | P2.06c, P5.06 |
 | AutoGraph, ForceSim, Help, Settings, Merge, DebugOverlay, LayoutProgress | `<AutoGraphModal` … `<LayoutProgressIndicator` | 19089–19250 | `ModalHosts`, `SyncDebugHost` | P2.06a, P2.06b, P2.06f |
