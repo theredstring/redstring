@@ -331,9 +331,8 @@ const useCanvasUIStore = create((set) => ({
    *
    * Deliberately NOT equality-skipped: this is a request, not a value. Asking
    * for the view that is already requested must fire again (the user may have
-   * switched away since), which is what today's `setLeftPanelInitialView(null)`
-   * then `requestAnimationFrame(() => set…('federation'))` dance fakes. The
-   * nonce makes every call a distinct request.
+   * switched away since). The nonce makes every call a distinct request, and
+   * Panel switches on each one (F18).
    * @param {string} view e.g. 'federation', 'ai'
    */
   openLeftPanelView: (view) => set((state) => ({

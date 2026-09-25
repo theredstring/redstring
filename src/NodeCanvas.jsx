@@ -458,6 +458,9 @@ const clampOverlayPanelWidth = (width) => {
 // Where a panel's overlay resizer bar sits, from the panel width: 14 px inset
 // from the panel edge, centred on its 28 px hitbox (renderPanelResizers).
 const resizerOffset = (panelWidth) => Math.max(0, panelWidth + 14 - 28 / 2);
+// Ask the left panel to show a view. A store request with a nonce (P2.05), so
+// asking again for the view it already showed still switches back to it.
+const openLeftPanelView = (view) => useCanvasUIStore.getState().openLeftPanelView(view);
 
 // Platform detection (guarded for SSR)
 const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -2360,11 +2363,7 @@ function NodeCanvas() {
 
   const openUniversesPanel = useCallback(() => {
     storeActions.setLeftPanelExpanded(true);
-    setTimeout(() => {
-      if (leftPanelRef.current) {
-        leftPanelRef.current.setActiveView('federation');
-      }
-    }, 100);
+    openLeftPanelView('federation');
   }, [storeActions]);
 
   // Help modal state
@@ -2441,7 +2440,7 @@ function NodeCanvas() {
           if (typeof window !== 'undefined') {
             localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
           }
-          setTimeout(() => { if (leftPanelRef.current) leftPanelRef.current.setActiveView('federation'); }, 100);
+          openLeftPanelView('federation');
         }
         // If NEEDS_ONBOARDING, check if user has skipped setup before
         else if (result.status === 'NEEDS_ONBOARDING') {
@@ -2481,11 +2480,7 @@ function NodeCanvas() {
               // No previous session found -> Open Grid
               storeActions.setUniverseLoaded(true, false);
               storeActions.setLeftPanelExpanded(true);
-              setTimeout(() => {
-                if (leftPanelRef.current) {
-                  leftPanelRef.current.setActiveView('federation');
-                }
-              }, 100);
+              openLeftPanelView('federation');
             } else {
               console.log('[NodeCanvas] Auto-connected to browser storage session.');
               storeActions.setStorageMode('browser');
@@ -2620,18 +2615,14 @@ function NodeCanvas() {
   }, [isUniverseLoading, hasUniverseFile, isUniverseLoaded, universeLoadingError, showStorageSetupModal]);
 
   // Open Federation panel when global event is dispatched (from SaveStatusDisplay CTA
-  // or onboarding/help). The null→federation toggle is intentional: setting the same
-  // value twice is a no-op for React state, so re-clicking Connect while the panel is
-  // on a different tab wouldn't actually switch the view. Clearing first guarantees
-  // the Panel's useEffect sees a change and snaps to federation.
+  // or onboarding/help).
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
     const handler = () => {
       try {
         storeActions.setLeftPanelExpanded(true);
-        setLeftPanelInitialView(null);
-        requestAnimationFrame(() => setLeftPanelInitialView('federation'));
+        openLeftPanelView('federation');
       } catch { }
     };
 
@@ -2652,8 +2643,7 @@ function NodeCanvas() {
     const handler = () => {
       try {
         storeActions.setLeftPanelExpanded(true);
-        setLeftPanelInitialView(null);
-        requestAnimationFrame(() => setLeftPanelInitialView('federation'));
+        openLeftPanelView('federation');
       } catch { }
     };
     window.addEventListener('redstring:open-external-link', handler);
@@ -2737,7 +2727,7 @@ function NodeCanvas() {
         });
       } else if (pendingOAuth || pendingApp) {
         storeActions.setLeftPanelExpanded(true);
-        setLeftPanelInitialView('federation');
+        openLeftPanelView('federation');
         setShowStorageSetupModal(false);
       }
     } catch (e) {
@@ -2973,7 +2963,6 @@ function NodeCanvas() {
   // Panel expansion states - managed globally
   const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
-  const [leftPanelInitialView, setLeftPanelInitialView] = useState(null); // Control which view to open in left panel
 
   // Use proper viewport bounds hook for accurate, live viewport calculations
   // We pass typeListVisible to ensure edge panning respects the TypeList visibility
@@ -6237,15 +6226,7 @@ function NodeCanvas() {
     try {
       storeActions.setLeftPanelExpanded(true);
     } catch { }
-    // Through the imperative handle rather than the initialViewActive prop:
-    // that prop opens a view only when its VALUE changes, so a second ask in
-    // the same session — after the user has been to another view — would send
-    // the message and leave the panel sitting wherever it already was.
-    if (leftPanelRef.current?.setActiveView) {
-      leftPanelRef.current.setActiveView('ai');
-    } else {
-      setLeftPanelInitialView('ai');
-    }
+    openLeftPanelView('ai');
     sendWizardAsk(built, { newConversation, toolPolicy });
     afterSend?.();
   }, [ensureWizardApiKey, storeActions]);
@@ -8474,7 +8455,6 @@ function NodeCanvas() {
     return () => document.removeEventListener('pointerlockchange', onLockChange);
   }, []);
   const panelRef = useRef(null); // Ref for Right Panel (if needed for openNodeTab)
-  const leftPanelRef = useRef(null); // Ref for Left Panel
 
   const canvasWorker = useCanvasWorker();
   // Ensure async zoom results apply in order to avoid ghost frames
@@ -15223,7 +15203,6 @@ function NodeCanvas() {
       <div style={{ display: 'flex', flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
         <Panel
           key="left-panel"
-          ref={leftPanelRef}
           side="left"
           isExpanded={leftPanelExpanded}
           onToggleExpand={handleToggleLeftPanel}
@@ -15236,7 +15215,6 @@ function NodeCanvas() {
           rightPanelExpanded={rightPanelExpanded}
           selectedInstanceIds={selectedInstanceIds}
           hydratedNodes={hydratedNodes}
-          initialViewActive={leftPanelInitialView}
         />
 
         <div
@@ -15335,11 +15313,7 @@ function NodeCanvas() {
                       onClick={() => {
                         storeActions.setUniverseLoaded(true, false);
                         storeActions.setLeftPanelExpanded(true);
-                        setTimeout(() => {
-                          if (leftPanelRef.current) {
-                            leftPanelRef.current.setActiveView('federation');
-                          }
-                        }, 100);
+                        openLeftPanelView('federation');
                       }}
                       style={{ pointerEvents: 'auto' }}
                     />
@@ -18036,11 +18010,7 @@ function NodeCanvas() {
             if (existing.length === 0) {
               storeActions.setUniverseLoaded(true, false);
               storeActions.setLeftPanelExpanded(true);
-              setTimeout(() => {
-                if (leftPanelRef.current) {
-                  leftPanelRef.current.setActiveView('federation');
-                }
-              }, 100);
+              openLeftPanelView('federation');
             }
           }).catch(() => { });
         }}
@@ -18138,11 +18108,7 @@ function NodeCanvas() {
 
             // Open the Universes (grid) tab in left panel
             storeActions.setLeftPanelExpanded(true);
-            setTimeout(() => {
-              if (leftPanelRef.current) {
-                leftPanelRef.current.setActiveView('federation');
-              }
-            }, 100);
+            openLeftPanelView('federation');
 
             console.log('[NodeCanvas] Browser storage mode activated');
           } catch (error) {
