@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Long-press arm ref-only (Claude, orchestrator)
+
+- `useNodeDrag`'s armed long-press instance was also React state that nothing rendered from, set and cleared on every node press (F-75): now ref-only. **S7 NC rendered 9 → 7, S6 15 → 13, S4 4 → 3.**
+- `isPanning` (also set per press) stays state: it hides the back-to-civilization pill while panning, a render decision; → P4.
+- **Gates:** `test:ci` PASS, Playwright 55 passed.
+
+---
+
 ## 2026-09-25: Render sweep (Claude, orchestrator)
 
 - With the whole-tree `--explain`, swept S1/S4/S5/S6/S7 for wasted renders (reports/render-sweep.md):
