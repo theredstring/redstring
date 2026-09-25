@@ -35,7 +35,7 @@ import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
-import Panel from './Panel';
+import PanelHost from './components/canvas/hosts/PanelHost.jsx';
 import * as fileStorage from './store/fileStorage.js';
 import * as folderPersistence from './services/folderPersistence.js';
 import workspaceService from './services/WorkspaceService.js';
@@ -8328,7 +8328,6 @@ function NodeCanvas() {
     document.addEventListener('pointerlockchange', onLockChange);
     return () => document.removeEventListener('pointerlockchange', onLockChange);
   }, []);
-  const panelRef = useRef(null); // Ref for Right Panel (if needed for openNodeTab)
 
   const canvasWorker = useCanvasWorker();
   // Ensure async zoom results apply in order to avoid ghost frames
@@ -13974,6 +13973,8 @@ function NodeCanvas() {
     condense: condenseGraphNodes,
     // Interim: the header's hover chip, until the hover slice (P2.13).
     actionHover: handlePieMenuHoverChange,
+    // The Panels' "open this definition" hurtle (P2.09).
+    startHurtleFromPanel: startHurtleAnimationFromPanel,
   });
 
   // Context Menu options for canvas background.
@@ -14833,21 +14834,7 @@ function NodeCanvas() {
           the fullscreen landscape shell — see useMobileLandscapeShell.js. */}
       <HeaderHost hidden={mobileLandscapeShell} />
       <div style={{ display: 'flex', flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
-        <Panel
-          key="left-panel"
-          side="left"
-          isExpanded={leftPanelExpanded}
-          onToggleExpand={handleToggleLeftPanel}
-          activeGraphId={activeGraphId}
-          storeActions={storeActions}
-          graphName={activeGraphName}
-          graphDescription={activeGraphDescription}
-          onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
-          leftPanelExpanded={leftPanelExpanded}
-          rightPanelExpanded={rightPanelExpanded}
-          selectedInstanceIds={selectedInstanceIds}
-          hydratedNodes={hydratedNodes}
-        />
+        <PanelHost key="left-panel" side="left" />
 
         <div
           ref={setCanvasAreaRef}
@@ -17317,20 +17304,7 @@ function NodeCanvas() {
 
         <HurtleOrb flight={hurtleFlight} onLand={handleHurtleLand} />
 
-        <Panel
-          key="right-panel"
-          side="right"
-          ref={panelRef}
-          isExpanded={rightPanelExpanded}
-          onToggleExpand={handleToggleRightPanel}
-          activeGraphId={activeGraphId}
-          storeActions={storeActions}
-          graphName={activeGraphName}
-          graphDescription={activeGraphDescription}
-          onStartHurtleAnimationFromPanel={startHurtleAnimationFromPanel}
-          leftPanelExpanded={leftPanelExpanded}
-          rightPanelExpanded={rightPanelExpanded}
-        />
+        <PanelHost key="right-panel" side="right" />
       </div>
 
       {/* TypeList Component — dropped in the fullscreen landscape shell, along

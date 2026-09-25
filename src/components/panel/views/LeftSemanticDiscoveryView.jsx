@@ -13,6 +13,7 @@ import { normalizeToCandidate, candidateToConcept, conceptToPrototypeFields, bac
 import { enrichPrototypeFromLinks } from '../../../services/conceptEnrichment.js';
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { markPrototypesProtected } from '../../../services/prototypeProtection.js';
 import { generateConceptColor, getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
@@ -285,7 +286,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
 };
 
 // Left Semantic Discovery View - Concept Discovery Engine
-const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, selectedInstanceIds = new Set(), hydratedNodes = [], onLoadWikidataCatalog }) => {
+const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, onLoadWikidataCatalog }) => {
   const theme = useTheme();
   // Bottom clearance for the results lists.
   //
@@ -670,10 +671,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const primaryContext = contexts.panel || contexts.graph;
   const searchQuery = primaryContext?.nodeName || '';
 
-  // Get selected node information from canvas
-  const selectedNode = selectedInstanceIds.size === 1
-    ? hydratedNodes.find(node => selectedInstanceIds.has(node.id))
-    : null;
+  // The one selected node on the canvas, read from the stores (P2.09). As props,
+  // selection and hydratedNodes re-rendered the whole left Panel on every
+  // selection change, whichever view it showed.
+  const selectedInstanceId = useCanvasUIStore(s => (
+    s.selectedInstanceIds.size === 1 ? s.selectedInstanceIds.values().next().value : null
+  ));
+  const selectedPrototypeId = useGraphStore(s => (
+    selectedInstanceId
+      ? s.graphs.get(s.activeGraphId)?.instances?.get(selectedInstanceId)?.prototypeId ?? null
+      : null
+  ));
+  const selectedNode = selectedPrototypeId ? { prototypeId: selectedPrototypeId } : null;
 
   // Search for concepts using current context
   const handleConceptSearch = async () => {

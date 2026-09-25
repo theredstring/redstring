@@ -1,14 +1,54 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
+import useGraphStore from '../../../store/graphStore.js';
+import { NODE_DEFAULT_COLOR } from '../../../constants';
+
+// Each open web with its nodes and edges, for the list and its previews.
+// Subscribed here rather than in Panel (P2.09): the previews need positions,
+// so this follows every node move, but only while the Open Webs tab is open.
+function useOpenGraphsForList() {
+  const openGraphIds = useGraphStore(state => state.openGraphIds);
+  const graphsMap = useGraphStore(state => state.graphs);
+  const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
+  const edgesMap = useGraphStore(state => state.edges);
+  return useMemo(() => {
+    // Dedupe: list entries are keyed by graph id, so a repeated entry would
+    // produce two children with the same React key.
+    return [...new Set(openGraphIds)].map(id => {
+      const graphData = graphsMap.get(id);
+      if (!graphData) return null;
+
+      // Derive color from the defining node
+      const definingNodeId = graphData.definingNodeIds?.[0];
+      const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
+      const graphColor = definingNode?.color || graphData.color || NODE_DEFAULT_COLOR;
+
+      const instances = graphData.instances ? Array.from(graphData.instances.values()) : [];
+      const edgeIds = graphData.edgeIds || [];
+
+      const nodes = instances.map(instance => {
+        const prototype = nodePrototypesMap.get(instance.prototypeId);
+        return {
+          ...prototype,
+          ...instance,
+          // Always use prototype name, with fallback
+          name: prototype?.name || 'Unnamed'
+        };
+      }).filter(Boolean);
+
+      const edges = edgeIds.map(edgeId => edgesMap.get(edgeId)).filter(Boolean);
+      return { ...graphData, color: graphColor, nodes, edges };
+    }).filter(Boolean);
+  }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
+}
 
 // Internal Left Grid View (Open Webs)
 const LeftGridView = ({
-  openGraphsForList,
   panelWidth,
   listContainerRef,
   activeGraphId,
@@ -22,6 +62,7 @@ const LeftGridView = ({
   onOpenSearch,
 }) => {
   const theme = useTheme();
+  const openGraphsForList = useOpenGraphsForList();
   // Context menu options for open webs tab
   const getTabContextMenuOptions = () => [
     {
