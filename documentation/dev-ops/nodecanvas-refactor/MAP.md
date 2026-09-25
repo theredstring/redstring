@@ -61,7 +61,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Diagnostic flag (**deleted** d26dc7a), overlay group, gesture block | `setOverlayGroup`, `armGestureBlock`, `scheduleGestureBlockClear` | 823–940 | delete the flag; gesture block → gesture machine | P1.07, P4.04 |
 | Orbit state | `orbitData`, `semanticOrbitActive`, `orbitFrame` | 906–919 | orbit module; the flag → UI store | P2.03, P5.08 |
 | Store actions | `const storeActions` | 942 | stays (or import directly) | — |
-| Panel widths + resizers | `leftPanelWidth`, `beginDrag`, `applyResizeUpdate`, `onDragMove`, `endDrag`, `renderPanelResizers` | 1013–1421 | `hosts/PanelResizers` | P1.05, P2.12 |
+| Panel widths + resizers | — | — | **moved:** `canvas/PanelResizers` + `canvasUIStore` widths + `utils/canvas/panelWidth.js` (P2.12) | done |
 | Store subscriptions | `const activeGraphId = useGraphStore` … `hasUniverseFile` | 1426–1529 | narrowed to the active graph; shell-only ones leave with the shell | P3.01, P2 |
 | Universe loading / onboarding / git reconnect | — | — | **moved:** `hosts/UniverseHost` + `canvas/UniverseScreens` (P2.06c); the dead `openOnboardingModal` listener stays (B-03, D-17) | done |
 | hydratedNodes | `const hydratedNodes` | 1633 | canvas-internal (no longer a Panel prop since P2.09; TypeList reads the stores since P2.10) | P1.08, P3 |

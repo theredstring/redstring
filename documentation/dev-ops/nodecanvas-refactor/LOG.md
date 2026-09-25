@@ -13,6 +13,15 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.12 done, with B-15 (Claude, orchestrator)
+
+- Grant: do as much of the refactor as possible, one smoke test at the end; be very safe (commit often, go back if needed). A/B screenshot runs now use a separate `baseline` worktree instead of swapping files in the working copy.
+- **P2.12:** `PanelResizers` owns the resizer bars; committed panel widths are in canvasUIStore, the one source for `useViewportBounds` (8 consumers) and framing. **B-15** fixed (a 280 vs 250 px fallback). NodeCanvas.jsx **15,943**.
+- The shell-shot spec's storage seeding was broken (the fixture sandbox ignores real localStorage); fixed.
+- **Gates:** `test:ci` PASS, Playwright 54 passed (F12 expected), `lint:undef` PASS; screenshots identical with a persisted width.
+
+---
+
 ## 2026-09-25: P2.03c done; D-22 (Claude, orchestrator)
 
 - **P2.03c:** edge selection moved to canvasUIStore (**D-22**); graphStore's five action names are forwarding shims, so edge clicks no longer run graphStore's middleware or re-arm the save-worker clone. `removeEdge` prunes both selections.

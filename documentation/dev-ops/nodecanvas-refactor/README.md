@@ -166,7 +166,8 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 
 **In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). Next smoke test: end of P2.
 - ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~, ~~P2.06a~~, ~~P2.06d~~, ~~P2.06c~~, ~~P2.06f~~, ~~P2.07~~, ~~P2.03b (+ B-14)~~, ~~P2.03c (D-22)~~
-- Next: P2.12, P2.13
+- ~~P2.12 (+ B-15)~~
+- Next: P2.13
 
 Wave 4 (smoke-tested by Grant), based on wave 3:
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)

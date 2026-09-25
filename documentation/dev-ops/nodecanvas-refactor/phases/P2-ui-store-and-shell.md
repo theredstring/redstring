@@ -213,7 +213,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **Handoff:** `CanvasShell` (App-rendered, memo) owns the container, Header, the panel row and TypeList. NodeCanvas returns `.canvas-area` + `HurtleOrb` and portals its remaining overlays into the shell's `display: contents` slot through `CanvasOverlaySlot` (inline when rendered alone, as in tests). Each P2.06/P5 host that takes an overlay out should render it from CanvasShell (or App) in the same DOM position: after TypeList. Layout checked with `shell-shots.pw.js` + `scripts/compare-shots.mjs`; use them for P2.12 too.
 
 ### P2.12: `PanelResizers` component and a single source for panel width
-- **Status:** todo
+- **Status:** done (reports/P2.12.md)
 - **Lane:** A + B + C · **Size:** M · **Depends:** P2.11 (and P1.05)
 - **Findings:** F-04, F-47 item 10
 - **Change:**
@@ -222,7 +222,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - `getFramingRegion` reads the width from the store or a ref.
   - The gamepad's `panelResizeControlRef` still works.
 - **Accept:** S9 shows 0 NodeCanvas commits. The gamepad can still resize the panels.
-- **Handoff:**
+- **Handoff:** `PanelResizers` owns the bars and the drag; committed widths are canvasUIStore's (the source for `useViewportBounds` and framing); Panel still keeps its own live width. S9: NodeCanvas 5 runs (3 hover → P2.13/P3.06, 1 bounds change at drag end → P3.10). B-15 fixed.
 
 ### P2.13: Hover / vision-aid slice
 - **Status:** todo
