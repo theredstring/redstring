@@ -2,16 +2,17 @@
  * pieMachine — the node pie menu / abstraction carousel lifecycle as one pure
  * reducer (P5.02b step 2; design in reports/P5.02a.md §6).
  *
- * **Built, not wired.** Nothing dispatches to it yet; NodeCanvas still runs the
- * effects and callbacks this replaces. The store slice that runs it is
- * `dispatchPie` in canvasUIStore.
+ * Wired (P5.02b steps 4–8): every lifecycle write is an event dispatched
+ * through `dispatchPie` in canvasUIStore, which applies the patch and runs the
+ * commands; NodeCanvas registers the command handler (pieCommands.js).
  *
  *   reducePie(state, event, env) → { patch, commands }
  *
- * PHASE 1 = BEHAVIOUR-EXACT. This reproduces what the code does today, bugs
- * included (NEW-2…NEW-8 in P5.02a §5). Fixes are separate B-commits. Where the
- * P5.02a doc and the code disagreed, the code was followed; see
- * reports/P5.02b-steps2-3.md.
+ * PHASE 1 = BEHAVIOUR-EXACT. This reproduced what the code did, bugs included
+ * (NEW-2…NEW-8 in P5.02a §5); fixes are separate B-commits. Fixed so far:
+ * NEW-2 (B-18: PROMPT_CANCELLED leaves the stage flag down) and NEW-4 (B-19:
+ * CAROUSEL_EXITED resets the stage). Where the P5.02a doc and the code
+ * disagreed, the code was followed; see reports/P5.02b-steps2-3.md.
  *
  * HOW IT STAYS EXACT: A COMMIT LOOP
  * Today the lifecycle is a set of NodeCanvas effects that re-run when their

@@ -2,7 +2,7 @@
 
 > **AI Agents**: Start with [`AI_COMPENDIUM.md`](AI_COMPENDIUM.md) for a categorized, status-tagged index of all 86 documentation files — including which are current, historical, legacy-canonical, or future-intent.
 
-> **NodeCanvas refactor in progress (pre-1.0).** Before changing `src/NodeCanvas.jsx`, anything it renders, or the canvas hooks (`useNodeDrag`, `useCanvasTouch`, `useCanvasKeyboard`, `useCanvasTransform`, `useGamepad`), read [`documentation/dev-ops/nodecanvas-refactor/README.md`](documentation/dev-ops/nodecanvas-refactor/README.md) and follow its agent protocol. That folder is the plan of record: task status, findings, the region map, decisions and metrics. Don't add new features to `NodeCanvas.jsx`; put them in the new structure described there. Some sections below (e.g. "Central Components") describe the pre-refactor shape.
+> **Canvas architecture.** Before changing `src/NodeCanvas.jsx`, anything it renders, or the canvas hooks (`useNodeDrag`, `useCanvasTouch`, `useCanvasKeyboard`, `useCanvasTransform`, `useGamepad`), read [`documentation/core-system/CANVAS_ARCHITECTURE.md`](documentation/core-system/CANVAS_ARCHITECTURE.md): the stores, layers, hosts, controllers, the pie machine, and where new features go. **Never add a feature to `NodeCanvas.jsx`**: put it in a layer, host, controller or module (its line budget in `test/meta/nodecanvas-budget.json` only goes down). The pre-1.0 refactor that produced this shape is recorded in [`documentation/dev-ops/nodecanvas-refactor/`](documentation/dev-ops/nodecanvas-refactor/README.md).
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -32,14 +32,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Central Components
 
-### NodeCanvas.jsx
-The main orchestration component handling:
-- SVG-based graph rendering
-- Mouse/touch/keyboard interactions
-- Pan/zoom with sophisticated input device detection
-- State management coordination
-- PieMenu system for contextual actions
-- Drag-and-drop operations
+### NodeCanvas.jsx and the canvas modules
+NodeCanvas is the canvas orchestrator (about 3,600 lines, budgeted). It owns the SVG, the shared refs the input paths read, the derived data every layer needs (hydrated nodes, dimensions, edge routing, culling), and the wiring. The rest lives in `src/components/canvas/`:
+- **Layers** (`layers/`): edges, nodes, pie menus, grid, overlays, drawn inside the SVG, each subscribing to the state it draws
+- **Hosts** (`hosts/`): the shell (Header, Panels, TypeList), the control panels, prompts, overlays, modals, universe lifecycle
+- **Controllers and hooks**: `camera/cameraController.js`, `input/pointerHandlers.js`, `groups/groupInput.js`, and the hooks `useCanvasTransform`, `useNodeDrag`, `useCanvasTouch`, `useCanvasKeyboard`, `useGamepad`, `useGraphLayout`
+- **The pie machine** (`pie/pieMachine.js`): the pie and carousel lifecycle as one reducer, driven by `canvasUIStore.dispatchPie`
+- **Plain modules**: `actions/`, `data/`, `edges/`, `menus/`, `orbit/`, `pie/` builders, feature stores (`colorPickers/`, `dialogs/`, `wizard/`)
+
+See `documentation/core-system/CANVAS_ARCHITECTURE.md` for the full map.
+
+### canvasUIStore (src/store/canvasUIStore.js)
+Shared canvas UI state that isn't saved: selection, hover, the pie and carousel lifecycle, panel latches, prompts. Lifecycle fields are written through `dispatchPie` events, never their setters.
 
 ### Store Management (src/store/graphStore.js)
 Zustand store with SaveCoordinator middleware managing:
@@ -57,17 +61,17 @@ Zustand store with SaveCoordinator middleware managing:
 ## Important Implementation Details
 
 ### Input Device Detection
-The `handleWheel` function in NodeCanvas.jsx implements sophisticated cross-platform input detection:
+The `handleWheel` function in the camera controller (`src/components/canvas/camera/cameraController.js`) implements sophisticated cross-platform input detection:
 - **Mac Trackpad**: Ctrl+scroll triggers zoom, fractional deltas trigger pan
 - **Mouse Wheel**: Large integer deltas trigger zoom
 - **Pattern Analysis**: Maintains rolling history of delta values for reliable device identification
 
 ### PieMenu System
-Complex state management for contextual menus:
-- `selectedNodeIdForPieMenu`: Target node for menu
-- `isTransitioningPieMenu`: Animation state management
-- `onExitAnimationComplete`: Callback for animation coordination
-- Dynamic button generation based on node context
+The node pie, the edge pie and the abstraction carousel share one lifecycle, `reducePie` in `src/components/canvas/pie/pieMachine.js`:
+- `selectedNodeIdForPieMenu`, `isTransitioningPieMenu`, the carousel stage and the exit guards live in canvasUIStore
+- every change is an event (`useCanvasUIStore.getState().dispatchPie({ type: ... })`): a pie button, the context menu, a panel, touch, a selection change
+- `onExitAnimationComplete` dispatches `PIE_EXITED`; the machine decides what comes next
+- button sets are built by `src/components/canvas/pie/nodePieButtons.js` / `edgePieButtons.js`
 
 ### File Management & RedstringMenu
 - **Universe Files**: `.redstring` format for complete workspace state
@@ -112,6 +116,7 @@ Tests are located in `test/` directory:
 5. **Input Handling**: Consider device-specific behavior in interaction code
 6. **Recursive Safety**: Handle infinite nesting cases in graph traversal logic
 7. **Save Context Options**: When calling store actions during drag operations, pass `contextOptions` with `isDragging` and `phase` flags to prevent save-induced performance issues
+8. **Canvas features never go in NodeCanvas.jsx**: add a layer, host, controller or module under `src/components/canvas/` (see CANVAS_ARCHITECTURE.md). Pie/carousel lifecycle changes are `dispatchPie` events
 
 ## Common Patterns
 
@@ -123,7 +128,10 @@ Tests are located in `test/` directory:
 
 ## Key Files to Understand
 
-- `src/NodeCanvas.jsx`: Main rendering and interaction logic
+- `documentation/core-system/CANVAS_ARCHITECTURE.md`: The canvas map: stores, layers, hosts, controllers, where new features go
+- `src/NodeCanvas.jsx`: The canvas orchestrator (SVG, shared refs, derived data, wiring)
+- `src/store/canvasUIStore.js`: Canvas UI state and the pie machine's `dispatchPie`
+- `src/components/canvas/`: Layers, hosts, controllers and canvas modules
 - `src/store/graphStore.js`: State management and data model with SaveCoordinator middleware
 - `src/services/SaveCoordinator.js`: Centralized save coordination with performance optimizations
 - `src/core/Graph.js`: Core graph data structure

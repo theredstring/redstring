@@ -1,7 +1,7 @@
 ---
 compendium_version: 1
 category: core-system
-last_reviewed: 2026-08-27
+last_reviewed: 2026-09-25
 ---
 
 # Core System Reference — Document Index
@@ -10,7 +10,7 @@ last_reviewed: 2026-08-27
 
 These documents describe what Redstring fundamentally is: its data model (prototype/instance/graph/edge), its state management layer (Zustand store), its save coordination system, and the philosophical vocabulary used throughout the codebase. Read these before starting any task. `CLAUDE.md` is the highest-priority read for any AI agent.
 
-Key code paths this category maps to: `src/store/graphStore.js`, `src/core/Graph.js`, `src/core/Node.js`, `src/core/Edge.js`, `src/services/SaveCoordinator.js`, `src/services/gitNativeProvider.js`, `src/services/gitSyncEngine.js`.
+Key code paths this category maps to: `src/store/graphStore.js`, `src/store/canvasUIStore.js`, `src/NodeCanvas.jsx` and `src/components/canvas/`, `src/core/Graph.js`, `src/core/Node.js`, `src/core/Edge.js`, `src/services/SaveCoordinator.js`, `src/services/gitNativeProvider.js`, `src/services/gitSyncEngine.js`.
 
 ---
 
@@ -23,6 +23,7 @@ Key code paths this category maps to: `src/store/graphStore.js`, `src/core/Graph
 | [SAVE_COORDINATOR_README.md](../documentation/core-system/SAVE_COORDINATOR_README.md) | Authoritative reference for SaveCoordinator: batching middleware, drag-aware saves, FNV-1a hashing, viewport exclusion, worker communication | Any work touching saves, file I/O, or performance during interactions |
 | [GIT_FEDERATION.md](../documentation/core-system/GIT_FEDERATION.md) | Authoritative single-source guide for the universe/Git storage model: multi-slot storage, federation, conflict resolution | Universe management, Git integration, multi-device sync |
 | [GRAPH_QUERY_ABSTRACTION.md](../documentation/core-system/GRAPH_QUERY_ABSTRACTION.md) | Documents the `graphQueries.js` API surface and query patterns for reading graph state without touching the store directly | Querying graph data, building selectors |
+| [CANVAS_ARCHITECTURE.md](../documentation/core-system/CANVAS_ARCHITECTURE.md) | The canvas after the pre-1.0 refactor: the stores (graphStore, canvasUIStore, feature stores), the pie/carousel machine (`dispatchPie`), the controllers and input hooks, the layers in paint order, the hosts, the command registry, where new features go, and how to verify a change (flows, lifecycle traces, perf scenarios, the size ratchet) | **Any change to `src/NodeCanvas.jsx`, anything it renders, or the canvas hooks.** Read before adding a canvas feature |
 | [HEADLESS.md](../documentation/core-system/HEADLESS.md) | The same Zustand store running in Node, with no browser — a **library-first extraction** where the browser, the `redstring` CLI (`cli/redstring.js`), the background HTTP service, and the MCP server all host one environment-agnostic core (`src/headless/HeadlessUniverse.js`, `HeadlessWorkspace.js`). Covers the workspace/universe model, `redstring init`, and pull/push. The hosted static-SPA deployment never imports any headless code | Any work on the core that must stay environment-agnostic; CLI usage; understanding the workspace vs. active-universe distinction |
 
 ## Future-Intent Documents

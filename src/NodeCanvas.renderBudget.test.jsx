@@ -37,6 +37,9 @@ vi.mock('./useCanvasWorker.js', () => ({
 import NodeCanvas from './NodeCanvas.jsx';
 import useGraphStore from './store/graphStore.js';
 import { resetServerAvailabilityCache } from './utils/debugLogger.js';
+import useCanvasUIStore from './store/canvasUIStore.js';
+import useImageCache from './services/imageCache.js';
+import { renderProbe } from './utils/perf/renderProbe.js';
 
 // --- hand-driven rAF -------------------------------------------------------
 let rafQueue = [];
@@ -415,5 +418,65 @@ describe('NodeCanvas render budget', () => {
     // The release keeps the selection and drops the rectangle.
     expect(selectedIds()).toBe('i1,i2,i3');
     expect(svg.querySelector('rect[stroke="red"]')).toBeNull();
+  });
+
+  // Guardrails from the refactor's close (P6.04; success criteria 2 and 3, perf
+  // scenarios S8, S10b and S11). A hover lives in canvasUIStore and is drawn by
+  // EdgeLayer, so NodeCanvas itself must not render for it. Writes that don't
+  // touch the active graph (another graph's data, thumbnails for prototypes not
+  // on it) must not commit anything under the canvas at all.
+  //
+  // "NodeCanvas rendered" is read off HitboxDebugLayer: a ctx layer with no
+  // subscriptions of its own, so it renders exactly when NodeCanvas does (the
+  // perf harness's S6 shows the two counts equal).
+  it('a hover change does not render NodeCanvas (S8)', async () => {
+    await mountAndSettle();
+    renderProbe.enable();
+    renderProbe.start('hover');
+    act(() => { useCanvasUIStore.getState().setHoveredEdgeInfo({ edgeId: 'e1' }); });
+    flushFrames(2);
+    act(() => { useCanvasUIStore.getState().setHoveredEdgeInfo({ edgeId: 'e2' }); });
+    flushFrames(2);
+    act(() => { useCanvasUIStore.getState().setHoveredEdgeInfo(null); });
+    flushFrames(2);
+    const r = renderProbe.stop();
+    console.error(`[render-budget] hover: ${JSON.stringify(Object.fromEntries(Object.entries(r.byId).map(([k, v]) => [k, v.commits])))}`);
+    expect(r.byId.HitboxDebugLayer).toBeUndefined();
+  });
+
+  it('writes that do not touch the active graph commit nothing under the canvas (S10b, S11)', async () => {
+    await mountAndSettle();
+    // A second graph and a prototype that only it uses.
+    act(() => {
+      const st = useGraphStore.getState();
+      useGraphStore.setState({
+        graphs: new Map([...st.graphs, ['g2', makeGraph('g2')]]),
+        nodePrototypes: new Map([...st.nodePrototypes, ['p9', makePrototype('p9', 'Elsewhere')]]),
+      }, false, 'render_budget_other_graph');
+      useGraphStore.getState().addNodeInstance('g2', 'p9', { x: 0, y: 0 }, 'i9');
+    });
+    flushFrames(5);
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    flushFrames(5);
+
+    commits = [];
+    // S10b: thumbnails for a prototype that is not on the active graph.
+    for (let i = 0; i < 5; i++) {
+      act(() => { useImageCache.getState().setImage('p9', { thumbnailSrc: `https://example.invalid/${i}.png`, imageAspectRatio: 1 }); });
+      flushFrames(1);
+    }
+    const thumbnailCommits = commits.length;
+
+    commits = [];
+    // S11: edits to a graph that is not active.
+    for (let i = 0; i < 5; i++) {
+      act(() => { useGraphStore.getState().updateGraph('g2', (draft) => { draft.description = `edit ${i}`; }); });
+      flushFrames(1);
+    }
+    const otherGraphCommits = commits.length;
+
+    console.error(`[render-budget] off-graph writes: thumbnails=${thumbnailCommits} otherGraph=${otherGraphCommits}`);
+    expect(thumbnailCommits).toBe(0);
+    expect(otherGraphCommits).toBe(0);
   });
 });
