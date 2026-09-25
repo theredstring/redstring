@@ -3,6 +3,7 @@ import NodeCanvas from '../../../NodeCanvas.jsx';
 import HeaderHost from './HeaderHost.jsx';
 import PanelHost from './PanelHost.jsx';
 import TypeListHost from './TypeListHost.jsx';
+import ModalHosts from './ModalHosts.jsx';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { CanvasOverlaySlot } from './canvasOverlaySlot.js';
@@ -51,6 +52,7 @@ function CanvasShell() {
       {/* TypeList and its bottom-left toggle are dropped in the landscape shell too. */}
       {!mobileLandscapeShell && <TypeListHost />}
       <div ref={setOverlayRoot} style={slotStyle} />
+      <ModalHosts />
     </div>
   );
 }
