@@ -9,11 +9,14 @@ import { defineConfig, mergeConfig } from 'vite';
 import base from '../../../vite.config.js';
 
 const USE_STATE = /const\s*\[\s*(\w+)\s*,\s*(\w+)\s*\]\s*=\s*(?:React\.)?useState\(/g;
+const USE_TRACKED_STATE = /const\s*\[\s*(\w+)\s*,\s*(\w+)\s*\]\s*=\s*useTrackedState\(/g;
 const HELPER = `import { useState as __explainUseState } from 'react';
 // The setter is wrapped (once per hook: the WeakMap keeps its identity stable)
 // so every call is logged against the next commit — which is how a bailout, a
 // render in which no state actually changed, gets a name.
 const __useNamedState = (name, init) => {
+  // useTrackedState's inner useState takes its caller's name (see below).
+  if (globalThis.__nextStateName) { name = globalThis.__nextStateName; globalThis.__nextStateName = null; }
   const pair = __explainUseState(init);
   const names = (globalThis.__stateNames ||= new Map());
   const wrapped = (globalThis.__wrappedSetters ||= new WeakMap());
@@ -42,6 +45,9 @@ const nameState = {
     const out = code.replace(USE_STATE, (_m, value, setter) => {
       n += 1;
       return `const [${value}, ${setter}] = __useNamedState(${JSON.stringify(value)}, `;
+    }).replace(USE_TRACKED_STATE, (_m, value, setter) => {
+      n += 1;
+      return `const [${value}, ${setter}] = (globalThis.__nextStateName = ${JSON.stringify(value)}, useTrackedState)(`;
     });
     return n ? { code: HELPER + out, map: null } : null;
   },

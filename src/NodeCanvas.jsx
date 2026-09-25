@@ -65,6 +65,7 @@ import useGraphStore, {
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
+import { useTrackedState } from './hooks/useTrackedState.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
@@ -1799,6 +1800,7 @@ function NodeCanvas() {
   const isPanningRef = useRef(false);
   const setIsPanning = useCallback((value) => {
     const next = typeof value === 'function' ? value(isPanningRef.current) : value;
+    if (next === isPanningRef.current) return; // same value: skip the wasted run (useTrackedState)
     isPanningRef.current = next;
     _setIsPanningState(next);
   }, []);
@@ -4373,9 +4375,6 @@ function NodeCanvas() {
   }, []);
 
   // Add logging for abstraction prompt state changes
-  useEffect(() => {
-
-  }, [abstractionPrompt]);
 
   // Attach an accepted/edited/ignored outcome to the last edge-label suggestion.
   const finalizeConnectionSuggestion = useCallback((finalName) => {
@@ -4770,9 +4769,9 @@ function NodeCanvas() {
   }, [openWizardPicker]);
 
   // Pie menu color picker state
-  const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);
+  const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useTrackedState(false);
   const [pieMenuColorPickerPosition, setPieMenuColorPickerPosition] = useState({ x: 0, y: 0 });
-  const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useState(null);
+  const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useTrackedState(null);
   // Connection color picker. Kept separate from the node one above because it
   // targets a prototype directly: a connection has no instance to look a
   // prototypeId up from, it just points at the Thing that defines it.
@@ -4792,14 +4791,11 @@ function NodeCanvas() {
   const [carouselFocusPrototypeRequest, setCarouselFocusPrototypeRequest] = useState(null); // prototypeId | null
 
   // Add logging for carousel stage changes
-  useEffect(() => {
-
-  }, [carouselPieMenuStage]);
 
   const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing);
   const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
   const currentPieMenuData = useCanvasUIStore(s => s.currentPieMenuData), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData); // Holds { node, buttons, nodeDimensions }
-  const [pieMenuPage, setPieMenuPage] = useState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
+  const [pieMenuPage, setPieMenuPage] = useTrackedState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
   const editingNodeIdOnCanvas = useCanvasUIStore(s => s.editingNodeIdOnCanvas), setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
@@ -5274,13 +5270,13 @@ function NodeCanvas() {
   const [currentAbstractionDimension, setCurrentAbstractionDimension] = useState('Generalization Axis');
 
   // Abstraction control panel states
-  const [abstractionControlPanelVisible, setAbstractionControlPanelVisible] = useState(false);
-  const [abstractionControlPanelShouldShow, setAbstractionControlPanelShouldShow] = useState(false);
+  const [abstractionControlPanelVisible, setAbstractionControlPanelVisible] = useTrackedState(false);
+  const [abstractionControlPanelShouldShow, setAbstractionControlPanelShouldShow] = useTrackedState(false);
   const [isPieMenuActionInProgress, setIsPieMenuActionInProgress] = useState(false);
-  const [nodeControlPanelVisible, setNodeControlPanelVisible] = useState(false);
-  const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useState(false);
-  const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useState(false);
-  const [groupControlPanelVisible, setGroupControlPanelVisible] = useState(false);
+  const [nodeControlPanelVisible, setNodeControlPanelVisible] = useTrackedState(false);
+  const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useTrackedState(false);
+  const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useTrackedState(false);
+  const [groupControlPanelVisible, setGroupControlPanelVisible] = useTrackedState(false);
   // P2.03b: id in canvasUIStore, group read from the active web (was a stale snapshot).
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   const selectedGroup = useMemo(() => (selectedGroupId ? graphsMap.get(activeGraphId)?.groups?.get(selectedGroupId) ?? null : null), [selectedGroupId, graphsMap, activeGraphId]);
@@ -5304,8 +5300,8 @@ function NodeCanvas() {
   const lastSelectedGroupRef = useRef(null);
   if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
   const lastSelectedGroup = lastSelectedGroupRef.current;
-  const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
-  const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
+  const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useTrackedState(false);
+  const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useTrackedState(false);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
   const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
   const edgePieMenuAnchorRef = useRef(null);   // frozen on show, held through exit animation
@@ -7775,17 +7771,6 @@ function NodeCanvas() {
       setIndex: (i) => setNodeDefinitionIndices(prev => new Map(prev).set(contextKey, i)),
     };
   }, [previewingNodeId, nodes, nodePrototypesMap, activeGraphId, nodeDefinitionIndices, setNodeDefinitionIndices]);
-
-  // Log button changes for debugging
-  useEffect(() => {
-    // console.log(`[PieMenu Buttons] targetPieMenuButtons changed:`, {
-    //   buttonCount: targetPieMenuButtons.length,
-    //   buttonIds: targetPieMenuButtons.map(b => b.id),
-    //   carouselStage: carouselPieMenuStage,
-    //   selectedNodeId: selectedNodeIdForPieMenu,
-    //   carouselVisible: abstractionCarouselVisible
-    // });
-  }, [targetPieMenuButtons, carouselPieMenuStage, selectedNodeIdForPieMenu, abstractionCarouselVisible]);
 
   // Keep currentPieMenuData.buttons in sync with targetPieMenuButtons so UI reflects state changes (e.g., Save/Unsave) immediately
   useEffect(() => {
