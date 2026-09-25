@@ -60,8 +60,6 @@ const SETTERS = [
   ['setAutoGraphModalVisible', 'autoGraphModalVisible', true, (prev) => !prev],
   ['setForceSimModalVisible', 'forceSimModalVisible', true, (prev) => !prev],
   ['setIsHeaderEditing', 'isHeaderEditing', true, (prev) => !prev],
-  ['setIsLeftPanelInputFocused', 'isLeftPanelInputFocused', true, (prev) => !prev],
-  ['setIsRightPanelInputFocused', 'isRightPanelInputFocused', true, (prev) => !prev],
   ['setEditingNodeIdOnCanvas', 'editingNodeIdOnCanvas', 'inst-4', (prev) => `${prev}-next`],
   ['setHoveredNodeForVision', 'hoveredNodeForVision', { id: 'n' }, (prev) => ({ ...prev, id: 'm' })],
   ['setHoveredConnectionForVision', 'hoveredConnectionForVision', { id: 'e' }, (prev) => ({ ...prev, id: 'f' })],
@@ -333,8 +331,6 @@ describe('canvasUIStore (P2.01)', () => {
 
     it.each([
       ['setIsHeaderEditing'],
-      ['setIsLeftPanelInputFocused'],
-      ['setIsRightPanelInputFocused'],
     ])('is true while %s(true)', (setter) => {
       st()[setter](true);
       expect(selectIsTextEntryActive(st())).toBe(true);

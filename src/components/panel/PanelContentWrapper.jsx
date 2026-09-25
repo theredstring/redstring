@@ -19,7 +19,6 @@ const PanelContentWrapper = memo(({
   tabType, // 'home' | 'node'
   nodeId = null,
   storeActions,
-  onFocusChange,
   onTypeSelect,
   onStartHurtleAnimationFromPanel,
   isUltraSlim = false

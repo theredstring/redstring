@@ -6,9 +6,8 @@
  * shortcuts — Delete/Backspace above all — must never reach the canvas in that
  * case: a Backspace meant to erase a character would delete the selected nodes.
  *
- * The panels report focus through `onFocusChange` props, but that only covers
- * fields that were wired up to do so. Asking the DOM instead covers every text
- * field, including ones added later.
+ * Asking the DOM covers every text field, including ones added later. (The
+ * panels' `onFocusChange` props, which were never wired, were removed: D-19.)
  */
 
 /**

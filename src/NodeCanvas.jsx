@@ -2242,7 +2242,7 @@ function NodeCanvas() {
   const markClipboardChanged = useCallback(() => setClipboardVersion(v => v + 1), []);
 
   // Onboarding / Storage Setup state
-  const [showStorageSetupModal, setShowStorageSetupModal] = useState(false);
+  const showStorageSetupModal = useCanvasUIStore(s => s.showStorageSetupModal), setShowStorageSetupModal = useCanvasUIStore(s => s.setShowStorageSetupModal);
 
   // GitHub reconnect.
   //
@@ -2368,11 +2368,11 @@ function NodeCanvas() {
   }, [storeActions]);
 
   // Help modal state
-  const [showHelpModal, setShowHelpModal] = useState(false);
+  const showHelpModal = useCanvasUIStore(s => s.showHelpModal), setShowHelpModal = useCanvasUIStore(s => s.setShowHelpModal);
 
   // Settings modal state
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showMergeThingsModal, setShowMergeThingsModal] = useState(false);
+  const showSettingsModal = useCanvasUIStore(s => s.showSettingsModal), setShowSettingsModal = useCanvasUIStore(s => s.setShowSettingsModal);
+  const showMergeThingsModal = useCanvasUIStore(s => s.showMergeThingsModal), setShowMergeThingsModal = useCanvasUIStore(s => s.setShowMergeThingsModal);
 
   // Helper to get storage key with test mode support
 
@@ -5961,14 +5961,14 @@ function NodeCanvas() {
 
   const [plusSign, setPlusSign] = useState(null);
   const [videoAnimation, setVideoAnimation] = useState(null); // Y-key video animation state
-  const [nodeNamePrompt, setNodeNamePrompt] = useState({ visible: false, name: '', color: null });
-  const [connectionNamePrompt, setConnectionNamePrompt] = useState({ visible: false, name: '', color: null, edgeId: null });
+  const nodeNamePrompt = useCanvasUIStore(s => s.nodeNamePrompt), setNodeNamePrompt = useCanvasUIStore(s => s.setNodeNamePrompt);
+  const connectionNamePrompt = useCanvasUIStore(s => s.connectionNamePrompt), setConnectionNamePrompt = useCanvasUIStore(s => s.setConnectionNamePrompt);
   // Tracks the last one-shot edge-label suggestion so we can (a) pre-fill it only
   // while the field is untouched, and (b) log whether the user accepted/edited/ignored it.
   const connectionSuggestionRef = useRef(null); // { edgeId, suggestion, callId }
   const abstractionSuggestionRef = useRef(null); // { nodeId, direction, suggestion, callId, applied }
-  const [abstractionPrompt, setAbstractionPrompt] = useState({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
-  const [nodeGroupPrompt, setNodeGroupPrompt] = useState({ visible: false, name: '', color: null, groupId: null });
+  const abstractionPrompt = useCanvasUIStore(s => s.abstractionPrompt), setAbstractionPrompt = useCanvasUIStore(s => s.setAbstractionPrompt);
+  const nodeGroupPrompt = useCanvasUIStore(s => s.nodeGroupPrompt), setNodeGroupPrompt = useCanvasUIStore(s => s.setNodeGroupPrompt);
 
   /**
    * "Create New Thing" — the selector that opens a new Web by settling what
@@ -5986,7 +5986,7 @@ function NodeCanvas() {
    * Things panel's + (via the window event below, the same route the merge
    * modal takes out of the panels), and Cmd/Ctrl+N.
    */
-  const [newWebPrompt, setNewWebPrompt] = useState({ visible: false });
+  const newWebPrompt = useCanvasUIStore(s => s.newWebPrompt), setNewWebPrompt = useCanvasUIStore(s => s.setNewWebPrompt);
   const openNewWebPrompt = useCallback(() => setNewWebPrompt({ visible: true }), []);
 
   useEffect(() => {
@@ -6414,7 +6414,7 @@ function NodeCanvas() {
   const [activeEdgeColorPrototypeId, setActiveEdgeColorPrototypeId] = useState(null);
   // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
   // prototype or a brand-new Thing.
-  const [swapPrompt, setSwapPrompt] = useState({ visible: false, instanceId: null, name: '', color: null });
+  const swapPrompt = useCanvasUIStore(s => s.swapPrompt), setSwapPrompt = useCanvasUIStore(s => s.setSwapPrompt);
 
   // Carousel PieMenu stage state
   const carouselPieMenuStage = useCanvasUIStore(s => s.carouselPieMenuStage), setCarouselPieMenuStage = useCanvasUIStore(s => s.setCarouselPieMenuStage); // 1 = main stage, 2 = position selection stage
@@ -6429,9 +6429,7 @@ function NodeCanvas() {
 
   }, [carouselPieMenuStage]);
 
-  const [isHeaderEditing, setIsHeaderEditing] = useState(false);
-  const [isRightPanelInputFocused, setIsRightPanelInputFocused] = useState(false);
-  const [isLeftPanelInputFocused, setIsLeftPanelInputFocused] = useState(false);
+  const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing), setIsHeaderEditing = useCanvasUIStore(s => s.setIsHeaderEditing);
   const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
   const currentPieMenuData = useCanvasUIStore(s => s.currentPieMenuData), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData); // Holds { node, buttons, nodeDimensions }
   const [pieMenuPage, setPieMenuPage] = useState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
@@ -7097,10 +7095,10 @@ function NodeCanvas() {
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
 
   // Header search state
-  const [headerSearchVisible, setHeaderSearchVisible] = useState(false);
-  const [headerAllThingsSearchVisible, setHeaderAllThingsSearchVisible] = useState(false);
-  const [autoGraphModalVisible, setAutoGraphModalVisible] = useState(false);
-  const [forceSimModalVisible, setForceSimModalVisible] = useState(false);
+  const headerSearchVisible = useCanvasUIStore(s => s.headerSearchVisible), setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
+  const headerAllThingsSearchVisible = useCanvasUIStore(s => s.headerAllThingsSearchVisible), setHeaderAllThingsSearchVisible = useCanvasUIStore(s => s.setHeaderAllThingsSearchVisible);
+  const autoGraphModalVisible = useCanvasUIStore(s => s.autoGraphModalVisible), setAutoGraphModalVisible = useCanvasUIStore(s => s.setAutoGraphModalVisible);
+  const forceSimModalVisible = useCanvasUIStore(s => s.forceSimModalVisible), setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
   // Opened from the Debug settings page, which has no way to reach this state.
   useEffect(() => {
@@ -12624,11 +12622,6 @@ function NodeCanvas() {
 
 
 
-  const handleLeftPanelFocusChange = useCallback((isFocused) => {
-    //
-    setIsLeftPanelInputFocused(isFocused);
-  }, []);
-
   // Integrated keyboard handling via custom hook
   // --- Game controller -------------------------------------------------------
   // Ref mirrors of the values the controller tick reads every frame. They exist
@@ -12924,8 +12917,6 @@ function NodeCanvas() {
     abstractionPrompt,
     newWebPrompt,
     isHeaderEditing,
-    isRightPanelInputFocused,
-    isLeftPanelInputFocused,
     abstractionCarouselVisible,
     keyboardSettings,
     onDeleteNodes: deleteMultipleNodesWithAnimation,
@@ -15236,7 +15227,6 @@ function NodeCanvas() {
           side="left"
           isExpanded={leftPanelExpanded}
           onToggleExpand={handleToggleLeftPanel}
-          onFocusChange={handleLeftPanelFocusChange}
           activeGraphId={activeGraphId}
           storeActions={storeActions}
           graphName={activeGraphName}
@@ -17727,10 +17717,6 @@ function NodeCanvas() {
           ref={panelRef}
           isExpanded={rightPanelExpanded}
           onToggleExpand={handleToggleRightPanel}
-          onFocusChange={(isFocused) => {
-            //
-            setIsRightPanelInputFocused(isFocused);
-          }}
           activeGraphId={activeGraphId}
           storeActions={storeActions}
           graphName={activeGraphName}

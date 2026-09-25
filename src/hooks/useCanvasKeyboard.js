@@ -73,8 +73,6 @@ export const useCanvasKeyboard = ({
     abstractionPrompt,
     newWebPrompt,
     isHeaderEditing,
-    isRightPanelInputFocused,
-    isLeftPanelInputFocused,
     abstractionCarouselVisible,
     keyboardSettings,
     onDeleteNodes,
@@ -132,8 +130,6 @@ export const useCanvasKeyboard = ({
         abstractionPrompt,
         newWebPrompt,
         isHeaderEditing,
-        isRightPanelInputFocused,
-        isLeftPanelInputFocused,
         abstractionCarouselVisible,
         keyboardSettings,
         onDeleteNodes,
@@ -271,8 +267,6 @@ export const useCanvasKeyboard = ({
                 abstractionPrompt,
                 newWebPrompt,
                 isHeaderEditing,
-                isRightPanelInputFocused,
-                isLeftPanelInputFocused,
                 abstractionCarouselVisible,
                 activeGraphId,
                 viewportSize,
@@ -316,8 +310,6 @@ export const useCanvasKeyboard = ({
                 abstractionPrompt?.visible ||
                 newWebPrompt?.visible ||
                 isHeaderEditing ||
-                isRightPanelInputFocused ||
-                isLeftPanelInputFocused ||
                 abstractionCarouselVisible || // carousel locks the canvas view
                 !activeGraphId;
 
@@ -622,18 +614,14 @@ export const useCanvasKeyboard = ({
                 nodeNamePrompt,
                 connectionNamePrompt,
                 isHeaderEditing,
-                isRightPanelInputFocused,
-                isLeftPanelInputFocused,
                 abstractionCarouselVisible,
                 onDeleteNodes,
             } = paramsRef.current;
 
-            // The panel focus flags only cover fields wired to report focus, so
-            // they miss the wizard chat and any editor added since. Asking the
-            // DOM as well means no text field can leak a Backspace onto the
-            // canvas and delete the selection.
-            const isInputActive = isHeaderEditing || isRightPanelInputFocused || isLeftPanelInputFocused
-                || nodeNamePrompt.visible || isTextEntryActive(e);
+            // Only the header's title editor reports its focus; asking the DOM
+            // covers every other text field (panels, wizard chat, anything added
+            // since), so none can leak a Backspace onto the canvas (D-19).
+            const isInputActive = isHeaderEditing || nodeNamePrompt.visible || isTextEntryActive(e);
 
             // Skip keys already handled by Tab-scrub
             if (e.key === 'Tab') return;
