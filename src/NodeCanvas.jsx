@@ -7077,7 +7077,7 @@ function NodeCanvas() {
   // document-level endListener from ever firing).
   const groupTouchCleanupRef = useRef(null);
   // Preserve last selections during exit animations
-  const [lastSelectedNodePrototypes, setLastSelectedNodePrototypes] = useState([]);
+  const lastSelectedNodePrototypes = useCanvasUIStore(s => s.lastSelectedNodePrototypes), setLastSelectedNodePrototypes = useCanvasUIStore(s => s.setLastSelectedNodePrototypes);
   const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
   const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
@@ -7933,7 +7933,7 @@ function NodeCanvas() {
   // selection: every action in nodePieMenuPages is written against one instance,
   // so with two Things selected the panel falls back to its own selection-wide
   // buttons rather than silently applying Delete to whichever one sorted first.
-  const [lastSingleSelectedInstanceId, setLastSingleSelectedInstanceId] = useState(null);
+  const lastSingleSelectedInstanceId = useCanvasUIStore(s => s.lastSingleSelectedInstanceId), setLastSingleSelectedInstanceId = useCanvasUIStore(s => s.setLastSingleSelectedInstanceId);
 
   useEffect(() => {
     if (selectedInstanceIds.size === 1) {

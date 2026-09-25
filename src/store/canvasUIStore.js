@@ -118,6 +118,12 @@ export function createCanvasUIDefaults() {
     selectedGroupId: null,
     /** @type {string|null} */
     lastSelectedGroupId: null,
+    // What the node control panel keeps showing while it animates out. Latched by
+    // effects on selection, next to the pie target they're written with (P2.03).
+    /** @type {object[]} Prototypes of the last non-empty selection. */
+    lastSelectedNodePrototypes: [],
+    /** @type {string|null} The last single selected instance (null after a multi-select). */
+    lastSingleSelectedInstanceId: null,
 
     // pie menu (F-47 #3)
     /** @type {string|null} Instance id the node pie menu is open on. */
@@ -259,6 +265,8 @@ const useCanvasUIStore = create((set) => ({
   // group selection
   setSelectedGroupId: fieldSetter(set, 'selectedGroupId'),
   setLastSelectedGroupId: fieldSetter(set, 'lastSelectedGroupId'),
+  setLastSelectedNodePrototypes: fieldSetter(set, 'lastSelectedNodePrototypes'),
+  setLastSingleSelectedInstanceId: fieldSetter(set, 'lastSingleSelectedInstanceId'),
 
   // pie menu
   setSelectedNodeIdForPieMenu: fieldSetter(set, 'selectedNodeIdForPieMenu'),
