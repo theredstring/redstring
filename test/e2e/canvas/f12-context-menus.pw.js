@@ -11,7 +11,7 @@
 import {
   test, expect,
   openFixture, nodeBox, centerOf, expectBareCanvas, storeEval, activeGraphSnapshot, selectedNodeIds,
-  openPieMenu, marqueeModifier, EXPECT_KNOWN_BUGS,
+  openPieMenu, marqueeModifier,
 } from './helpers.js';
 
 const CANVAS_MENU = ['Auto Layout Web', 'Snap to Grid', 'Ask The Wizard', 'Merge Duplicates', 'Condense Things', 'Force Simulation', 'Refresh'];
@@ -60,11 +60,9 @@ test('F12 right-clicking a node opens its menu, and the Save item follows the no
 test('F12 after Save from the node menu, the same node\'s menu offers Unsave (B-05)', async ({ page }) => {
   // B-05: <Node>'s memo comparator ignores function props, so a node keeps the
   // onContextMenu closure from its last real render. Saving a Thing changes no
-  // prop of its node, so the node does not re-render, and its menu is built
-  // from the savedNodeIds that closure captured: it still says "Save".
-  // Expected to fail until P3.02 makes node handlers stable (D-09); remove
-  // test.fail() there.
-  test.fail(EXPECT_KNOWN_BUGS, 'B-05, fixed in P3.02 (phases/P3-canvas-layers.md)');
+  // prop of its node, so the node does not re-render; its menu used to be built
+  // from the savedNodeIds that closure captured, and still said "Save". Fixed in
+  // P3.02: node handlers read the latest render's functions through a ref.
 
   await openFixture(page, 'small');
   const gamma = centerOf(await nodeBox(page, 'i-gamma'));
