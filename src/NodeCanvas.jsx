@@ -8774,8 +8774,8 @@ function NodeCanvas() {
           if (instance) {
             // Open panel tab using the PROTOTYPE ID
             storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
-            // Ensure right panel is expanded
-            if (!rightPanelExpanded) {
+            // Ensure right panel is expanded (read now: the menu may predate a toggle)
+            if (!useGraphStore.getState().rightPanelExpanded) {
               storeActions.setRightPanelExpanded(true);
             }
             // Enable inline editing on canvas using the INSTANCE ID
@@ -8815,7 +8815,7 @@ function NodeCanvas() {
           const instance = nodes.find(n => n.id === instanceId);
           if (!instance) return;
           storeActions.openRightPanelNodeTab(instance.prototypeId, instance.name);
-          if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+          if (!useGraphStore.getState().rightPanelExpanded) storeActions.setRightPanelExpanded(true);
         }
       }
     ];
@@ -8999,7 +8999,7 @@ function NodeCanvas() {
     ];
 
     return [primaryPage, secondaryPage];
-  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, carouselAnimationState, markClipboardChanged, handlePieMenuColorPickerOpen, savedNodeIds]);
+  }, [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, carouselAnimationState, markClipboardChanged, handlePieMenuColorPickerOpen, savedNodeIds, wizardEnabled]);
 
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => {
@@ -9622,7 +9622,7 @@ function NodeCanvas() {
       // page that no longer exists.
       return nodePieMenuPages[pieMenuPage] ?? nodePieMenuPages[0] ?? [];
     }
-  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, currentAbstractionDimension, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage]);
+  }, [nodePieMenuPages, storeActions, setSelectedInstanceIds, setPreviewingNodeId, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNode, currentAbstractionDimension, carouselAnimationState, nodeDefinitionIndices, setNodeDefinitionIndices, handleNodeConvertToNodeGroup, pieMenuPage, wizardEnabled]);
 
   // Data for the decomposition CONTROL PANEL (mirrors the decomposition pie-menu state).
   // Non-null whenever a node is being previewed/decomposed; supplies the current definition
