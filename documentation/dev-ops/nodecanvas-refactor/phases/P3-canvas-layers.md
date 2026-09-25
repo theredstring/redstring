@@ -111,7 +111,7 @@
 - **Accept:** The decision is recorded in DECISIONS, and the code and flags are removed or scoped.
 
 ### P3.08: `NodeLayer`
-- **Status:** todo
+- **Status:** part a done: the active and dragging `<Node>` copies go through `renderNodeElement` (one prop block); markup identical with no selection, pie open and mid-drag. Open: the partition memo, the layer and its subscriptions, the rename draft inside Node.
 - **Lane:** A + B · **Size:** L
 - **Findings:** F-24, F-15
 - **Change:**

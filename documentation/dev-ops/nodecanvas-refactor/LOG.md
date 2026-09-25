@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P3.08a, one Node element builder (Claude, orchestrator)
+
+- The active and dragging `<Node>` elements use `renderNodeElement(node, isDragging)`. The maps call it with the node only; passing it by reference would have handed the index in as `isDragging`, which the markup check would have caught. Markup identical with no selection, pie open and mid-drag. **NodeCanvas.jsx 12,796.**
+- **Gates:** `test:ci` PASS, Playwright 58 passed.
+
+---
+
 ## 2026-09-25: P3.03a, group layout as data (Claude, orchestrator)
 
 - The groups pass's computation moved verbatim into `computeGroupLayouts`, memoized (including `labelFontVersion`). The pass only builds elements now (reports/P3.03a.md). **NodeCanvas.jsx 12,884.**
