@@ -5,6 +5,7 @@ import PanelHost from './PanelHost.jsx';
 import TypeListHost from './TypeListHost.jsx';
 import ModalHosts from './ModalHosts.jsx';
 import SyncDebugHost from './SyncDebugHost.jsx';
+import SearchHosts from './SearchHosts.jsx';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { CanvasOverlaySlot } from './canvasOverlaySlot.js';
@@ -55,6 +56,7 @@ function CanvasShell() {
       <div ref={setOverlayRoot} style={slotStyle} />
       <ModalHosts />
       <SyncDebugHost />
+      <SearchHosts />
     </div>
   );
 }
