@@ -164,12 +164,12 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
-**In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). Next smoke test: end of P2.
+**In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). **Ready for Grant's smoke test: [SMOKE-wave5.md](SMOKE-wave5.md)** (everything since wave 4).
 - ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~, ~~P2.06a~~, ~~P2.06d~~, ~~P2.06c~~, ~~P2.06f~~, ~~P2.07~~, ~~P2.03b (+ B-14)~~, ~~P2.03c (D-22)~~
 - ~~P2.12 (+ B-15)~~, ~~P2.13~~ — **P2 complete**
 - ~~P3.02 (B-05)~~ (f6007f7), ~~P3.01~~ (27d51a3), ~~P4.01a~~ (bf2c9b8), ~~F-78~~, ~~render sweep~~ (c56074e), ~~bailout sweep~~ (e0abe3c), ~~P4.01b~~ (65ef61d), ~~P5.04a~~ (5f6a10a), ~~culling bailouts~~, ~~P5.01a~~, ~~P5.07~~, ~~sweep 4 (+ B-16)~~, ~~P3.09 (grid)~~, ~~P3.03a~~
 - Deferred to a session with Grant: P3.05/P3.06 (label placement changes need his review), then P3.10/P3.11 which lean on them
-- Next: P3.11, then the layer cards
+- Next without Grant: P3.04 (group layers, on P3.03a's data), P3.08 (NodeLayer). P3.10/P3.11 lean on P3.06; P4.02+ need the device checklist; P5.02b+ need P5.02a
 
 Wave 4 (smoke-tested by Grant), based on wave 3:
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)
