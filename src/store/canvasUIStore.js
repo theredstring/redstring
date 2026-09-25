@@ -54,6 +54,7 @@
  */
 import { create } from 'zustand';
 import { readPersistedPanelWidth } from '../utils/canvas/panelWidth.js';
+import { reducePie } from '../components/canvas/pie/pieMachine.js';
 
 // ─── Equality helpers ─────────────────────────────────────────────────────────
 
@@ -300,9 +301,95 @@ function fieldSetter(set, key, isEqual = Object.is, normalize) {
  */
 const toSet = (value) => (value instanceof Set ? value : new Set(value ?? []));
 
+// ─── Pie machine runner (P5.02b) ──────────────────────────────────────────────
+//
+// dispatchPie(event, env) runs `reducePie` (components/canvas/pie/pieMachine.js)
+// on the current state, applies its patch in ONE `set` (so coupled fields land
+// in one render, see TIMING above), then runs its commands here:
+//   after   a timer that dispatches its event. Keyed timers replace a pending
+//           one with the same key (the watchdog). Unkeyed timers are never
+//           cancelled, which is today's behaviour for the guard timers (NEW-6).
+//   cancel  clears the keyed timer.
+//   frame / graph / local  go to the handler NodeCanvas registers with
+//           setPieCommandHandler. Until one is registered, `graph` commands
+//           are queued and handed over, in order, on registration (a Swap must
+//           not be lost); `frame` and `local` are dropped, because a camera
+//           move or a reset of NodeCanvas locals replayed later would act on a
+//           view and locals that have moved on.
+// Not wired yet: nothing dispatches, so the queue stays empty in the app.
+
+const pieKeyedTimers = new Map();
+const pieUnkeyedTimers = new Set();
+const pieQueuedCommands = [];
+let pieCommandHandler = null;
+
+/**
+ * Register the handler for `frame`, `graph` and `local` commands (one at a
+ * time; NodeCanvas, once wired). Queued `graph` commands are handed over now.
+ * @param {((command: object) => void)|null} handler
+ * @returns {() => void} unregister (only if this handler is still current)
+ */
+export function setPieCommandHandler(handler) {
+  pieCommandHandler = handler;
+  if (handler) {
+    const queued = pieQueuedCommands.splice(0);
+    for (const command of queued) handler(command);
+  }
+  return () => {
+    if (pieCommandHandler === handler) pieCommandHandler = null;
+  };
+}
+
+/** Test helper: clear every pending timer, the queue and the handler. */
+export function resetPieRunner() {
+  for (const id of pieKeyedTimers.values()) clearTimeout(id);
+  for (const id of pieUnkeyedTimers) clearTimeout(id);
+  pieKeyedTimers.clear();
+  pieUnkeyedTimers.clear();
+  pieQueuedCommands.length = 0;
+  pieCommandHandler = null;
+}
+
+/**
+ * Execute reducer commands. Exported for tests; the app goes through dispatchPie.
+ * @param {object[]} commands
+ * @param {(event: object) => void} dispatch how a fired timer dispatches its event
+ */
+export function runPieCommands(commands, dispatch) {
+  for (const command of commands) {
+    switch (command.type) {
+      case 'after': {
+        if (command.key) {
+          clearTimeout(pieKeyedTimers.get(command.key));
+          const id = setTimeout(() => {
+            pieKeyedTimers.delete(command.key);
+            dispatch(command.event);
+          }, command.ms);
+          pieKeyedTimers.set(command.key, id);
+        } else {
+          const id = setTimeout(() => {
+            pieUnkeyedTimers.delete(id);
+            dispatch(command.event);
+          }, command.ms);
+          pieUnkeyedTimers.add(id);
+        }
+        break;
+      }
+      case 'cancel':
+        clearTimeout(pieKeyedTimers.get(command.key));
+        pieKeyedTimers.delete(command.key);
+        break;
+      default:
+        if (pieCommandHandler) pieCommandHandler(command);
+        else if (command.type === 'graph') pieQueuedCommands.push(command);
+        // frame / local without a handler: dropped (see above).
+    }
+  }
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
-const useCanvasUIStore = create((set) => ({
+const useCanvasUIStore = create((set, get) => ({
   ...createCanvasUIDefaults(),
 
   // selection
@@ -341,9 +428,24 @@ const useCanvasUIStore = create((set) => ({
   setPendingAbstractionNodeId: fieldSetter(set, 'pendingAbstractionNodeId'),
   setPendingDecomposeNodeId: fieldSetter(set, 'pendingDecomposeNodeId'),
   // Page flips from the layer and the gamepad are not lifecycle events; the
-  // reset to page 0 on a target change is (the pie machine does it).
+  // reset to page 0 on a target change is (dispatchPie does it).
   setPieMenuPage: fieldSetter(set, 'pieMenuPage'),
 
+  /**
+   * The single writer of the pie / carousel lifecycle (P5.02b; not wired yet).
+   * Events and env are documented in pieMachine.js. Timer-fired events are
+   * dispatched with no env (none of them needs one).
+   * @param {{ type: string }} event
+   * @param {{ findNode?: (id: string) => object|null, activeGraphId?: string }} [env]
+   * @returns {{ patch: object, commands: object[] }} what was applied, for tests and tracing
+   */
+  dispatchPie: (event, env) => {
+    const result = reducePie(get(), event, env);
+    if (Object.keys(result.patch).length > 0) set(result.patch);
+    runPieCommands(result.commands, (next) => get().dispatchPie(next));
+    return result;
+  },
+  setPieCommandHandler,
 
   // decompose preview
   setPreviewingNodeId: fieldSetter(set, 'previewingNodeId'),
