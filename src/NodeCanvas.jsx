@@ -33,7 +33,6 @@ import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './ser
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
-import { getClusterGeometries } from './services/graphLayoutService.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
@@ -65,6 +64,7 @@ import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
 import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
+import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildEdgePieMenuButtons } from './components/canvas/pie/edgePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
@@ -10758,93 +10758,14 @@ function NodeCanvas() {
               >
                 {/* Pan/zoom transform is written to this <g> via SVG attribute. */}
                 <g ref={contentGroupRef}>
-                  {/* Cluster Hulls Layer (Debug) */}
-                  {showClusterHulls && (() => {
-                    const geometries = getClusterGeometries(hydratedNodes, edges);
-                    return (
-                      <g className="cluster-hulls-layer">
-                        {geometries.map((geo, idx) => {
-                          if (geo.hull.length < 3) return null;
-                          const pointsStr = geo.hull.map(p => `${p.x},${p.y}`).join(' ');
-                          const colors = ['#4ecdc4', '#ff6b6b', '#ffe66d', '#1a535c', '#f7fff7'];
-                          const color = colors[idx % colors.length];
-                          return (
-                            <polygon
-                              key={idx}
-                              points={pointsStr}
-                              fill={color}
-                              fillOpacity="0.1"
-                              stroke={color}
-                              strokeWidth="4"
-                              strokeOpacity="0.3"
-                              strokeDasharray="8,8"
-                              style={{ pointerEvents: 'none' }}
-                            />
-                          );
-                        })}
-                      </g>
-                    );
-                  })()}
-
-                  {/* Grid overlay — rendered before groups/nodes/edges so it
-                    sits underneath them in z-order. SVG <pattern> tiles in the
-                    GPU paint layer (ONE <rect> instead of thousands of lines). */}
-                  {gridActive && (() => {
-                    const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
-                    const lineColor = theme.darkMode ? "#716C6C" : "#979090";
-                    const dotColor = theme.canvas.textPrimary;
-                    // The appearance setting picks the look in both modes —
-                    // 'lattice' → lines, 'dot' → dots. Hover mode used to force
-                    // dots regardless, which meant the grid that appeared under
-                    // a drag didn't match the one the setting describes.
-                    const useDots = gridAppearance === 'dot';
-                    return (
-                      <g className="grid-overlay" pointerEvents="none">
-                        <defs>
-                          {useDots ? (
-                            <pattern
-                              id="grid-dots-pattern"
-                              // Tile origin shifted back half a cell so the centered
-                              // circle lands on the lattice points (multiples of
-                              // gridSize) that snapping uses, without being clipped
-                              // by the tile bounds.
-                              x={-gridSize / 2}
-                              y={-gridSize / 2}
-                              width={gridSize}
-                              height={gridSize}
-                              patternUnits="userSpaceOnUse"
-                            >
-                              <circle cx={gridSize / 2} cy={gridSize / 2} r={dotR} fill={dotColor} opacity={0.3} />
-                            </pattern>
-                          ) : (
-                            <pattern
-                              id="grid-lines-pattern"
-                              x={0}
-                              y={0}
-                              width={gridSize}
-                              height={gridSize}
-                              patternUnits="userSpaceOnUse"
-                            >
-                              <path
-                                d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
-                                fill="none"
-                                stroke={lineColor}
-                                strokeWidth="0.75"
-                                vectorEffect="non-scaling-stroke"
-                              />
-                            </pattern>
-                          )}
-                        </defs>
-                        <rect
-                          x={canvasSize.offsetX}
-                          y={canvasSize.offsetY}
-                          width={canvasSize.width}
-                          height={canvasSize.height}
-                          fill={`url(#${gridPatternId})`}
-                        />
-                      </g>
-                    );
-                  })()}
+                  {/* Cluster hulls (debug) and the grid sit under groups, nodes and edges (P3.09). */}
+                  {showClusterHulls && <ClusterHullsLayer nodes={hydratedNodes} edges={edges} />}
+                  {gridActive && (
+                    <GridLayer
+                      gridSize={gridSize} appearance={gridAppearance} darkMode={theme.darkMode}
+                      dotColor={theme.canvas.textPrimary} canvasSize={canvasSize} patternId={gridPatternId}
+                    />
+                  )}
 
                   {/* Groups Phase 1: Compute all group layouts, render regular group outlines.
                     Thing-group backgrounds and titles are stored in refs for rendering at higher z-levels. */}
