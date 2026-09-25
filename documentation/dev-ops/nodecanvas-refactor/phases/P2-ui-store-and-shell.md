@@ -225,7 +225,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **Handoff:** `PanelResizers` owns the bars and the drag; committed widths are canvasUIStore's (the source for `useViewportBounds` and framing); Panel still keeps its own live width. S9: NodeCanvas 5 runs (3 hover → P2.13/P3.06, 1 bounds change at drag end → P3.10). B-15 fixed.
 
 ### P2.13: Hover / vision-aid slice
-- **Status:** todo
+- **Status:** done (reports/P2.13.md)
 - **Lane:** A + B · **Size:** M · **Depends:** P2.01
 - **Findings:** F-10
 - **Change:**
@@ -237,4 +237,4 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **Accept:**
   - Sweeping over pie, header or panel buttons causes 0 NodeCanvas commits.
   - Canvas hover still re-renders NodeCanvas until P3.06; note that in METRICS.
-- **Handoff:**
+- **Handoff:** Vision-aid state in canvasUIStore, rendered by `layers/HoverVisionAidLayer`; buttons report through `setActionHover`; the dwell timer is `hooks/useHoverIntent`. Canvas hover still renders NodeCanvas through `hoveredEdgeInfo` → P3.06.

@@ -13,6 +13,16 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.13 done; P2 complete (Claude, orchestrator)
+
+- **P2.13:** vision-aid state in canvasUIStore (`HoverVisionAidLayer`); every button reports through `setActionHover`, so button hover no longer renders NodeCanvas; dwell logic in `useHoverIntent`. F28 added. NodeCanvas.jsx **15,789**.
+- **P2 complete.** Header, Panels, TypeList, modals, searches, universe lifecycle, sync debug, force sim, resizers, deletion ghosts and hover are out of NodeCanvas's render path; shared UI state (selection, edge selection, pie, prompts, modals, reconnect, layout progress, widths, hover) is in canvasUIStore. NodeCanvas returns the canvas area and portals the P5 overlays.
+  - Bugs fixed in P2: B-08, B-11, B-12, B-13, B-14, B-15; F-76, F-77.
+  - NodeCanvas.jsx over P2: 18,412 → 15,789.
+- Next smoke test: at the end of the whole run (Grant, 2026-09-25).
+
+---
+
 ## 2026-09-25: P2.12 done, with B-15 (Claude, orchestrator)
 
 - Grant: do as much of the refactor as possible, one smoke test at the end; be very safe (commit often, go back if needed). A/B screenshot runs now use a separate `baseline` worktree instead of swapping files in the working copy.
