@@ -4,6 +4,7 @@ import { getNodeDimensions } from '../utils.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
@@ -868,8 +869,7 @@ export const useNodeDrag = ({
     // drag (see renderConnectionEdge), so selection is the whole of it here.
     // Reproduce it below, or a selected edge lengthens the moment the drag
     // starts and its dots stay behind at the pre-drag geometry.
-    const dragSelectedEdgeId = dragStoreState.selectedEdgeId;
-    const dragSelectedEdgeIds = dragStoreState.selectedEdgeIds;
+    const { selectedEdgeId: dragSelectedEdgeId, selectedEdgeIds: dragSelectedEdgeIds } = useCanvasUIStore.getState();
     const isEdgeActive = (id) => dragSelectedEdgeId === id
       || !!dragSelectedEdgeIds?.has?.(id);
     // Distance an arrow-less end retracts. Matches the settled render exactly.

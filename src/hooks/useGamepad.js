@@ -1791,7 +1791,8 @@ export const useGamepad = ({
     // than trusted to have been cleaned up.
     const modeSettled = now - modeSinceRef.current > MODE_SYNC_GRACE_MS;
     if (modeSettled) {
-      const edgeGone = !store.selectedEdgeId && !(store.selectedEdgeIds?.size > 0);
+      const { selectedEdgeId, selectedEdgeIds } = useCanvasUIStore.getState();
+      const edgeGone = !selectedEdgeId && !(selectedEdgeIds?.size > 0);
       const nodeGone = !p.pieMenuNodeIdRef?.current;
       // The bottom panel has two possible subjects, and it is gone only when
       // BOTH are: a selected group, or a box selection of instances.

@@ -110,8 +110,6 @@ const seedStore = () => {
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(),
     savedGraphIds: new Set(),
-    selectedEdgeIds: new Set(),
-    selectedEdgeId: null,
     typeListMode: 'closed',
     isUniverseLoaded: true,
     isUniverseLoading: false,
