@@ -9,15 +9,19 @@
 //            the result says so. Only counts and timings are recorded: no names.
 //   large  = stress, the committed ~600-node synthetic graph.
 import { test } from '@playwright/test';
-import { appendFileSync, readFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { waitForCanvasReady, waitForCameraSettled, chambersPath } from '../../e2e/canvas/helpers.js';
 import { SCENARIOS } from './scenarios.js';
 import { countNodeCanvasRenders } from './selfRenders.js';
+import { logCommits, formatCommitLog } from './commitLog.js';
 
 const RUNS = Number(process.env.PERF_RUNS || 5);
 const OUT = process.env.PERF_OUT || null;
 const WANT = (process.env.PERF_SCENARIOS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const FIXTURES = (process.env.PERF_FIXTURES || 'medium,large').split(',');
+// --explain: a folder to write each scenario's commit log to (commitLog.js).
+const EXPLAIN = process.env.PERF_EXPLAIN || null;
 const CHAMBERS = chambersPath();
 let chambersText = null;
 
@@ -79,7 +83,7 @@ for (const scenario of SCENARIOS) {
       for (let run = 1; run <= RUNS; run++) {
         const context = await browser.newContext({ hasTouch: !!scenario.touch });
         await context.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) => route.abort());
-        await context.addInitScript(countNodeCanvasRenders);
+        await context.addInitScript(EXPLAIN ? logCommits : countNodeCanvasRenders);
         const page = await context.newPage();
         try {
           const fx = size === 'large' ? await openLarge(page) : await openMedium(page);
@@ -89,15 +93,28 @@ for (const scenario of SCENARIOS) {
             if (!window.__renderProbe) throw new Error('no __renderProbe: not the profile build?');
             if (!window.__nodeCanvasRenders?.found) throw new Error('NodeCanvas render counter never found the NodeCanvas fiber');
           });
+          // NodeCanvas sets isInitialLoadComplete 2 s after it mounts (the
+          // BackToCivilization delay). Keep that render out of the measurement.
+          await page.waitForFunction(() => performance.now() - window.__nodeCanvasRenders.mountedAt > 2200);
 
           const ctx = {};
           if (scenario.setup) await scenario.setup(page, ctx);
           await waitForQuiet(page);
 
-          await page.evaluate((label) => { Object.assign(window.__nodeCanvasRenders, { ran: 0, rendered: 0 }); window.__renderProbe.start(label); }, id);
+          await page.evaluate((label) => {
+            Object.assign(window.__nodeCanvasRenders, { ran: 0, rendered: 0 });
+            if (window.__commitLog) Object.assign(window.__commitLog, { on: true, t0: performance.now(), commits: [] });
+            window.__renderProbe.start(label);
+          }, id);
           const extra = (await scenario.run(page, ctx)) || {};
           await settleSession(page);
-          const r = await page.evaluate(() => ({ ...window.__renderProbe.stop(), ncRan: window.__nodeCanvasRenders.ran, ncRendered: window.__nodeCanvasRenders.rendered }));
+          const r = await page.evaluate(() => ({
+            ...window.__renderProbe.stop(),
+            ncRan: window.__nodeCanvasRenders.ran,
+            ncRendered: window.__nodeCanvasRenders.rendered,
+            log: window.__commitLog?.commits ?? null,
+          }));
+          if (EXPLAIN) writeFileSync(path.join(EXPLAIN, `${id}.txt`), formatCommitLog(id, r, r.log));
 
           const row = {
             id, run, fixture: fx.fixture, instances: fx.instances,

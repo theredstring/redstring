@@ -43,7 +43,8 @@ export default defineConfig({
     actionTimeout: 15_000,
   },
   webServer: {
-    command: `npx vite preview --mode profile --port ${PORT} --strictPort`,
+    // PERF_DIST=dist-explain for --explain (vite.explain.config.mjs).
+    command: `npx vite preview --mode profile --outDir ${process.env.PERF_DIST || 'dist-profile'} --port ${PORT} --strictPort`,
     cwd: ROOT,
     url: `http://localhost:${PORT}/`,
     reuseExistingServer: false,

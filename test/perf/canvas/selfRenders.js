@@ -12,7 +12,8 @@
 // __REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot after every commit, in
 // production and profiling builds too, so this needs no app code. Install it
 // with context.addInitScript(countNodeCanvasRenders) so it exists before React
-// loads; then read or reset window.__nodeCanvasRenders.
+// loads; then read or reset window.__nodeCanvasRenders. `mountedAt` is when
+// NodeCanvas last mounted (performance.now()), for waiting out its startup timers.
 //
 // How a commit's NodeCanvas fiber tells what happened:
 //   - same object as last commit: its subtree wasn't even cloned. Nothing ran.
@@ -27,7 +28,7 @@ export function countNodeCanvasRenders() {
   if (window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return; // real DevTools attached: leave it alone
   const PERFORMED_WORK = 1;
   const PROFILER = 12;
-  const counter = { ran: 0, rendered: 0, found: false };
+  const counter = { ran: 0, rendered: 0, found: false, mountedAt: null };
   window.__nodeCanvasRenders = counter;
 
   const isNodeCanvas = (f) => !!f && f.return?.tag === PROFILER && f.return.memoizedProps?.id === 'NodeCanvas';
@@ -71,6 +72,7 @@ export function countNodeCanvasRenders() {
       }
       if (!isNodeCanvas(f)) { last = null; return; }
       counter.found = true;
+      if (!f.alternate && f !== last) counter.mountedAt = performance.now();
       if (f !== last && (!f.alternate || f.memoizedState !== f.alternate.memoizedState)) {
         counter.ran += 1;
         if (f.flags & PERFORMED_WORK) counter.rendered += 1;
