@@ -66,6 +66,7 @@ import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
+import NodePieMenuLayer from './components/canvas/layers/NodePieMenuLayer.jsx';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
@@ -1161,8 +1162,6 @@ function NodeCanvas() {
       console.warn('[NodeCanvas] Failed to auto-create graph canvas for', activeGraphId, error);
     }
   }, [activeGraphId, graphsMap, nodePrototypesMap, storeActions]);
-
-  // 
 
   // <<< Universe File Loading >>>
   useEffect(() => {
@@ -4760,7 +4759,9 @@ function NodeCanvas() {
 
   const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing);
   const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
-  const currentPieMenuData = useCanvasUIStore(s => s.currentPieMenuData), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData); // Holds { node, buttons, nodeDimensions }
+  // { node, buttons, nodeDimensions } is read by NodePieMenuLayer; NodeCanvas reads only the target (P5.04a).
+  const currentPieMenuNodeId = useCanvasUIStore(s => s.currentPieMenuData?.node?.id ?? null);
+  const hasPieMenuData = useCanvasUIStore(s => s.currentPieMenuData != null), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData);
   const [pieMenuPage, setPieMenuPage] = useTrackedState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
   const editingNodeIdOnCanvas = useCanvasUIStore(s => s.editingNodeIdOnCanvas), setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
@@ -5035,9 +5036,17 @@ function NodeCanvas() {
   const abstractionCarouselNode = useCanvasUIStore(s => s.abstractionCarouselNode), setAbstractionCarouselNode = useCanvasUIStore(s => s.setAbstractionCarouselNode);
   const pendingAbstractionNodeId = useCanvasUIStore(s => s.pendingAbstractionNodeId), setPendingAbstractionNodeId = useCanvasUIStore(s => s.setPendingAbstractionNodeId);
   const pendingDecomposeNodeId = useCanvasUIStore(s => s.pendingDecomposeNodeId), setPendingDecomposeNodeId = useCanvasUIStore(s => s.setPendingDecomposeNodeId);
-  const [carouselFocusedNodeScale, setCarouselFocusedNodeScale] = useState(1.2);
-  const [carouselFocusedNodeDimensions, setCarouselFocusedNodeDimensions] = useState(null);
-  const [carouselFocusedNode, setCarouselFocusedNode] = useState(null); // Track which node is currently focused in carousel
+  // The carousel reports its focused node's scale and size every physics frame. Refs, not
+  // state (P5.04a): a new size rebuilds the pie data directly, not by re-rendering NodeCanvas.
+  const carouselFocusedNodeScaleRef = useRef(1.2);
+  const carouselFocusedNodeScale = carouselFocusedNodeScaleRef.current; // as of the last render, like the state was
+  const setCarouselFocusedNodeScale = useCallback((scale) => { carouselFocusedNodeScaleRef.current = scale; }, []);
+  const carouselFocusedNodeDimensionsRef = useRef(null);
+  const rebuildPieMenuDataRef = useRef(null);
+  const setCarouselFocusedNodeDimensions = useCallback((dims) => {
+    if (carouselFocusedNodeDimensionsRef.current !== dims) { carouselFocusedNodeDimensionsRef.current = dims; rebuildPieMenuDataRef.current?.(); }
+  }, []);
+  const [carouselFocusedNode, setCarouselFocusedNode] = useTrackedState(null); // Track which node is currently focused in carousel
 
   // --- Carousel view-locking: on open, animate the canvas so the selected node
   // is centered at a fixed reference zoom; while open, all user pan/zoom is
@@ -10252,11 +10261,11 @@ function NodeCanvas() {
 
   useEffect(() => {
     // Close pie menu color picker when pie menu disappears
-    if (!currentPieMenuData || !selectedNodeIdForPieMenu) {
+    if (!hasPieMenuData || !selectedNodeIdForPieMenu) {
       setPieMenuColorPickerVisible(false);
       setActivePieMenuColorNodeId(null);
     }
-  }, [currentPieMenuData, selectedNodeIdForPieMenu]);
+  }, [hasPieMenuData, selectedNodeIdForPieMenu]);
 
   const shouldPanelsBeExclusive = (windowSize?.width ?? window.innerWidth) <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
 
@@ -10741,8 +10750,8 @@ function NodeCanvas() {
       setSelectedNodeIdForPieMenu(null);
     }
   }, [selectedInstanceIds, isTransitioningPieMenu, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState, justCompletedCarouselExit, selectionStart]); // Added carousel protection flags + box-selection gate
-  // Effect to prepare and render PieMenu when selectedNodeIdForPieMenu changes and not transitioning
-  useEffect(() => {
+  // Prepare and render PieMenu when its target changes (assigned each render: see setCarouselFocusedNodeDimensions).
+  rebuildPieMenuDataRef.current = () => {
     if (selectedNodeIdForPieMenu && !isTransitioningPieMenu && !semanticOrbitActive) {
       // If the pie-menu node is being lifted/dragged, FREEZE currentPieMenuData so the
       // shrink-out animation keeps playing from where the menu was. `nodes` is a dep of
@@ -10760,8 +10769,9 @@ function NodeCanvas() {
         const isInCarouselMode = abstractionCarouselVisible && abstractionCarouselNode && node.id === abstractionCarouselNode.id;
 
         // Use dynamic carousel dimensions if available, otherwise calculate from the actual node
-        const dimensions = isInCarouselMode && carouselFocusedNodeDimensions
-          ? carouselFocusedNodeDimensions
+        const carouselDims = carouselFocusedNodeDimensionsRef.current;
+        const dimensions = isInCarouselMode && carouselDims
+          ? carouselDims
           : getNodeDimensions(node, previewingNodeId === node.id, null);
 
         // In carousel mode, create a virtual node positioned at the carousel center
@@ -10789,25 +10799,16 @@ function NodeCanvas() {
         });
         setIsPieMenuRendered(true); // Ensure PieMenu is in DOM to animate in
       } else {
-        //
         setCurrentPieMenuData(null); // Keep this for safety if node genuinely disappears
         // isPieMenuRendered will be set to false by onExitAnimationComplete if it was visible
       }
-    } else if (!selectedNodeIdForPieMenu && !isTransitioningPieMenu) {
-      // If no node is targeted for pie menu (e.g., deselected), AND we are not in a transition
-      // (which implies the menu should just hide without further state changes from NodeCanvas side for now).
-      // The PieMenu will become invisible due to the isVisible prop calculation.
-      // currentPieMenuData should NOT be nulled here, as PieMenu needs it to animate out.
-      // It will be nulled in onExitAnimationComplete.
-      //
     }
-    // If isTransitioningPieMenu is true, we don't change currentPieMenuData or isPieMenuRendered here.
-    // The existing menu plays its exit animation, and onExitAnimationComplete handles the next steps.
-    // semanticOrbitActive is read in the condition above, so it belongs here:
-    // leaving orbit has to re-run this to rebuild currentPieMenuData (the exit
-    // animation nulls it) and put the menu back in the DOM. Without the dep the
-    // menu stays gone until some unrelated change happens to re-trigger this.
-  }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, semanticOrbitActive, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNodeDimensions, carouselFocusedNode, draggingNodeInfo]);
+    // With no target, or mid-transition, currentPieMenuData is left alone: PieMenu needs it to
+    // animate out (isVisible hides it), and onExitAnimationComplete nulls it.
+  };
+  // semanticOrbitActive is a dep because leaving orbit has to rebuild the data (the exit
+  // animation nulled it) and put the menu back in the DOM.
+  useEffect(() => { rebuildPieMenuDataRef.current(); }, [selectedNodeIdForPieMenu, nodes, previewingNodeId, isTransitioningPieMenu, semanticOrbitActive, abstractionCarouselVisible, abstractionCarouselNode, carouselPieMenuStage, carouselFocusedNodeScale, carouselFocusedNode, draggingNodeInfo]);
 
   useEffect(() => {
     if (!isPieMenuRendered) {
@@ -13896,7 +13897,7 @@ function NodeCanvas() {
 
                     // Determine which node should be treated as "active" for stacking,
                     // Priority order: previewing > pie menu > single selection (for orbit overlay)
-                    let nodeIdToKeepActiveForStacking = previewingNodeId || currentPieMenuData?.node?.id || selectedNodeIdForPieMenu;
+                    let nodeIdToKeepActiveForStacking = previewingNodeId || currentPieMenuNodeId || selectedNodeIdForPieMenu;
 
                     // If no higher-priority node is active, use the selected node for orbit overlay
                     if (!nodeIdToKeepActiveForStacking &&
@@ -13992,11 +13993,8 @@ function NodeCanvas() {
                         <DeletionGhostLayer />
 
                         {/* Render The PieMenu next (it will be visually under the active node) */}
-                        {isPieMenuRendered && currentPieMenuData && (
-                          <PieMenu
-                            node={currentPieMenuData.node}
-                            buttons={currentPieMenuData.buttons}
-                            nodeDimensions={currentPieMenuData.nodeDimensions}
+                        {isPieMenuRendered && hasPieMenuData && (
+                          <NodePieMenuLayer
                             nodeScale={textSettings?.nodeScale ?? 1.0}
                             focusedNode={carouselFocusedNode}
                             pageCount={/* Counted off nodePieMenuPages rather than written down here, so
@@ -14007,7 +14005,7 @@ function NodeCanvas() {
                             onPageChange={setPieMenuPage}
                             focusedButtonIndex={gamepadMode === 'node' ? gamepadPieFocusedIndex : -1}
                             isVisible={(
-                              currentPieMenuData?.node?.id === selectedNodeIdForPieMenu &&
+                              currentPieMenuNodeId === selectedNodeIdForPieMenu &&
                               // Orbit owns the screen while it is up. Hiding via
                               // isVisible (rather than clearing the target) keeps
                               // the menu mounted and its page intact, so leaving
@@ -14024,7 +14022,6 @@ function NodeCanvas() {
                               setSelectedNodeIdForPieMenu(null);
                             }}
                             onExitAnimationComplete={() => {
-                              // 
                               setIsPieMenuRendered(false);
                               setCurrentPieMenuData(null);
                               const wasTransitioning = isTransitioningPieMenu;
