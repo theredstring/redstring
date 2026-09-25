@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.03c done; D-22 (Claude, orchestrator)
+
+- **P2.03c:** edge selection moved to canvasUIStore (**D-22**); graphStore's five action names are forwarding shims, so edge clicks no longer run graphStore's middleware or re-arm the save-worker clone. `removeEdge` prunes both selections.
+- **Gates:** `test:ci` PASS, Playwright 54 passed (F12 expected), `lint:undef` PASS. NodeCanvas.jsx 16,320.
+
+---
+
 ## 2026-09-25: P2.03b done, with B-14 (Claude, orchestrator)
 
 - **P2.03b:** `selectedGroup` is derived from `selectedGroupId` in canvasUIStore; the exit latch is a render-time ref. **B-14** fixed (the group panel went stale after edits elsewhere); F27.

@@ -88,12 +88,12 @@ After this phase:
 - **Handoff:** `selectedGroup` is derived from `selectedGroupId` (canvasUIStore); `setSelectedGroup` still takes a group/null/updater. The exit latch is a render-time ref. B-14 fixed; F27.
 
 ### P2.03c: Edge selection: decide, then move or keep
-- **Status:** todo
+- **Status:** done (reports/P2.03c.md; D-22)
 - **Lane:** A · **Size:** M · **Depends:** P2.03
 - **Findings:** D-04 note; P2.01 report §3 recommends the move
 - **Change:** Record a DECISION on whether `selectedEdgeId` / `selectedEdgeIds` leave graphStore. If they move, bind them in place the same way and keep any field the bridge reads reachable (P2.01 §2 found none).
 - **Accept:** Edge selection, the connection control panel and Delete on selected edges behave as before; S7 has no extra commits.
-- **Handoff:**
+- **Handoff:** Edge selection is canvasUIStore's; graphStore's five action names are forwarding shims (retire them when callers move, e.g. in P3.02/P4). `removeEdge` prunes both selections.
 
 ### P2.04: Move prompt/modal open state and text-entry focus
 - **Status:** done (391d978, merged 2d4c315; report reports/P2.04.md)

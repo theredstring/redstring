@@ -132,3 +132,7 @@ This file records calls that nobody should re-argue mid-task.
 - Grant smoke-tests at the end of each phase, or when something can't be verified without him or needs his decision (e.g. P5.02a). Not at the end of each wave.
 - Between smoke tests the orchestrator verifies each card itself (tests, Playwright, targeted perf, screenshots where visuals can change) and keeps going.
 - `main` still moves only when Grant fast-forwards it after a smoke test.
+
+**D-22. Edge selection lives in canvasUIStore (P2.03c; the D-04 note, P2.01 §3).** *Decided (orchestrator, following the P2.01 kickoff research), 2026-09-25.*
+- Every edge-selection write through graphStore ran its middleware, including a debounced whole-universe clone and hash for the save worker, for state that is neither persisted nor bridged.
+- `selectedEdgeId` / `selectedEdgeIds` move to canvasUIStore with Set equality. graphStore keeps the five action names as forwarding shims until callers migrate; its state no longer has the fields.
