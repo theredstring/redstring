@@ -60,6 +60,7 @@ const SETTERS = [
   ['setUniverseReconnect', 'universeReconnect', { mode: 'load', slug: 's', name: 'U', repoLabel: 'o/r' }, (prev) => prev || { mode: 'sync' }],
   ['setUniverseReconnectTarget', 'universeReconnectTarget', { slug: 's', name: 'U', repoLabel: null }, (prev) => prev || { slug: 't', name: 'T', repoLabel: null }],
   ['setUniverseReconnectDismissed', 'universeReconnectDismissed', true, (prev) => !prev],
+  ['setLayoutProgress', 'layoutProgress', { progress: 0.5, nodeCount: 10, estimatedMs: 400 }, (prev) => prev || { progress: 0, nodeCount: 1, estimatedMs: 1 }],
   ['setAutoGraphModalVisible', 'autoGraphModalVisible', true, (prev) => !prev],
   ['setForceSimModalVisible', 'forceSimModalVisible', true, (prev) => !prev],
   ['setIsHeaderEditing', 'isHeaderEditing', true, (prev) => !prev],

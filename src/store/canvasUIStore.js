@@ -190,6 +190,10 @@ export function createCanvasUIDefaults() {
     universeReconnect: null,
     universeReconnectTarget: null,
     universeReconnectDismissed: false,
+    // Auto-layout solver progress, or null when nothing is running (P2.06f):
+    // { progress: 0..1, nodeCount, estimatedMs }. Written by useGraphLayout,
+    // read by the progress indicator in ForceSimHost.
+    layoutProgress: null,
     autoGraphModalVisible: false,
     forceSimModalVisible: false,
 
@@ -330,6 +334,7 @@ const useCanvasUIStore = create((set) => ({
   setUniverseReconnect: fieldSetter(set, 'universeReconnect'),
   setUniverseReconnectTarget: fieldSetter(set, 'universeReconnectTarget'),
   setUniverseReconnectDismissed: fieldSetter(set, 'universeReconnectDismissed'),
+  setLayoutProgress: fieldSetter(set, 'layoutProgress'),
   setAutoGraphModalVisible: fieldSetter(set, 'autoGraphModalVisible'),
   setForceSimModalVisible: fieldSetter(set, 'forceSimModalVisible'),
 
