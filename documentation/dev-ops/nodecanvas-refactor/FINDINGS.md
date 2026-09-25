@@ -39,7 +39,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - A worker reply that arrives after mouseup can restore the rectangle. → B-02.
 - → P1.04
 
-**F-04. Panel resize sets state every frame.** VERIFIED; **measured (P0.04): S9, a 300 px drag of the right resizer in 60 moves, renders NodeCanvas 60 times, all `rightPanelWidth`.** `applyResizeUpdate` calls `setLeftPanelWidth`/`setRightPanelWidth` on every rAF during a drag (~1182/1187). `getFramingRegion` depends on these widths. → P1.05, P2.12
+**F-04. Panel resize sets state every frame.** VERIFIED. **→ resolved in P1.05: S9 71 → 17 commits, NodeCanvas runs 65 → 7.** **measured (P0.04): S9, a 300 px drag of the right resizer in 60 moves, renders NodeCanvas 60 times, all `rightPanelWidth`.** `applyResizeUpdate` calls `setLeftPanelWidth`/`setRightPanelWidth` on every rAF during a drag (~1182/1187). `getFramingRegion` depends on these widths. → P1.05, P2.12
 
 **F-05. Hurtle sets state every frame.** VERIFIED. **→ resolved in P1.06 (b235244): S13 went from 35 commits (31 NodeCanvas runs) to 12 (8).** `setHurtleAnimation(prev => ({...prev, …}))` runs on every rAF for the whole ~400 ms flight (~14238). → P1.06
 
@@ -62,7 +62,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - `graphStore.setSelectedEdgeIds` always builds a new Set and `console.log`s (graphStore ~7386). NodeCanvas calls it with `new Set()` even when the selection is already empty (~6363, ~14464, ~18702).
 - → P1.08, P1.09, P3.01
 
-**F-08. Opening a pie menu costs about 5–8 commits.** VERIFIED (sequence INFERRED). **Measured (P0.04): opening a pie and clicking it closed (S6) is 30 commits and 19 NodeCanvas runs. `currentPieMenuData` alone is set 5 times; the rest is F-75.**
+**F-08. Opening a pie menu costs about 5–8 commits.** VERIFIED (sequence INFERRED). **→ partly resolved in P1.10: the camera-settle rebuild is gone. The pie → state copy remains until P5.** **Measured (P0.04): opening a pie and clicking it closed (S6) is 30 commits and 19 NodeCanvas runs. `currentPieMenuData` alone is set 5 times; the rest is F-75.**
 - `nodePieMenuPages` (~8784, deps ~9112) and `targetPieMenuButtons` (~9115, deps ~9735) depend on:
   - `panOffset` and `zoomLevel`, which neither body reads
   - `graphsMap`, `edgesMap`, `nodes` and `savedNodeIds`
@@ -121,7 +121,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 - `hydratedNodes` (~1633) is a second O(N) hydration of the same data, with no object reuse.
 - → P1.08
 
-**F-21. Selecting a node re-solves every connection label.** VERIFIED.
+**F-21. Selecting a node re-solves every connection label.** VERIFIED. **→ resolved in P1.12b (d8f9e53): selection re-solves only labels whose own route changed.**
 - `labelCrossingIndex` (~5119) lists `selectedInstanceIds` among its dependencies.
 - Each rebuild bumps `index.generation` (`labelCrossingGenerationRef`), and that value is part of every label's cache signature (`renderConnectionEdge.jsx` ~1444).
 - Every routed label therefore goes back through `chooseRoutedLabelPlacement`.
@@ -440,7 +440,7 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-03 | The `openOnboardingModal` listener calls `setShowOnboardingModal` (~2748), which is never defined. The error is swallowed, so the event does nothing | VERIFIED; **decided (D-17)**: restore a welcome screen as an App-level host, then point the listener at it | P1.13 |
 | B-04 | `startHurtleAnimationFromPanel` reads zoom from `svg.style.transform` (~14387), but the transform is now an attribute on the inner `<g>`. So zoom reads as 1 and the orb is always 30 px. `startHurtleAnimation` also uses `canvasSize` without listing it as a dependency (~14365) | **FIXED** 0d85cb7 (P1.06): reads `zoomLevelRef`; `canvasSize` listed. F16 checks the orb's size against the zoom | done |
 | B-05 | Node handlers are stale. Node's comparator ignores functions, and `handleNodeMouseDown` (~10788) reads `isPaused`, `middleMouseZoomEnabled`, `rightPanelExpanded` and `nodeLiftDelay` from render scope. For example, after collapsing the right panel, double-clicking a node that hasn't re-rendered may not re-open it. `touch.handleNode*` has the same problem | VERIFIED code and effect. Reproduced by F12 (P0.03b): after Save from a Thing's right-click menu, the same Thing's menu still offers "Save", because the frozen `onContextMenu` closure holds the old `savedNodeIds`. The test is `test.fail` until P3.02 | P3.02 |
-| B-06 | `nodePieMenuPages` / `targetPieMenuButtons` read `rightPanelExpanded` (~8889, ~8929) and `wizardEnabled` (~9048, ~9419) but don't list them as dependencies, so the pie buttons go stale | VERIFIED | P1.10 |
+| B-06 | `nodePieMenuPages` / `targetPieMenuButtons` read `rightPanelExpanded` (~8889, ~8929) and `wizardEnabled` (~9048, ~9419) but don't list them as dependencies, so the pie buttons go stale | **FIXED** 98a6326 (P1.10). F6b fails without the fix | done |
 | B-07 | `onNavigateDefinition` mutates the previous Map inside its state updater (`new Map(prev.set(…))`, ~17509, ~17944, ~18041). That updater is impure | **FIXED** c7453a4 | P1.13 |
 | B-08 | Panel can render stale `nodeDefinitionIndices`, because its comparator ignores them (F-50) | INFERRED | P2.03 |
 | B-09 | A self-loop's arrowhead draws at about 80% size during a node drag, then snaps back on drop: `useNodeDrag.js` ~1015 drops `scale(connectionWidth)` (found by P0.05) | **FIXED** 2c9a1e7 (P0.03b). Measured in the browser at 0.80× mid-drag before the fix, 1.00× after. F1b guards it | done |

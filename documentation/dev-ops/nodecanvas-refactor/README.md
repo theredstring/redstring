@@ -167,7 +167,8 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 - ~~Lane A: P1.03, P1.04 (+ B-01)~~ merged (7c188ba); ~~P1.06 (+ B-04)~~ merged (ebe2242)
 - ~~Lane C: P0.06 (CI) + X-07~~ merged (7b74851)
 - ~~Lane B: P0.04 (perf scenarios + baseline)~~ merged (0396b65)
-- ~~Lane B: P1.12a (label investigation + DOM snapshot baselines)~~ merged (a18248e); P1.12b unblocked (D-18)
+- ~~Lane B: P1.12a~~ merged (a18248e); ~~Lane A: P1.12b~~ (fb328e3), ~~P1.10 + B-06~~ (3c6883b), ~~P1.05~~ (e5a7e82)
+- **Lane A:** P1.08 (orchestrator)
 - ~~Lane B: P2.01~~ pre-staged and merged into wave2-integration (5121cc7)
 - ~~Lane B: P0.03b~~ flows F8–F13 + B-09 fix, merged into wave2-integration (517e9d8)
 
@@ -187,7 +188,7 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 | Phase | File | Goal | Status |
 |---|---|---|---|
 | P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | **done**: P0.01–P0.07 (P0.03 + P0.03b) |
-| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.03, P1.04, P1.06, P1.07, P1.09, P1.11, P1.12a done; P1.12b unblocked (D-18); P1.13 partial (B-03 needs Grant); todo P1.05, P1.08, P1.10 |
+| P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | in progress: P1.01, P1.02, P1.03, P1.04, P1.05, P1.06, P1.07, P1.09, P1.10, P1.11, P1.12 done; P1.13 partial (B-03 → D-17 welcome host); todo P1.08 |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |

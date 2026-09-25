@@ -81,7 +81,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - X-10: `calculateSelection` in the worker is dead.
 
 ### P1.05: Panel resize without a commit every frame
-- **Status:** todo
+- **Status:** done (see reports/P1.05.md; merged e5a7e82)
 - **Lane:** A · **Size:** M · **Depends:** none
 - **Findings:** F-04 (measured: S9 renders NodeCanvas once per mousemove, 60 for the drag)
 - **Change:**
@@ -92,7 +92,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - S9 shows no per-frame commits.
   - The panel tracks the pointer with no lag.
   - F8 passes.
-- **Handoff:**
+- **Handoff:** S9 71 → 17 commits, NodeCanvas runs 65 → 7, 187 → 40 ms. The bars move by style write during the drag; the width is committed once in `endDrag`. `getFramingRegion` still reads state, so a framing mid-drag would use the pre-drag width (none happens today).
 
 ### P1.06: `HurtleOrb` component
 - **Status:** done (b235244, 0d85cb7 B-04, 3fda241 F16; report reports/P1.06.md)
@@ -156,7 +156,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:** The settle guard skips only when the view hasn't moved since the last settle, not merely when the end values match: the culling prune needs a settle after a gesture that returns to the same spot. setImage's only caller always passes a fresh blob URL, so its guard rarely fires; the real no-op writes come from clearImage. The view-save gap is logged as B-10. Existing graphStore.test.js failures are pre-existing (F-62).
 
 ### P1.10: Fix the pie menu memo dependencies
-- **Status:** todo
+- **Status:** done (8385536, 98a6326 B-06; report reports/P1.10.md; merged 3c6883b)
 - **Lane:** A · **Size:** M · **Depends:** P0.03 (flow F6)
 - **Findings:** F-08, B-06, F-75 (S6 sets `currentPieMenuData` 5 times; `--explain S6` shows each one)
 - **Change:**
@@ -171,7 +171,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
   - S6 has fewer commits than the baseline.
   - After toggling the right panel or the wizard, the pie buttons reflect the change.
   - F6 passes.
-- **Handoff:**
+- **Handoff:** The pie memos: 48 → 13 and 49 → 19 deps. S6 30 → 28 commits, 19 → 18 NodeCanvas runs: the rebuild on camera settle is gone. F6b guards B-06 (it fails without the fix). The pie → state sync effect is untouched (P5).
 
 ### P1.11: Stable keyboard listener
 - **Status:** done (9e4cdfe; report reports/P1.11.md)
@@ -186,7 +186,7 @@ Each card is small and can be reverted on its own. Each one is measured against 
 - **Handoff:** The listener attaches once per mount: 4 before, 9 after five re-renders; it stays at 4 now. The orchestrator verified the handler reads no hook params from closure (only paramsRef).
 
 ### P1.12: Stop selection from re-solving every label
-- **Status:** P1.12a done (9b6e012, 3a5f8ff; report reports/P1.12a.md). P1.12b (implementation, Lane A) todo, unblocked by D-18
+- **Status:** done. P1.12a (9b6e012, 3a5f8ff) and P1.12b (d8f9e53, merged fb328e3); reports P1.12a.md, P1.12b.md
 - **Lane:** A · **Size:** M · **Depends:** P0.04 (to measure); P0.05 (label DOM baselines)
 - **Findings:** F-21
 - **Change:**

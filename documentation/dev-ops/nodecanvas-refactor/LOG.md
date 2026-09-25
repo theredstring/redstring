@@ -13,6 +13,18 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P1.12b, P1.10 (+ B-06), P1.05 done by the orchestrator (Claude)
+
+- **P1.12b** (fb328e3): selecting a node re-solves only labels whose own route changed. Labels stay put on select (D-18); at-rest placement is identical. S7: 68 → 64 ms (lombardi), 54 → 46 ms (manhattan).
+- **P1.10 + B-06** (3c6883b):
+  - The pie memos keep only real dependencies, so the camera settle no longer rebuilds the pie. S6: 30 → 28 commits.
+  - The wizard toggle now reaches the pie. F6b fails without the fix.
+- **P1.05** (e5a7e82): panel resize moves the bar directly and commits once. S9: 71 → 17 commits, 187 → 40 ms.
+- **Every merge passed:** Playwright 35/35, NodeCanvas tests 56, `lint:undef`. NodeCanvas.jsx held at 18,412 lines (comments condensed to fit).
+- **Next:** P1.08 (stable `nodes`).
+
+---
+
 ## 2026-09-25: P0.04, P1.06 and P1.12a merged; perf numbers explained (Claude, orchestrator)
 
 - **Merged into wave2 integration:**

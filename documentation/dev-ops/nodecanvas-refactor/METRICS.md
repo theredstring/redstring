@@ -89,6 +89,9 @@ Filled in by P0.04; details and method are in reports/P0.04.md.
 | 2026-09-24 | P1.04 | S5 marquee (profile build, chambers) | 100 commits | 52 | 8702ad2 | Pre-refactor vs c34b0ca (also includes wave 1) |
 | 2026-09-25 | P1.06 | S13 hurtle (profile build, chambers) | 35 commits, 31 NC runs, 75 ms | 12, 8, 29 ms | ebe2242 | Measured on integration just before and after the merge |
 | 2026-09-25 | wave 1 + P1.03/04 | S1 drag-pan (profile build, chambers) | 246 commits, 316 ms | 9, 14 ms | c34b0ca | Browser confirmation of P1.01's jsdom result |
+| 2026-09-25 | P1.12b | S7 select, labels on (chambers, 3 runs) | lombardi 67.9 ms, manhattan 54 ms | 63.6 ms, 46.1 ms | d8f9e53 | Commits unchanged (20); label re-solves on select: all → only changed routes (jsdom) |
+| 2026-09-25 | P1.10 | S6 pie open/close (`--explain`, 1 run) | 30 commits, 19 NC runs | 28, 18 | 8385536 | Camera-settle rebuild of the pie gone |
+| 2026-09-25 | P1.05 | S9 panel resize (chambers, 3 runs) | 71 commits, 65 NC runs, 187 ms | 17, 7, 40 ms | e5a7e82 | |
 
 ## Size history
 
