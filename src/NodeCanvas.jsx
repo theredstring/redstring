@@ -149,7 +149,6 @@ import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
-import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch } from './utils/inputDeviceAnalysis';
@@ -3132,8 +3131,8 @@ function NodeCanvas() {
   // silent: a label cached in its <text> form never upgrades to the sprite that
   // has since baked, and placements solved against estimated widths never
   // re-solve once the real font arrives. Nothing throws; the labels just stay
-  // subtly wrong forever. So the counter travels in edgeRenderCtx and belongs in
-  // any cache key built from it.
+  // subtly wrong forever. So the counter travels in edgeRenderCtx, and any
+  // per-edge memo (P3.06) must re-render on it.
   const [labelFontVersion, bumpLabelFontVersion] = useState(0);
   useEffect(() => {
     if (typeof document === 'undefined' || !document.fonts?.ready) return;
@@ -3780,115 +3779,18 @@ function NodeCanvas() {
   // { cx, cy, r, edgeId, nodeId }.
   //
   // Keyed by edge id (Map<edgeId, orb[]>) rather than a flat list: a flat list
-  // is only correct while every edge is guaranteed to run on every pass, and
-  // the edge-caching work removes that guarantee. See renderConnectionEdge.
+  // is only correct while every edge is guaranteed to run on every pass, and a
+  // memoized edge (P3.06) removes that guarantee. See renderConnectionEdge.
   const connectionOrbHitsRef = useRef(new Map());
 
-  // EDGE ELEMENT CACHE.
-  //
-  // Map<edgeId, { edge, isHovered, isSelected, globals, element }>. Holds the
-  // React element each edge last produced, so an edge whose inputs are unchanged
-  // can be handed back the identical element object. React bails out of
-  // reconciling a subtree when it meets the same element reference in the same
-  // position, so a hit skips BOTH the ~1,800-line re-solve and the diff of the
-  // subtree it produces.
-  //
-  // The key is derived from edgeRenderCtx itself rather than hand-listed, which
-  // is the whole point: a value added to the context automatically joins the key
-  // and cannot be forgotten. Only the three genuinely per-edge inputs are pulled
-  // out and compared as booleans, so hovering one connection does not invalidate
-  // every other one.
-  //
-  // OFF BY DEFAULT — `window.__edgeCache = true` to enable. It stays off until
-  // the edge share of a commit has actually been measured (window.__edgePerf)
-  // and the output has been diffed against the uncached path on a real universe.
-  const edgeElementCacheRef = useRef(new Map());
-
-  // IMPERATIVE EDGE PAINTER (Phase 4).
-  //
-  // Takes the edge subtree out of React's reconciler entirely. React renders one
-  // empty <g> per z-slot; a layout effect walks the element trees
-  // renderConnectionEdge already produces and writes them to the DOM directly,
-  // diffing against what it wrote last time. See paintElementTree.js.
-  //
-  // What this adds over the element cache: the cache makes an UNCHANGED edge
-  // free, but a changed one still allocates a React element tree and is diffed
-  // by the reconciler. The painter makes a changed edge a handful of
-  // setAttribute calls instead. Hover and selection are the paths that benefit,
-  // since those miss the cache by construction.
-  //
-  // OFF BY DEFAULT — `window.__edgePainter = true`. It requires the cache's
-  // guarantees plus its own browser verification, and it must never fight
-  // useNodeDrag for ownership of edge DOM (see the drag gate in the effect).
-  const edgeSlotElsRef = useRef(new Map());       // slot -> container <g>
-  const edgePaintRecordsRef = useRef(new Map());  // slot -> Map<edgeId, painted record>
-  const edgePaintPlanRef = useRef(null);          // what the last render wants painted
-  const edgePainterActiveRef = useRef(false);
-  const edgePaintDirtyRef = useRef(false);        // set while a drag owns the DOM
-  const registerEdgeSlot = useCallback((slot) => (el) => {
-    if (el) edgeSlotElsRef.current.set(slot, el);
-    else edgeSlotElsRef.current.delete(slot);
-  }, []);
-
-  // Cumulative hit/miss tally for the cache, mirrored onto
-  // `window.__edgeCacheStats` so its behaviour can be checked from the console
-  // (and asserted in tests) rather than inferred. Only touched when the cache is
-  // on, so it costs nothing in the default configuration.
-  const edgeCacheStatsRef = useRef({ hits: 0, misses: 0 });
-  useEffect(() => {
-    if (typeof window !== 'undefined') window.__edgeCacheStats = edgeCacheStatsRef.current;
-  }, []);
-
-  // Paint pass. Runs after every commit, before the browser paints, so the DOM
-  // the drag layer queries is never a frame behind React's idea of it.
-  useLayoutEffect(() => {
-    if (!edgePainterActiveRef.current) return;
-    const plan = edgePaintPlanRef.current;
-    if (!plan) return;
-
-    // DRAG OWNERSHIP. Between lift and drop, useNodeDrag owns every edge it
-    // cached at drag start and rewrites those elements every frame. Painting
-    // over them would fight it, and rebuilding one would strand it on a
-    // detached node for the rest of the gesture. So the painter stands down for
-    // the whole drag and makes good afterwards.
-    if (draggingNodeInfoRef.current) {
-      edgePaintDirtyRef.current = true;
-      return;
-    }
-
-    // First commit after a drop: the drag wrote values the painter's diff has no
-    // record of, so a value-equal diff would skip the write and leave the last
-    // drag frame standing. Drop the records and repaint from scratch — once per
-    // gesture, and the drag has already released its element references.
-    if (edgePaintDirtyRef.current) {
-      edgePaintDirtyRef.current = false;
-      for (const [, records] of edgePaintRecordsRef.current) records.clear();
-      for (const [, container] of edgeSlotElsRef.current) {
-        while (container.firstChild) container.removeChild(container.firstChild);
-      }
-    }
-
-    for (let i = 0; i < plan.length; i++) {
-      const { slot, entries } = plan[i];
-      const container = edgeSlotElsRef.current.get(slot);
-      if (!container) continue;
-      let records = edgePaintRecordsRef.current.get(slot);
-      if (!records) { records = new Map(); edgePaintRecordsRef.current.set(slot, records); }
-      paintEdgeList(container, entries, records);
-    }
-  });
-
-  // Both per-edge maps are written by edges that RUN, so an edge that leaves the
-  // visible set (culled, or deleted) leaves its last entry behind. Neither is
-  // load-bearing enough to justify work during render, so they are swept here,
-  // after the commit that changed the visible set.
+  // The orb map is written by edges that RUN, so an edge that leaves the visible
+  // set (culled, or deleted) leaves its last entry behind. It isn't load-bearing
+  // enough to justify work during render, so it is swept here, after the commit
+  // that changed the visible set.
   useEffect(() => {
     const live = new Set(visibleEdges.map(e => e.id));
     for (const id of connectionOrbHitsRef.current.keys()) {
       if (!live.has(id)) connectionOrbHitsRef.current.delete(id);
-    }
-    for (const id of edgeElementCacheRef.current.keys()) {
-      if (!live.has(id)) edgeElementCacheRef.current.delete(id);
     }
   }, [visibleEdges]);
 
@@ -9548,43 +9450,10 @@ function NodeCanvas() {
                     // The renderer now lives in components/canvas/renderConnectionEdge.jsx;
                     // this object is its entire input surface. Adding a value the renderer
                     // needs means adding it here — there is no implicit closure any more.
-                    // Cache plumbing — see EDGE ELEMENT CACHE where the ref is
-                    // declared. `edgeGlobalCacheKey` is every context value that
-                    // is NOT per-edge, snapshotted once for the whole pass.
-                    const edgeCacheOn = typeof window !== 'undefined' && window.__edgeCache === true;
-                    const renderEdgeCached = (edge, ctx, globals) => {
-                      // Self-loops go straight through: they early-return into
-                      // <SelfLoopEdge>, which takes the whole selectedEdgeIds Set
-                      // as a prop and writes placedLabelsRef during its own child
-                      // reconciliation, so it does not fit the key below.
-                      if (!edgeCacheOn || edge.sourceId === edge.destinationId) {
-                        return renderConnectionEdge(edge, ctx);
-                      }
-                      const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
-                      const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
-                      const prev = edgeElementCacheRef.current.get(edge.id);
-                      if (
-                        prev
-                        && prev.edge === edge
-                        && prev.isHovered === isHovered
-                        && prev.isSelected === isSelected
-                        && prev.globals.length === globals.length
-                        && prev.globals.every((v, i) => Object.is(v, globals[i]))
-                      ) {
-                        edgeCacheStatsRef.current.hits++;
-                        return prev.element;
-                      }
-                      edgeCacheStatsRef.current.misses++;
-                      const element = renderConnectionEdge(edge, ctx);
-                      edgeElementCacheRef.current.set(edge.id, { edge, isHovered, isSelected, globals, element });
-                      return element;
-                    };
-
                     const edgeRenderCtx = {
-                      // Not read by the renderer directly — they exist so that a
-                      // cache key built from this object notices a sprite batch
-                      // finishing or the label font arriving. See EDGE ELEMENT
-                      // CACHE below.
+                      // Not read by the renderer directly: they are here so that a
+                      // per-edge memo (P3.06) re-renders when a sprite batch
+                      // finishes or the label font arrives.
                       labelSpriteVersion,
                       labelFontVersion,
                       anchorPositionUpdatesRef,
@@ -9643,55 +9512,11 @@ function NodeCanvas() {
                       visibleNodeIds,
                     };
 
-                    // When the painter is on, the edges are solved here and
-                    // handed to a layout effect instead of being returned as
-                    // JSX. Self-loops stay with React (see the painter note):
-                    // they render <SelfLoopEdge>, which the painter refuses.
-                    const edgePainterOn = typeof window !== 'undefined' && window.__edgePainter === true;
-                    edgePainterActiveRef.current = edgePainterOn;
-
-                    // Every context value EXCEPT the three that vary per edge,
-                    // snapshotted once for the pass. Built by walking the context
-                    // object so that anything added to it above joins the cache key
-                    // automatically — the one way this key cannot rot.
-                    const edgeGlobalCacheKey = edgeCacheOn
-                      ? Object.keys(edgeRenderCtx)
-                        .filter(k => k !== 'hoveredEdgeInfo' && k !== 'selectedEdgeId' && k !== 'selectedEdgeIds')
-                        .sort()
-                        .map(k => edgeRenderCtx[k])
-                      : null;
-
-                    // Solve every edge once, up front, when the painter owns the
-                    // subtree. Order within a slot is preserved exactly, because
-                    // label placement dodges the labels solved before it.
-                    const selfLoopsBySlot = new Map();
-                    if (edgePainterOn) {
-                      const plan = [];
-                      for (let si = 0; si < edgeZSlotOrder.length; si++) {
-                        const slot = edgeZSlotOrder[si];
-                        const bucket = edgesBySlot.get(slot) || [];
-                        const entries = [];
-                        const loops = [];
-                        for (let i = 0; i < bucket.length; i++) {
-                          const edge = bucket[i];
-                          const element = renderEdgeCached(edge, edgeRenderCtx, edgeGlobalCacheKey);
-                          if (element == null || element === false) continue;
-                          if (edge.sourceId === edge.destinationId) loops.push(element);
-                          else entries.push({ id: edge.id, element });
-                        }
-                        plan.push({ slot, entries });
-                        selfLoopsBySlot.set(slot, loops);
-                      }
-                      edgePaintPlanRef.current = plan;
-                    } else {
-                      edgePaintPlanRef.current = null;
-                    }
-
                     return (
                         <>
                           {/* No per-pass reset any more — see connectionOrbHitsRef.
                               Each edge now owns its own entry and sets or deletes
-                              it, because a cached edge does not run and could not
+                              it, because a memoized edge does not run and could not
                               refill a cleared map. Entries for edges that have gone
                               out of the visible set are pruned in an effect. */}
                           {/* Connections, nested plain-group outlines and node-group shells
@@ -9703,20 +9528,11 @@ function NodeCanvas() {
                           {edgeZSlotOrder.map(slot => (
                             <React.Fragment key={`edge-z-slot-${slot}`}>
                               {nestedRegularGroupsByDepth.get(slot)}
-                              {edgePainterOn ? (
-                                <>
-                                  {/* Painter-owned. React must never put children
-                                      here: its reconciler tracks siblings it
-                                      believes it owns, so foreign nodes in the
-                                      same parent get misplaced on reorder. */}
-                                  <g data-edge-slot={slot} ref={registerEdgeSlot(slot)} />
-                                  <g data-edge-selfloops={slot}>{selfLoopsBySlot.get(slot)}</g>
-                                </>
-                              ) : (() => {
+                              {(() => {
                                 const bucket = edgesBySlot.get(slot) || [];
                                 const perfOn = typeof window !== 'undefined' && window.__edgePerf;
                                 const t0 = perfOn ? performance.now() : 0;
-                                const painted = bucket.map(edge => renderEdgeCached(edge, edgeRenderCtx, edgeGlobalCacheKey));
+                                const painted = bucket.map(edge => renderConnectionEdge(edge, edgeRenderCtx));
                                 if (perfOn) {
                                   edgePerfRef.current.ms += performance.now() - t0;
                                   edgePerfRef.current.edges += bucket.length;

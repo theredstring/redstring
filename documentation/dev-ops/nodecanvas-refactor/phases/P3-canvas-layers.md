@@ -101,7 +101,7 @@
   - Edge DOM matches the kickoff snapshots.
 
 ### P3.07: Decide the fate of the edge cache and painter
-- **Status:** todo
+- **Status:** done (wave 6): both deleted (D-06 amended), with `paintElementTree.js`, its tests and the two smoke cases. Markup byte-identical to `main` in 28 scenes with sprites off (two scenes differed once from font-timing truncation and matched on a rerun; each side varies between its own runs). F1, F5, F7, F10, F11, F28 pass. Design for P3.05/P3.06 (the order this card came out of): `reports/P3.05-design.md`.
 - **Lane:** A · **Size:** S–M
 - **Findings:** F-23, D-06
 - **Change:**

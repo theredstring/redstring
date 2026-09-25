@@ -1169,7 +1169,7 @@ export function renderConnectionEdge(edge, ctx) {
           connectionOrbHitsRef.current.set(edge.id, orbHits);
         } else {
           // Eligibility ended — drop the entry from when it was eligible.
-          // The parent no longer clears this map per pass, because a cached
+          // The parent doesn't clear this map per pass, because a memoized
           // edge does not run and so could not refill it.
           connectionOrbHitsRef.current.delete(edge.id);
         }

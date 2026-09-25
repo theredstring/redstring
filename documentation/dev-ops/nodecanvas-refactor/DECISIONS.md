@@ -43,7 +43,7 @@ This file records calls that nobody should re-argue mid-task.
   - a controller that isn't React.
 - A hook that takes the parent's state and returns state is organisation only. Label it that way in the card and don't count it toward the perf criteria.
 
-**D-06. The edge element cache and imperative painter are not enabled now.** *Proposed, 2026-09-23.*
+**D-06. The edge element cache and imperative painter are not enabled now.** *Proposed, 2026-09-23.* **Amended (wave 6, P3.07): both deleted, before P3.06 rather than after.** They were off by default, the painter throws on component elements (so it can't coexist with a memoized `ConnectionEdge`), and the cache is a hand-rolled `React.memo` whose hits corrupted the dodge order. Markup with both flags off is byte-identical to `main` in 28 scenes (four routing styles × small at rest / node selected / edge hovered / edge selected, stress, chambers framed and zoomed out).
 - Revisit in P3.07, once edges are memoized components and label placement is deterministic. **The default outcome is to retire both, along with their window flags.**
 - Why (F-23):
   - The cache key misses on select, settle and drag.
@@ -136,3 +136,11 @@ This file records calls that nobody should re-argue mid-task.
 **D-22. Edge selection lives in canvasUIStore (P2.03c; the D-04 note, P2.01 §3).** *Decided (orchestrator, following the P2.01 kickoff research), 2026-09-25.*
 - Every edge-selection write through graphStore ran its middleware, including a debounced whole-universe clone and hash for the save worker, for state that is neither persisted nor bridged.
 - `selectedEdgeId` / `selectedEdgeIds` move to canvasUIStore with Set equality. graphStore keeps the five action names as forwarding shims until callers migrate; its state no longer has the fields.
+
+**D-23. Edge multi-select modifiers stay as they are (F7).** *Decided (Grant: "i don't really care about edge multi select i don't think we need it"), 2026-09-25.*
+- Cmd/Ctrl-click adds a connection to the selection and Shift-click replaces it, as today. No work on it.
+
+**D-24. Engineering questions are decided by the orchestrator, not Grant.** *Decided (Grant, 2026-09-25: "this is an entirely llm driven coding project in general so i don't even know much about it").*
+- Constants, modifiers, code structure and implementation order are the orchestrator's call, recorded here with the reasoning. Grant is asked only about how Redstring looks or behaves, in plain words, batched into the final smoke list.
+- Q5 (touch constants): keep the current values in each path. Nothing reported feels off, and reconciling them would change feel on some device.
+- P3.05's questions: X1 (a stale one-render label layout after routing, size, font or rename changes goes away) is taken; it is invisible at rest. X5 (labels still dodge the old boxes of culled or deleted connections) keeps today's behaviour. Step 7 (anchor geometry as a real dependency) moves labels near node-groups once and goes on the smoke list if it lands.
