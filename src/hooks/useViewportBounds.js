@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { HEADER_HEIGHT, EXCLUSIVE_PANEL_MODE_THRESHOLD } from '../constants';
 import { getAppViewportSize } from '../utils/appViewport.js';
 import { useMobileLandscapeShell } from './useMobileLandscapeShell.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 
 /**
  * Computes the central usable viewport bounds by subtracting left/right panel widths
@@ -13,17 +14,16 @@ import { useMobileLandscapeShell } from './useMobileLandscapeShell.js';
  * panels render as fixed overlays on top of the canvas rather than as flex
  * siblings, so their widths must NOT be subtracted from the usable viewport.
  *
- * Listens to window resize and custom panel events:
- *  - panelWidthChanging, panelWidthChanged
- * Also reads persisted widths from localStorage on mount for initial render.
+ * Listens to window resize; the panel widths are canvasUIStore's committed
+ * widths (P2.12), which PanelResizers keeps in step with panelWidthChanged.
  */
 export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typeListVisible = false) => {
-  const readPersistedWidth = (key, fallback) => {
-    try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch { return fallback; }
-  };
-
-  const [leftWidth, setLeftWidth] = useState(() => readPersistedWidth('panelWidth_left', 280));
-  const [rightWidth, setRightWidth] = useState(() => readPersistedWidth('panelWidth_right', 280));
+  // The committed panel widths, from canvasUIStore (P2.12). Updated when a
+  // resize ends, not per drag frame, so consumers don't re-render mid-drag.
+  // (This hook kept its own copy with a 280 px fallback, 30 px wider than the
+  // panels' real 250 on a fresh profile: B-15.)
+  const leftWidth = useCanvasUIStore(s => s.leftPanelWidth);
+  const rightWidth = useCanvasUIStore(s => s.rightPanelWidth);
   // The padded app box, not the raw window — see utils/appViewport.js.
   const [windowSize, setWindowSize] = useState(() => {
     const { width, height } = getAppViewportSize();
@@ -48,21 +48,6 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Only sync React state on drag end (panelWidthChanged) to avoid
-  // re-rendering NodeCanvas and other consumers on every drag frame.
-  // The panel DOM width is updated directly via ref during drag.
-  useEffect(() => {
-    const onChanged = (e) => {
-      const { side, width } = e.detail || {};
-      if (side === 'left' && typeof width === 'number') setLeftWidth(width);
-      if (side === 'right' && typeof width === 'number') setRightWidth(width);
-    };
-    window.addEventListener('panelWidthChanged', onChanged);
-    return () => {
-      window.removeEventListener('panelWidthChanged', onChanged);
-    };
   }, []);
 
   const bounds = useMemo(() => {
