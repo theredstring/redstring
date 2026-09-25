@@ -7,11 +7,12 @@ import { interpolateColor } from '../../../utils/canvas/colorUtils.js';
 import { resolveChain } from '../../../wizard/tools/utils/abstractionSpec.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { v4 as uuidv4 } from 'uuid';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
 export function submitAbstraction({ name, color, existingPrototypeId }, ctx) {
   const {
-    abstractionCarouselNode, abstractionPrompt, currentAbstractionDimension, nodePrototypesMap, nodes, setAbstractionCarouselVisible,
-    setAbstractionPrompt, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage, setIsCarouselStageTransition, setSelectedNodeIdForPieMenu, storeActions,
+    abstractionCarouselNode, abstractionPrompt, currentAbstractionDimension, nodePrototypesMap, nodes,
+    storeActions,
   } = ctx;
 
   if (name.trim() && abstractionPrompt.nodeId && abstractionCarouselNode) {
@@ -140,20 +141,11 @@ export function submitAbstraction({ name, color, existingPrototypeId }, ctx) {
     );
     });
 
-    // Close the abstraction prompt and keep the carousel visible.
-    setAbstractionPrompt({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
-    setAbstractionCarouselVisible(true); // Ensure carousel stays visible
-
-    // Move the carousel focus to the layer we just added so the user sees it,
-    // then drop straight back to stage 1 (the main Swap/Add/Delete/Expand menu)
-    // — like the plus button cycles you in and right back out after each add.
-    setCarouselFocusPrototypeRequest(newNodeId);
-    setCarouselPieMenuStage(1);
-    setIsCarouselStageTransition(false);
-
-    // Ensure the carousel node is still selected for pie menu
-    if (abstractionCarouselNode) {
-      setSelectedNodeIdForPieMenu(abstractionCarouselNode.id);
-    }
+    // Close the abstraction prompt and keep the carousel visible; move the
+    // carousel focus to the layer we just added so the user sees it, then drop
+    // straight back to stage 1 (the main Swap/Add/Delete/Expand menu) — like the
+    // plus button cycles you in and right back out after each add. The carousel
+    // node stays the pie's target (PROMPT_SUBMITTED in the pie machine).
+    useCanvasUIStore.getState().dispatchPie({ type: 'PROMPT_SUBMITTED', newNodeId });
   }
 }

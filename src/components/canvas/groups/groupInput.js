@@ -340,7 +340,13 @@ export function createGroupInputHandlers(ctxRef) {
     },
 
     innerCanvasClick(e) {
-      const { draggingNodeInfo, drawingConnectionFrom, mouseMoved, nodeNamePrompt, activeGraphId, groupControlPanelShouldShow, groupControlPanelVisible, selectedGroup, setGroupControlPanelVisible, setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState, setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState, selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, setSelectedInstanceIds, selectedEdgeId, selectedEdgeIds, storeActions } = ctxRef.current;
+      const {
+        draggingNodeInfo, drawingConnectionFrom, mouseMoved, nodeNamePrompt, activeGraphId,
+        groupControlPanelShouldShow, groupControlPanelVisible, selectedGroup, setGroupControlPanelVisible,
+        setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState,
+        selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, setSelectedInstanceIds,
+        selectedEdgeId, selectedEdgeIds, storeActions,
+      } = ctxRef.current;
       e.stopPropagation();
       if (draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || nodeNamePrompt.visible || !activeGraphId) return;
       if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
@@ -349,9 +355,7 @@ export function createGroupInputHandlers(ctxRef) {
         return;
       }
       if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
-        setAbstractionCarouselVisible(false); setAbstractionCarouselNode(null);
-        setCarouselAnimationState('hidden'); setCarouselPieMenuStage(1);
-        setCarouselFocusedNode(null); setCarouselFocusedNodeDimensions(null);
+        useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_TEARDOWN' });
         return;
       }
       if (abstractionCarouselVisible && carouselAnimationState === 'exiting') return;

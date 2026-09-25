@@ -1040,7 +1040,17 @@ export function createPointerHandlers(ctxRef) {
   };
 
   const handleCanvasClick = (e) => {
-    const { justCompletedBoxSelectRef, ignoreCanvasClick, gestureBlockRef, selectedInstanceIds, plusSign, semanticOrbitActive, exitOrbitMode, draggingNodeInfo, drawingConnectionFrom, nodeNamePrompt, activeGraphId, findEdgeAtClientPoint, selectedEdgeIds, selectedEdgeId, selectEdgeFromClick, connectionControlPanelShouldShow, connectionControlPanelVisible, edgePieMenuVisible, edgePieMenuRendered, setConnectionControlPanelVisible, setEdgePieMenuVisible, storeActions, wasDrawingConnection, isPieMenuActionInProgress, selectedGroup, groupControlPanelShouldShow, groupControlPanelVisible, setGroupControlPanelVisible, setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState, setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState, justCompletedCarouselExit, carouselExitInProgressRef, setSelectedInstanceIds, setPreviewingNodeId, containerRef, panOffsetRef, zoomLevelRef, canvasSize, setPlusSign } = ctxRef.current;
+    const {
+      justCompletedBoxSelectRef, ignoreCanvasClick, gestureBlockRef, selectedInstanceIds, plusSign,
+      semanticOrbitActive, exitOrbitMode, draggingNodeInfo, drawingConnectionFrom, nodeNamePrompt,
+      activeGraphId, findEdgeAtClientPoint, selectedEdgeIds, selectedEdgeId, selectEdgeFromClick,
+      connectionControlPanelShouldShow, connectionControlPanelVisible, edgePieMenuVisible, edgePieMenuRendered,
+      setConnectionControlPanelVisible, setEdgePieMenuVisible, storeActions, wasDrawingConnection,
+      isPieMenuActionInProgress, selectedGroup, groupControlPanelShouldShow, groupControlPanelVisible,
+      setGroupControlPanelVisible, setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu,
+      carouselAnimationState, justCompletedCarouselExit, carouselExitInProgressRef, containerRef, panOffsetRef,
+      zoomLevelRef, canvasSize, setPlusSign,
+    } = ctxRef.current;
     // The click that closes a marquee gesture isn't a click on empty canvas — it
     // must not deselect what the marquee just selected, exit orbit mode, or spawn
     // a plus sign. Consumed once, so the next real click behaves normally.
@@ -1164,12 +1174,7 @@ export function createPointerHandlers(ctxRef) {
     // DEFENSIVE: If carousel is visible but pie menu isn't, force close carousel
     if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
 
-      setAbstractionCarouselVisible(false);
-      setAbstractionCarouselNode(null);
-      setCarouselAnimationState('hidden');
-      setCarouselPieMenuStage(1);
-      setCarouselFocusedNode(null);
-      setCarouselFocusedNodeDimensions(null);
+      useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_TEARDOWN' });
       return;
     }
 
@@ -1192,9 +1197,8 @@ export function createPointerHandlers(ctxRef) {
         return;
       }
 
-      setSelectedInstanceIds(new Set());
-      setPreviewingNodeId(null);
-      // Pie menu will be handled by useEffect on selectedInstanceIds, no direct setShowPieMenu here
+      // Deselect and end any preview; the pie follows (PREVIEW_SET).
+      useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null, selection: [] });
       return;
     }
 

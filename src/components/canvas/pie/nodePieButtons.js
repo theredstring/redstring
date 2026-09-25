@@ -2,7 +2,8 @@
  * The node pie menu's button sets (P5.01), moved verbatim from NodeCanvas's
  * memos. NodeCanvas passes the render values each set closes over as `ctx` and
  * memoizes on the same dependencies, so every action sees what it saw before.
- * Reading state at fire time instead (the card's second half) is still open.
+ * Pie and carousel lifecycle changes go through the pie machine
+ * (`dispatchPie`, P5.02b step 5) rather than setters captured in `ctx`.
  */
 import { ArrowLeft, ArrowUpFromDot, Bookmark, ChevronLeft, ChevronRight, ClipboardCopy, CopyPlus, CornerDownLeft, CornerUpLeft, Edit3, ImagePlus, Layers, NotebookText, Orbit, Package, PackageOpen, Palette, Plus, Scaling, SendToBack, Sparkles, TextSearch, Trash2 } from 'lucide-react';
 import { THUMBNAIL_MAX_DIMENSION, nextNodeSizeStep, nodeSizeLabel } from '../../../constants';
@@ -13,14 +14,17 @@ import { getPrototypeIdFromItem } from '../../../utils/abstraction.js';
 import { resolveChain } from '../../../wizard/tools/utils/abstractionSpec.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useImageCache from '../../../services/imageCache.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { v4 as uuidv4 } from 'uuid';
+
+const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
 export function buildNodePieMenuPages(ctx) {
   const {
-    abstractionCarouselVisible, activeGraphId, carouselAnimationState, clipboardRef, deleteNodeWithAnimation, handlePieMenuColorPickerOpen,
-    markClipboardChanged, nodes, savedNodeIds, selectedNodeIdForPieMenu, setActivePieMenuItemForVision, setEditingNodeIdOnCanvas,
-    setIsTransitioningPieMenu, setNodeControlPanelVisible, setPendingAbstractionNodeId, setPendingDecomposeNodeId, setSelectedInstanceIds, setSelectedNodeIdForPieMenu,
-    setSemanticOrbitActive, setSwapPrompt, singleSelectedInstanceId, startHurtleAnimation, storeActions, wizardEnabled,
+    activeGraphId, clipboardRef, deleteNodeWithAnimation, handlePieMenuColorPickerOpen, markClipboardChanged,
+    nodes, savedNodeIds, selectedNodeIdForPieMenu, setActivePieMenuItemForVision, setEditingNodeIdOnCanvas,
+    setNodeControlPanelVisible, setSwapPrompt, singleSelectedInstanceId, startHurtleAnimation, storeActions,
+    wizardEnabled,
   } = ctx;
   const primaryPage = [
     {
@@ -86,35 +90,22 @@ export function buildNodePieMenuPages(ctx) {
       label: 'Decompose',
       icon: PackageOpen,
       action: (instanceId) => {
-        // Prevent decompose action during carousel transitions (only for non-carousel mode)
-        if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-
-          return;
-        }
-
-        setPendingDecomposeNodeId(instanceId); // Store the instance ID for later
-        setIsTransitioningPieMenu(true); // Start transition, current menu will hide
-        // previewingNodeId (which is an instanceId) will be set in onExitAnimationComplete after animation
+        // The menu shrinks; the preview opens when it has (PIE_TO_DECOMPOSE; the
+        // machine ignores it while a carousel is exiting).
+        dispatchPie({ type: 'PIE_TO_DECOMPOSE', nodeId: instanceId });
       }
     },
     {
       id: 'abstraction', label: 'Abstraction', icon: Layers, action: (instanceId) => {
-        // Prevent abstraction action during carousel transitions (only for non-carousel mode)
-        if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-
-          return;
-        }
-
-        setPendingAbstractionNodeId(instanceId); // Store the instance ID for later
-        setIsTransitioningPieMenu(true); // Start transition, current menu will hide
-        // Abstraction carousel will be set up in onExitAnimationComplete after animation
+        // The menu shrinks; the carousel opens when it has (PIE_TO_CAROUSEL; the
+        // machine ignores it while a carousel is exiting).
+        dispatchPie({ type: 'PIE_TO_CAROUSEL', nodeId: instanceId });
       }
     },
     {
       id: 'delete', label: 'Delete', icon: Trash2, action: (instanceId) => {
         deleteNodeWithAnimation(instanceId);
-        setSelectedInstanceIds(new Set());
-        setSelectedNodeIdForPieMenu(null);
+        dispatchPie({ type: 'PIE_TARGET', id: null, selection: [] });
       }
     },
     {
@@ -187,8 +178,7 @@ export function buildNodePieMenuPages(ctx) {
           newInstanceId
         );
         // Move selection (and the pie menu) to the new copy.
-        setSelectedInstanceIds(new Set([newInstanceId]));
-        setSelectedNodeIdForPieMenu(newInstanceId);
+        dispatchPie({ type: 'PIE_TARGET', id: newInstanceId, selection: [newInstanceId] });
       }
     },
     {
@@ -295,7 +285,7 @@ export function buildNodePieMenuPages(ctx) {
     }] : []),
     {
       id: 'orbit', label: 'Semantic Orbit', icon: Orbit, action: (instanceId) => {
-        setSemanticOrbitActive(true);
+        dispatchPie({ type: 'ORBIT', active: true });
         // Deliberately NOT clearing selectedNodeIdForPieMenu: the menu is
         // hidden for the duration by the semanticOrbitActive check on its
         // isVisible prop instead. Clearing the target would unmount the
@@ -350,12 +340,12 @@ export function buildNodePieMenuPages(ctx) {
 
 export function buildTargetPieMenuButtons(ctx) {
   const {
-    abstractionCarouselNode, abstractionCarouselVisible, activeGraphId, carouselAnimationState, carouselFocusedNode, carouselPieMenuStage,
-    currentAbstractionDimension, nodeDefinitionIndices, nodePieMenuPages, nodes, pieMenuPage, previewingNodeId,
-    selectedNodeIdForPieMenu, setAbstractionPrompt, setCarouselFocusPrototypeRequest, setGroupControlPanelShouldShow, setIsCarouselStageTransition, setIsPieMenuActionInProgress,
-    setIsTransitioningPieMenu, setJustCompletedCarouselExit, setNodeControlPanelShouldShow, setNodeControlPanelVisible, setNodeDefinitionIndices, setPendingSwapOperation,
-    setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, setSelectedNodeIdForPieMenu, startHurtleAnimation, storeActions,
-    wizardEnabled,
+    abstractionCarouselNode, abstractionCarouselVisible, activeGraphId, carouselAnimationState,
+    carouselFocusedNode, carouselPieMenuStage, currentAbstractionDimension, nodeDefinitionIndices,
+    nodePieMenuPages, nodes, pieMenuPage, previewingNodeId, selectedNodeIdForPieMenu,
+    setCarouselFocusPrototypeRequest, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible, setNodeDefinitionIndices, setSelectedGroup, setSelectedInstanceIds,
+    startHurtleAnimation, storeActions, wizardEnabled,
   } = ctx;
   const selectedNode = selectedNodeIdForPieMenu ? nodes.find(n => n.id === selectedNodeIdForPieMenu) : null;
 
@@ -378,13 +368,9 @@ export function buildTargetPieMenuButtons(ctx) {
           icon: ArrowLeft,
           position: 'left-inner',
           action: (nodeId) => {
-            // Set protection flag BEFORE starting exit to prevent graph cleanup interference
-            setJustCompletedCarouselExit(true);
-            setIsPieMenuActionInProgress(true);
-            setTimeout(() => setIsPieMenuActionInProgress(false), 100);
-
-            // This will trigger the pie menu to shrink, and its onExitAnimationComplete will trigger the carousel to close.
-            setIsTransitioningPieMenu(true);
+            // Raise the exit and click guards and shrink the pie; the carousel
+            // closes when it has (CAROUSEL_BACK).
+            dispatchPie({ type: 'CAROUSEL_BACK' });
           }
         },
         {
@@ -393,20 +379,12 @@ export function buildTargetPieMenuButtons(ctx) {
           icon: SendToBack,
           position: 'right-inner',
           action: (originalNodeId) => {
-            setIsPieMenuActionInProgress(true);
-            setTimeout(() => setIsPieMenuActionInProgress(false), 100);
-
             // Get the focused carousel node's prototype ID
             const focusedPrototypeId = carouselFocusedNode ? carouselFocusedNode.prototypeId : null;
             const originalInstance = nodes.find(n => n.id === originalNodeId);
 
-            if (!originalInstance) {
-
-              return;
-            }
-
-            if (!focusedPrototypeId) {
-
+            if (!originalInstance || !focusedPrototypeId) {
+              dispatchPie({ type: 'CLICK_GUARD' });
               return;
             }
 
@@ -414,16 +392,11 @@ export function buildTargetPieMenuButtons(ctx) {
             const currentState = useGraphStore.getState();
             const newPrototype = currentState.nodePrototypes.get(focusedPrototypeId);
 
-            setPendingSwapOperation({
-              originalNodeId,
-              originalInstance,
-              focusedPrototypeId,
-              newPrototype
+            // Leave the carousel; the machine applies the swap once it has faded.
+            dispatchPie({
+              type: 'CAROUSEL_LEAVE',
+              swap: { originalNodeId, originalInstance, focusedPrototypeId, newPrototype },
             });
-
-            // Start the exit animation sequence
-            setSelectedNodeIdForPieMenu(null);
-            setIsTransitioningPieMenu(true);
           }
         },
         {
@@ -439,12 +412,8 @@ export function buildTargetPieMenuButtons(ctx) {
               selectedNodeIdForPieMenu
             });
 
-            // Start the stage transition by triggering the pie menu to shrink first
-            setIsCarouselStageTransition(true); // Mark this as an internal stage transition
-            setIsTransitioningPieMenu(true); // This will trigger the pie menu to shrink
-
-            // The stage will be changed in onExitAnimationComplete after the shrink animation completes
-
+            // Shrink the pie; the stage changes when it has (STAGE_REQUEST).
+            dispatchPie({ type: 'STAGE_REQUEST' });
           }
         },
         {
@@ -453,8 +422,7 @@ export function buildTargetPieMenuButtons(ctx) {
           icon: Trash2,
           position: 'right-third',
           action: (nodeId) => {
-            setIsPieMenuActionInProgress(true);
-            setTimeout(() => setIsPieMenuActionInProgress(false), 100);
+            dispatchPie({ type: 'CLICK_GUARD' });
 
             const selectedNode = carouselFocusedNode || nodes.find(n => n.id === nodeId);
             if (!selectedNode) {
@@ -540,8 +508,7 @@ export function buildTargetPieMenuButtons(ctx) {
               } : null,
               dimension: currentAbstractionDimension
             });
-            setIsPieMenuActionInProgress(true);
-            setTimeout(() => setIsPieMenuActionInProgress(false), 100);
+            dispatchPie({ type: 'CLICK_GUARD' });
 
             // In carousel mode, use the focused node's prototype for expansion operations
             const focusedPrototypeId = carouselFocusedNode ? carouselFocusedNode.prototypeId : null;
@@ -586,9 +553,8 @@ export function buildTargetPieMenuButtons(ctx) {
                   definitionNodeId: targetPrototypeId
                 });
                 startHurtleAnimation(originalNodeId, graphIdToOpen, targetPrototypeId);
-                // Close carousel after animation starts
-                setSelectedNodeIdForPieMenu(null);
-                setIsTransitioningPieMenu(true);
+                // Close carousel after animation starts (the click guard is already up)
+                dispatchPie({ type: 'CAROUSEL_LEAVE', raiseClickGuard: false });
               } else {
                 // No definitions recorded. Try to find any existing graph already defining this prototype
                 const sourceGraphId = activeGraphId; // Capture current graph before it changes
@@ -620,8 +586,7 @@ export function buildTargetPieMenuButtons(ctx) {
                     definitionNodeId: targetPrototypeId
                   });
                   startHurtleAnimation(originalNodeId, orphanGraphId, targetPrototypeId, sourceGraphId);
-                  setSelectedNodeIdForPieMenu(null);
-                  setIsTransitioningPieMenu(true);
+                  dispatchPie({ type: 'CAROUSEL_LEAVE', raiseClickGuard: false });
                 } else {
                   // Create a new definition graph if none exists anywhere
                   console.log('[Carousel Expand] No definitions found. Creating a new definition graph for prototype.', {
@@ -640,8 +605,7 @@ export function buildTargetPieMenuButtons(ctx) {
                         sourceGraphId
                       });
                       startHurtleAnimation(originalNodeId, newGraphId, targetPrototypeId, sourceGraphId);
-                      setSelectedNodeIdForPieMenu(null);
-                      setIsTransitioningPieMenu(true);
+                      dispatchPie({ type: 'CAROUSEL_LEAVE', raiseClickGuard: false });
                     } else {
 
                     }
@@ -660,8 +624,7 @@ export function buildTargetPieMenuButtons(ctx) {
           position: 'right-second',
           row: 1,
           action: (originalNodeId) => {
-            setIsPieMenuActionInProgress(true);
-            setTimeout(() => setIsPieMenuActionInProgress(false), 100);
+            dispatchPie({ type: 'CLICK_GUARD' });
 
             // Same target resolution as Expand: act on whichever node the
             // carousel is focused on, falling back to the node it was opened from.
@@ -678,8 +641,7 @@ export function buildTargetPieMenuButtons(ctx) {
 
             // Close the carousel: the wizard works in the left panel, and the
             // carousel holds the canvas view locked on the focused node.
-            setSelectedNodeIdForPieMenu(null);
-            setIsTransitioningPieMenu(true);
+            dispatchPie({ type: 'CAROUSEL_LEAVE', raiseClickGuard: false });
           }
         }] : [])
       ];
@@ -693,13 +655,8 @@ export function buildTargetPieMenuButtons(ctx) {
           icon: ArrowLeft,
           position: 'left-inner',
           action: (nodeId) => {
-
-            // Start the stage transition by triggering the pie menu to shrink first
-            setIsCarouselStageTransition(true); // Mark this as an internal stage transition
-            setIsTransitioningPieMenu(true); // This will trigger the pie menu to shrink
-
-            // The stage will be changed in onExitAnimationComplete after the shrink animation completes
-
+            // Shrink the pie; the stage changes when it has (STAGE_REQUEST).
+            dispatchPie({ type: 'STAGE_REQUEST' });
           }
         },
         {
@@ -729,13 +686,16 @@ export function buildTargetPieMenuButtons(ctx) {
             // Normalize to prototypeId for abstraction prompt
             const targetPrototype = getPrototypeIdFromItem(targetNode);
             // Set abstraction prompt with the target node (focused node in stage 2)
-            setAbstractionPrompt({
-              visible: true,
-              name: '',
-              color: null,
-              direction: 'above',
-              nodeId: targetPrototype,
-              carouselLevel: abstractionCarouselNode // Pass the carousel state
+            dispatchPie({
+              type: 'PROMPT_OPEN',
+              prompt: {
+                visible: true,
+                name: '',
+                color: null,
+                direction: 'above',
+                nodeId: targetPrototype,
+                carouselLevel: abstractionCarouselNode, // Pass the carousel state
+              },
             });
 
           }
@@ -767,13 +727,16 @@ export function buildTargetPieMenuButtons(ctx) {
             // Normalize to prototypeId for abstraction prompt
             const targetPrototypeBelow = getPrototypeIdFromItem(targetNode);
             // Set abstraction prompt with the target node (focused node in stage 2)
-            setAbstractionPrompt({
-              visible: true,
-              name: '',
-              color: null,
-              direction: 'below',
-              nodeId: targetPrototypeBelow,
-              carouselLevel: abstractionCarouselNode // Pass the carousel state
+            dispatchPie({
+              type: 'PROMPT_OPEN',
+              prompt: {
+                visible: true,
+                name: '',
+                color: null,
+                direction: 'below',
+                nodeId: targetPrototypeBelow,
+                carouselLevel: abstractionCarouselNode, // Pass the carousel state
+              },
             });
 
           }
@@ -811,12 +774,10 @@ export function buildTargetPieMenuButtons(ctx) {
       id: 'compose-preview',
       label: 'Compose',
       icon: Package,
-      action: (nodeId) => {
-        // Prevent compose action during carousel transitions (only for non-carousel mode)
-        if (!abstractionCarouselVisible && carouselAnimationState === 'exiting') {
-          return;
-        }
-        setIsTransitioningPieMenu(true); // Start transition; previewingNodeId cleared after animation
+      action: () => {
+        // Shrink the pie; the preview closes when it has (PIE_COMPOSE; ignored
+        // while a carousel is exiting).
+        dispatchPie({ type: 'PIE_COMPOSE' });
       }
     };
 
@@ -840,8 +801,7 @@ export function buildTargetPieMenuButtons(ctx) {
           action: () => {
             const createdGroupId = storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId);
             if (!createdGroupId) return;
-            setPreviewingNodeId(null);
-            setIsTransitioningPieMenu(false);
+            dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });
             const gs = useGraphStore.getState();
             const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
             if (newGroup) {
@@ -913,8 +873,7 @@ export function buildTargetPieMenuButtons(ctx) {
             ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId)
             : storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId);
           if (!createdGroupId) return;
-          setPreviewingNodeId(null);
-          setIsTransitioningPieMenu(false);
+          dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });
           const gs = useGraphStore.getState();
           const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
           if (newGroup) {

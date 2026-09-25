@@ -5344,7 +5344,7 @@ function NodeCanvas() {
   // Exit orbit mode when node is deselected
   useEffect(() => {
     if (selectedInstanceIds.size === 0 && semanticOrbitActive) {
-      setSemanticOrbitActive(false);
+      useCanvasUIStore.getState().dispatchPie({ type: 'ORBIT', active: false });
       setOrbitData(EMPTY_ORBIT);
     }
   }, [selectedInstanceIds, semanticOrbitActive]);
@@ -5366,7 +5366,7 @@ function NodeCanvas() {
 
   // Exit orbit mode callback
   const exitOrbitMode = useCallback(() => {
-    setSemanticOrbitActive(false);
+    useCanvasUIStore.getState().dispatchPie({ type: 'ORBIT', active: false });
     setOrbitData(EMPTY_ORBIT);
     setOrbitLoading(false);
     // Re-show control panel if nodes still selected
@@ -5537,9 +5537,8 @@ function NodeCanvas() {
 
   // Callback for activating semantic orbit from control panel
   const activateSemanticOrbit = useCallback(() => {
-    setSemanticOrbitActive(true);
+    useCanvasUIStore.getState().dispatchPie({ type: 'ORBIT', active: true, clearTarget: true });
     setNodeControlPanelVisible(false);
-    setSelectedNodeIdForPieMenu(null);
   }, []);
 
   // Use unified control panel actions hook (depends on startHurtleAnimationFromPanel above)
@@ -7056,14 +7055,8 @@ function NodeCanvas() {
                 rightPanelExpanded={rightPanelExpanded}
                 onClose={() => {
                   finalizeAbstractionSuggestion(null);
-
-                  setAbstractionPrompt({ visible: false, name: '', color: null, direction: 'above', nodeId: null, carouselLevel: null });
-                  setCarouselPieMenuStage(1);
-                  setIsCarouselStageTransition(true);
-                  if (abstractionCarouselNode && !selectedNodeIdForPieMenu) {
-
-                    setSelectedNodeIdForPieMenu(abstractionCarouselNode.id);
-                  }
+                  // Back to stage 1 on the carousel node (PROMPT_CANCELLED).
+                  useCanvasUIStore.getState().dispatchPie({ type: 'PROMPT_CANCELLED' });
                 }}
                 onSubmit={(payload) => { finalizeAbstractionSuggestion(payload?.name); handleAbstractionSubmit(payload); }}
                 onNodeSelect={(prototype) => {
@@ -7101,7 +7094,7 @@ function NodeCanvas() {
             typeListOpen={typeListVisible}
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
             decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
-            onCompose={() => setPreviewingNodeId(null)}
+            onCompose={() => useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null })}
             onDelete={decomposePanelInfo ? () => {
               const { defIds, index, currentGraphId, prototypeId, setIndex } = decomposePanelInfo;
               if (!currentGraphId) return;
@@ -7125,7 +7118,7 @@ function NodeCanvas() {
                 ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, prototypeId, index, instanceId)
                 : storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index, instanceId);
               if (!createdGroupId) return;
-              setPreviewingNodeId(null);
+              useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null });
               const gs = useGraphStore.getState();
               const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
               if (newGroup) {

@@ -7,6 +7,7 @@
 import { NavigationMode, calculateNavigationParams } from '../../../services/canvasNavigationService.js';
 import { getNodeDimensions } from '../../../utils.js';
 import { MAX_ZOOM } from '../../../constants';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
 /** `rs-navigate-to`: fit the web's content, focus given nodes, go to coordinates or centre the view. */
 export function listenForNavigateTo(ctx) {
@@ -132,7 +133,7 @@ export function listenForNavigateTo(ctx) {
 
 /** `rs-select-node`: select (and frame) a node the Wizard names. */
 export function listenForSelectNode(ctx) {
-  const { nodes, setSelectedInstanceIds, setSelectedNodeIdForPieMenu } = ctx;
+  const { nodes } = ctx;
   const handleSelectNode = (event) => {
     const { instanceId, prototypeId, name } = event.detail || {};
     if (!nodes || nodes.length === 0) return;
@@ -157,8 +158,7 @@ export function listenForSelectNode(ctx) {
     if (targetNode) {
       console.log('[NodeCanvas] Selecting node from Wizard:', targetNode.name, targetNode.id);
       // Select the node (highlight it)
-      setSelectedInstanceIds(new Set([targetNode.id]));
-      setSelectedNodeIdForPieMenu(targetNode.id);
+      useCanvasUIStore.getState().dispatchPie({ type: 'PIE_TARGET', id: targetNode.id, selection: [targetNode.id] });
 
       // Navigate to focus on the node
       window.dispatchEvent(new CustomEvent('rs-navigate-to', {

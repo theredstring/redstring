@@ -66,7 +66,6 @@ export const useCanvasTouch = ({
     nodeNamePrompt,
     previewingNodeId,
     selectedNodeIdForPieMenu,
-    setSelectedNodeIdForPieMenu,
     drawingConnectionFrom,
     setDrawingConnectionFrom,
     draggingNodeInfo,
@@ -108,6 +107,10 @@ export const useCanvasTouch = ({
     // single-finger touch across the whole viewport — see yieldsToCarousel below.
     abstractionCarouselVisibleRef,
 }) => {
+    // Pie-menu target changes go through the pie machine (P5.02b step 5), which
+    // re-applies the selection → pie rule in the same write.
+    const setPieTarget = (id) => useCanvasUIStore.getState().dispatchPie({ type: 'PIE_TARGET', id });
+
     // --- Refs moved to hook ---
     const lastTouchRef = useRef({ x: 0, y: 0 });
 
@@ -954,7 +957,7 @@ export const useCanvasTouch = ({
             // Still allow deselection on this tap (only plus-sign spawn should be blocked).
             if (!draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId && selectedInstanceIds.size > 0) {
                 setSelectedInstanceIds(new Set());
-                if (selectedNodeIdForPieMenu) setSelectedNodeIdForPieMenu(null);
+                if (selectedNodeIdForPieMenu) setPieTarget(null);
             }
             return;
         }
@@ -1005,7 +1008,7 @@ export const useCanvasTouch = ({
                 dismissedControlPanel = true;
             }
             if (selectedNodeIdForPieMenu) {
-                setSelectedNodeIdForPieMenu(null);
+                setPieTarget(null);
             }
             // Never cancel a plus sign that's already committed to morphing into
             // a node — a stray tap (e.g. the ghost touchend that bubbles here
@@ -1225,7 +1228,7 @@ export const useCanvasTouch = ({
                 const started = startDragForNode(nodeData, ts.currentPosition.x, ts.currentPosition.y, ts.dragOffset);
                 if (started) {
                     ts.longPressReady = false;
-                    setSelectedNodeIdForPieMenu(null);
+                    setPieTarget(null);
                     // A drag supersedes any tap selection still waiting to fire.
                     cancelPendingNodeTap();
                     // Cancel connection intent once dragging node
@@ -1356,7 +1359,7 @@ export const useCanvasTouch = ({
                         touchState.current.isDragging = false;
                     } else {
                         touchState.current.longPressReady = false;
-                        setSelectedNodeIdForPieMenu(null);
+                        setPieTarget(null);
                         cancelPendingNodeTap();
                         setLongPressingInstanceId(null);
                     }
@@ -1597,7 +1600,7 @@ export const useCanvasTouch = ({
                     // so it never mutated anything, it only dirtied the save
                     // change-context on every tap.
                     if (!wasSelected) {
-                        setSelectedNodeIdForPieMenu(tapNodeId);
+                        setPieTarget(tapNodeId);
                     }
                 }, NODE_DOUBLE_TAP_MS);
                 pendingNodeTapRef.current = { timer, nodeId: tapNodeId };

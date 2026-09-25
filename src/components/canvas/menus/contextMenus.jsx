@@ -11,6 +11,9 @@ import { getNodeDimensions } from '../../../utils.js';
 import { pasteClipboard } from '../../../utils/clipboard.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { webFacts } from '../../../wizard/prompts/facts.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+
+const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
 export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
   const {
@@ -168,10 +171,10 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
 
 export function buildNodeContextMenuOptions(instanceId, ctx) {
   const {
-    abstractionCarouselVisible, activeGraphId, canvasSize, carouselAnimationState, containerRef, deleteNodeWithAnimation,
-    handlePieMenuColorPickerOpen, nodes, panOffsetRef, previewingNodeId, rightPanelExpanded, savedNodeIds,
-    setAbstractionCarouselNode, setAbstractionCarouselVisible, setCarouselAnimationState, setEditingNodeIdOnCanvas, setNodeControlPanelVisible, setSelectedInstanceIds,
-    setSelectedNodeIdForPieMenu, setSemanticOrbitActive, startHurtleAnimation, storeActions, targetPieMenuButtons, zoomLevelRef,
+    abstractionCarouselVisible, activeGraphId, canvasSize, carouselAnimationState, containerRef,
+    deleteNodeWithAnimation, handlePieMenuColorPickerOpen, nodes, panOffsetRef, previewingNodeId,
+    rightPanelExpanded, savedNodeIds, setEditingNodeIdOnCanvas, setNodeControlPanelVisible,
+    startHurtleAnimation, storeActions, targetPieMenuButtons, zoomLevelRef,
   } = ctx;
   const node = nodes.find(n => n.id === instanceId);
   if (!node) return [];
@@ -217,8 +220,7 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
         }
 
         // Open the pie menu for this node
-        setSelectedInstanceIds(new Set([instanceId]));
-        setSelectedNodeIdForPieMenu(instanceId);
+        dispatchPie({ type: 'PIE_TARGET', id: instanceId, selection: [instanceId] });
 
         // After pie menu appears, auto-trigger the decompose button
         setTimeout(() => {
@@ -242,13 +244,7 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
         // Directly set up abstraction carousel like onExitAnimationComplete does
 
         const nodeData = nodes.find(n => n.id === instanceId);
-        if (nodeData) {
-          setAbstractionCarouselNode(nodeData);
-          setCarouselAnimationState('entering');
-          setAbstractionCarouselVisible(true);
-          setSelectedNodeIdForPieMenu(instanceId);
-          setSelectedInstanceIds(new Set([instanceId]));
-        }
+        if (nodeData) dispatchPie({ type: 'CAROUSEL_OPEN_DIRECT', node: nodeData });
       }
     },
     // Delete - same as PieMenu
@@ -257,8 +253,7 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
       icon: <Trash2 size={14} />,
       action: () => {
         deleteNodeWithAnimation(instanceId);
-        setSelectedInstanceIds(new Set());
-        setSelectedNodeIdForPieMenu(null);
+        dispatchPie({ type: 'PIE_TARGET', id: null, selection: [] });
       }
     },
     // Edit - same as PieMenu  
@@ -301,8 +296,7 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
         const node = nodes.find(n => n.id === instanceId);
         if (node) {
           // Ensure node is selected for color picker context
-          setSelectedNodeIdForPieMenu(instanceId);
-          setSelectedInstanceIds(new Set([instanceId]));
+          dispatchPie({ type: 'PIE_TARGET', id: instanceId, selection: [instanceId] });
 
           // Small delay to ensure selection is set, then open color picker
           setTimeout(() => {
@@ -335,11 +329,9 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
       label: 'Semantic Orbit',
       icon: <Orbit size={14} />,
       action: () => {
-        setSemanticOrbitActive(true);
-        setSelectedNodeIdForPieMenu(null);
+        // Orbit on, pie target cleared, and the node the only one selected.
+        dispatchPie({ type: 'ORBIT', active: true, clearTarget: true, selection: [instanceId] });
         setNodeControlPanelVisible(false);
-        // Ensure the node is the only one selected for orbit focus
-        setSelectedInstanceIds(new Set([instanceId]));
       }
     }
   ];

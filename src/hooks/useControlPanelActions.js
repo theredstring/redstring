@@ -5,6 +5,7 @@
 
 import { useCallback } from 'react';
 import useGraphStore from '../store/graphStore.js';
+import useCanvasUIStore from '../store/canvasUIStore.js';
 
 /**
  * Hook providing control panel action handlers
@@ -23,11 +24,6 @@ export function useControlPanelActions({
   setNodeControlPanelShouldShow,
   setNodeControlPanelVisible,
   setNodeNamePrompt,
-  setPreviewingNodeId,
-  setAbstractionCarouselNode,
-  setCarouselAnimationState,
-  setAbstractionCarouselVisible,
-  setSelectedNodeIdForPieMenu,
   rightPanelExpanded,
   setRightPanelExpanded,
   setEditingNodeIdOnCanvas,
@@ -101,25 +97,20 @@ export function useControlPanelActions({
     // Find the first instance of this prototype
     const nodeData = nodes.find(n => n.prototypeId === first.id);
     if (nodeData) {
-      // Trigger decompose action similar to pie menu
-      setPreviewingNodeId(nodeData.id);
-      setSelectedInstanceIds(new Set([nodeData.id]));
+      // Trigger decompose action similar to pie menu (PREVIEW_SET in the pie machine)
+      useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: nodeData.id, selection: [nodeData.id] });
     }
-  }, [selectedNodePrototypes, nodes, setPreviewingNodeId, setSelectedInstanceIds]);
+  }, [selectedNodePrototypes, nodes]);
 
   const handleNodePanelAbstraction = useCallback(() => {
     const first = selectedNodePrototypes[0];
     if (!first) return;
     // Trigger abstraction carousel
     const nodeData = nodes.find(n => n.prototypeId === first.id);
-    if (nodeData) {
-      setAbstractionCarouselNode(nodeData);
-      setCarouselAnimationState('entering');
-      setAbstractionCarouselVisible(true);
-      setSelectedNodeIdForPieMenu(nodeData.id);
-      setSelectedInstanceIds(new Set([nodeData.id]));
-    }
-  }, [selectedNodePrototypes, nodes, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, setSelectedInstanceIds]);
+    // Opened directly, without the pie's shrink; unlike the context menu this
+    // path never checked for an exiting carousel (P5.02b NEW-13), hence guard: false.
+    if (nodeData) useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_OPEN_DIRECT', node: nodeData, guard: false });
+  }, [selectedNodePrototypes, nodes]);
 
   const handleNodePanelEdit = useCallback(() => {
     const first = selectedNodePrototypes[0];
