@@ -15,6 +15,7 @@ vi.mock('../../components/canvas/hosts/TypeListHost.jsx', nullComponent);
 vi.mock('../../components/canvas/hosts/ModalHosts.jsx', nullComponent);
 vi.mock('../../components/canvas/hosts/SyncDebugHost.jsx', nullComponent);
 vi.mock('../../components/canvas/hosts/SearchHosts.jsx', nullComponent);
+vi.mock('../../components/canvas/hosts/UniverseHost.jsx', nullComponent);
 vi.mock('../../ai/BridgeClient.jsx', nullComponent);
 vi.mock('../../components/GlobalContextMenu.jsx', nullComponent);
 vi.mock('../../components/UniverseManagerBootstrap.jsx', nullComponent);

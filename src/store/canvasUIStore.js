@@ -182,6 +182,14 @@ export function createCanvasUIDefaults() {
     showSettingsModal: false,
     showMergeThingsModal: false,
     showStorageSetupModal: false,
+    // GitHub reconnect (P2.06c; shared by UniverseHost's modal and the canvas
+    // error card). `universeReconnect` is the open modal:
+    // { mode: 'load' | 'sync', slug, name, repoLabel } or null.
+    // `universeReconnectTarget` names the active Git universe when its load
+    // failed. `universeReconnectDismissed` is "not now" for a load failure.
+    universeReconnect: null,
+    universeReconnectTarget: null,
+    universeReconnectDismissed: false,
     autoGraphModalVisible: false,
     forceSimModalVisible: false,
 
@@ -319,6 +327,9 @@ const useCanvasUIStore = create((set) => ({
   setShowSettingsModal: fieldSetter(set, 'showSettingsModal'),
   setShowMergeThingsModal: fieldSetter(set, 'showMergeThingsModal'),
   setShowStorageSetupModal: fieldSetter(set, 'showStorageSetupModal'),
+  setUniverseReconnect: fieldSetter(set, 'universeReconnect'),
+  setUniverseReconnectTarget: fieldSetter(set, 'universeReconnectTarget'),
+  setUniverseReconnectDismissed: fieldSetter(set, 'universeReconnectDismissed'),
   setAutoGraphModalVisible: fieldSetter(set, 'autoGraphModalVisible'),
   setForceSimModalVisible: fieldSetter(set, 'forceSimModalVisible'),
 

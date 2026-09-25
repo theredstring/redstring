@@ -6,6 +6,7 @@ import TypeListHost from './TypeListHost.jsx';
 import ModalHosts from './ModalHosts.jsx';
 import SyncDebugHost from './SyncDebugHost.jsx';
 import SearchHosts from './SearchHosts.jsx';
+import UniverseHost from './UniverseHost.jsx';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { CanvasOverlaySlot } from './canvasOverlaySlot.js';
@@ -53,6 +54,8 @@ function CanvasShell() {
       </div>
       {/* TypeList and its bottom-left toggle are dropped in the landscape shell too. */}
       {!mobileLandscapeShell && <TypeListHost />}
+      {/* Before the slot: the save pill was the first overlay after TypeList. */}
+      <UniverseHost />
       <div ref={setOverlayRoot} style={slotStyle} />
       <ModalHosts />
       <SyncDebugHost />
