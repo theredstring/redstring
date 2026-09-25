@@ -429,9 +429,10 @@ This state is used across clusters and must move to a store before the clusters 
 - The avoidable ones: the press/pan flags (4 runs per click-select-click-off), the selection cascade (1 each way) and `currentPieMenuData` (5).
 - → P1.10 (pie data), P2 (selection cascade into canvasUIStore), P4.02–P4.04 (press and pan state into the gesture controller, as refs until something needs to draw).
 
-**F-78. A closed modal re-renders on every graph write (P3.01).** INFERRED from S11.
-- ModalHosts commits once per `updateGraph` on another web with every modal closed, so one of its modals (SettingsModal has 54 subscriptions; MergeThingsModal is the other candidate) subscribes to a whole store Map while closed.
-- → P5.06 / P6: mount modal content only while open, or narrow those subscriptions.
+**F-78. Every modal re-rendered on every store write (P3.01).** VERIFIED with `--explain S11`; **fixed** bda014c.
+- `CanvasModal` (the frame of help, settings, merge, reconnect and storage setup), `PanelModal` and `ConnectionBrowser` called `useGraphStore()` with no selector, which subscribes to the entire store. All five CanvasModals, open or closed, re-rendered on every write anywhere.
+- They now subscribe to the three (four) fields they read. S11: 12 commits → 2 (Header's Undo turning on).
+- `--explain` now names components rendered anywhere in the tree (ce1342e), not just under NodeCanvas.
 
 **F-77. The render-budget marquee test failed about one full run in two (P2.06b).** VERIFIED; **fixed** 3d10fbb.
 - NodeCanvas sets `isInitialLoadComplete` on a real 2 s timer after mount. The test never let it fire, so under the loaded full suite it landed in the marquee's hold window ("expected 1 to be +0").

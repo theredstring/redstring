@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: F-78 fixed (Claude, orchestrator)
+
+- `--explain` now walks the whole tree; it showed `CanvasModal×5` rendering on every S11 write. CanvasModal, PanelModal and ConnectionBrowser used selector-less `useGraphStore()`; now per-field. **S11: 12 → 2 commits; S1: 7 → 6.**
+- **Gates:** `test:ci` PASS, Playwright 55 passed.
+
+---
+
 ## 2026-09-25: P4.01 part a (Claude, orchestrator)
 
 - Judgement call: P3.05/P3.06 (label placement, edge layer) and P3.10/P3.11 (viewport store, culling) are entangled with render-order label placement, and label changes need Grant's review by the plan's own rule, so they wait for a session with him. Took safe, verifiable P4.01 work instead.
