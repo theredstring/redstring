@@ -13,6 +13,19 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Bailout sweep (Claude, orchestrator)
+
+- S5 still ran NodeCanvas 41 times for 21 renders. `--explain` now names every update behind a commit, including zustand notifies and React's own dispatches (35319ed). That showed the cause: same-value "resets" (`hoveredEdgeInfo` on every mouse move; the orbit, pie and control-panel flags in effects) queue at a lower lane behind the store's sync render, so React re-runs NodeCanvas for them and throws the result away (reports/bailout-sweep.md).
+- Fixes:
+  - skip same-value hover/orbit sets (3d1f082)
+  - `useTrackedState` for the pie and control-panel flags; `setIsPanning` skips equal values (9fc70dc)
+  - dead locals, including three unread store subscriptions (`savedGraphIds` re-rendered NodeCanvas on every bookmark) (16ae8e9)
+  - 70 unused imports
+- **NodeCanvas ran (rendered): S5 41 (21) → 21 (21), S6 17 (13) → 13 (13), S7 9 (7) → 7 (7), S4 4 → 3.** No bailouts left in those scenarios.
+- **Gates:** `test:ci` PASS, Playwright 55 passed, `lint:undef` PASS. F7 discriminates the hover guard. NodeCanvas.jsx 15,491.
+
+---
+
 ## 2026-09-25: Long-press arm ref-only (Claude, orchestrator)
 
 - `useNodeDrag`'s armed long-press instance was also React state that nothing rendered from, set and cleared on every node press (F-75): now ref-only. **S7 NC rendered 9 → 7, S6 15 → 13, S4 4 → 3.**

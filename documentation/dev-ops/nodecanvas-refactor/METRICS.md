@@ -96,6 +96,7 @@ Filled in by P0.04; details and method are in reports/P0.04.md.
 | 2026-09-25 | P2.10 | TypeList renders (chambers, 3 runs) | once per NodeCanvas render (S5 38) | 0 in S1/S4/S5/S7; total ms S5 103 → 59, S4 22 → 14, S7 43/34 → 27/25 | 4c09950 | Commits unchanged: the saving is TypeList's 35 `EdgeType`s no longer rendering with the canvas |
 | 2026-09-25 | long-press ref | S4/S6/S7 NodeCanvas rendered (chambers, 3 runs) | S4 4, S6 15, S7 9 | S4 3, S6 13, S7 7 | — | armed long-press was render-less React state |
 | 2026-09-25 | render sweep | S5/S6/S7/S4 (chambers, 3 runs) | S5 59 commits (38 NC renders), 89 ms; S6 26, 43 ms; S7 15–16; S4 22 ms | S5 **42 (21)**, 71 ms; S6 24, 40 ms; S7 14; S4 19 ms | c56074e | selection latches in render; memoized leaf components |
+| 2026-09-25 | bailout sweep | S4/S5/S6/S7 NodeCanvas ran (rendered) (chambers, profile build, 3–5 runs) | S4 4 (3), S5 41 (21), S6 17 (13), S7 9 (7) | S4 3 (3), S5 **21 (21)**, S6 13 (13), S7 7 (7) | e0abe3c | same-value sets re-ran NodeCanvas at a lower lane; useTrackedState |
 | 2026-09-25 | F-78 | S11 off-web updateGraph (chambers, 3 runs) | 12 commits (CanvasModal×5 each write) | 2 (Header's Undo) | bda014c | selector-less `useGraphStore()` in CanvasModal / PanelModal / ConnectionBrowser |
 | 2026-09-25 | P3.01 | S10b off-web thumbnails; S11 off-web updateGraph (chambers, 3 runs) | S10b 23 commits (20 NC); S11 21 commits (10 NC renders) | S10b **0**; S11 12 commits, **0** NC | 27d51a3 | graphs as a live view keyed on the active web; image cache narrowed to active-web prototypes |
 | 2026-09-25 | P2.09 | Panel renders, left / right (chambers, 3 runs; Profiler inside the memo) | S1 2/0, S4 6/2, S5 18/0, S7 2/0 | 0/0 in all four; all commits S1 9 → 7, S4 16 → 14 | 2908e9d, aa07e76 | Before: selection/hydratedNodes props, Panel's `graphs` subscription, and the hidden wizard's 3 s poll (F-76) |
@@ -130,3 +131,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | 27d51a3 | 15,732 | — | P3.01 (+14) |
 | 2026-09-25 | bf2c9b8 | 15,562 | — | P4.01a (inputTuning, clampPan) |
 | 2026-09-25 | c56074e | 15,556 | — | render sweep |
+| 2026-09-25 | e0abe3c | 15,491 | — | bailout sweep (dead code, unused imports) |
