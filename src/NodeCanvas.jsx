@@ -42,12 +42,10 @@ import { createCameraController } from './components/canvas/camera/cameraControl
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass, ENABLE_CULLING } from './components/canvas/data/culling.js';
 import { LABEL_ANGLE_QUANTUM, LABEL_ANGLE_QUANTUM_MIN_COUNT, LABEL_ANGLE_QUANTUM_ALWAYS_STYLES, CURVED_LABEL_BUDGET, EMPTY_OBSTACLES, LABEL_CROSSING_BUDGET } from './components/canvas/edges/labelBudgets.js';
-import { EMPTY_ORBIT } from './components/canvas/orbit/orbitConstants.js';
 import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
-import { placeOrbitCandidate } from './components/canvas/orbit/orbitActions.js';
 import { startHurtle, startHurtleFromPanelWith } from './components/canvas/camera/hurtle.js';
 import { convertNodeToNodeGroup } from './components/canvas/actions/nodeGroupConversion.js';
 import { computeCleanLaneOffsets } from './utils/canvas/cleanLaneOffsets.js';
@@ -67,7 +65,6 @@ import { getAppViewportSize } from './utils/appViewport.js';
 import {
   HEADER_HEIGHT,
   MAX_ZOOM,
-  PLUS_SIGN_SIZE,
   NODE_CORNER_RADIUS,
   NODE_DEFAULT_COLOR,
   CONNECTION_WIDTH_BASE_SCALE,
@@ -92,7 +89,6 @@ import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
 import { quantizeAngle } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch } from './utils/inputDeviceAnalysis';
-import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
 import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, getBottomPanelReserveWith, FOCUS_ON_SELECT_ENABLED, frameDecomposedNode, frameCarouselOnOpen, animateCanvasViewWith } from './components/canvas/camera/framing.js';
@@ -101,7 +97,7 @@ import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
 import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
 import { runConnectionEdgePan, writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
-import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect, fitOrbitInView } from './components/canvas/orbit/orbitData.js';
+import { fitOrbitInView } from './components/canvas/orbit/orbitData.js';
 import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
 import { resolveStoreActions } from './components/canvas/data/storeActions.js';
 import PromptsHost from './components/canvas/hosts/PromptsHost.jsx';
@@ -126,6 +122,7 @@ import { useControllerTargets } from './components/canvas/input/controllerTarget
 import { layoutNodesOf, layoutEdgesOf, draggedNodeIdsOf } from './components/canvas/actions/layoutSnapshot.js';
 import { usePlusSignActions } from './components/canvas/actions/plusSign.js';
 import { useEdgePieButtons, useEdgePieFraming } from './components/canvas/pie/edgePie.js';
+import { useSemanticOrbit } from './components/canvas/orbit/semanticOrbit.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -263,13 +260,6 @@ function NodeCanvas() {
       gestureBlockClearTimerRef.current = null;
     }, delay);
   }, []);
-  const [orbitData, setOrbitDataState] = useState(EMPTY_ORBIT);
-  const [orbitLoading, setOrbitLoadingState] = useState(false);
-  // What each was last set to, pending updates included, so the search
-  // effect's reset can skip a same-value set (render sweep).
-  const orbitSetRef = useRef({ data: EMPTY_ORBIT, loading: false });
-  const setOrbitData = useCallback((v) => { orbitSetRef.current.data = v; setOrbitDataState(v); }, []);
-  const setOrbitLoading = useCallback((v) => { orbitSetRef.current.loading = v; setOrbitLoadingState(v); }, []);
   const semanticOrbitActive = useCanvasUIStore(s => s.semanticOrbitActive), setSemanticOrbitActive = useCanvasUIStore(s => s.setSemanticOrbitActive);
   const semanticOrbitActiveRef = useRef(false);
   // The orbit's imperative surface, written by OrbitOverlay while it is mounted
@@ -1873,7 +1863,7 @@ function NodeCanvas() {
    * Things panel's + (via the window event below, the same route the merge
    * modal takes out of the panels), and Cmd/Ctrl+N.
    */
-  const newWebPrompt = useCanvasUIStore(s => s.newWebPrompt), setNewWebPrompt = useCanvasUIStore(s => s.setNewWebPrompt);
+  const setNewWebPrompt = useCanvasUIStore(s => s.setNewWebPrompt);
   const openNewWebPrompt = useCallback(() => setNewWebPrompt({ visible: true }), []);
 
   useEffect(() => {
@@ -1904,7 +1894,6 @@ function NodeCanvas() {
 
   // Add logging for carousel stage changes
 
-  const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing);
   const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
   // { node, buttons, nodeDimensions } is read by NodePieMenuLayer; NodeCanvas reads only the target (P5.04a).
   const currentPieMenuNodeId = useCanvasUIStore(s => s.currentPieMenuData?.node?.id ?? null);
@@ -3253,100 +3242,15 @@ function NodeCanvas() {
   // 1200 ms watchdog timer (PIE_WATCHDOG_MS) recovers the pie instead of leaving it
   // blocked until a refresh.
 
-  // Sync semanticOrbitActive ref for RAF callbacks
-  useEffect(() => {
-    semanticOrbitActiveRef.current = semanticOrbitActive;
-    // Crossing the boundary in either direction retires whatever was hovered on
-    // the other side of it. The RAF hover check no longer clears per-frame
-    // during orbit (an orbit item's hover bubbles through it), so this is the
-    // one place the canvas's own hover is dropped on the way in — and on the
-    // way out it drops the candidate, which no longer exists.
-    clearHoverImmediate();
-  }, [semanticOrbitActive, clearHoverImmediate]);
-
-  // Keep the orbit dim rect sized to the visible viewport (plus a full viewport
-  // of margin per side) instead of the whole 100000px canvas plane. A full-plane
-  // rect's transformed bounds at high zoom are enormous, which thrashes the SVG
-  // renderer's tile cache during the per-frame repaints orbit mode causes.
-  // Sized imperatively on every pan/zoom tick (canvas-transform-change fires
-  // synchronously from the transform mutators) so it never lags a gesture the
-  // way settled-state (150ms debounce) sizing did.
-  const orbitDimRectRef = useRef(null);
-  const updateOrbitDimRect = useCallback((...args) => sizeOrbitDimRect({
-    orbitDimRectRef, ENABLE_ORBIT_DIM, panOffsetRef, zoomLevelRef, viewportSizeRef, canvasSize,
-    ORBIT_DIM_MARGIN,
-  }, ...args), [canvasSize]);
-
-  // Seed the orbit layer with the current transform the moment it mounts. Pan
-  // and zoom write to it from then on, but nothing fires between mount and the
-  // next interaction, so without this the layer would start at identity and the
-  // focus node would appear at raw canvas coords until the user moved.
-  useEffect(() => {
-    if (overlayGroupEl) transform.applyTransform();
-  }, [overlayGroupEl, transform.applyTransform]);
-
-  useEffect(() => {
-    if (!semanticOrbitActive || !ENABLE_ORBIT_DIM) return;
-    updateOrbitDimRect();
-    window.addEventListener('canvas-transform-change', updateOrbitDimRect);
-    return () => window.removeEventListener('canvas-transform-change', updateOrbitDimRect);
-  }, [semanticOrbitActive, updateOrbitDimRect, ENABLE_ORBIT_DIM]);
-
-  // Fetch orbit candidates only when orbit mode is explicitly active
-  useEffect(() => fetchOrbitCandidates({
-    semanticOrbitActive, selectedInstanceIds, orbitSetRef, EMPTY_ORBIT, setOrbitData, setOrbitLoading,
-    activeGraphId,
-  }), [semanticOrbitActive, selectedInstanceIds, activeGraphId]);
-
-  // Exit orbit mode when node is deselected
-  useEffect(() => {
-    if (selectedInstanceIds.size === 0 && semanticOrbitActive) {
-      useCanvasUIStore.getState().dispatchPie({ type: 'ORBIT', active: false });
-      setOrbitData(EMPTY_ORBIT);
-    }
-  }, [selectedInstanceIds, semanticOrbitActive]);
-
-  /**
-   * An orbit candidate took (or lost) focus — from the pointer crossing it, or
-   * from the stick aiming at it. Goes through the same dwell timer every other
-   * hover does, so the preview behaves identically whichever raised it.
-   *
-   * What gets previewed is the TRIPLET the candidate would become if it were
-   * placed: focus node —predicate→ candidate, in the same payload shape the
-   * edge hit test produces, so the aid draws it with the connection recipe and
-   * knows nothing about orbit. A lone node box would only repeat what the orbit
-   * already draws; the relationship is the thing that is actually on offer.
-   */
-  const handleOrbitCandidateHover = useCallback((...args) => hoverOrbitCandidate({
-    selectedInstanceIds, nodes, commitHoverTarget, baseDimsById,
-  }, ...args), [commitHoverTarget, selectedInstanceIds, nodes, baseDimsById]);
-
-  // Exit orbit mode callback
-  const exitOrbitMode = useCallback(() => {
-    useCanvasUIStore.getState().dispatchPie({ type: 'ORBIT', active: false });
-    setOrbitData(EMPTY_ORBIT);
-    setOrbitLoading(false);
-    // Re-show control panel if nodes still selected
-    if (selectedInstanceIds.size > 0) {
-      setNodeControlPanelVisible(true);
-      setNodeControlPanelShouldShow(true);
-    }
-  }, [selectedInstanceIds]);
-
-  // Click-to-materialize: clicking an orbit item creates a real node at its position
-  /**
-   * Place a clicked orbit item into the graph, where it was.
-   *
-   * `centerX` / `centerY` are the item's CENTRE in canvas coordinates, resolved
-   * live by OrbitOverlay. Node positions are top-left, so the centring happens
-   * here, once, against the dimensions the placed node will actually have —
-   * which are not necessarily the orbit item's, since the prototype may carry a
-   * type or definitions the orbit preview did not.
-   */
-  const handleOrbitItemClick = useCallback((candidate, centerX, centerY, dims) => placeOrbitCandidate(candidate, centerX, centerY, dims, {
-    activeGraphId, exitOrbitMode, gridMode, nodePrototypesMap, selectedInstanceIds, snapToGridAnimated,
-    storeActions,
-  }), [activeGraphId, nodePrototypesMap, selectedInstanceIds, storeActions, gridMode, snapToGridAnimated, exitOrbitMode]);
+  const {
+    orbitDimRectRef, updateOrbitDimRect, exitOrbitMode, renderOrbitOverlay,
+  } = useSemanticOrbit({
+    ENABLE_ORBIT_DIM, ORBIT_DIM_MARGIN, activeGraphId, baseDimsById, canvasSize,
+    clearHoverImmediate, commitHoverTarget, gridMode, nodePrototypesMap, nodes, orbitControlRef,
+    overlayGroupEl, panOffsetRef, selectedInstanceIds, semanticOrbitActive, semanticOrbitActiveRef,
+    setNodeControlPanelShouldShow, setNodeControlPanelVisible, setOrbitFrame, snapToGridAnimated,
+    storeActions, transform, viewportSizeRef, zoomLevelRef,
+  });
 
   // --- Hurtle ---
   // The orb's flight runs in <HurtleOrb> (P1.06, F-05). NodeCanvas only
@@ -3664,26 +3568,6 @@ function NodeCanvas() {
     visibleNodeIds,
   };
 
-  // The orbit overlay around the active node while orbiting (NodeLayer places it).
-  const renderOrbitOverlay = useCallback((centerX, centerY, focusWidth, focusHeight) => (
-    <OrbitOverlay
-      centerX={centerX}
-      centerY={centerY}
-      focusWidth={focusWidth}
-      focusHeight={focusHeight}
-      ring1Candidates={orbitData.ring1 || []}
-      ring2Candidates={orbitData.ring2 || []}
-      ring3Candidates={orbitData.ring3 || []}
-      ring4Candidates={orbitData.ring4 || []}
-      onOrbitItemClick={handleOrbitItemClick}
-      onExtentChange={setOrbitFrame}
-      onCandidateHover={handleOrbitCandidateHover}
-      controlRef={orbitControlRef}
-      onExit={exitOrbitMode}
-      isLoading={orbitLoading}
-    />
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- setOrbitFrame and orbitControlRef are stable
-  ), [orbitData, orbitLoading, handleOrbitItemClick, handleOrbitCandidateHover, exitOrbitMode]);
   const nodeLayerProps = {
     nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds: groupLayouts.thingGroupMemberIds,
     draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart,
