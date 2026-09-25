@@ -7,6 +7,35 @@
  */
 import * as GeometryUtils from '../../../utils/canvas/geometryUtils.js';
 
+// Viewport culling for nodes and edges.
+//
+// Off since April (`6f25434`, bundled into a self-loop refactor, which is how it
+// escaped the suspect list for months). The reason it went off is mechanism 4 in
+// documentation/graph-layout/ZOOM_PERF_DIAGNOSIS.md: the hysteresis band is
+// screen-space, which a pan cannot cross (it translates the viewport rigidly)
+// but a zoom crosses in a single frame (it SCALES screen space about the cursor,
+// so content at radius r moves r·Δz/z px per frame). Membership churned, every
+// churn was a synchronous setState, and those mid-gesture renders were the
+// flicker. The cost of leaving it off is that every settle render is O(entire
+// graph) — 143ms with labels on — and that every count budget (curveLabels,
+// labelAngleQuantum, the crossing cutoff) is silently keyed to universe size
+// instead of to what's on screen.
+//
+// It is back on with a motion-aware commit policy — see runCulling: grow-only
+// while the view is moving, one prune when it settles, and a containment gate
+// that skips the recompute entirely until the viewport has eaten into its own
+// padding.
+//
+// `localStorage.setItem('redstring_disable_culling', 'true')` + reload turns it
+// back off without a rebuild, for A/B against a real universe.
+export const ENABLE_CULLING = (() => {
+  try {
+    return globalThis.localStorage?.getItem('redstring_disable_culling') !== 'true';
+  } catch {
+    return true;
+  }
+})();
+
 /** One culling pass (see the header). `ctx` carries NodeCanvas's refs and setters. */
 export function runCullingPass(ctx) {
   const {
