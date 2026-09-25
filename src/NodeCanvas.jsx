@@ -73,6 +73,7 @@ import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
+import { useLatestRef } from './hooks/useLatestRef.js';
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import PanelResizers from './components/canvas/PanelResizers.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
@@ -13242,6 +13243,43 @@ function NodeCanvas() {
     };
   }, [activeGraphId, nodes, baseDimsById, viewportSize, canvasSize, handleBackToCivilizationClick, MAX_ZOOM]);
 
+  // Node's memo ignores function props, so a Node that hasn't re-rendered keeps
+  // its first handlers (B-05: e.g. the context menu kept offering "Save" after a
+  // save). Its handlers read the render-scope functions through this ref, which
+  // always holds the latest commit's (P3.02).
+  const nodeScope = useLatestRef({
+    handleNodeMouseDown, touch, getContextMenuOptions, handleCommitCanvasEdit,
+    startHurtleAnimation, activeGraphId, handleNodeConvertToNodeGroup,
+  });
+  // The Node callbacks that were copied into all three Node blocks.
+  const nodeCallbacks = {
+    onCancelCanvasEdit: () => setEditingNodeIdOnCanvas(null),
+    onCreateDefinition: (prototypeId) => {
+      if (mouseMoved.current) return;
+      storeActions.createAndAssignGraphDefinition(prototypeId);
+    },
+    onAddNodeToDefinition: (prototypeId) => storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId),
+    onDeleteDefinition: (prototypeId, graphId) => storeActions.removeDefinitionFromNode(prototypeId, graphId),
+    onExpandDefinition: (instanceId, prototypeId, graphId) => {
+      if (graphId) {
+        nodeScope.current.startHurtleAnimation(instanceId, graphId, prototypeId);
+        return;
+      }
+      // No definition yet: create one, then animate into it.
+      const sourceGraphId = nodeScope.current.activeGraphId; // before it changes
+      storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
+      setTimeout(() => {
+        const ids = useGraphStore.getState().nodePrototypes.get(prototypeId)?.definitionGraphIds;
+        if (ids?.length > 0) nodeScope.current.startHurtleAnimation(instanceId, ids[ids.length - 1], prototypeId, sourceGraphId);
+      }, 50);
+    },
+    onConvertToNodeGroup: (...args) => nodeScope.current.handleNodeConvertToNodeGroup(...args),
+    onNavigateDefinition: (prototypeId, newIndex) => {
+      const contextKey = `${prototypeId}-${nodeScope.current.activeGraphId}`;
+      setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
+    },
+  };
+
   // The shell (Header, Panels, TypeList) is CanvasShell's since P2.11. The
   // screen-level overlays below the canvas still live here until their hosts
   // land (P2.06, P5); they go into the shell's slot after TypeList, so they lay
@@ -14499,57 +14537,26 @@ function NodeCanvas() {
                           descriptionAreaHeight={dimensions.descriptionAreaHeight}
                           isSelected={selectedInstanceIds.has(node.id)}
                           isDragging={false}
-                          onMouseDown={(e) => handleNodeMouseDown(node, e)}
-                          onPointerDown={(e) => touch.handleNodePointerDown(node, e)}
-                          onPointerMove={(e) => touch.handleNodePointerMove(node, e)}
-                          onPointerUp={(e) => touch.handleNodePointerUp(node, e)}
-                          onPointerCancel={(e) => touch.handleNodePointerCancel(node, e)}
-                          onTouchStart={(e) => touch.handleNodeTouchStart(node, e)}
-                          onTouchMove={(e) => touch.handleNodeTouchMove(node, e)}
-                          onTouchEnd={(e) => touch.handleNodeTouchEnd(node, e)}
+                          onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(node, e)}
+                          onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(node, e)}
+                          onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(node, e)}
+                          onPointerUp={(e) => nodeScope.current.touch.handleNodePointerUp(node, e)}
+                          onPointerCancel={(e) => nodeScope.current.touch.handleNodePointerCancel(node, e)}
+                          onTouchStart={(e) => nodeScope.current.touch.handleNodeTouchStart(node, e)}
+                          onTouchMove={(e) => nodeScope.current.touch.handleNodeTouchMove(node, e)}
+                          onTouchEnd={(e) => nodeScope.current.touch.handleNodeTouchEnd(node, e)}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            showContextMenu(e.clientX, e.clientY, getContextMenuOptions(node.id));
+                            showContextMenu(e.clientX, e.clientY, nodeScope.current.getContextMenuOptions(node.id));
                           }}
                           isPreviewing={isPreviewing}
                           isEditingOnCanvas={node.id === editingNodeIdOnCanvas}
                           onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
-                            handleCommitCanvasEdit(node.prototypeId, newName, isRealTime, isAbort)}
-                          onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
-                          onCreateDefinition={(prototypeId) => {
-                            if (mouseMoved.current) return;
-                            storeActions.createAndAssignGraphDefinition(prototypeId);
-                          }}
-                          onAddNodeToDefinition={(prototypeId) => {
-                            storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                          }}
-                          onDeleteDefinition={(prototypeId, graphId) => {
-                            storeActions.removeDefinitionFromNode(prototypeId, graphId);
-                          }}
-                          onExpandDefinition={(instanceId, prototypeId, graphId) => {
-                            if (graphId) {
-                              startHurtleAnimation(instanceId, graphId, prototypeId);
-                            } else {
-                              const sourceGraphId = activeGraphId;
-                              storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                              setTimeout(() => {
-                                const currentState = useGraphStore.getState();
-                                const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                                if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                                  const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                                  startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                                }
-                              }, 50);
-                            }
-                          }}
-                          onConvertToNodeGroup={handleNodeConvertToNodeGroup}
+                            nodeScope.current.handleCommitCanvasEdit(node.prototypeId, newName, isRealTime, isAbort)}
+                          {...nodeCallbacks}
                           storeActions={storeActions}
                           currentDefinitionIndex={nodeDefinitionIndices.get(`${node.prototypeId}-${activeGraphId}`) || 0}
-                          onNavigateDefinition={(prototypeId, newIndex) => {
-                            const contextKey = `${prototypeId}-${activeGraphId}`;
-                            setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
-                          }}
                         />
                       );
                     };
@@ -14909,65 +14916,26 @@ function NodeCanvas() {
                                   descriptionAreaHeight={dimensions.descriptionAreaHeight}
                                   isSelected={selectedInstanceIds.has(activeNodeToRender.id)}
                                   isDragging={false} // Explicitly not the dragging node if rendered here
-                                  onMouseDown={(e) => handleNodeMouseDown(activeNodeToRender, e)}
-                                  onPointerDown={(e) => touch.handleNodePointerDown(activeNodeToRender, e)}
-                                  onPointerMove={(e) => touch.handleNodePointerMove(activeNodeToRender, e)}
-                                  onPointerUp={(e) => touch.handleNodePointerUp(activeNodeToRender, e)}
-                                  onPointerCancel={(e) => touch.handleNodePointerCancel(activeNodeToRender, e)}
-                                  onTouchStart={(e) => touch.handleNodeTouchStart(activeNodeToRender, e)}
-                                  onTouchMove={(e) => touch.handleNodeTouchMove(activeNodeToRender, e)}
-                                  onTouchEnd={(e) => touch.handleNodeTouchEnd(activeNodeToRender, e)}
+                                  onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(activeNodeToRender, e)}
+                                  onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(activeNodeToRender, e)}
+                                  onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(activeNodeToRender, e)}
+                                  onPointerUp={(e) => nodeScope.current.touch.handleNodePointerUp(activeNodeToRender, e)}
+                                  onPointerCancel={(e) => nodeScope.current.touch.handleNodePointerCancel(activeNodeToRender, e)}
+                                  onTouchStart={(e) => nodeScope.current.touch.handleNodeTouchStart(activeNodeToRender, e)}
+                                  onTouchMove={(e) => nodeScope.current.touch.handleNodeTouchMove(activeNodeToRender, e)}
+                                  onTouchEnd={(e) => nodeScope.current.touch.handleNodeTouchEnd(activeNodeToRender, e)}
                                   onContextMenu={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    showContextMenu(e.clientX, e.clientY, getContextMenuOptions(activeNodeToRender.id));
+                                    showContextMenu(e.clientX, e.clientY, nodeScope.current.getContextMenuOptions(activeNodeToRender.id));
                                   }}
                                   isPreviewing={isPreviewing}
                                   isEditingOnCanvas={activeNodeToRender.id === editingNodeIdOnCanvas}
                                   onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
-                            handleCommitCanvasEdit(activeNodeToRender.prototypeId, newName, isRealTime, isAbort)}
-                                  onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
-                                  onCreateDefinition={(prototypeId) => {
-                                    if (mouseMoved.current) return;
-                                    storeActions.createAndAssignGraphDefinition(prototypeId);
-                                  }}
-                                  onAddNodeToDefinition={(prototypeId) => {
-                                    // Create a new alternative definition for the node without activating/opening it
-                                    storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                                  }}
-                                  onDeleteDefinition={(prototypeId, graphId) => {
-                                    // Delete the specific definition graph from the node
-                                    storeActions.removeDefinitionFromNode(prototypeId, graphId);
-                                  }}
-                                  onExpandDefinition={(instanceId, prototypeId, graphId) => {
-                                    if (graphId) {
-                                      // Node has an existing definition to expand
-                                      startHurtleAnimation(instanceId, graphId, prototypeId);
-                                    } else {
-                                      // Node has no definitions - create one, then animate
-                                      const sourceGraphId = activeGraphId; // Capture current graph before it changes
-                                      storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-
-                                      setTimeout(() => {
-                                        const currentState = useGraphStore.getState();
-                                        const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                                        if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                                          const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                                          startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                                        } else {
-
-                                        }
-                                      }, 50);
-                                    }
-                                  }}
-                                  onConvertToNodeGroup={handleNodeConvertToNodeGroup}
+                            nodeScope.current.handleCommitCanvasEdit(activeNodeToRender.prototypeId, newName, isRealTime, isAbort)}
+                                  {...nodeCallbacks}
                                   storeActions={storeActions}
                                   currentDefinitionIndex={nodeDefinitionIndices.get(`${activeNodeToRender.prototypeId}-${activeGraphId}`) || 0}
-                                  onNavigateDefinition={(prototypeId, newIndex) => {
-                                    const contextKey = `${prototypeId}-${activeGraphId}`;
-                                    setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
-                                  }}
-
                                 />
                               </>
                             );
@@ -15006,65 +14974,26 @@ function NodeCanvas() {
                                 descriptionAreaHeight={dimensions.descriptionAreaHeight}
                                 isSelected={selectedInstanceIds.has(draggingNodeToRender.id)}
                                 isDragging={true} // This is the dragging node
-                                onMouseDown={(e) => handleNodeMouseDown(draggingNodeToRender, e)}
-                                onPointerDown={(e) => touch.handleNodePointerDown(draggingNodeToRender, e)}
-                                onPointerMove={(e) => touch.handleNodePointerMove(draggingNodeToRender, e)}
-                                onPointerUp={(e) => touch.handleNodePointerUp(draggingNodeToRender, e)}
-                                onPointerCancel={(e) => touch.handleNodePointerCancel(draggingNodeToRender, e)}
-                                onTouchStart={(e) => touch.handleNodeTouchStart(draggingNodeToRender, e)}
-                                onTouchMove={(e) => touch.handleNodeTouchMove(draggingNodeToRender, e)}
-                                onTouchEnd={(e) => touch.handleNodeTouchEnd(draggingNodeToRender, e)}
+                                onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(draggingNodeToRender, e)}
+                                onPointerDown={(e) => nodeScope.current.touch.handleNodePointerDown(draggingNodeToRender, e)}
+                                onPointerMove={(e) => nodeScope.current.touch.handleNodePointerMove(draggingNodeToRender, e)}
+                                onPointerUp={(e) => nodeScope.current.touch.handleNodePointerUp(draggingNodeToRender, e)}
+                                onPointerCancel={(e) => nodeScope.current.touch.handleNodePointerCancel(draggingNodeToRender, e)}
+                                onTouchStart={(e) => nodeScope.current.touch.handleNodeTouchStart(draggingNodeToRender, e)}
+                                onTouchMove={(e) => nodeScope.current.touch.handleNodeTouchMove(draggingNodeToRender, e)}
+                                onTouchEnd={(e) => nodeScope.current.touch.handleNodeTouchEnd(draggingNodeToRender, e)}
                                 onContextMenu={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  showContextMenu(e.clientX, e.clientY, getContextMenuOptions(draggingNodeToRender.id));
+                                  showContextMenu(e.clientX, e.clientY, nodeScope.current.getContextMenuOptions(draggingNodeToRender.id));
                                 }}
                                 isPreviewing={isPreviewing}
                                 isEditingOnCanvas={draggingNodeToRender.id === editingNodeIdOnCanvas}
                                 onCommitCanvasEdit={(instanceId, newName, isRealTime = false, isAbort = false) =>
-                            handleCommitCanvasEdit(draggingNodeToRender.prototypeId, newName, isRealTime, isAbort)}
-                                onCancelCanvasEdit={() => setEditingNodeIdOnCanvas(null)}
-                                onCreateDefinition={(prototypeId) => {
-                                  if (mouseMoved.current) return;
-                                  storeActions.createAndAssignGraphDefinition(prototypeId);
-                                }}
-                                onAddNodeToDefinition={(prototypeId) => {
-                                  // Create a new alternative definition for the node without activating/opening it
-                                  storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-                                }}
-                                onDeleteDefinition={(prototypeId, graphId) => {
-                                  // Delete the specific definition graph from the node
-                                  storeActions.removeDefinitionFromNode(prototypeId, graphId);
-                                }}
-                                onExpandDefinition={(instanceId, prototypeId, graphId) => {
-                                  if (graphId) {
-                                    // Node has an existing definition to expand
-                                    startHurtleAnimation(instanceId, graphId, prototypeId);
-                                  } else {
-                                    // Node has no definitions - create one, then animate
-                                    const sourceGraphId = activeGraphId; // Capture current graph before it changes
-                                    storeActions.createAndAssignGraphDefinitionWithoutActivation(prototypeId);
-
-                                    setTimeout(() => {
-                                      const currentState = useGraphStore.getState();
-                                      const updatedNodeData = currentState.nodePrototypes.get(prototypeId);
-                                      if (updatedNodeData?.definitionGraphIds?.length > 0) {
-                                        const newGraphId = updatedNodeData.definitionGraphIds[updatedNodeData.definitionGraphIds.length - 1];
-                                        startHurtleAnimation(instanceId, newGraphId, prototypeId, sourceGraphId);
-                                      } else {
-
-                                      }
-                                    }, 50);
-                                  }
-                                }}
-                                onConvertToNodeGroup={handleNodeConvertToNodeGroup}
+                            nodeScope.current.handleCommitCanvasEdit(draggingNodeToRender.prototypeId, newName, isRealTime, isAbort)}
+                                {...nodeCallbacks}
                                 storeActions={storeActions}
                                 currentDefinitionIndex={nodeDefinitionIndices.get(`${draggingNodeToRender.prototypeId}-${activeGraphId}`) || 0}
-                                onNavigateDefinition={(prototypeId, newIndex) => {
-                                  const contextKey = `${prototypeId}-${activeGraphId}`;
-                                  setNodeDefinitionIndices(prev => { const next = new Map(prev); next.set(contextKey, newIndex); return next; });
-                                }}
-
                               />
                             );
                           })()
