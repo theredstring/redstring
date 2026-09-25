@@ -15,6 +15,9 @@
 //     attribute is unchanged. Use clickCenter() (a mouse click at the box
 //     centre) instead. The `test` exported here fails any flow that leaves
 //     .canvas-area scrolled, whether a test or the app caused it.
+//   - It also fails any flow during which the page threw an uncaught error. A
+//     handler that throws usually still leaves enough of the flow working to
+//     pass, so without this such errors go unnoticed (P4.02 found one this way).
 import { test as base, expect } from '@playwright/test';
 import { existsSync } from 'node:fs';
 
@@ -22,12 +25,15 @@ export { expect };
 
 export const test = base.extend({
   page: async ({ page }, use) => {
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(`${e.message}\n${(e.stack || '').split('\n').slice(1, 4).join('\n')}`));
     await use(page);
     const scroll = await page.evaluate(() => {
       const c = document.querySelector('.canvas-area');
       return c ? [c.scrollLeft, c.scrollTop] : [0, 0];
     }).catch(() => [0, 0]);
     expect(scroll, '.canvas-area was scrolled; the canvas must only move through its camera').toEqual([0, 0]);
+    expect(pageErrors, 'uncaught errors in the page').toEqual([]);
   },
 });
 

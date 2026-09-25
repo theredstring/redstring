@@ -55,6 +55,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
   - F2, F3, F7 and F10 pass.
 
 ### P4.02: `CameraController`
+- **Status:** part a done (wave 6): `components/canvas/camera/cameraController.js`, `createCameraController(ctxRef)`. It owns the pan and zoom momentum refs, view-motion sampling, trackpad zoom smoothing and glide, the wheel-burst rect cache, `handleWheel`, the wheel guard and the Safari gesture listeners, all moved verbatim; NodeCanvas creates it once and keeps name-for-name aliases. Its context (31 live values) is assigned during render, so effects in the same commit see that render's values as the old closures did. Unit tests (`test/components/cameraController.test.js`) include one that reads NodeCanvas's source and checks every name it takes from the camera exists (a missing one broke node clicks during the move; see F-81). All 60 flows pass; S1/S2/S3 unchanged (3 / 2 / 2 NodeCanvas runs). Open: one camera write path (clampPan shapes, zoomAboutAnchor), middle-mouse zoom, view restore on graph switch, and `isPanningOrZooming` as camera state (it is still NodeCanvas's ref, passed in).
 - **Lane:** B, then A · **Size:** L (about 1,050 lines)
 - **Findings:** F-43, F-45, F-46
 - **Change:** A plain JS class in `src/utils/canvas/input/CameraController.js`, plus a thin `useCameraController` hook.
