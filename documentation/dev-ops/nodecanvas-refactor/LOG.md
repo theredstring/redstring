@@ -13,6 +13,15 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P5.04a, carousel frames skip NodeCanvas (Claude, orchestrator)
+
+- F-06's per-frame half: the carousel's scale and size reports are refs, and a size report rebuilds the pie data directly. `NodePieMenuLayer` reads `currentPieMenuData`, so NodeCanvas subscribes only to the target id (reports/P5.04a.md).
+- **S12 NodeCanvas 148 (147) → 18 (17), 353 → 127 ms.** S6 13 → 12.
+- **Behaviour note for Grant:** the pie now tracks the focused node's size in the same frame instead of one render later.
+- New flow F29 (pie follows the carousel), mutation-checked. **Gates:** `test:ci` PASS, Playwright 56 passed, build passes.
+
+---
+
 ## 2026-09-25: P4.01b (Claude, orchestrator)
 
 - `clientToCanvas` replaces 17 inline conversions (bit-identical arithmetic). The edge hit test (`findNearestEdgeAtCanvasPoint`, `edgeHitThreshold`) and the canvas-space hit tests (`selectionInRect`, `groupTitleAtCanvasPoint`, `groupDragOffsets`) move verbatim into `utils/canvas/edgeHitTest.js` and `canvasHitTest.js`, with 20 new unit tests (reports/P4.01b.md).

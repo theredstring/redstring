@@ -71,6 +71,7 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
 - **Accept:** While a menu is open, an unrelated NodeCanvas render does not touch PieMenu.
 
 ### P5.04: Carousel host
+- **Status:** part a done (reports/P5.04a.md): per-frame scale/size are refs, the pie data rebuilds directly, and `NodePieMenuLayer` reads it; S12 NodeCanvas 148 → 18. Open: the host itself (physics, dimension handlers, `AbstractionControlPanel`), after P5.02a.
 - **Lane:** A + B · **Size:** L
 - **Findings:** F-06
 - **Change:**

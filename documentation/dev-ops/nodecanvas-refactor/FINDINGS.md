@@ -46,7 +46,7 @@ Sources: five parallel read-only analyses on 2026-09-23 (re-render triggers, ren
 **F-06. Carousel physics drives NodeCanvas state every frame.** VERIFIED; **measured (P0.04): S12 (open, 3 steps, close) is about 200 commits and 155 NodeCanvas renders: `currentPieMenuData` ×69, `carouselFocusedNodeScale` ×53, `carouselFocusedNodeDimensions` ×13.** The worst scenario measured.
 - `AbstractionCarousel.jsx` (~745–791) sets `carouselFocusedNodeDimensions`, `Scale` and `Node` in NodeCanvas state every physics frame.
 - The pie-data effect then cascades on top of that.
-- → P5.04
+- → P5.04. **Per-frame part fixed** 5f6a10a (P5.04a): S12 NodeCanvas 148 → 18 runs.
 
 **F-07. Whole-collection subscriptions re-render NodeCanvas on writes anywhere in the universe.** VERIFIED. **→ partly: no-op guards landed in P1.09 (2aaa2cf, 4f97ba0); whole-collection subscriptions remain until P3.01**
 - **Measured (P0.04):** each write costs one NodeCanvas render plus one render bailout (the body runs a second time and is discarded):
