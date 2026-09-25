@@ -6,7 +6,7 @@
 // "closed by click-away" ref that once made it different is dead).
 import { test, expect } from './helpers.js';
 import { scenarios } from './lifecycleScenarios.js';
-import { expectInOrder, findIndex, summarize } from './lifecycleTrace.js';
+import { expectInOrder, findIndex, summarize, traceViews } from './lifecycleTrace.js';
 
 const steady = (n) => (s) => s.pies.length === 1 && s.pies[0] === `visible-steady x${n}`;
 
@@ -41,7 +41,10 @@ test('F35 a mouse click on empty canvas closes the carousel the same way (NEW-1)
   // baseline). If click-away is ever made to leave the pie closed (A-6), this
   // is the assertion to change.
   const { all: escape } = await scenarios.F35_escape(page);
-  expect(clickAway).toEqual(escape);
+  // Compared view by view: a control panel renders from its own host and can land
+  // a commit apart from the pie (P5.05a), so whole snapshots can interleave
+  // differently while every part goes through the same states in the same order.
+  expect(traceViews(clickAway)).toEqual(traceViews(escape));
 });
 
 test('F35 with the node control panel on, the panels swap by cutting each other (§4.7)', async ({ page }) => {

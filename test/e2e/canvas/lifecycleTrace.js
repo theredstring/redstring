@@ -277,3 +277,32 @@ export function summarize(trace) {
       + `sel=[${s.selection}] pies=[${s.pies || ''}] ${panels} g=${s.activeGraphId}`;
   }).join('\n');
 }
+
+// The DOM facts in a snapshot; every other key is store state.
+const DOM_KEYS = new Set(['panels', 'pies', 'carouselLevels', 'carouselFocus']);
+
+/**
+ * A trace split into views, each with consecutive duplicates collapsed: the
+ * store fields, the DOM facts other than the panels, and the panels on their
+ * own (P5.05a). A control panel renders from its host's own subscription, so it
+ * can mount or unmount one commit apart from the pie; comparing views rather
+ * than whole snapshots asks whether each part went through the same states in
+ * the same order, which is the claim a flow means to make.
+ */
+export function traceViews(trace) {
+  const collapse = (pick) => {
+    const out = [];
+    for (const s of trace) {
+      const v = JSON.stringify(pick(s));
+      if (out[out.length - 1] !== v) out.push(v);
+    }
+    return out;
+  };
+  const pickKeys = (s, keep) => Object.fromEntries(Object.keys(s).sort().filter(keep).map((k) => [k, s[k]]));
+  return {
+    store: collapse((s) => pickKeys(s, (k) => !DOM_KEYS.has(k))),
+    dom: collapse((s) => pickKeys(s, (k) => DOM_KEYS.has(k) && k !== 'panels')),
+    panels: collapse((s) => s.panels),
+  };
+}
+
