@@ -435,7 +435,7 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
   // Compare all props except those that might have unstable references
   const keysToCompare = [
     'isExpanded', 'side', 'activeGraphId', 'graphName', 'graphDescription',
-    'leftPanelExpanded', 'rightPanelExpanded', 'initialViewActive'
+    'leftPanelExpanded', 'rightPanelExpanded'
   ];
 
   for (const key of keysToCompare) {
@@ -483,7 +483,6 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
  * @property {Set<string>} [selectedInstanceIds] - Instance IDs of nodes currently selected on the canvas.
  * @property {Array<Object>} [hydratedNodes] - Hydrated node objects (prototype + instance merged) for the active graph.
  * @property {boolean} [rightPanelExpanded=true] - Whether the right panel is currently open.
- * @property {boolean} initialViewActive - True when the canvas is showing the initial empty-state view.
  */
 
 /**
@@ -516,7 +515,6 @@ const Panel = memo(forwardRef(
     selectedInstanceIds = new Set(), // Add selected node instances from canvas
     hydratedNodes = [], // Add hydrated nodes from canvas
     rightPanelExpanded = true,
-    initialViewActive,
   }, ref) => {
     // From the UI store, not a prop: the memo comparator ignored the prop, so the
     // panel could show a stale definition (B-08, P2.03).
@@ -897,21 +895,19 @@ const Panel = memo(forwardRef(
     }, []);
 
     // Left panel view state and collapsed sections
+    // Views are requested through canvasUIStore.openLeftPanelView (P2.05). Each
+    // request carries a nonce, so asking again for the same view still switches.
+    const leftPanelViewRequest = useCanvasUIStore(s => (side === 'left' ? s.leftPanelViewRequest : null));
     const [leftViewActive, setLeftViewActive] = useState(
-      side === 'left' && initialViewActive
-        ? initialViewActive
-        : 'library'
+      () => (side === 'left' && useCanvasUIStore.getState().leftPanelViewRequest?.view) || 'library'
     ); // 'library', 'all', 'grid', 'federation', 'semantic', 'history', or 'ai'
 
     // A pending "show me this universe's versions" request from Universes.
     const [gitHistoryRequest, setGitHistoryRequest] = useState(null);
 
-    // Allow external control of view when prop changes
     useEffect(() => {
-      if (side === 'left' && initialViewActive && initialViewActive !== leftViewActive) {
-        setLeftViewActive(initialViewActive);
-      }
-    }, [initialViewActive, side]);
+      if (leftPanelViewRequest) setLeftViewActive(leftPanelViewRequest.view);
+    }, [leftPanelViewRequest]);
     // Apply consistent gap spacing across all views to prevent TypeList overlap
     const [sectionCollapsed, setSectionCollapsed] = useState({});
     const [sectionMaxHeights, setSectionMaxHeights] = useState({});
@@ -1306,11 +1302,6 @@ const Panel = memo(forwardRef(
 
     useImperativeHandle(ref, () => ({
       openNodeTab,
-      setActiveView: (viewName) => {
-        if (side === 'left') {
-          setLeftViewActive(viewName);
-        }
-      }
     }));
 
     // --- Resize Handlers (Reordered definitions) ---
