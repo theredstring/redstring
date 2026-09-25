@@ -116,9 +116,14 @@ for (const scenario of SCENARIOS) {
           }));
           if (EXPLAIN) writeFileSync(path.join(EXPLAIN, `${id}.txt`), formatCommitLog(id, r, r.log));
 
+          // Commits per host Profiler (Header since P2.08; the Panels, TypeList
+          // and other hosts as they leave NodeCanvas).
+          const hosts = Object.fromEntries(Object.entries(r.byId || {})
+            .filter(([pid]) => pid !== 'NodeCanvas')
+            .map(([pid, e]) => [pid, e.commits]));
           const row = {
             id, run, fixture: fx.fixture, instances: fx.instances,
-            commits: r.commits, ncRan: r.ncRan, ncRendered: r.ncRendered, totalMs: r.totalMs, maxMs: r.maxMs, wallMs: r.wallMs, ...extra,
+            commits: r.commits, ncRan: r.ncRan, ncRendered: r.ncRendered, totalMs: r.totalMs, maxMs: r.maxMs, wallMs: r.wallMs, hosts, ...extra,
           };
           console.log(`[perf] ${JSON.stringify(row)}`);
           if (OUT) appendFileSync(OUT, `${JSON.stringify(row)}\n`);
