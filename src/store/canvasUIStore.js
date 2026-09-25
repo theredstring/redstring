@@ -194,6 +194,10 @@ export function createCanvasUIDefaults() {
     // { progress: 0..1, nodeCount, estimatedMs }. Written by useGraphLayout,
     // read by the progress indicator in ForceSimHost.
     layoutProgress: null,
+    // Shrink ghosts for just-deleted nodes (P2.07): { id, x, y, width, height,
+    // rx, color, delay }. DeletionGhostLayer renders them and removes each one
+    // when its animation ends, so cleanup never renders the canvas.
+    deletionGhosts: [],
     autoGraphModalVisible: false,
     forceSimModalVisible: false,
 
@@ -351,6 +355,18 @@ const useCanvasUIStore = create((set) => ({
    * Panel switches on each one (F18).
    * @param {string} view e.g. 'federation', 'ai'
    */
+  /** Add shrink ghosts for nodes being deleted (P2.07). */
+  addDeletionGhosts: (ghosts) => {
+    if (!ghosts?.length) return;
+    set((state) => ({ deletionGhosts: [...state.deletionGhosts, ...ghosts] }));
+  },
+  /** Drop one ghost once its animation has ended. */
+  removeDeletionGhost: (id) => set((state) => (
+    state.deletionGhosts.some((g) => g.id === id)
+      ? { deletionGhosts: state.deletionGhosts.filter((g) => g.id !== id) }
+      : state
+  )),
+
   openLeftPanelView: (view) => set((state) => ({
     leftPanelViewRequest: { view, nonce: (state.leftPanelViewRequest?.nonce ?? 0) + 1 },
   })),
