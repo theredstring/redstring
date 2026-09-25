@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
 import { X } from 'lucide-react';
-import Header from './Header.jsx';
+import HeaderHost from './components/canvas/hosts/HeaderHost.jsx';
 import DebugOverlay from './DebugOverlay.jsx';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
@@ -81,6 +81,7 @@ import useGraphStore, {
 } from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
+import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
   buildWizardConnectionPrompt,
@@ -1510,7 +1511,6 @@ function NodeCanvas() {
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const savedGraphIds = useGraphStore(state => state.savedGraphIds);
-  const openGraphIds = useGraphStore(state => state.openGraphIds);
   const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
   const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
   const universeLoadingError = useGraphStore(state => state.universeLoadingError);
@@ -1730,70 +1730,6 @@ function NodeCanvas() {
     }
   }, [activeGraphId, graphsMap, nodePrototypesMap, storeActions]);
 
-  const headerGraphs = useMemo(() => {
-    // Dedupe defensively: tabs are keyed by graph.id in Header, so a repeated
-    // entry produces two children with the same key. The store heals duplicates
-    // on load, but this keeps rendering correct for any transient state too.
-    const seen = new Set();
-    return openGraphIds.filter(graphId => {
-      if (seen.has(graphId)) return false;
-      seen.add(graphId);
-      return true;
-    }).map(graphId => {
-      const graph = graphsMap.get(graphId);
-      if (!graph) return null;
-
-      const definingNodeId = graph.definingNodeIds?.[0];
-      const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
-
-      // Skip graphs that don't have a valid defining node prototype
-      if (!definingNodeId || !definingNode) {
-
-        return null;
-      }
-
-      // Ensure color is a string
-      let nodeColor = NODE_DEFAULT_COLOR || '#800000'; // Default fallback
-      if (definingNode?.color) {
-        if (typeof definingNode.color === 'string') {
-          nodeColor = definingNode.color;
-        } else if (typeof definingNode.color === 'object' && definingNode.color.hex) {
-          // Handle case where color is an object with hex property
-          nodeColor = definingNode.color.hex;
-        } else if (typeof definingNode.color === 'object' && definingNode.color.toString) {
-          // Try to convert object to string
-          nodeColor = definingNode.color.toString();
-        }
-      }
-
-      return {
-        id: graph.id,
-        name: graph.name || 'New Thing',
-        color: nodeColor,
-        isActive: graph.id === activeGraphId,
-        definingNodeId,
-      };
-    }).filter(Boolean);
-  }, [openGraphIds, activeGraphId, graphsMap, nodePrototypesMap]);
-
-  // Debug logging for headerGraphs validation
-  useEffect(() => {
-    if (headerGraphs.length > 0) {
-      const invalidGraphs = headerGraphs.filter(graph => {
-        if (!graph.definingNodeId) return true;
-        return !nodePrototypesMap.has(graph.definingNodeId);
-      });
-
-      if (invalidGraphs.length > 0) {
-
-
-
-        // Clean up orphaned graphs
-        cleanupOrphanedGraphs();
-      }
-    }
-  }, [headerGraphs, nodePrototypesMap, cleanupOrphanedGraphs]);
-
   // 
 
   // <<< Universe File Loading >>>
@@ -1852,40 +1788,9 @@ function NodeCanvas() {
     cleanupOrphanedGraphs();
   }, [cleanupOrphanedGraphs, nodePrototypesMap]);
 
-  // View option: allow browser-level trackpad pinch zoom when enabled
-  const [trackpadZoomEnabled, setTrackpadZoomEnabled] = useState(false);
+  // View option: allow browser-level trackpad pinch zoom (toggled from Header).
+  const trackpadZoomEnabled = useCanvasUIStore(s => s.trackpadZoomEnabled);
 
-  // View option: fullscreen mode
-  const [isFullscreen, setIsFullscreen] = useState(false);
-
-  // Fullscreen toggle function
-  const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        // Enter fullscreen
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-      } else {
-        // Exit fullscreen
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    } catch (error) {
-      console.error('Fullscreen toggle failed:', error);
-    }
-  };
-
-  // Listen for fullscreen changes
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-    };
-  }, []);
 
   // <<< Prevent Page Zoom >>>
   useEffect(() => {
@@ -1953,13 +1858,6 @@ function NodeCanvas() {
       document.removeEventListener('gestureend', preventGestureZoom, { capture: true });
     };
   }, [trackpadZoomEnabled]);
-
-  // <<< Initial Graph Creation Logic (Revised) >>>
-  useEffect(() => {
-    // Only run after universe has been loaded and we have a universe file
-    if (!isUniverseLoaded || !hasUniverseFile) return;
-    // Intentionally do nothing here. We no longer auto-create a default graph.
-  }, [graphsMap, activeGraphId, openGraphIds, isUniverseLoaded, hasUniverseFile]);
 
   // Raw per-graph collections, read straight off the active graph rather than through
   // a memo over `graphsMap` (which Immer replaces on every write in the universe).
@@ -8194,30 +8092,6 @@ function NodeCanvas() {
     setAbstractionControlPanelShouldShow(false);
   }, []);
 
-  // --- Saved Graphs Management ---
-  const bookmarkActive = useMemo(() => {
-    // Check if the current graph's defining node is saved
-    if (!activeGraphId) return false;
-    const activeGraph = graphsMap.get(activeGraphId);
-    const definingNodeId = activeGraph?.definingNodeIds?.[0];
-    const isActive = definingNodeId ? savedNodeIds.has(definingNodeId) : false;
-    //
-    return isActive;
-  }, [activeGraphId, graphsMap, savedNodeIds]);
-
-  const handleToggleBookmark = useCallback(() => {
-    // Get current state for logging
-    const currentState = useGraphStore.getState();
-
-
-    if (currentState.activeGraphId) {
-      // Toggle the current graph
-
-      storeActions.toggleSavedGraph(currentState.activeGraphId);
-    } else {
-
-    }
-  }, [storeActions]); // Dependency only on storeActions as we read fresh state inside
   // --- Refs (Keep these) ---
 
   const [, drop] = useDrop(() => ({
@@ -12809,7 +12683,6 @@ function NodeCanvas() {
     gamepadActive,
     gamepadMode,
     pieFocusedIndex: gamepadPieFocusedIndex,
-    headerFocusedGraphId: gamepadHeaderFocusedGraphId,
   } = useGamepad({
     containerRef,
     viewportBoundsRef,
@@ -12926,14 +12799,6 @@ function NodeCanvas() {
     }
     if (!isRealTime) setEditingNodeIdOnCanvas(null);
   }, [storeActions]);
-
-  const handleProjectTitleChange = (newTitle) => {
-    // Get CURRENT activeGraphId directly from store
-    const currentActiveId = useGraphStore.getState().activeGraphId;
-    if (currentActiveId && newTitle && newTitle.trim()) {
-      storeActions.updateGraph(currentActiveId, draft => { draft.name = newTitle; });
-    }
-  };
 
   const handleProjectBioChange = (newBio) => {
     // Get CURRENT activeGraphId directly from store
@@ -14101,26 +13966,14 @@ function NodeCanvas() {
     snapActiveGraphToGrid();
   }, [activeGraphId, snapActiveGraphToGrid]);
 
-  // The Redstring menu's six export items, which used to be six near-identical
-  // inline handlers here — each re-deriving the basename and repeating the
-  // blob-anchor-click.
-  //
-  // The active store IS the right state for these: the menu means "the universe
-  // I'm looking at". That is NOT true of the universe panel's export, which is
-  // opened on a save slot and must read that slot instead. Both go through
-  // formats/exportUniverse.js, which takes the state as a parameter and has no
-  // fallback to the store — so the difference between the two callers is stated
-  // at the call site rather than hidden in a default.
-  const runActiveExport = useCallback(async (formatId) => {
-    try {
-      const { exportUniverseAs } = await import('./formats/exportUniverse.js');
-      const { default: universeBackend } = await import('./services/universeBackend.js');
-      const universeName = universeBackend.getActiveUniverse?.()?.name;
-      await exportUniverseAs(formatId, useGraphStore.getState(), universeName);
-    } catch (error) {
-      alert(`Failed to export: ${error.message}`);
-    }
-  }, []);
+  // What Header asks the canvas to do (P2.08). Callers go through
+  // runCanvasCommand(name) rather than props, so they don't render with us.
+  useCanvasCommands({
+    autoLayout: triggerAutoLayout,
+    condense: condenseGraphNodes,
+    // Interim: the header's hover chip, until the hover slice (P2.13).
+    actionHover: handlePieMenuHoverChange,
+  });
 
   // Context Menu options for canvas background.
   // clientX/clientY are the right-click screen coords (used to place a paste).
@@ -14979,227 +14832,7 @@ function NodeCanvas() {
 
       {/* Header (and with it the Redstring button and its menu) is dropped in
           the fullscreen landscape shell — see useMobileLandscapeShell.js. */}
-      {!mobileLandscapeShell && (
-      <Header
-        onTitleChange={handleProjectTitleChange}
-        onEditingStateChange={setIsHeaderEditing}
-        headerGraphs={headerGraphs}
-        onSetActiveGraph={storeActions.setActiveGraph}
-        gamepadFocusedGraphId={gamepadHeaderFocusedGraphId}
-        onCreateNewThing={openNewWebPrompt}
-        onOpenComponentSearch={() => setHeaderSearchVisible(true)}
-        onOpenAllThingsSearch={() => setHeaderAllThingsSearchVisible(true)}
-        onActionHoverChange={handlePieMenuHoverChange}
-        isExclusivePanelMode={shouldPanelsBeExclusive}
-        // Receive debug props
-        trackpadZoomEnabled={trackpadZoomEnabled}
-        onToggleTrackpadZoom={() => setTrackpadZoomEnabled(prev => !prev)}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={toggleFullscreen}
-        bookmarkActive={bookmarkActive}
-        onBookmarkToggle={handleToggleBookmark}
-        showConnectionNames={showConnectionNames}
-        onToggleShowConnectionNames={storeActions.toggleShowConnectionNames}
-        darkMode={darkMode}
-        onToggleDarkMode={storeActions.toggleDarkMode}
-        enableAutoRouting={enableAutoRouting}
-        routingStyle={routingStyle}
-        manhattanBends={manhattanBends}
-        onToggleEnableAutoRouting={storeActions.toggleEnableAutoRouting}
-        onSetRoutingStyle={storeActions.setRoutingStyle}
-        onSetManhattanBends={storeActions.setManhattanBends}
-
-        // Grid controls
-        gridMode={gridMode}
-        onSetGridMode={(m) => useGraphStore.getState().setGridMode(m)}
-        gridSize={gridSize}
-        onSetGridSize={(v) => useGraphStore.getState().setGridSize(v)}
-        gridAppearance={gridAppearance}
-        onSetGridAppearance={(a) => useGraphStore.getState().setGridAppearance(a)}
-
-        // Drag zoom controls
-        dragZoomEnabled={dragZoomSettings.enabled}
-        dragZoomAmount={dragZoomSettings.zoomAmount}
-        onToggleDragZoom={() => useGraphStore.getState().toggleDragZoomEnabled()}
-        onSetDragZoomAmount={(v) => useGraphStore.getState().setDragZoomAmount(v)}
-
-        onOpenForceSim={() => {
-          setForceSimModalVisible(true);
-        }}
-        onAutoLayoutGraph={() => {
-          triggerAutoLayout();
-        }}
-        onSnapToGrid={() => {
-          snapToGrid();
-        }}
-        onCondenseNodes={condenseGraphNodes}
-        onLoadFromExternalLink={() => window.dispatchEvent(new CustomEvent('redstring:open-external-link'))}
-        onNewUniverse={async () => {
-          try {
-
-            // storeActions.clearUniverse(); // This is redundant
-
-            const { createUniverseFile, enableAutoSave } = fileStorage;
-            const initialData = await createUniverseFile();
-
-            if (initialData !== null) {
-              storeActions.loadUniverseFromFile(initialData);
-
-              // Enable auto-save for the new universe
-              enableAutoSave(() => useGraphStore.getState());
-
-
-              // Ensure universe connection is marked as established
-              storeActions.setUniverseConnected(true);
-            }
-          } catch (error) {
-
-            storeActions.setUniverseError(`Failed to create universe: ${error.message}`);
-          }
-        }}
-        onOpenUniverse={async () => {
-          try {
-            // Check if user has unsaved work
-            const currentState = useGraphStore.getState();
-            const hasGraphs = currentState.graphs.size > 0;
-            const hasNodes = currentState.nodePrototypes.size > 0;
-
-            if (hasGraphs || hasNodes) {
-              const confirmed = confirm(
-                'Opening a different universe file will replace your current work.\n\n' +
-                'Make sure your current work is saved first.\n\n' +
-                'Continue with opening a different universe file?'
-              );
-              if (!confirmed) {
-
-                return;
-              }
-            }
-
-
-            // storeActions.clearUniverse(); // This is redundant
-
-            const { openUniverseFile, enableAutoSave, getFileStatus } = fileStorage;
-            const loadedData = await openUniverseFile();
-
-
-
-            if (loadedData !== null) {
-
-              storeActions.loadUniverseFromFile(loadedData);
-
-              // Enable auto-save for the opened universe
-              enableAutoSave(() => useGraphStore.getState());
-
-              // Debug: check file status after load
-              const fileStatus = getFileStatus();
-
-
-
-
-              // Ensure universe connection is marked as established
-              storeActions.setUniverseConnected(true);
-            } else {
-
-            }
-          } catch (error) {
-
-            storeActions.setUniverseError(`Failed to open universe: ${error.message}`);
-          }
-        }}
-        onSaveUniverse={async () => {
-          try {
-
-            const { forceSave, canAutoSave, getFileStatus } = fileStorage;
-
-            // Debug: check file status
-            const fileStatus = getFileStatus();
-
-
-            if (canAutoSave()) {
-              const currentState = useGraphStore.getState();
-
-
-              const saveResult = await forceSave(currentState);
-
-
-              if (saveResult) {
-
-                alert('Universe saved successfully!');
-              } else {
-
-                alert('Save failed for unknown reason.');
-              }
-            } else {
-
-              alert('No universe file is currently open. Please create or open a universe first.');
-            }
-          } catch (error) {
-
-            alert(`Failed to save universe: ${error.message}`);
-          }
-        }}
-        onExportRdf={() => runActiveExport('nquads')}
-        onExportTrig={() => runActiveExport('trig')}
-        onExportRedstring={() => runActiveExport('redstring')}
-        onExportJson={() => runActiveExport('json')}
-        onExportTxt={() => runActiveExport('txt')}
-        onExportTtl={() => runActiveExport('ttl')}
-        onOpenRecentFile={async (recentFileEntry) => {
-          try {
-            // Check if user has unsaved work
-            const currentState = useGraphStore.getState();
-            const hasGraphs = currentState.graphs.size > 0;
-            const hasNodes = currentState.nodePrototypes.size > 0;
-
-            if (hasGraphs || hasNodes) {
-              const confirmed = confirm(
-                `Opening "${recentFileEntry.fileName}" will replace your current work.\n\n` +
-                'Make sure your current work is saved first.\n\n' +
-                'Continue?'
-              );
-              if (!confirmed) {
-
-                return;
-              }
-            }
-
-
-            // storeActions.clearUniverse(); // This is redundant
-
-            const { openRecentFile, enableAutoSave, getFileStatus } = fileStorage;
-            const loadedData = await openRecentFile(recentFileEntry);
-
-
-
-            if (loadedData !== null) {
-
-              storeActions.loadUniverseFromFile(loadedData);
-
-              // Enable auto-save for the opened universe
-              enableAutoSave(() => useGraphStore.getState());
-
-              // Debug: check file status after load
-              const fileStatus = getFileStatus();
-
-
-
-
-              // Ensure universe connection is marked as established
-              // Use 'load' context so SaveCoordinator doesn't treat this as a new edit
-              useGraphStore.getState().setChangeContext({ type: 'load' });
-              storeActions.setUniverseConnected(true);
-            } else {
-
-            }
-          } catch (error) {
-
-            storeActions.setUniverseError(`Failed to open recent file: ${error.message}`);
-            alert(`Failed to open "${recentFileEntry.fileName}": ${error.message}`);
-          }
-        }}
-      />
-      )}
+      <HeaderHost hidden={mobileLandscapeShell} />
       <div style={{ display: 'flex', flexGrow: 1, position: 'relative', overflow: 'hidden' }}>
         <Panel
           key="left-panel"
