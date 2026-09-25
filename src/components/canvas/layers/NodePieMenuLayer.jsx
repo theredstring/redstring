@@ -1,4 +1,3 @@
-import React from 'react';
 import PieMenu from '../../../PieMenu.jsx';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
