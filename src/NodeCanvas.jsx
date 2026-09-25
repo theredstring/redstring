@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import './NodeCanvas.css';
-import { X } from 'lucide-react';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import Node from './Node.jsx';
@@ -20,24 +19,22 @@ import HoverVisionAidLayer from './components/canvas/layers/HoverVisionAidLayer.
 import { setActionHover, getActionHoverItem } from './utils/canvas/actionHover.js';
 import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-mode reticle
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
-import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
-import { peekLabelSprite, requestLabelSprite, peekGlyphSprite, requestGlyphSprite, onSpritesReady, spritesUsable, hydrateLabelSprites, glyphQuadAt, GLYPH_SPRITE_LAYERS, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, hexToHsl, hslToHex, blendColors } from './utils/colorUtils.js';
+import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
+import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
+import { getTextColor, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT, blendColors } from './utils/colorUtils.js';
 import { getPrototypeIdFromItem } from './utils/abstraction.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from './utils/clipboard.js';
 import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
-import { analyzeNodeDistribution, getClusterBoundingBox } from './utils/clusterAnalysis.js';
+import { analyzeNodeDistribution } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
-import { Edit3, Trash2, Link, Package, PackageOpen, Expand, ArrowUpFromDot, Triangle, Layers, ArrowLeft, SendToBack, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, Undo2, Clock, LayoutGrid, Grid3x3, MoveVertical, ChevronLeft, ChevronRight, Sparkles, Copy, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, Globe, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
+import { Edit3, Trash2, Package, PackageOpen, ArrowUpFromDot, Layers, ArrowLeft, SendToBack, Palette, Orbit, Bookmark, Plus, CornerUpLeft, CornerDownLeft, Merge, LayoutGrid, Grid3x3, ChevronLeft, ChevronRight, Sparkles, CopyPlus, ClipboardCopy, Scaling, TextSearch, ImagePlus, NotebookText, ClipboardPaste, RefreshCw, Activity, Combine } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
-import * as folderPersistence from './services/folderPersistence.js';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
-import { pickFolder, getFileInFolder, listFilesInFolder, readFile, writeFile } from './utils/fileAccessAdapter.js';
-import { applyLayout, getClusterGeometries, FORCE_LAYOUT_DEFAULTS } from './services/graphLayoutService.js';
+import { getClusterGeometries } from './services/graphLayoutService.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
 import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
@@ -52,27 +49,23 @@ import {
   computeGroupDepths,
   buildEdgeZSlotIndex,
   edgeZSlotFor,
-  buildShellCutoutPath,
   placeholderIdForGroup,
 } from './services/groupLayout.js';
 import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
-import { getNodeHitbox, getVisualConnectionEndpoints, getLineNodeIntersection, getNodeEdgeIntersection } from './utils/canvas/nodeHitbox.js';
-import { stabilizeLabelPosition, clearLabelStabilization } from './utils/canvas/labelStabilization.js';
+import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
+import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore, {
-  getActiveGraphId,
   getHydratedNodesForGraph, // New selector
-  getEdgesForGraph,
-  getNodePrototypeById, // New selector for prototypes
   TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
-import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
+import { useTrackedState } from './hooks/useTrackedState.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
@@ -163,29 +156,17 @@ import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.j
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
-  LERP_SPEED,
   HEADER_HEIGHT,
   MOVEMENT_THRESHOLD,
   MAX_ZOOM,
-  SCROLL_SENSITIVITY,
   PLUS_SIGN_SIZE,
-  PLUS_SIGN_ANIMATION_DURATION,
-  NODE_PADDING,
   NODE_CORNER_RADIUS,
-  NAME_AREA_FACTOR,
-  EXPANDED_NODE_WIDTH,
-  AVERAGE_CHAR_WIDTH,
-  WRAPPED_NODE_HEIGHT,
-  LINE_HEIGHT_ESTIMATE,
-  EDGE_MARGIN,
   PAN_DRAG_SENSITIVITY,
   SMOOTH_MOUSE_WHEEL_ZOOM_SENSITIVITY,
   MIDDLE_MOUSE_ZOOM_SENSITIVITY,
   NODE_DEFAULT_COLOR,
   CONNECTION_DEFAULT_COLOR,
   CONNECTION_WIDTH_BASE_SCALE,
-  DARK_MODE_BG_COLOR,
-  LIGHT_MODE_BG_COLOR,
   EXCLUSIVE_PANEL_MODE_THRESHOLD,
   THUMBNAIL_MAX_DIMENSION,
   nextNodeSizeStep,
@@ -204,26 +185,24 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { computeCleanPolylineFromPorts, generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, buildRoundedOrthogonalPath, rebuildRoutedPath, trimRouteEnd, trimRoutePreviewEnd, labelArcGlyphFrames, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
 import { distanceToPolyline, edgeHitScore } from './utils/canvas/geometryUtils.js';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint, getTrimmedBezierPath, getCurvedArrowPlacement, getCurveBorderCrossings, POLY_TIP, DEFAULT_TIP_INSET } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
-import SelfLoopEdge from './components/canvas/SelfLoopEdge.jsx';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
-import { chooseRoutedLabelPlacement, placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor, labelFrameToken, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from './utils/canvas/edgeLabelPlacement.js';
-import { likelyTouch, isTouchDevice, hasNoHover } from './utils/inputDeviceAnalysis';
+import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
+import { likelyTouch } from './utils/inputDeviceAnalysis';
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
 import { candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
 import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
 import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
-import PanelIconButton from './components/shared/PanelIconButton.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -662,7 +641,6 @@ function NodeCanvas() {
   // outer <svg> off the GPU compositor path so a 100k SVG can't trigger
   // tile-raster-on-scale flicker.
   const contentGroupRef = useRef(null);
-  const wrapperRef = useRef(null);
   // Content group of the orbit layer — a second <svg> above the scrim, carrying
   // the same pan/zoom transform as the main one. Held in state as well as a ref
   // because the focus node and orbit overlay are portalled into it, and a portal
@@ -714,8 +692,13 @@ function NodeCanvas() {
       gestureBlockClearTimerRef.current = null;
     }, delay);
   }, []);
-  const [orbitData, setOrbitData] = useState(EMPTY_ORBIT);
-  const [orbitLoading, setOrbitLoading] = useState(false);
+  const [orbitData, setOrbitDataState] = useState(EMPTY_ORBIT);
+  const [orbitLoading, setOrbitLoadingState] = useState(false);
+  // What each was last set to, pending updates included, so the search
+  // effect's reset can skip a same-value set (render sweep).
+  const orbitSetRef = useRef({ data: EMPTY_ORBIT, loading: false });
+  const setOrbitData = useCallback((v) => { orbitSetRef.current.data = v; setOrbitDataState(v); }, []);
+  const setOrbitLoading = useCallback((v) => { orbitSetRef.current.loading = v; setOrbitLoadingState(v); }, []);
   const semanticOrbitActive = useCanvasUIStore(s => s.semanticOrbitActive), setSemanticOrbitActive = useCanvasUIStore(s => s.setSemanticOrbitActive);
   const semanticOrbitActiveRef = useRef(false);
   // The orbit's imperative surface, written by OrbitOverlay while it is mounted
@@ -921,7 +904,6 @@ function NodeCanvas() {
 
   // <<< OPTIMIZED: Individual stable subscriptions - Zustand auto-batches these >>>
   const activeGraphId = useGraphStore(state => state.activeGraphId);
-  const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
   const selectedEdgeId = useCanvasUIStore(s => s.selectedEdgeId); // canvasUIStore since P2.03c (D-22)
   const selectedEdgeIds = useCanvasUIStore(s => s.selectedEdgeIds);
   const typeListMode = useGraphStore(state => state.typeListMode);
@@ -1016,10 +998,8 @@ function NodeCanvas() {
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
   const edgesMap = useGraphStore(state => state.edges);
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
-  const savedGraphIds = useGraphStore(state => state.savedGraphIds);
   const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
   const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);
-  const universeLoadingError = useGraphStore(state => state.universeLoadingError);
   const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
 
 
@@ -1157,12 +1137,6 @@ function NodeCanvas() {
       }
     }
   }, [nodePrototypesMap, activeGraphInstances]);
-
-  // <<< Derive active graph data directly >>>
-  // OPTIMIZED: Use activeGraph directly instead of re-querying graphsMap
-  const activeGraphData = activeGraph || null;
-  const activeGraphName = activeGraphData?.name ?? 'Loading...';
-  const activeGraphDescription = activeGraphData?.description ?? '';
 
   useEffect(() => {
     if (!activeGraphId || !graphsMap || typeof graphsMap?.has !== 'function') return;
@@ -1826,6 +1800,7 @@ function NodeCanvas() {
   const isPanningRef = useRef(false);
   const setIsPanning = useCallback((value) => {
     const next = typeof value === 'function' ? value(isPanningRef.current) : value;
+    if (next === isPanningRef.current) return; // same value: skip the wasted run (useTrackedState)
     isPanningRef.current = next;
     _setIsPanningState(next);
   }, []);
@@ -2182,7 +2157,6 @@ function NodeCanvas() {
   const longPressingInstanceIdRef = nodeDrag.longPressingInstanceIdRef;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
   const wasDraggingRef = nodeDrag.wasDraggingRef;
-  const isEdgePanningRef = nodeDrag.isEdgePanningRef;
   const startDragForNode = nodeDrag.startDragForNode;
   const startDragForNodeRef = nodeDrag.startDragForNodeRef;
 
@@ -4401,9 +4375,6 @@ function NodeCanvas() {
   }, []);
 
   // Add logging for abstraction prompt state changes
-  useEffect(() => {
-
-  }, [abstractionPrompt]);
 
   // Attach an accepted/edited/ignored outcome to the last edge-label suggestion.
   const finalizeConnectionSuggestion = useCallback((finalName) => {
@@ -4798,9 +4769,9 @@ function NodeCanvas() {
   }, [openWizardPicker]);
 
   // Pie menu color picker state
-  const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useState(false);
+  const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useTrackedState(false);
   const [pieMenuColorPickerPosition, setPieMenuColorPickerPosition] = useState({ x: 0, y: 0 });
-  const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useState(null);
+  const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useTrackedState(null);
   // Connection color picker. Kept separate from the node one above because it
   // targets a prototype directly: a connection has no instance to look a
   // prototypeId up from, it just points at the Thing that defines it.
@@ -4820,14 +4791,11 @@ function NodeCanvas() {
   const [carouselFocusPrototypeRequest, setCarouselFocusPrototypeRequest] = useState(null); // prototypeId | null
 
   // Add logging for carousel stage changes
-  useEffect(() => {
 
-  }, [carouselPieMenuStage]);
-
-  const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing), setIsHeaderEditing = useCanvasUIStore(s => s.setIsHeaderEditing);
+  const isHeaderEditing = useCanvasUIStore(s => s.isHeaderEditing);
   const isPieMenuRendered = useCanvasUIStore(s => s.isPieMenuRendered), setIsPieMenuRendered = useCanvasUIStore(s => s.setIsPieMenuRendered); // Controls if PieMenu is in DOM for animation
   const currentPieMenuData = useCanvasUIStore(s => s.currentPieMenuData), setCurrentPieMenuData = useCanvasUIStore(s => s.setCurrentPieMenuData); // Holds { node, buttons, nodeDimensions }
-  const [pieMenuPage, setPieMenuPage] = useState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
+  const [pieMenuPage, setPieMenuPage] = useTrackedState(0); // 0 = primary node options, 1 = secondary options (Duplicate / Ask The Wizard / Change Size)
   const editingNodeIdOnCanvas = useCanvasUIStore(s => s.editingNodeIdOnCanvas), setEditingNodeIdOnCanvas = useCanvasUIStore(s => s.setEditingNodeIdOnCanvas); // For panel-less editing
   const [editingGroupId, setEditingGroupId] = useState(null); // For group inline editing
   const [tempGroupName, setTempGroupName] = useState(''); // Temporary name during editing
@@ -5302,13 +5270,13 @@ function NodeCanvas() {
   const [currentAbstractionDimension, setCurrentAbstractionDimension] = useState('Generalization Axis');
 
   // Abstraction control panel states
-  const [abstractionControlPanelVisible, setAbstractionControlPanelVisible] = useState(false);
-  const [abstractionControlPanelShouldShow, setAbstractionControlPanelShouldShow] = useState(false);
+  const [abstractionControlPanelVisible, setAbstractionControlPanelVisible] = useTrackedState(false);
+  const [abstractionControlPanelShouldShow, setAbstractionControlPanelShouldShow] = useTrackedState(false);
   const [isPieMenuActionInProgress, setIsPieMenuActionInProgress] = useState(false);
-  const [nodeControlPanelVisible, setNodeControlPanelVisible] = useState(false);
-  const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useState(false);
-  const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useState(false);
-  const [groupControlPanelVisible, setGroupControlPanelVisible] = useState(false);
+  const [nodeControlPanelVisible, setNodeControlPanelVisible] = useTrackedState(false);
+  const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useTrackedState(false);
+  const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useTrackedState(false);
+  const [groupControlPanelVisible, setGroupControlPanelVisible] = useTrackedState(false);
   // P2.03b: id in canvasUIStore, group read from the active web (was a stale snapshot).
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   const selectedGroup = useMemo(() => (selectedGroupId ? graphsMap.get(activeGraphId)?.groups?.get(selectedGroupId) ?? null : null), [selectedGroupId, graphsMap, activeGraphId]);
@@ -5332,8 +5300,8 @@ function NodeCanvas() {
   const lastSelectedGroupRef = useRef(null);
   if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
   const lastSelectedGroup = lastSelectedGroupRef.current;
-  const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
-  const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
+  const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useTrackedState(false);
+  const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useTrackedState(false);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
   const [edgePieMenuRendered, setEdgePieMenuRendered] = useState(false);
   const edgePieMenuAnchorRef = useRef(null);   // frozen on show, held through exit animation
@@ -5535,9 +5503,6 @@ function NodeCanvas() {
       carouselExitInProgressRef.current = false;
     }, 300); // Quick timeout - allows normal interaction almost immediately
   }, [abstractionCarouselNode?.id, pendingSwapOperation, activeGraphId, storeActions]);
-  // Use the local state values populated by subscribe
-  const projectTitle = activeGraphName ?? 'Loading...';
-  const projectBio = activeGraphDescription ?? '';
   const previewingNodeId = useCanvasUIStore(s => s.previewingNodeId), setPreviewingNodeId = useCanvasUIStore(s => s.setPreviewingNodeId);
 
   // When a node is decomposed into its preview (decomposition view), frame it on
@@ -7807,17 +7772,6 @@ function NodeCanvas() {
     };
   }, [previewingNodeId, nodes, nodePrototypesMap, activeGraphId, nodeDefinitionIndices, setNodeDefinitionIndices]);
 
-  // Log button changes for debugging
-  useEffect(() => {
-    // console.log(`[PieMenu Buttons] targetPieMenuButtons changed:`, {
-    //   buttonCount: targetPieMenuButtons.length,
-    //   buttonIds: targetPieMenuButtons.map(b => b.id),
-    //   carouselStage: carouselPieMenuStage,
-    //   selectedNodeId: selectedNodeIdForPieMenu,
-    //   carouselVisible: abstractionCarouselVisible
-    // });
-  }, [targetPieMenuButtons, carouselPieMenuStage, selectedNodeIdForPieMenu, abstractionCarouselVisible]);
-
   // Keep currentPieMenuData.buttons in sync with targetPieMenuButtons so UI reflects state changes (e.g., Save/Unsave) immediately
   useEffect(() => {
     setCurrentPieMenuData(prev => prev ? { ...prev, buttons: targetPieMenuButtons } : prev);
@@ -7942,7 +7896,6 @@ function NodeCanvas() {
     return GeometryUtils.clampCoordinates(x, y, canvasSize);
   };
 
-  const lineIntersectsRect = GeometryUtils.lineIntersectsRect;
 
   // Helper function to get description content for a node when previewing
   const getNodeDescriptionContent = (node, isNodePreviewing) => {
@@ -8741,13 +8694,6 @@ function NodeCanvas() {
     }
   };
 
-  const handleSaveNodeData = (prototypeId, newData) => { // Operates on prototype
-    if (!activeGraphId) return;
-    storeActions.updateNodePrototype(prototypeId, draft => {
-      Object.assign(draft, newData);
-    });
-  };
-
   /**
    * Handles wheel events for zoom and pan, with cross-platform input discrimination.
    *
@@ -9020,7 +8966,6 @@ function NodeCanvas() {
     if (!container) return;
     let gestureAnchor = { x: 0, y: 0 };
     let gestureStartZoom = zoomLevelRef.current;
-    let gestureActive = false;
 
     const onGestureStart = (e) => {
       if (trackpadZoomEnabled) return; // allow browser zoom if explicitly enabled
@@ -9051,7 +8996,6 @@ function NodeCanvas() {
       pinchRef.current.active = true;
       pinchRef.current.centerClient = { x: clientX, y: clientY };
       isPanningOrZooming.current = true;
-      gestureActive = true;
       armGestureBlock();
     };
 
@@ -9090,7 +9034,6 @@ function NodeCanvas() {
         pinchRef.current.active = false;
       }
       isPanningOrZooming.current = false;
-      gestureActive = false;
       ignoreCanvasClick.current = true;
       armGestureBlock();
       scheduleGestureBlockClear();
@@ -11088,15 +11031,6 @@ function NodeCanvas() {
     if (!isRealTime) setEditingNodeIdOnCanvas(null);
   }, [storeActions]);
 
-  const handleProjectBioChange = (newBio) => {
-    // Get CURRENT activeGraphId directly from store
-    const currentActiveId = useGraphStore.getState().activeGraphId;
-    if (currentActiveId) {
-      // Use localStoreActions
-      storeActions.updateGraph(currentActiveId, draft => { draft.description = newBio; });
-    }
-  };
-
   // Effect to manage PieMenu visibility and data for animations
   useEffect(() => {
     console.log(`[NodeCanvas] selectedInstanceIds changed:`, {
@@ -11325,8 +11259,11 @@ function NodeCanvas() {
     (async () => {
       try {
         if (!semanticOrbitActive || selectedInstanceIds.size !== 1) {
-          setOrbitData(EMPTY_ORBIT);
-          setOrbitLoading(false);
+          // Reset only what isn't reset already. This runs on every selection
+          // change, and a same-value set from an effect still costs a
+          // NodeCanvas run that React throws away.
+          if (orbitSetRef.current.data !== EMPTY_ORBIT) setOrbitData(EMPTY_ORBIT);
+          if (orbitSetRef.current.loading) setOrbitLoading(false);
           return;
         }
 
@@ -13460,7 +13397,6 @@ function NodeCanvas() {
                       const strokeColor = effectiveGroupColor;
                       const fontSize = groupLabelFontSize;
 
-                      const currentText = editingGroupId === group.id ? tempGroupName : effectiveGroupName;
                       const labelText = effectiveGroupName;
                       // Wrapped lines from the same box the layout measured, so the
                       // drawn text can never be wider than the tab it sits in.

@@ -10,6 +10,13 @@
 // It walks the whole NodeCanvas subtree on every commit, so its timings are
 // meaningless: use it on the --explain build, never for the median table.
 //
+// `[set: …]` lists the updates made since the previous commit: named setters,
+// zustand selectors whose result changed, and React's own dispatches aimed at
+// NodeCanvas with their callers. A bailout carrying no update of its own is
+// usually React re-running a lower-lane update the previous (sync) render
+// skipped: look at the sets on the commit before it. Setting a value that is
+// already there still costs that run, so guard the call site.
+//
 // Also keeps window.__nodeCanvasRenders the way selfRenders.js does, so the
 // runner can use it in place of that script.
 
@@ -75,6 +82,15 @@ export function logCommits() {
     return out;
   };
 
+  // Called by the explain build's patched React on every state update: an
+  // update aimed at NodeCanvas is logged with its caller, from the stack.
+  globalThis.__explainDispatch = (fiber, kind) => {
+    if (!log.on || !(isNodeCanvas(fiber) || isNodeCanvas(fiber.alternate))) return;
+    const frames = (new Error().stack || '').split('\n').slice(3, 6)
+      .map((l) => l.trim().replace(/^at /, '').replace(/ \(.*$/, '').replace(/@.*$/, ''));
+    (log.pendingSets ||= []).push(`${kind}<${frames.join(' < ')}>`);
+  };
+
   let last = null;
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
@@ -101,6 +117,7 @@ export function logCommits() {
         // (Header, Panels, modals, …) render outside it.
         for (const k of renderedUnder(root.current, [])) counts[k] = (counts[k] || 0) + 1;
         entry.children = Object.entries(counts).sort((x, y) => y[1] - x[1]).map(([k, n]) => (n > 1 ? `${k}×${n}` : k));
+        entry.sets = (log.pendingSets || []).splice(0);
         log.commits.push(entry);
       }
       last = f;
@@ -118,7 +135,8 @@ export function formatCommitLog(id, probe, commits, { maxChildren = 8 } = {}) {
     const kids = c.children.length
       ? `  | ${c.children.slice(0, maxChildren).join(', ')}${c.children.length > maxChildren ? ', …' : ''}`
       : '';
-    lines.push(`${String(c.t).padStart(6)} ms  ${what}  ${c.hooks.join('; ')}${kids}`);
+    const sets = c.sets?.length ? `  [set: ${[...new Set(c.sets)].join(', ')}]` : '';
+    lines.push(`${String(c.t).padStart(6)} ms  ${what}  ${c.hooks.join('; ')}${sets}${kids}`);
   }
   return `${lines.join('\n')}\n`;
 }
