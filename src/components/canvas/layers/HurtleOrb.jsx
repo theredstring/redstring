@@ -18,7 +18,7 @@
  * A new `flight` object restarts the loop; onLand(flight) fires exactly once,
  * when progress reaches 1. Unmounting mid-flight cancels it without landing.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, memo } from 'react';
 import { createDetentTrack } from '../../../services/haptics.js';
 
 // Detent spacing along the orb's eased progress (0→1), so 0.25 means three
@@ -61,7 +61,7 @@ function paint(el, flight, progress) {
   return f;
 }
 
-export default function HurtleOrb({ flight, onLand }) {
+function HurtleOrb({ flight, onLand }) {
   const elRef = useRef(null);
   const onLandRef = useRef(onLand);
   onLandRef.current = onLand;
@@ -113,3 +113,6 @@ export default function HurtleOrb({ flight, onLand }) {
     />
   );
 }
+
+// Memoized (render sweep): its props only change when a flight starts or ends.
+export default memo(HurtleOrb);

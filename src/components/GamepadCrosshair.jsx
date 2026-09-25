@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { useDarkMode } from '../hooks/useTheme.js';
 import { crosshairCenter } from '../utils/gamepadAim.js';
 
@@ -98,4 +98,5 @@ const GamepadCrosshair = ({ visible, viewportBounds, headerHeight = 0, scale = 1
   );
 };
 
-export default GamepadCrosshair;
+// Memoized (render sweep): it re-rendered on every NodeCanvas render, props unchanged.
+export default memo(GamepadCrosshair);

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef, useCallback, memo } from 'react';
 import { useViewportBounds } from '../hooks/useViewportBounds';
 import { getNodeDimensions } from '../utils';
 import { NODE_HEIGHT } from '../constants';
@@ -594,4 +594,5 @@ const EdgeGlowIndicator = ({
   );
 };
 
-export default EdgeGlowIndicator;
+// Memoized (render sweep): it re-rendered on every NodeCanvas render, props unchanged.
+export default memo(EdgeGlowIndicator);
