@@ -13,6 +13,15 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: Render sweep (Claude, orchestrator)
+
+- With the whole-tree `--explain`, swept S1/S4/S5/S6/S7 for wasted renders (reports/render-sweep.md):
+  - selection latches set during render instead of by effects: one NodeCanvas render less per selection change (**S5: 59 → 42 commits, NC rendered 38 → 21**)
+  - memoized GamepadCrosshair, EdgeGlowIndicator, BackToCivilization, DownloadAppPill, HurtleOrb and HeaderGraphTab (145 tabs)
+- **Gates:** `test:ci` PASS, Playwright 55 passed; shell screenshots unchanged. NodeCanvas.jsx 15,556.
+
+---
+
 ## 2026-09-25: F-78 fixed (Claude, orchestrator)
 
 - `--explain` now walks the whole tree; it showed `CanvasModal×5` rendering on every S11 write. CanvasModal, PanelModal and ConnectionBrowser used selector-less `useGraphStore()`; now per-field. **S11: 12 → 2 commits; S1: 7 → 6.**
