@@ -233,15 +233,13 @@ export const useNodeDrag = ({
   // Consumers read isAnimatingZoomRef.current directly.
   const isAnimatingZoomRef = useRef(false);
 
-  const [longPressingInstanceId, setLongPressingInstanceIdState] = useState(null);
-  // Mirror the armed instance into a ref so consumers (the mousemove handler in
-  // NodeCanvas) can read the synchronously-current value. React state can be one
-  // commit stale across this hook boundary — that staleness made quick-drag
-  // connections from nodes and thing-group titles silently fail to arm.
+  // The armed instance lives in a ref only, so consumers (the mousemove handler in
+  // NodeCanvas) read the synchronously-current value. It used to be mirrored into
+  // React state as well, which nothing rendered from: it cost two NodeCanvas
+  // renders per click (set on press, cleared on release). Render sweep.
   const longPressingInstanceIdRef = useRef(null);
   const setLongPressingInstanceId = useCallback((value) => {
     longPressingInstanceIdRef.current = value;
-    setLongPressingInstanceIdState(value);
   }, []);
 
   const zoomOutInitiatedRef = useRef(false);
@@ -3095,7 +3093,6 @@ export const useNodeDrag = ({
     draggingNodeInfoRef,
     dragPhaseRef,
     isAnimatingZoomRef,
-    longPressingInstanceId,
     longPressingInstanceIdRef,
     setLongPressingInstanceId,
     wasDraggingRef,

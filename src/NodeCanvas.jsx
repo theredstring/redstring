@@ -2179,7 +2179,6 @@ function NodeCanvas() {
   // which is what made lifting a node glitch for a frame or two. The drift
   // reads that flag and owns this one. See utils/gamepadAim.js.
   const gamepadDriftingRef = useRef(false);
-  const longPressingInstanceId = nodeDrag.longPressingInstanceId;
   const longPressingInstanceIdRef = nodeDrag.longPressingInstanceIdRef;
   const setLongPressingInstanceId = nodeDrag.setLongPressingInstanceId;
   const wasDraggingRef = nodeDrag.wasDraggingRef;
@@ -9511,7 +9510,7 @@ function NodeCanvas() {
         // React commit can lag a frame behind the mousedown that armed it (state now lives
         // in the useNodeDrag hook), so a quick-drag mousemove firing in the same tick would
         // otherwise see null and fail to start a connection — notably from thing-group titles.
-        const armedInstanceId = longPressingInstanceIdRef.current ?? longPressingInstanceId;
+        const armedInstanceId = longPressingInstanceIdRef.current;
         if (armedInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
           beginConnectionDrawFromNode(armedInstanceId, e.clientX, e.clientY);
         } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanningRef.current && !startedOnNode.current && !pinchRef.current.active && !panStartRef.current) {
