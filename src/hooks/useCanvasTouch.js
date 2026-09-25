@@ -4,6 +4,7 @@ import { useWindowGestureEnd } from './useWindowGestureEnd';
 import { haptic } from '../services/haptics.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import useGraphStore from '../store/graphStore.js';
+import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -35,65 +36,49 @@ const PINCH_ZOOM_VELOCITY_WINDOW_MS = 100;  // how far back to sample for releas
 const PINCH_ZOOM_STATIONARY_GAP_MS = 110;   // last sample older than this at lift = fingers had stopped, no glide (generous — abrupt lifts can skip a couple frames)
 
 export const useCanvasTouch = ({
+    // The controllers and shared input state the touch path drives (P4.06). Each
+    // is unpacked below under the names this hook has always used.
+    transform, // useCanvasTransform: the pan/zoom refs and the atomic setter
+    camera, // cameraController: pan/zoom momentum and whether the view is still moving
+    pointer, // pointerHandlers: the mouse path a touch gesture is handed to
+    nodeDrag, // useNodeDrag: start, read and cancel a node drag
+    gestures, // the shared gesture refs and the gesture block (NodeCanvas, each render)
+    hitTest, // what is under a client point: nodes, connection orbs, connections
+    canvasState, // NodeCanvas state the touch path reads and writes (plus sign, draw, group, pan)
     containerRef,
-    panOffsetRef,
-    zoomLevelRef,
     canvasSize,
-    startDragForNode,
-    handleMouseMove,
-    handleMouseUp,
-    handleMouseDown,
-    setPanStart,
-    setIsPanning,
-    setPanAndZoom,
-    stopPanMomentum,
-    // () => boolean — the pan glide is still moving fast enough that a fresh
-    // touch means "catch the view", not "press what's under the finger".
-    isViewMoving,
     // Abandons an in-flight connection draw without creating anything — no edge,
     // no self-loop dialog. Called when a second finger turns the gesture into a
     // pinch (see yieldGestureToPinch).
     cancelConnectionDraw,
-    startZoomMomentum,
-    stopZoomMomentum,
     storeActions,
-    plusSign,
-    setPlusSign,
-    drawingConnectionFrom,
-    setDrawingConnectionFrom,
-    draggingNodeInfo,
-    setDraggingNodeInfo,
-    draggingNodeInfoRef,
-    isAnimatingZoomRef,
-    isPanningOrZooming,
-    panSourceRef,
-    panVelocityHistoryRef,
-    isMouseDown,
-    mouseMoved,
-    startedOnNode,
-    mouseInsideNode,
-    mouseDownPosition,
-    selectedGroup,
-    setSelectedGroup,
-    isInsideNode,
-    getNodeDimensions,
-    clampCoordinates,
-    isTouchDeviceRef,
-    suppressNextMouseDownRef,
     nodes,
-    pinchRef,
-    pinchSmoothingRef,
-    ignoreCanvasClick,
-    armGestureBlock,
-    scheduleGestureBlockClear,
-    touchSettings,
-    nodeLiftDelay,
-    tryToggleConnectionOrbAtPoint,
-    trySelectConnectionAtPoint,
     // Live mirror of abstractionCarouselVisible. While the carousel is open it owns
     // single-finger touch across the whole viewport — see yieldsToCarousel below.
     abstractionCarouselVisibleRef,
 }) => {
+    const { panRef: panOffsetRef, zoomRef: zoomLevelRef, setPanAndZoom } = transform;
+    // isViewMoving: () => boolean — the pan glide is still moving fast enough that
+    // a fresh touch means "catch the view", not "press what's under the finger".
+    const { stopPanMomentum, isViewMoving, startZoomMomentum, stopZoomMomentum } = camera;
+    const { handleMouseMove, handleMouseUp, handleMouseDown } = pointer;
+    const {
+        startDragForNode, draggingNodeInfo, draggingNodeInfoRef, isAnimatingZoomRef,
+    } = nodeDrag;
+    const {
+        isPanningOrZooming, panSourceRef, panVelocityHistoryRef, isMouseDown, mouseMoved, startedOnNode,
+        mouseInsideNode, mouseDownPosition, isTouchDeviceRef, suppressNextMouseDownRef, pinchRef, pinchSmoothingRef,
+        ignoreCanvasClick, armGestureBlock, scheduleGestureBlockClear,
+    } = gestures;
+    const {
+        isInsideNode, getNodeDimensions, clampCoordinates, tryToggleConnectionOrbAtPoint, trySelectConnectionAtPoint,
+    } = hitTest;
+    const {
+        plusSign, setPlusSign, drawingConnectionFrom, setDrawingConnectionFrom, selectedGroup, setSelectedGroup,
+        setPanStart, setIsPanning,
+    } = canvasState;
+    const touchSettings = useGraphStore(state => state.touchSettings || DEFAULT_TOUCH_SETTINGS);
+    const nodeLiftDelay = useGraphStore(state => state.mouseSettings?.nodeLiftDelay ?? 250);
     // Store-backed inputs, subscribed here rather than passed in (P4.06): the
     // same fields and selectors NodeCanvas subscribes to, so the values match
     // its render and nothing re-renders more often.

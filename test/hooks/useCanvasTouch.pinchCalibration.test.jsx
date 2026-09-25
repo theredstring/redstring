@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { useCanvasTouch } from '../../src/hooks/useCanvasTouch';
-import { seedTouchStores } from './seedCanvasTouchStores.js';
+import { seedTouchStores, groupTouchProps } from './seedCanvasTouchStores.js';
 
 vi.mock('../../src/services/haptics.js', () => ({ haptic: () => { } }));
 
@@ -72,7 +72,7 @@ let hookProps = null;
 function Harness() {
   const divRef = useRef(null);
   hookProps.containerRef = divRef;
-  const touch = useCanvasTouch(hookProps);
+  const touch = useCanvasTouch(groupTouchProps(hookProps));
   const nodeHandlers = (node) => ({
     onTouchStart: (e) => touch.handleNodeTouchStart(node, e),
     onTouchMove: (e) => touch.handleNodeTouchMove(node, e),

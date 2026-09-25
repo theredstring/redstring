@@ -1,18 +1,32 @@
 import { useRef } from 'react';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { PLUS_SIGN_SIZE } from '../../../constants';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 
 /** What the game controller can aim at and do, as refs it reads each frame: connection orbs, the plus sign, group title pills, the marquee, the canvas context menu (filled in later by NodeCanvas) and connection drawing (moved verbatim from NodeCanvas, wave 6). */
 export function useControllerTargets({
-  beginConnectionDrawFromNode, beginMarquee, canvasSize, containerRef, endMarquee,
-  findConnectionOrbAtPoint, groupDepthByGroupIdRef, groupTitleRectsRef, groupsByIdRef,
-  handlePlusSignClick, panOffsetRef, plusSign, selectedGroup, setAbstractionControlPanelShouldShow,
-  setAbstractionControlPanelVisible, setConnectionControlPanelShouldShow,
-  setConnectionControlPanelVisible, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
-  setNodeControlPanelVisible, setPlusSign, setSelectedGroup, setSelectedInstanceIds,
-  startGroupDragAtPointRef, startedOnNode, storeActions, textSettings, toggleConnectionOrbArrow,
-  updateMarquee, zoomLevelRef,
+  transform, // pan/zoom refs, for client → canvas
+  orbs, // { findConnectionOrbAtPoint, toggleConnectionOrbArrow }
+  plus, // { plusSign, setPlusSign, handlePlusSignClick }
+  groups, // { groupDepthByGroupIdRef, groupTitleRectsRef, groupsByIdRef, startGroupDragAtPointRef, selectedGroup, setSelectedGroup }
+  marquee, // { beginMarquee, updateMarquee, endMarquee }
+  connection, // { beginConnectionDrawFromNode, startedOnNode }
+  canvasSize, containerRef, storeActions, textSettings,
 }) {
+  const { panRef: panOffsetRef, zoomRef: zoomLevelRef } = transform;
+  const { findConnectionOrbAtPoint, toggleConnectionOrbArrow } = orbs;
+  const { plusSign, setPlusSign, handlePlusSignClick } = plus;
+  const {
+    groupDepthByGroupIdRef, groupTitleRectsRef, groupsByIdRef, startGroupDragAtPointRef, selectedGroup, setSelectedGroup,
+  } = groups;
+  const { beginMarquee, updateMarquee, endMarquee } = marquee;
+  const { beginConnectionDrawFromNode, startedOnNode } = connection;
+  // Store setters (stable), read here rather than passed in.
+  const {
+    setSelectedInstanceIds, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible,
+    setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow, setConnectionControlPanelVisible,
+    setConnectionControlPanelShouldShow,
+  } = useCanvasUIStore.getState();
   // A connection's endpoint orbs, as the controller sees them: what the
   // crosshair is standing on, and the one thing A does with it.
   //

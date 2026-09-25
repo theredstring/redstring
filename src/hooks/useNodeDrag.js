@@ -158,13 +158,8 @@ const retruncateLabel = (entry, span) => {
  *   - Connection drawing (separate concern)
  */
 export const useNodeDrag = ({
-  // Canvas transform (from useCanvasTransform)
-  panOffsetRef,
-  zoomLevelRef,
-  setPanOffset,
-  setZoomLevel,
-  settledZoomLevel,
-  settledPanOffset,
+  // Canvas transform: useCanvasTransform's API
+  transform,
 
   // Container / geometry
   containerRef,
@@ -181,36 +176,22 @@ export const useNodeDrag = ({
   // Store actions
   storeActions,
 
-  // Grid settings
-
   // Drag zoom settings
   dragZoomSettings,
 
-  // External refs for coordination
-  placedLabelsRef,
-
-  // DOM-bypass drag refs (from NodeCanvas)
-  nodeByIdRef,
-  baseDimsByIdRef,
-  edgeCurveInfoRef,
-  edgesByNodeIdRef,
-  edgesRef,
-  selectedInstanceIdsRef,
-  enableAutoRoutingRef,
-  routingStyleRef,
-  manhattanBendsRef,
-  cleanLaneSpacingRef,
-  cleanLaneOffsetsRef,
-  lombardiTangentsRef,
-  lombardiCurvatureRef,
-  labelAngleQuantumRef,
-  multiConnectionCurveRef,
-  groupsByNodeIdRef,
-  groupsByIdRef,
-  childGroupIdsByGroupIdRef,
-  anchorPositionUpdatesRef,
-  groupTitleRectsRef,
+  // DOM-bypass drag refs (NodeCanvas's mirror refs, one group; P4.08)
+  dragGeometryRefs,
 }) => {
+  const {
+    panRef: panOffsetRef, zoomRef: zoomLevelRef, setPan: setPanOffset, setZoom: setZoomLevel,
+    settledZoom: settledZoomLevel, settledPan: settledPanOffset,
+  } = transform;
+  const {
+    placedLabelsRef, nodeByIdRef, baseDimsByIdRef, edgeCurveInfoRef, edgesByNodeIdRef, edgesRef,
+    selectedInstanceIdsRef, enableAutoRoutingRef, routingStyleRef, manhattanBendsRef, cleanLaneSpacingRef,
+    cleanLaneOffsetsRef, lombardiTangentsRef, lombardiCurvatureRef, labelAngleQuantumRef, multiConnectionCurveRef,
+    groupsByNodeIdRef, groupsByIdRef, childGroupIdsByGroupIdRef, anchorPositionUpdatesRef, groupTitleRectsRef,
+  } = dragGeometryRefs;
   // Store-backed inputs, subscribed here rather than passed in (P4.07): the same
   // fields and selectors NodeCanvas subscribes to, so the values match its render.
   const activeGraphId = useGraphStore(state => state.activeGraphId);

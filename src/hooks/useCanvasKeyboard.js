@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
+import { DEFAULT_KEYBOARD_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { performUndo, performRedo } from '../store/historyActions.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
@@ -15,6 +16,11 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 3.0;
 
 export const useCanvasKeyboard = ({
+    // Controllers and shared input state (P4.09), unpacked below under the names
+    // this hook has always used.
+    transform,  // useCanvasTransform: pan/zoom refs, setters, settled view, DOM write, settle, label sync
+    nodeDrag,   // useNodeDrag: the drag in flight and its per-frame update
+    gestures,   // the shared gesture refs (NodeCanvas)
     storeActions,
     graphsMap,
     clipboardRef,
@@ -23,47 +29,42 @@ export const useCanvasKeyboard = ({
     // holds something a connection can use — so it has to be told.
     onClipboardChange,
     keysPressed,
-    mousePositionRef, // {x, y} in client coords
-    panOffset,
-    panOffsetRef,
-    setPanOffset,
-    zoomLevel,
-    zoomLevelRef,
-    setZoomLevel,
-    applyTransform,  // direct DOM transform write (no React state)
-    flushSettle,     // flush settled React state (call when movement ends)
-    syncLabelsForGesture, // drop connection labels for the duration of the movement
-    onTransformChange, // synchronous callback fired on every pan/zoom mutation (drives culling)
-    isPanningOrZoomingRef, // shared ref — guards view-save timeout from firing during movement
     canvasSize, // {width, height, offsetX, offsetY}
     viewportSize, // {width, height}
     viewportBounds, // {x, y, width, height}
-    draggingNodeInfo,
-    draggingNodeInfoRef,
-    performDragUpdateRef,
-    // In-flight connection draw, if any, and the callback that re-projects the
-    // pointer onto the line's free end. Both refs: the loop mounts once, and the
-    // reprojection writes the SVG directly rather than through React state.
-    drawingConnectionFromRef,
-    reprojectConnectionEndRef,
-    // Called with each frame's APPLIED pan displacement while a pan is running.
-    // NodeCanvas treats that displacement as pointer-relative motion, so panning
-    // with a node held down starts a connection draw the same way dragging the
-    // pointer off the node would.
-    onPanTravelRef,
-    isAnimatingZoomRef,
+    // Per-frame calls the movement loop makes (all refs: the loop mounts once):
+    // - reprojectConnectionEndRef: re-projects the pointer onto an in-flight
+    //   connection draw's free end, writing the SVG directly.
+    // - onPanTravelRef: called with each frame's APPLIED pan displacement while a
+    //   pan is running. NodeCanvas treats that displacement as pointer-relative
+    //   motion, so panning with a node held down starts a connection draw the
+    //   same way dragging the pointer off the node would.
+    // - gamepadTickRef: the game controller tick, called once per frame from this
+    //   loop rather than from a second rAF of its own. Pan/zoom are ref-owned and
+    //   written straight to the DOM, and the codebase keeps exactly ONE writer per
+    //   frame (see the header note in useCanvasTransform.js) — so the gamepad
+    //   returns deltas and this loop folds them in alongside the keyboard's,
+    //   inheriting the clamp, the label suppression, the drag re-projection and
+    //   the settle bookkeeping.
+    frameHooks,
     minZoom, // dynamic MIN_ZOOM from NodeCanvas — must match wheel/trackpad clamp
     maxZoom, // dynamic MAX_ZOOM from NodeCanvas — must match wheel/trackpad clamp
-    // Game controller tick, called once per frame from this loop rather than
-    // from a second rAF of its own. Pan/zoom are ref-owned and written straight
-    // to the DOM, and the codebase keeps exactly ONE writer per frame (see the
-    // header note in useCanvasTransform.js) — so the gamepad returns deltas and
-    // this loop folds them in alongside the keyboard's, inheriting the clamp,
-    // the label suppression, the drag re-projection and the settle bookkeeping.
-    gamepadTickRef,
-    keyboardSettings,
     onDeleteNodes,
 }) => {
+    const {
+        settledPan: panOffset, panRef: panOffsetRef, setPan: setPanOffset, settledZoom: zoomLevel, zoomRef: zoomLevelRef,
+        setZoom: setZoomLevel,
+        applyTransform,  // direct DOM transform write (no React state)
+        flushSettle,     // flush settled React state (call when movement ends)
+        syncLabelsForGesture, // drop connection labels for the duration of the movement
+    } = transform;
+    // Synchronous callback fired on every pan/zoom mutation (drives culling).
+    const onTransformChange = () => transform.onTransformChangeRef.current?.();
+    const { draggingNodeInfo, draggingNodeInfoRef, performDragUpdateRef, isAnimatingZoomRef } = nodeDrag;
+    // isPanningOrZoomingRef: shared ref — guards view-save timeout from firing during movement.
+    const { mousePositionRef, isPanningOrZooming: isPanningOrZoomingRef, drawingConnectionFromRef } = gestures;
+    const { reprojectConnectionEndRef, onPanTravelRef, gamepadTickRef } = frameHooks;
+    const keyboardSettings = useGraphStore(state => state.keyboardSettings || DEFAULT_KEYBOARD_SETTINGS);
     // Store-backed inputs, subscribed here rather than passed in (P4.08): the same
     // fields and selectors NodeCanvas subscribes to, so the values match its render.
     const activeGraphId = useGraphStore(state => state.activeGraphId);

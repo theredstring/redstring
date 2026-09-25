@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef } from 'react';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import { FORCE_LAYOUT_DEFAULTS, LAYOUT_ITERATION_PRESETS, deriveGroupVisualBounds } from '../services/graphLayoutService.js';
 import { runLayout, cancelLayout } from '../services/layoutRunner.js';
-import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
+import { resolveEdgeLabelFontSize } from '../services/layoutGeometry.js';
+import useGraphStore from '../store/graphStore.js';
+import { DEFAULT_FORCE_TUNER_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { withEmptyGroupPlaceholders } from '../services/groupLayout.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
@@ -107,7 +109,6 @@ function resolveConnectionName(edge, nodePrototypesMap, edgePrototypesMap) {
 }
 
 export const useGraphLayout = ({
-    activeGraphId,
     storeActions,
     graphsMap,
     nodes,
@@ -115,41 +116,9 @@ export const useGraphLayout = ({
     baseDimsById,
     canvasSize,
     resetConnectionLabelCache,
-    // Prototype maps for resolving edge connection names
-    nodePrototypesMap = null,
-    edgePrototypesMap = null,
-    // Layout settings
-    layoutScalePreset = 1.0,
-    layoutScaleMultiplier = 1.0,
-    layoutIterationPreset = 100,
-    groupLayoutAlgorithm = 'force-directed',
-    // How the edges will be DRAWN. Lombardi routes every edge as an arc, which
-    // changes both which layout suits a given shape and how much room each edge
-    // needs — the conditional dispatcher in patternLayouts reads both of these.
-    routingStyle = 'straight',
-    lombardiCurvature = 1.0,
-    // Whether a non-straight routing style may override the layout algorithm.
-    // Escape hatch: set false to keep the chosen algorithm no matter what the
-    // edges are drawn with.
-    routingDrivesAlgorithm = true,
-    // Which solver runs the placement. See FORCE_LAYOUT_DEFAULTS.solver.
-    layoutSolver = 'force',
-    // Force tuner settings — individual force params for consistency with AI and interactive sim
-    forceTunerSettings = null,
-    // Resolved connection label font (base × textSettings.fontSize ×
-    // connectionLabelSize) so layout reserves the space labels actually render at
-    connectionFontSize = EDGE_LABEL_BASE_FONT_SIZE,
-    // The group title tab, at the size the canvas draws it. The solver has to
-    // reserve the tab it will actually get: its own fallback used to guess the
-    // width from character count and came out roughly half size, so every
-    // group's name overhung the rect the layout had kept clear for it.
-    groupLabelFontSize = null,
-    groupLabelScale = 1,
-    // Zoom/pan control for zoom-to-fit after auto-layout
-    setZoomLevel = null,
-    setPanOffset = null,
-    // Full transform controller (useCanvasTransform) — when provided, the
-    // camera tweens to the zoom-to-fit target alongside the node motion
+    // Full transform controller (useCanvasTransform): its pan/zoom setters do the
+    // zoom-to-fit after auto-layout, and the camera tweens to that target
+    // alongside the node motion.
     canvasTransform = null,
     viewportSize = null,
     // Panel-adjusted visible viewport (useViewportBounds) — the same rect the
@@ -159,10 +128,6 @@ export const useGraphLayout = ({
     viewportBounds = null,
     containerRef = null,
     maxZoom = 3,
-    // Grid snapping — auto-layout aligns final positions to grid vertices per snapMode
-    gridMode = 'off',
-    gridSize = 200,
-    gridSnapMode = 'if-enabled',
     // Live drag state. The auto-layout animation rewrites every node's position
     // each frame; if it runs while the user is grabbing/dragging a node it fights
     // (and overwrites) the drag, making nodes feel unpickable — notably while the
@@ -170,6 +135,49 @@ export const useGraphLayout = ({
     // ref to skip starting, and to freeze an in-flight animation, on interaction.
     draggingNodeInfoRef = null,
 }) => {
+    const setZoomLevel = canvasTransform?.setZoom ?? null;
+    const setPanOffset = canvasTransform?.setPan ?? null;
+    // Store-backed inputs, subscribed here with the selectors NodeCanvas used to
+    // pass them through (P4): the same values each render.
+    const activeGraphId = useGraphStore(state => state.activeGraphId);
+    // Prototype maps for resolving edge connection names
+    const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
+    const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
+    // Layout settings
+    const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
+    const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
+    const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
+    const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
+    // How the edges will be DRAWN. Lombardi routes every edge as an arc, which
+    // changes both which layout suits a given shape and how much room each edge
+    // needs — the conditional dispatcher in patternLayouts reads both of these.
+    const routingStyle = useGraphStore(state => state.autoLayoutSettings?.routingStyle || 'straight');
+    const lombardiCurvature = useGraphStore(state => state.autoLayoutSettings?.lombardiCurvature ?? 1.0);
+    // Whether a non-straight routing style may override the layout algorithm.
+    // Escape hatch: set false to keep the chosen algorithm no matter what the
+    // edges are drawn with.
+    const routingDrivesAlgorithm = useGraphStore(state => state.autoLayoutSettings?.routingDrivesAlgorithm !== false);
+    // Which solver runs the placement. See FORCE_LAYOUT_DEFAULTS.solver.
+    const layoutSolver = useGraphStore(state => state.autoLayoutSettings?.solver || 'force');
+    // Force tuner settings — individual force params for consistency with AI and interactive sim
+    const forceTunerSettings = useGraphStore(state => state.forceTunerSettings || DEFAULT_FORCE_TUNER_SETTINGS);
+    // Grid snapping — auto-layout aligns final positions to grid vertices per snapMode
+    const gridMode = useGraphStore(state => state.gridSettings?.mode || 'off');
+    const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
+    const gridSnapMode = useGraphStore(state => state.gridSettings?.snapMode || 'if-enabled');
+    const textSettings = useGraphStore(state => state.textSettings);
+    const connectionLabelSize = useGraphStore(state => state.connectionLabelSize ?? 1.0);
+    // Resolved connection label font (base × textSettings.fontSize ×
+    // connectionLabelSize) so layout reserves the space labels actually render at
+    const connectionFontSize = resolveEdgeLabelFontSize(textSettings, connectionLabelSize);
+    // The group title tab, at the size the canvas draws it (see
+    // groupLabelFontSize/groupLabelScale in the group render). The solver has to
+    // reserve the tab it will actually get: its own fallback used to guess the
+    // width from character count and came out roughly half size, so every
+    // group's name overhung the rect the layout had kept clear for it. Plain
+    // numbers, because the solver runs in a worker.
+    const groupLabelScale = textSettings?.nodeScale ?? 1.0;
+    const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * (textSettings?.nodeScale ?? 1.0);
     // Whether bulk auto-placement should snap to the grid, given the current
     // grid mode and the user's snap preference. The standalone snap-to-grid
     // action bypasses this (it's an explicit user request).

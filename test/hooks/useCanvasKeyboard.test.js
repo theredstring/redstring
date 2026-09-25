@@ -76,14 +76,39 @@ const UI_FIELDS = [
   'connectionNamePrompt', 'abstractionPrompt', 'newWebPrompt', 'isHeaderEditing', 'abstractionCarouselVisible',
 ];
 function seedStores(p) {
-  useGraphStore.setState({ activeGraphId: p.activeGraphId, nodePrototypes: p.nodePrototypesMap, edges: p.edgesMap });
+  useGraphStore.setState({ activeGraphId: p.activeGraphId, nodePrototypes: p.nodePrototypesMap, edges: p.edgesMap, keyboardSettings: p.keyboardSettings });
   const patch = {};
   for (const k of UI_FIELDS) patch[k] = p[k];
   useCanvasUIStore.setState(patch);
 }
+// The hook takes its inputs in groups (P4.09); the tests build them flat.
+function groupKeyboardParams(p) {
+  return {
+    transform: {
+      settledPan: p.panOffset, panRef: p.panOffsetRef, setPan: p.setPanOffset, settledZoom: p.zoomLevel,
+      zoomRef: p.zoomLevelRef, setZoom: p.setZoomLevel, applyTransform: p.applyTransform, flushSettle: p.flushSettle,
+      syncLabelsForGesture: p.syncLabelsForGesture, onTransformChangeRef: { current: p.onTransformChange },
+    },
+    nodeDrag: {
+      draggingNodeInfo: p.draggingNodeInfo, draggingNodeInfoRef: p.draggingNodeInfoRef,
+      performDragUpdateRef: p.performDragUpdateRef, isAnimatingZoomRef: p.isAnimatingZoomRef,
+    },
+    gestures: {
+      mousePositionRef: p.mousePositionRef, isPanningOrZooming: p.isPanningOrZoomingRef,
+      drawingConnectionFromRef: p.drawingConnectionFromRef,
+    },
+    frameHooks: {
+      reprojectConnectionEndRef: p.reprojectConnectionEndRef, onPanTravelRef: p.onPanTravelRef, gamepadTickRef: p.gamepadTickRef,
+    },
+    storeActions: p.storeActions, graphsMap: p.graphsMap, clipboardRef: p.clipboardRef,
+    onClipboardChange: p.onClipboardChange, keysPressed: p.keysPressed, canvasSize: p.canvasSize,
+    viewportSize: p.viewportSize, viewportBounds: p.viewportBounds, minZoom: p.minZoom, maxZoom: p.maxZoom,
+    onDeleteNodes: p.onDeleteNodes,
+  };
+}
 function renderKeyboard(initialProps) {
   seedStores(initialProps);
-  const r = renderHook((p) => useCanvasKeyboard(p), { initialProps });
+  const r = renderHook((p) => useCanvasKeyboard(groupKeyboardParams(p)), { initialProps });
   return { ...r, rerender: (p) => { act(() => seedStores(p)); r.rerender(p); } };
 }
 

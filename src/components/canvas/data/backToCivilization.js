@@ -1,5 +1,7 @@
 import { getNodeDimensions } from '../../../utils.js';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import useGraphStore from '../../../store/graphStore.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { analyzeNodeDistribution } from '../../../utils/clusterAnalysis.js';
 import { backToCivilization } from '../camera/backToCivilization.js';
 import { MAX_ZOOM } from '../../../constants';
@@ -89,12 +91,24 @@ export function computeRelevantNodesVisible(ctx) {
 
 /** Back to Civilization: when the button shows (after the startup and appearance delays), the optional cluster analysis it aims at, and the click (moved verbatim from NodeCanvas, wave 6). */
 export function useBackToCivilization({
-  abstractionCarouselVisible, abstractionPrompt, activeGraphId, baseDimsById, canvasSize,
-  connectionNamePrompt, containerRef, draggingNodeInfo, draggingNodeInfoRef, drawingConnectionFrom,
-  hasUniverseFile, isAnimatingZoomRef, isPanning, isUniverseLoaded, isViewReady, nodeNamePrompt,
-  nodes, panOffset, plusSign, selectedNodeIdForPieMenu, selectionStart, transform, viewportSize,
-  zoomLevel,
+  transform, // the settled view, and the camera the click animates
+  nodeDrag, // the drag in flight (hide while dragging; don't fly mid-drag)
+  // NodeCanvas state that hides the button while the user is busy.
+  canvasState, // { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign }
+  baseDimsById, canvasSize, containerRef, nodes, viewportSize,
 }) {
+  const { settledPan: panOffset, settledZoom: zoomLevel } = transform;
+  const { draggingNodeInfo, draggingNodeInfoRef, isAnimatingZoomRef } = nodeDrag;
+  const { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign } = canvasState;
+  // Store-backed inputs, subscribed here with NodeCanvas's selectors (P4).
+  const activeGraphId = useGraphStore(state => state.activeGraphId);
+  const hasUniverseFile = useGraphStore(state => state.hasUniverseFile);
+  const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
+  const abstractionCarouselVisible = useCanvasUIStore(s => s.abstractionCarouselVisible);
+  const abstractionPrompt = useCanvasUIStore(s => s.abstractionPrompt);
+  const connectionNamePrompt = useCanvasUIStore(s => s.connectionNamePrompt);
+  const nodeNamePrompt = useCanvasUIStore(s => s.nodeNamePrompt);
+  const selectedNodeIdForPieMenu = useCanvasUIStore(s => s.selectedNodeIdForPieMenu);
   // Track if the component has been mounted long enough to show BackToCivilization
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
   const [backToCivilizationDelayComplete, setBackToCivilizationDelayComplete] = useState(false);

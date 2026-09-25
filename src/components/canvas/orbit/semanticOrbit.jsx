@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EMPTY_ORBIT } from './orbitConstants.js';
+import { EMPTY_ORBIT, ENABLE_ORBIT_DIM, ORBIT_DIM_MARGIN } from './orbitConstants.js';
 import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect } from './orbitData.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { placeOrbitCandidate } from './orbitActions.js';
@@ -7,12 +7,16 @@ import OrbitOverlay from '../../OrbitOverlay.jsx';
 
 /** The semantic orbit: its candidates and loading state, the dim rect, the fetch, leaving orbit on deselect or exit, placing a clicked candidate, and the overlay NodeLayer places around the active node (moved verbatim from NodeCanvas, P5.08). */
 export function useSemanticOrbit({
-  ENABLE_ORBIT_DIM, ORBIT_DIM_MARGIN, activeGraphId, baseDimsById, canvasSize, clearHoverImmediate,
-  commitHoverTarget, gridMode, nodePrototypesMap, nodes, orbitControlRef, overlayGroupEl,
-  panOffsetRef, selectedInstanceIds, semanticOrbitActive, semanticOrbitActiveRef,
-  setNodeControlPanelShouldShow, setNodeControlPanelVisible, setOrbitFrame, snapToGridAnimated,
-  storeActions, transform, viewportSizeRef, zoomLevelRef,
+  transform, // pan/zoom refs and the layer transform write
+  hover, // { commitHoverTarget, clearHoverImmediate }
+  orbitRefs, // { orbitControlRef, semanticOrbitActiveRef, setOrbitFrame }: declared early in NodeCanvas
+  activeGraphId, baseDimsById, canvasSize, gridMode, nodePrototypesMap, nodes, overlayGroupEl,
+  selectedInstanceIds, semanticOrbitActive, snapToGridAnimated, storeActions, viewportSizeRef,
 }) {
+  const { panRef: panOffsetRef, zoomRef: zoomLevelRef } = transform;
+  const { commitHoverTarget, clearHoverImmediate } = hover;
+  const { orbitControlRef, semanticOrbitActiveRef, setOrbitFrame } = orbitRefs;
+  const { setNodeControlPanelShouldShow, setNodeControlPanelVisible } = useCanvasUIStore.getState();
   const [orbitData, setOrbitDataState] = useState(EMPTY_ORBIT);
   const [orbitLoading, setOrbitLoadingState] = useState(false);
   // What each was last set to, pending updates included, so the search

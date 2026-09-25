@@ -687,102 +687,122 @@ const readButtons = (gamepad, state) => {
 const anyJust = (state) => state.justPressed.some(Boolean);
 
 export const useGamepad = ({
-  // --- Canvas geometry (all refs; read per frame) ---
-  containerRef,
-  viewportBoundsRef,
-  panOffsetRef,
-  zoomLevelRef,
-  canvasSizeRef,
-  // The shared "where is the pointer" ref. Overwritten with the crosshair while
-  // controller mode is active — see the header note.
-  mousePositionRef,
-  nodesRef,
-  visibleNodeIdsRef,
-
-  // --- Node drag ---
-  startDragForNodeRef,
-  draggingNodeInfoRef,
-  dragPhaseRef,
-  // NodeCanvas's handleMouseUp, via a ref. Called with a synthetic
-  // `{clientX, clientY}` so the drop reuses the real release path — group-drop
-  // detection, save signalling and all — instead of reimplementing it.
-  releasePointerRef,
-  // Starts a connection draw from a node, as the left trigger does. Returns
-  // true if a draw actually began.
-  startConnectionFromNodeRef,
-  // Non-null while a connection draw is in flight.
-  drawingConnectionFromRef,
-  // The plus sign and the things A and B can do to it: `{ sign, halfHit,
-  // create, activate, dismiss }`. See NodeCanvas.
-  plusSignControlRef,
-  // Groups, as the controller sees them: `{ findAt, select, dismiss,
-  // selectedId, startDrag }`. See NodeCanvas.
-  groupControlRef,
-  // The selection box: `{ begin, update, end }`. See NodeCanvas.
-  marqueeControlRef,
-  // The canvas context menu, as the pad raises it: `{ open, close }`. The same
-  // menu right-click puts up, with the same options. See NodeCanvas.
-  canvasContextMenuControlRef,
-  // The overlay panel resizers, faked as a pointer drag: `{ begin, by, end }`.
-  // See NodeCanvas.
-  panelResizeControlRef,
-
-  // --- Selection ---
-  setSelectedInstanceIds,
-  // The live instance selection, read per frame to tell whether the bottom
-  // panel still has anything to be about.
-  selectedInstanceIdsRef,
-
-  // --- Hover ---
-  commitHoverTarget,
-  clearHoverImmediate,
-
-  // --- Pie menu ---
-  pieMenuButtonsRef,
-  pieMenuPageCountRef,
-  // The connection menu's live buttons and the slope of the edge they are laid
-  // along. Kept separate from the node menu's: only one is ever open, but they
-  // are different arrays with different layouts.
-  edgePieMenuButtonsRef,
-  edgeAnchorAngleRef,
-  // Client-space `(x, y, pointerKind) => { edgeId, connection } | null`, the
-  // same nearest-wins hit test the mouse click and hover paths use.
-  findEdgeAtClientPointRef,
-  // A hovered/selected connection's endpoint direction toggles: `{ findAt,
-  // toggle }`. See NodeCanvas.
-  connectionOrbControlRef,
-  // The instance id the open pie menu belongs to. Pie actions take it as their
-  // first argument, exactly as PieMenu passes `node?.id` on a click.
-  pieMenuNodeIdRef,
-  setPieMenuPage,
-  onPieMenuHoverChange,
-
-  // --- Camera ---
-  // The drift tweens pan through this. It deliberately does NOT go through
-  // animateCanvasView: that sets the shared isAnimatingZoomRef, and a drift
-  // cancelling itself would then clear a flag belonging to whatever took the
-  // camera next — which is exactly what glitched a node lift. See gamepadAim.js.
-  setPan,
-  // True while something else owns the camera: drag-zoom on lift,
-  // focus-on-select, carousel framing. The drift stands down for all of it.
-  isAnimatingZoomRef,
-  // The carousel locks the view entirely.
-  abstractionCarouselVisibleRef,
-  // Mirrors whether a drift is running, so NodeCanvas can exempt it from
-  // connection-label suppression the same way it exempts its own camera moves.
-  driftingRef,
-
-  // --- Semantic orbit ---
-  // Whether the orbit is open, and the surface OrbitOverlay exposes for driving
-  // it. Both are read every frame; see the orbit block in the tick.
-  semanticOrbitActiveRef,
-  orbitControlRef,
-
+  // Grouped by what the controller reads (P4.07); each group is unpacked below
+  // under the names the hook has always used.
+  view, // Canvas geometry (all refs; read per frame)
+  drag, // Node drag
+  targets, // What the controller can aim at and act on
+  selection, // Selection
+  hover, // Hover
+  pie, // Pie menu
+  camera, // Camera
+  orbit, // Semantic orbit
   // --- Gating ---
   activeGraphIdRef,
   minZoom,
   maxZoom,
 }) => {
+  // --- Canvas geometry (all refs; read per frame) ---
+  const {
+    containerRef,
+    viewportBoundsRef,
+    panOffsetRef,
+    zoomLevelRef,
+    canvasSizeRef,
+    // The shared "where is the pointer" ref. Overwritten with the crosshair while
+    // controller mode is active — see the header note.
+    mousePositionRef,
+    nodesRef,
+    visibleNodeIdsRef,
+  } = view;
+  // --- Node drag ---
+  const {
+    startDragForNodeRef,
+    draggingNodeInfoRef,
+    dragPhaseRef,
+    // NodeCanvas's handleMouseUp, via a ref. Called with a synthetic
+    // `{clientX, clientY}` so the drop reuses the real release path — group-drop
+    // detection, save signalling and all — instead of reimplementing it.
+    releasePointerRef,
+  } = drag;
+  // --- Targets ---
+  const {
+    // Starts a connection draw from a node, as the left trigger does. Returns
+    // true if a draw actually began.
+    startConnectionFromNodeRef,
+    // Non-null while a connection draw is in flight.
+    drawingConnectionFromRef,
+    // The plus sign and the things A and B can do to it: `{ sign, halfHit,
+    // create, activate, dismiss }`. See NodeCanvas.
+    plusSignControlRef,
+    // Groups, as the controller sees them: `{ findAt, select, dismiss,
+    // selectedId, startDrag }`. See NodeCanvas.
+    groupControlRef,
+    // The selection box: `{ begin, update, end }`. See NodeCanvas.
+    marqueeControlRef,
+    // The canvas context menu, as the pad raises it: `{ open, close }`. The same
+    // menu right-click puts up, with the same options. See NodeCanvas.
+    canvasContextMenuControlRef,
+    // The overlay panel resizers, faked as a pointer drag: `{ begin, by, end }`.
+    // See NodeCanvas.
+    panelResizeControlRef,
+    // Client-space `(x, y, pointerKind) => { edgeId, connection } | null`, the
+    // same nearest-wins hit test the mouse click and hover paths use.
+    findEdgeAtClientPointRef,
+    // A hovered/selected connection's endpoint direction toggles: `{ findAt,
+    // toggle }`. See NodeCanvas.
+    connectionOrbControlRef,
+  } = targets;
+  // --- Selection ---
+  const {
+    setSelectedInstanceIds,
+    // The live instance selection, read per frame to tell whether the bottom
+    // panel still has anything to be about.
+    selectedInstanceIdsRef,
+  } = selection;
+  // --- Hover ---
+  const {
+    commitHoverTarget,
+    clearHoverImmediate,
+  } = hover;
+  // --- Pie menu ---
+  const {
+    pieMenuButtonsRef,
+    pieMenuPageCountRef,
+    // The connection menu's live buttons and the slope of the edge they are laid
+    // along. Kept separate from the node menu's: only one is ever open, but they
+    // are different arrays with different layouts.
+    edgePieMenuButtonsRef,
+    edgeAnchorAngleRef,
+    // The instance id the open pie menu belongs to. Pie actions take it as their
+    // first argument, exactly as PieMenu passes `node?.id` on a click.
+    pieMenuNodeIdRef,
+    setPieMenuPage,
+    onPieMenuHoverChange,
+  } = pie;
+  // --- Camera ---
+  const {
+    // The drift tweens pan through this. It deliberately does NOT go through
+    // animateCanvasView: that sets the shared isAnimatingZoomRef, and a drift
+    // cancelling itself would then clear a flag belonging to whatever took the
+    // camera next — which is exactly what glitched a node lift. See gamepadAim.js.
+    setPan,
+    // True while something else owns the camera: drag-zoom on lift,
+    // focus-on-select, carousel framing. The drift stands down for all of it.
+    isAnimatingZoomRef,
+    // The carousel locks the view entirely.
+    abstractionCarouselVisibleRef,
+    // Mirrors whether a drift is running, so NodeCanvas can exempt it from
+    // connection-label suppression the same way it exempts its own camera moves.
+    driftingRef,
+  } = camera;
+  // --- Semantic orbit ---
+  const {
+    // Whether the orbit is open, and the surface OrbitOverlay exposes for driving
+    // it. Both are read every frame; see the orbit block in the tick.
+    semanticOrbitActiveRef,
+    orbitControlRef,
+  } = orbit;
   // Controller mode is on. React state because the crosshair has to mount; it
   // flips at most twice per input-device switch, never per frame.
   const [active, setActive] = useState(false);

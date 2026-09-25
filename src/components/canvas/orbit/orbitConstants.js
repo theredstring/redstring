@@ -46,3 +46,25 @@ export const ORBIT_FIT_PADDING = 0.06;
 // stops moving on its own rather than needing a separate rule to stop it.
 // `window.__orbitZoom = 0.18` overrides it live.
 export const ORBIT_FIT_MIN_ZOOM = 0.22;
+
+// (Moved from NodeCanvas, wave 6.)
+// ORBIT DIM — the scrim behind the orbit overlay. Set false to drop it
+// entirely (the rect stays, transparent and static at full canvas size, so
+// orbit's click-anywhere-to-exit keeps working at no paint cost).
+//
+// This was the cause of the orbit-mode tile-memory flicker, but the culprit
+// was its SIZE, not its existence: it used to span 3x the viewport per side,
+// i.e. ~9 viewport areas of 70% black painting above the whole graph. A
+// translucent rect makes every tile it covers non-opaque, forcing the
+// compositor to blend everything beneath rather than discard what is hidden.
+// At viewport size plus a small margin the same effect costs a fraction of
+// that. See updateOrbitDimRect.
+// OFF: shrinking it to viewport-size was not enough. A translucent element
+// INSIDE the content group makes the SVG's own tiles non-opaque at any size,
+// so the whole graph beneath has to be blended rather than discarded. The
+// scrim has to leave the SVG raster entirely to be affordable — see the note
+// on updateOrbitDimRect.
+export const ENABLE_ORBIT_DIM = false;
+// Extra coverage on each side as a fraction of the viewport. Only has to
+// survive between transform ticks, and the rect is repositioned on every one.
+export const ORBIT_DIM_MARGIN = 0.1;
