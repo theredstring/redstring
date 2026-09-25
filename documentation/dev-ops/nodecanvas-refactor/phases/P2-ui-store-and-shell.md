@@ -128,7 +128,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
   - the loading, error and empty states (the empty state's "create" button calls `openNewWebPrompt`, which becomes a store action)
   - `GitReconnectModal`, `StorageSetupModal`, `SaveStatusDisplay`
   - the reconnect and retry logic
-  - About 1,000 lines. Status: todo.
+  - About 1,000 lines. Status: **done** (reports/P2.06c.md): `hosts/UniverseHost` + `canvas/UniverseScreens`; reconnect state in canvasUIStore; NodeCanvas 17,215 → 16,464. Onboarding, reconnect and redirect resume go on the end-of-P2 smoke test.
 - **P2.06d SearchHosts:** header searches plus the New Web prompt. Navigation goes through the existing `rs-navigate-to` event or a canvas command. Status: **done** (reports/P2.06d.md): `hosts/SearchHosts`; navigation is the `navigateToPrototypeInstances` command.
 - **P2.06e Header file operations → a plain module** (`src/services/` or `src/utils/`), about 170 lines inlined in the Header JSX. Status: done with P2.08 (`src/services/universeFileActions.js`).
 - **P2.06f ForceSim + LayoutProgress.**

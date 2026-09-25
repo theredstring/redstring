@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.06c done (Claude, orchestrator)
+
+- **P2.06c:** `UniverseHost` takes the universe lifecycle verbatim (workspace start-up, onboarding, GitHub reconnect, redirect resume, save pill); `UniverseScreens` the loading and not-loaded screens. Reconnect state moved to canvasUIStore. NodeCanvas.jsx 17,215 → **16,464**. F24 added.
+- Onboarding, the reconnect modal and the redirect resume can't be driven by the flows; they're on the end-of-P2 smoke-test list.
+- **Gates:** `test:ci` PASS, Playwright 51 passed (F12 expected), `lint:undef` PASS; shell screenshots within noise.
+
+---
+
 ## 2026-09-25: P2.06d done (Claude, orchestrator)
 
 - **P2.06d:** `SearchHosts` renders the header searches and New Thing; the component search's camera move is the `navigateToPrototypeInstances` command. NodeCanvas.jsx **17,215**. F23 added.

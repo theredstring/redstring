@@ -63,7 +63,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Store actions | `const storeActions` | 942 | stays (or import directly) | — |
 | Panel widths + resizers | `leftPanelWidth`, `beginDrag`, `applyResizeUpdate`, `onDragMove`, `endDrag`, `renderPanelResizers` | 1013–1421 | `hosts/PanelResizers` | P1.05, P2.12 |
 | Store subscriptions | `const activeGraphId = useGraphStore` … `hasUniverseFile` | 1426–1529 | narrowed to the active graph; shell-only ones leave with the shell | P3.01, P2 |
-| Universe loading / onboarding / git reconnect | `loadingUniverseName`, `resolveGitReconnectTarget`, `openReconnect`, `retryUniverseLoad`, `openUniversesPanel`, `showStorageSetupModal` | 1537–1564, 2282–2786 | `hosts/UniverseHost` | P2.06c |
+| Universe loading / onboarding / git reconnect | — | — | **moved:** `hosts/UniverseHost` + `canvas/UniverseScreens` (P2.06c); the dead `openOnboardingModal` listener stays (B-03, D-17) | done |
 | hydratedNodes | `const hydratedNodes` | 1633 | canvas-internal (no longer a Panel prop since P2.09; TypeList reads the stores since P2.10) | P1.08, P3 |
 | Header data | `headerGraphs`, `cleanupOrphanedGraphs` effect, `isFullscreen`, `toggleFullscreen`, `trackpadZoomEnabled` | 1757–1914 | **moved** to `hosts/HeaderHost` (P2.08); `trackpadZoomEnabled` → canvasUIStore. The orphan cleanup effect stays (data hygiene on `nodePrototypes`) | P2.08 |
 | Core derived data | `const nodes = useMemo`, `const edges = useMemo`, `nodeById`, `baseDimsById`, `groupStructure`, mirror refs (`nodeByIdRef`, …) | 2005–2280 | stable identity, then selector hooks | P1.08, P3.01 |
@@ -147,7 +147,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Prompts IIFE | `{(() => {` after `.canvas-area` content (the single UnifiedSelector) | 18234–18544 | `PromptHosts` (header searches and New Web **moved** to `hosts/SearchHosts`, P2.06d) | P5.06 |
 | Hurtle orb | `hurtleAnimation &&` | 18545–18562 | `HurtleOrb` | P1.06 |
 | Right Panel | — | — | **moved:** `hosts/PanelHost`, rendered by CanvasShell | done |
-| SaveStatusDisplay | `<SaveStatusDisplay` | 18586–18596 | TypeList **moved** (`hosts/TypeListHost` in CanvasShell); SaveStatusDisplay → UniverseHost | P2.06c |
+| SaveStatusDisplay | — | — | **moved:** `hosts/UniverseHost` (P2.06c) | done |
 | Control panels, carousel, colour pickers | `<NodeControlPanel`, `<UnifiedBottomControlPanel`, `<ConnectionControlPanel`, `<AbstractionControlPanel`, `<AbstractionCarousel`, `<ColorPicker` | 18597–18845 | P5 hosts | P5.04–P5.06 |
 | GitReconnect, StorageSetup, confirm dialogs, WizardIntentModal, self-loop dialog | `<GitReconnectModal`, `<StorageSetupModal`, `<CanvasConfirmDialog`, `<WizardIntentModal` | 18847–19088 | `UniverseHost`, `PromptHosts`, `WizardHost` | P2.06c, P5.06 |
 | AutoGraph, ForceSim, Help, Settings, Merge, DebugOverlay, LayoutProgress | `<AutoGraphModal` … `<LayoutProgressIndicator` | 19089–19250 | `ModalHosts`, `SyncDebugHost` | P2.06a, P2.06b, P2.06f |
