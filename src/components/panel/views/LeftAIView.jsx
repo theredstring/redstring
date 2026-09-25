@@ -569,11 +569,29 @@ const WIZARD_EVENT_DEBUG = (() => {
 const LeftAIView = ({ compact = false,
   active = true,
   activeGraphId,
-  graphsMap,
-  edgesMap,
-  nodePrototypesMap
 }) => {
   const theme = useTheme();
+  // The active web as plain values (P2.09). This view stays mounted while
+  // hidden, and taking the whole graphs Map re-rendered it, and the Panel
+  // around it, on every node move. Handlers read the store when they run.
+  const activeGraphExists = useGraphStore(s => Boolean(activeGraphId && s.graphs.has(activeGraphId)));
+  const activeGraphName = useGraphStore(s => (activeGraphId ? s.graphs.get(activeGraphId)?.name ?? null : null));
+  const activeGraphColor = useGraphStore(s => {
+    const graph = activeGraphId ? s.graphs.get(activeGraphId) : null;
+    if (!graph) return null;
+    const definingNodeId = graph.definingNodeIds?.[0];
+    return (definingNodeId && s.nodePrototypes.get(definingNodeId)?.color) || graph.color || NODE_DEFAULT_COLOR;
+  });
+  const activeGraphNodeCount = useGraphStore(s => {
+    const instances = activeGraphId ? s.graphs.get(activeGraphId)?.instances : null;
+    if (!instances) return 0;
+    return typeof instances.size === 'number' ? instances.size : Object.keys(instances).length;
+  });
+  const activeGraphEdgeCount = useGraphStore(s => {
+    const edgeIds = activeGraphId ? s.graphs.get(activeGraphId)?.edgeIds : null;
+    return Array.isArray(edgeIds) ? edgeIds.length : 0;
+  });
+  const graphCount = useGraphStore(s => (s.graphs && typeof s.graphs.size === 'number' ? s.graphs.size : 0));
   const [isConnected, setIsConnected] = React.useState(false);
   const [messages, setMessages] = React.useState([]);
   const [currentInput, setCurrentInput] = React.useState('');
@@ -929,44 +947,21 @@ const LeftAIView = ({ compact = false,
     return lines.join('\n');
   }, [contextUsage, costBreakdown]);
 
-  const [fileStatus, setFileStatus] = React.useState(null);
-  React.useEffect(() => {
-    let mounted = true;
-    const fetchFileStatus = async () => {
-      try {
-        const mod = fileStorage;
-        if (typeof mod.getFileStatus === 'function') {
-          const status = mod.getFileStatus();
-          if (mounted) setFileStatus(status);
-        }
-      } catch { }
-    };
-    fetchFileStatus();
-    const t = setInterval(fetchFileStatus, 3000);
-    return () => { mounted = false; clearInterval(t); };
-  }, []);
 
   // Auto-sync context chips with active graph
   React.useEffect(() => {
-    const graph = activeGraphId && graphsMap?.has(activeGraphId)
-      ? graphsMap.get(activeGraphId)
-      : null;
-    // Resolve the defining node's color (the node whose definition graph this is)
-    const definingNodeId = graph?.definingNodeIds?.[0];
-    const definingNode = definingNodeId ? nodePrototypesMap?.get(definingNodeId) : null;
-    const chipColor = definingNode?.color || graph?.color || NODE_DEFAULT_COLOR;
     setContextItems(prev => prev.map(item => {
       if (item.type === 'activeGraph') {
         return {
           ...item,
           id: activeGraphId || null,
-          label: graph ? `${graph.name || 'Unnamed'} (Web)` : 'No Active Web',
-          color: graph ? chipColor : null
+          label: activeGraphExists ? `${activeGraphName || 'Unnamed'} (Web)` : 'No Active Web',
+          color: activeGraphExists ? activeGraphColor : null
         };
       }
       return item;
     }));
-  }, [activeGraphId, graphsMap, nodePrototypesMap]);
+  }, [activeGraphId, activeGraphExists, activeGraphName, activeGraphColor]);
 
   // Load conversations from workspace on mount (Electron only).
   // On web, conversations are already hydrated synchronously from localStorage in the useState initializer above.
@@ -2158,6 +2153,7 @@ const LeftAIView = ({ compact = false,
   }, [addMessage]);
 
   const handleSendMessage = async (overrideInput, sendOptions) => {
+    const graphsMap = useGraphStore.getState().graphs;
     const inputToUse = typeof overrideInput === 'string' ? overrideInput : currentInput;
     if (!inputToUse.trim() && pendingAttachments.length === 0) return;
     // A run is already in flight — queue this ask (bound to the tab it targets)
@@ -2426,24 +2422,9 @@ const LeftAIView = ({ compact = false,
     addMessage('system', hadQueued ? 'Agent execution stopped by user (queued asks cleared).' : 'Agent execution stopped by user.');
   };
 
-  const getGraphInfo = () => {
-    if (!activeGraphId || !graphsMap || typeof graphsMap.has !== 'function' || !graphsMap.has(activeGraphId)) {
-      return { name: 'No active graph', nodeCount: 0, edgeCount: 0 };
-    }
-    const graph = graphsMap.get(activeGraphId);
-    if (!graph) {
-      return { name: 'No active graph', nodeCount: 0, edgeCount: 0 };
-    }
-    const nodeCount = graph.instances && typeof graph.instances.size === 'number' ? graph.instances.size : (graph.instances ? Object.keys(graph.instances).length : 0);
-    const edgeCount = Array.isArray(graph.edgeIds) ? graph.edgeIds.length : 0;
-    return {
-      name: graph.name || 'Unnamed graph',
-      nodeCount,
-      edgeCount
-    };
-  };
-  const graphInfo = getGraphInfo();
-  const graphCount = graphsMap && typeof graphsMap.size === 'number' ? graphsMap.size : 0;
+  const graphInfo = activeGraphExists
+    ? { name: activeGraphName || 'Unnamed graph', nodeCount: activeGraphNodeCount, edgeCount: activeGraphEdgeCount }
+    : { name: 'No active graph', nodeCount: 0, edgeCount: 0 };
 
   /**
    * @param {string|Array} question
@@ -2454,6 +2435,7 @@ const LeftAIView = ({ compact = false,
    *   replayed history, so every path that needs it must pass it explicitly.
    */
   const handleAutonomousAgent = async (question, persona = 'wizard', askOptions = {}) => {
+    const { graphs: graphsMap, nodePrototypes: nodePrototypesMap, edges: edgesMap } = useGraphStore.getState();
     const askToolPolicy = askOptions?.toolPolicy;
     // Retire this tab's plan only when it is FINISHED. This used to clear
     // unconditionally on every request, which made continuation impossible: the
@@ -3358,6 +3340,7 @@ const LeftAIView = ({ compact = false,
   };
 
   const handleNewConversation = () => {
+    const graphsMap = useGraphStore.getState().graphs;
     const newId = `conv_${Date.now()}`;
     const activeGraphData = activeGraphId && graphsMap ? graphsMap.get(activeGraphId) : null;
     const defaultTitle = activeGraphData?.name ? activeGraphData.name : 'New Chat';
@@ -3878,6 +3861,7 @@ const LeftAIView = ({ compact = false,
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexShrink: 0 }}>
             <button onClick={() => setSelectedTestTool(null)} className="ai-flat-button" style={{ padding: '6px 12px', fontSize: '11px', color: theme.canvas.textSecondary }}>Cancel</button>
             <button disabled={isProcessing} onClick={async () => {
+              const { graphs: graphsMap, nodePrototypes: nodePrototypesMap, edges: edgesMap } = useGraphStore.getState();
               const toolName = selectedTestTool.name;
               const isMcpTool = selectedTestTool.isMcpTool;
               let parsedArgs = {};

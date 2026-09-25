@@ -1,4 +1,4 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle, useRef, useCallback, useMemo, Suspense, lazy, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy, memo } from 'react';
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
@@ -426,47 +426,6 @@ const getInitialLastCustomWidth = (side, defaultValue) => {
 let panelRenderCount = 0; // Add counter outside component
 
 
-// PERFORMANCE FIX: Wrap Panel in memo to prevent re-renders during zoom
-// The Panel is a child of NodeCanvas, which re-renders on every zoom level change.
-// Without memo, both left and right Panels would re-render on every wheel event.
-// Custom comparison to avoid re-renders on hydratedNodes array reference changes
-// when the actual node data hasn't changed (e.g., only viewport state changed)
-const panelPropsAreEqual = (prevProps, nextProps) => {
-  // Compare all props except those that might have unstable references
-  const keysToCompare = [
-    'isExpanded', 'side', 'activeGraphId', 'graphName', 'graphDescription',
-    'leftPanelExpanded', 'rightPanelExpanded'
-  ];
-
-  for (const key of keysToCompare) {
-    if (prevProps[key] !== nextProps[key]) return false;
-  }
-
-  // For hydratedNodes, compare length and IDs instead of reference
-  const prevNodes = prevProps.hydratedNodes || [];
-  const nextNodes = nextProps.hydratedNodes || [];
-  if (prevNodes.length !== nextNodes.length) return false;
-  for (let i = 0; i < prevNodes.length; i++) {
-    if (prevNodes[i]?.id !== nextNodes[i]?.id) return false;
-  }
-
-  // For selectedInstanceIds, compare Set contents
-  const prevSelected = prevProps.selectedInstanceIds;
-  const nextSelected = nextProps.selectedInstanceIds;
-  if (prevSelected?.size !== nextSelected?.size) return false;
-  if (prevSelected && nextSelected) {
-    for (const id of prevSelected) {
-      if (!nextSelected.has(id)) return false;
-    }
-  }
-
-  // Callbacks are stable due to useCallback, so reference equality should work
-  // storeActions, onToggleExpand, onStartHurtleAnimationFromPanel
-  // should be stable references
-
-  return true;
-};
-
 /**
  * @typedef {Object} PanelProps
  * @property {boolean} isExpanded - Whether the panel is open.
@@ -480,8 +439,6 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
  * @property {string|null} activeDefinitionNodeId - Prototype ID of the node whose definition is being browsed.
  * @property {function(): void} onStartHurtleAnimationFromPanel - Triggers the hurtle zoom animation from panel context.
  * @property {boolean} [leftPanelExpanded=true] - Whether the left panel is currently open (used for exclusive-mode logic).
- * @property {Set<string>} [selectedInstanceIds] - Instance IDs of nodes currently selected on the canvas.
- * @property {Array<Object>} [hydratedNodes] - Hydrated node objects (prototype + instance merged) for the active graph.
  * @property {boolean} [rightPanelExpanded=true] - Whether the right panel is currently open.
  */
 
@@ -489,16 +446,13 @@ const panelPropsAreEqual = (prevProps, nextProps) => {
  * Resizable side panel displaying node metadata, tabs, and graph-level actions.
  *
  * Rendered on the left (graph/type list) and right (node detail, AI assistant, settings)
- * sides of NodeCanvas. Implemented as a `memo(forwardRef(...))` so NodeCanvas can hold
- * an imperative ref for scroll commands and panel measurements, while still benefiting
- * from memoization on stable prop sets.
+ * sides of the canvas by PanelHost, which supplies stable props from the stores
+ * (P2.09), so a plain memo keeps canvas renders out. Views that need live graph
+ * data (Open Webs, the wizard, Semantic Discovery) subscribe for themselves.
  *
- * The panel is not connected to the Zustand store directly — all store data and actions
- * are passed down from NodeCanvas via props to keep its subscription surface minimal.
- *
- * @type {React.ForwardRefExoticComponent<PanelProps & React.RefAttributes<HTMLDivElement>>}
+ * @type {React.MemoExoticComponent<(props: PanelProps) => JSX.Element>}
  */
-const Panel = memo(forwardRef(
+const Panel = memo(
   ({
     isExpanded,
     onToggleExpand,
@@ -512,10 +466,8 @@ const Panel = memo(forwardRef(
     activeDefinitionNodeId: propActiveDefinitionNodeId,
     onStartHurtleAnimationFromPanel, // <<< Add new prop for animation
     leftPanelExpanded = true,
-    selectedInstanceIds = new Set(), // Add selected node instances from canvas
-    hydratedNodes = [], // Add hydrated nodes from canvas
     rightPanelExpanded = true,
-  }, ref) => {
+  }) => {
     // From the UI store, not a prop: the memo comparator ignored the prop, so the
     // panel could show a stale definition (B-08, P2.03).
     const nodeDefinitionIndices = useCanvasUIStore(s => s.nodeDefinitionIndices);
@@ -595,13 +547,6 @@ const Panel = memo(forwardRef(
     // Get openGraphTab explicitly if not already done (ensure it's available)
     const openGraphTab = storeActions?.openGraphTab;
 
-    // Derive the array needed for the left panel grid (ALL graphs)
-    const graphsForGrid = useMemo(() => {
-      // Use getState() inside memo
-      const currentGraphsMap = useGraphStore.getState().graphs;
-      return Array.from(currentGraphsMap.values()).map(g => ({ id: g.id, name: g.name }));
-    }, []); // No reactive dependencies needed?
-
     // ⚠️  CRITICAL: PANEL PERFORMANCE SAFEGUARD  ⚠️
     // 
     // NEVER add multiple individual useGraphStore subscriptions to this component!
@@ -619,14 +564,12 @@ const Panel = memo(forwardRef(
     // <<< ADD BACK: Select last created ID reactively >>>
     const lastCreatedGraphId = useGraphStore(state => state.lastCreatedGraphId);
 
-    // <<< Select graphs map reactively >>>
-    const graphsMapRaw = useGraphStore(state => state.graphs);
-
-    // <<< ADD: Select nodes and edges maps reactively >>>
-    // PERFORMANCE FIX: Use individual selectors instead of subscribing to entire store
-    // This prevents re-renders when viewport state (panOffset/zoomLevel) changes during zoom
+    // Not the whole graphs or edges Maps (P2.09): graphs is a new Map on every
+    // node move, which re-rendered both panels. The views that show graph
+    // content (Open Webs, the wizard) subscribe for themselves.
     const nodePrototypesMapRaw = useGraphStore(state => state.nodePrototypes);
-    const edgesMapRaw = useGraphStore(state => state.edges);
+    // The active web's defining node, for the right panel header colour.
+    const activeDefiningNodeId = useGraphStore(state => state.graphs?.get?.(activeGraphId)?.definingNodeIds?.[0] ?? null);
     const savedNodeIdsRaw = useGraphStore(state => state.savedNodeIds);
     // <<< ADD: Read activeDefinitionNodeId directly from the store >>>
     const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
@@ -661,20 +604,6 @@ const Panel = memo(forwardRef(
       }
       return emptyMap;
     }, [nodePrototypesMapRaw, emptyMap]);
-
-    const edgesMap = useMemo(() => {
-      if (edgesMapRaw && typeof edgesMapRaw.get === 'function') {
-        return edgesMapRaw;
-      }
-      return emptyMap;
-    }, [edgesMapRaw, emptyMap]);
-
-    const graphsMap = useMemo(() => {
-      if (graphsMapRaw && typeof graphsMapRaw.get === 'function') {
-        return graphsMapRaw;
-      }
-      return emptyMap;
-    }, [graphsMapRaw, emptyMap]);
 
     const savedNodeIds = useMemo(() => {
       if (savedNodeIdsRaw instanceof Set) {
@@ -802,16 +731,6 @@ const Panel = memo(forwardRef(
         groups.get(typeId).nodes.push(node);
       });
 
-      console.log('[Panel] allNodesByType derived:', {
-        totalGroups: groups.size,
-        groups: Array.from(groups.entries()).map(([typeId, group]) => ({
-          typeId,
-          typeName: group.typeInfo.name,
-          nodeCount: group.nodes.length,
-          nodeIds: group.nodes.map(n => n.id)
-        }))
-      });
-
       return groups;
     }, [allNodes, nodePrototypesMap]);
 
@@ -822,37 +741,6 @@ const Panel = memo(forwardRef(
     const prevOpenGraphIdsRef = useRef(openGraphIds);
     const prevActiveGraphIdRef = useRef(activeGraphId);
 
-    // <<< ADD BACK: Derive data for open graphs for the left panel list view >>>
-    const openGraphsForList = useMemo(() => {
-      // Dedupe: list entries are keyed by graph id, so a repeated entry would
-      // produce two children with the same React key.
-      return [...new Set(openGraphIds)].map(id => {
-        const graphData = graphsMap.get(id); // Use reactive graphsMap
-        if (!graphData) return null; // Handle case where graph might not be found
-
-        // Derive color from the defining node
-        const definingNodeId = graphData.definingNodeIds?.[0];
-        const definingNode = definingNodeId ? nodePrototypesMap.get(definingNodeId) : null;
-        const graphColor = definingNode?.color || graphData.color || NODE_DEFAULT_COLOR;
-
-        // Fetch nodes and edges using the REACTIVE maps
-        const instances = graphData.instances ? Array.from(graphData.instances.values()) : [];
-        const edgeIds = graphData.edgeIds || [];
-
-        const nodes = instances.map(instance => {
-          const prototype = nodePrototypesMap.get(instance.prototypeId);
-          return {
-            ...prototype,
-            ...instance,
-            // Always use prototype name, with fallback
-            name: prototype?.name || 'Unnamed'
-          };
-        }).filter(Boolean);
-
-        const edges = edgeIds.map(edgeId => edgesMap.get(edgeId)).filter(Boolean); // Use edgesMap
-        return { ...graphData, color: graphColor, nodes, edges }; // Combine graph data with its nodes/edges
-      }).filter(Boolean); // Filter out any nulls
-    }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]); // Add nodePrototypesMap
 
     // ALL STATE DECLARATIONS - MOVED TO TOP TO AVOID INITIALIZATION ERRORS
     // Panel width state
@@ -1292,18 +1180,6 @@ const Panel = memo(forwardRef(
       }
     }, [editingProjectTitle]);
 
-    // Exposed so NodeCanvas can open tabs
-    const openNodeTab = (nodeId) => {
-      if (side !== 'right') return;
-      // console.log(`[Panel ${side}] Imperative openNodeTab called for ${nodeId}`);
-      openRightPanelNodeTab(nodeId);
-      setEditingTitle(false);
-    };
-
-    useImperativeHandle(ref, () => ({
-      openNodeTab,
-    }));
-
     // --- Resize Handlers (Reordered definitions) ---
     const updateWidthForClientX = useCallback((clientX) => {
       const dx = clientX - resizeStartX.current;
@@ -1703,13 +1579,6 @@ const Panel = memo(forwardRef(
       return rightPanelTabs.find((t) => t.isActive);
     }, [side, rightPanelTabs]); // Depend on side and the reactive tabs
 
-    // Derive nodes for active graph on right side (Calculate on every render)
-    const activeGraphNodes = useMemo(() => {
-      if (side !== 'right' || !activeGraphId) return [];
-      // Use the new hydrated selector which is more efficient
-      return getHydratedNodesForGraph(activeGraphId)(useGraphStore.getState());
-    }, [activeGraphId, side]); // Removed unnecessary dependencies
-
     // Auto-resize project bio textarea when content changes or tab becomes active
     React.useLayoutEffect(() => {
       if (side === 'right' && activeRightPanelTab?.type === 'home') {
@@ -1723,7 +1592,7 @@ const Panel = memo(forwardRef(
         // Trigger auto-resize immediately without delay
         autoResizeTextarea(nodeBioTextareaRef);
       }
-    }, [side, activeRightPanelTab?.type, activeRightPanelTab?.nodeId, activeGraphId, nodeDefinitionIndices, graphsMap]);
+    }, [side, activeRightPanelTab?.type, activeRightPanelTab?.nodeId, activeGraphId, nodeDefinitionIndices]);
 
     // --- Action Handlers defined earlier --- 
     const handleAddImage = (nodeId) => {
@@ -1948,7 +1817,6 @@ const Panel = memo(forwardRef(
       } else if (leftViewActive === 'grid') {
         panelContent = (
           <LeftGridView
-            openGraphsForList={openGraphsForList}
             panelWidth={panelWidth}
             listContainerRef={listContainerRef}
             activeGraphId={activeGraphId}
@@ -1978,8 +1846,6 @@ const Panel = memo(forwardRef(
             openRightPanelNodeTab={openRightPanelNodeTab}
             rightPanelTabs={rightPanelTabs}
             activeDefinitionNodeId={activeDefinitionNodeId}
-            selectedInstanceIds={selectedInstanceIds}
-            hydratedNodes={hydratedNodes}
             onLoadWikidataCatalog={handleLoadWikidataCatalog}
           />
         );
@@ -2208,9 +2074,7 @@ const Panel = memo(forwardRef(
                     return c ? darken(c) : '#716C6C';
                   }
                   // Home tab: use active graph's defining node color
-                  const ag = graphsMap.get(activeGraphId);
-                  const dnId = ag?.definingNodeIds?.[0];
-                  const c = dnId && nodePrototypesMap.get(dnId)?.color;
+                  const c = activeDefiningNodeId && nodePrototypesMap.get(activeDefiningNodeId)?.color;
                   return c ? darken(c) : '#716C6C';
                 }
                 return '#716C6C';
@@ -2286,9 +2150,7 @@ const Panel = memo(forwardRef(
                   const tabs = rightPanelTabs;
                   const isActive = tabs[0]?.isActive;
                   // Derive color from the defining node of the active graph
-                  const activeGraph = graphsMap.get(activeGraphId);
-                  const definingNodeId = activeGraph?.definingNodeIds?.[0];
-                  const definingNodeColor = definingNodeId ? nodePrototypesMap.get(definingNodeId)?.color : null;
+                  const definingNodeColor = activeDefiningNodeId ? nodePrototypesMap.get(activeDefiningNodeId)?.color : null;
                   let bg;
                   if (definingNodeColor) {
                     if (isActive) {
@@ -2434,9 +2296,6 @@ const Panel = memo(forwardRef(
                   compact={panelWidth < 360}
                   active={leftViewActive === 'ai'}
                   activeGraphId={activeGraphId}
-                  graphsMap={graphsMap}
-                  edgesMap={edgesMap}
-                  nodePrototypesMap={nodePrototypesMap}
                 />
               </div>
             )}
@@ -2554,8 +2413,9 @@ const Panel = memo(forwardRef(
           onClose={() => setGridSearchVisible(false)}
           onNodeSelect={(node) => {
             // Find if this node is already open as a graph in the list view
-            const openGraphMatch = openGraphsForList.find(g =>
-              g.definingNodeIds && g.definingNodeIds.includes(node.id)
+            const { openGraphIds: openIds, graphs } = useGraphStore.getState();
+            const openGraphMatch = openIds.map(id => graphs.get(id)).find(g =>
+              g?.definingNodeIds && g.definingNodeIds.includes(node.id)
             );
 
             if (openGraphMatch) {
@@ -2592,6 +2452,6 @@ const Panel = memo(forwardRef(
       </>
     );
   }
-), panelPropsAreEqual); // End of memo(forwardRef(...), customCompare)
+);
 
 export default Panel;
