@@ -81,7 +81,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Culling | `const runCulling`, the culling effects | 4292–4830 | `useViewportCulling` + viewport store | P3.11 |
 | Anchor flush (effect with no deps) | `anchorPositionUpdatesRef` flush | 4835–4869 | keyed on `useGroupLayouts` output | P3.03 |
 | Edge geometry and label memos | `anchorGeometryFor`, `cleanLaneOffsets`, `lombardiTangents`, `edgeCurveInfo`, `labelCrossingIndex`, `labelObstacleOptions`, `labelAngleQuantum`, `quantizeLabelAngle`, `labelSpriteVersion`, `labelFontVersion`, `connectionNameSignature`, `selectedEdgeMidpoint`, `edgesByNodeId` | 4896–5545 | edge layer data hooks | P1.12, P3.05, P3.06 |
-| Sync debug overlay | `debugMode`, `syncDebugData`, `buildSyncDebugData`, `recordSyncAction`, `handleRetrySyncEngine`, `handleForceSaveDebug`, `handleClearGitHubAppCache`, `handleDirectGitHubProbe`, `handleDumpAuthState` | 5558–6055 | `hosts/SyncDebugHost` | P2.06a |
+| Sync debug overlay | — | — | **moved:** `hosts/SyncDebugHost` (P2.06a) | done |
 | Canvas UI state block | `isPaused`, `isViewReady`, `plusSign`, `videoAnimation`, `nodeNamePrompt`, `connectionNamePrompt`, `abstractionPrompt`, `nodeGroupPrompt`, `newWebPrompt`, `openNewWebPrompt` | 6057–6097 | UI store / prompt hosts | P2.04, P5.06 |
 | One-shot suggestions | `finalizeConnectionSuggestion`, `suggestEdgeArrowDirection`, `finalizeAbstractionSuggestion` | 6099–6271 | prompt hosts | P5.06 |
 | Colour pickers | `dialogColorPickerVisible`, `pieMenuColorPickerVisible`, `edgeColorPickerVisible`, `handlePieMenuColorPicker*`, `handleEdgeColor*` | 6272–6276, 6505–6513, 8644–8737 | `hosts/ColorPickerHost` | P5.06 |

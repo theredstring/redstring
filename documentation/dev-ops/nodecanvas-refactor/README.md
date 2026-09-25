@@ -165,8 +165,8 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
 **In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). Next smoke test: end of P2.
-- ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~
-- Next: P2.06a, P2.06c, P2.06d, P2.06f, P2.03b, P2.03c, P2.07, P2.12, P2.13
+- ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~, ~~P2.06a~~
+- Next: P2.06c, P2.06d, P2.06f, P2.03b, P2.03c, P2.07, P2.12, P2.13
 
 Wave 4 (smoke-tested by Grant), based on wave 3:
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)

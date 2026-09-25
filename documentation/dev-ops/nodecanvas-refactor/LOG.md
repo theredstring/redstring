@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.06a done (Claude, orchestrator)
+
+- **P2.06a:** `SyncDebugHost` owns the sync diagnostics (about 500 lines). NodeCanvas.jsx 17,822 → **17,313**. F22b added. "Hide" now hides only the overlay (report).
+- **Gates:** `test:ci` PASS, Playwright 47 passed (F12 expected), `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P2.06b done; render-budget flake fixed (Claude, orchestrator)
 
 - **P2.06b:** `ModalHosts` renders Help, Settings, Merge and Auto Graph and owns their open events. NodeCanvas.jsx 17,945 → **17,822**. F22 added.
