@@ -922,7 +922,7 @@ function NodeCanvas() {
     canvasSizeRef.current = canvasSize;
   }, [canvasSize]);
 
-  // --- DOM-bypass pan/zoom (Phase 1 perf refactor) ---
+  // --- DOM-bypass pan/zoom ---
   // panRef/zoomRef are the authoritative values; DOM is updated directly.
   // settledPan/settledZoom are React state that updates ~150ms after interaction stops.
   const transform = useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayGroupRef);
@@ -1046,7 +1046,7 @@ function NodeCanvas() {
     };
   }, []);
 
-  // --- Node Drag Hook (Phase 3 extraction) ---
+  // --- Node drag (useNodeDrag) ---
   // What the DOM-bypass drag reads to redraw edges, labels and groups live, as
   // one named group (P4.08). Refs only, so it is built once.
   const dragGeometryRefs = useMemo(() => ({
@@ -1223,12 +1223,12 @@ function NodeCanvas() {
   }, [leftPanelExpanded, rightPanelExpanded, viewportSize.width, viewportSize.height]);
 
   // Diagnostic accumulator for `window.__edgePerf`. Answers the question that
-  // decides whether the edge renderer is worth caching: of the ~143ms a settled
+  // decided whether the edge renderer was worth caching: of what a settled
   // commit costs with connection labels on, how much is the EDGES?
   //
-  // The 143ms figure is a whole NodeCanvas commit — nodes, groups, panels and
-  // edges together. Every treatment aimed at the edge path is bounded by the
-  // edge share of it, so measure before spending.
+  // At P0 that commit was ~143 ms, and it was a whole NodeCanvas commit —
+  // nodes, groups, panels and edges together. Every treatment aimed at the edge
+  // path is bounded by the edge share of it, so measure before spending.
   //
   // Usage, in the console on a real universe:
   //   window.__edgePerf = true          // then pan/zoom once to force a commit
