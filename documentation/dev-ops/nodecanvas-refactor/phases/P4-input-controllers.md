@@ -85,6 +85,7 @@ Collapse the duplication (F-43) and the parameter bags (F-41, F-42).
 - **Accept:** F5 passes, including the self-loop case and drawing while the canvas edge-pans.
 
 ### P4.04: `usePointerGestures` state machine
+- **Status:** part a done (wave 6): the handlers themselves, `handleNodeMouseDown`, `handleMouseMove` / `Down` / `Up` / `UpCanvas`, `handleCanvasClick`, `beginConnectionDrawFromNode` and `handleKeyboardPanTravel` (~1,100 lines), moved verbatim to `components/canvas/input/pointerHandlers.js` (`createPointerHandlers(ctxRef)`), with the six rAF-scheduling refs only they used. NodeCanvas creates them once (so every consumer holds stable functions and `useCanvasTouch` no longer leans on hoisting) and assigns their context during render. The context is large (135 names: the shared gesture refs, selection and panel latches, camera calls): that is what part b shrinks. All 61 flows pass; S1/S4/S5/S7 unchanged. Open (part b): the explicit gesture machine, idempotent release per gesture id, and the low-frequency flags into a store.
 - **Lane:** B, then A · **Size:** XL (**split at kickoff**)
 - **Findings:** F-02, F-42, F-43
 - **Change:**

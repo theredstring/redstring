@@ -105,12 +105,12 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Pinch smoothing (**dead**) | `animatePinchSmoothing`, `startPinchSmoothing`, `stopPinchSmoothing` | 9894–10092 | **deleted** (ddbc5fe) | P1.02 |
 | Hit-test utilities | `clampCoordinates`, `getNodeDescriptionContent`, `isInsideNode`, `selectionFromRect`, `findGroupTitleAtPoint`, `buildGroupDragOffsets`, `findConnectionDropTarget`, `isNearEdge` | 10094–10283 | `utils/canvas/canvasHitTest.js` | P4.01 |
 | Edge hit-test and edge input | `handleEdgePointerDownTouch`, `findNearestEdgeAtCanvasPoint`, `getEdgeHitThreshold`, `findEdgeAtClientPoint`, `selectEdgeFromClick`, `resolveTouchEdgeTarget`, `beginEdgeTouch` / `moveEdgeTouch` / `cancelEdgeTouch` / `commitEdgeTouch`, `edgeTouchHandlers`, `trySelectConnectionAtPoint`, `getEdgeHitboxHandlers` | 10285–10786 | `utils/canvas/edgeHitTest.js`, stable handlers | P3.02, P4.01 |
-| Node press | `const handleNodeMouseDown` | 10788–10907 | gesture machine | P4.04 |
+| Node press | `const handleNodeMouseDown` | 10788–10907 | **moved (P4.04a)** to `components/canvas/input/pointerHandlers.js`, verbatim; next: gesture machine | P4.04 |
 | Wheel + Safari gestures | `const handleWheel` | 10916–11275 | `CameraController` | P4.02 |
 | Touch hook wiring | `const touch = useCanvasTouch(` (73 parameters) | 11278–11352 | re-plumbed | P4.06 |
-| Connection-draw finish, edge pan | (between the touch wiring and `handleMouseMove`) | 11385–11502 | `useConnectionDraw` | P4.03 |
-| Mouse handlers | `async function handleMouseMove`, `async function handleMouseDown`, `async function handleMouseUp` | 11504–12300 | gesture machine (mechanics) + tap policy | P1.03, P1.04, P4.04, P4.05 |
-| Canvas click policy | `const handleMouseUpCanvas`, `const handleCanvasClick` | 12301–12492 | `resolveCanvasTap` | P4.05 |
+| Connection-draw finish, edge pan | (between the touch wiring and `handleMouseMove`) | 11385–11502 | **moved (P4.04a)** to `components/canvas/input/pointerHandlers.js`, verbatim; next: `useConnectionDraw` | P4.03 |
+| Mouse handlers | `async function handleMouseMove`, `async function handleMouseDown`, `async function handleMouseUp` | 11504–12300 | **moved (P4.04a)** to `components/canvas/input/pointerHandlers.js`, verbatim; next: gesture machine (mechanics) + tap policy | P1.03, P1.04, P4.04, P4.05 |
+| Canvas click policy | `const handleMouseUpCanvas`, `const handleCanvasClick` | 12301–12492 | **moved (P4.04a)** to `components/canvas/input/pointerHandlers.js`, verbatim; next: `resolveCanvasTap` | P4.05 |
 | Plus sign + prompts | `handlePlusSignClick`, `handleClosePrompt`, `handleAbstractionSubmit`, `handleNodeSelection`, `getPlusSignMorphNode`, `handleMorphDone`, `handleVideoAnimationComplete`, `handleDialogColorPicker*` | 12494–12935 | prompt hosts / plus-sign module | P5.06 |
 | Prompt renderers (**dead**) | `renderConnectionNamePrompt`, `renderCustomPrompt` | 12943–13148 | **deleted** (ddbc5fe) | P1.02 |
 | Panel toggles and focus | `shouldPanelsBeExclusive`, `handleToggleRightPanel`, `handleToggleLeftPanel`, `handleLeftPanelFocusChange` | 13150–13260 | App shell | P2.08–P2.12 |
