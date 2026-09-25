@@ -97,7 +97,9 @@ export function logCommits() {
       if (log.on) {
         const entry = { t: Math.round(performance.now() - log.t0), ran, rendered, hooks: ran ? changedHooks(f) : [] };
         const counts = {};
-        if (f !== last) for (const k of renderedUnder(f, [])) counts[k] = (counts[k] || 0) + 1;
+        // The whole tree, not just under NodeCanvas: since P2 the shell's hosts
+        // (Header, Panels, modals, …) render outside it.
+        for (const k of renderedUnder(root.current, [])) counts[k] = (counts[k] || 0) + 1;
         entry.children = Object.entries(counts).sort((x, y) => y[1] - x[1]).map(([k, n]) => (n > 1 ? `${k}×${n}` : k));
         log.commits.push(entry);
       }
