@@ -41,6 +41,7 @@ import { createGroupInputHandlers } from './components/canvas/groups/groupInput.
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { storeFieldRef } from './utils/storeFieldRef.js';
 import { openWizardPicker, useWizardEnabled } from './components/canvas/wizard/canvasWizard.js';
+import { openGroupColorPicker, setDialogColorPickerVisible, togglePieMenuColorPicker, useColorPickerAutoClose } from './components/canvas/colorPickers/colorPickers.js';
 import { createCameraController } from './components/canvas/camera/cameraController.js';
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass, ENABLE_CULLING } from './components/canvas/data/culling.js';
@@ -2294,11 +2295,6 @@ function NodeCanvas() {
     abstractionPrompt, nodePrototypesMap, abstractionSuggestionRef, setAbstractionPrompt,
   }), [abstractionPrompt.visible, abstractionPrompt.nodeId, abstractionPrompt.direction, nodePrototypesMap]);
 
-  // Dialog color picker state
-  const [dialogColorPickerVisible, setDialogColorPickerVisible] = useState(false);
-  const [dialogColorPickerPosition, setDialogColorPickerPosition] = useState({ x: 0, y: 0 });
-  const [colorPickerTarget, setColorPickerTarget] = useState(null); // { type: 'node_prompt' | 'connection_prompt' | 'group', id: string }
-
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
 
@@ -2306,16 +2302,6 @@ function NodeCanvas() {
   // components/canvas/wizard/canvasWizard.js; WizardHost renders the picker (P5.06b).
   const wizardEnabled = useWizardEnabled();
 
-  // Pie menu color picker state
-  const [pieMenuColorPickerVisible, setPieMenuColorPickerVisible] = useTrackedState(false);
-  const [pieMenuColorPickerPosition, setPieMenuColorPickerPosition] = useState({ x: 0, y: 0 });
-  const [activePieMenuColorNodeId, setActivePieMenuColorNodeId] = useTrackedState(null);
-  // Connection color picker. Kept separate from the node one above because it
-  // targets a prototype directly: a connection has no instance to look a
-  // prototypeId up from, it just points at the Thing that defines it.
-  const [edgeColorPickerVisible, setEdgeColorPickerVisible] = useState(false);
-  const [edgeColorPickerPosition, setEdgeColorPickerPosition] = useState({ x: 0, y: 0 });
-  const [activeEdgeColorPrototypeId, setActiveEdgeColorPrototypeId] = useState(null);
   // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
   // prototype or a brand-new Thing.
   const swapPrompt = useCanvasUIStore(s => s.swapPrompt), setSwapPrompt = useCanvasUIStore(s => s.setSwapPrompt);
@@ -2964,22 +2950,8 @@ function NodeCanvas() {
 
   const handleGroupPanelColor = useCallback((e) => {
     if (!activeGraphId || !selectedGroup) return;
-
-    // Stop propagation if event exists
-    if (e && e.stopPropagation) e.stopPropagation();
-
-    // Position the color picker near the clicked element if possible
-    if (e && e.currentTarget) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      setDialogColorPickerPosition({ x: rect.right, y: rect.bottom });
-    } else {
-      // Fallback center position or mouse position if we tracked it
-      setDialogColorPickerPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    }
-
-    setColorPickerTarget({ type: 'group', id: selectedGroup.id });
-    setDialogColorPickerVisible(true);
-  }, [activeGraphId, selectedGroup, setDialogColorPickerVisible, setDialogColorPickerPosition, setColorPickerTarget]);
+    openGroupColorPicker(selectedGroup.id, e);
+  }, [activeGraphId, selectedGroup]);
 
   const handleGroupPanelConvertToNodeGroup = useCallback(() => {
     if (!activeGraphId || !selectedGroup) return;
@@ -3133,94 +3105,6 @@ function NodeCanvas() {
   // Ref to track initial mount completion
   const isMountedRef = useRef(false);
 
-  // Pie menu color picker handlers
-  const handlePieMenuColorPickerOpen = useCallback((nodeId, position) => {
-    // If already open for the same node, close it (toggle behavior)
-    if (pieMenuColorPickerVisible && activePieMenuColorNodeId === nodeId) {
-      setPieMenuColorPickerVisible(false);
-      setActivePieMenuColorNodeId(null);
-      return;
-    }
-
-    setPieMenuColorPickerPosition(position);
-    setPieMenuColorPickerVisible(true);
-    setActivePieMenuColorNodeId(nodeId);
-  }, [pieMenuColorPickerVisible, activePieMenuColorNodeId]);
-
-  const handlePieMenuColorPickerClose = useCallback(() => {
-    setPieMenuColorPickerVisible(false);
-    setActivePieMenuColorNodeId(null);
-  }, []);
-
-  const handlePieMenuColorChange = useCallback((color) => {
-    if (!activePieMenuColorNodeId) return;
-    // The picker was opened from a multi-selection (the control panel anchors it
-    // on a selected instance), so it recolours the whole selection — otherwise
-    // Palette silently repainted one Thing out of the several that were selected.
-    const targetIds = selectedInstanceIds.size > 1 && selectedInstanceIds.has(activePieMenuColorNodeId)
-      ? Array.from(selectedInstanceIds)
-      : [activePieMenuColorNodeId];
-    // Two instances can share a prototype; recolouring it twice would be a no-op
-    // with a second history entry attached.
-    const prototypeIds = new Set(
-      targetIds.map(id => nodes.find(n => n.id === id)?.prototypeId).filter(Boolean)
-    );
-    prototypeIds.forEach(prototypeId => {
-      // Coalesced across the drag; committed by handlePieMenuColorCommit.
-      storeActions.updateNodePrototype(prototypeId, draft => {
-        draft.color = color;
-      }, { coalesce: `node-color:${prototypeId}` });
-    });
-  }, [activePieMenuColorNodeId, selectedInstanceIds, nodes, storeActions]);
-
-  const handlePieMenuColorCommit = useCallback(() => {
-    storeActions.flushHistory?.();
-  }, [storeActions]);
-
-  // Connection color picker. Recolours the Thing that defines the connection, so
-  // every connection of that kind changes together — the same relationship a
-  // node's Palette has with its prototype, and the reason a connection with no
-  // definition yet has no Palette button to press (see edgePieMenuButtons).
-  const handleEdgeColorPickerOpen = useCallback((prototypeId, position) => {
-    if (!prototypeId) return;
-    if (edgeColorPickerVisible && activeEdgeColorPrototypeId === prototypeId) {
-      setEdgeColorPickerVisible(false);
-      setActiveEdgeColorPrototypeId(null);
-      return;
-    }
-    setEdgeColorPickerPosition(position || { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    setEdgeColorPickerVisible(true);
-    setActiveEdgeColorPrototypeId(prototypeId);
-  }, [edgeColorPickerVisible, activeEdgeColorPrototypeId]);
-
-  const handleEdgeColorPickerClose = useCallback(() => {
-    setEdgeColorPickerVisible(false);
-    setActiveEdgeColorPrototypeId(null);
-  }, []);
-
-  const handleEdgeColorChange = useCallback((color) => {
-    if (!activeEdgeColorPrototypeId) return;
-    // Coalesced across the drag; committed by handleEdgeColorCommit, so a whole
-    // picker session is one undo step.
-    storeActions.updateNodePrototype(activeEdgeColorPrototypeId, draft => {
-      draft.color = color;
-    }, { coalesce: `node-color:${activeEdgeColorPrototypeId}` });
-  }, [activeEdgeColorPrototypeId, storeActions]);
-
-  const handleEdgeColorCommit = useCallback(() => {
-    storeActions.flushHistory?.();
-  }, [storeActions]);
-
-  // Deselecting the connection takes its picker with it — both menus that can
-  // open it are gone by then, so it would otherwise be left floating with
-  // nothing on screen explaining what it's colouring.
-  useEffect(() => {
-    if (!edgeColorPickerVisible) return;
-    if (selectedEdgeId || selectedEdgeIds.size > 0) return;
-    setEdgeColorPickerVisible(false);
-    setActiveEdgeColorPrototypeId(null);
-  }, [edgeColorPickerVisible, selectedEdgeId, selectedEdgeIds]);
-
   // Re-point an existing instance at a different prototype (pie-menu "Swap").
   // Edges reference instance IDs, so every connection stays attached — only the
   // instance's prototypeId changes. Position is nudged so the node keeps its
@@ -3245,11 +3129,11 @@ function NodeCanvas() {
    * against one instance, which is what both consumers target.
    */
   const nodePieMenuPages = useMemo(() => buildNodePieMenuPages({
-    abstractionCarouselVisible, activeGraphId, carouselAnimationState, clipboardRef, deleteNodeWithAnimation, handlePieMenuColorPickerOpen,
+    abstractionCarouselVisible, activeGraphId, carouselAnimationState, clipboardRef, deleteNodeWithAnimation,
     markClipboardChanged, nodes, savedNodeIds, selectedNodeIdForPieMenu, setActivePieMenuItemForVision, setEditingNodeIdOnCanvas,
     setIsTransitioningPieMenu, setNodeControlPanelVisible, setPendingAbstractionNodeId, setPendingDecomposeNodeId, setSelectedInstanceIds, setSelectedNodeIdForPieMenu,
     setSemanticOrbitActive, setSwapPrompt, singleSelectedInstanceId, startHurtleAnimation: (...args) => startHurtleAnimation(...args), storeActions, wizardEnabled,
-  }), [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, carouselAnimationState, markClipboardChanged, handlePieMenuColorPickerOpen, savedNodeIds, wizardEnabled]);
+  }), [singleSelectedInstanceId, storeActions, setSelectedInstanceIds, selectedNodeIdForPieMenu, previewingNodeId, nodes, activeGraphId, abstractionCarouselVisible, carouselAnimationState, markClipboardChanged, savedNodeIds, wizardEnabled]);
 
   // Pie Menu Button Configuration - now targetPieMenuButtons and dynamic
   const targetPieMenuButtons = useMemo(() => buildTargetPieMenuButtons({
@@ -3765,28 +3649,6 @@ function NodeCanvas() {
     videoAnimation, activeGraphId, gridMode, snapToGridAnimated, storeActions, setVideoAnimation,
   }, ...args);
 
-  // Dialog color picker handlers
-  const handleDialogColorPickerClose = () => {
-    setDialogColorPickerVisible(false);
-    setColorPickerTarget(null);
-  };
-
-  const handleDialogColorChange = (color) => {
-    if (colorPickerTarget?.type === 'group') {
-      if (activeGraphId && colorPickerTarget.id) {
-        storeActions.updateGroup(activeGraphId, colorPickerTarget.id, (draft) => {
-          draft.color = color;
-        });
-        // Update local state immediately for responsiveness
-        setSelectedGroup(prev => prev && prev.id === colorPickerTarget.id ? { ...prev, color } : prev);
-      }
-    } else if (nodeNamePrompt.visible) {
-      setNodeNamePrompt(prev => ({ ...prev, color }));
-    } else if (connectionNamePrompt.visible) {
-      setConnectionNamePrompt(prev => ({ ...prev, color }));
-    }
-  };
-
   const keysPressed = useKeyboardShortcuts();
 
   // Effect to mark component as mounted
@@ -3794,21 +3656,8 @@ function NodeCanvas() {
     isMountedRef.current = true;
   }, []); // Runs once after initial mount
 
-  // Effect to close color pickers when their parent contexts disappear
-  useEffect(() => {
-    // Close dialog color picker when node name prompt closes
-    if (!nodeNamePrompt.visible) {
-      setDialogColorPickerVisible(false);
-    }
-  }, [nodeNamePrompt.visible]);
-
-  useEffect(() => {
-    // Close pie menu color picker when pie menu disappears
-    if (!hasPieMenuData || !selectedNodeIdForPieMenu) {
-      setPieMenuColorPickerVisible(false);
-      setActivePieMenuColorNodeId(null);
-    }
-  }, [hasPieMenuData, selectedNodeIdForPieMenu]);
+  // Each colour picker closes when the thing it belongs to goes away (P5.06b).
+  useColorPickerAutoClose({ nodeNamePromptVisible: nodeNamePrompt.visible, hasPieMenuData, selectedNodeIdForPieMenu, selectedEdgeId, selectedEdgeIds });
 
   const shouldPanelsBeExclusive = (windowSize?.width ?? window.innerWidth) <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
 
@@ -4344,10 +4193,10 @@ function NodeCanvas() {
    * layout problem rather than a constant.
    */
   const edgePieMenuButtons = useMemo(() => buildEdgePieMenuButtons({
-    clipboardRef, edgesMap, handleEdgeColorPickerOpen, markClipboardChanged, nodePrototypesMap, openWizardPicker,
+    clipboardRef, edgesMap, markClipboardChanged, nodePrototypesMap, openWizardPicker,
     rightPanelExpanded, selectedEdgeId, setConnectionNamePrompt, setEdgePieMenuVisible, startHurtleAnimationFromPanel, storeActions,
     wizardEnabled,
-  }), [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, rightPanelExpanded, handleEdgeColorPickerOpen, clipboardRef, clipboardVersion, markClipboardChanged]);
+  }), [selectedEdgeId, edgesMap, nodePrototypesMap, wizardEnabled, storeActions, startHurtleAnimationFromPanel, rightPanelExpanded, clipboardRef, clipboardVersion, markClipboardChanged]);
 
   // Freeze edge pie menu buttons when visible so they survive edge deselection during exit animation
   useEffect(() => {
@@ -4425,7 +4274,7 @@ function NodeCanvas() {
     setEditingNodeIdOnCanvas,
     NODE_DEFAULT_COLOR,
     onStartHurtleAnimationFromPanel: startHurtleAnimationFromPanel,
-    onOpenColorPicker: handlePieMenuColorPickerOpen,
+    onOpenColorPicker: togglePieMenuColorPicker,
     onActivateSemanticOrbit: activateSemanticOrbit,
     onCaptureDeletionGhosts: captureDeletionGhosts
   });
@@ -4657,10 +4506,10 @@ function NodeCanvas() {
   // Context Menu options for nodes - core functionality without pie menu transition logic
   const getContextMenuOptions = useCallback((instanceId) => buildNodeContextMenuOptions(instanceId, {
     abstractionCarouselVisible, activeGraphId, canvasSize, carouselAnimationState, containerRef, deleteNodeWithAnimation,
-    handlePieMenuColorPickerOpen, nodes, panOffsetRef, previewingNodeId, rightPanelExpanded, savedNodeIds,
+    nodes, panOffsetRef, previewingNodeId, rightPanelExpanded, savedNodeIds,
     setAbstractionCarouselNode, setAbstractionCarouselVisible, setCarouselAnimationState, setEditingNodeIdOnCanvas, setNodeControlPanelVisible, setSelectedInstanceIds,
     setSelectedNodeIdForPieMenu, setSemanticOrbitActive, startHurtleAnimation, storeActions, targetPieMenuButtons, zoomLevelRef,
-  }), [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, handlePieMenuColorPickerOpen, startHurtleAnimation, useGraphStore]);
+  }), [nodes, savedNodeIds, abstractionCarouselVisible, carouselAnimationState, previewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible, setSelectedNodeIdForPieMenu, storeActions, activeGraphId, setSelectedInstanceIds, rightPanelExpanded, setEditingNodeIdOnCanvas, getNodeDimensions, containerRef, startHurtleAnimation, useGraphStore]);
 
   // Track if the component has been mounted long enough to show BackToCivilization
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
@@ -5009,7 +4858,7 @@ function NodeCanvas() {
   // The name prompts' state and handlers (P5.06a).
   const promptsCtx = {
     nodeNamePrompt, connectionNamePrompt, abstractionPrompt, nodeGroupPrompt, swapPrompt, setSwapPrompt,
-    leftPanelExpanded, rightPanelExpanded, setDialogColorPickerVisible, storeActions, performInstanceSwap,
+    leftPanelExpanded, rightPanelExpanded, storeActions, performInstanceSwap,
     handleClosePrompt, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection,
     finalizeConnectionSuggestion, setConnectionNamePrompt, suggestEdgeArrowDirection, setNodeGroupPrompt,
     activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
@@ -5025,13 +4874,9 @@ function NodeCanvas() {
     carouselRelativeMoveRequest, setCarouselRelativeMoveRequest, carouselFocusPrototypeRequest,
     setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension, abstractionDimensions,
     handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
-    handleExpandAbstractionDimension, setAbstractionControlPanelVisible, dialogColorPickerVisible,
-    handleDialogColorPickerClose, handleDialogColorChange, colorPickerTarget, selectedGroupEffectiveColor,
-    nodeNamePrompt, connectionNamePrompt, dialogColorPickerPosition, pieMenuColorPickerVisible,
-    activePieMenuColorNodeId, handlePieMenuColorPickerClose, handlePieMenuColorChange,
-    handlePieMenuColorCommit, nodes, pieMenuColorPickerPosition, edgeColorPickerVisible,
-    activeEdgeColorPrototypeId, handleEdgeColorPickerClose, handleEdgeColorChange, handleEdgeColorCommit,
-    nodePrototypesMap, edgeColorPickerPosition, addToGroupDialog, setAddToGroupDialog, activeGraphId,
+    handleExpandAbstractionDimension, setAbstractionControlPanelVisible, selectedGroupEffectiveColor,
+    nodeNamePrompt, connectionNamePrompt, setNodeNamePrompt, setConnectionNamePrompt, setSelectedGroup, nodes,
+    nodePrototypesMap, addToGroupDialog, setAddToGroupDialog, activeGraphId,
     selfLoopDialog, setSelfLoopDialog,
   };
 
@@ -5132,7 +4977,7 @@ function NodeCanvas() {
   // runs with this render's setters and values; registered once, on mount.
   pieCommandHandlerRef.current = (...args) => handlePieCommandWith({
     focusNodeInView, storeActions, setEditingGroupId, setTempGroupName, setPlusSign, selectionStartRef,
-    setSelectionStart, setDrawingConnectionFrom, setPieMenuColorPickerVisible, setActivePieMenuColorNodeId,
+    setSelectionStart, setDrawingConnectionFrom,
     setCarouselFocusedNodeScale, setCarouselFocusedNodeDimensions, setCarouselFocusedNode,
     setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow, setNodeControlPanelVisible,
     setConnectionControlPanelVisible, setGroupControlPanelVisible, setCarouselFocusPrototypeRequest,

@@ -8,10 +8,11 @@ import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js'
 import { applyConnectionClipboard, copyEdgeDefinition, readConnectionClipboard } from '../../../utils/clipboard.js';
 import { connectionFacts } from '../../../wizard/prompts/facts.js';
 import useGraphStore from '../../../store/graphStore.js';
+import { toggleEdgeColorPicker } from '../colorPickers/colorPickers.js';
 
 export function buildEdgePieMenuButtons(ctx) {
   const {
-    clipboardRef, edgesMap, handleEdgeColorPickerOpen, markClipboardChanged, nodePrototypesMap, openWizardPicker,
+    clipboardRef, edgesMap, markClipboardChanged, nodePrototypesMap, openWizardPicker,
     rightPanelExpanded, selectedEdgeId, setConnectionNamePrompt, setEdgePieMenuVisible, startHurtleAnimationFromPanel, storeActions,
     wizardEnabled,
   } = ctx;
@@ -68,7 +69,7 @@ export function buildEdgePieMenuButtons(ctx) {
       label: 'Palette',
       icon: Palette,
       action: (_edgeId, buttonPosition) => {
-        handleEdgeColorPickerOpen(definitionPrototypeId, buttonPosition);
+        toggleEdgeColorPicker(definitionPrototypeId, buttonPosition);
       },
     });
   }

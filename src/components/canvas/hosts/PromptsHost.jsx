@@ -10,11 +10,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { setDialogColorPickerVisible } from '../colorPickers/colorPickers.js';
 
 export default function PromptsHost({ ctx }) {
   const {
     nodeNamePrompt, connectionNamePrompt, abstractionPrompt, nodeGroupPrompt, swapPrompt, setSwapPrompt,
-    leftPanelExpanded, rightPanelExpanded, setDialogColorPickerVisible, storeActions, performInstanceSwap,
+    leftPanelExpanded, rightPanelExpanded, storeActions, performInstanceSwap,
     handleClosePrompt, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection,
     finalizeConnectionSuggestion, setConnectionNamePrompt, suggestEdgeArrowDirection, setNodeGroupPrompt,
     activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,

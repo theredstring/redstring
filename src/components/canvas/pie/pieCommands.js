@@ -5,12 +5,13 @@
  * its current setters and values.
  */
 import { getNodeDimensions } from '../../../utils.js';
+import { closePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 
 /** Run one `frame`, `graph` or `local` command from the pie machine. */
 export function handlePieCommandWith(ctx, cmd) {
   const {
     focusNodeInView, storeActions, setEditingGroupId, setTempGroupName, setPlusSign, selectionStartRef,
-    setSelectionStart, setDrawingConnectionFrom, setPieMenuColorPickerVisible, setActivePieMenuColorNodeId,
+    setSelectionStart, setDrawingConnectionFrom,
     setCarouselFocusedNodeScale, setCarouselFocusedNodeDimensions, setCarouselFocusedNode,
     setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow, setNodeControlPanelVisible,
     setConnectionControlPanelVisible, setGroupControlPanelVisible, setCarouselFocusPrototypeRequest,
@@ -73,8 +74,7 @@ export function handlePieCommandWith(ctx, cmd) {
       selectionStartRef.current = null; // a pending marquee pass must not outlive the graph
       setSelectionStart(null);
       setDrawingConnectionFrom(null);
-      setPieMenuColorPickerVisible(false);
-      setActivePieMenuColorNodeId(null);
+      closePieMenuColorPicker();
       setCarouselFocusedNodeScale(1.2);
       setCarouselFocusedNodeDimensions(null);
       setCarouselFocusedNode(null);
@@ -88,8 +88,7 @@ export function handlePieCommandWith(ctx, cmd) {
       setGroupControlPanelVisible(false);
       break;
     case 'closePieColorPicker':
-      setPieMenuColorPickerVisible(false);
-      setActivePieMenuColorNodeId(null);
+      closePieMenuColorPicker();
       break;
     case 'clearCarouselFocus':
       setCarouselFocusedNode(null);

@@ -16,12 +16,13 @@ import useGraphStore from '../../../store/graphStore.js';
 import useImageCache from '../../../services/imageCache.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { v4 as uuidv4 } from 'uuid';
+import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
 export function buildNodePieMenuPages(ctx) {
   const {
-    activeGraphId, clipboardRef, deleteNodeWithAnimation, handlePieMenuColorPickerOpen, markClipboardChanged,
+    activeGraphId, clipboardRef, deleteNodeWithAnimation, markClipboardChanged,
     nodes, savedNodeIds, selectedNodeIdForPieMenu, setActivePieMenuItemForVision, setEditingNodeIdOnCanvas,
     setNodeControlPanelVisible, setSwapPrompt, singleSelectedInstanceId, startHurtleAnimation, storeActions,
     wizardEnabled,
@@ -146,7 +147,7 @@ export function buildNodePieMenuPages(ctx) {
         const node = nodes.find(n => n.id === instanceId);
         if (node && buttonPosition) {
           // Use the actual button position passed from PieMenu
-          handlePieMenuColorPickerOpen(instanceId, buttonPosition);
+          togglePieMenuColorPicker(instanceId, buttonPosition);
         }
       }
     },

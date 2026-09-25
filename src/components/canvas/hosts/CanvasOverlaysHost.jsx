@@ -1,6 +1,6 @@
 /**
  * The overlays NodeCanvas portals into the shell after the control panels
- * (P5.06a): the abstraction carousel, the three colour pickers, the add-to-group
+ * (P5.06a): the abstraction carousel, the colour pickers (ColorPickersHost), the add-to-group
  * and self-loop confirmations and the Ask The Wizard picker. Moved verbatim;
  * NodeCanvas passes their state and handlers as `ctx`. P5.04 and P5.06b move
  * that state and those handlers in here.
@@ -8,8 +8,7 @@
 import { Profiler } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import AbstractionCarousel from '../../../AbstractionCarousel.jsx';
-import ColorPicker from '../../../ColorPicker';
-import { NODE_DEFAULT_COLOR, CONNECTION_DEFAULT_COLOR } from '../../../constants';
+import ColorPickersHost from '../colorPickers/ColorPickersHost.jsx';
 import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
 import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
@@ -23,13 +22,8 @@ export default function CanvasOverlaysHost({ ctx }) {
     carouselRelativeMoveRequest, setCarouselRelativeMoveRequest, carouselFocusPrototypeRequest,
     setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension, abstractionDimensions,
     handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
-    handleExpandAbstractionDimension, setAbstractionControlPanelVisible, dialogColorPickerVisible,
-    handleDialogColorPickerClose, handleDialogColorChange, colorPickerTarget, selectedGroupEffectiveColor,
-    nodeNamePrompt, connectionNamePrompt, dialogColorPickerPosition, pieMenuColorPickerVisible,
-    activePieMenuColorNodeId, handlePieMenuColorPickerClose, handlePieMenuColorChange,
-    handlePieMenuColorCommit, nodes, pieMenuColorPickerPosition, edgeColorPickerVisible,
-    activeEdgeColorPrototypeId, handleEdgeColorPickerClose, handleEdgeColorChange, handleEdgeColorCommit,
-    nodePrototypesMap, edgeColorPickerPosition, addToGroupDialog, setAddToGroupDialog, activeGraphId,
+    handleExpandAbstractionDimension, setAbstractionControlPanelVisible,
+    addToGroupDialog, setAddToGroupDialog, activeGraphId,
     runWizardIntent,
     selfLoopDialog, setSelfLoopDialog,
   } = ctx;
@@ -82,58 +76,8 @@ export default function CanvasOverlaysHost({ ctx }) {
         )
       }
 
-      {/* Dialog Color Picker Component */}
-      {
-        dialogColorPickerVisible && (
-          <ColorPicker
-            isVisible={dialogColorPickerVisible}
-            onClose={handleDialogColorPickerClose}
-            onColorChange={handleDialogColorChange}
-            currentColor={
-              colorPickerTarget?.type === 'group'
-                ? (selectedGroupEffectiveColor || 'maroon')
-                : (nodeNamePrompt.visible
-                  ? (nodeNamePrompt.color || NODE_DEFAULT_COLOR)
-                  : (connectionNamePrompt.color || NODE_DEFAULT_COLOR))
-            }
-            position={dialogColorPickerPosition}
-            direction="down-left"
-          />
-        )
-      }
-
-      {/* Pie Menu Color Picker Component */}
-      {
-        pieMenuColorPickerVisible && activePieMenuColorNodeId && (
-          <ColorPicker
-            isVisible={pieMenuColorPickerVisible}
-            onClose={handlePieMenuColorPickerClose}
-            onColorChange={handlePieMenuColorChange}
-            onColorCommit={handlePieMenuColorCommit}
-            currentColor={(() => {
-              const node = nodes.find(n => n.id === activePieMenuColorNodeId);
-              return node?.color || 'maroon';
-            })()}
-            position={pieMenuColorPickerPosition}
-            direction="down-left"
-          />
-        )
-      }
-
-      {/* Connection Color Picker — recolours the Thing that defines the connection */}
-      {
-        edgeColorPickerVisible && activeEdgeColorPrototypeId && (
-          <ColorPicker
-            isVisible={edgeColorPickerVisible}
-            onClose={handleEdgeColorPickerClose}
-            onColorChange={handleEdgeColorChange}
-            onColorCommit={handleEdgeColorCommit}
-            currentColor={nodePrototypesMap.get(activeEdgeColorPrototypeId)?.color || CONNECTION_DEFAULT_COLOR}
-            position={edgeColorPickerPosition}
-            direction="down-left"
-          />
-        )
-      }
+      {/* The three colour pickers (P5.06b) */}
+      <ColorPickersHost ctx={ctx} />
 
       {/* Add to Group Dialog */}
       {

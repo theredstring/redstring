@@ -12,6 +12,7 @@ import { pasteClipboard } from '../../../utils/clipboard.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { webFacts } from '../../../wizard/prompts/facts.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -172,7 +173,7 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
 export function buildNodeContextMenuOptions(instanceId, ctx) {
   const {
     abstractionCarouselVisible, activeGraphId, canvasSize, carouselAnimationState, containerRef,
-    deleteNodeWithAnimation, handlePieMenuColorPickerOpen, nodes, panOffsetRef, previewingNodeId,
+    deleteNodeWithAnimation, nodes, panOffsetRef, previewingNodeId,
     rightPanelExpanded, savedNodeIds, setEditingNodeIdOnCanvas, setNodeControlPanelVisible,
     startHurtleAnimation, storeActions, targetPieMenuButtons, zoomLevelRef,
   } = ctx;
@@ -319,7 +320,7 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
             const screenY = (canvasRect?.top || 0) + (nodeCenter.y * zNow + (panNow.y - canvasSize.offsetY * zNow));
 
             // Use this as anchor for color picker
-            handlePieMenuColorPickerOpen(instanceId, { x: screenX, y: screenY });
+            togglePieMenuColorPicker(instanceId, { x: screenX, y: screenY });
           }, 50);
         }
       }
