@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P3.03a, group layout as data (Claude, orchestrator)
+
+- The groups pass's computation moved verbatim into `computeGroupLayouts`, memoized (including `labelFontVersion`). The pass only builds elements now (reports/P3.03a.md). **NodeCanvas.jsx 12,884.**
+- The whole canvas markup is byte-identical to the wave5 tip on small (incl. mid-rename), stress and chambers zoomed out. Chambers framed differs only by baseline-level sprite noise.
+- **Gates:** `test:ci` PASS, Playwright 58 passed.
+
+---
+
 ## 2026-09-25: P3.09 grid layer (Claude, orchestrator)
 
 - `GridLayer` and `ClusterHullsLayer` are memoized layers. Screenshots with the grid as lattice, dots, size 400 and off are pixel-identical to the wave5 tip. **NodeCanvas.jsx 12,994.**

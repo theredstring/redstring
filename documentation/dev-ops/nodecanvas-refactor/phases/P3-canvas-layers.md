@@ -48,7 +48,7 @@
   - Handler identities stay stable across renders. Assert this in a test.
 
 ### P3.03: `useGroupLayouts`: group layout as pure data
-- **Status:** todo
+- **Status:** part a done (reports/P3.03a.md): `computeGroupLayouts` memo; canvas markup byte-identical on small/stress/chambers-zoomed-out. Open: anchor geometry as a real dependency of the edge memos (with P3.05), the anchor flush keyed on the layout, the memoized layers (P3.04).
 - **Lane:** A + B · **Size:** L
 - **Findings:** F-22, F-25, F-09 (anchor flush)
 - **Change:**

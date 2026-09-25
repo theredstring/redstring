@@ -140,3 +140,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | P5.07 merge | 13,742 | — | context-menu builders; 39 imports pruned |
 | 2026-09-25 | sweep 4 merge | 13,073 | — | six blocks out (orbit, hurtle, back-to-civ, node-group, abstraction submit, clean lanes) |
 | 2026-09-25 | P3.09 merge | 12,994 | — | GridLayer, ClusterHullsLayer |
+| 2026-09-25 | P3.03a merge | 12,884 | — | computeGroupLayouts |
