@@ -69,7 +69,9 @@ import { useTrackedState } from './hooks/useTrackedState.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
-import { clampPan } from './utils/canvas/viewportMath.js';
+import { clampPan, clientToCanvas } from './utils/canvas/viewportMath.js';
+import { findNearestEdgeAtCanvasPoint as findNearestEdge, edgeHitThreshold } from './utils/canvas/edgeHitTest.js';
+import { selectionInRect, groupTitleAtCanvasPoint, groupDragOffsets } from './utils/canvas/canvasHitTest.js';
 import {
   isMac,
   isIOS,
@@ -185,12 +187,11 @@ import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
 import { interpolateColor } from './utils/canvas/colorUtils.js';
 import { getPortPosition, calculateStaggeredPosition } from './utils/canvas/portPositioning.js';
-import { generateManhattanRoutingPath, generateCleanRoutingPath, computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, distanceToArc, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import { calculateZoom } from './utils/canvas/zoomMath.js';
-import { distanceToPolyline, edgeHitScore } from './utils/canvas/geometryUtils.js';
-import { calculateParallelEdgePath, distanceToQuadraticBezier, calculateCurveControlPoint } from './utils/canvas/parallelEdgeUtils.js';
-import { calculateSelfLoopPath, countSelfLoopsForNode, distanceToSelfLoop } from './utils/canvas/selfLoopUtils.js';
+import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
+import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import { renderConnectionEdge } from './components/canvas/renderConnectionEdge.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { paintEdgeList } from './utils/canvas/paintElementTree.js';
@@ -398,37 +399,6 @@ const DRAG_ZOOM_RESTORE_HOLD_MS = 300;
 // rasterisation. This bound is kept only as a backstop against pathological
 // counts; it should not be the reason an ordinary graph's labels stop bending.
 const CURVED_LABEL_BUDGET = 250;
-
-// Connection grab radius floors, in SCREEN pixels — see getEdgeHitThreshold.
-// The base radius is expressed in canvas units, which shrink on screen as you
-// zoom out; these keep the real target usable at any zoom. 44px is Apple's HIG
-// minimum touch target, and touch also scales the base radius up because a
-// fingertip has nothing like a cursor's precision.
-const EDGE_HIT_FLOOR_PX_MOUSE = 24;
-const EDGE_HIT_FLOOR_PX_TOUCH = 44;
-const EDGE_HIT_TOUCH_BOOST = 1.4;
-
-// How much closer a rival has to be before it takes the hover away from the
-// connection already showing, as a fraction of the grab radius.
-//
-// Pure nearest-wins is the right answer for a CLICK, which happens at one
-// instant. It is the wrong answer for hover, which is a continuous judgement
-// re-made every frame: wherever two connections are near-tied, the winner
-// alternates under a pixel of cursor jitter, and since entering a new target
-// restarts the 180ms dwell, one flickering frame costs the user the whole
-// delay. Sustained flicker means hover never settles at all.
-//
-// Curved styles are where the tie zones live. A straight connection crosses its
-// neighbours at a point; a Lombardi arc bows clear of its chord, detours
-// through territory other connections occupy, and meets them at shallow angles
-// — so the near-tie is a STRETCH, not a point, and the more extreme the bow the
-// longer it runs. That is why the flicker showed up on the big arcs first and
-// left ordinary connections alone.
-//
-// Hysteresis, the same remedy runCulling applies to the visible set for the
-// same reason. Deliberately modest: enough to cover jitter and shallow
-// crossings, not enough to hold hover on a connection you have genuinely left.
-const EDGE_HOVER_STICKY_FRACTION = 0.25;
 
 // Shared empty obstacle list, so the memo below can skip the work without
 // handing out a fresh array identity on every pan tick.
@@ -1742,8 +1712,7 @@ function NodeCanvas() {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const cs = canvasSizeRef.current;
-    const rawX = (clientX - rect.left - pan.x) / zoom + cs.offsetX;
-    const rawY = (clientY - rect.top - pan.y) / zoom + cs.offsetY;
+    const { x: rawX, y: rawY } = clientToCanvas(clientX, clientY, rect, pan, zoom, cs);
     const { x, y } = GeometryUtils.clampCoordinates(rawX, rawY, cs);
     setDrawingConnectionEnd(x, y);
   }, [setDrawingConnectionEnd]);
@@ -2837,10 +2806,7 @@ function NodeCanvas() {
     const pan = panOffsetRef.current;
     const zoom = zoomLevelRef.current;
     ref.anchorClient = { x: clientX, y: clientY };
-    ref.anchorWorld = {
-      x: (clientX - rect.left - pan.x) / zoom + canvas.offsetX,
-      y: (clientY - rect.top - pan.y) / zoom + canvas.offsetY,
-    };
+    ref.anchorWorld = clientToCanvas(clientX, clientY, rect, pan, zoom, canvas);
 
     if (ref.animationId) return;
     ref.lastTime = performance.now();
@@ -4956,8 +4922,7 @@ function NodeCanvas() {
   const findConnectionOrbAtPoint = useCallback((clientX, clientY, padding = 1) => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const px = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const py = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: px, y: py } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     return nearestConnectionOrb(connectionOrbHitsRef.current, px, py, padding);
   }, [containerRef, panOffsetRef, zoomLevelRef, canvasSize]);
 
@@ -7919,35 +7884,8 @@ function NodeCanvas() {
     return GeometryUtils.isInsideNode(nodeData, clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize, previewingNodeId);
   };
 
-  /**
-   * Which instances a live selection box covers, merged with whatever was
-   * already selected when the box began.
-   *
-   * Additive against `selectionBaseRef`, not absolute: dragging a box while
-   * holding a prior selection extends it, and shrinking the box back off a node
-   * only deselects nodes the box itself added. Anchors are skipped — they are
-   * invisible bookkeeping instances for node-groups, and selecting one selects
-   * something the user cannot see.
-   *
-   * Shared by the mouse's live marquee and the controller's, so the two cannot
-   * drift into selecting different things from the same rectangle.
-   */
-  const selectionFromRect = (rect) => {
-    const base = selectionBaseRef.current || new Set();
-    const final = new Set([...base]);
-    nodes.forEach(nd => {
-      if (nd.isGroupAnchor) return;
-      if (base.has(nd.id)) return;
-      const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
-      const intersects = !(rect.x > nd.x + dims.currentWidth ||
-        rect.x + rect.width < nd.x ||
-        rect.y > nd.y + dims.currentHeight ||
-        rect.y + rect.height < nd.y);
-      if (intersects) final.add(nd.id);
-      else final.delete(nd.id);
-    });
-    return final;
-  };
+  // The selection a live box leaves (utils/canvas/canvasHitTest.js).
+  const selectionFromRect = (rect) => selectionInRect(rect, nodes, selectionBaseRef.current, previewingNodeId);
 
   // The marquee, for mouse and pad alike (P1.04). The box is written straight
   // to the <rect>; the selection is re-derived at most once a frame and reaches
@@ -7999,68 +7937,16 @@ function NodeCanvas() {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
     // Convert client to canvas coordinates
-    const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-    const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
 
-    for (const [anchorId, info] of anchorPositionUpdatesRef.current.entries()) {
-      // info: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, groupId }
-      if (canvasX >= info.x && canvasX <= info.x + info.width &&
-        canvasY >= info.y && canvasY <= info.y + info.height) {
-        return { anchorInstanceId: anchorId, groupId: info.groupId };
-      }
-    }
-    return null;
+    return groupTitleAtCanvasPoint(canvasX, canvasY, anchorPositionUpdatesRef.current);
   };
 
-  /**
-   * The member/anchor/placeholder offsets a group drag needs, measured from one
-   * canvas-space grab point.
-   *
-   * Hoisted out of the title pill's long-press handler so the controller can
-   * start the SAME drag rather than a parallel reimplementation of it. The list
-   * is not obvious — an empty node-group tracks its placeholder rather than its
-   * anchor, and nested EMPTY child groups need explicit entries or a parent drag
-   * leaves their shells behind — which is exactly why there must only be one
-   * copy of it.
-   */
-  const buildGroupDragOffsets = (group, members, isNodeGroup, canvasX, canvasY) => {
-    const offsets = members.map(m => ({ id: m.id, dx: canvasX - m.x, dy: canvasY - m.y }));
-    if (group.anchorInstanceId) {
-      const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-      if (anchorNode) {
-        offsets.push({ id: anchorNode.id, dx: canvasX - anchorNode.x, dy: canvasY - anchorNode.y });
-      }
-    }
-    // Empty node-group placeholder: track its own independent position (never
-    // the anchor's) so it drags live using the exact same offset-preserving
-    // math as a real member — see groupLayout.js for why deriving it from the
-    // anchor's position doesn't work.
-    if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
-      offsets.push({
-        id: placeholderIdForGroup(group.id),
-        dx: canvasX - group.emptyPlaceholderOrigin.x,
-        dy: canvasY - group.emptyPlaceholderOrigin.y
-      });
-    }
-    // Nested EMPTY child groups ride along too: their box position lives in
-    // emptyPlaceholderOrigin (no member instance to move), so without an
-    // explicit placeholder offset a parent drag would leave their shells
-    // behind. Non-empty children need nothing — their members are already in
-    // the parent's offset list.
-    const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
-    if (nestedChildIds) {
-      nestedChildIds.forEach(childId => {
-        const childGroup = groupsByIdRef.current.get(childId);
-        if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
-        offsets.push({
-          id: placeholderIdForGroup(childId),
-          dx: canvasX - childGroup.emptyPlaceholderOrigin.x,
-          dy: canvasY - childGroup.emptyPlaceholderOrigin.y
-        });
-      });
-    }
-    return offsets;
-  };
+  // The offsets a group drag needs (utils/canvas/canvasHitTest.js).
+  const buildGroupDragOffsets = (group, members, isNodeGroup, canvasX, canvasY) => groupDragOffsets(
+    group, members, isNodeGroup, canvasX, canvasY,
+    { nodes, childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current, groupsById: groupsByIdRef.current },
+  );
 
   /**
    * Start a group drag from a client point — the pill's long-press path and the
@@ -8071,8 +7957,7 @@ function NodeCanvas() {
     const group = groupsByIdRef.current.get(groupId);
     if (!group || !containerRef.current) return false;
     const rect = containerRef.current.getBoundingClientRect();
-    const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-    const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     const memberIdSet = new Set(group.memberInstanceIds || []);
     const members = nodes.filter(n => memberIdSet.has(n.id));
     const offsets = buildGroupDragOffsets(group, members, !!group.linkedNodePrototypeId, canvasX, canvasY);
@@ -8129,256 +8014,27 @@ function NodeCanvas() {
 
   // --- Connection hit-testing (shared by hover, click and touch) -------------
   //
-  // One geometric test for every routing style, so hover and selection can never
-  // disagree about which connection is under the pointer. Hover used to own this
-  // math privately while selection leaned on the transparent SVG stroke drawn
-  // around each path — a narrower target (radius ~25 canvas units against
-  // hover's 40–50) that also resolves topmost-wins instead of nearest-wins.
-  // Curved styles suffered worst: a Lombardi arc or a parallel fan bows away
-  // from where the stroke sits, so the line you aimed at was not the line that
-  // got the tap.
-  //
-  // Returns { edgeId, distance, point, connection } for the NEAREST connection
-  // within `threshold` canvas units, or null. `point` is the closest point on
-  // the winner's REAL drawn geometry — the arc, the Manhattan run, the Bézier —
-  // not on the chord between its endpoints. The controller's auto-aim is the
-  // caller that needs it: aiming at a chord in a curved style walks the camera
-  // to a spot with nothing drawn on it. Every style computes that point already
-  // on its way to a distance; it was simply being thrown away.
-  //
-  // `options.stickyEdgeId` biases the scan toward a connection the caller is
-  // already showing — see EDGE_HOVER_STICKY_FRACTION. Callers that want an
-  // honest nearest-wins (click, tap, the controller) simply omit it.
-  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options = {}) => {
-    let foundEdgeId = null;
-    let foundConnectionPayload = null;
-    let closestDistance = Infinity;
-    // Ranking key, which is the true distance for every connection EXCEPT the
-    // sticky one. Kept separate so `closestDistance` — and therefore the
-    // `distance` handed back to callers — stays the real measurement.
-    let closestScore = Infinity;
-    const stickyEdgeId = options.stickyEdgeId ?? null;
-    const stickyMargin = stickyEdgeId ? threshold * EDGE_HOVER_STICKY_FRACTION : 0;
-    // One scratch object reused across the whole scan, copied out only when an
-    // edge actually becomes the winner: this loop runs over every visible edge
-    // on every pointer move, and the styles here were written to avoid exactly
-    // this kind of per-edge garbage.
-    const nearest = { x: 0, y: 0 };
-    let foundPoint = null;
-
-    for (let i = visibleEdges.length - 1; i >= 0; i--) {
-      const edge = visibleEdges[i];
-      const sourceRaw = nodeById.get(edge.sourceId);
-      const targetRaw = nodeById.get(edge.destinationId);
-      if (!sourceRaw || !targetRaw) continue;
-
-      const sourceDimsRaw = baseDimsById.get(sourceRaw.id);
-      const targetDimsRaw = baseDimsById.get(targetRaw.id);
-      if (!sourceDimsRaw || !targetDimsRaw) continue;
-
-      // Route from the same boxes the renderer routes from. A thing-group
-      // anchor is drawn from the GROUP's pill, not from the anchor's stored
-      // instance box, and every other reader of this geometry — the tangent
-      // solve, the label crossing index, renderConnectionEdge, the drag's live
-      // updater — already substitutes it. The pointer test was the last one
-      // that didn't, so a connection into a group was measured against a curve
-      // nobody had drawn. See anchorGeometryFor.
-      const { node: sourceInstance, dims: sourceDims } = anchorGeometryFor(sourceRaw, sourceDimsRaw);
-      const { node: targetInstance, dims: targetDims } = anchorGeometryFor(targetRaw, targetDimsRaw);
-
-      const isSourcePreviewing = previewingNodeId === sourceInstance.id;
-      const isTargetPreviewing = previewingNodeId === targetInstance.id;
-      const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
-      const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
-      const x2 = targetInstance.x + targetDims.currentWidth / 2;
-      const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
-
-      let distance = Infinity;
-
-      if (edge.sourceId === edge.destinationId) {
-        distance = distanceToSelfLoop(
-          cx, cy,
-          sourceInstance.x, sourceInstance.y,
-          sourceDims.currentWidth, sourceDims.currentHeight,
-          edgeCurveInfo.get(edge.id),
-          nearest
-        );
-      } else if (enableAutoRouting && routingStyle === 'clean') {
-        const pathPoints = generateCleanRoutingPath(
-          edge, sourceInstance, targetInstance, sourceDims, targetDims,
-          cleanLaneOffsets, cleanLaneSpacing
-        );
-        distance = distanceToPolyline(cx, cy, pathPoints, nearest);
-      } else if (enableAutoRouting && routingStyle === 'lombardi') {
-        // Closed form, not sampling. This runs for every visible edge on every
-        // pointer move; building the full routing descriptor here (sampled
-        // polyline, path string, arrowhead trims) and then walking the polyline
-        // made hover cost ~2x what the orthogonal styles cost, on top of the
-        // garbage it generated.
-        const { p, q, arc } = lombardiArcFor(
-          edge, sourceInstance, targetInstance, sourceDims, targetDims,
-          lombardiTangents, lombardiCurvature,
-          // Same fan the renderer drew, so the hit-test picks the member of a
-          // bundle actually under the pointer — and the same straight/curved
-          // verdict, or a connection drawn as a line is measured as a bow.
-          {
-            curveInfo: edgeCurveInfo.get(edge.id),
-            laneSpacing: lombardiLaneSpacing,
-            minBow: lombardiMinBow,
-          }
-        );
-        distance = arc
-          ? distanceToArc(cx, cy, arc, nearest)
-          : distanceToPolyline(cx, cy, [p, q], nearest);
-      } else if (enableAutoRouting && routingStyle === 'manhattan') {
-        const pathPoints = generateManhattanRoutingPath(
-          edge, sourceInstance, targetInstance, sourceDims, targetDims,
-          manhattanBends,
-          // Same lane the renderer drew, or the hit-test picks the wrong member
-          // of a bundle — every one of them would test against the un-fanned
-          // centre route.
-          { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
-        );
-        distance = distanceToPolyline(cx, cy, pathPoints, nearest);
-      } else {
-        const curveInfo = edgeCurveInfo.get(edge.id);
-        if (curveInfo && curveInfo.totalInPair > 1) {
-          // Distance to the quadratic Bézier. Must use the SAME curveSpacing as
-          // the renderer (200 * multiConnectionCurve) — the default
-          // (BASE_CURVE_SPACING = 100) bunches the test curves at half the drawn
-          // fan-out, so with 3+ parallel edges the nearest computed curve is no
-          // longer the one under the pointer.
-          const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
-          if (ctrlPoint) {
-            distance = distanceToQuadraticBezier(
-              cx, cy,
-              x1, y1,
-              ctrlPoint.ctrlX, ctrlPoint.ctrlY,
-              x2, y2,
-              40, // finer sampling to disambiguate tightly packed curves
-              nearest
-            );
-          }
-        } else {
-          const A = cx - x1;
-          const B = cy - y1;
-          const C = x2 - x1;
-          const D = y2 - y1;
-          const dot = A * C + B * D;
-          const lenSq = C * C + D * D;
-          if (lenSq > 0) {
-            let param = dot / lenSq;
-            if (param < 0) param = 0;
-            else if (param > 1) param = 1;
-            const xx = x1 + param * C;
-            const yy = y1 + param * D;
-            const dx = cx - xx;
-            const dy = cy - yy;
-            distance = Math.sqrt(dx * dx + dy * dy);
-            nearest.x = xx;
-            nearest.y = yy;
-          }
-        }
-      }
-
-      const score = edgeHitScore(distance, threshold, edge.id === stickyEdgeId, stickyMargin);
-      if (score >= closestScore) continue;
-      // Keep scanning: for overlapping connections the nearest edge wins, not
-      // the first one found within the threshold.
-      closestScore = score;
-      closestDistance = distance;
-      foundEdgeId = edge.id;
-      // Copied, not aliased — `nearest` is about to be overwritten by the next
-      // edge in the scan.
-      foundPoint = { x: nearest.x, y: nearest.y };
-
-      let connectionName = edge.connectionName || 'Connection';
-      let connectionColor = edge.color || '#000000';
-
-      if ((!connectionName || connectionName === 'Connection') && edge.definitionNodeIds?.length) {
-        const defNode = nodePrototypesMap.get(edge.definitionNodeIds[0]);
-        if (defNode) {
-          connectionName = defNode.name || connectionName;
-          connectionColor = defNode.color || connectionColor;
-        }
-      } else if ((!edge.definitionNodeIds || edge.definitionNodeIds.length === 0) && edge.typeNodeId) {
-        const typeNode = nodePrototypesMap.get(edge.typeNodeId);
-        if (typeNode) {
-          connectionName = typeNode.name || connectionName;
-          connectionColor = typeNode.color || connectionColor;
-        }
-      }
-
-      const sourceEndpoint = {
-        id: sourceInstance.id,
-        name: sourceInstance.name,
-        color: sourceInstance.color,
-        width: sourceDims.currentWidth,
-        height: isSourcePreviewing ? NODE_HEIGHT : sourceDims.currentHeight,
-        prototypeId: sourceInstance.prototypeId
-      };
-      const targetEndpoint = {
-        id: targetInstance.id,
-        name: targetInstance.name,
-        color: targetInstance.color,
-        width: targetDims.currentWidth,
-        height: isTargetPreviewing ? NODE_HEIGHT : targetDims.currentHeight,
-        prototypeId: targetInstance.prototypeId
-      };
-      // Orient the preview to match the canvas: whichever endpoint sits further
-      // left on the canvas is shown on the left of the hover aid. Our brains
-      // can't easily re-map a connection whose on-canvas left→right order is
-      // reversed in the preview. Arrows are keyed by node id
-      // (directionality.arrowsToward), so swapping the display order of
-      // source/target is lossless.
-      const flipForCanvasOrder = targetInstance.x < sourceInstance.x;
-
-      foundConnectionPayload = {
-        id: edge.id,
-        name: connectionName,
-        color: connectionColor,
-        definitionNodeIds: edge.definitionNodeIds,
-        typeNodeId: edge.typeNodeId,
-        source: flipForCanvasOrder ? targetEndpoint : sourceEndpoint,
-        target: flipForCanvasOrder ? sourceEndpoint : targetEndpoint,
-        directionality: edge.directionality,
-        // Whether the canvas is currently showing this connection's name in
-        // full. The hover aid uses it to decide it is needed at a zoom level
-        // where it would normally stand down — see labelTruncationRef.
-        labelTruncated: labelTruncationRef.current.get(edge.id) === true
-      };
-    }
-
-    return foundEdgeId
-      ? { edgeId: foundEdgeId, distance: closestDistance, point: foundPoint, connection: foundConnectionPayload }
-      : null;
-  }, [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+  // The nearest connection to a canvas point: utils/canvas/edgeHitTest.js.
+  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options) => findNearestEdge(cx, cy, threshold, {
+    visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+    enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
+    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
+    lombardiMinBow, anchorGeometryFor, labelTruncationRef,
+  }, options), [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
     lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
     lombardiMinBow, anchorGeometryFor]);
 
-  // Grab radius for the hit-test above, in canvas units.
-  //
-  // Routed styles get a wider base radius: their geometry doesn't run where a
-  // naive chord would, so the pointer is often further from the line than the
-  // user's aim suggests. On top of that both tiers take a screen-space FLOOR —
-  // the base radius is fixed in graph units, so zooming out used to shrink the
-  // real target to a handful of pixels. A finger is roughly 44px wide (Apple's
-  // HIG minimum) and can't aim anywhere near as precisely as a cursor, so touch
-  // gets both a bigger floor and a multiplier on the base.
-  const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => {
-    const base = (isRoutedStyle ? 50 : 40) * Math.max(1, connectionWidth);
-    const isTouch = pointerKind === 'touch';
-    const floorPx = isTouch ? EDGE_HIT_FLOOR_PX_TOUCH : EDGE_HIT_FLOOR_PX_MOUSE;
-    return Math.max(base * (isTouch ? EDGE_HIT_TOUCH_BOOST : 1), floorPx / (zoomLevelRef.current || 1));
-  }, [isRoutedStyle, connectionWidth]);
+  // Grab radius for the hit-test above, in canvas units: see edgeHitThreshold.
+  const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => (
+    edgeHitThreshold(pointerKind, isRoutedStyle, connectionWidth, zoomLevelRef.current)
+  ), [isRoutedStyle, connectionWidth]);
 
   // Client-space wrapper around the two above.
   const findEdgeAtClientPoint = useCallback((clientX, clientY, pointerKind = 'mouse') => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const cx = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-    const cy = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const { x: cx, y: cy } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     return findNearestEdgeAtCanvasPoint(cx, cy, getEdgeHitThreshold(pointerKind));
   }, [findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, canvasSize]);
 
@@ -9193,8 +8849,7 @@ function NodeCanvas() {
     }
 
     const rect = containerRef.current.getBoundingClientRect();
-    const rawX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const rawY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: rawX, y: rawY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
 
     // Validate calculated coordinates are not NaN
     if (isNaN(rawX) || isNaN(rawY)) {
@@ -9342,8 +8997,7 @@ function NodeCanvas() {
     const rect = containerRef.current.getBoundingClientRect();
     // Track last client pointer position for Safari gesture anchoring
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: rawX, y: rawY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
 
     // Edge hover detection (only when not dragging/panning)
@@ -9683,8 +9337,7 @@ function NodeCanvas() {
       e.preventDefault();
       e.stopPropagation();
       const rect = containerRef.current.getBoundingClientRect();
-      const startX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const startY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x: startX, y: startY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       beginMarquee(startX, startY);
       return;
     }
@@ -9910,8 +9563,7 @@ function NodeCanvas() {
         // control-panel effect reads selectionStart as "still box-selecting", so
         // it must clear on release for the panel to open.
         const rect = containerRef.current.getBoundingClientRect();
-        const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-        const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+        const { x: rawX, y: rawY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
         const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
         updateMarquee(currentX, currentY);
         endMarquee();
@@ -10202,8 +9854,7 @@ function NodeCanvas() {
     }
 
     const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const mouseY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: mouseX, y: mouseY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
     if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
@@ -10769,8 +10420,7 @@ function NodeCanvas() {
     create: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       setPlusSign({ x, y, mode: 'appear', tempName: '' });
     },
     activate: () => handlePlusSignClick(),
@@ -10805,8 +10455,7 @@ function NodeCanvas() {
     findAt: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return null;
-      const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-      const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+      const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       const depths = groupDepthByGroupIdRef.current;
       let best = null;
       let bestDepth = -Infinity;
@@ -10868,8 +10517,7 @@ function NodeCanvas() {
     begin: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return false;
-      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       beginMarquee(x, y);
       return true;
     },
@@ -10881,8 +10529,7 @@ function NodeCanvas() {
     update: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       updateMarquee(x, y);
     },
     /**
@@ -12310,10 +11957,7 @@ function NodeCanvas() {
           const rect = containerRef.current?.getBoundingClientRect();
           let targetPos;
           if (rect && typeof clientX === 'number' && typeof clientY === 'number') {
-            targetPos = {
-              x: (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX,
-              y: (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY
-            };
+            targetPos = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
           } else {
             targetPos = {
               x: clip.originalCenter.x + 50,
@@ -13657,8 +13301,7 @@ function NodeCanvas() {
                               if (drawingConnectionFrom) return;
                               setLongPressingInstanceId(null);
                               const rect = containerRef.current.getBoundingClientRect();
-                              const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-                              const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+                              const { x: mouseCanvasX, y: mouseCanvasY } = clientToCanvas(downX, downY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
                               const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
                               if (group.anchorInstanceId) {
                                 const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);

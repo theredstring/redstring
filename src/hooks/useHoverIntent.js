@@ -73,7 +73,7 @@ export function useHoverIntent({ setHoveredEdgeInfo, semanticOrbitActiveRef }) {
   // on screen, or the one counting down toward being on screen. A target that
   // is mid-dwell gets the same protection as a committed one — otherwise a
   // rival that ties it for a frame resets the countdown and hover never
-  // arrives. See EDGE_HOVER_STICKY_FRACTION.
+  // arrives. See EDGE_HOVER_STICKY_FRACTION (utils/canvas/edgeHitTest.js).
   const hoverStickyEdgeId = useCallback(() => {
     const PREFIX = 'connection:';
     for (const key of [committedHoverKeyRef.current, pendingHoverKeyRef.current]) {
