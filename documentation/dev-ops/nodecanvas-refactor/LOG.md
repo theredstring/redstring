@@ -13,6 +13,14 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.06f done; P2.06 complete (Claude, orchestrator)
+
+- **P2.06f:** `ForceSimHost` renders the tuner and the progress indicator; the tuner's getters are canvas commands; layout progress is in canvasUIStore (ticks no longer render NodeCanvas). NodeCanvas.jsx **16,430**. F25 added.
+- **P2.06 is complete** (a–f). Every screen-level host except the control panels, pickers, carousel, wizard and prompts (P5) is out of NodeCanvas.
+- **Gates:** `test:ci` PASS, Playwright 52 passed (F12 expected), `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P2.06c done (Claude, orchestrator)
 
 - **P2.06c:** `UniverseHost` takes the universe lifecycle verbatim (workspace start-up, onboarding, GitHub reconnect, redirect resume, save pill); `UniverseScreens` the loading and not-loaded screens. Reconnect state moved to canvasUIStore. NodeCanvas.jsx 17,215 → **16,464**. F24 added.

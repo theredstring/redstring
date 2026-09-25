@@ -134,7 +134,7 @@ One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card 
 - **P2.06f ForceSim + LayoutProgress.**
   - They need `hydratedNodes`, `baseDimsById`, `edges`, `draggingNodeInfo` and `layoutProgress` from inside the canvas. Expose these through a selector hook or a command.
   - Rated B; do it last in P2.06.
-  - Status: todo.
+  - Status: **done** (reports/P2.06f.md): `hosts/ForceSimHost`; the tuner's getters are canvas commands; `layoutProgress` is in canvasUIStore.
 
 **Accept (each):**
 - The host renders from App.
