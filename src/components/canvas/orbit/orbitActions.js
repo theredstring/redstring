@@ -53,7 +53,8 @@ export function placeOrbitCandidate(candidate, centerX, centerY, dims, ctx) {
       semanticMetadata: fields.semanticMetadata
     });
 
-    storeActions.toggleSavedNode(prototypeId);
+    // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
+    if (!useGraphStore.getState().savedNodeIds.has(prototypeId)) storeActions.toggleSavedNode(prototypeId);
     enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
   }
 
@@ -113,7 +114,7 @@ export function placeOrbitCandidate(candidate, centerX, centerY, dims, ctx) {
             typeNodeId: null,
             definitionGraphIds: []
           });
-          storeActions.toggleSavedNode(connectionProtoId);
+          if (!useGraphStore.getState().savedNodeIds.has(connectionProtoId)) storeActions.toggleSavedNode(connectionProtoId); // B-16
         }
 
         const edgeId = `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

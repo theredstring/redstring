@@ -6151,8 +6151,8 @@ function NodeCanvas() {
             originalDescription: fields.originalDescription
           });
 
-          // Auto-save semantic nodes to Library
-          storeActions.toggleSavedNode(prototypeId);
+          // Auto-save semantic nodes to Library. // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
+          if (!useGraphStore.getState().savedNodeIds.has(prototypeId)) storeActions.toggleSavedNode(prototypeId);
 
           // Description and picture arrive a moment later, from the article
           // this concept already names — no second search, no guessing.
