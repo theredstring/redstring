@@ -80,6 +80,7 @@ import useGraphStore, {
   TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT,
 } from "./store/graphStore.js";
 import useHistoryStore from './store/historyStore.js';
+import useCanvasUIStore from './store/canvasUIStore.js';
 import { resolveChain, DEFAULT_ABSTRACTION_DIMENSION } from './wizard/tools/utils/abstractionSpec.js';
 import {
   buildWizardConnectionPrompt,
@@ -2125,8 +2126,9 @@ function NodeCanvas() {
   // Debug visualization state
   const [showNodeHitboxes, setShowNodeHitboxes] = useState(false);
 
-  // --- Local UI State (Keep these) ---
-  const [selectedInstanceIds, setSelectedInstanceIds] = useState(new Set());
+  // Selection lives in the canvas UI store (P2.02, D-04), under the old useState names.
+  const selectedInstanceIds = useCanvasUIStore(s => s.selectedInstanceIds);
+  const setSelectedInstanceIds = useCanvasUIStore(s => s.setSelectedInstanceIds);
 
   // Midpoint and angle of the selected edge in SVG canvas coordinates
   // NOTE: selectedEdgeMidpoint is defined further down, after edgeCurveInfo and
@@ -2147,8 +2149,7 @@ function NodeCanvas() {
   // from onTransformChangeRef, so it can't rely on useEffect closures).
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
-  const selectedInstanceIdsRef = useRef(selectedInstanceIds);
-  useEffect(() => { selectedInstanceIdsRef.current = selectedInstanceIds; }, [selectedInstanceIds]);
+  const selectedInstanceIdsRef = useMemo(() => ({ get current() { return useCanvasUIStore.getState().selectedInstanceIds; } }), []);
 
   // Routing refs for DOM-bypass drag (arrow/label updates need to know routing mode)
   const enableAutoRoutingRef = useRef(enableAutoRouting);
@@ -12807,9 +12808,8 @@ function NodeCanvas() {
       updateMarquee(x, y);
     },
     /**
-     * Ends the box and reports how many instances it leaves selected. Taken
-     * from endMarquee, not selectedInstanceIdsRef, which an effect syncs and so
-     * still holds the pre-box value here.
+     * Ends the box and reports how many instances it leaves selected, as
+     * endMarquee computed them.
      */
     end: () => endMarquee().size,
   };
