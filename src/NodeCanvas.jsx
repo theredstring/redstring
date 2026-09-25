@@ -6432,8 +6432,8 @@ function NodeCanvas() {
   const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
 
   // Header search state
-  const headerSearchVisible = useCanvasUIStore(s => s.headerSearchVisible), setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
-  const headerAllThingsSearchVisible = useCanvasUIStore(s => s.headerAllThingsSearchVisible), setHeaderAllThingsSearchVisible = useCanvasUIStore(s => s.setHeaderAllThingsSearchVisible);
+  // The searches render from SearchHosts (P2.06d); the keyboard shortcut opens one.
+  const setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
   const forceSimModalVisible = useCanvasUIStore(s => s.forceSimModalVisible), setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
 
@@ -13426,6 +13426,8 @@ function NodeCanvas() {
     actionHover: handlePieMenuHoverChange,
     // The Panels' "open this definition" hurtle (P2.09).
     startHurtleFromPanel: startHurtleAnimationFromPanel,
+    // The header's component search flies to the Thing's instances (P2.06d).
+    navigateToPrototypeInstances,
   });
 
   // Context Menu options for canvas background.
@@ -16432,106 +16434,6 @@ function NodeCanvas() {
 
           {/* Overlay panel resizers (outside panels) */}
           {renderPanelResizers()}
-
-          {/* Header-triggered component search */}
-          {headerSearchVisible && (
-            <UnifiedSelector
-              mode="node-typing"
-              isVisible={true}
-              leftPanelExpanded={leftPanelExpanded}
-              rightPanelExpanded={rightPanelExpanded}
-              onClose={() => setHeaderSearchVisible(false)}
-              onNodeSelect={(prototype) => {
-                try {
-                  if (prototype?.id) {
-                    // Open panel tab
-                    if (typeof storeActions.openRightPanelNodeTab === 'function') {
-                      storeActions.openRightPanelNodeTab(prototype.id, prototype.name);
-                    }
-                    // Navigate to instances in active graph if present
-                    navigateToPrototypeInstances(prototype.id);
-                  }
-                } finally {
-                  setHeaderSearchVisible(false);
-                }
-              }}
-              title={`Search ${activeGraphName || 'Components'}`}
-              subtitle={null}
-              gridTitle="Browse Components in This Thing"
-              searchOnly={true}
-              allowedPrototypeIds={(() => {
-                try {
-                  const ids = new Set();
-                  if (Array.isArray(nodes)) {
-                    for (const n of nodes) { if (n?.prototypeId) ids.add(n.prototypeId); }
-                  }
-                  return ids;
-                } catch { return null; }
-              })()}
-            />
-          )}
-
-          {/* Header-triggered All Things search */}
-          {headerAllThingsSearchVisible && (
-            <UnifiedSelector
-              mode="node-selection"
-              isVisible={true}
-              onClose={() => setHeaderAllThingsSearchVisible(false)}
-              onNodeSelect={(node) => {
-                if (node.id) {
-                  // Navigate to the node's definition graph if it exists
-                  if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-                    const graphIdToOpen = node.definitionGraphIds[0];
-                    if (typeof storeActions.openGraphTab === 'function') {
-                      storeActions.openGraphTab(graphIdToOpen, node.id);
-                    }
-                  } else if (typeof storeActions.createAndAssignGraphDefinition === 'function') {
-                    storeActions.createAndAssignGraphDefinition(node.id);
-                  }
-
-                  // Also open in right panel
-                  if (typeof storeActions.openRightPanelNodeTab === 'function') {
-                    storeActions.openRightPanelNodeTab(node.id, node.name);
-                  }
-                }
-                setHeaderAllThingsSearchVisible(false);
-              }}
-              title="Search All Things"
-              subtitle="Search through everything in your universe"
-              leftPanelExpanded={leftPanelExpanded}
-              rightPanelExpanded={rightPanelExpanded}
-              searchOnly={true}
-              gridTitle="All Things"
-            />
-          )}
-
-          {/* Create New Thing — settle what defines the new Web before opening it */}
-          {newWebPrompt.visible && (
-            <UnifiedSelector
-              mode="web-creation"
-              isVisible={true}
-              leftPanelExpanded={leftPanelExpanded}
-              rightPanelExpanded={rightPanelExpanded}
-              onClose={() => setNewWebPrompt({ visible: false })}
-              onSubmit={({ name, color }) => {
-                // The dialog half: a brand-new Thing, authored here, defines the
-                // Web. createNewGraph mints the prototype, so passing the name
-                // and colour through is all it takes.
-                if (name.trim()) storeActions.createNewGraph({ name: name.trim(), color });
-                setNewWebPrompt({ visible: false });
-              }}
-              onNodeSelect={(prototype) => {
-                // The grid half: an existing Thing takes the job. This is a
-                // second (or third) definition for it where it already had one —
-                // legitimate, and what the abstraction carousel browses.
-                if (prototype?.id) storeActions.createAndAssignGraphDefinition(prototype.id);
-                setNewWebPrompt({ visible: false });
-              }}
-              title="New Thing"
-              subtitle="Name the Thing this Web defines,<br />or pick one that already exists."
-              gridTitle="Define With an Existing Thing"
-            />
-          )}
 
           {/* Single UnifiedSelector instance with dynamic props */}
           {(() => {
