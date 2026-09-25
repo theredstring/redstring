@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P3 kickoff; P3.02 done (B-05) (Claude, orchestrator)
+
+- **P3.02:** Node handlers read the latest render through `useLatestRef`, fixing **B-05**; the definition callbacks copied into three Node blocks are one `nodeCallbacks` object. Playwright is fully green for the first time (55/55, F12's `test.fail()` removed). NodeCanvas.jsx **15,718**.
+- Kickoff notes: label snapshots exist (`NodeCanvas.labelSnapshot.test.jsx`); P1.12 landed. Order chosen: P3.02, then P3.01/P3.10 (subscriptions, viewport store), then the layers.
+
+---
+
 ## 2026-09-25: P2.13 done; P2 complete (Claude, orchestrator)
 
 - **P2.13:** vision-aid state in canvasUIStore (`HoverVisionAidLayer`); every button reports through `setActionHover`, so button hover no longer renders NodeCanvas; dwell logic in `useHoverIntent`. F28 added. NodeCanvas.jsx **15,789**.

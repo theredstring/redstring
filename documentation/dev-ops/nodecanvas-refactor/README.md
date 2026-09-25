@@ -167,7 +167,8 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 **In flight** (edit this when you claim or finish a task). Wave 5 is `refactor/wave5-integration`, based on wave 4 (a2b693a). Next smoke test: end of P2.
 - ~~Lane A: P2.11~~ (6ce6a00), ~~P2.06b (+ F-77)~~, ~~P2.06a~~, ~~P2.06d~~, ~~P2.06c~~, ~~P2.06f~~, ~~P2.07~~, ~~P2.03b (+ B-14)~~, ~~P2.03c (D-22)~~
 - ~~P2.12 (+ B-15)~~, ~~P2.13~~ — **P2 complete**
-- Next: P3 kickoff (refine the P3 draft cards), then P3 cards
+- ~~P3.02 (B-05)~~ (f6007f7)
+- Next: P3.01, P3.10, P3.11, then the layer cards
 
 Wave 4 (smoke-tested by Grant), based on wave 3:
 - ~~Lane A: P2.09 (+ X-05, F-76)~~ (e94df94), ~~P2.10 (+ B-13)~~ (5a573a5)
@@ -202,7 +203,7 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 | P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | **done**: P0.01–P0.07 (P0.03 + P0.03b) |
 | P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | **done** except P1.13's B-03, which becomes the welcome-screen host (D-17), built outside NodeCanvas |
 | P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | **done** (waves 3–5): shell out of NodeCanvas (`CanvasShell` + hosts), UI state in canvasUIStore. Overlays still portalled from NodeCanvas go to P5 hosts |
-| P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
+| P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | **in progress**: P3.02 |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |
 | P5 | [phases/P5-menus-and-panels.md](phases/P5-menus-and-panels.md) | Pie menu, carousel and abstraction state machine; control panels; remaining hosts | not started |
 | P6 | [phases/P6-closeout.md](phases/P6-closeout.md) | Remove flags, final metrics, architecture doc | not started |

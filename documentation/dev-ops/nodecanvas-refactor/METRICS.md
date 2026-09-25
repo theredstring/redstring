@@ -122,3 +122,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | P2.03b merge | 16,320 | — | whitespace collapse (−95) + selectedGroupId |
 | 2026-09-25 | a8ebb27 | 15,943 | — | P2.12 (PanelResizers) |
 | 2026-09-25 | ccff00d | 15,789 | — | P2.13; **P2 complete** |
+| 2026-09-25 | f6007f7 | 15,718 | — | P3.02 (B-05) |

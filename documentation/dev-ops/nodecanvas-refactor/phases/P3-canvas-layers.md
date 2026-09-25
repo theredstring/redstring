@@ -1,4 +1,4 @@
-# P3: Canvas render layers (DRAFT: refine at kickoff)
+# P3: Canvas render layers (kicked off 2026-09-25)
 
 **Goal.** Make each render cheap. Split the SVG into memoized layers that subscribe to exactly what they display, narrow store subscriptions to the active graph, and remove the render-phase side effects that tie the layers together.
 
@@ -29,7 +29,7 @@
 - **Accept:** S10b and S11 cause 0 NodeCanvas commits.
 
 ### P3.02: Stable handlers
-- **Status:** todo
+- **Status:** done (reports/P3.02.md). B-05 fixed; F12 fully passes
 - **Lane:** A + C · **Size:** L
 - **Findings:** F-24, B-05, D-09
 - **Change:**
