@@ -454,6 +454,9 @@ const clampOverlayPanelWidth = (width) => {
     : Math.max(240, Math.round(window.innerWidth / 2) - 30);
   return Math.max(PANEL_OVERLAY_MIN_WIDTH, Math.min(width, max));
 };
+// Where a panel's overlay resizer bar sits, from the panel width: 14 px inset
+// from the panel edge, centred on its 28 px hitbox (renderPanelResizers).
+const resizerOffset = (panelWidth) => Math.max(0, panelWidth + 14 - 28 / 2);
 
 // Platform detection (guarded for SSR)
 const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
@@ -1012,6 +1015,8 @@ function NodeCanvas() {
   const startWidthRef = useRef(0);
   const resizeRafRef = useRef(null);
   const latestResizeClientXRef = useRef(0);
+  const leftResizerElRef = useRef(null); // the bars, moved directly while dragging
+  const rightResizerElRef = useRef(null);
   const groupLongPressTimeout = useRef(null);
   // Split group rendering across z-layers: Phase 1 computes layouts and stores
   // JSX for later phases, so thing-group backgrounds/titles render at the right z-level
@@ -1139,11 +1144,11 @@ function NodeCanvas() {
     if (side === 'left') {
       isDraggingLeft.current = true;
       dragStartXRef.current = clientX;
-      startWidthRef.current = leftPanelWidth;
+      startWidthRef.current = leftWidthRef.current;
     } else {
       isDraggingRight.current = true;
       dragStartXRef.current = clientX;
-      startWidthRef.current = rightPanelWidth;
+      startWidthRef.current = rightWidthRef.current;
     }
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
@@ -1160,17 +1165,17 @@ function NodeCanvas() {
     const maxWidth = isExclusive
       ? Math.max(MIN_WIDTH, window.innerWidth - PANEL_TOGGLE_BUTTON_WIDTH)
       : Math.max(240, Math.round(window.innerWidth / 2) - 30);
-    if (isDraggingLeft.current) {
-      const dx = clientX - dragStartXRef.current;
-      const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current + dx, maxWidth));
-      setLeftPanelWidth(w);
-      try { window.dispatchEvent(new CustomEvent('panelWidthChanging', { detail: { side: 'left', width: w } })); } catch { }
-    } else if (isDraggingRight.current) {
-      const dx = clientX - dragStartXRef.current;
-      const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current - dx, maxWidth));
-      setRightPanelWidth(w);
-      try { window.dispatchEvent(new CustomEvent('panelWidthChanging', { detail: { side: 'right', width: w } })); } catch { }
-    }
+    // The width goes to the ref and the bar is moved directly: setting state here
+    // re-rendered all of NodeCanvas on every frame of the drag (F-04, P1.05).
+    // The panel follows panelWidthChanging; endDrag commits the width once.
+    const side = isDraggingLeft.current ? 'left' : isDraggingRight.current ? 'right' : null;
+    if (!side) return;
+    const dx = clientX - dragStartXRef.current;
+    const w = Math.max(MIN_WIDTH, Math.min(startWidthRef.current + (side === 'left' ? dx : -dx), maxWidth));
+    (side === 'left' ? leftWidthRef : rightWidthRef).current = w;
+    const bar = (side === 'left' ? leftResizerElRef : rightResizerElRef).current;
+    if (bar) bar.style[side] = `${resizerOffset(w)}px`;
+    try { window.dispatchEvent(new CustomEvent('panelWidthChanging', { detail: { side, width: w } })); } catch { }
   };
 
   const onDragMove = (e) => {
@@ -1181,29 +1186,23 @@ function NodeCanvas() {
   };
 
   const endDrag = () => {
-    // Cancel any pending rAF resize update
+    // Apply a pending rAF update synchronously, so the width committed below is the final one
     if (resizeRafRef.current) {
       cancelAnimationFrame(resizeRafRef.current);
       resizeRafRef.current = null;
-      // Apply final position synchronously so endDrag broadcasts the correct width
       applyResizeUpdate();
     }
-    if (isDraggingLeft.current) {
-      isDraggingLeft.current = false;
+    // Commit the width the drag left in its ref (one render), persist and broadcast it
+    for (const [side, dragging, widthRef, setWidth] of [
+      ['left', isDraggingLeft, leftWidthRef, setLeftPanelWidth],
+      ['right', isDraggingRight, rightWidthRef, setRightPanelWidth],
+    ]) {
+      if (!dragging.current) continue;
+      dragging.current = false;
+      setWidth(widthRef.current);
       try {
-        // Persist and broadcast
-        const finalLeftWidth = leftWidthRef.current;
-        localStorage.setItem('panelWidth_left', JSON.stringify(finalLeftWidth));
-        window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side: 'left', width: finalLeftWidth } }));
-      } catch { }
-    }
-    if (isDraggingRight.current) {
-      isDraggingRight.current = false;
-      try {
-        // Persist and broadcast
-        const finalRightWidth = rightWidthRef.current;
-        localStorage.setItem('panelWidth_right', JSON.stringify(finalRightWidth));
-        window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side: 'right', width: finalRightWidth } }));
+        localStorage.setItem(`panelWidth_${side}`, JSON.stringify(widthRef.current));
+        window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: widthRef.current } }));
       } catch { }
     }
     // Clear any hover state at the end of a drag (helps on touch devices)
@@ -1300,13 +1299,12 @@ function NodeCanvas() {
       boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
       transition: 'background-color 120ms ease, opacity 160ms ease'
     };
-    const inset = 14; // spacing inside from panel edges
     const leftActive = isDraggingLeft.current || isHoveringLeftResizer;
     const rightActive = isDraggingRight.current || isHoveringRightResizer;
     const baseColor = (active) => darkMode ? `rgba(151,144,144,${active ? 1 : 0.18})` : `rgba(38,0,0,${active ? 1 : 0.18})`;
     const fadeOpacity = resizersVisible ? 1 : 0;
-    const leftWrapperLeft = Math.max(0, (leftPanelWidth + inset) - (HITBOX_WIDTH / 2));
-    const rightWrapperRight = Math.max(0, (rightPanelWidth + inset) - (HITBOX_WIDTH / 2));
+    const leftWrapperLeft = resizerOffset(leftPanelWidth);
+    const rightWrapperRight = resizerOffset(rightPanelWidth);
     // Use optional chaining with defaults so we don't depend on early state initialization
     const leftCollapsed = !(typeof leftPanelExpanded === 'boolean' ? leftPanelExpanded : true);
     const rightCollapsed = !(typeof rightPanelExpanded === 'boolean' ? rightPanelExpanded : true);
@@ -1314,6 +1312,7 @@ function NodeCanvas() {
       <>
         {/* Left resizer wrapper (full-height hitbox) */}
         <div
+          ref={leftResizerElRef}
           style={{
             ...wrapperCommon,
             left: leftWrapperLeft,
@@ -1357,6 +1356,7 @@ function NodeCanvas() {
         </div>
         {/* Right resizer wrapper (full-height hitbox) */}
         <div
+          ref={rightResizerElRef}
           style={{
             ...wrapperCommon,
             right: rightWrapperRight,
