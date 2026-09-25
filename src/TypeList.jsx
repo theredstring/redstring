@@ -157,10 +157,18 @@ const TypeList = () => {
     const store = useGraphStore.getState();
     // If there are selected nodes, set their type to the clicked node type
     if (selectedInstanceIds.size > 0) {
-      selectedInstanceIds.forEach(nodeId => {
+      // Selection holds instance ids, and a type belongs to the prototype (B-13:
+      // passing instance ids to setNodeType typed nothing).
+      const instances = store.graphs.get(store.activeGraphId)?.instances;
+      const prototypeIds = new Set();
+      selectedInstanceIds.forEach(instanceId => {
+        const prototypeId = instances?.get(instanceId)?.prototypeId;
+        if (prototypeId) prototypeIds.add(prototypeId);
+      });
+      prototypeIds.forEach(prototypeId => {
         // Don't allow a node to be typed by itself or change the base Thing prototype
-        if (nodeId !== nodeType.id && nodeId !== 'base-thing-prototype') {
-          store.setNodeType(nodeId, nodeType.id);
+        if (prototypeId !== nodeType.id && prototypeId !== 'base-thing-prototype') {
+          store.setNodeType(prototypeId, nodeType.id);
         }
       });
     } else {
