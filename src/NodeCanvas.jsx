@@ -15,7 +15,6 @@ import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
-import { attachOneShotOutcome } from './services/oneShot.js';
 import {
   buildChildGroupIdsIndex,
   buildParentGroupIdsIndex,
@@ -40,7 +39,7 @@ import { createGroupInputHandlers } from './components/canvas/groups/groupInput.
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { storeFieldRef } from './utils/storeFieldRef.js';
 import { openWizardPicker, useWizardEnabled } from './components/canvas/wizard/canvasWizard.js';
-import { setDialogColorPickerVisible, useColorPickerAutoClose } from './components/canvas/colorPickers/colorPickers.js';
+import { useColorPickerAutoClose } from './components/canvas/colorPickers/colorPickers.js';
 import { createCameraController } from './components/canvas/camera/cameraController.js';
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass, ENABLE_CULLING } from './components/canvas/data/culling.js';
@@ -57,7 +56,6 @@ import { startHurtle, startHurtleFromPanelWith } from './components/canvas/camer
 import { backToCivilization } from './components/canvas/camera/backToCivilization.js';
 import { convertNodeToNodeGroup } from './components/canvas/actions/nodeGroupConversion.js';
 import { computeCleanLaneOffsets } from './utils/canvas/cleanLaneOffsets.js';
-import { submitAbstraction } from './components/canvas/actions/abstractionSubmit.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
@@ -108,14 +106,12 @@ import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
 import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
 import { runConnectionEdgePan, writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
-import { suggestConnectionName, fillAbstractionNameSuggestion, suggestEdgeArrowDirectionWith } from './components/canvas/actions/oneShotSuggestions.js';
 import { fetchOrbitCandidates, hoverOrbitCandidate, sizeOrbitDimRect, fitOrbitInView } from './components/canvas/orbit/orbitData.js';
 import { computeShouldShowBackToCivilization, computeRelevantNodesVisible } from './components/canvas/data/backToCivilization.js';
 import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
 import { resolveStoreActions } from './components/canvas/data/storeActions.js';
 import PromptsHost from './components/canvas/hosts/PromptsHost.jsx';
 import CanvasOverlaysHost from './components/canvas/hosts/CanvasOverlaysHost.jsx';
-import { performInstanceSwapWith } from './components/canvas/actions/instanceSwap.js';
 import { edgeHitboxHandlersFor, edgeTouchHandlersFor, commitEdgeTouchWith, resolveTouchEdgeTargetWith, edgePointerDownTouchWith, selectEdgeFromClickWith, findEdgeAtClientPointWith } from './components/canvas/input/edgeInput.js';
 import { handlePieCommandWith } from './components/canvas/pie/pieCommands.js';
 import { rebuildPieMenuDataWith } from './components/canvas/pie/pieData.js';
@@ -2206,12 +2202,8 @@ function NodeCanvas() {
   const [videoAnimation, setVideoAnimation] = useState(null); // Y-key video animation state
   const nodeNamePrompt = useCanvasUIStore(s => s.nodeNamePrompt), setNodeNamePrompt = useCanvasUIStore(s => s.setNodeNamePrompt);
   const connectionNamePrompt = useCanvasUIStore(s => s.connectionNamePrompt), setConnectionNamePrompt = useCanvasUIStore(s => s.setConnectionNamePrompt);
-  // Tracks the last one-shot edge-label suggestion so we can (a) pre-fill it only
-  // while the field is untouched, and (b) log whether the user accepted/edited/ignored it.
-  const connectionSuggestionRef = useRef(null); // { edgeId, suggestion, callId }
-  const abstractionSuggestionRef = useRef(null); // { nodeId, direction, suggestion, callId, applied }
   const abstractionPrompt = useCanvasUIStore(s => s.abstractionPrompt), setAbstractionPrompt = useCanvasUIStore(s => s.setAbstractionPrompt);
-  const nodeGroupPrompt = useCanvasUIStore(s => s.nodeGroupPrompt), setNodeGroupPrompt = useCanvasUIStore(s => s.setNodeGroupPrompt);
+  const setNodeGroupPrompt = useCanvasUIStore(s => s.setNodeGroupPrompt);
 
   /**
    * "Create New Thing" — the selector that opens a new Web by settling what
@@ -2239,59 +2231,6 @@ function NodeCanvas() {
     return () => window.removeEventListener('redstring:new-web', handler);
   }, []);
 
-  // Add logging for abstraction prompt state changes
-
-  // Attach an accepted/edited/ignored outcome to the last edge-label suggestion.
-  const finalizeConnectionSuggestion = useCallback((finalName) => {
-    const s = connectionSuggestionRef.current;
-    connectionSuggestionRef.current = null;
-    if (!s || !s.callId) return;
-    if (!s.applied) { attachOneShotOutcome(s.callId, 'ignored'); return; }
-    const f = (finalName || '').trim().toLowerCase();
-    const sug = (s.suggestion || '').trim().toLowerCase();
-    attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
-  }, []);
-
-  // C4 — one-shot arrow direction. When the user confirms a verb-phrase
-  // connection label, ask the model (in the background) which way the arrow
-  // should point and pre-set it — but ONLY if the edge has no direction yet, and
-  // re-check inside the store write so a late suggestion never overrides a
-  // direction the user set in the meantime. No model → nothing happens.
-  const suggestEdgeArrowDirection = useCallback((...args) => suggestEdgeArrowDirectionWith({
-    edgesMap, nodeById, storeActions,
-  }, ...args), [edgesMap, nodeById, storeActions]);
-
-  // One-shot edge-label suggestion: when the connection prompt opens on an
-  // untouched field, ask the configured model (in the background) for a short
-  // verb-phrase label from source→target and pre-fill it as a suggestion the
-  // user can overwrite. No model / timeout / malformed → nothing happens and the
-  // field stays blank (identical to today).
-  useEffect(() => suggestConnectionName({
-    connectionNamePrompt, edgesMap, nodeById, nodePrototypesMap, connectionSuggestionRef,
-    setConnectionNamePrompt,
-  }), [connectionNamePrompt.visible, connectionNamePrompt.edgeId, edgesMap, nodeById, nodePrototypesMap]);
-
-  // C6 — Attach an accepted/edited/ignored outcome to the last abstraction-name suggestion.
-  const finalizeAbstractionSuggestion = useCallback((finalName) => {
-    const s = abstractionSuggestionRef.current;
-    abstractionSuggestionRef.current = null;
-    if (!s || !s.callId) return;
-    if (!s.applied) { attachOneShotOutcome(s.callId, 'ignored'); return; }
-    const f = (finalName || '').trim().toLowerCase();
-    const sug = (s.suggestion || '').trim().toLowerCase();
-    attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
-  }, []);
-
-  // C6 — Abstraction-axis name suggestion. When the add-above/below prompt opens
-  // on an untouched field, ask the model (background) for the name one rung
-  // more general / more specific and pre-fill it. NOTE: in this app "above" =
-  // MORE SPECIFIC and "below" = MORE GENERAL (see the prompt subtitle), which is
-  // the opposite of the usual convention — so we pass moreGeneral accordingly.
-  // No model / timeout / malformed → field stays blank (identical to today).
-  useEffect(() => fillAbstractionNameSuggestion({
-    abstractionPrompt, nodePrototypesMap, abstractionSuggestionRef, setAbstractionPrompt,
-  }), [abstractionPrompt.visible, abstractionPrompt.nodeId, abstractionPrompt.direction, nodePrototypesMap]);
-
   // Add to group dialog state
   const [addToGroupDialog, setAddToGroupDialog] = useState(null); // { nodeId, groupId, groupName, isNodeGroup, position }
 
@@ -2301,7 +2240,7 @@ function NodeCanvas() {
 
   // Pie-menu "Swap": UnifiedSelector prompt to re-point this instance at an existing
   // prototype or a brand-new Thing.
-  const swapPrompt = useCanvasUIStore(s => s.swapPrompt), setSwapPrompt = useCanvasUIStore(s => s.setSwapPrompt);
+  const setSwapPrompt = useCanvasUIStore(s => s.setSwapPrompt);
 
   // Carousel PieMenu stage state
   const carouselPieMenuStage = useCanvasUIStore(s => s.carouselPieMenuStage), setCarouselPieMenuStage = useCanvasUIStore(s => s.setCarouselPieMenuStage); // 1 = main stage, 2 = position selection stage
@@ -3008,15 +2947,6 @@ function NodeCanvas() {
   // Ref to track initial mount completion
   const isMountedRef = useRef(false);
 
-  // Re-point an existing instance at a different prototype (pie-menu "Swap").
-  // Edges reference instance IDs, so every connection stays attached — only the
-  // instance's prototypeId changes. Position is nudged so the node keeps its
-  // center despite the new prototype's (possibly different) dimensions. This is the
-  // same operation the abstraction carousel performs on swap.
-  const performInstanceSwap = useCallback((...args) => performInstanceSwapWith({
-    nodes, activeGraphId, storeActions,
-  }, ...args), [nodes, activeGraphId, storeActions]);
-
   /**
    * Every page of the default single-Thing pie menu, in display order.
    *
@@ -3474,19 +3404,6 @@ function NodeCanvas() {
 
     setNodeNamePrompt({ visible: true, name: '' });
   };
-
-  const handleClosePrompt = () => {
-    if (!nodeNamePrompt.name.trim()) {
-      setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-    }
-    setNodeNamePrompt({ visible: false, name: '', color: null });
-    setDialogColorPickerVisible(false); // Close color picker when closing prompt
-  };
-
-  const handleAbstractionSubmit = (a0) => submitAbstraction(a0, {
-    abstractionCarouselNode, abstractionPrompt, currentAbstractionDimension, nodePrototypesMap, nodes, setAbstractionCarouselVisible,
-    setAbstractionPrompt, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage, setIsCarouselStageTransition, setSelectedNodeIdForPieMenu, storeActions,
-  });
 
   const handleNodeSelection = (nodePrototype) => choosePlusSignNode(nodePrototype, {
     activeGraphId, decodeThumbnail, getPlusSignMorphNode, nodePrototypesMap, plusSign, setNodeNamePrompt,
@@ -4596,13 +4513,15 @@ function NodeCanvas() {
 
   // The name prompts' state and handlers (P5.06a).
   const promptsCtx = {
-    nodeNamePrompt, connectionNamePrompt, abstractionPrompt, nodeGroupPrompt, swapPrompt, setSwapPrompt,
-    leftPanelExpanded, rightPanelExpanded, storeActions, performInstanceSwap,
-    handleClosePrompt, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection,
-    finalizeConnectionSuggestion, setConnectionNamePrompt, suggestEdgeArrowDirection, setNodeGroupPrompt,
-    activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
-    setNodeControlPanelVisible, finalizeAbstractionSuggestion, handleAbstractionSubmit,
+    nodeNamePrompt, connectionNamePrompt, abstractionPrompt, setSwapPrompt, leftPanelExpanded, rightPanelExpanded,
+    storeActions, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection, setConnectionNamePrompt,
+    setNodeGroupPrompt, activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow,
+    setNodeControlPanelShouldShow, setNodeControlPanelVisible, edgesMap, nodeById, nodePrototypesMap,
+    setAbstractionPrompt, nodes, abstractionCarouselNode, currentAbstractionDimension,
+    setAbstractionCarouselVisible, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage,
+    setIsCarouselStageTransition, setSelectedNodeIdForPieMenu,
   };
+
 
   // The shell-slot overlays' state and handlers (P5.06a).
   const canvasOverlaysCtx = {

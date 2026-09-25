@@ -1,9 +1,10 @@
 /**
  * The canvas name prompts (P5.06a): swap, new Thing, connection name, node-group
  * name and Add Above/Below, one UnifiedSelector at a time. Moved verbatim from
- * NodeCanvas, which passes the prompts' state and handlers as `ctx`.
+ * NodeCanvas; since P5.06b the prompts' handlers and one-shot name suggestions
+ * live here too, and NodeCanvas passes the canvas values they use as `ctx`.
  */
-import { Profiler } from 'react';
+import { Profiler, useCallback, useEffect, useRef } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import UnifiedSelector from '../../../UnifiedSelector';
 import { v4 as uuidv4 } from 'uuid';
@@ -11,16 +12,104 @@ import { NODE_DEFAULT_COLOR } from '../../../constants';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setDialogColorPickerVisible } from '../colorPickers/colorPickers.js';
+import { attachOneShotOutcome } from '../../../services/oneShot.js';
+import { submitAbstraction } from '../actions/abstractionSubmit.js';
+import { suggestConnectionName, fillAbstractionNameSuggestion, suggestEdgeArrowDirectionWith } from '../actions/oneShotSuggestions.js';
+import { performInstanceSwapWith } from '../actions/instanceSwap.js';
 
 export default function PromptsHost({ ctx }) {
   const {
-    nodeNamePrompt, connectionNamePrompt, abstractionPrompt, nodeGroupPrompt, swapPrompt, setSwapPrompt,
-    leftPanelExpanded, rightPanelExpanded, storeActions, performInstanceSwap,
-    handleClosePrompt, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection,
-    finalizeConnectionSuggestion, setConnectionNamePrompt, suggestEdgeArrowDirection, setNodeGroupPrompt,
-    activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
-    setNodeControlPanelVisible, finalizeAbstractionSuggestion, handleAbstractionSubmit,
+    nodeNamePrompt, connectionNamePrompt, abstractionPrompt, setSwapPrompt, leftPanelExpanded, rightPanelExpanded,
+    storeActions, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection, setConnectionNamePrompt,
+    setNodeGroupPrompt, activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow,
+    setNodeControlPanelShouldShow, setNodeControlPanelVisible, edgesMap, nodeById, nodePrototypesMap,
+    setAbstractionPrompt, nodes, abstractionCarouselNode, currentAbstractionDimension,
+    setAbstractionCarouselVisible, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage,
+    setIsCarouselStageTransition, setSelectedNodeIdForPieMenu,
   } = ctx;
+  const nodeGroupPrompt = useCanvasUIStore(s => s.nodeGroupPrompt);
+  const swapPrompt = useCanvasUIStore(s => s.swapPrompt);
+
+  // ---- Moved from NodeCanvas (P5.06b) ----
+  // Tracks the last one-shot edge-label suggestion so we can (a) pre-fill it only
+  // while the field is untouched, and (b) log whether the user accepted/edited/ignored it.
+  const connectionSuggestionRef = useRef(null); // { edgeId, suggestion, callId }
+  const abstractionSuggestionRef = useRef(null); // { nodeId, direction, suggestion, callId, applied }
+
+  // Attach an accepted/edited/ignored outcome to the last edge-label suggestion.
+  const finalizeConnectionSuggestion = useCallback((finalName) => {
+    const s = connectionSuggestionRef.current;
+    connectionSuggestionRef.current = null;
+    if (!s || !s.callId) return;
+    if (!s.applied) { attachOneShotOutcome(s.callId, 'ignored'); return; }
+    const f = (finalName || '').trim().toLowerCase();
+    const sug = (s.suggestion || '').trim().toLowerCase();
+    attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
+  }, []);
+
+  // C4 — one-shot arrow direction. When the user confirms a verb-phrase
+  // connection label, ask the model (in the background) which way the arrow
+  // should point and pre-set it — but ONLY if the edge has no direction yet, and
+  // re-check inside the store write so a late suggestion never overrides a
+  // direction the user set in the meantime. No model → nothing happens.
+  const suggestEdgeArrowDirection = useCallback((...args) => suggestEdgeArrowDirectionWith({
+    edgesMap, nodeById, storeActions,
+  }, ...args), [edgesMap, nodeById, storeActions]);
+
+  // One-shot edge-label suggestion: when the connection prompt opens on an
+  // untouched field, ask the configured model (in the background) for a short
+  // verb-phrase label from source→target and pre-fill it as a suggestion the
+  // user can overwrite. No model / timeout / malformed → nothing happens and the
+  // field stays blank (identical to today).
+  useEffect(() => suggestConnectionName({
+    connectionNamePrompt, edgesMap, nodeById, nodePrototypesMap, connectionSuggestionRef,
+    setConnectionNamePrompt,
+  }), [connectionNamePrompt.visible, connectionNamePrompt.edgeId, edgesMap, nodeById, nodePrototypesMap]);
+
+  // C6 — Attach an accepted/edited/ignored outcome to the last abstraction-name suggestion.
+  const finalizeAbstractionSuggestion = useCallback((finalName) => {
+    const s = abstractionSuggestionRef.current;
+    abstractionSuggestionRef.current = null;
+    if (!s || !s.callId) return;
+    if (!s.applied) { attachOneShotOutcome(s.callId, 'ignored'); return; }
+    const f = (finalName || '').trim().toLowerCase();
+    const sug = (s.suggestion || '').trim().toLowerCase();
+    attachOneShotOutcome(s.callId, f && f === sug ? 'accepted' : 'edited');
+  }, []);
+
+  // C6 — Abstraction-axis name suggestion. When the add-above/below prompt opens
+  // on an untouched field, ask the model (background) for the name one rung
+  // more general / more specific and pre-fill it. NOTE: in this app "above" =
+  // MORE SPECIFIC and "below" = MORE GENERAL (see the prompt subtitle), which is
+  // the opposite of the usual convention — so we pass moreGeneral accordingly.
+  // No model / timeout / malformed → field stays blank (identical to today).
+  useEffect(() => fillAbstractionNameSuggestion({
+    abstractionPrompt, nodePrototypesMap, abstractionSuggestionRef, setAbstractionPrompt,
+  }), [abstractionPrompt.visible, abstractionPrompt.nodeId, abstractionPrompt.direction, nodePrototypesMap]);
+
+  // Re-point an existing instance at a different prototype (pie-menu "Swap").
+  // Edges reference instance IDs, so every connection stays attached — only the
+  // instance's prototypeId changes. Position is nudged so the node keeps its
+  // center despite the new prototype's (possibly different) dimensions. This is the
+  // same operation the abstraction carousel performs on swap.
+  const performInstanceSwap = useCallback((...args) => performInstanceSwapWith({
+    nodes, activeGraphId, storeActions,
+  }, ...args), [nodes, activeGraphId, storeActions]);
+
+  const handleClosePrompt = () => {
+    if (!nodeNamePrompt.name.trim()) {
+      setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+    }
+    setNodeNamePrompt({ visible: false, name: '', color: null });
+    setDialogColorPickerVisible(false); // Close color picker when closing prompt
+  };
+
+  const handleAbstractionSubmit = (a0) => submitAbstraction(a0, {
+    abstractionCarouselNode, abstractionPrompt, currentAbstractionDimension, nodePrototypesMap, nodes, setAbstractionCarouselVisible,
+    setAbstractionPrompt, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage, setIsCarouselStageTransition, setSelectedNodeIdForPieMenu, storeActions,
+  });
+
+
 
   return (
     <Profiler id="PromptsHost" onRender={onRenderProbe}>
