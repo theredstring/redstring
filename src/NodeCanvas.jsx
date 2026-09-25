@@ -5916,7 +5916,12 @@ function NodeCanvas() {
   const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useState(false);
   const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useState(false);
   const [groupControlPanelVisible, setGroupControlPanelVisible] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  // P2.03b: id in canvasUIStore, group read from the active web (was a stale snapshot).
+  const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
+  const selectedGroup = useMemo(() => (selectedGroupId ? graphsMap.get(activeGraphId)?.groups?.get(selectedGroupId) ?? null : null), [selectedGroupId, graphsMap, activeGraphId]);
+  const selectedGroupRef = useRef(selectedGroup);
+  selectedGroupRef.current = selectedGroup;
+  const setSelectedGroup = useCallback((next) => useCanvasUIStore.getState().setSelectedGroupId((typeof next === 'function' ? next(selectedGroupRef.current) : next)?.id ?? null), []);
   // Tracks the last group-title tap ({ id, time }) for touch double-tap (rename) detection.
   const lastGroupTapRef = useRef({ id: null, time: 0 });
   // Start position of an in-progress group-title touch, used by onTouchEnd to tell a
@@ -5928,7 +5933,10 @@ function NodeCanvas() {
   const groupTouchCleanupRef = useRef(null);
   // Preserve last selections during exit animations
   const lastSelectedNodePrototypes = useCanvasUIStore(s => s.lastSelectedNodePrototypes), setLastSelectedNodePrototypes = useCanvasUIStore(s => s.setLastSelectedNodePrototypes);
-  const [lastSelectedGroup, setLastSelectedGroup] = useState(null);
+  // Snapshot for the exit animation (even of a just-deleted group); latched in render (P2.03).
+  const lastSelectedGroupRef = useRef(null);
+  if (selectedGroup) lastSelectedGroupRef.current = selectedGroup;
+  const lastSelectedGroup = lastSelectedGroupRef.current;
   const [connectionControlPanelVisible, setConnectionControlPanelVisible] = useState(false);
   const [connectionControlPanelShouldShow, setConnectionControlPanelShouldShow] = useState(false);
   const [edgePieMenuVisible, setEdgePieMenuVisible] = useState(false);
@@ -6718,7 +6726,7 @@ function NodeCanvas() {
   const handleGroupControlPanelAnimationComplete = useCallback(() => {
     setGroupControlPanelShouldShow(false);
     setGroupControlPanelVisible(false);
-    setLastSelectedGroup(null);
+    lastSelectedGroupRef.current = null;
     setSelectedGroup(null);
   }, []);
 
@@ -6741,12 +6749,6 @@ function NodeCanvas() {
       setLastSelectedNodePrototypes(selectedNodePrototypes);
     }
   }, [selectedNodePrototypes]);
-
-  useEffect(() => {
-    if (selectedGroup) {
-      setLastSelectedGroup(selectedGroup);
-    }
-  }, [selectedGroup]);
 
   // Use last selected prototypes if current ones are empty but panel is still visible
   const nodePrototypesForPanel = useMemo(() => {
@@ -6788,8 +6790,7 @@ function NodeCanvas() {
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
   const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
 
-  // For a node-group the linked prototype owns name/color; selectedGroup is a snapshot
-  // taken at selection time, so read identity through the prototype wherever it's shown.
+  // A node-group's name/color live on its linked prototype; read identity through it.
   const selectedGroupEffectiveColor = useMemo(() => {
     if (!selectedGroup) return null;
     const linkedPrototype = selectedGroup.linkedNodePrototypeId
@@ -6812,8 +6813,7 @@ function NodeCanvas() {
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
-    // Start inline editing mode. For a node-group the prototype owns the name, so seed
-    // from it — selectedGroup is a snapshot and may lag a prototype edit made elsewhere.
+    // Start inline editing; a node-group's prototype owns the name, so seed from it.
     const linkedPrototype = selectedGroup.linkedNodePrototypeId
       ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
       : null;
