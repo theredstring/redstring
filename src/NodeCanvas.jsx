@@ -69,7 +69,7 @@ import { useTrackedState } from './hooks/useTrackedState.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
 import { createLiveMapView } from './utils/liveMapView.js';
-import { clampPan } from './utils/canvas/viewportMath.js';
+import { clampPan, clientToCanvas } from './utils/canvas/viewportMath.js';
 import {
   isMac,
   isIOS,
@@ -1742,8 +1742,7 @@ function NodeCanvas() {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const cs = canvasSizeRef.current;
-    const rawX = (clientX - rect.left - pan.x) / zoom + cs.offsetX;
-    const rawY = (clientY - rect.top - pan.y) / zoom + cs.offsetY;
+    const { x: rawX, y: rawY } = clientToCanvas(clientX, clientY, rect, pan, zoom, cs);
     const { x, y } = GeometryUtils.clampCoordinates(rawX, rawY, cs);
     setDrawingConnectionEnd(x, y);
   }, [setDrawingConnectionEnd]);
@@ -2837,10 +2836,7 @@ function NodeCanvas() {
     const pan = panOffsetRef.current;
     const zoom = zoomLevelRef.current;
     ref.anchorClient = { x: clientX, y: clientY };
-    ref.anchorWorld = {
-      x: (clientX - rect.left - pan.x) / zoom + canvas.offsetX,
-      y: (clientY - rect.top - pan.y) / zoom + canvas.offsetY,
-    };
+    ref.anchorWorld = clientToCanvas(clientX, clientY, rect, pan, zoom, canvas);
 
     if (ref.animationId) return;
     ref.lastTime = performance.now();
@@ -4956,8 +4952,7 @@ function NodeCanvas() {
   const findConnectionOrbAtPoint = useCallback((clientX, clientY, padding = 1) => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const px = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const py = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: px, y: py } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     return nearestConnectionOrb(connectionOrbHitsRef.current, px, py, padding);
   }, [containerRef, panOffsetRef, zoomLevelRef, canvasSize]);
 
@@ -7999,8 +7994,7 @@ function NodeCanvas() {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
     // Convert client to canvas coordinates
-    const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-    const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
 
     for (const [anchorId, info] of anchorPositionUpdatesRef.current.entries()) {
       // info: { x: labelX, y: labelY, width: labelWidth, height: labelHeight, groupId }
@@ -8071,8 +8065,7 @@ function NodeCanvas() {
     const group = groupsByIdRef.current.get(groupId);
     if (!group || !containerRef.current) return false;
     const rect = containerRef.current.getBoundingClientRect();
-    const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-    const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     const memberIdSet = new Set(group.memberInstanceIds || []);
     const members = nodes.filter(n => memberIdSet.has(n.id));
     const offsets = buildGroupDragOffsets(group, members, !!group.linkedNodePrototypeId, canvasX, canvasY);
@@ -8377,8 +8370,7 @@ function NodeCanvas() {
   const findEdgeAtClientPoint = useCallback((clientX, clientY, pointerKind = 'mouse') => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const cx = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-    const cy = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+    const { x: cx, y: cy } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     return findNearestEdgeAtCanvasPoint(cx, cy, getEdgeHitThreshold(pointerKind));
   }, [findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, canvasSize]);
 
@@ -9193,8 +9185,7 @@ function NodeCanvas() {
     }
 
     const rect = containerRef.current.getBoundingClientRect();
-    const rawX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const rawY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: rawX, y: rawY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
 
     // Validate calculated coordinates are not NaN
     if (isNaN(rawX) || isNaN(rawY)) {
@@ -9342,8 +9333,7 @@ function NodeCanvas() {
     const rect = containerRef.current.getBoundingClientRect();
     // Track last client pointer position for Safari gesture anchoring
     lastMousePosRef.current = { x: e.clientX, y: e.clientY };
-    const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: rawX, y: rawY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
 
     // Edge hover detection (only when not dragging/panning)
@@ -9683,8 +9673,7 @@ function NodeCanvas() {
       e.preventDefault();
       e.stopPropagation();
       const rect = containerRef.current.getBoundingClientRect();
-      const startX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const startY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x: startX, y: startY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       beginMarquee(startX, startY);
       return;
     }
@@ -9910,8 +9899,7 @@ function NodeCanvas() {
         // control-panel effect reads selectionStart as "still box-selecting", so
         // it must clear on release for the panel to open.
         const rect = containerRef.current.getBoundingClientRect();
-        const rawX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-        const rawY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+        const { x: rawX, y: rawY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
         const { x: currentX, y: currentY } = clampCoordinates(rawX, rawY);
         updateMarquee(currentX, currentY);
         endMarquee();
@@ -10202,8 +10190,7 @@ function NodeCanvas() {
     }
 
     const rect = containerRef.current.getBoundingClientRect();
-    const mouseX = (e.clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-    const mouseY = (e.clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+    const { x: mouseX, y: mouseY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
     if (!plusSign && selectedInstanceIds.size === 0 && !hoveredEdgeInfo) {
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
@@ -10769,8 +10756,7 @@ function NodeCanvas() {
     create: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       setPlusSign({ x, y, mode: 'appear', tempName: '' });
     },
     activate: () => handlePlusSignClick(),
@@ -10805,8 +10791,7 @@ function NodeCanvas() {
     findAt: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return null;
-      const canvasX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + (canvasSize?.offsetX || 0);
-      const canvasY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + (canvasSize?.offsetY || 0);
+      const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       const depths = groupDepthByGroupIdRef.current;
       let best = null;
       let bestDepth = -Infinity;
@@ -10868,8 +10853,7 @@ function NodeCanvas() {
     begin: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return false;
-      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       beginMarquee(x, y);
       return true;
     },
@@ -10881,8 +10865,7 @@ function NodeCanvas() {
     update: (clientX, clientY) => {
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
-      const x = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-      const y = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+      const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
       updateMarquee(x, y);
     },
     /**
@@ -12310,10 +12293,7 @@ function NodeCanvas() {
           const rect = containerRef.current?.getBoundingClientRect();
           let targetPos;
           if (rect && typeof clientX === 'number' && typeof clientY === 'number') {
-            targetPos = {
-              x: (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX,
-              y: (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY
-            };
+            targetPos = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
           } else {
             targetPos = {
               x: clip.originalCenter.x + 50,
@@ -13657,8 +13637,7 @@ function NodeCanvas() {
                               if (drawingConnectionFrom) return;
                               setLongPressingInstanceId(null);
                               const rect = containerRef.current.getBoundingClientRect();
-                              const mouseCanvasX = (downX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
-                              const mouseCanvasY = (downY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
+                              const { x: mouseCanvasX, y: mouseCanvasY } = clientToCanvas(downX, downY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
                               const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
                               if (group.anchorInstanceId) {
                                 const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
