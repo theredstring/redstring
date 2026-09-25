@@ -3396,18 +3396,14 @@ function NodeCanvas() {
     setCarouselAnimationState('hidden');
     setIsTransitioningPieMenu(false); // Now safe to end transition
 
-    // Restore the pie menu unless the carousel was closed by a click-away
-    if (!carouselClosedByClickAwayRef.current) {
-      if (nodeIdToShowPieMenu) {
-        setSelectedInstanceIds(new Set([nodeIdToShowPieMenu])); // Restore selection
-        setSelectedNodeIdForPieMenu(nodeIdToShowPieMenu);
-        // Frame the returned node with the focus-on-select zoom (the focus effect
-        // itself skips this — the id is unchanged from during the carousel).
-        pendingCarouselReturnFocusRef.current = nodeIdToShowPieMenu;
-      }
-    } else {
-      // Reset the flag so subsequent opens behave normally
-      carouselClosedByClickAwayRef.current = false;
+    // Restore the pie menu. A click-away closes the carousel the same way as
+    // Back (P5.02a NEW-1: the old click-away flag was never set).
+    if (nodeIdToShowPieMenu) {
+      setSelectedInstanceIds(new Set([nodeIdToShowPieMenu])); // Restore selection
+      setSelectedNodeIdForPieMenu(nodeIdToShowPieMenu);
+      // Frame the returned node with the focus-on-select zoom (the focus effect
+      // itself skips this — the id is unchanged from during the carousel).
+      pendingCarouselReturnFocusRef.current = nodeIdToShowPieMenu;
     }
 
     // Clear the protection flags after animations complete
@@ -3515,8 +3511,6 @@ function NodeCanvas() {
 
   // Ref to track carousel exit process to prevent cleanup interference
   const carouselExitInProgressRef = useRef(false);
-  // Track whether the carousel was closed by click-away to suppress pie menu reopen
-  const carouselClosedByClickAwayRef = useRef(false);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const clearLabelsOnMouseMove = useCallback(() => {
     clearHoverImmediate();
@@ -6546,10 +6540,6 @@ function NodeCanvas() {
                         )
                       )}
                       onHoverChange={handlePieMenuHoverChange}
-                      onAutoClose={() => {
-                        console.log('[NodeCanvas] PieMenu auto-close triggered after 5 seconds');
-                        setSelectedNodeIdForPieMenu(null);
-                      }}
                       onExitAnimationComplete={() => {
                         setIsPieMenuRendered(false);
                         setCurrentPieMenuData(null);
@@ -6612,26 +6602,20 @@ function NodeCanvas() {
                             // The carousel's onExitAnimationComplete will show the regular pie menu
                           }
                         } else if (wasTransitioning) {
-                          // Generic pie menu transition completion (non-carousel). If the carousel
-                          // was closed via click-away, do not toggle decompose preview.
+                          // Generic pie menu transition completion (non-carousel): Compose
+                          // and the like toggle the selected node's preview.
                           setIsTransitioningPieMenu(false);
-                          if (carouselClosedByClickAwayRef.current) {
-                            // Consume and reset the flag here too, since defensive closures may skip
-                            // the carousel's own exit completion callback.
-                            carouselClosedByClickAwayRef.current = false;
-                          } else {
-                            const currentlySelectedNodeId = [...selectedInstanceIds][0];
-                            if (currentlySelectedNodeId) {
-                              const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
-                              if (selectedNodeIsPreviewing) {
-                                setPreviewingNodeId(null);
-                              } else {
-                                setPreviewingNodeId(currentlySelectedNodeId);
-                              }
-                              setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
-                            } else {
+                          const currentlySelectedNodeId = [...selectedInstanceIds][0];
+                          if (currentlySelectedNodeId) {
+                            const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
+                            if (selectedNodeIsPreviewing) {
                               setPreviewingNodeId(null);
+                            } else {
+                              setPreviewingNodeId(currentlySelectedNodeId);
                             }
+                            setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
+                          } else {
+                            setPreviewingNodeId(null);
                           }
                         } else {
                           // Not transitioning, just clean exit
