@@ -1,11 +1,15 @@
 /**
  * The node pie and the edge pie, drawn under the active node (moved verbatim
- * from NodeCanvas). P5.03 moves their data latches in here.
+ * from NodeCanvas). Both menus are memoized (P5.03).
  */
-import { Profiler } from 'react';
+import { Profiler, memo, useCallback } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import NodePieMenuLayer from './NodePieMenuLayer.jsx';
 import PieMenu from '../../../PieMenu.jsx';
+
+// The edge pie, memoized like the node pie (P5.03): its props are the anchor and
+// button list (memoized upstream), primitives and stable callbacks.
+const EdgePieMenu = memo(PieMenu);
 
 export default function PieMenusLayer({ ctx }) {
   const {
@@ -16,6 +20,14 @@ export default function PieMenusLayer({ ctx }) {
     handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
     edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered,
   } = ctx;
+
+  // Stable, so the memoized edge menu isn't re-rendered for a new closure; the
+  // refs and the setter it touches never change.
+  const handleEdgePieExitComplete = useCallback(() => {
+    edgePieMenuAnchorRef.current = null;
+    edgePieMenuButtonsRef.current = null;
+    setEdgePieMenuRendered(false);
+  }, [edgePieMenuAnchorRef, edgePieMenuButtonsRef, setEdgePieMenuRendered]);
 
   return (
     <Profiler id="PieMenusLayer" onRender={onRenderProbe}>
@@ -96,7 +108,7 @@ export default function PieMenusLayer({ ctx }) {
         const displayButtons = frozenButtons;
 
         return (
-          <PieMenu
+          <EdgePieMenu
             anchor={anchor}
             anchorAngle={anchor.angle ?? 0}
             buttons={displayButtons}
@@ -104,11 +116,7 @@ export default function PieMenusLayer({ ctx }) {
             nodeScale={textSettings?.nodeScale ?? 1.0}
             isVisible={edgePieMenuVisible && !edgeAttachedToDraggedNode}
             onHoverChange={handlePieMenuHoverChange}
-            onExitAnimationComplete={() => {
-              edgePieMenuAnchorRef.current = null;
-              edgePieMenuButtonsRef.current = null;
-              setEdgePieMenuRendered(false);
-            }}
+            onExitAnimationComplete={handleEdgePieExitComplete}
           />
         );
       })()}
