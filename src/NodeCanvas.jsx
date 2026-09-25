@@ -16,7 +16,8 @@ import UnifiedBottomControlPanel from './UnifiedBottomControlPanel.jsx';
 import EdgeGlowIndicator from './components/EdgeGlowIndicator.jsx'; // Import the EdgeGlowIndicator component
 import BackToCivilization from './BackToCivilization.jsx'; // Import the BackToCivilization component
 import DownloadAppPill from './DownloadAppPill.jsx';
-import HoverVisionAid from './components/HoverVisionAid.jsx'; // Import the HoverVisionAid component
+import HoverVisionAidLayer from './components/canvas/layers/HoverVisionAidLayer.jsx';
+import { setActionHover, getActionHoverItem } from './utils/canvas/actionHover.js';
 import GamepadCrosshair from './components/GamepadCrosshair.jsx'; // Controller-mode reticle
 import { getNodeDimensions, generateThumbnail, loadImageFileAsDataUrl } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from './services/textMeasurement.js';
@@ -71,6 +72,7 @@ import useGraphStore, {
 import useHistoryStore from './store/historyStore.js';
 import useCanvasUIStore from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
+import { useHoverIntent } from './hooks/useHoverIntent.js';
 import DeletionGhostLayer from './components/canvas/layers/DeletionGhostLayer.jsx';
 import PanelResizers from './components/canvas/PanelResizers.jsx';
 import { CanvasOverlaySlot } from './components/canvas/hosts/canvasOverlaySlot.js';
@@ -467,9 +469,6 @@ const CONNECTION_DETENT_PX = 44;
 // carries the identity, this is a whisper of it. Mixed opaquely rather than laid
 // on as alpha so nested groups don't compound into mud.
 const NODE_GROUP_INTERIOR_TINT = 0.07;
-// How long a tapped button's vision-aid label stays up on a no-hover device
-// before it starts retracting. See handlePieMenuHoverChange.
-const VISION_AID_TOUCH_HOLD_MS = 1000;
 const TRACKPAD_PAN_FRICTION = 0.94;             // per-frame retention for trackpad glide
 // Per-frame retention for click-drag glide. Its own base rather than touch's,
 // so the Mouse slider's default can sit at the midpoint like every other glide
@@ -5159,163 +5158,20 @@ function NodeCanvas() {
     return true;
   }, [findConnectionOrbAtPoint, toggleConnectionOrbArrow]);
 
-  // Hover vision aid state
-  const [hoveredNodeForVision, setHoveredNodeForVision] = useState(null);
-  const [hoveredConnectionForVision, setHoveredConnectionForVision] = useState(null);
-  const [activePieMenuItemForVision, setActivePieMenuItemForVision] = useState(null);
-  const activePieMenuItemRef = useRef(null);
+  // Hover vision aid state lives in canvasUIStore and HoverVisionAidLayer reads
+  // it (P2.13); NodeCanvas only writes it, so it doesn't render for it.
+  const { setActivePieMenuItemForVision } = useCanvasUIStore.getState();
 
-  // Hover intent delay: require the pointer to dwell on a target for a short
-  // beat before we treat it as "hovered". Prevents the vision aid / edge glow
-  // from flickering on as the pointer merely sweeps across nodes and edges.
-  const HOVER_ENTER_DELAY_MS = 180;
-  const hoverCommitTimerRef = useRef(null);
-  const committedHoverKeyRef = useRef('none');
-  const pendingHoverKeyRef = useRef('none');
-
-  const applyHoverCandidate = useCallback((candidate) => {
-    if (candidate.kind === 'node') {
-      setHoveredNodeForVision(candidate.node);
-      setHoveredConnectionForVision(null);
-      setHoveredEdgeInfo(null);
-    } else if (candidate.kind === 'connection' || candidate.kind === 'orbitItem') {
-      // An orbit item previews as the triplet it would become — focus node,
-      // predicate, candidate — not as a lone box. The box on its own says
-      // nothing the orbit isn't already showing; the relationship is the whole
-      // reason the thing is out there. It carries no edgeInfo because there is
-      // no edge on the canvas to glow yet.
-      setHoveredNodeForVision(null);
-      setHoveredConnectionForVision(candidate.connection);
-      setHoveredEdgeInfo(candidate.edgeInfo ?? null);
-    } else {
-      setHoveredNodeForVision(null);
-      setHoveredConnectionForVision(null);
-      setHoveredEdgeInfo(null);
-    }
-  }, []);
-
-  // Cancel any pending dwell timer and clear all hover state immediately.
-  const clearHoverImmediate = useCallback(() => {
-    if (hoverCommitTimerRef.current) {
-      clearTimeout(hoverCommitTimerRef.current);
-      hoverCommitTimerRef.current = null;
-    }
-    pendingHoverKeyRef.current = 'none';
-    committedHoverKeyRef.current = 'none';
-    setHoveredNodeForVision(null);
-    setHoveredConnectionForVision(null);
-    setHoveredEdgeInfo(null);
-  }, []);
-
-  // The connection the hover hit-test should favour on the next frame: the one
-  // on screen, or the one counting down toward being on screen. A target that
-  // is mid-dwell gets the same protection as a committed one — otherwise a
-  // rival that ties it for a frame resets the countdown and hover never
-  // arrives. See EDGE_HOVER_STICKY_FRACTION.
-  const hoverStickyEdgeId = useCallback(() => {
-    const PREFIX = 'connection:';
-    for (const key of [committedHoverKeyRef.current, pendingHoverKeyRef.current]) {
-      if (key.startsWith(PREFIX)) return key.slice(PREFIX.length);
-    }
-    return null;
-  }, []);
-
-  // Route a detected hover candidate through the dwell timer. Entering a target
-  // waits HOVER_ENTER_DELAY_MS; leaving a target (or landing on empty canvas)
-  // clears instantly so nothing gets "stuck" behind the pointer.
-  const commitHoverTarget = useCallback((candidate) => {
-    // While the orbit is open the graph is behind a scrim and is not what the
-    // user is looking at — so the canvas has nothing to preview, focus node
-    // included. Enforced HERE rather than at each caller because there are
-    // several (the mouse's RAF hover check, the controller's per-frame
-    // resolve), and one of them missing it is how the focus node came to raise
-    // a preview under the pad. Orbit's own items are the exception: they are
-    // the only thing on screen worth previewing while it is open.
-    if (semanticOrbitActiveRef.current
-      && (candidate.kind === 'node' || candidate.kind === 'connection')) {
-      candidate = { kind: 'none' };
-    }
-    const key = candidate.kind === 'none' ? 'none' : `${candidate.kind}:${candidate.id}`;
-
-    if (key === 'none') {
-      if (committedHoverKeyRef.current !== 'none' || pendingHoverKeyRef.current !== 'none') {
-        clearHoverImmediate();
-      }
-      return;
-    }
-
-    // Already showing this exact target — nothing to do.
-    if (key === committedHoverKeyRef.current) {
-      if (hoverCommitTimerRef.current) {
-        clearTimeout(hoverCommitTimerRef.current);
-        hoverCommitTimerRef.current = null;
-      }
-      pendingHoverKeyRef.current = key;
-      return;
-    }
-
-    // This target is already counting down — let its timer keep running.
-    if (key === pendingHoverKeyRef.current && hoverCommitTimerRef.current) return;
-
-    // New target: start its dwell timer, and leave whatever is currently shown
-    // ALONE until that timer fires.
-    //
-    // Blanking here instead meant every rival that got within the grab radius
-    // — for a frame, for a pixel of jitter — tore down a preview that was
-    // correct, and the user paid HOVER_ENTER_DELAY_MS of empty canvas whether
-    // or not the rival went on to win. applyHoverCandidate replaces all three
-    // pieces of hover state at once, so the swap at commit time is clean and
-    // there is nothing this early teardown was buying. Leaving a target
-    // entirely still clears instantly, above.
-    if (hoverCommitTimerRef.current) clearTimeout(hoverCommitTimerRef.current);
-    pendingHoverKeyRef.current = key;
-    hoverCommitTimerRef.current = setTimeout(() => {
-      hoverCommitTimerRef.current = null;
-      committedHoverKeyRef.current = key;
-      applyHoverCandidate(candidate);
-    }, HOVER_ENTER_DELAY_MS);
-  }, [applyHoverCandidate, clearHoverImmediate]);
-
-  useEffect(() => () => {
-    if (hoverCommitTimerRef.current) clearTimeout(hoverCommitTimerRef.current);
-  }, []);
+  // Hover intent: which canvas target counts as hovered, after a short dwell (P2.13).
+  const { commitHoverTarget, clearHoverImmediate, hoverStickyEdgeId } = useHoverIntent({ setHoveredEdgeInfo, semanticOrbitActiveRef });
 
   const clearVisionAid = useCallback(() => {
     clearHoverImmediate();
     setActivePieMenuItemForVision(null);
-    activePieMenuItemRef.current = null;
   }, [clearHoverImmediate]);
 
-  // On a device that can't hover there is no pointer-leave to take the chip
-  // back down, so a label raised by a tap would sit there until something else
-  // happened to replace it. Instead, show it and retract it on a timer: the tap
-  // reveals what the button was, then it gets out of the way. HoverVisionAid's
-  // own hold-then-fade turns the clear into a graceful exit rather than a pop,
-  // so the visible life is this hold plus its ~250ms fade.
-  //
-  // Hover devices are untouched — the pointer still governs, which is the right
-  // model when there IS a pointer.
-  const visionAutoClearRef = useRef(null);
-  const handlePieMenuHoverChange = useCallback((button) => {
-    clearTimeout(visionAutoClearRef.current);
-    visionAutoClearRef.current = null;
-    if (button?.label) {
-      const item = { id: button.id, label: button.label };
-      setActivePieMenuItemForVision(item);
-      activePieMenuItemRef.current = item;
-      if (hasNoHover()) {
-        visionAutoClearRef.current = setTimeout(() => {
-          visionAutoClearRef.current = null;
-          setActivePieMenuItemForVision(null);
-          activePieMenuItemRef.current = null;
-        }, VISION_AID_TOUCH_HOLD_MS);
-      }
-    } else {
-      setActivePieMenuItemForVision(null);
-      activePieMenuItemRef.current = null;
-    }
-  }, []);
-  useEffect(() => () => clearTimeout(visionAutoClearRef.current), []);
+  // Button hover reports to the vision aid through a stable module function (P2.13).
+  const handlePieMenuHoverChange = setActionHover;
 
   // Connection control panel animation state
 
@@ -7467,10 +7323,8 @@ function NodeCanvas() {
           // button, so it would otherwise keep showing the pre-click size.
           // Refresh it in place (same id → same chip, instant text swap) so it
           // tracks the new size while the pointer stays on the button.
-          if (activePieMenuItemRef.current?.id === 'change-size') {
-            const refreshedItem = { id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` };
-            setActivePieMenuItemForVision(refreshedItem);
-            activePieMenuItemRef.current = refreshedItem;
+          if (getActionHoverItem()?.id === 'change-size') {
+            setActivePieMenuItemForVision({ id: 'change-size', label: `Size: ${nodeSizeLabel(next)}` });
           }
         }
       }
@@ -9742,7 +9596,7 @@ function NodeCanvas() {
           }
 
           // PieMenu buttons take priority over nodes and connections.
-          if (activePieMenuItemRef.current) {
+          if (getActionHoverItem()) {
             clearHoverImmediate();
             return;
           }
@@ -12510,8 +12364,6 @@ function NodeCanvas() {
     autoLayout: triggerAutoLayout,
     snapToGrid,
     condense: condenseGraphNodes,
-    // Interim: the header's hover chip, until the hover slice (P2.13).
-    actionHover: handlePieMenuHoverChange,
     // The Panels' "open this definition" hurtle (P2.09).
     startHurtleFromPanel: startHurtleAnimationFromPanel,
     // The header's component search flies to the Thing's instances (P2.06d).
@@ -15331,13 +15183,7 @@ function NodeCanvas() {
                 </svg>
               )}
 
-              <HoverVisionAid
-                headerHeight={headerHeight}
-                hoveredNode={hoveredNodeForVision}
-                hoveredConnection={hoveredConnectionForVision}
-                activePieMenuItem={activePieMenuItemForVision}
-                zoomLevel={zoomLevel}
-              />
+              <HoverVisionAidLayer headerHeight={headerHeight} zoomLevel={zoomLevel} />
 
               {/* The controller's cursor. Pinned to the absolute screen centre
                   so panels opening and closing never move it, and the zoom is
