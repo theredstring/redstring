@@ -115,3 +115,4 @@ The ratchet budget lives in `test/meta/nodecanvas-budget.json` once P0.07 lands.
 | 2026-09-25 | 6ce6a00 | 17,945 | — | P2.11 (CanvasShell) |
 | 2026-09-25 | P2.06b merge | 17,822 | — | ModalHosts |
 | 2026-09-25 | P2.06a merge | 17,313 | — | SyncDebugHost |
+| 2026-09-25 | P2.06d merge | 17,215 | — | SearchHosts |

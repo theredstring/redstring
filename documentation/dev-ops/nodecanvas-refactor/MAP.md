@@ -144,7 +144,7 @@ src/utils/perf/renderProbe.js                                          P0.01
 | Selection rect, PlusSign, VideoNodeAnimation | `selectionRect &&`, `<PlusSign`, `<VideoNodeAnimation` | 18052–18112 | `OverlayLayer` | P1.04, P3.09 |
 | Orbit scrim/overlay svg, HoverVisionAid, GamepadCrosshair | `semanticOrbitActive &&`, `<HoverVisionAid`, `<GamepadCrosshair` | 18113–18184 | orbit module; hover slice | P5.08, P2.13 |
 | EdgeGlowIndicator, BackToCivilization, DownloadAppPill, resizers | `edgeGlowMode !== 'off'`, `<BackToCivilization`, `renderPanelResizers()` | 18185–18233 | leaves on the viewport store; `PanelResizers` | P3.10, P2.12 |
-| Header searches, New Web prompt, prompts IIFE | `headerSearchVisible &&`, `newWebPrompt.visible &&` | 18234–18544 | `SearchHosts`, `PromptHosts` | P2.06d, P5.06 |
+| Prompts IIFE | `{(() => {` after `.canvas-area` content (the single UnifiedSelector) | 18234–18544 | `PromptHosts` (header searches and New Web **moved** to `hosts/SearchHosts`, P2.06d) | P5.06 |
 | Hurtle orb | `hurtleAnimation &&` | 18545–18562 | `HurtleOrb` | P1.06 |
 | Right Panel | — | — | **moved:** `hosts/PanelHost`, rendered by CanvasShell | done |
 | SaveStatusDisplay | `<SaveStatusDisplay` | 18586–18596 | TypeList **moved** (`hosts/TypeListHost` in CanvasShell); SaveStatusDisplay → UniverseHost | P2.06c |

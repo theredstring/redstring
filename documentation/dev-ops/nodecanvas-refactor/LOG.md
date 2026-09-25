@@ -13,6 +13,13 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.06d done (Claude, orchestrator)
+
+- **P2.06d:** `SearchHosts` renders the header searches and New Thing; the component search's camera move is the `navigateToPrototypeInstances` command. NodeCanvas.jsx **17,215**. F23 added.
+- **Gates:** `test:ci` PASS, Playwright 49 passed (F12 expected), `lint:undef` PASS.
+
+---
+
 ## 2026-09-25: P2.06a done (Claude, orchestrator)
 
 - **P2.06a:** `SyncDebugHost` owns the sync diagnostics (about 500 lines). NodeCanvas.jsx 17,822 → **17,313**. F22b added. "Hide" now hides only the overlay (report).
