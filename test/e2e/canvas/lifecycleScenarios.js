@@ -189,8 +189,9 @@ export const scenarios = {
     return trace.stop({ raw: true });
   },
 
-  // F34b (T8 cancel, NEW-2): stage 2 → Add Above → cancel the prompt → Back,
-  // Back, Back. Records whatever each Back does today.
+  // F34b (T8 cancel, NEW-2): stage 2 → Add Above → cancel the prompt → Back.
+  // Since NEW-2's fix one Back closes the carousel; before it, the first Back
+  // swapped to stage 2, so Back is pressed until the carousel is gone (at most 3).
   async F34_cancelBack(page, opts = {}) {
     const trace = await begin(page, opts);
     await openPie(page);
@@ -204,9 +205,10 @@ export const scenarios = {
     await page.locator('.unified-selector-overlay').getByTitle('Close', { exact: true }).click();
     await expect(page.locator('input.unified-selector-control[type="text"]')).toHaveCount(0);
     await waitForQuiet(page);
-    await clickBack(page); // 1st Back
-    await clickBack(page); // 2nd Back
-    if (await page.locator('[data-carousel-level]').count()) await clickBack(page); // 3rd Back if still open
+    for (let i = 0; i < 3 && await page.locator('[data-carousel-level]').count(); i++) {
+      await clickBack(page);
+      await waitForQuiet(page);
+    }
     await expect(page.locator('[data-carousel-level]')).toHaveCount(0);
     await waitForQuiet(page);
     return trace.stop({ raw: true });

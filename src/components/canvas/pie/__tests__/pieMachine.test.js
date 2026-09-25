@@ -471,11 +471,11 @@ describe('prompt events', () => {
     expect(commands).toContainEqual({ type: 'local', action: 'carouselFocusPrototypeRequest', args: { prototypeId: 'pNew' } });
   });
 
-  it('PROMPT_CANCELLED: stage 1 with the stage flag RAISED and no transition (NEW-2 source)', () => {
+  it('PROMPT_CANCELLED: stage 1 in place, stage flag down, no transition (NEW-2 fixed)', () => {
     const { next, commands } = run(carouselOnA({ abstractionPrompt: prompt, carouselPieMenuStage: 2 }), { type: 'PROMPT_CANCELLED' });
     expect(next.abstractionPrompt.visible).toBe(false);
     expect(next.carouselPieMenuStage).toBe(1);
-    expect(next.isCarouselStageTransition).toBe(true);
+    expect(next.isCarouselStageTransition).toBe(false);
     expect(next.isTransitioningPieMenu).toBe(false);
     expect(armsWatchdog(commands)).toBe(false);
   });
@@ -601,30 +601,31 @@ describe('side rules', () => {
   });
 });
 
-describe('CURRENT BEHAVIOUR: bugs reproduced on purpose (P5.02a §5)', () => {
-  it('NEW-2: Back after a cancelled Add Above/Below swaps to stage 2 instead of closing the carousel', () => {
+describe('fixed bugs (wave 6)', () => {
+  it('NEW-2 fixed: Back after a cancelled Add Above/Below closes the carousel', () => {
     const prompt = { visible: true, name: '', color: null, direction: 'above', nodeId: 'pA', carouselLevel: null };
     const { next } = runAll(carouselOnA({ abstractionPrompt: prompt, carouselPieMenuStage: 2 }), [
-      { type: 'PROMPT_CANCELLED' }, // stage 1, flag left up
-      { type: 'CAROUSEL_BACK' }, // stage-1 Back does not clear the flag
-      { type: 'PIE_EXITED' }, // → row 3a, not 3b
+      { type: 'PROMPT_CANCELLED' }, // stage 1, flag down
+      { type: 'CAROUSEL_BACK' },
+      { type: 'PIE_EXITED' }, // → row 3b: the carousel exits
     ]);
-    expect(next.abstractionCarouselVisible).toBe(true);
-    expect(next.carouselAnimationState).toBe('visible');
-    expect(next.carouselPieMenuStage).toBe(2);
+    expect(next.carouselAnimationState).toBe('exiting');
     expect(next.isCarouselStageTransition).toBe(false);
+    expect(next.carouselPieMenuStage).toBe(1);
   });
 
-  it('NEW-4: closing the carousel from stage 2 leaves the stage at 2 for the next open', () => {
+  it('NEW-4 fixed: closing the carousel from stage 2 resets the stage for the next open', () => {
     const { next } = runAll(carouselOnA({ carouselPieMenuStage: 2 }), [
       { type: 'CAROUSEL_CLOSE' }, { type: 'PIE_EXITED' }, { type: 'CAROUSEL_EXITED' },
     ]);
     expect(next.abstractionCarouselVisible).toBe(false);
-    expect(next.carouselPieMenuStage).toBe(2);
+    expect(next.carouselPieMenuStage).toBe(1);
     const reopened = run(next, { type: 'CAROUSEL_OPEN_DIRECT', node: nodeA });
-    expect(reopened.next.carouselPieMenuStage).toBe(2);
+    expect(reopened.next.carouselPieMenuStage).toBe(1);
   });
+});
 
+describe('CURRENT BEHAVIOUR: bugs reproduced on purpose (P5.02a §5)', () => {
   it('NEW-5: Compose acts on whatever is selected when the shrink ends', () => {
     // A is decomposed; Compose pressed on A; B clicked during the shrink.
     const { next } = runAll(pieOpenOnA({ previewingNodeId: 'A' }), [

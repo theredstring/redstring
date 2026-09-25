@@ -65,16 +65,15 @@ test('F35 with the node control panel on, the panels swap by cutting each other 
   expect(findIndex(all, (s) => s.panels.abstraction === 'abstraction:exiting'), 'nor does the abstraction panel').toBe(-1);
 });
 
-test('F35 Escape from stage 2 leaves the stage at 2: the next carousel opens on stage 2 (NEW-4, today\'s behaviour)', async ({ page }) => {
+test('F35 Escape from stage 2: the next carousel opens on stage 1 (NEW-4 fixed)', async ({ page }) => {
   const { all } = await scenarios.F35_stage2Escape(page);
-  // NEW-4 (current behaviour, a bug to be fixed): the carousel's exit does not
-  // reset carouselPieMenuStage, so the default pie comes back with stage 2
-  // still stored, and reopening the carousel pops the stage-2 set first.
+  // NEW-4 (fixed in wave 6): the carousel's exit resets carouselPieMenuStage,
+  // so reopening the carousel pops the stage-1 set. It used to reopen on stage 2.
   const [, , closed] = expectInOrder(expect, all, [
     ['stage 2 pie', (s) => s.carouselVisible && s.stage === 2 && steady(3)(s)],
     ['Escape: carousel exits', (s) => s.carouselAnim === 'exiting' && s.stage === 2],
-    ['closed, stage still 2', (s) => !s.carouselVisible && s.carouselAnim === 'hidden' && steady(8)(s) && s.stage === 2],
-    ['reopened on stage 2 (3 buttons)', (s) => s.carouselVisible && s.stage === 2 && steady(3)(s)],
+    ['closed, stage back to 1', (s) => !s.carouselVisible && s.carouselAnim === 'hidden' && steady(8)(s) && s.stage === 1],
+    ['reopened on stage 1 (6 buttons)', (s) => s.carouselVisible && s.stage === 1 && steady(6)(s)],
   ]);
-  expect(all.slice(closed).every((s) => s.stage === 2), summarize(all)).toBe(true);
+  expect(all.slice(closed).every((s) => s.stage === 1), summarize(all)).toBe(true);
 });

@@ -346,9 +346,12 @@ const EVENTS = {
     writes.abstractionCarouselNode = null;
     writes.carouselAnimationState = 'hidden';
     writes.isTransitioningPieMenu = false;
+    // The next carousel opens on stage 1, whichever stage this one closed from
+    // (NEW-4, fixed in wave 6; it used to reopen on the stage-2 set). The focused
+    // node is left: the carousel's first report overwrites it.
+    writes.carouselPieMenuStage = 1;
     // Restored unconditionally (the click-away flag is dead, NEW-1), even if the
-    // node is gone (NEW-7) or the web changed under the exit (NEW-3). Stage and
-    // focused-node state are NOT reset (NEW-4).
+    // node is gone (NEW-7) or the web changed under the exit (NEW-3).
     if (nodeId) {
       writes.selectedInstanceIds = new Set([nodeId]);
       writes.selectedNodeIdForPieMenu = nodeId;
@@ -385,11 +388,16 @@ const EVENTS = {
     };
   },
 
-  /** The prompt's onClose. Raises the stage flag with no transition running (NEW-2). */
+  /**
+   * The prompt's onClose: back to stage 1 in place, like PROMPT_SUBMITTED. The
+   * stage flag stays down: it used to be raised here with no transition running,
+   * so the next stage-1 Back swapped to stage 2 instead of closing the carousel
+   * (NEW-2, fixed in wave 6).
+   */
   PROMPT_CANCELLED: (s) => ({
     abstractionPrompt: hiddenAbstractionPrompt(),
     carouselPieMenuStage: 1,
-    isCarouselStageTransition: true,
+    isCarouselStageTransition: false,
     ...(s.abstractionCarouselNode && !s.selectedNodeIdForPieMenu
       ? { selectedNodeIdForPieMenu: s.abstractionCarouselNode.id } : {}),
   }),
