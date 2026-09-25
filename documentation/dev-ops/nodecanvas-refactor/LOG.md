@@ -13,6 +13,21 @@ Keep entries short. The details belong in the card's Handoff note.
 
 ---
 
+## 2026-09-25: P2.02–P2.05 done; wave 3 under way (Claude, orchestrator)
+
+- Wave 2 smoke-tested by Grant and pushed (`main` 4daa4d1). Wave 3 integration starts from it.
+- **P2.02** (f29b9f0): node selection lives in `canvasUIStore`, bound in place. `useNodeActions.js` deleted. No extra commits (S6 29, S7 18). P2.01 now counts as done.
+- **P2.03** (4fbb562): the pie target and its render/transition state, preview, definition indices, carousel and orbit flags, editing id and clipboard version moved.
+  - Everything written in the pie's exit flush moved together; leaving part in `useState` rendered twice (store writes render at once, `useState` writes outside a React event render later).
+  - **B-08** fixed, and new **B-11** found and fixed: the right panel's Components list always showed the first definition. F17 guards both.
+  - `selectedGroup` and the edge-selection decision split out as P2.03b / P2.03c.
+- **P2.04** (2d4c315): prompts, modal flags, header searches and `isHeaderEditing` moved. F-50's dead panel focus plumbing deleted (**D-19**).
+- **P2.05** (87f11e7): every "open the left panel to view X" goes through `openLeftPanelView`, a store request with a nonce. `leftPanelRef` and the `leftPanelInitialView` prop are gone. F18 guards the repeat request (checked that it fails when the nonce is ignored).
+- **Integration 87f11e7:** `test:ci` PASS (3,543 tests, 68 known, 0 new), Playwright 37 passed (F12 the expected B-05 failure), `lint:undef` PASS. NodeCanvas.jsx 18,412 → **18,362**.
+- **Next:** P2.08 (canvas command registry; Header to App).
+
+---
+
 ## 2026-09-25: P1.08 done; wave 2 complete on integration (Claude, orchestrator)
 
 - **P1.08** (fa65a73):

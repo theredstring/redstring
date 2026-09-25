@@ -163,7 +163,11 @@ This is how the orchestrating session reviews and lands agent work. A resumed or
 
 **Cancelled agents.** If an agent is cancelled (e.g. its session ended), its commits survive on its branch. The orchestrator may finish verifying and reporting that work itself. **Starting a new agent to redo a cancelled agent's unfinished work needs Grant's explicit OK.**
 
-**In flight** (edit this when you claim or finish a task). Wave 2 is based on `refactor/wave2-integration` (main + P0.02/P0.03):
+**In flight** (edit this when you claim or finish a task). Wave 3 is `refactor/wave3-integration`, based on `main` at 4daa4d1 (wave 2):
+- ~~Lane A: P2.02~~ (f29b9f0), ~~P2.03 (+ B-08, B-11)~~ (4fbb562), ~~P2.04 (D-19)~~ (2d4c315), ~~P2.05~~ (87f11e7)
+- Next: P2.08 (command registry; Header to App), then P2.09, P2.10, P2.11, P2.06, P2.03b, P2.03c, P2.07, P2.12, P2.13
+
+Wave 2 (pushed to `main` at 4daa4d1):
 - ~~Lane A: P1.03, P1.04 (+ B-01)~~ merged (7c188ba); ~~P1.06 (+ B-04)~~ merged (ebe2242)
 - ~~Lane C: P0.06 (CI) + X-07~~ merged (7b74851)
 - ~~Lane B: P0.04 (perf scenarios + baseline)~~ merged (0396b65)
@@ -189,7 +193,7 @@ Worktree agents may not see Grant's memory, so these are repeated here.
 |---|---|---|---|
 | P0 | [phases/P0-measure.md](phases/P0-measure.md) | Render instrumentation, fixture universes, Playwright flows, perf scenarios, CI, size ratchet | **done**: P0.01–P0.07 (P0.03 + P0.03b) |
 | P1 | [phases/P1-stop-rerenders.md](phases/P1-stop-rerenders.md) | Remove per-frame and cascading re-renders; delete dead code | **done** except P1.13's B-03, which becomes the welcome-screen host (D-17), built outside NodeCanvas |
-| P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | not started |
+| P2 | [phases/P2-ui-store-and-shell.md](phases/P2-ui-store-and-shell.md) | UI store for shared state; move Header, Panels, TypeList and modals out of NodeCanvas | **in progress**: P2.01–P2.05 done (wave 3) |
 | P3 | [phases/P3-canvas-layers.md](phases/P3-canvas-layers.md) | Render layers for groups, edges, nodes and overlays; narrow subscriptions; stable handlers | not started |
 | P4 | [phases/P4-input-controllers.md](phases/P4-input-controllers.md) | Camera controller, pointer-gesture state machine, input consolidation | not started |
 | P5 | [phases/P5-menus-and-panels.md](phases/P5-menus-and-panels.md) | Pie menu, carousel and abstraction state machine; control panels; remaining hosts | not started |

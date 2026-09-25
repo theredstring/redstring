@@ -117,3 +117,8 @@ This file records calls that nobody should re-argue mid-task.
 - P1.12b may stop re-solving labels on selection (V1 + V2 in reports/P1.12a.md), even though labels then no longer shift on select.
 - The "at rest" snapshots must stay identical.
 - The "selected" snapshots get updated, and every "labels that moved" list becomes `[]`.
+
+**D-19. Delete the panel focus plumbing; the DOM check guards panel fields (F-50, P2.04).** *Decided (orchestrator, within the P2.04 card's either/or), 2026-09-25.*
+- `onFocusChange` went from NodeCanvas through Panel to `PanelContentWrapper`, which never called it, so `isLeftPanelInputFocused` / `isRightPanelInputFocused` were never true.
+- Typing in panel fields was already kept from the canvas by the DOM focus check in `utils/textEntry.js` (F13 covers it). Wiring the flags up would have added a second mechanism for the same job.
+- So the flags, their setters, `handleLeftPanelFocusChange` and every `onFocusChange` prop are gone. `selectIsTextEntryActive` is `isHeaderEditing` only: the header title editor is the one field that reports its focus.

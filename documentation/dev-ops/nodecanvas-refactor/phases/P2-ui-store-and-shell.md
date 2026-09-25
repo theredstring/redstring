@@ -20,7 +20,7 @@ After this phase:
 ---
 
 ### P2.01: `canvasUIStore` scaffold
-- **Status:** pre-staged (80e0c39, 9c9087c; report reports/P2.01.md). NOT wired: counts as done only when P2.02 wires the first slice
+- **Status:** done (80e0c39, 9c9087c; report reports/P2.01.md). Wired by P2.02, so it counts as done
 - **Lane:** B · **Size:** M · **Depends:** P1 done
 - **Findings:** F-47
 - **Change:**
@@ -47,7 +47,7 @@ After this phase:
 - **Handoff:** 220 tests pass. Setters keep the NodeCanvas names and accept a value or an updater. No-op writes are skipped (Set equality for selection, Map equality for definition indices, shallow compare for prompts). That's stricter than useState: an effect that re-fired on a new-but-equal Set will stop re-firing. P2.02 must check for that. See the report for kickoff research (bridge, edge selection, timing risks).
 
 ### P2.02: Move `selectedInstanceIds` into the store
-- **Status:** todo
+- **Status:** done (c74a937, merged f29b9f0; report reports/P2.02.md)
 - **Lane:** A (plus the hooks that receive it) · **Size:** L · **Depends:** P2.01
 - **Findings:** F-47 item 1
 - **Change:**
@@ -62,10 +62,10 @@ After this phase:
   - Behaviour is unchanged.
   - S6 and S7 have no more commits than before.
   - TypeList and Panel *can* read selection from the store, but they don't have to yet.
-- **Handoff:**
+- **Handoff:** Bound in place under the old names; no call site changed. `selectedInstanceIdsRef` reads through to `getState()`; `useCanvasTouch` lost its mirror. `useNodeActions.js` deleted (no importers). S6 29 / S7 18 commits, no extra. The hooks still take selection as parameters; dropping them is optional clean-up.
 
 ### P2.03: Move the pie target, preview, definition indices, mode flags, group selection and clipboard version
-- **Status:** todo
+- **Status:** done (144d898, 6970378, merged 4fbb562; report reports/P2.03.md). `selectedGroup` and the edge-selection decision split out as P2.03b and P2.03c
 - **Lane:** A · **Size:** L · **Depends:** P2.02
 - **Findings:** F-47 items 2–6 and 15; B-08
 - **Change:**
@@ -75,9 +75,28 @@ After this phase:
 - **Don't:** Move the carousel's internal physics or animation state. That is P5.
 - **Accept:** F6, F9, F12 and F15 pass. Definition navigation in Panel and on the canvas stays in sync.
 - **Handoff:**
+  - Moved, bound in place: the pie target and latch, `previewingNodeId`, `nodeDefinitionIndices`, the carousel and orbit flags, `editingNodeIdOnCanvas`, `clipboardVersion`. Also the pie's render and transition state and the control panel's latches: they are written in the same flush as the pie target, and splitting them between the store and `useState` rendered twice (see the report).
+  - B-08 and B-11 fixed; F17 guards them.
+  - One extra S6 NodeCanvas run remains: a bailout when the PieMenu mounts (body runs, nothing changed).
+
+### P2.03b: `selectedGroup` → `selectedGroupId`
+- **Status:** todo
+- **Lane:** A · **Size:** S · **Depends:** P2.03
+- **Findings:** F-47 item 2
+- **Change:** Store the id in `canvasUIStore` (`selectedGroupId` already exists there) and derive the group object from the active graph, which fixes the stale snapshot. The same for `lastSelectedGroupId`.
+- **Accept:** Group selection, the group control panel and group editing behave as before; the panel shows a renamed group's new name without reselecting.
+- **Handoff:**
+
+### P2.03c: Edge selection: decide, then move or keep
+- **Status:** todo
+- **Lane:** A · **Size:** M · **Depends:** P2.03
+- **Findings:** D-04 note; P2.01 report §3 recommends the move
+- **Change:** Record a DECISION on whether `selectedEdgeId` / `selectedEdgeIds` leave graphStore. If they move, bind them in place the same way and keep any field the bridge reads reachable (P2.01 §2 found none).
+- **Accept:** Edge selection, the connection control panel and Delete on selected edges behave as before; S7 has no extra commits.
+- **Handoff:**
 
 ### P2.04: Move prompt/modal open state and text-entry focus
-- **Status:** todo
+- **Status:** done (391d978, merged 2d4c315; report reports/P2.04.md)
 - **Lane:** A · **Size:** M · **Depends:** P2.02
 - **Findings:** F-47 items 7–8, F-50
 - **Change:**
@@ -87,10 +106,10 @@ After this phase:
 - **Accept:**
   - Keyboard shortcuts are still suppressed while typing in the Header, the Panels and the prompts.
   - F13 and F14 pass.
-- **Handoff:**
+- **Handoff:** Prompts, modal flags, header searches and `isHeaderEditing` bound in place. F-50: the panel focus plumbing was dead and is deleted (D-19); `selectIsTextEntryActive` is `isHeaderEditing` only, and the DOM check (`utils/textEntry.js`) covers panel fields (F13).
 
 ### P2.05: Left-panel view as store state
-- **Status:** todo
+- **Status:** done (5c3b146, merged 87f11e7; report reports/P2.05.md)
 - **Lane:** A and C (Panel) · **Size:** S · **Depends:** P2.01
 - **Findings:** F-47 item 9
 - **Change:**
@@ -98,7 +117,7 @@ After this phase:
   - Panel reacts to it.
   - Delete the 6 `leftPanelRef.setActiveView` call sites and `leftPanelInitialView`.
 - **Accept:** Every path that opens the left panel to a specific view still works: the wizard, onboarding and git reconnect, universes, and the Federation event.
-- **Handoff:**
+- **Handoff:** All 10 sites call `openLeftPanelView(view)`; `leftPanelRef`, `leftPanelInitialView`, the `initialViewActive` prop and Panel's `setActiveView` handle are gone. Each request carries a nonce, so a repeat request switches back after the user moved away (F18).
 
 ### P2.06: Lift the self-contained (A) clusters into App-level hosts
 One commit per sub-card. **Lane:** A (removal) plus B (new host). Each sub-card adds a Profiler to its host.

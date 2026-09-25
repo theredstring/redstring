@@ -277,6 +277,7 @@ This state is used across clusters and must move to a store before the clusters 
 - The comparator (`Panel.jsx` ~431–467) ignores callbacks and `nodeDefinitionIndices`, so it can show stale definition indices.
 - `PanelContentWrapper` never calls `onFocusChange`, so `isLeft/RightPanelInputFocused` are always false.
 - → P2.04
+- **Resolved.** Definition indices: Panel and `PanelContentWrapper` read them from `canvasUIStore` (P2.03; B-08, B-11). Focus: the plumbing is deleted (P2.04, D-19). The comparator still ignores callbacks, which is B-05's territory (P3.02).
 
 ---
 
@@ -442,9 +443,10 @@ Fix each bug in its own commit with its B-ID. **Re-verify it first.**
 | B-05 | Node handlers are stale. Node's comparator ignores functions, and `handleNodeMouseDown` (~10788) reads `isPaused`, `middleMouseZoomEnabled`, `rightPanelExpanded` and `nodeLiftDelay` from render scope. For example, after collapsing the right panel, double-clicking a node that hasn't re-rendered may not re-open it. `touch.handleNode*` has the same problem | VERIFIED code and effect. Reproduced by F12 (P0.03b): after Save from a Thing's right-click menu, the same Thing's menu still offers "Save", because the frozen `onContextMenu` closure holds the old `savedNodeIds`. The test is `test.fail` until P3.02 | P3.02 |
 | B-06 | `nodePieMenuPages` / `targetPieMenuButtons` read `rightPanelExpanded` (~8889, ~8929) and `wizardEnabled` (~9048, ~9419) but don't list them as dependencies, so the pie buttons go stale | **FIXED** 98a6326 (P1.10). F6b fails without the fix | done |
 | B-07 | `onNavigateDefinition` mutates the previous Map inside its state updater (`new Map(prev.set(…))`, ~17509, ~17944, ~18041). That updater is impure | **FIXED** c7453a4 | P1.13 |
-| B-08 | Panel can render stale `nodeDefinitionIndices`, because its comparator ignores them (F-50) | INFERRED | P2.03 |
+| B-08 | Panel can render stale `nodeDefinitionIndices`, because its comparator ignores them (F-50) | **FIXED** 144d898 (P2.03): Panel reads the store; the prop is gone | done |
 | B-09 | A self-loop's arrowhead draws at about 80% size during a node drag, then snaps back on drop: `useNodeDrag.js` ~1015 drops `scale(connectionWidth)` (found by P0.05) | **FIXED** 2c9a1e7 (P0.03b). Measured in the browser at 0.80× mid-drag before the fix, 1.00× after. F1b guards it | done |
 | B-10 | After a pinch or drag-pan ends with the finger held still, the final camera isn't saved until the next move. The view-save effect (~9859) drops saves during gestures and has no retry of its own (found by P1.09) | VERIFIED code, INFERRED effect | P3.10 / P4.02 |
+| B-11 | `PanelContentWrapper` read `nodeDefinitionIndices` from graphStore, which has no such field, so a node's Components list always showed its first definition (found by P2.03) | **FIXED** 144d898 (P2.03): reads `canvasUIStore`. F17 fails without the fix | done |
 
 ---
 
