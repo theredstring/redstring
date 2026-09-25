@@ -23,12 +23,12 @@ export default function PromptsHost({ ctx }) {
     storeActions, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection, setConnectionNamePrompt,
     setNodeGroupPrompt, activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow,
     setNodeControlPanelShouldShow, setNodeControlPanelVisible, edgesMap, nodeById, nodePrototypesMap,
-    setAbstractionPrompt, nodes, abstractionCarouselNode, currentAbstractionDimension,
-    setAbstractionCarouselVisible, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage,
+    setAbstractionPrompt, nodes, abstractionCarouselNode, setAbstractionCarouselVisible, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage,
     setIsCarouselStageTransition, setSelectedNodeIdForPieMenu,
   } = ctx;
   const nodeGroupPrompt = useCanvasUIStore(s => s.nodeGroupPrompt);
   const swapPrompt = useCanvasUIStore(s => s.swapPrompt);
+  const currentAbstractionDimension = useCanvasUIStore(s => s.currentAbstractionDimension);
 
   // ---- Moved from NodeCanvas (P5.06b) ----
   // Tracks the last one-shot edge-label suggestion so we can (a) pre-fill it only

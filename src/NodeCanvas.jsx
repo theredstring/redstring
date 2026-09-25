@@ -2158,9 +2158,9 @@ function NodeCanvas() {
   const carouselAnimationState = useCanvasUIStore(s => s.carouselAnimationState), setCarouselAnimationState = useCanvasUIStore(s => s.setCarouselAnimationState); // 'hidden', 'entering', 'visible', 'exiting'
   const justCompletedCarouselExit = useCanvasUIStore(s => s.justCompletedCarouselExit), setJustCompletedCarouselExit = useCanvasUIStore(s => s.setJustCompletedCarouselExit);
 
-  // Abstraction dimension management
-  const [abstractionDimensions, setAbstractionDimensions] = useState(['Generalization Axis']);
-  const [currentAbstractionDimension, setCurrentAbstractionDimension] = useState('Generalization Axis');
+  // The abstraction axis the carousel walks; the axes and their handlers are in
+  // canvasUIStore and carousel/carouselActions.js (P5.04).
+  const currentAbstractionDimension = useCanvasUIStore(s => s.currentAbstractionDimension);
 
   // Abstraction control panel states
   const abstractionControlPanelVisible = useCanvasUIStore(s => s.abstractionControlPanelVisible), setAbstractionControlPanelVisible = useCanvasUIStore(s => s.setAbstractionControlPanelVisible);
@@ -2211,63 +2211,13 @@ function NodeCanvas() {
   // The force-sim tuner renders from ForceSimHost (P2.06f); the canvas menu opens it.
   const setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
-  // Define carousel callbacks outside conditional rendering to avoid hook violations
-  // The carousel's own timers report through the pie machine (P5.02b step 4). The
-  // callbacks are stable now, so a web change no longer restarts the carousel's
-  // 200 ms exit timer (P5.02a NEW-3, the one intended timing change).
-  const onCarouselAnimationStateChange = useCallback(() => {
-    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_ENTERED' });
-  }, []);
-
-  const onCarouselClose = useCallback(() => {
-    // Behave EXACTLY like the Stage-1 "Back" button: run the normal pie-menu
-    // shrink → onExitAnimationComplete → carousel-exit chain, and let the pie
-    // menu reopen on the node afterward (CAROUSEL_CLOSE in the pie machine).
-    //
-    // Do NOT null selectedNodeIdForPieMenu or flag a click-away dismissal here.
-    // Nulling the selection unmounts the pie menu before its exit animation can
-    // fire, so onExitAnimationComplete never runs and isTransitioningPieMenu gets
-    // stuck true — which permanently disables the pie menu until refresh.
-    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_CLOSE' });
-  }, []);
-
-  // Touch's way in to the same exit, handed to the carousel as onRequestClose.
-  //
-  // The carousel dismisses itself on a click outside — but it listens for
-  // `mousedown`, and its own touchstart calls preventDefault(), which suppresses
-  // the compatibility mouse events entirely. So on a touch device that listener
-  // never fires; the carousel's touch state machine resolves the tap itself and
-  // calls this instead.
-  //
-  // It can't simply call onCarouselClose. That routes the exit through the pie
-  // menu's shrink animation, and when no pie menu is up there is nothing to
-  // animate — so the exit chain hanging off it never runs and the carousel stays
-  // up for good, over a node the canvas is already hiding, with the pie menu
-  // permanently disabled. That is the frozen node. The mouse is covered by
-  // handleCanvasClick's own defensive branch; touch has no equivalent, which is
-  // what the no-pie-menu teardown below is for.
-  //
-  // Idempotent because a second request part-way through the exit would restart
-  // the transition.
+  // The carousel's callbacks are plain functions in carousel/carouselActions.js
+  // (P5.04). A touch close request is remembered for one showing (see
+  // requestCarouselClose there).
   const carouselCloseRequestedRef = useMemo(() => storeFieldRef(useCanvasUIStore, 'carouselCloseRequested'), []);
   useEffect(() => {
     if (!abstractionCarouselVisible) carouselCloseRequestedRef.current = false;
   }, [abstractionCarouselVisible]);
-  // With no pie menu up there is nothing to animate out, and the exit chain
-  // hangs off that animation, so the machine tears the carousel down directly
-  // (CAROUSEL_TOUCH_CLOSE → CAROUSEL_TEARDOWN), as handleCanvasClick's defensive
-  // branch does for the mouse.
-  const requestCarouselClose = useCallback(() => {
-    if (!useCanvasUIStore.getState().abstractionCarouselVisible) return false;
-    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_TOUCH_CLOSE' });
-    return true;
-  }, []);
-
-  const onCarouselReplaceNode = useCallback((oldNodeId, newNodeData) => {
-    // TODO: Implement node replacement functionality
-
-  }, []);
-
   // While the abstraction prompt is open the carousel stays in stage 2 on its node:
   // an invariant of the pie machine's selection rule (was an effect, P5.02b step 6).
 
@@ -2452,40 +2402,6 @@ function NodeCanvas() {
     activeGraphId, edgesMap, graphsMap, nodePrototypesMap, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
     setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, storeActions,
   }), [activeGraphId, graphsMap, edgesMap, nodePrototypesMap, storeActions, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
-
-  // Handle abstraction control panel callbacks
-  const handleAbstractionDimensionChange = useCallback((newDimension) => {
-    setCurrentAbstractionDimension(newDimension);
-  }, []);
-
-  const handleAddAbstractionDimension = useCallback((newDimensionName) => {
-    setAbstractionDimensions(prev => [...prev, newDimensionName]);
-    setCurrentAbstractionDimension(newDimensionName);
-  }, []);
-
-  const handleDeleteAbstractionDimension = useCallback((dimensionToDelete) => {
-    setAbstractionDimensions(prev => {
-      const newDimensions = prev.filter(dim => dim !== dimensionToDelete);
-      // If we're deleting the current dimension, switch to the first remaining one
-      if (dimensionToDelete === currentAbstractionDimension && newDimensions.length > 0) {
-        setCurrentAbstractionDimension(newDimensions[0]);
-      }
-      return newDimensions;
-    });
-  }, [currentAbstractionDimension]);
-
-  const handleExpandAbstractionDimension = useCallback((node, dimension, iconRect) => {
-    // For now, just open the node in a new tab
-    // In the future, this could create/open a graph definition for the abstraction chain
-
-    // Could implement hurtle animation here similar to other expand buttons
-  }, []);
-
-  const handleAbstractionControlPanelAnimationComplete = useCallback(() => {
-    // This callback is only for the exit animation.
-    // When it's called, we know it's safe to unmount the component.
-    setAbstractionControlPanelShouldShow(false);
-  }, []);
 
   // --- Refs (Keep these) ---
 
@@ -3579,9 +3495,7 @@ function NodeCanvas() {
     decomposePanelInfo, typeListVisible, storeActions, startHurtleAnimation, graphsMap, activeGraphId,
     setSelectedInstanceIds, nodePieMenuPages, singleSelectedInstanceId, handlePieMenuHoverChange, wizardEnabled,
     edgesMap, edgePieMenuButtons, setConnectionNamePrompt, startHurtleAnimationFromPanel, openWizardPicker,
-    currentAbstractionDimension, abstractionDimensions, handleAbstractionDimensionChange,
-    handleAddAbstractionDimension, handleDeleteAbstractionDimension, handleExpandAbstractionDimension,
-    handleAbstractionControlPanelAnimationComplete, onCarouselClose, nodes, nodePrototypesMap, setNodeNamePrompt,
+    nodes, nodePrototypesMap, setNodeNamePrompt,
     setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible,
     setSelectedNodeIdForPieMenu, rightPanelExpanded, setEditingNodeIdOnCanvas, captureDeletionGhosts, clipboardRef,
     markClipboardChanged, setEditingGroupId, setTempGroupName, setNodeGroupPrompt,
@@ -3594,8 +3508,7 @@ function NodeCanvas() {
     storeActions, plusSign, setPlusSign, setNodeNamePrompt, handleNodeSelection, setConnectionNamePrompt,
     setNodeGroupPrompt, activeGraphId, setSelectedGroup, setGroupControlPanelShouldShow,
     setNodeControlPanelShouldShow, setNodeControlPanelVisible, edgesMap, nodeById, nodePrototypesMap,
-    setAbstractionPrompt, nodes, abstractionCarouselNode, currentAbstractionDimension,
-    setAbstractionCarouselVisible, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage,
+    setAbstractionPrompt, nodes, abstractionCarouselNode, setAbstractionCarouselVisible, setCarouselFocusPrototypeRequest, setCarouselPieMenuStage,
     setIsCarouselStageTransition, setSelectedNodeIdForPieMenu,
   };
 
@@ -3603,13 +3516,11 @@ function NodeCanvas() {
   // The shell-slot overlays' state and handlers (P5.06a).
   const canvasOverlaysCtx = {
     abstractionCarouselVisible, abstractionCarouselNode, panOffset, zoomLevel, zoomLevelRef, panOffsetRef,
-    containerRef, canvasSize, debugMode, carouselAnimationState, onCarouselAnimationStateChange,
-    onCarouselClose, requestCarouselClose, onCarouselReplaceNode, setCarouselFocusedNodeScale,
+    containerRef, canvasSize, debugMode, carouselAnimationState, setCarouselFocusedNodeScale,
     setCarouselFocusedNodeDimensions, setCarouselFocusedNode, onCarouselExitAnimationComplete,
     carouselRelativeMoveRequest, setCarouselRelativeMoveRequest, carouselFocusPrototypeRequest,
-    setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension, abstractionDimensions,
-    handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
-    handleExpandAbstractionDimension, setAbstractionControlPanelVisible, selectedGroupEffectiveColor,
+    setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension,
+    setAbstractionControlPanelVisible, selectedGroupEffectiveColor,
     nodeNamePrompt, connectionNamePrompt, setNodeNamePrompt, setConnectionNamePrompt, setSelectedGroup, nodes,
     nodePrototypesMap, addToGroupDialog, setAddToGroupDialog, activeGraphId,
     selfLoopDialog, setSelfLoopDialog,

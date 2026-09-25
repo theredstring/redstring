@@ -25,6 +25,11 @@ import { copySelection, pasteClipboard } from '../../../utils/clipboard.js';
 import { getNodeDimensions } from '../../../utils.js';
 import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
+import {
+  onCarouselClose,
+  changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
+  deleteAbstractionDimension as handleDeleteAbstractionDimension, expandAbstractionDimension as handleExpandAbstractionDimension,
+} from '../carousel/carouselActions.js';
 
 export default function ControlPanelsHost({ ctx }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
@@ -63,13 +68,20 @@ export default function ControlPanelsHost({ ctx }) {
     decomposePanelInfo, typeListVisible, storeActions, startHurtleAnimation, graphsMap, activeGraphId,
     setSelectedInstanceIds, nodePieMenuPages, singleSelectedInstanceId, handlePieMenuHoverChange, wizardEnabled,
     edgesMap, edgePieMenuButtons, setConnectionNamePrompt, startHurtleAnimationFromPanel, openWizardPicker,
-    currentAbstractionDimension, abstractionDimensions, handleAbstractionDimensionChange,
-    handleAddAbstractionDimension, handleDeleteAbstractionDimension, handleExpandAbstractionDimension,
-    handleAbstractionControlPanelAnimationComplete, onCarouselClose, nodes, nodePrototypesMap, setNodeNamePrompt,
+    nodes, nodePrototypesMap, setNodeNamePrompt,
     setPreviewingNodeId, setAbstractionCarouselNode, setCarouselAnimationState, setAbstractionCarouselVisible,
     setSelectedNodeIdForPieMenu, rightPanelExpanded, setEditingNodeIdOnCanvas, captureDeletionGhosts, clipboardRef,
     markClipboardChanged, setEditingGroupId, setTempGroupName, setNodeGroupPrompt,
   } = ctx;
+
+  // The carousel's axes (P5.04): canvasUIStore, handlers in carouselActions.js.
+  const abstractionDimensions = useCanvasUIStore((s) => s.abstractionDimensions);
+  const currentAbstractionDimension = useCanvasUIStore((s) => s.currentAbstractionDimension);
+  const handleAbstractionControlPanelAnimationComplete = useCallback(() => {
+    // This callback is only for the exit animation.
+    // When it's called, we know it's safe to unmount the component.
+    setAbstractionControlPanelShouldShow(false);
+  }, []);
 
   // ---- Moved from NodeCanvas (P5.05b) ----
   // Preserve last selections during exit animations

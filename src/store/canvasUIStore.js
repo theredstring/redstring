@@ -176,6 +176,10 @@ export function createCanvasUIDefaults() {
     carouselExitInProgress: false,
     /** @type {boolean} A touch close was requested for this showing (NodeCanvas `carouselCloseRequestedRef`). */
     carouselCloseRequested: false,
+    /** @type {string[]} The abstraction axes the carousel and its panel offer (NodeCanvas local, P5.04). */
+    abstractionDimensions: ['Generalization Axis'],
+    /** @type {string} The axis the carousel walks (NodeCanvas local, P5.04). */
+    currentAbstractionDimension: 'Generalization Axis',
     /** @type {string|null} Node to frame once the carousel is gone (NodeCanvas `pendingCarouselReturnFocusRef`). */
     pendingCarouselReturnFocusId: null,
     /** @type {boolean} A marquee is being dragged: mirrors NodeCanvas `selectionStart != null`. */

@@ -3,12 +3,19 @@
  * (P5.06a): the abstraction carousel, the colour pickers (ColorPickersHost), the add-to-group
  * and self-loop confirmations and the Ask The Wizard picker. Moved verbatim;
  * NodeCanvas passes their state and handlers as `ctx`. P5.04 and P5.06b move
- * that state and those handlers in here.
+ * that state and those handlers in here. The carousel's callbacks and axes come
+ * from carousel/carouselActions.js and canvasUIStore (P5.04).
  */
 import { Profiler } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import AbstractionCarousel from '../../../AbstractionCarousel.jsx';
 import ColorPickersHost from '../colorPickers/ColorPickersHost.jsx';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import {
+  onCarouselAnimationStateChange, onCarouselClose, requestCarouselClose, onCarouselReplaceNode,
+  changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
+  deleteAbstractionDimension as handleDeleteAbstractionDimension, expandAbstractionDimension as handleExpandAbstractionDimension,
+} from '../carousel/carouselActions.js';
 import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
 import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,17 +23,15 @@ import { v4 as uuidv4 } from 'uuid';
 export default function CanvasOverlaysHost({ ctx }) {
   const {
     abstractionCarouselVisible, abstractionCarouselNode, panOffset, zoomLevel, zoomLevelRef, panOffsetRef,
-    containerRef, canvasSize, debugMode, carouselAnimationState, onCarouselAnimationStateChange,
-    onCarouselClose, requestCarouselClose, onCarouselReplaceNode, setCarouselFocusedNodeScale,
+    containerRef, canvasSize, debugMode, carouselAnimationState, setCarouselFocusedNodeScale,
     setCarouselFocusedNodeDimensions, setCarouselFocusedNode, onCarouselExitAnimationComplete,
     carouselRelativeMoveRequest, setCarouselRelativeMoveRequest, carouselFocusPrototypeRequest,
-    setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension, abstractionDimensions,
-    handleAbstractionDimensionChange, handleAddAbstractionDimension, handleDeleteAbstractionDimension,
-    handleExpandAbstractionDimension, setAbstractionControlPanelVisible,
+    setCarouselFocusPrototypeRequest, storeActions, currentAbstractionDimension,
+    setAbstractionControlPanelVisible,
     addToGroupDialog, setAddToGroupDialog, activeGraphId,
-    runWizardIntent,
     selfLoopDialog, setSelfLoopDialog,
   } = ctx;
+  const abstractionDimensions = useCanvasUIStore((s) => s.abstractionDimensions);
 
   return (
     <Profiler id="CanvasOverlaysHost" onRender={onRenderProbe}>
