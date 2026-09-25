@@ -144,3 +144,10 @@ This file records calls that nobody should re-argue mid-task.
 - Constants, modifiers, code structure and implementation order are the orchestrator's call, recorded here with the reasoning. Grant is asked only about how Redstring looks or behaves, in plain words, batched into the final smoke list.
 - Q5 (touch constants): keep the current values in each path. Nothing reported feels off, and reconciling them would change feel on some device.
 - P3.05's questions: X1 (a stale one-render label layout after routing, size, font or rename changes goes away) is taken; it is invisible at rest. X5 (labels still dodge the old boxes of culled or deleted connections) keeps today's behaviour. Step 7 (anchor geometry as a real dependency) moves labels near node-groups once and goes on the smoke list if it lands.
+
+**D-25. The pie/carousel lifecycle questions (P5.02a §8), answered under D-24.** *Decided (orchestrator), 2026-09-25.*
+- Behaviour that is a design choice stays as it is: a click-away closes the carousel exactly like Back (A-6); the carousel may fade when the selection is lost without the pie shrinking first (A-4); control-panel Compose/Decompose keep skipping the pie's shrink/pop (A-7); teardowns keep cutting the abstraction panel (A-8).
+- Losing the one-render `isVisible=false` blip on a retarget is fine (A-2): it is never painted.
+- NEW-2 (Back after a cancelled Add Above/Below goes to stage 2) and NEW-4 (the carousel reopens in stage 2) are bugs; they are fixed as B-commits after the machine is wired, and go on the final smoke list.
+- The carousel's exit/enter callbacks are stable, so its 200 ms exit timer no longer restarts on a web change (Q7).
+

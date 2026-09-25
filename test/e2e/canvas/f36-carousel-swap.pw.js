@@ -32,7 +32,9 @@ test('F36 carousel Swap turns the instance into the focused concept and the pie 
   // The selection stays on the instance the whole time (the target is what moves).
   const opened = findIndex(all, (s) => s.carouselVisible);
   expect(all.slice(opened).every((s) => s.selection.join() === 'i-alpha')).toBe(true);
-  expect(exited).toBeLessThan(back);
+  // Since P5.02b step 4 the machine hides the carousel and restores the target in
+  // one store write, so these can be the same state; they were separate writes.
+  expect(exited).toBeLessThanOrEqual(back);
 
   // The swap was applied: same instance, now a Thing.
   expect(await instanceProto(page)).toBe('base-thing-prototype');

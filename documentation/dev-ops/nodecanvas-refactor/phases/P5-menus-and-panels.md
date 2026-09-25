@@ -40,6 +40,7 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
   - `NodeControlPanel` and `ConnectionControlPanel` can call the builders themselves.
 
 ### P5.02a: Lifecycle design (Grant reviews)
+- **Status:** done (wave 6): `reports/P5.02a.md` (current machine, 17 transitions, findings NEW-1…8, the reducer design and a 12-step order). Per D-24 the orchestrator answered its questions (D-25).
 - **Lane:** docs · **Size:** M
 - **Change:**
   - Write down the current machine:
@@ -52,6 +53,12 @@ Then move out the control panels and the remaining hosts. About 2,500 lines are 
 - **Accept:** Grant approves it.
 
 ### P5.02b: Implement the machine
+- **Status:** in progress (wave 6).
+  - Step 0 (`reports/P5.02-step0.md`): `test/e2e/canvas/lifecycleTrace.js`, flows F33–F37, 17 baseline traces in `test/e2e/canvas/lifecycle-baselines/` (byte-identical run to run; `zz-lifecycle-baseline.pw.js` with `LIFECYCLE_BASELINE_DIR` checks a recording may only drop states).
+  - Steps 2–3 (`reports/P5.02b-steps2-3.md`): `components/canvas/pie/pieMachine.js` (`reducePie`, a commit-loop replay of the lifecycle effects, 73 unit tests) and `dispatchPie` + command runner in canvasUIStore (17 tests).
+  - Step 1: the dead click-away flag and `onAutoClose` deleted.
+  - Step 4: the node pie's exit, the carousel's entered / close / touch-close / exited callbacks dispatch to the machine (stable callbacks; the carousel's exit timer no longer restarts on a web change, the one intended timing change). The click guard, pending Swap, exit-in-progress, close-requested and return-focus state moved to the store (`storeFieldRef` keeps the `.current` call sites). NodeCanvas registers one command handler (Swap, return framing, local resets); its other lifecycle effects still run and converge on the same values. All 17 traces pass the drop-only comparison; all flows pass; S6 12 NodeCanvas renders (unchanged), S12 17 (18).
+  - Next: step 5 (button, menu and prompt actions → events), 6 (E-sel), 7 (cleanup), 8 (small effects), 9 (panels), 10 (pie data into the layer), 11 (bug fixes NEW-2, NEW-4).
 - **Lane:** A + B · **Size:** XL (**split**)
 - **Findings:** F-08, F-09, F-27
 - **Change:**

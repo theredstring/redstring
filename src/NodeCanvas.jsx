@@ -22,20 +22,18 @@ import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeas
 import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom, setBakingPaused } from './services/labelSpriteCache.js';
 import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, CONNECTION_LABEL_MOVE_FADE_MIN_COUNT } from './utils/colorUtils.js';
 import { copySelection, pasteClipboard } from './utils/clipboard.js';
-import { lineModeBounds, CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
+import { CAROUSEL_SLOT_FRACTION } from './utils/pieMenuLayout.js';
 import { analyzeNodeDistribution } from './utils/clusterAnalysis.js';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID generator
 import { Plus } from 'lucide-react'; // Icons for PieMenu
 import ColorPicker from './ColorPicker';
 import { useDrop } from 'react-dnd';
-import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from './services/orbitResolver.js';
 import { showContextMenu, showContextMenuCentered, hideContextMenu } from './components/GlobalContextMenu';
 import UniverseScreens from './components/canvas/UniverseScreens.jsx';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { resolveEdgeLabelFontSize } from './services/layoutGeometry.js';
 import { applyOffscreenLayout } from './services/offscreenLayout.js';
-import { oneShotLabel, attachOneShotOutcome, isOneShotAvailable } from './services/oneShot.js';
-import { suggestAbstractionName, suggestArrowDirection } from './wizard/tools/utils/suggestionCalls.js';
+import { attachOneShotOutcome } from './services/oneShot.js';
 import {
   buildChildGroupIdsIndex,
   buildParentGroupIdsIndex,
@@ -43,15 +41,14 @@ import {
   computeGroupDepths,
   buildEdgeZSlotIndex,
 } from './services/groupLayout.js';
-import { NavigationMode, calculateNavigationParams } from './services/canvasNavigationService.js';
-import { getNodeHitbox, getVisualConnectionEndpoints } from './utils/canvas/nodeHitbox.js';
+import { getNodeHitbox } from './utils/canvas/nodeHitbox.js';
 import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 import apiKeyManager from './services/apiKeyManager.js';
 
 // Import Zustand store and selectors/actions
 import useGraphStore from "./store/graphStore.js";
-import useCanvasUIStore from './store/canvasUIStore.js';
+import useCanvasUIStore, { setPieCommandHandler } from './store/canvasUIStore.js';
 import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
@@ -61,6 +58,7 @@ import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js'
 import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
 import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
+import { storeFieldRef } from './utils/storeFieldRef.js';
 import { createCameraController } from './components/canvas/camera/cameraController.js';
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass } from './components/canvas/data/culling.js';
@@ -106,7 +104,7 @@ import { thingFacts, connectionFacts, ladderFacts } from './wizard/prompts/facts
 import WizardIntentModal from './components/wizard/WizardIntentModal.jsx';
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from './services/imageCache.js';
 
-import { getAppViewportSize, getFixedOverlayOrigin } from './utils/appViewport.js';
+import { getAppViewportSize } from './utils/appViewport.js';
 import {
   NODE_WIDTH,
   NODE_HEIGHT,
@@ -130,21 +128,17 @@ import { useCanvasTransform } from './hooks/useCanvasTransform';
 import { useNodeDrag } from './hooks/useNodeDrag';
 import { useTheme } from './hooks/useTheme.js';
 import { useMobileLandscapeShell, setControllerPresent } from './hooks/useMobileLandscapeShell.js';
-import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, lombardiArcFor, connectionCurveMinBow, trimRouteEnd, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION, sampleArc } from './utils/canvas/edgeRouting.js';
+import { computeLombardiTangents, connectionCurveMinBow, labelCurveMinBow, curvedGlyphQuantum, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from './utils/canvas/edgeRouting.js';
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
-import { calculateParallelEdgePath } from './utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath, countSelfLoopsForNode } from './utils/canvas/selfLoopUtils.js';
 import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
 import NodeLayer from './components/canvas/layers/NodeLayer.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
-import { placeLabelOnRoute, estimateTextWidth, getVisibleObstacleRects, quantizeAngle, buildEdgeSegmentIndex, samePolylines, labelBoundsFor } from './utils/canvas/edgeLabelPlacement.js';
+import { quantizeAngle } from './utils/canvas/edgeLabelPlacement.js';
 import { likelyTouch } from './utils/inputDeviceAnalysis';
 import UnifiedSelector from './UnifiedSelector'; // Import the new unified selector
 import OrbitOverlay from './components/OrbitOverlay.jsx';
-import { conceptToPrototypeFields, backfillConceptLinks } from './services/candidates.js';
-import { enrichPrototypeFromLinks } from './services/conceptEnrichment.js';
-import { formatPredicate } from './utils/predicateFormatter.js';
 import CanvasConfirmDialog from './components/shared/CanvasConfirmDialog.jsx';
 import { listenForNavigateTo, listenForSelectNode } from './components/canvas/actions/wizardCanvasEvents.js';
 import { listenForShellShortcuts } from './components/canvas/actions/shellShortcuts.js';
@@ -1120,6 +1114,20 @@ function NodeCanvas() {
   // Refs to current nodes/edges arrays — read by runCulling (invoked imperatively
   // from onTransformChangeRef, so it can't rely on useEffect closures).
   const nodesRef = useRef(nodes);
+  // What the pie machine needs from the canvas when an exit completes: the
+  // hydrated node for an id, and the active web (P5.02b).
+  const getPieEnv = useCallback(() => ({
+    activeGraphId: useGraphStore.getState().activeGraphId,
+    findNode: (id) => nodesRef.current.find((n) => n.id === id) ?? null,
+  }), []);
+  const pieCommandHandlerRef = useRef(null);
+  useLayoutEffect(() => setPieCommandHandler((cmd) => pieCommandHandlerRef.current?.(cmd)), []);
+  // The node pie has finished shrinking: the machine decides what comes next
+  // (the carousel, a decompose preview, a stage swap, or nothing). Stable, so
+  // PieMenu's animationend listeners stop re-subscribing (F-27).
+  const handlePieExitComplete = useCallback(() => {
+    useCanvasUIStore.getState().dispatchPie({ type: 'PIE_EXITED' }, getPieEnv());
+  }, [getPieEnv]);
   const edgesRef = useRef(edges);
   const selectedInstanceIdsRef = useMemo(() => ({ get current() { return useCanvasUIStore.getState().selectedInstanceIds; } }), []);
 
@@ -1387,7 +1395,12 @@ function NodeCanvas() {
   // Marquee. `selectionStart` is state only so the <rect> mounts and unmounts
   // with the gesture; the box itself lives in marqueeBoxRef and is written
   // straight to the <rect> (P1.04, F-03), like the connection line's endpoint.
-  const [selectionStart, setSelectionStart] = useState(null);
+  const [selectionStart, setSelectionStartState] = useState(null);
+  // The pie machine reads whether a marquee is being drawn (P5.02b).
+  const setSelectionStart = useCallback((v) => {
+    setSelectionStartState(v);
+    useCanvasUIStore.setState({ marqueeActive: !!v });
+  }, []);
   // Set synchronously by beginMarquee/endMarquee; the effect covers resets.
   const selectionStartRef = useRef(null);
   useEffect(() => { selectionStartRef.current = selectionStart; }, [selectionStart]);
@@ -2786,7 +2799,7 @@ function NodeCanvas() {
 
   // Carousel PieMenu stage state
   const carouselPieMenuStage = useCanvasUIStore(s => s.carouselPieMenuStage), setCarouselPieMenuStage = useCanvasUIStore(s => s.setCarouselPieMenuStage); // 1 = main stage, 2 = position selection stage
-  const isCarouselStageTransition = useCanvasUIStore(s => s.isCarouselStageTransition), setIsCarouselStageTransition = useCanvasUIStore(s => s.setIsCarouselStageTransition); // Flag to track internal stage transitions
+  const setIsCarouselStageTransition = useCanvasUIStore(s => s.setIsCarouselStageTransition); // Flag to track internal stage transitions
   // Request for AbstractionCarousel to move focus relative to current (up/down)
   const [carouselRelativeMoveRequest, setCarouselRelativeMoveRequest] = useState(null); // 'up' | 'down' | null
   // Request for AbstractionCarousel to focus a specific prototype by id (e.g. a freshly added layer)
@@ -2973,8 +2986,8 @@ function NodeCanvas() {
   // Abstraction Carousel states
   const abstractionCarouselVisible = useCanvasUIStore(s => s.abstractionCarouselVisible), setAbstractionCarouselVisible = useCanvasUIStore(s => s.setAbstractionCarouselVisible);
   const abstractionCarouselNode = useCanvasUIStore(s => s.abstractionCarouselNode), setAbstractionCarouselNode = useCanvasUIStore(s => s.setAbstractionCarouselNode);
-  const pendingAbstractionNodeId = useCanvasUIStore(s => s.pendingAbstractionNodeId), setPendingAbstractionNodeId = useCanvasUIStore(s => s.setPendingAbstractionNodeId);
-  const pendingDecomposeNodeId = useCanvasUIStore(s => s.pendingDecomposeNodeId), setPendingDecomposeNodeId = useCanvasUIStore(s => s.setPendingDecomposeNodeId);
+  const setPendingAbstractionNodeId = useCanvasUIStore(s => s.setPendingAbstractionNodeId);
+  const setPendingDecomposeNodeId = useCanvasUIStore(s => s.setPendingDecomposeNodeId);
   // The carousel reports its focused node's scale and size every physics frame. Refs, not
   // state (P5.04a): a new size rebuilds the pie data directly, not by re-rendering NodeCanvas.
   const carouselFocusedNodeScaleRef = useRef(1.2);
@@ -3185,7 +3198,10 @@ function NodeCanvas() {
   // Abstraction control panel states
   const [abstractionControlPanelVisible, setAbstractionControlPanelVisible] = useTrackedState(false);
   const [abstractionControlPanelShouldShow, setAbstractionControlPanelShouldShow] = useTrackedState(false);
-  const [isPieMenuActionInProgress, setIsPieMenuActionInProgress] = useState(false);
+  // The carousel's 100 ms click guard and pending Swap live in canvasUIStore, where
+  // the pie machine writes them (P5.02b step 4).
+  const isPieMenuActionInProgress = useCanvasUIStore(s => s.isPieMenuActionInProgress);
+  const setIsPieMenuActionInProgress = useCallback((v) => useCanvasUIStore.setState({ isPieMenuActionInProgress: v }), []);
   const [nodeControlPanelVisible, setNodeControlPanelVisible] = useTrackedState(false);
   const [nodeControlPanelShouldShow, setNodeControlPanelShouldShow] = useTrackedState(false);
   const [groupControlPanelShouldShow, setGroupControlPanelShouldShow] = useTrackedState(false);
@@ -3227,8 +3243,8 @@ function NodeCanvas() {
   const prevEdgePieShouldShowRef = useRef(false);
   const prevEdgePieDraggingRef = useRef(false);
 
-  // Pending swap operation state
-  const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
+  // Pending swap operation (canvasUIStore; see isPieMenuActionInProgress)
+  const setPendingSwapOperation = useCallback((v) => useCanvasUIStore.setState((st) => ({ pendingSwapOperation: typeof v === 'function' ? v(st.pendingSwapOperation) : v })), []);
 
   // Header search state
   // The searches render from SearchHosts (P2.06d); the keyboard shortcut opens one.
@@ -3237,24 +3253,23 @@ function NodeCanvas() {
   const setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
   // Define carousel callbacks outside conditional rendering to avoid hook violations
-  const onCarouselAnimationStateChange = useCallback((newState) => {
-    setCarouselAnimationState(newState);
+  // The carousel's own timers report through the pie machine (P5.02b step 4). The
+  // callbacks are stable now, so a web change no longer restarts the carousel's
+  // 200 ms exit timer (P5.02a NEW-3, the one intended timing change).
+  const onCarouselAnimationStateChange = useCallback(() => {
+    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_ENTERED' });
   }, []);
 
   const onCarouselClose = useCallback(() => {
     // Behave EXACTLY like the Stage-1 "Back" button: run the normal pie-menu
     // shrink → onExitAnimationComplete → carousel-exit chain, and let the pie
-    // menu reopen on the node afterward.
+    // menu reopen on the node afterward (CAROUSEL_CLOSE in the pie machine).
     //
     // Do NOT null selectedNodeIdForPieMenu or flag a click-away dismissal here.
     // Nulling the selection unmounts the pie menu before its exit animation can
     // fire, so onExitAnimationComplete never runs and isTransitioningPieMenu gets
     // stuck true — which permanently disables the pie menu until refresh.
-    setIsCarouselStageTransition(false); // ensure this resolves as a carousel exit, not a stage swap
-    setJustCompletedCarouselExit(true);  // protect restored state from graph-change cleanup
-    setIsPieMenuActionInProgress(true);
-    setTimeout(() => setIsPieMenuActionInProgress(false), 100);
-    setIsTransitioningPieMenu(true);
+    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_CLOSE' });
   }, []);
 
   // Touch's way in to the same exit, handed to the carousel as onRequestClose.
@@ -3275,30 +3290,19 @@ function NodeCanvas() {
   //
   // Idempotent because a second request part-way through the exit would restart
   // the transition.
-  const carouselCloseRequestedRef = useRef(false);
+  const carouselCloseRequestedRef = useMemo(() => storeFieldRef(useCanvasUIStore, 'carouselCloseRequested'), []);
   useEffect(() => {
     if (!abstractionCarouselVisible) carouselCloseRequestedRef.current = false;
   }, [abstractionCarouselVisible]);
+  // With no pie menu up there is nothing to animate out, and the exit chain
+  // hangs off that animation, so the machine tears the carousel down directly
+  // (CAROUSEL_TOUCH_CLOSE → CAROUSEL_TEARDOWN), as handleCanvasClick's defensive
+  // branch does for the mouse.
   const requestCarouselClose = useCallback(() => {
-    if (!abstractionCarouselVisibleRef.current) return false;
-    if (carouselCloseRequestedRef.current) return true;
-    carouselCloseRequestedRef.current = true;
-    if (!selectedNodeIdForPieMenu) {
-      // No pie menu means nothing to animate out, and the exit chain hangs off
-      // that animation — routing through it here would leave the carousel up
-      // for good. Tear it down directly, as handleCanvasClick's defensive
-      // branch does for the mouse.
-      setAbstractionCarouselVisible(false);
-      setAbstractionCarouselNode(null);
-      setCarouselAnimationState('hidden');
-      setCarouselPieMenuStage(1);
-      setCarouselFocusedNode(null);
-      setCarouselFocusedNodeDimensions(null);
-      return true;
-    }
-    onCarouselClose();
+    if (!useCanvasUIStore.getState().abstractionCarouselVisible) return false;
+    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_TOUCH_CLOSE' });
     return true;
-  }, [onCarouselClose, selectedNodeIdForPieMenu]);
+  }, []);
 
   const onCarouselReplaceNode = useCallback((oldNodeId, newNodeData) => {
     // TODO: Implement node replacement functionality
@@ -3321,97 +3325,12 @@ function NodeCanvas() {
     }
   }, [abstractionPrompt.visible, carouselPieMenuStage, selectedNodeIdForPieMenu, abstractionCarouselNode]);
 
-  // Set when the carousel closes via Back (not click-away) so the return node gets
-  // framed with the same focus-on-select zoom once it's re-selected. Consumed by a
-  // dedicated effect below (declared after focusNodeInView to avoid a TDZ).
-  const pendingCarouselReturnFocusRef = useRef(null);
+  // The carousel has faded out: apply a pending Swap, hide it, restore the node's
+  // selection and pie, and frame it (CAROUSEL_EXITED; the Swap and the framing
+  // come back as commands, see handlePieCommand).
   const onCarouselExitAnimationComplete = useCallback(() => {
-    // Capture the node ID before cleaning up
-    const nodeIdToShowPieMenu = abstractionCarouselNode?.id;
-
-    // Execute pending swap operation if it exists
-    if (pendingSwapOperation) {
-      const { originalNodeId, originalInstance, focusedPrototypeId, newPrototype } = pendingSwapOperation;
-
-      // Calculate original dimensions before the swap
-      const originalDimensions = getNodeDimensions(originalInstance, false, null);
-
-      // Create a temporary node with the new prototype to calculate new dimensions
-      const tempNodeWithNewPrototype = {
-        ...originalInstance,
-        prototypeId: focusedPrototypeId,
-        name: newPrototype?.name || originalInstance.name,
-        color: newPrototype?.color || originalInstance.color,
-        thumbnailSrc: newPrototype?.thumbnailSrc || originalInstance.thumbnailSrc,
-        definitionGraphIds: newPrototype?.definitionGraphIds || []
-      };
-      const newDimensions = getNodeDimensions(tempNodeWithNewPrototype, false, null);
-
-      // Calculate the center point of the original node
-      const originalCenterX = originalInstance.x + (originalDimensions.currentWidth / 2);
-      const originalCenterY = originalInstance.y + (originalDimensions.currentHeight / 2);
-
-      // Calculate new position to keep the same center point
-      const newX = originalCenterX - (newDimensions.currentWidth / 2);
-      const newY = originalCenterY - (newDimensions.currentHeight / 2);
-
-      console.log(`[NodeCanvas] Adjusting position for dimension change:`, {
-        originalPos: { x: originalInstance.x, y: originalInstance.y },
-        originalDims: { w: originalDimensions.currentWidth, h: originalDimensions.currentHeight },
-        newDims: { w: newDimensions.currentWidth, h: newDimensions.currentHeight },
-        newPos: { x: newX, y: newY }
-      });
-
-      // Update the instance to use the focused node's prototype and adjust position
-      storeActions.updateNodeInstance(activeGraphId, originalNodeId, (instance) => {
-        instance.prototypeId = focusedPrototypeId;
-        instance.x = newX;
-        instance.y = newY;
-      }, { finalize: true });
-
-      // Update the carousel node to be based on the new prototype
-      // This preserves the carousel for future use but with the new starting point
-      if (newPrototype) {
-        setAbstractionCarouselNode({
-          ...originalInstance,
-          prototypeId: focusedPrototypeId,
-          name: newPrototype.name,
-          color: newPrototype.color,
-          definitionGraphIds: newPrototype.definitionGraphIds || [],
-          x: newX, // Update position here too for consistency
-          y: newY
-        });
-      }
-
-      // Clear the pending operation
-      setPendingSwapOperation(null);
-    }
-
-    // Set exit in progress flag
-    carouselExitInProgressRef.current = true;
-
-    // Clean up after exit animation completes
-    setAbstractionCarouselVisible(false);
-    setAbstractionCarouselNode(null);
-    setCarouselAnimationState('hidden');
-    setIsTransitioningPieMenu(false); // Now safe to end transition
-
-    // Restore the pie menu. A click-away closes the carousel the same way as
-    // Back (P5.02a NEW-1: the old click-away flag was never set).
-    if (nodeIdToShowPieMenu) {
-      setSelectedInstanceIds(new Set([nodeIdToShowPieMenu])); // Restore selection
-      setSelectedNodeIdForPieMenu(nodeIdToShowPieMenu);
-      // Frame the returned node with the focus-on-select zoom (the focus effect
-      // itself skips this — the id is unchanged from during the carousel).
-      pendingCarouselReturnFocusRef.current = nodeIdToShowPieMenu;
-    }
-
-    // Clear the protection flags after animations complete
-    setTimeout(() => {
-      setJustCompletedCarouselExit(false);
-      carouselExitInProgressRef.current = false;
-    }, 300); // Quick timeout - allows normal interaction almost immediately
-  }, [abstractionCarouselNode?.id, pendingSwapOperation, activeGraphId, storeActions]);
+    useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_EXITED' }, getPieEnv());
+  }, []);
   const previewingNodeId = useCanvasUIStore(s => s.previewingNodeId), setPreviewingNodeId = useCanvasUIStore(s => s.setPreviewingNodeId);
 
   // When a node is decomposed into its preview (decomposition view), frame it on
@@ -3494,23 +3413,14 @@ function NodeCanvas() {
     focusNodeInView(was);
   }, [previewingNodeId, abstractionCarouselVisible, isTransitioningPieMenu, focusNodeInView]);
 
-  // When the abstraction carousel closes via Back, frame the node it returns to with
-  // the same focus-on-select zoom. onCarouselExitAnimationComplete stashes the node id
-  // in pendingCarouselReturnFocusRef (only for Back, not click-away); once the carousel
-  // is hidden we consume it here.
-  useEffect(() => {
-    if (abstractionCarouselVisible) return;
-    const returnId = pendingCarouselReturnFocusRef.current;
-    if (!returnId) return;
-    pendingCarouselReturnFocusRef.current = null;
-    focusNodeInView(returnId);
-  }, [abstractionCarouselVisible, focusNodeInView]);
+  // The node the carousel returns to is framed by the pie machine's `frame
+  // returnFocus` command (handlePieCommand), not an effect (P5.02b step 4).
 
   // Track current definition index for each node per graph context (nodeId-graphId -> index)
   const nodeDefinitionIndices = useCanvasUIStore(s => s.nodeDefinitionIndices), setNodeDefinitionIndices = useCanvasUIStore(s => s.setNodeDefinitionIndices);
 
   // Ref to track carousel exit process to prevent cleanup interference
-  const carouselExitInProgressRef = useRef(false);
+  const carouselExitInProgressRef = useMemo(() => storeFieldRef(useCanvasUIStore, 'carouselExitInProgress'), []);
   const lastMousePosRef = useRef({ x: 0, y: 0 });
   const clearLabelsOnMouseMove = useCallback(() => {
     clearHoverImmediate();
@@ -6263,6 +6173,98 @@ function NodeCanvas() {
     wasDrawingConnection, zoomLevelRef, zoomOpIdRef,
   };
 
+  // Commands from the pie machine (P5.02b): camera framing, the carousel Swap,
+  // and resets of state that still lives here. Reassigned every render so it
+  // runs with this render's setters and values; registered once, on mount.
+  pieCommandHandlerRef.current = (cmd) => {
+    if (cmd.type === 'frame') {
+      // Only the return to the carousel's node so far. The other kinds still come
+      // from NodeCanvas's own framing effects until later steps remove them.
+      if (cmd.kind === 'returnFocus' && cmd.nodeId) focusNodeInView(cmd.nodeId);
+      return;
+    }
+    if (cmd.type === 'graph' && cmd.action === 'applyCarouselSwap') {
+      const { swap, graphId } = cmd.args;
+      if (swap) {
+        const { originalNodeId, originalInstance, focusedPrototypeId, newPrototype } = swap;
+
+        // Calculate original dimensions before the swap
+        const originalDimensions = getNodeDimensions(originalInstance, false, null);
+
+        // Create a temporary node with the new prototype to calculate new dimensions
+        const tempNodeWithNewPrototype = {
+          ...originalInstance,
+          prototypeId: focusedPrototypeId,
+          name: newPrototype?.name || originalInstance.name,
+          color: newPrototype?.color || originalInstance.color,
+          thumbnailSrc: newPrototype?.thumbnailSrc || originalInstance.thumbnailSrc,
+          definitionGraphIds: newPrototype?.definitionGraphIds || []
+        };
+        const newDimensions = getNodeDimensions(tempNodeWithNewPrototype, false, null);
+
+        // Calculate the center point of the original node
+        const originalCenterX = originalInstance.x + (originalDimensions.currentWidth / 2);
+        const originalCenterY = originalInstance.y + (originalDimensions.currentHeight / 2);
+
+        // Calculate new position to keep the same center point
+        const newX = originalCenterX - (newDimensions.currentWidth / 2);
+        const newY = originalCenterY - (newDimensions.currentHeight / 2);
+
+        console.log(`[NodeCanvas] Adjusting position for dimension change:`, {
+          originalPos: { x: originalInstance.x, y: originalInstance.y },
+          originalDims: { w: originalDimensions.currentWidth, h: originalDimensions.currentHeight },
+          newDims: { w: newDimensions.currentWidth, h: newDimensions.currentHeight },
+          newPos: { x: newX, y: newY }
+        });
+
+        // Update the instance to use the focused node's prototype and adjust position
+        storeActions.updateNodeInstance(graphId, originalNodeId, (instance) => {
+          instance.prototypeId = focusedPrototypeId;
+          instance.x = newX;
+          instance.y = newY;
+        }, { finalize: true });
+      }
+      return;
+    }
+    if (cmd.type !== 'local') return;
+    switch (cmd.action) {
+      case 'fullReset':
+        setEditingGroupId(null);
+        setTempGroupName('');
+        setPlusSign(null);
+        selectionStartRef.current = null; // a pending marquee pass must not outlive the graph
+        setSelectionStart(null);
+        setDrawingConnectionFrom(null);
+        setPieMenuColorPickerVisible(false);
+        setActivePieMenuColorNodeId(null);
+        setCarouselFocusedNodeScale(1.2);
+        setCarouselFocusedNodeDimensions(null);
+        setCarouselFocusedNode(null);
+        setAbstractionControlPanelVisible(false);
+        setAbstractionControlPanelShouldShow(false);
+        break;
+      case 'closeAllPanels':
+        setNodeControlPanelVisible(false);
+        setConnectionControlPanelVisible(false);
+        setAbstractionControlPanelVisible(false);
+        setGroupControlPanelVisible(false);
+        break;
+      case 'closePieColorPicker':
+        setPieMenuColorPickerVisible(false);
+        setActivePieMenuColorNodeId(null);
+        break;
+      case 'clearCarouselFocus':
+        setCarouselFocusedNode(null);
+        setCarouselFocusedNodeDimensions(null);
+        break;
+      case 'carouselFocusPrototypeRequest':
+        setCarouselFocusPrototypeRequest(cmd.args?.prototypeId ?? null);
+        break;
+      default:
+        break;
+    }
+  };
+
   // The camera controller's context (P4.02). Assigned during render rather than
   // in a layout effect so that effects in this commit, which call into the
   // camera, see this render's values, as the old per-render closures did.
@@ -6540,88 +6542,7 @@ function NodeCanvas() {
                         )
                       )}
                       onHoverChange={handlePieMenuHoverChange}
-                      onExitAnimationComplete={() => {
-                        setIsPieMenuRendered(false);
-                        setCurrentPieMenuData(null);
-                        const wasTransitioning = isTransitioningPieMenu;
-                        const pendingAbstractionId = pendingAbstractionNodeId;
-                        const pendingDecomposeId = pendingDecomposeNodeId;
-                        const wasInCarousel = abstractionCarouselVisible; // Check if we were in carousel mode before transition
-
-                        // The node that was just active before the pie menu disappeared
-                        const lastActiveNodeId = selectedNodeIdForPieMenu;
-                        setPendingAbstractionNodeId(null);
-                        setPendingDecomposeNodeId(null);
-
-                        if (wasTransitioning && pendingAbstractionId) {
-                          // This was an abstraction transition - set up the carousel with entrance animation
-                          setIsTransitioningPieMenu(false);
-                          const nodeData = nodes.find(n => n.id === pendingAbstractionId);
-                          if (nodeData) {
-                            setAbstractionCarouselNode(nodeData);
-                            setCarouselAnimationState('entering');
-                            setAbstractionCarouselVisible(true);
-                            // IMPORTANT: Re-select the node to show the new abstraction pie menu
-                            setSelectedNodeIdForPieMenu(pendingAbstractionId);
-                          }
-                        } else if (wasTransitioning && pendingDecomposeId) {
-                          // This was a decompose transition - toggle the preview state for the node
-                          setIsTransitioningPieMenu(false);
-                          const nodeData = nodes.find(n => n.id === pendingDecomposeId);
-                          if (nodeData) {
-                            // Toggle preview state: if already previewing this node, turn off preview; otherwise turn it on
-                            const isCurrentlyPreviewing = previewingNodeId === pendingDecomposeId;
-                            setPreviewingNodeId(isCurrentlyPreviewing ? null : pendingDecomposeId);
-                            // Re-select the node to show the pie menu again
-                            setSelectedNodeIdForPieMenu(pendingDecomposeId);
-                          }
-                        } else if (wasTransitioning && wasInCarousel) {
-                          // Check if this was an internal stage transition vs carousel exit
-                          if (isCarouselStageTransition) {
-                            // This was an internal stage transition - stay in carousel, just update PieMenu
-                            setIsCarouselStageTransition(false); // Reset the flag
-                            setIsTransitioningPieMenu(false);
-
-                            // Change the stage here after the shrink animation completes
-                            if (carouselPieMenuStage === 1) {
-                              setCarouselPieMenuStage(2);
-
-                            } else if (carouselPieMenuStage === 2) {
-                              setCarouselPieMenuStage(1);
-
-                            }
-
-                            // Re-select the node to show the new stage PieMenu
-                            if (lastActiveNodeId) {
-                              setSelectedNodeIdForPieMenu(lastActiveNodeId);
-                            }
-                          } else {
-                            // This was a "back" transition from the carousel - start exit animation now
-                            setCarouselAnimationState('exiting');
-                            // DON'T set isTransitioningPieMenu(false) yet - wait for carousel to finish
-                            // The carousel's onExitAnimationComplete will show the regular pie menu
-                          }
-                        } else if (wasTransitioning) {
-                          // Generic pie menu transition completion (non-carousel): Compose
-                          // and the like toggle the selected node's preview.
-                          setIsTransitioningPieMenu(false);
-                          const currentlySelectedNodeId = [...selectedInstanceIds][0];
-                          if (currentlySelectedNodeId) {
-                            const selectedNodeIsPreviewing = previewingNodeId === currentlySelectedNodeId;
-                            if (selectedNodeIsPreviewing) {
-                              setPreviewingNodeId(null);
-                            } else {
-                              setPreviewingNodeId(currentlySelectedNodeId);
-                            }
-                            setSelectedNodeIdForPieMenu(currentlySelectedNodeId);
-                          } else {
-                            setPreviewingNodeId(null);
-                          }
-                        } else {
-                          // Not transitioning, just clean exit
-                          setIsTransitioningPieMenu(false);
-                        }
-                      }}
+                      onExitAnimationComplete={handlePieExitComplete}
                     />
                   )}
 

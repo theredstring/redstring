@@ -57,6 +57,9 @@ test('F7 hover highlights an edge, click selects it, Cmd/Ctrl-click adds another
 // one gaining it; every other connection keeps its element. This checks both
 // glows follow the pointer and an unrelated connection doesn't change at all.
 test('F7b hover moves from one connection to another; the others are untouched', async ({ page }) => {
+  // Label sprites bake asynchronously and swap a label's <text> for an <image>
+  // whenever they land, which would change the bystander for reasons of its own.
+  await page.addInitScript(() => { window.__labelSprites = false; });
   await openFixture(page, 'small');
   const bare = { x: 1000, y: 620 };
   await expectBareCanvas(page, bare);
