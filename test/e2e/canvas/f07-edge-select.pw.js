@@ -7,7 +7,8 @@
 // asserts what the code does. Which modifier is intended is a question for Grant.
 import {
   test, expect,
-  openFixture, edgePoint, edgeGlow, selectedEdgeIds, expectBareCanvas, waitForCameraSettled, marqueeModifier,
+  openFixture, edgePoint, edgeGlow, selectedEdgeIds, selectedNodeIds, expectBareCanvas, waitForCameraSettled, marqueeModifier,
+  openPieMenu,
 } from './helpers.js';
 
 test('F7 hover highlights an edge, click selects it, Cmd/Ctrl-click adds another', async ({ page }) => {
@@ -81,4 +82,31 @@ test('F7b hover moves from one connection to another; the others are untouched',
   await page.mouse.move(bare.x, bare.y, { steps: 4 });
   await expect.poll(() => edgeGlow(page, 'e-alpha-beta')).toBeNull();
   expect(await markup('e-alpha-delta')).toBe(bystander);
+});
+
+// Things and connections are never selected together. Clicking a connection
+// while a Thing's pie is open swaps it for the connection's pie, and clicking
+// the Thing again swaps back, with no click-off in between. The node pie is the
+// one with the Abstraction (layers) button; the connection pie has none.
+test('F7c clicking a connection swaps a selected Thing for it, and back', async ({ page }) => {
+  await openFixture(page, 'small');
+  const pies = page.locator('svg.canvas g.pie-menu');
+  const nodePieButton = page.locator('svg.canvas g.pie-menu svg.lucide-layers');
+
+  await openPieMenu(page, 'i-alpha');
+  await expect(nodePieButton).toHaveCount(1);
+
+  const p = await edgePoint(page, 'e-beta-gamma', 0.35);
+  await page.mouse.move(p.x, p.y, { steps: 4 });
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(() => selectedEdgeIds(page)).toEqual(['e-beta-gamma']);
+  await expect.poll(() => selectedNodeIds(page)).toEqual([]);
+  await expect(nodePieButton).toHaveCount(0);
+  await expect(pies).toHaveCount(1);
+  await waitForCameraSettled(page);
+
+  await openPieMenu(page, 'i-alpha');
+  await expect.poll(() => selectedEdgeIds(page)).toEqual([]);
+  await expect(nodePieButton).toHaveCount(1);
+  await expect(pies).toHaveCount(1);
 });

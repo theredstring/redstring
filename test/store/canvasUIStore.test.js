@@ -219,6 +219,53 @@ describe('canvasUIStore (P2.01)', () => {
     });
   });
 
+  describe('Things and connections swap selection', () => {
+    it('selecting a connection deselects Things', () => {
+      st().setSelectedInstanceIds(new Set(['a', 'b']));
+      st().setSelectedEdgeId('e1');
+      expect(st().selectedEdgeId).toBe('e1');
+      expect(st().selectedInstanceIds.size).toBe(0);
+    });
+
+    it('adding or setting several connections deselects Things', () => {
+      st().setSelectedInstanceIds(new Set(['a']));
+      st().addSelectedEdgeId('e1');
+      expect(st().selectedInstanceIds.size).toBe(0);
+
+      st().setSelectedInstanceIds(new Set(['a']));
+      st().setSelectedEdgeIds(['e1', 'e2']);
+      expect(st().selectedInstanceIds.size).toBe(0);
+      expect([...st().selectedEdgeIds]).toEqual(['e1', 'e2']);
+    });
+
+    it('selecting a Thing deselects connections', () => {
+      st().setSelectedEdgeId('e1');
+      st().setSelectedEdgeIds(['e2']);
+      st().setSelectedInstanceIds(new Set(['a']));
+      expect([...st().selectedInstanceIds]).toEqual(['a']);
+      expect(st().selectedEdgeId).toBe(null);
+      expect(st().selectedEdgeIds.size).toBe(0);
+    });
+
+    it('a Thing selected through a pie event deselects connections too', () => {
+      st().setSelectedEdgeId('e1');
+      st().dispatchPie({ type: 'PIE_TARGET', id: 'a', selection: ['a'] });
+      expect(st().selectedEdgeId).toBe(null);
+    });
+
+    it('clearing either side leaves the other alone', () => {
+      st().setSelectedEdgeId('e1');
+      st().setSelectedInstanceIds(new Set());
+      expect(st().selectedEdgeId).toBe('e1');
+
+      st().setSelectedEdgeId(null);
+      st().setSelectedInstanceIds(new Set(['a']));
+      st().setSelectedEdgeId(null);
+      st().setSelectedEdgeIds([]);
+      expect([...st().selectedInstanceIds]).toEqual(['a']);
+    });
+  });
+
   describe('definition indices use Map equality', () => {
     it('skips a new Map with the same entries', () => {
       st().setNodeDefinitionIndices(new Map([['n1-g', 0], ['n2-g', 2]]));

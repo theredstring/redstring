@@ -312,6 +312,24 @@ function fieldSetter(set, key, isEqual = Object.is, normalize) {
 }
 
 /**
+ * Things and connections are never selected together: selecting one kind
+ * replaces the other, so clicking a connection swaps a Thing's menu for the
+ * connection's, and clicking a Thing swaps back. This is the connection half
+ * of that rule, as a patch (empty when nothing is selected).
+ */
+function edgeSelectionCleared(state) {
+  const patch = {};
+  if (state.selectedEdgeId !== null) patch.selectedEdgeId = null;
+  if (state.selectedEdgeIds.size > 0) patch.selectedEdgeIds = new Set();
+  return patch;
+}
+
+/** The Thing half: deselect Things through the machine, so their pie exits. */
+function deselectNodes(get) {
+  if (get().selectedInstanceIds.size > 0) get().setSelectedInstanceIds(new Set());
+}
+
+/**
  * The selection is a Set everywhere it is read (`.has`, `.size`). Callers pass
  * Sets today; any other iterable (or null) is turned into one rather than
  * stored as-is and crashing the first `.has`.
@@ -418,8 +436,13 @@ const useCanvasUIStore = create((set, get) => ({
     if (setsEqual(prev, next)) return;
     get().dispatchPie({ type: 'SELECTION_CHANGED', ids: next });
   },
-  // edge selection (P2.03c)
-  setSelectedEdgeId: fieldSetter(set, 'selectedEdgeId'),
+  // edge selection (P2.03c). Selecting a connection deselects Things first
+  // (see edgeSelectionCleared); the other direction is applied in dispatchPie.
+  setSelectedEdgeId: (valueOrUpdater) => {
+    const next = resolveNext(valueOrUpdater, get().selectedEdgeId);
+    if (next != null) deselectNodes(get);
+    set((state) => (Object.is(state.selectedEdgeId, next) ? state : { selectedEdgeId: next }));
+  },
   // control-panel latches (P5.05)
   setNodeControlPanelShouldShow: fieldSetter(set, 'nodeControlPanelShouldShow'),
   setNodeControlPanelVisible: fieldSetter(set, 'nodeControlPanelVisible'),
@@ -432,13 +455,18 @@ const useCanvasUIStore = create((set, get) => ({
   // Equal when it names the same edge: the renderer reads only `edgeId`.
   setHoveredEdgeInfo: fieldSetter(set, 'hoveredEdgeInfo', (a, b) => (a?.edgeId ?? null) === (b?.edgeId ?? null)),
   // Always stores a copy, never the caller's Set.
-  setSelectedEdgeIds: (edgeIds) => set((state) => {
-    const next = new Set(typeof edgeIds === 'function' ? edgeIds(state.selectedEdgeIds) : edgeIds);
-    return setsEqual(state.selectedEdgeIds, next) ? state : { selectedEdgeIds: next };
-  }),
-  addSelectedEdgeId: (edgeId) => set((state) => (
-    state.selectedEdgeIds.has(edgeId) ? state : { selectedEdgeIds: new Set(state.selectedEdgeIds).add(edgeId) }
-  )),
+  setSelectedEdgeIds: (edgeIds) => {
+    const prev = get().selectedEdgeIds;
+    const next = new Set(typeof edgeIds === 'function' ? edgeIds(prev) : edgeIds);
+    if (next.size > 0) deselectNodes(get);
+    set((state) => (setsEqual(state.selectedEdgeIds, next) ? state : { selectedEdgeIds: next }));
+  },
+  addSelectedEdgeId: (edgeId) => {
+    deselectNodes(get);
+    set((state) => (
+      state.selectedEdgeIds.has(edgeId) ? state : { selectedEdgeIds: new Set(state.selectedEdgeIds).add(edgeId) }
+    ));
+  },
   removeSelectedEdgeId: (edgeId) => set((state) => {
     if (!state.selectedEdgeIds.has(edgeId)) return state;
     const next = new Set(state.selectedEdgeIds);
@@ -474,7 +502,11 @@ const useCanvasUIStore = create((set, get) => ({
    */
   dispatchPie: (event, env) => {
     const result = reducePie(get(), event, env);
-    if (Object.keys(result.patch).length > 0) set(result.patch);
+    // Selecting Things deselects connections, in the same write (edgeSelectionCleared).
+    const patch = result.patch.selectedInstanceIds?.size > 0
+      ? { ...result.patch, ...edgeSelectionCleared(get()) }
+      : result.patch;
+    if (Object.keys(patch).length > 0) set(patch);
     runPieCommands(result.commands, (next) => get().dispatchPie(next));
     return result;
   },
