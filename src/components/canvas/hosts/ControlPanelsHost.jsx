@@ -25,6 +25,7 @@ import { copySelection, pasteClipboard } from '../../../utils/clipboard.js';
 import { getNodeDimensions } from '../../../utils.js';
 import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
+import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -298,12 +299,14 @@ export default function ControlPanelsHost({ ctx }) {
 
   const handleNodeGroupCombine = useCallback(() => {
     if (!activeGraphId || !selectedGroup?.id) return;
-    if (typeof storeActions.combineNodeGroup !== 'function') {
-      console.warn('combineNodeGroup action is unavailable on storeActions');
+    if (typeof storeActions.collapseNodeGroupIntoDefinition !== 'function') {
+      console.warn('collapseNodeGroupIntoDefinition action is unavailable on storeActions');
       return;
     }
 
-    const newInstanceId = storeActions.combineNodeGroup(activeGraphId, selectedGroup.id);
+    // Collapsing saves the group into its definition first, so a definition can be
+    // built in place and folded away without a separate save.
+    const newInstanceId = storeActions.collapseNodeGroupIntoDefinition(activeGraphId, selectedGroup.id);
 
     setGroupControlPanelVisible(false);
     setSelectedGroup(null);
@@ -439,14 +442,9 @@ export default function ControlPanelsHost({ ctx }) {
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
             decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
             onCompose={() => useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null })}
-            onDelete={decomposePanelInfo ? () => {
-              const { defIds, index, currentGraphId, prototypeId, setIndex } = decomposePanelInfo;
-              if (!currentGraphId) return;
-              const newLen = defIds.length - 1;
-              if (newLen > 0 && index >= newLen) setIndex(newLen - 1);
-              else if (newLen <= 0) setIndex(0);
-              storeActions.removeDefinitionFromNode(prototypeId, currentGraphId);
-            } : handleNodePanelDelete}
+            onDelete={decomposePanelInfo
+              ? () => requestDeleteDefinition(decomposePanelInfo.prototypeId, decomposePanelInfo.currentGraphId)
+              : handleNodePanelDelete}
             onAdd={decomposePanelInfo
               ? () => storeActions.createAndAssignGraphDefinitionWithoutActivation(decomposePanelInfo.prototypeId)
               : handleNodePanelAdd}

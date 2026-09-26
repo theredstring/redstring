@@ -17,6 +17,7 @@ import useImageCache from '../../../services/imageCache.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { v4 as uuidv4 } from 'uuid';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
+import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -844,17 +845,8 @@ export function buildTargetPieMenuButtons(ctx) {
         label: 'Delete Definition',
         icon: Trash2,
         position: 'top', topIndex: 2, topCount: 5,
-        action: () => {
-          if (!decompCurrentGraphId) return;
-          // Adjust the active index before removal: if deleting the last item, step back.
-          const newLen = decompDefIds.length - 1;
-          if (newLen > 0 && decompIndex >= newLen) {
-            setDecompIndex(newLen - 1);
-          } else if (newLen <= 0) {
-            setDecompIndex(0);
-          }
-          storeActions.removeDefinitionFromNode(decompPrototypeId, decompCurrentGraphId);
-        }
+        // Asks first; deleteDefinition keeps the definition index in range.
+        action: () => requestDeleteDefinition(decompPrototypeId, decompCurrentGraphId)
       },
       {
         id: 'decomp-further',

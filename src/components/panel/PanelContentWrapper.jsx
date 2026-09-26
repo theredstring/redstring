@@ -8,6 +8,7 @@ import useImageCache from '../../services/imageCache.js';
 import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
+import { requestDeleteDefinition } from '../canvas/dialogs/deleteDefinition.js';
 
 /**
  * Wrapper component that handles data fetching and action binding
@@ -86,6 +87,18 @@ const PanelContentWrapper = memo(({
     return graphs && activeGraphId ? graphs.get(activeGraphId) : null;
   };
 
+  // The definition this tab shows: the canvas's `"nodeId-graphId"` context index, so
+  // the panel, the decompose preview and the Components list all step together. A
+  // home tab with no index yet opens on the Web it is the home of.
+  const getDefinitionIndex = (prototype) => {
+    const defIds = Array.isArray(prototype?.definitionGraphIds) ? prototype.definitionGraphIds : [];
+    if (defIds.length === 0) return 0;
+    const contextKey = `${prototype.id}-${activeGraphId}`;
+    const stored = nodeDefinitionIndices?.get(contextKey);
+    const fallback = tabType === 'home' ? Math.max(0, defIds.indexOf(activeGraphId)) : 0;
+    return Math.min(Math.max(stored ?? fallback, 0), defIds.length - 1);
+  };
+
   // Get nodes for the current context
   const getActiveGraphNodes = () => {
     // #region agent log
@@ -98,10 +111,7 @@ const PanelContentWrapper = memo(({
     if (tabType === 'node' && nodeId && nodePrototypes) {
       const nodeData = nodePrototypes.get(nodeId);
       if (nodeData && nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
-        // Get the context-specific definition index
-        const contextKey = `${nodeId}-${activeGraphId}`;
-        const currentIndex = nodeDefinitionIndices?.get(contextKey) || 0;
-        targetGraphId = nodeData.definitionGraphIds[currentIndex] || nodeData.definitionGraphIds[0];
+        targetGraphId = nodeData.definitionGraphIds[getDefinitionIndex(nodeData)];
       } else {
         // Node has no definition graphs - return empty array instead of falling back to active graph
         return [];
@@ -348,6 +358,41 @@ const PanelContentWrapper = memo(({
     }
   };
 
+  // Web Definitions. Only a real prototype has definitions to edit: a home tab
+  // for a Web no Thing defines shows that Web alone.
+  const isRealPrototype = !!(nodeData?.id && nodePrototypes?.has(nodeData.id));
+  const definitionGraphIds = Array.isArray(nodeData?.definitionGraphIds) ? nodeData.definitionGraphIds : [];
+  const definitionIndex = getDefinitionIndex(nodeData);
+
+  const handleDefinitionIndexChange = (index) => {
+    if (!isRealPrototype) return;
+    useCanvasUIStore.getState().setNodeDefinitionIndex(`${nodeData.id}-${activeGraphId}`, index);
+  };
+
+  const handleAddDefinition = () => {
+    if (!isRealPrototype) return;
+    const newGraphId = storeActions.createAndAssignGraphDefinitionWithoutActivation?.(nodeData.id);
+    if (!newGraphId) return;
+    // Show the new one; the stale `nodeData` doesn't list it yet.
+    const ids = useGraphStore.getState().nodePrototypes.get(nodeData.id)?.definitionGraphIds || [];
+    const index = ids.indexOf(newGraphId);
+    if (index >= 0) handleDefinitionIndexChange(index);
+  };
+
+  const handleDeleteDefinition = (graphId) => {
+    if (isRealPrototype) requestDeleteDefinition(nodeData.id, graphId);
+  };
+
+  const handleOpenDefinition = (graphId, event) => {
+    if (!graphId || !nodeData?.id) return;
+    const iconRect = event?.currentTarget?.getBoundingClientRect?.();
+    if (onStartHurtleAnimationFromPanel && iconRect) {
+      onStartHurtleAnimationFromPanel(nodeData.id, graphId, nodeData.id, iconRect);
+    } else if (storeActions?.openGraphTabAndBringToTop) {
+      storeActions.openGraphTabAndBringToTop(graphId, nodeData.id);
+    }
+  };
+
   const handleTypeSelect = (nodeId) => {
     if (onTypeSelect) {
       onTypeSelect(nodeId);
@@ -518,6 +563,14 @@ const PanelContentWrapper = memo(({
         onExpandNode={handleExpandNode}
         onTypeSelect={handleTypeSelect}
         onMaterializeConnection={handleMaterializeConnection}
+        definitionGraphIds={definitionGraphIds}
+        definitionIndex={definitionIndex}
+        onDefinitionIndexChange={handleDefinitionIndexChange}
+        onAddDefinition={handleAddDefinition}
+        onDeleteDefinition={handleDeleteDefinition}
+        onOpenDefinition={handleOpenDefinition}
+        canEditDefinitions={isRealPrototype}
+        activeGraphId={activeGraphId}
         isHomeTab={tabType === 'home'}
         showExpandButton={true}
         expandButtonDisabled={isDefiningNodeOfCurrentGraph}

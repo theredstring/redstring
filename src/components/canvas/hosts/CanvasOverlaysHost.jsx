@@ -1,7 +1,7 @@
 /**
  * The overlays NodeCanvas portals into the shell after the control panels
- * (P5.06a): the abstraction carousel, the colour pickers (ColorPickersHost), the add-to-group
- * and self-loop confirmations and the Ask The Wizard picker. Moved verbatim;
+ * (P5.06a): the abstraction carousel, the colour pickers (ColorPickersHost), the add-to-group,
+ * self-loop and delete-definition confirmations and the Ask The Wizard picker. Moved verbatim;
  * NodeCanvas passes their state and handlers as `ctx`. P5.04 and P5.06b move
  * that state and those handlers in here. The carousel's callbacks and axes come
  * from carousel/carouselActions.js and canvasUIStore (P5.04).
@@ -18,6 +18,7 @@ import {
   deleteAbstractionDimension as handleDeleteAbstractionDimension, expandAbstractionDimension as handleExpandAbstractionDimension,
 } from '../carousel/carouselActions.js';
 import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
+import DeleteDefinitionDialog from '../dialogs/DeleteDefinitionDialog.jsx';
 import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -149,6 +150,10 @@ export default function CanvasOverlaysHost({ ctx }) {
           zoomLevel={zoomLevel}
         />
       )}
+
+      {/* Delete-definition confirmation: the decompose pie, the bottom panel and the
+          right panel's Web Definitions all ask through requestDeleteDefinition. */}
+      <DeleteDefinitionDialog />
 
     </Profiler>
   );

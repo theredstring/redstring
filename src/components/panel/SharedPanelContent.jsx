@@ -13,6 +13,7 @@ import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
 import AboutSection from './AboutSection.jsx';
+import WebDefinitionsSection from './WebDefinitionsSection.jsx';
 import { ABOUT_INTRO } from './aboutCopy.js';
 import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
@@ -1341,6 +1342,16 @@ const SharedPanelContent = ({
   onTypeSelect,
   onMaterializeConnection,
 
+  // Web Definitions (see PanelContentWrapper)
+  definitionGraphIds = [],
+  definitionIndex = 0,
+  onDefinitionIndexChange,
+  onAddDefinition,
+  onDeleteDefinition,
+  onOpenDefinition,
+  canEditDefinitions = false,
+  activeGraphId = null,
+
   // UI state
   isUltraSlim = false,
   showExpandButton = true,
@@ -1975,6 +1986,69 @@ const SharedPanelContent = ({
         />
       </CollapsibleSection>
 
+      {/* Dividing line above Component Of section */}
+      <StandardDivider margin="20px 0" />
+
+      {/* Component Of Section - now shown for both home and node tabs */}
+      <CollapsibleSection
+        title="Component Of"
+        count={componentOfNodes.length}
+        defaultExpanded={true}
+      >
+        {componentOfNodes.length > 0 ? (
+          <div style={{
+            marginRight: '15px',
+            display: 'grid',
+            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+            gap: '8px',
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}>
+            {componentOfNodes.map((node) => (
+              <DraggableNodeComponent
+                key={node.id}
+                node={node}
+                onOpenNode={onOpenNode}
+              />
+            ))}
+          </div>
+        ) : (
+          <div style={{
+            marginRight: '15px',
+            color: theme.canvas.textSecondary,
+            fontSize: '0.9rem',
+            fontFamily: "'EmOne', sans-serif",
+            textAlign: 'left',
+            padding: '20px 0 20px 15px'
+          }}>
+            This {isHomeTab ? 'graph' : 'prototype'} is not yet a component of other definitions.
+          </div>
+        )}
+      </CollapsibleSection>
+
+      {/* Dividing line above Web Definitions section */}
+      <StandardDivider margin="20px 0" />
+
+      {/* Web Definitions: the Webs that define this Thing, drawn as the decompose
+          preview draws them, with the decompose pie's controls. */}
+      <CollapsibleSection
+        title="Web Definitions"
+        count={definitionGraphIds.length}
+        defaultExpanded={true}
+      >
+        <WebDefinitionsSection
+          nodeData={nodeData}
+          definitionGraphIds={definitionGraphIds}
+          definitionIndex={definitionIndex}
+          onDefinitionIndexChange={onDefinitionIndexChange}
+          onAddDefinition={onAddDefinition}
+          onDeleteDefinition={onDeleteDefinition}
+          onOpenDefinition={onOpenDefinition}
+          canEdit={canEditDefinitions}
+          activeGraphId={activeGraphId}
+        />
+      </CollapsibleSection>
+
       {/* Dividing line above Components section */}
       <StandardDivider margin="20px 0" />
 
@@ -2047,46 +2121,6 @@ const SharedPanelContent = ({
               </div>
             )}
           </>
-        )}
-      </CollapsibleSection>
-
-      {/* Dividing line above Component Of section */}
-      <StandardDivider margin="20px 0" />
-
-      {/* Component Of Section - now shown for both home and node tabs */}
-      <CollapsibleSection
-        title="Component Of"
-        count={componentOfNodes.length}
-        defaultExpanded={true}
-      >
-        {componentOfNodes.length > 0 ? (
-          <div style={{
-            marginRight: '15px',
-            display: 'grid',
-            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
-            gap: '8px',
-            maxHeight: '300px',
-            overflowY: 'auto'
-          }}>
-            {componentOfNodes.map((node) => (
-              <DraggableNodeComponent
-                key={node.id}
-                node={node}
-                onOpenNode={onOpenNode}
-              />
-            ))}
-          </div>
-        ) : (
-          <div style={{
-            marginRight: '15px',
-            color: theme.canvas.textSecondary,
-            fontSize: '0.9rem',
-            fontFamily: "'EmOne', sans-serif",
-            textAlign: 'left',
-            padding: '20px 0 20px 15px'
-          }}>
-            This {isHomeTab ? 'graph' : 'prototype'} is not yet a component of other definitions.
-          </div>
         )}
       </CollapsibleSection>
 

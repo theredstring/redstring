@@ -2801,6 +2801,28 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Collapses a node-group into its node after saving the group's contents into the
+     * definition graph it stands for — the group's save button and its collapse as one
+     * gesture and one undo step. This is what lets a definition be built in place: expand
+     * a node (even one with an empty definition), work on it among the surrounding graph,
+     * collapse it, and the definition holds what was built.
+     *
+     * The save overwrites the definition wholesale, exactly like `updateDefinitionFromNodeGroup`.
+     * Edges from members to the outside graph stay in this graph (rewired to the collapsed
+     * node by `combineNodeGroup`); they never enter the definition.
+     *
+     * @returns {string|null} The surviving node instance id, as `combineNodeGroup`.
+     */
+    collapseNodeGroupIntoDefinition: (graphId, groupId, contextOptions = {}) => {
+      let survivingInstanceId = null;
+      api.withHistoryTransaction('Collapsed into definition', () => {
+        get().updateDefinitionFromNodeGroup(graphId, groupId, contextOptions);
+        survivingInstanceId = get().combineNodeGroup(graphId, groupId, contextOptions);
+      });
+      return survivingInstanceId;
+    },
+
+    /**
      * Expands a node instance into a node-group by materializing its definition graph in place.
      *
      * Copies all instances and edges from the prototype's definition graph (at `definitionIndex`)
