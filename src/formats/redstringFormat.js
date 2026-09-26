@@ -49,7 +49,9 @@ export const VERSION_HISTORY = {
       'Content-addressed images (additive, no version bump): optional top-level prototype fields redstring:imageRef ("sha256:<hex>") and redstring:imageRefExt point at a blob under universes/<folder>/images/, written by the git sync engine',
       'Only the full-resolution redstring:imageSrc is externalized; redstring:thumbnailSrc stays inline so the canvas renders with no network and builds that ignore the ref still draw a correct graph',
       'Inline base64 imageSrc remains fully valid on read — the two forms coexist indefinitely and locally-saved files stay single-file',
-      'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block'
+      'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block',
+      'Definitions opened in place (additive, no version bump): optional instance field redstring:openDefinition { redstring:definitionIndex, redstring:xOffset, redstring:yOffset } shows that definition inside the node without copying it; optional edge fields sourceVia/destinationVia name the nodes, from the edge\'s own graph inward, through whose definitions an end is reached',
+      'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -518,6 +520,32 @@ const ensureSet = (value) => {
   return new Set();
 };
 
+/**
+ * Takes a key an older build quarantined into an entity's `_preserved` bag back
+ * out, returning its value. The key is removed from the bag, so once this build
+ * owns the field again a later change to it (closing an open box) isn't undone by
+ * the stale copy riding along in `_preserved`. Empty buckets are dropped.
+ */
+const takeFromPreserved = (entity, key) => {
+  const preserved = entity?._preserved;
+  if (!preserved || typeof preserved !== 'object') return undefined;
+  let found;
+  const pruned = {};
+  for (const [version, bucket] of Object.entries(preserved)) {
+    if (bucket && typeof bucket === 'object' && !Array.isArray(bucket) && key in bucket) {
+      if (found === undefined) found = bucket[key];
+      const { [key]: _taken, ...rest } = bucket;
+      if (Object.keys(rest).length > 0) pruned[version] = rest;
+    } else {
+      pruned[version] = bucket;
+    }
+  }
+  if (found === undefined) return undefined;
+  if (Object.keys(pruned).length > 0) entity._preserved = pruned;
+  else delete entity._preserved;
+  return found;
+};
+
 const EXPORT_MAX_LAYOUT_NODES = 400;
 const EXPORT_MAX_SUMMARY_EDGES = 600;
 
@@ -857,7 +885,19 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
 
           // Group anchor properties (for thing-group connection routing)
           "redstring:isGroupAnchor": instance.isGroupAnchor || false,
-          "redstring:anchorForGroupId": instance.anchorForGroupId || null
+          "redstring:anchorForGroupId": instance.anchorForGroupId || null,
+
+          // Shown open in place: which of its prototype's definitions, and where that
+          // definition's origin sits relative to this graph (core/openDefinitions.js).
+          // Additive and optional, at the top level so older builds keep it in
+          // _preserved; a build that ignores it just shows the node closed.
+          ...(instance.openDefinition ? {
+            "redstring:openDefinition": {
+              "redstring:definitionIndex": instance.openDefinition.index ?? 0,
+              "redstring:xOffset": instance.openDefinition.offset?.x ?? 0,
+              "redstring:yOffset": instance.openDefinition.offset?.y ?? 0
+            }
+          } : {})
         };
         // Quarantined unknown fields ride back out verbatim (D1/P1.3)
         if (instance._preserved) {
@@ -916,6 +956,9 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
               "redstring:linkedDefinitionIndex": group.linkedDefinitionIndex,
               "redstring:hasCustomLayout": group.hasCustomLayout,
               "redstring:anchorInstanceId": group.anchorInstanceId,
+              // What the definition looked like when this copy was opened, so closing it
+              // can tell an edit made here from one made elsewhere. Optional.
+              ...(group.definitionFingerprint ? { "redstring:definitionFingerprint": group.definitionFingerprint } : {}),
               ...(group.emptyPlaceholderOrigin ? { "redstring:emptyPlaceholderOrigin": group.emptyPlaceholderOrigin } : {}),
               // RDF-style membership relationships
               "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
@@ -1231,6 +1274,10 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "id": edge.id,
       "sourceId": edge.sourceId,
       "destinationId": edge.destinationId,
+      // An end inside a definition opened in place: the nodes, from this edge's own
+      // graph inward, whose definitions it is reached through (core/openDefinitions.js).
+      ...(Array.isArray(edge.sourceVia) && edge.sourceVia.length > 0 ? { "sourceVia": edge.sourceVia } : {}),
+      ...(Array.isArray(edge.destinationVia) && edge.destinationVia.length > 0 ? { "destinationVia": edge.destinationVia } : {}),
       "name": edge.name,
       "description": edge.description,
       "typeNodeId": edge.typeNodeId,
@@ -1567,6 +1614,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 linkedDefinitionIndex: group['redstring:linkedDefinitionIndex'] ?? group.linkedDefinitionIndex,
                 hasCustomLayout: group['redstring:hasCustomLayout'] ?? group.hasCustomLayout,
                 anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId,
+                definitionFingerprint: group['redstring:definitionFingerprint'] || group.definitionFingerprint || undefined,
                 emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined
               };
             } else {
@@ -1588,6 +1636,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 linkedDefinitionIndex: group.linkedDefinitionIndex,
                 hasCustomLayout: group.hasCustomLayout,
                 anchorInstanceId: group.anchorInstanceId,
+                definitionFingerprint: group.definitionFingerprint || undefined,
                 emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined
               };
             }
@@ -1662,6 +1711,18 @@ export const importFromRedstring = (redstringData, storeActions) => {
             if (instance['redstring:anchorForGroupId']) {
               convertedInstance.anchorForGroupId = instance['redstring:anchorForGroupId'];
             }
+
+            // Shown open in place (core/openDefinitions.js)
+            const openDefinition = instance['redstring:openDefinition'];
+            if (openDefinition && typeof openDefinition === 'object') {
+              convertedInstance.openDefinition = {
+                index: Number.isInteger(openDefinition['redstring:definitionIndex']) ? openDefinition['redstring:definitionIndex'] : 0,
+                offset: {
+                  x: Number(openDefinition['redstring:xOffset']) || 0,
+                  y: Number(openDefinition['redstring:yOffset']) || 0,
+                },
+              };
+            }
           } else {
             // Legacy format - retain original structure
             convertedInstance.prototypeId = instance.prototypeId;
@@ -1683,6 +1744,17 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
           // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
           if (instance._preserved) convertedInstance._preserved = instance._preserved;
+
+          // A build that predates open definitions banked the field in _preserved.
+          if (!convertedInstance.openDefinition) {
+            const banked = takeFromPreserved(convertedInstance, 'redstring:openDefinition');
+            if (banked && typeof banked === 'object') {
+              convertedInstance.openDefinition = {
+                index: Number.isInteger(banked['redstring:definitionIndex']) ? banked['redstring:definitionIndex'] : 0,
+                offset: { x: Number(banked['redstring:xOffset']) || 0, y: Number(banked['redstring:yOffset']) || 0 },
+              };
+            }
+          }
 
           instancesMap.set(instanceId, convertedInstance);
         });
@@ -2035,6 +2107,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           // Edge provenance rides in semanticMetadata (P2.6)
           const edgeSemMeta = edge['redstring:semanticMetadata'] ?? edge.semanticMetadata;
           if (edgeSemMeta) edgeData.semanticMetadata = edgeSemMeta;
+          // Ends reached through definitions opened in place (core/openDefinitions.js)
+          if (Array.isArray(edge.sourceVia) && edge.sourceVia.length > 0) edgeData.sourceVia = [...edge.sourceVia];
+          if (Array.isArray(edge.destinationVia) && edge.destinationVia.length > 0) edgeData.destinationVia = [...edge.destinationVia];
         }
         // Check if this is an old RDF statement format (legacy)
         else if (edge['@type'] === 'Statement' && edge.subject && edge.object) {
@@ -2080,6 +2155,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
         
         // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
         if (edge._preserved) edgeData._preserved = edge._preserved;
+
+        // A build that predates open definitions banked the vias in _preserved.
+        for (const key of ['sourceVia', 'destinationVia']) {
+          const banked = takeFromPreserved(edgeData, key);
+          if (!edgeData[key] && Array.isArray(banked) && banked.length > 0) edgeData[key] = [...banked];
+        }
 
         edgesMap.set(id, edgeData);
       } catch (error) {

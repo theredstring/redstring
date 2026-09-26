@@ -1177,24 +1177,29 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Combine size={iconSize} />
                 </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onUpdateDefinitionFromGroup}
-                  title="Update Definition"
-                  onMouseEnter={() => triggerActionHover('control-update-definition', 'Update Definition')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <Save size={iconSize} />
-                </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onRefreshGroupFromDefinition}
-                  title="Refresh From Definition"
-                  onMouseEnter={() => triggerActionHover('control-refresh-definition', 'Refresh From Definition')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <RefreshCw size={iconSize} />
-                </div>
+                {/* A Thing opened in place already is its definition: nothing to save or refresh. */}
+                {!selectedGroup?.isOpenDefinition && (
+                  <>
+                    <div
+                      className="piemenu-button"
+                      onClick={onUpdateDefinitionFromGroup}
+                      title="Update Definition"
+                      onMouseEnter={() => triggerActionHover('control-update-definition', 'Update Definition')}
+                      onMouseLeave={clearActionHover}
+                    >
+                      <Save size={iconSize} />
+                    </div>
+                    <div
+                      className="piemenu-button"
+                      onClick={onRefreshGroupFromDefinition}
+                      title="Refresh From Definition"
+                      onMouseEnter={() => triggerActionHover('control-refresh-definition', 'Refresh From Definition')}
+                      onMouseLeave={clearActionHover}
+                    >
+                      <RefreshCw size={iconSize} />
+                    </div>
+                  </>
+                )}
                 <div
                   className="piemenu-button"
                   onClick={onGroupEdit}

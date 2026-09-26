@@ -191,6 +191,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showMultipleNodesControlPanel = useGraphStore(s => s.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore(s => s.showConnectionControlPanel ?? false);
   const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? true);
+  const openDefinitionsInPlace = useGraphStore(s => s.openDefinitionsInPlace !== false);
   const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? true);
 
   // Counting happens on the way in, so the fifth tap is the one that reveals it.
@@ -464,6 +465,16 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={showGroupControlPanel}
               onChange={() => useGraphStore.getState().toggleShowGroupControlPanel?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Decompose Into The Definition
+              <div className="settings-row-description">Decomposing a Thing opens its definition in place: what you build inside is the definition, everywhere it appears. Off, decomposing copies the definition into a group you save back by hand.</div>
+            </div>
+            <Toggle
+              checked={openDefinitionsInPlace}
+              onChange={() => useGraphStore.getState().toggleOpenDefinitionsInPlace?.()}
             />
           </div>
           <div className="settings-row">

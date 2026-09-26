@@ -5,6 +5,7 @@
  */
 import useGraphStore from '../../../store/graphStore.js';
 import { v4 as uuidv4 } from 'uuid';
+import { expandNodeInPlace } from './expandInPlace.js';
 
 export function convertNodeToNodeGroup(instanceId, prototypeId, definitionGraphId, ctx) {
   const {
@@ -12,6 +13,22 @@ export function convertNodeToNodeGroup(instanceId, prototypeId, definitionGraphI
     setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, storeActions,
   } = ctx;
   if (!activeGraphId) return;
+
+  // Opening definitions in place (the default) shows the definition itself rather
+  // than copying it; see expandInPlace.
+  if (useGraphStore.getState().openDefinitionsInPlace !== false) {
+    const definitionIndex = Math.max(0, nodePrototypesMap.get(prototypeId)?.definitionGraphIds?.indexOf(definitionGraphId) ?? 0);
+    const openGroup = expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId, definitionIndex, instanceId });
+    if (openGroup) {
+      setSelectedGroup(openGroup);
+      setSelectedInstanceIds(new Set());
+      setPreviewingNodeId(null);
+      setGroupControlPanelShouldShow(true);
+      setNodeControlPanelShouldShow(false);
+      setNodeControlPanelVisible(false);
+    }
+    return;
+  }
 
   // Get the node instance data
   const graphData = graphsMap.get(activeGraphId);

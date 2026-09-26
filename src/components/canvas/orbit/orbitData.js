@@ -4,6 +4,7 @@
  * moves the orbit into its own host.
  */
 import useGraphStore from '../../../store/graphStore.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 import { fetchOrbitCandidatesForPrototype, dedupeAndPartitionOrbit } from '../../../services/orbitResolver.js';
 import { formatPredicate } from '../../../utils/predicateFormatter.js';
 import { NODE_DEFAULT_COLOR, NODE_WIDTH, NODE_HEIGHT } from '../../../constants';
@@ -29,7 +30,7 @@ export function fetchOrbitCandidates(ctx) {
       }
 
       const instanceId = [...selectedInstanceIds][0];
-      const graph = useGraphStore.getState().graphs.get(activeGraphId);
+      const graph = projectGraphView(useGraphStore.getState(), activeGraphId); // includes nodes inside open boxes
       const inst = graph?.instances?.get(instanceId);
       const proto = inst ? useGraphStore.getState().nodePrototypes.get(inst.prototypeId) : null;
 

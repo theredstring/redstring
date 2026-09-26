@@ -885,6 +885,44 @@ const edgeTouches = (edge, idSet) => idSet.has(edge.sourceId) || idSet.has(edge.
   || (Array.isArray(edge.destinationVia) && edge.destinationVia.some(id => idSet.has(id)));
 
 /**
+ * A short hash of what a set of instances says: which Things, where they sit
+ * relative to each other, and how they connect among themselves. Ids don't enter
+ * into it, so a node-group's copy and the definition it was copied from hash the
+ * same until one of them is edited.
+ *
+ * A copy-style node-group records its definition's fingerprint when it is opened
+ * (`definitionFingerprint`). Closing it compares: a definition that no longer
+ * matches was changed somewhere else meanwhile, and is kept rather than overwritten.
+ *
+ * @param {Object} draft - State or draft (reads `edges`).
+ * @param {Object} graph - Graph holding the instances.
+ * @param {Iterable<string>} [instanceIds] - Which instances (default: all of the graph's).
+ */
+const contentFingerprint = (draft, graph, instanceIds = null) => {
+  const ids = new Set(instanceIds ? Array.from(instanceIds) : Array.from(graph?.instances?.keys() || []));
+  const instances = Array.from(ids).map(id => graph?.instances?.get(id)).filter(Boolean);
+  const minX = instances.length ? Math.min(...instances.map(i => i.x ?? 0)) : 0;
+  const minY = instances.length ? Math.min(...instances.map(i => i.y ?? 0)) : 0;
+  const protoOf = new Map(instances.map(i => [i.id, i.prototypeId]));
+  const parts = instances
+    .map(i => `${i.prototypeId}@${Math.round((i.x ?? 0) - minX)},${Math.round((i.y ?? 0) - minY)}`)
+    .sort();
+  draft.edges?.forEach(edge => {
+    if (!ids.has(edge.sourceId) || !ids.has(edge.destinationId)) return;
+    parts.push(`${protoOf.get(edge.sourceId)}>${edge.typeNodeId || ''}>${protoOf.get(edge.destinationId)}`);
+  });
+  parts.sort();
+  // FNV-1a, 32-bit
+  let hash = 0x811c9dc5;
+  const text = parts.join('|');
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${instances.length}:${hash.toString(16)}`;
+};
+
+/**
  * Pairs each old instance with the most similar new one, for carrying connections
  * across a wholesale replacement (a node-group refreshed from its definition).
  *
@@ -1894,6 +1932,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     showMultipleNodesControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_multi_node_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    // Decompose opens a Thing onto its definition itself (true) or copies the
+    // definition into a node-group saved back by hand (false). See core/openDefinitions.js.
+    openDefinitionsInPlace: (() => { try { const s = localStorage.getItem('redstring_open_definitions_in_place'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     hoverPreviewSize: (() => {
       try {
@@ -2803,6 +2844,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Update group with node-group properties
         group.linkedNodePrototypeId = prototypeId;
         group.linkedDefinitionIndex = definitionIndex;
+        group.definitionFingerprint = contentFingerprint(draft, draft.graphs.get(defGraphId));
         group.hasCustomLayout = false; // Start with default syncing
         // Identity now belongs to the prototype — the group mirrors it from here on.
         group.name = prototype.name;
@@ -3055,9 +3097,63 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
 
+      // A copy-style group (from before definitions opened in place, or with that
+      // setting off). What its definition gets depends on who changed what:
+      //   - the box matches its definition: nothing to save.
+      //   - the definition is empty, or unchanged since the box opened: overwrite it.
+      //   - the definition changed somewhere else meanwhile (or we can't tell): keep
+      //     both — the box's contents become a further definition of the Thing.
+      const state = get();
+      const graph = state.graphs.get(graphId);
+      const group = graph?.groups?.get(groupId);
+      const plan = (() => {
+        if (!group?.linkedNodePrototypeId) return 'skip';
+        const prototype = state.nodePrototypes.get(group.linkedNodePrototypeId);
+        const defGraph = state.graphs.get(prototype?.definitionGraphIds?.[group.linkedDefinitionIndex ?? 0]);
+        if (!defGraph?.instances || defGraph.instances.size === 0) return 'overwrite';
+        const members = (group.memberInstanceIds || []).filter(id => graph.instances?.has(id));
+        const definitionNow = contentFingerprint(state, defGraph);
+        if (contentFingerprint(state, graph, members) === definitionNow) return 'skip';
+        if (group.definitionFingerprint === definitionNow) return 'overwrite';
+        return members.length === 0 ? 'skip' : 'keep-both';
+      })();
+
       let survivingInstanceId = null;
       api.withHistoryTransaction('Collapsed into definition', () => {
-        get().updateDefinitionFromNodeGroup(graphId, groupId, contextOptions);
+        const saved = plan === 'skip' ? null : get().updateDefinitionFromNodeGroup(graphId, groupId, {
+          ...contextOptions,
+          asNewDefinition: plan === 'keep-both',
+        });
+        if (plan === 'keep-both' && saved) {
+          console.warn(`[collapseNodeGroupIntoDefinition] "${group.name}"'s definition changed elsewhere while this copy was open; kept both — the copy is now definition ${(saved.definitionIndex ?? 0) + 1}.`);
+        }
+
+        // Connections from the box to the outside stay where they are, now reaching the
+        // saved node in the definition through the box — rather than collapsing onto the
+        // box and forgetting which part of it they came from.
+        const anchorId = group?.anchorInstanceId;
+        if (saved?.instanceIdMap?.size > 0 && anchorId) {
+          const copies = saved.instanceIdMap;
+          api.setChangeContext({ type: 'group_collapse_connections', target: 'group', groupId, ...contextOptions });
+          set(produce((draft) => {
+            const parent = draft.graphs.get(graphId);
+            (parent?.edgeIds || []).forEach(edgeId => {
+              const edge = draft.edges.get(edgeId);
+              if (!edge) return;
+              const fromInside = copies.has(edge.sourceId);
+              const toInside = copies.has(edge.destinationId);
+              if (fromInside === toInside) return; // wholly inside (saved) or wholly outside
+              const end = fromInside ? 'sourceId' : 'destinationId';
+              const viaKey = fromInside ? 'sourceVia' : 'destinationVia';
+              const oldId = edge[end];
+              const newId = copies.get(oldId);
+              edge[end] = newId;
+              edge[viaKey] = [anchorId];
+              const arrows = edge.directionality?.arrowsToward;
+              if (arrows instanceof Set && arrows.has(oldId)) { arrows.delete(oldId); arrows.add(newId); }
+            });
+          }));
+        }
         survivingInstanceId = get().combineNodeGroup(graphId, groupId, contextOptions);
       });
       return survivingInstanceId;
@@ -3385,6 +3481,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           memberInstanceIds,
           linkedNodePrototypeId: prototypeId,
           linkedDefinitionIndex: definitionIndex,
+          definitionFingerprint: contentFingerprint(draft, defGraph),
           hasCustomLayout: false,
           anchorInstanceId: originalInstanceId,
           semanticMetadata: {
@@ -3522,6 +3619,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           memberInstanceIds: [],
           linkedNodePrototypeId: prototypeId,
           linkedDefinitionIndex: definitionIndex,
+          definitionFingerprint: contentFingerprint(draft, draft.graphs.get(defGraphId)),
           hasCustomLayout: false,
           anchorInstanceId: originalInstanceId,
           // Frozen placeholder position for computeGroupLayout's zero-member fallback
@@ -3562,7 +3660,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     updateDefinitionFromNodeGroup: (graphId, groupId, contextOptions = {}) => {
       // An open box already is its definition.
       if (anchorIdFromOpenGroupId(groupId)) return null;
-      api.setChangeContext({ type: 'group_update_definition', target: 'group', ...contextOptions });
+      // asNewDefinition: add the group's contents as a further definition of the Thing
+      // (and link the group to it) instead of overwriting the one it came from.
+      const { asNewDefinition = false, ...changeOptions } = contextOptions;
+      api.setChangeContext({ type: 'group_update_definition', target: 'group', ...changeOptions });
       let result = null;
       set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -3586,7 +3687,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!Array.isArray(prototype.definitionGraphIds)) {
           prototype.definitionGraphIds = [];
         }
-        const definitionIndex = group.linkedDefinitionIndex ?? 0;
+        const definitionIndex = asNewDefinition ? prototype.definitionGraphIds.length : (group.linkedDefinitionIndex ?? 0);
+        if (asNewDefinition) group.linkedDefinitionIndex = definitionIndex;
 
         let defGraphId = prototype.definitionGraphIds[definitionIndex];
         if (!defGraphId) {
@@ -3636,7 +3738,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
 
         // Replace the definition graph's contents wholesale.
-        for (const edgeId of (defGraph.edgeIds || [])) {
+        const oldDefinitionInstances = Array.from(defGraph.instances?.values() || []).map(inst => ({
+          id: inst.id, prototypeId: inst.prototypeId, x: inst.x, y: inst.y
+        }));
+        const ownEdgeIds = new Set(defGraph.edgeIds || []);
+        for (const edgeId of ownEdgeIds) {
           draft.edges.delete(edgeId);
         }
         defGraph.instances = new Map();
@@ -3650,6 +3756,37 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           offsetX,
           offsetY
         });
+
+        // Connections from elsewhere that reach into this definition (through a box
+        // opened in place) named its old instances. Move each to the most similar new
+        // one, or — when the definition no longer has that Thing — back onto the box.
+        const replacedIds = new Set(oldDefinitionInstances.map(inst => inst.id));
+        if (replacedIds.size > 0) {
+          const similar = matchSimilarInstances(
+            oldDefinitionInstances,
+            newInstanceIds.map(id => defGraph.instances.get(id)).filter(Boolean)
+          );
+          const unreachable = new Set();
+          draft.edges.forEach((edge, edgeId) => {
+            for (const [end, viaKey] of [['sourceId', 'sourceVia'], ['destinationId', 'destinationVia']]) {
+              if (!replacedIds.has(edge[end])) continue;
+              const oldId = edge[end];
+              const newId = similar.get(oldId);
+              const arrows = edge.directionality?.arrowsToward;
+              const via = Array.isArray(edge[viaKey]) ? edge[viaKey] : [];
+              const replacement = newId || via[via.length - 1];
+              if (!replacement) { unreachable.add(edgeId); continue; }
+              edge[end] = replacement;
+              if (!newId) {
+                if (via.length > 1) edge[viaKey] = via.slice(0, -1); else delete edge[viaKey];
+              }
+              if (arrows instanceof Set && arrows.has(oldId)) { arrows.delete(oldId); arrows.add(replacement); }
+            }
+          });
+          unreachable.forEach(edgeId => draft.edges.delete(edgeId));
+          dropEdgeIdsEverywhere(draft, unreachable);
+        }
+        group.definitionFingerprint = contentFingerprint(draft, defGraph);
 
         // Groups nested inside this one are part of what the group means — push them
         // into the definition too, or expanding it later flattens them back into
@@ -3668,7 +3805,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           console.warn(`[updateDefinitionFromNodeGroup] Dropped ${droppedCrossEdgeCount} edge(s) connecting the group to nodes outside it — definitions can't reference the outside graph.`);
         }
 
-        result = { defGraphId, memberCount: newInstanceIds.length, droppedCrossEdgeCount };
+        // instanceIdMap (group member → its copy in the definition) lets a caller carry
+        // the group's outside connections into the definition in the same step.
+        result = { defGraphId, definitionIndex, memberCount: newInstanceIds.length, droppedCrossEdgeCount, instanceIdMap };
         console.log(`[updateDefinitionFromNodeGroup] Pushed ${newInstanceIds.length} member(s) from group ${groupId} into definition graph ${defGraphId}.`);
       }));
       return result;
@@ -3820,6 +3959,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         });
 
         group.memberInstanceIds = newInstanceIds;
+        group.definitionFingerprint = contentFingerprint(draft, defGraph);
         if (!group.semanticMetadata) {
           group.semanticMetadata = { type: 'Group', relationships: [], createdAt: new Date().toISOString() };
         }
@@ -7053,6 +7193,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     toggleShowGroupControlPanel: () => set(produce((draft) => {
       draft.showGroupControlPanel = !draft.showGroupControlPanel;
       try { localStorage.setItem('redstring_show_group_cp', draft.showGroupControlPanel); } catch (_) { }
+    })),
+    /** Toggles whether Decompose opens definitions in place. Persists to localStorage. */
+    toggleOpenDefinitionsInPlace: () => set(produce((draft) => {
+      draft.openDefinitionsInPlace = draft.openDefinitionsInPlace === false;
+      try { localStorage.setItem('redstring_open_definitions_in_place', draft.openDefinitionsInPlace); } catch (_) { }
     })),
     /** Toggles the abstraction chain control panel. Persists to localStorage. */
     toggleShowAbstractionControlPanel: () => set(produce((draft) => {

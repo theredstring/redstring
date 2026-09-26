@@ -3,6 +3,7 @@
  * verbatim from NodeCanvas's anchor flush).
  */
 import useGraphStore from '../../../store/graphStore.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 
 /** Write anchor instances to the store where their title pills are drawn (skipped mid-drag). */
 export function flushAnchorPositions(ctx) {
@@ -12,8 +13,9 @@ export function flushAnchorPositions(ctx) {
   if (updates.size === 0) return;
 
   const rafId = requestAnimationFrame(() => {
-    const st = useGraphStore.getState();
-    const graph = st.graphs.get(activeGraphId);
+    // As viewed: an open box's node is an anchor only in the view, and keeping it under
+    // the box's title is what makes it close where the box was.
+    const graph = projectGraphView(useGraphStore.getState(), activeGraphId);
     if (!graph?.instances) return;
 
     const positionUpdates = [];

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
+import { projectGraphView } from '../../src/core/openDefinitions.js';
 
 // Collapsing a node-group saves it into its definition first. The flow this pins:
 // expand a node into an empty definition, build it in place among the rest of the
@@ -80,13 +81,48 @@ describe('collapseNodeGroupIntoDefinition', () => {
     expect(def.instances.get(insideCopy.sourceId).prototypeId).toBe('p-a');
     expect(def.instances.get(insideCopy.destinationId).prototypeId).toBe('p-b');
 
-    // The outside connection stays in the parent graph, now on the collapsed node.
+    // The outside connection stays in the parent graph, still from A — now the A in
+    // the definition, reached through the box — rather than collapsing onto the box.
     const main = st().graphs.get('main');
     expect(main.groups.size).toBe(0);
     expect(Array.from(main.instances.keys()).sort()).toEqual(['box', 'out']);
+    expect(main.edgeIds).toContain('e-across');
     const across = st().edges.get('e-across');
-    expect(across.sourceId).toBe('box');
+    expect(def.instances.get(across.sourceId).prototypeId).toBe('p-a');
+    expect(across.sourceVia).toEqual(['box']);
     expect(across.destinationId).toBe('out');
+
+    // Closed, it is drawn to the box; opened in place, to A again.
+    expect(projectGraphView(st(), 'main').openView.edges.get('e-across').sourceId).toBe('box');
+    st().openDefinitionInPlace('main', 'box');
+    const open = projectGraphView(st(), 'main');
+    expect(open.openView.edges.has('e-across')).toBe(false);
+    expect(open.instances.get(across.sourceId).prototypeId).toBe('p-a');
+  });
+
+  it('saves nothing when the box matches its definition', () => {
+    const groupId = buildInPlace();
+    st().updateDefinitionFromNodeGroup('main', groupId);
+    const before = defGraph().instances;
+    st().collapseNodeGroupIntoDefinition('main', groupId);
+    expect(defGraph().instances).toBe(before);
+  });
+
+  it('keeps both when the definition changed elsewhere while the copy was open', () => {
+    const groupId = buildInPlace();
+    st().updateDefinitionFromNodeGroup('main', groupId);
+    // Someone edits the definition in its own tab…
+    const defA = Array.from(defGraph().instances.values()).find(i => i.prototypeId === 'p-a');
+    st().removeNodeInstance(defGraph().id, defA.id);
+    // …while the copy here is edited too.
+    st().removeInstancesFromGroup('main', groupId, ['b']);
+
+    st().collapseNodeGroupIntoDefinition('main', groupId);
+
+    const ids = st().nodePrototypes.get('p-box').definitionGraphIds;
+    expect(ids).toHaveLength(2);
+    expect(protoIdsIn(st().graphs.get(ids[0]))).toEqual(['p-b']); // the edit made elsewhere
+    expect(protoIdsIn(st().graphs.get(ids[1]))).toEqual(['p-a']); // the edit made here
   });
 
   it('overwrites a definition that was edited in the group since expanding', () => {

@@ -50,7 +50,7 @@ import { convertNodeToNodeGroup } from './components/canvas/actions/nodeGroupCon
 import { computeCleanLaneOffsets } from './utils/canvas/cleanLaneOffsets.js';
 import { useLatestRef } from './hooks/useLatestRef.js';
 import { usePickedEntries } from './hooks/useStableSelector.js';
-import { createLiveMapView } from './utils/liveMapView.js';
+import { createGraphViewMap, projectGraphView, viewEdges } from './core/openDefinitions.js';
 import { clientToCanvas } from './utils/canvas/viewportMath.js';
 import { findNearestEdgeAtCanvasPoint as findNearestEdge, edgeHitThreshold } from './utils/canvas/edgeHitTest.js';
 import { selectionInRect, groupTitleAtCanvasPoint, groupDragOffsets } from './utils/canvas/canvasHitTest.js';
@@ -380,12 +380,12 @@ function NodeCanvas() {
   useEffect(() => {
     clearLabelStabilization();
   }, [activeGraphId]);
-  // P3.01: `graphs` as a live view (utils/liveMapView.js). It reads the store when
-  // called, so callbacks and hooks never see a stale graph; its identity changes
-  // only when the active web does (or any web, while a node previews its
-  // definition, whose description renders), so an edit elsewhere doesn't render.
-  const graphsViewKey = useGraphStore(state => (useCanvasUIStore.getState().previewingNodeId ? state.graphs : state.graphs.get(state.activeGraphId)));
-  const graphsMap = useMemo(() => createLiveMapView(() => useGraphStore.getState().graphs), [graphsViewKey]);
+  // P3.01: `graphs` as a live view that reads the store when called, so callbacks and hooks never see a stale
+  // graph. `get` returns a web as viewed, open definitions projected in (core/openDefinitions.js). Its identity
+  // changes only when the active web's view does (or any web, while a node previews its definition, whose
+  // description renders), so an edit elsewhere doesn't render.
+  const graphsViewKey = useGraphStore(state => (useCanvasUIStore.getState().previewingNodeId ? state.graphs : projectGraphView(state, state.activeGraphId)));
+  const graphsMap = useMemo(() => createGraphViewMap(() => useGraphStore.getState()), [graphsViewKey]);
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgePrototypesMap = useGraphStore(state => state.edgePrototypes);
   const showConnectionNames = useGraphStore(state => state.showConnectionNames);
@@ -440,7 +440,7 @@ function NodeCanvas() {
   useEffect(() => { trackpadPanSensitivityRef.current = trackpadPanSensitivity; }, [trackpadPanSensitivity]);
   const touchSettingsRef = useRef(touchSettings);
   useEffect(() => { touchSettingsRef.current = touchSettings; }, [touchSettings]);
-  const edgesMap = useGraphStore(state => state.edges);
+  const edgesMap = useGraphStore(state => viewEdges(state, state.activeGraphId)); // closed-box ends drawn to the box
   const savedNodeIds = useGraphStore(state => state.savedNodeIds);
   const isUniverseLoaded = useGraphStore(state => state.isUniverseLoaded);
   const isUniverseLoading = useGraphStore(state => state.isUniverseLoading);

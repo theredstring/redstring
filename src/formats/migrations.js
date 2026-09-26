@@ -132,6 +132,7 @@ export const KNOWN_INSTANCE_KEYS = new Set([
   '@type', '@id', 'rdf:type', 'rdfs:label', 'rdfs:comment',
   'redstring:containedIn', 'redstring:spatialContext', 'redstring:visualProperties',
   'redstring:prototypeId', 'redstring:isGroupAnchor', 'redstring:anchorForGroupId',
+  'redstring:openDefinition',
   // legacy flat (read)
   'id', 'prototypeId', 'name', 'description', 'x', 'y', 'scale', 'sizeMul',
   'expanded', 'visible', 'isGroupAnchor', 'anchorForGroupId',
@@ -156,6 +157,7 @@ export const KNOWN_EDGE_KEYS = new Set([
   // dual native+RDF format (emitted/read)
   'id', 'sourceId', 'destinationId', 'name', 'description', 'typeNodeId',
   'definitionNodeIds', 'directionality', 'rdfStatements',
+  'sourceVia', 'destinationVia',
   'sourcePrototypeId', 'destinationPrototypeId', 'predicatePrototypeId',
   // old RDF Statement format (read)
   '@type', 'subject', 'predicate', 'object', 'originalSourceId', 'originalDestinationId',

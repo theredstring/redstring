@@ -253,7 +253,22 @@ const viewCache = new Map();
  *   drawn in this view when an end is hidden inside a closed box.
  */
 export const projectGraphView = (state, viewGraphId) => {
-  const { graphs, nodePrototypes, edges: edgesMap } = state || {};
+  const { graphs, nodePrototypes, edges } = state || {};
+  // Called from store selectors on every write, so an unchanged state answers
+  // without walking anything.
+  const last = lastProjection.get(viewGraphId);
+  if (last && last.graphs === graphs && last.nodePrototypes === nodePrototypes && last.edges === edges) {
+    return last.result;
+  }
+  const result = buildGraphView(graphs, nodePrototypes, edges, viewGraphId);
+  lastProjection.set(viewGraphId, { graphs, nodePrototypes, edges, result });
+  return result;
+};
+
+// viewGraphId → the inputs and result of the last projection.
+const lastProjection = new Map();
+
+const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId) => {
   const raw = graphs?.get(viewGraphId);
   if (!raw?.instances) return raw;
   const { boxes, owners } = mapOpenDefinitions(graphs, nodePrototypes, viewGraphId);
@@ -339,4 +354,46 @@ export const initialOpenOffset = (anchor, defGraph) => {
   const minX = Math.min(...defInstances.map(i => i.x ?? 0));
   const minY = Math.min(...defInstances.map(i => i.y ?? 0));
   return { x: (anchor.x ?? 0) - minX, y: (anchor.y ?? 0) - minY };
+};
+
+// ─── For the canvas ───────────────────────────────────────────────────────────
+
+/**
+ * A read-only graphs Map whose `get` returns each graph as viewed, with its open
+ * definitions projected in. Iteration yields the raw graphs. Reads the state on
+ * every call, like createLiveMapView, so callbacks never hold a stale graph.
+ *
+ * @param {() => {graphs: Map, nodePrototypes: Map, edges: Map}} getState
+ */
+export const createGraphViewMap = (getState) => ({
+  get: (key) => projectGraphView(getState(), key),
+  has: (key) => getState().graphs.has(key),
+  get size() { return getState().graphs.size; },
+  forEach: (fn, thisArg) => getState().graphs.forEach(fn, thisArg),
+  keys: () => getState().graphs.keys(),
+  values: () => getState().graphs.values(),
+  entries: () => getState().graphs.entries(),
+  [Symbol.iterator]: () => getState().graphs[Symbol.iterator](),
+});
+
+// edges Map → { overrides, result }
+const viewEdgesCache = new WeakMap();
+
+/**
+ * The edges Map as the canvas should read it while viewing `viewGraphId`: the raw
+ * Map itself, except that a connection reaching into a closed box names the box as
+ * its end. The same Map comes back until the edges or the view change, so it is
+ * safe to return from a store selector.
+ */
+export const viewEdges = (state, viewGraphId) => {
+  const edges = state?.edges;
+  if (!edges) return edges;
+  const overrides = projectGraphView(state, viewGraphId)?.openView?.edges;
+  if (!overrides || overrides.size === 0) return edges;
+  const cached = viewEdgesCache.get(edges);
+  if (cached && cached.overrides === overrides) return cached.result;
+  const result = new Map(edges);
+  overrides.forEach((edge, edgeId) => result.set(edgeId, edge));
+  viewEdgesCache.set(edges, { overrides, result });
+  return result;
 };

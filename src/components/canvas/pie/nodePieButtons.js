@@ -18,6 +18,8 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { v4 as uuidv4 } from 'uuid';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
+import { expandNodeInPlace } from '../actions/expandInPlace.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -188,7 +190,7 @@ export function buildNodePieMenuPages(ctx) {
         // Copy this node (and any edges among the selection) to the clipboard,
         // same path as Ctrl/Cmd+C so it can be pasted anywhere.
         const st = useGraphStore.getState(); // at click time, so the menu needn't track the maps
-        const currentGraph = st.graphs.get(activeGraphId);
+        const currentGraph = projectGraphView(st, activeGraphId); // includes nodes inside open boxes
         if (!currentGraph || !instanceId) return;
         const copied = copySelection(new Set([instanceId]), currentGraph, st.nodePrototypes, st.edges);
         if (copied) {
@@ -799,18 +801,14 @@ export function buildTargetPieMenuButtons(ctx) {
           icon: PackageOpen,
           position: 'top', topIndex: 1, topCount: 3,
           action: () => {
-            const createdGroupId = storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId);
-            if (!createdGroupId) return;
+            const newGroup = expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId: decompPrototypeId, definitionIndex: decompIndex, instanceId: previewingNodeId });
+            if (!newGroup) return;
             dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });
-            const gs = useGraphStore.getState();
-            const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
-            if (newGroup) {
-              setSelectedGroup(newGroup);
-              setSelectedInstanceIds(new Set());
-              setGroupControlPanelShouldShow(true);
-              setNodeControlPanelShouldShow(false);
-              setNodeControlPanelVisible(false);
-            }
+            setSelectedGroup(newGroup);
+            setSelectedInstanceIds(new Set());
+            setGroupControlPanelShouldShow(true);
+            setNodeControlPanelShouldShow(false);
+            setNodeControlPanelVisible(false);
           }
         },
         { ...compose, position: 'top', topIndex: 2, topCount: 3 }
@@ -852,28 +850,16 @@ export function buildTargetPieMenuButtons(ctx) {
         icon: PackageOpen,
         position: 'top', topIndex: 3, topCount: 5,
         action: () => {
-          // Use the dedicated store action (copies the definition's instances + edges and
-          // reuses the original node as the group anchor). The older handleNodeConvertToNodeGroup
-          // path reimplemented this manually and left the group empty.
-          // If the definition being previewed has no content yet (e.g. freshly added via
-          // "Add Definition"), decomposeNodeToGroup has nothing to copy and aborts — open an
-          // empty, buildable node-group instead.
-          const currentDefGraph = decompCurrentGraphId ? decompState.graphs.get(decompCurrentGraphId) : null;
-          const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
-          const createdGroupId = isCurrentDefEmpty
-            ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId)
-            : storeActions.decomposeNodeToGroup(activeGraphId, decompPrototypeId, decompIndex, previewingNodeId);
-          if (!createdGroupId) return;
+          // Opens the definition in place (or copies it into a node-group with the
+          // setting off; an empty definition gets a buildable empty one) — see expandInPlace.
+          const newGroup = expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId: decompPrototypeId, definitionIndex: decompIndex, instanceId: previewingNodeId });
+          if (!newGroup) return;
           dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });
-          const gs = useGraphStore.getState();
-          const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
-          if (newGroup) {
-            setSelectedGroup(newGroup);
-            setSelectedInstanceIds(new Set());
-            setGroupControlPanelShouldShow(true);
-            setNodeControlPanelShouldShow(false);
-            setNodeControlPanelVisible(false);
-          }
+          setSelectedGroup(newGroup);
+          setSelectedInstanceIds(new Set());
+          setGroupControlPanelShouldShow(true);
+          setNodeControlPanelShouldShow(false);
+          setNodeControlPanelVisible(false);
         }
       },
       { ...compose, position: 'top', topIndex: 4, topCount: 5 }

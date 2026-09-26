@@ -26,6 +26,7 @@ import { getNodeDimensions } from '../../../utils.js';
 import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
+import { expandNodeInPlace } from '../actions/expandInPlace.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -453,23 +454,15 @@ export default function ControlPanelsHost({ ctx }) {
               : handleNodePanelUp}
             onOpenInPanel={handleNodePanelOpenInPanel}
             onDecompose={decomposePanelInfo ? () => {
-              const { instanceId, prototypeId, index, currentGraphId } = decomposePanelInfo;
-              const currentDefGraph = currentGraphId ? graphsMap.get(currentGraphId) : null;
-              const isCurrentDefEmpty = !currentDefGraph || !currentDefGraph.instances || currentDefGraph.instances.size === 0;
-              const createdGroupId = isCurrentDefEmpty
-                ? storeActions.decomposeEmptyNodeToGroup(activeGraphId, prototypeId, index, instanceId)
-                : storeActions.decomposeNodeToGroup(activeGraphId, prototypeId, index, instanceId);
-              if (!createdGroupId) return;
+              const { instanceId, prototypeId, index } = decomposePanelInfo;
+              const newGroup = expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId, definitionIndex: index, instanceId });
+              if (!newGroup) return;
               useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null });
-              const gs = useGraphStore.getState();
-              const newGroup = gs.graphs?.get(activeGraphId)?.groups?.get(createdGroupId);
-              if (newGroup) {
-                setSelectedGroup(newGroup);
-                setSelectedInstanceIds(new Set());
-                setGroupControlPanelShouldShow(true);
-                setNodeControlPanelShouldShow(false);
-                setNodeControlPanelVisible(false);
-              }
+              setSelectedGroup(newGroup);
+              setSelectedInstanceIds(new Set());
+              setGroupControlPanelShouldShow(true);
+              setNodeControlPanelShouldShow(false);
+              setNodeControlPanelVisible(false);
             } : handleNodePanelDecompose}
             onAbstraction={handleNodePanelAbstraction}
             onEdit={handleNodePanelEdit}
