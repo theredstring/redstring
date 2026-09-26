@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import useCanvasUIStore from './canvasUIStore.js';
-import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches } from 'immer';
+import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches, current, isDraft } from 'immer';
 import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
@@ -44,6 +44,14 @@ import {
   collectDescendantGroupIds,
 } from '../services/groupLayout.js';
 import { debugLogSync } from '../utils/debugLogger.js';
+import {
+  mapOpenDefinitions,
+  resolveOwner,
+  connectionHome,
+  anchorIdFromOpenGroupId,
+  openGroupId,
+  initialOpenOffset,
+} from '../core/openDefinitions.js';
 import { rightPanelTabKey } from '../utils/rightPanelTabs.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
@@ -721,6 +729,160 @@ const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, 
 
   return { instanceIdMap, newInstanceIds, droppedCrossEdgeCount };
 };
+
+// ─── Open definitions: routing writes to the graph an instance lives in ──────
+//
+// The canvas addresses everything through the graph being viewed. With a
+// definition open in place (src/core/openDefinitions.js), some of the instances it
+// shows live in that definition instead, drawn at an offset. These helpers let the
+// instance actions take the view's graph id and still write to the right graph,
+// in the right coordinates.
+
+// Rebuilt whenever graphs or prototypes change; one walk per view per state.
+const openMapCache = { graphs: null, nodePrototypes: null, byView: new Map() };
+const openMapFor = (state, viewGraphId) => {
+  if (openMapCache.graphs !== state.graphs || openMapCache.nodePrototypes !== state.nodePrototypes) {
+    openMapCache.graphs = state.graphs;
+    openMapCache.nodePrototypes = state.nodePrototypes;
+    openMapCache.byView = new Map();
+  }
+  let map = openMapCache.byView.get(viewGraphId);
+  if (!map) {
+    map = mapOpenDefinitions(state.graphs, state.nodePrototypes, viewGraphId);
+    openMapCache.byView.set(viewGraphId, map);
+  }
+  return map;
+};
+
+/**
+ * The owner of an instance addressed through `viewGraphId` when it lives inside an
+ * open definition. Null for the view graph's own instances and for unknown ids, so
+ * callers fall through to their ordinary path.
+ */
+const openOwnerOf = (state, viewGraphId, instanceId) => {
+  if (state.graphs.get(viewGraphId)?.instances?.has(instanceId)) return null;
+  const owner = resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, instanceId, openMapFor(state, viewGraphId));
+  return owner && owner.graphId !== viewGraphId ? owner : null;
+};
+
+/**
+ * Runs an instance recipe written for view coordinates against an instance stored
+ * in its definition's coordinates. Positions the recipe leaves alone come back
+ * exactly as they were, so no rounding creeps into the definition.
+ */
+const applyInViewCoordinates = (instance, offset, recipe) => {
+  const ox = offset?.x ?? 0;
+  const oy = offset?.y ?? 0;
+  const x0 = instance.x;
+  const y0 = instance.y;
+  const shownX = (x0 ?? 0) + ox;
+  const shownY = (y0 ?? 0) + oy;
+  instance.x = shownX;
+  instance.y = shownY;
+  recipe(instance);
+  instance.x = instance.x === shownX ? x0 : instance.x - ox;
+  instance.y = instance.y === shownY ? y0 : instance.y - oy;
+};
+
+/**
+ * Sets an open box's placement from where its definition's origin should land in
+ * the view. `openDefinition.offset` is relative to the graph the anchor lives in,
+ * so a box nested in another box subtracts the outer box's offset.
+ */
+const setOpenBoxOrigin = (draft, map, anchorId, viewOrigin) => {
+  const box = map.boxes.get(anchorId);
+  if (!box) return;
+  const anchor = draft.graphs.get(box.ownerGraphId)?.instances?.get(anchorId);
+  if (!anchor?.openDefinition) return;
+  const outer = map.owners.get(anchorId)?.offset || { x: 0, y: 0 };
+  anchor.openDefinition.offset = { x: viewOrigin.x - outer.x, y: viewOrigin.y - outer.y };
+};
+
+/**
+ * Applies the part of a batch of view-coordinate position updates that lands
+ * inside open definitions, and returns the rest for the view graph itself.
+ *
+ * A box whose every instance moved (the box was dragged, or a group around it was)
+ * moves as a whole: only its placement changes, so the definition's arrangement,
+ * and every other place it is shown, stays put. Anything else inside a box moves
+ * within the definition.
+ */
+const applyOpenDefinitionMoves = (draft, map, updates) => {
+  const handled = new Set();
+  const byId = new Map();
+  updates.forEach(update => byId.set(update.instanceId, update));
+
+  updates.forEach(({ instanceId, x, y }) => {
+    if (typeof instanceId !== 'string' || !instanceId.startsWith(PLACEHOLDER_ID_PREFIX)) return;
+    const anchorId = anchorIdFromOpenGroupId(instanceId.slice(PLACEHOLDER_ID_PREFIX.length));
+    if (anchorId && map.boxes.has(anchorId)) {
+      setOpenBoxOrigin(draft, map, anchorId, { x, y });
+      handled.add(instanceId);
+    }
+  });
+
+  const subtrees = new Map();
+  map.owners.forEach((owner, instanceId) => {
+    owner.path.forEach(step => {
+      if (!subtrees.has(step.anchorId)) subtrees.set(step.anchorId, []);
+      subtrees.get(step.anchorId).push(instanceId);
+    });
+  });
+  const outermostFirst = Array.from(map.boxes.values()).sort((a, b) => a.path.length - b.path.length);
+  for (const box of outermostFirst) {
+    const inside = subtrees.get(box.anchorId) || [];
+    if (inside.length === 0 || !inside.every(id => byId.has(id) && !handled.has(id))) continue;
+    const first = inside[0];
+    const owner = map.owners.get(first);
+    const stored = draft.graphs.get(owner.graphId)?.instances?.get(first);
+    if (!stored) continue;
+    const dx = byId.get(first).x - ((stored.x ?? 0) + owner.offset.x);
+    const dy = byId.get(first).y - ((stored.y ?? 0) + owner.offset.y);
+    setOpenBoxOrigin(draft, map, box.anchorId, { x: box.offset.x + dx, y: box.offset.y + dy });
+    inside.forEach(id => handled.add(id));
+  }
+
+  const rest = [];
+  updates.forEach(update => {
+    if (handled.has(update.instanceId)) return;
+    const owner = map.owners.get(update.instanceId);
+    if (!owner) { rest.push(update); return; }
+    const stored = draft.graphs.get(owner.graphId)?.instances?.get(update.instanceId);
+    if (stored) {
+      stored.x = update.x - owner.offset.x;
+      stored.y = update.y - owner.offset.y;
+    }
+  });
+  return rest;
+};
+
+/**
+ * The instance at the far end of a via chain (for naming a connection that reaches
+ * into an open definition). Null without a via.
+ */
+const openOwnerInstance = (state, graph, instanceId, via) => {
+  if (!Array.isArray(via) || via.length === 0) return null;
+  for (const candidate of state.graphs.values()) {
+    const instance = candidate.instances?.get(instanceId);
+    if (instance) return instance;
+  }
+  return null;
+};
+
+/** Removes edge ids from every graph that lists them (a connection can live in an outer graph). */
+const dropEdgeIdsEverywhere = (draft, edgeIdSet) => {
+  if (edgeIdSet.size === 0) return;
+  draft.graphs.forEach(graph => {
+    if (Array.isArray(graph.edgeIds) && graph.edgeIds.some(id => edgeIdSet.has(id))) {
+      graph.edgeIds = graph.edgeIds.filter(id => !edgeIdSet.has(id));
+    }
+  });
+};
+
+/** Whether a connection reaches any of `idSet`, directly or through a box it sits in. */
+const edgeTouches = (edge, idSet) => idSet.has(edge.sourceId) || idSet.has(edge.destinationId)
+  || (Array.isArray(edge.sourceVia) && edge.sourceVia.some(id => idSet.has(id)))
+  || (Array.isArray(edge.destinationVia) && edge.destinationVia.some(id => idSet.has(id)));
 
 /**
  * Pairs each old instance with the most similar new one, for carrying connections
@@ -2113,6 +2275,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     updateGroup: (graphId, groupId, recipe, contextOptions = {}) => {
+      // An open box's group only exists in the view; its name and color are the Thing's.
+      if (anchorIdFromOpenGroupId(groupId)) {
+        const view = get().graphs.get(graphId);
+        const state = get();
+        const owner = openOwnerOf(state, graphId, anchorIdFromOpenGroupId(groupId));
+        const anchor = state.graphs.get(owner?.graphId || graphId)?.instances?.get(anchorIdFromOpenGroupId(groupId));
+        const prototype = anchor ? state.nodePrototypes.get(anchor.prototypeId) : null;
+        if (!view || !prototype) return;
+        const standIn = { id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [] };
+        recipe(standIn);
+        const nameChanged = standIn.name !== prototype.name;
+        const colorChanged = standIn.color !== prototype.color;
+        if (!nameChanged && !colorChanged) return;
+        api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
+        return set(produce((draft) => syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged)));
+      }
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2171,6 +2349,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     addInstancesToGroup: (graphId, groupId, instanceIds, contextOptions = {}) => {
+      // Adding to an open box puts the nodes into its definition.
+      const openAnchorId = anchorIdFromOpenGroupId(groupId);
+      if (openAnchorId) return get().moveInstancesIntoOpenDefinition(graphId, openAnchorId, instanceIds, contextOptions);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2190,6 +2371,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     removeInstancesFromGroup: (graphId, groupId, instanceIds, contextOptions = {}) => {
+      // Nodes leave an open box only by being deleted from its definition.
+      if (anchorIdFromOpenGroupId(groupId)) return;
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2210,6 +2393,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     updateGroupWithMembers: (graphId, groupId, updates = {}, contextOptions = {}) => {
+      if (anchorIdFromOpenGroupId(groupId)) return;
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2239,6 +2423,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     deleteGroup: (graphId, groupId, contextOptions = {}) => {
+      // An open box's group is the view of an open node: removing it closes the node.
+      const openAnchorId = anchorIdFromOpenGroupId(groupId);
+      if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
       api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2357,6 +2544,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [options] - Remaining keys are passed as contextOptions.
      */
     ensureGroupAnchor: (graphId, groupId, { preferredAnchorInstanceId, ...contextOptions } = {}) => {
+      // An open box's anchor is the open node itself; there is nothing to repair.
+      if (anchorIdFromOpenGroupId(groupId)) return anchorIdFromOpenGroupId(groupId);
       api.setChangeContext({ type: 'group_anchor_repair', target: 'group', groupId, ...contextOptions });
       let anchorId = null;
       set(produce((draft) => {
@@ -2467,6 +2656,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     convertGroupToNodeGroup: (graphId, groupId, nodePrototypeId, createNewPrototype = false, newPrototypeName = '', newPrototypeColor = '#8B0000', contextOptions = {}) => {
+      if (anchorIdFromOpenGroupId(groupId)) return;
       api.setChangeContext({ type: 'group_convert', target: 'group', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2661,6 +2851,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     combineNodeGroup: (graphId, groupId, contextOptions = {}) => {
+      const openAnchorId = anchorIdFromOpenGroupId(groupId);
+      if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
       api.setChangeContext({ type: 'group_combine', target: 'group', ...contextOptions });
       let createdInstanceId = null;
       set(produce((draft) => {
@@ -2859,12 +3051,200 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @returns {string|null} The surviving node instance id, as `combineNodeGroup`.
      */
     collapseNodeGroupIntoDefinition: (graphId, groupId, contextOptions = {}) => {
+      // An open definition has nothing to save: closing it is all there is.
+      const openAnchorId = anchorIdFromOpenGroupId(groupId);
+      if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
+
       let survivingInstanceId = null;
       api.withHistoryTransaction('Collapsed into definition', () => {
         get().updateDefinitionFromNodeGroup(graphId, groupId, contextOptions);
         survivingInstanceId = get().combineNodeGroup(graphId, groupId, contextOptions);
       });
       return survivingInstanceId;
+    },
+
+    /**
+     * Opens a node in place: its definition's own nodes are drawn inside it, and
+     * editing them edits the definition (see src/core/openDefinitions.js). Nothing
+     * is copied. A node with no definition at `definitionIndex` gets an empty one.
+     *
+     * The node may itself sit inside an open definition; `viewGraphId` is the graph
+     * being looked at. A definition opens once per view: when it is already open
+     * here, that box is returned instead. A definition can't open inside itself.
+     *
+     * @returns {string|null} The open box's group id (see `openGroupId`), or null.
+     */
+    openDefinitionInPlace: (viewGraphId, instanceId, definitionIndex = 0, contextOptions = {}) => {
+      const state = get();
+      const owner = openOwnerOf(state, viewGraphId, instanceId);
+      const ownerGraphId = owner?.graphId || viewGraphId;
+      const instance = state.graphs.get(ownerGraphId)?.instances?.get(instanceId);
+      const prototype = instance ? state.nodePrototypes.get(instance.prototypeId) : null;
+      if (!prototype) {
+        console.warn(`[openDefinitionInPlace] Instance ${instanceId} not found in view ${viewGraphId}.`);
+        return null;
+      }
+
+      const existingDefGraphId = prototype.definitionGraphIds?.[definitionIndex] || null;
+      if (existingDefGraphId) {
+        const openMap = openMapFor(state, viewGraphId);
+        for (const box of openMap.boxes.values()) {
+          if (box.defGraphId === existingDefGraphId) return openGroupId(box.anchorId);
+        }
+        const around = [viewGraphId, ...(owner?.path || []).map(step => step.graphId)];
+        if (around.includes(existingDefGraphId)) {
+          console.warn(`[openDefinitionInPlace] "${prototype.name}" can't open inside its own definition.`);
+          return null;
+        }
+      }
+
+      api.setChangeContext({ type: 'definition_open_in_place', target: 'instance', graphId: ownerGraphId, prototypeId: prototype.id, ...contextOptions });
+      set(produce((draft) => {
+        const draftPrototype = draft.nodePrototypes.get(prototype.id);
+        if (!Array.isArray(draftPrototype.definitionGraphIds)) draftPrototype.definitionGraphIds = [];
+        let defGraphId = draftPrototype.definitionGraphIds[definitionIndex];
+        if (!defGraphId || !draft.graphs.has(defGraphId)) {
+          defGraphId = defGraphId || uuidv4();
+          draft.graphs.set(defGraphId, {
+            id: defGraphId,
+            name: draftPrototype.name || 'New Thing',
+            description: '',
+            picture: null,
+            color: draftPrototype.color || NODE_DEFAULT_COLOR,
+            directed: true,
+            instances: new Map(),
+            groups: new Map(),
+            edgeIds: [],
+            definingNodeIds: [prototype.id],
+          });
+          if (definitionIndex >= draftPrototype.definitionGraphIds.length) {
+            draftPrototype.definitionGraphIds.push(defGraphId);
+            definitionIndex = draftPrototype.definitionGraphIds.length - 1;
+          } else {
+            draftPrototype.definitionGraphIds[definitionIndex] = defGraphId;
+          }
+        }
+        const draftInstance = draft.graphs.get(ownerGraphId).instances.get(instanceId);
+        draftInstance.openDefinition = {
+          index: definitionIndex,
+          offset: initialOpenOffset(draftInstance, draft.graphs.get(defGraphId)),
+        };
+      }));
+      return openGroupId(instanceId);
+    },
+
+    /**
+     * Closes a node opened in place. Only the view changes: the definition keeps
+     * everything built inside it, and connections from inside it to the outside
+     * stay, drawn to the node while it is closed.
+     *
+     * @returns {string|null} The node's instance id (what collapsing a group returns).
+     */
+    closeDefinitionInPlace: (viewGraphId, instanceId, contextOptions = {}) => {
+      const owner = openOwnerOf(get(), viewGraphId, instanceId);
+      const ownerGraphId = owner?.graphId || viewGraphId;
+      if (!get().graphs.get(ownerGraphId)?.instances?.get(instanceId)?.openDefinition) return null;
+      api.setChangeContext({ type: 'definition_close_in_place', target: 'instance', graphId: ownerGraphId, ...contextOptions });
+      set(produce((draft) => {
+        const instance = draft.graphs.get(ownerGraphId)?.instances?.get(instanceId);
+        if (instance) delete instance.openDefinition;
+      }));
+      return instanceId;
+    },
+
+    /**
+     * Moves instances into an open box's definition (dropping nodes onto an open
+     * Thing). Each keeps its id, so every connection comes along: connections now
+     * wholly inside the definition move into it, and ones reaching outside stay in
+     * the outer graph, reaching the node through the box.
+     *
+     * @param {string} viewGraphId - The graph being looked at.
+     * @param {string} anchorId - The open box's node.
+     * @param {string[]} instanceIds - Instances visible in the view.
+     */
+    moveInstancesIntoOpenDefinition: (viewGraphId, anchorId, instanceIds, contextOptions = {}) => {
+      const state = get();
+      const openMap = openMapFor(state, viewGraphId);
+      const box = openMap.boxes.get(anchorId);
+      if (!box) return;
+      const boxChain = [viewGraphId, ...box.path.map(step => step.graphId), box.defGraphId];
+      const boxAnchors = new Set([...box.path.map(step => step.anchorId), anchorId]);
+      const newPath = [...box.path, { anchorId, graphId: box.defGraphId }];
+
+      const moves = [];
+      for (const instanceId of instanceIds || []) {
+        if (boxAnchors.has(instanceId)) continue; // a box can't go inside itself
+        const owner = resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, instanceId, openMap);
+        if (!owner || owner.graphId === box.defGraphId) continue;
+        const stored = state.graphs.get(owner.graphId)?.instances?.get(instanceId);
+        if (!stored) continue;
+        moves.push({
+          instanceId,
+          fromGraphId: owner.graphId,
+          x: (stored.x ?? 0) + owner.offset.x - box.offset.x,
+          y: (stored.y ?? 0) + owner.offset.y - box.offset.y,
+        });
+      }
+      if (moves.length === 0) return;
+      const movedIds = new Set(moves.map(move => move.instanceId));
+
+      api.setChangeContext({ type: 'definition_add_in_place', target: 'instance', graphId: box.defGraphId, count: moves.length, ...contextOptions });
+      set(produce((draft) => {
+        const defGraph = draft.graphs.get(box.defGraphId);
+        if (!defGraph) return;
+        for (const move of moves) {
+          const from = draft.graphs.get(move.fromGraphId);
+          const instance = from?.instances?.get(move.instanceId);
+          if (!instance) continue;
+          const plain = isDraft(instance) ? current(instance) : instance;
+          from.instances.delete(move.instanceId);
+          defGraph.instances.set(move.instanceId, { ...plain, x: move.x, y: move.y });
+          from.groups?.forEach(group => {
+            if (group.memberInstanceIds?.includes(move.instanceId)) {
+              group.memberInstanceIds = group.memberInstanceIds.filter(id => id !== move.instanceId);
+            }
+          });
+        }
+
+        // Re-home every connection touching a moved instance: the innermost graph
+        // both ends now share, with the boxes each end is reached through.
+        const ownerAfter = (instanceId, homeGraphId) => {
+          if (movedIds.has(instanceId)) return { graphId: box.defGraphId, path: newPath };
+          const known = resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, instanceId, openMap);
+          if (known) return known;
+          // An end hidden inside a closed box: it stays reached from where the connection
+          // lives now (its via is relative to that graph), so the connection can't move
+          // any deeper than that graph.
+          const at = boxChain.indexOf(homeGraphId);
+          return at >= 0 ? { graphId: homeGraphId, path: newPath.slice(0, at), hidden: true } : null;
+        };
+        const homeOf = new Map();
+        draft.graphs.forEach((graph, graphId) => {
+          (graph.edgeIds || []).forEach(edgeId => homeOf.set(edgeId, graphId));
+        });
+        draft.edges.forEach((edge, edgeId) => {
+          if (!movedIds.has(edge.sourceId) && !movedIds.has(edge.destinationId)) return;
+          const oldHome = homeOf.get(edgeId);
+          const source = ownerAfter(edge.sourceId, oldHome);
+          const destination = ownerAfter(edge.destinationId, oldHome);
+          if (!source || !destination) return;
+          const { homeGraphId, viaA, viaB } = connectionHome(source, destination, viewGraphId);
+          const keepViaA = source.hidden ? (edge.sourceVia || []) : viaA;
+          const keepViaB = destination.hidden ? (edge.destinationVia || []) : viaB;
+          if (keepViaA.length > 0) edge.sourceVia = keepViaA; else delete edge.sourceVia;
+          if (keepViaB.length > 0) edge.destinationVia = keepViaB; else delete edge.destinationVia;
+          if (homeGraphId !== oldHome) {
+            const oldGraph = oldHome ? draft.graphs.get(oldHome) : null;
+            if (oldGraph?.edgeIds) oldGraph.edgeIds = oldGraph.edgeIds.filter(id => id !== edgeId);
+            const newGraph = draft.graphs.get(homeGraphId);
+            if (newGraph) {
+              if (!newGraph.edgeIds) newGraph.edgeIds = [];
+              newGraph.edgeIds.push(edgeId);
+            }
+            edge.graphId = homeGraphId;
+          }
+        });
+      }));
     },
 
     /**
@@ -3180,6 +3560,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @returns {{ defGraphId: string, memberCount: number, droppedCrossEdgeCount: number }|null}
      */
     updateDefinitionFromNodeGroup: (graphId, groupId, contextOptions = {}) => {
+      // An open box already is its definition.
+      if (anchorIdFromOpenGroupId(groupId)) return null;
       api.setChangeContext({ type: 'group_update_definition', target: 'group', ...contextOptions });
       let result = null;
       set(produce((draft) => {
@@ -3310,6 +3692,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @returns {{ memberCount: number, reattachedCrossEdgeCount: number, movedToGroupNodeCount: number, droppedCrossEdgeCount: number }|null}
      */
     refreshNodeGroupFromDefinition: (graphId, groupId, contextOptions = {}) => {
+      // An open box already is its definition.
+      if (anchorIdFromOpenGroupId(groupId)) return null;
       api.setChangeContext({ type: 'group_refresh_from_definition', target: 'group', ...contextOptions });
       let result = null;
       set(produce((draft) => {
@@ -4377,6 +4761,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} instanceId - Instance to permanently delete.
      */
     removeNodeInstance: (graphId, instanceId) => {
+      // Deleting inside an open definition deletes from the definition.
+      const owner = openOwnerOf(get(), graphId, instanceId);
+      if (owner) return get().removeNodeInstance(owner.graphId, instanceId);
+
       // Get prototype ID for description context BEFORE entering Immer if possible, or just pass instanceId
       // Ideally we want to know what we are deleting. We can't easily access state outside of set unless we use get().
       const state = get();
@@ -4400,20 +4788,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           graph.groups.delete(inst.anchorForGroupId);
         }
 
-        // Delete connected edges first
+        // Delete connected edges first — including ones reaching it through a box it
+        // opens, and ones living in an outer graph (a connection into a definition).
         const edgesToDelete = [];
+        const deletedIds = new Set([instanceId]);
         for (const [edgeId, edge] of draft.edges.entries()) {
-          if (edge.sourceId === instanceId || edge.destinationId === instanceId) {
+          if (edgeTouches(edge, deletedIds)) {
             edgesToDelete.push(edgeId);
           }
         }
-        edgesToDelete.forEach(edgeId => {
-          draft.edges.delete(edgeId);
-          if (graph.edgeIds) {
-            const index = graph.edgeIds.indexOf(edgeId);
-            if (index > -1) graph.edgeIds.splice(index, 1);
-          }
-        });
+        edgesToDelete.forEach(edgeId => draft.edges.delete(edgeId));
+        dropEdgeIdsEverywhere(draft, new Set(edgesToDelete));
 
         // Delete the instance
         graph.instances.delete(instanceId);
@@ -4453,45 +4838,55 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         count: instanceIdSet.size
       });
 
-      set(produce((draft) => {
-        const graph = draft.graphs.get(graphId);
-        if (!graph) return;
+      // Instances shown inside open definitions are deleted from those definitions,
+      // all in the one write so it stays one undo step.
+      const state = get();
+      const idsByGraph = new Map();
+      instanceIdSet.forEach(instanceId => {
+        const ownerGraphId = openOwnerOf(state, graphId, instanceId)?.graphId || graphId;
+        if (!idsByGraph.has(ownerGraphId)) idsByGraph.set(ownerGraphId, new Set());
+        idsByGraph.get(ownerGraphId).add(instanceId);
+      });
 
-        // Find all edges connected to any of the instances being removed
+      set(produce((draft) => {
+        if (!draft.graphs.get(graphId)) return;
+
+        // Find all edges connected to any of the instances being removed — directly,
+        // through a box one of them opens, or from an outer graph.
         const edgesToDelete = [];
         for (const [edgeId, edge] of draft.edges.entries()) {
-          if (instanceIdSet.has(edge.sourceId) || instanceIdSet.has(edge.destinationId)) {
+          if (edgeTouches(edge, instanceIdSet)) {
             edgesToDelete.push(edgeId);
           }
         }
 
         // Delete the edges
-        edgesToDelete.forEach(edgeId => {
-          draft.edges.delete(edgeId);
-          if (graph.edgeIds) {
-            const index = graph.edgeIds.indexOf(edgeId);
-            if (index > -1) graph.edgeIds.splice(index, 1);
-          }
-        });
+        edgesToDelete.forEach(edgeId => draft.edges.delete(edgeId));
+        dropEdgeIdsEverywhere(draft, new Set(edgesToDelete));
 
-        // Delete the instances
-        instanceIdSet.forEach(instanceId => {
-          graph.instances.delete(instanceId);
-          draft.pendingDeletions.delete(instanceId);
-        });
+        idsByGraph.forEach((ids, ownerGraphId) => {
+          const graph = draft.graphs.get(ownerGraphId);
+          if (!graph) return;
 
-        // Clean up group membership for all deleted instances
-        if (graph.groups) {
-          for (const [groupId, group] of graph.groups.entries()) {
-            if (group.memberInstanceIds) {
-              const originalLength = group.memberInstanceIds.length;
-              group.memberInstanceIds = group.memberInstanceIds.filter(id => !instanceIdSet.has(id));
-              if (group.memberInstanceIds.length !== originalLength) {
-                console.log(`[removeMultipleNodeInstances] Cleaned up ${originalLength - group.memberInstanceIds.length} stale members from group ${groupId}`);
+          // Delete the instances
+          ids.forEach(instanceId => {
+            graph.instances.delete(instanceId);
+            draft.pendingDeletions.delete(instanceId);
+          });
+
+          // Clean up group membership for all deleted instances
+          if (graph.groups) {
+            for (const [groupId, group] of graph.groups.entries()) {
+              if (group.memberInstanceIds) {
+                const originalLength = group.memberInstanceIds.length;
+                group.memberInstanceIds = group.memberInstanceIds.filter(id => !ids.has(id));
+                if (group.memberInstanceIds.length !== originalLength) {
+                  console.log(`[removeMultipleNodeInstances] Cleaned up ${originalLength - group.memberInstanceIds.length} stale members from group ${groupId}`);
+                }
               }
             }
           }
-        }
+        });
 
         console.log(`[removeMultipleNodeInstances] Deleted ${instanceIdSet.size} instances and ${edgesToDelete.length} edges`);
       }));
@@ -4504,6 +4899,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} instanceId
      */
     forceDeleteNodeInstance: (graphId, instanceId) => {
+      const owner = openOwnerOf(get(), graphId, instanceId);
+      if (owner) return get().forceDeleteNodeInstance(owner.graphId, instanceId);
+
       const state = get();
       const graph = state.graphs.get(graphId);
       const instance = graph?.instances?.get(instanceId);
@@ -4521,24 +4919,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // 1. Delete the instance from the graph
         graph.instances.delete(instanceId);
 
-        // 2. Find all edges connected to this instance and delete them
+        // 2. Find all edges connected to this instance (directly, through a box it
+        // opens, or from an outer graph) and delete them
         const edgesToDelete = [];
+        const deletedIds = new Set([instanceId]);
         for (const [edgeId, edge] of draft.edges.entries()) {
-          if (edge.sourceId === instanceId || edge.destinationId === instanceId) {
+          if (edgeTouches(edge, deletedIds)) {
             edgesToDelete.push(edgeId);
           }
         }
 
-        edgesToDelete.forEach(edgeId => {
-          draft.edges.delete(edgeId);
-          // Also remove from the graph's edgeIds list
-          if (graph.edgeIds) {
-            const index = graph.edgeIds.indexOf(edgeId);
-            if (index > -1) {
-              graph.edgeIds.splice(index, 1);
-            }
-          }
-        });
+        edgesToDelete.forEach(edgeId => draft.edges.delete(edgeId));
+        dropEdgeIdsEverywhere(draft, new Set(edgesToDelete));
 
         // Remove from pending deletions if it was there
         draft.pendingDeletions.delete(instanceId);
@@ -4689,13 +5081,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags; `contextOptions.type` overrides the change type.
      */
     updateNodeInstance: (graphId, instanceId, recipe, contextOptions = {}) => {
+      // An instance shown inside an open definition lives in that definition.
+      const owner = openOwnerOf(get(), graphId, instanceId);
       api.setChangeContext({ type: contextOptions.type || 'node_update', target: 'instance', ...contextOptions });
       return set(produce((draft) => {
-        const graph = draft.graphs.get(graphId);
+        const graph = draft.graphs.get(owner ? owner.graphId : graphId);
         if (graph && graph.instances) {
           const instance = graph.instances.get(instanceId);
           if (instance) {
-            recipe(instance);
+            if (owner) applyInViewCoordinates(instance, owner.offset, recipe);
+            else recipe(instance);
           } else {
             console.warn(`updateNodeInstance: Instance ${instanceId} not found in graph ${graphId}.`);
           }
@@ -4711,12 +5106,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags (set isDragging=true during drag).
      */
     updateMultipleNodeInstancePositions: (graphId, updates, contextOptions = {}) => {
+      const openMap = openMapFor(get(), graphId);
       api.setChangeContext({ type: 'node_position', target: 'instance', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph || !graph.instances) return;
 
-        updates.forEach(({ instanceId, x, y }) => {
+        // Moves inside open definitions go to the definitions (or move the box).
+        const ownUpdates = openMap.boxes.size > 0 ? applyOpenDefinitionMoves(draft, openMap, updates) : updates;
+
+        ownUpdates.forEach(({ instanceId, x, y }) => {
           // Empty node-group placeholders are tracked via a synthetic
           // `__placeholder__<groupId>` id (see NodeCanvas.jsx's group-drag-start
           // handlers) that has no backing instance — persist those into the group
@@ -4812,15 +5211,35 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       debugLogSync('graphStore.js:addEdge', 'addEdge called', { graphId, edgeId: newEdgeData?.id, sourceId: newEdgeData?.sourceId, destId: newEdgeData?.destinationId, stack: new Error().stack?.split('\n').slice(1, 5) }, 'debug-session', 'A-B');
       // #endregion
 
+      // A connection drawn to something inside an open definition belongs in the
+      // innermost graph both ends share: inside the definition when both ends are
+      // in it, otherwise the outer graph, recording the boxes it reaches through.
+      // Data that already says how it reaches its ends (routed here, or restored)
+      // is taken as it is.
+      const viewState = get();
+      const alreadyRouted = !!(newEdgeData?.sourceVia || newEdgeData?.destinationVia);
+      const openSource = alreadyRouted ? null : openOwnerOf(viewState, graphId, newEdgeData?.sourceId);
+      const openDest = alreadyRouted ? null : openOwnerOf(viewState, graphId, newEdgeData?.destinationId);
+      if (openSource || openDest) {
+        const ownGraph = { graphId, path: [], offset: { x: 0, y: 0 } };
+        const { homeGraphId, viaA, viaB } = connectionHome(openSource || ownGraph, openDest || ownGraph, graphId);
+        return get().addEdge(homeGraphId, {
+          ...newEdgeData,
+          graphId: homeGraphId,
+          ...(viaA.length > 0 ? { sourceVia: viaA } : {}),
+          ...(viaB.length > 0 ? { destinationVia: viaB } : {}),
+        }, contextOptions);
+      }
+
       // Resolve names for history
-      const state = get();
+      const state = viewState;
       const graph = state.graphs.get(graphId);
       let sourceName = 'Unknown';
       let targetName = 'Unknown';
 
       if (graph && graph.instances) {
-        const sourceInst = graph.instances.get(newEdgeData.sourceId);
-        const destInst = graph.instances.get(newEdgeData.destinationId);
+        const sourceInst = graph.instances.get(newEdgeData.sourceId) || openOwnerInstance(state, graph, newEdgeData.sourceId, newEdgeData.sourceVia);
+        const destInst = graph.instances.get(newEdgeData.destinationId) || openOwnerInstance(state, graph, newEdgeData.destinationId, newEdgeData.destinationVia);
 
         if (sourceInst) {
           const proto = state.nodePrototypes.get(sourceInst.prototypeId);
@@ -4854,8 +5273,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
-        // Ensure source and dest instances exist in the graph
-        if (!graph.instances?.has(sourceInstanceId) || !graph.instances?.has(destInstanceId)) {
+        // Ensure source and dest instances exist in the graph — or, for an end inside
+        // an open definition, through the box it reaches it by.
+        const reachable = (instanceId, via) => graph.instances?.has(instanceId)
+          || (Array.isArray(via) && via.length > 0 && graph.instances?.has(via[0]));
+        if (!reachable(sourceInstanceId, newEdgeData.sourceVia) || !reachable(destInstanceId, newEdgeData.destinationVia)) {
           console.error(`[addEdge] Source or destination instance not found in graph ${graphId}.`);
           return;
         }
@@ -4902,6 +5324,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const edge = draft.edges.get(edgeId);
       if (edge) {
         recipe(edge); // Apply the Immer updates
+        // A connection into a closed box is drawn to the box, so an arrow toggled on
+        // the canvas names the box. Point it back at the end the box stands for.
+        const arrows = edge.directionality?.arrowsToward;
+        if (arrows instanceof Set && (edge.sourceVia || edge.destinationVia)) {
+          arrows.forEach(id => {
+            if (id === edge.sourceId || id === edge.destinationId) return;
+            const end = edge.sourceVia?.includes(id) ? edge.sourceId : edge.destinationVia?.includes(id) ? edge.destinationId : null;
+            if (!end) return;
+            arrows.delete(id);
+            arrows.add(end);
+          });
+        }
       } else {
         console.warn(`updateEdge: Edge with id ${edgeId} not found.`);
       }
