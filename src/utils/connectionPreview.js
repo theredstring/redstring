@@ -252,10 +252,13 @@ export function connectionPreviewRendererProps(floors = PREVIEW_FLOOR) {
  * Chips are packed greedily into rows no wider than `maxRowWidth`, each row
  * centred, and the container is sized to the result so the renderer's fit
  * lands on exactly the target scale. A chip wider than `maxChipWidth` (or the
- * row) has its name truncated rather than the row scaled. Only when the rows
- * stack taller than `maxHeight` — a very large multi-select — does the scale
- * give, because at that point the alternative is a panel taller than the
- * screen.
+ * row) has its name truncated rather than the row scaled.
+ *
+ * A large multi-select is cut, not shrunk: `maxRows` keeps the first rows and
+ * hands the rest back as `hiddenNodes` for the caller to summarise ("+ 12
+ * others"). `maxHeight` still scales as a last resort, but nothing in the
+ * control panel passes it any more — the renderer floors its text at 8px, so a
+ * grid scaled far enough drew names spilling out of boxes that kept shrinking.
  *
  * @param {object} params
  * @param {Array<object>} params.nodes - node-ish objects, in order
@@ -266,9 +269,13 @@ export function connectionPreviewRendererProps(floors = PREVIEW_FLOOR) {
  * @param {number} [params.columnGap] - on-screen px between chips in a row
  * @param {number} [params.rowGap] - on-screen px between rows
  * @param {number} [params.maxChipWidth] - on-screen px a single chip may take
+ * @param {number} [params.maxRows] - rows kept; chips in later rows are hidden
  * @param {{width:number,height:number}} [params.floors]
- * @returns {{nodes:Array<object>, containerWidth:number, containerHeight:number, scale:number}}
- *   nodes positioned in natural units for the renderer's explicit-box branch
+ * @returns {{nodes:Array<object>, hiddenNodes:Array<object>, totalRows:number,
+ *   containerWidth:number, containerHeight:number, scale:number}}
+ *   nodes positioned in natural units for the renderer's explicit-box branch;
+ *   hiddenNodes the chips cut by maxRows, in order; totalRows the row count
+ *   before the cut
  */
 export function layoutNodeChips({
   nodes,
@@ -279,6 +286,7 @@ export function layoutNodeChips({
   columnGap = 12,
   rowGap = 10,
   maxChipWidth = Infinity,
+  maxRows = Infinity,
   floors = PREVIEW_FLOOR
 }) {
   const scale = previewScaleFor(text);
@@ -304,6 +312,8 @@ export function layoutNodeChips({
     }
   });
   if (row.length) rows.push({ nodes: row, width: rowWidth });
+  const totalRows = rows.length;
+  const hiddenNodes = rows.splice(Math.max(1, maxRows)).flatMap(r => r.nodes);
 
   const boundingWidth = Math.max(1, ...rows.map(r => r.width));
   const positioned = [];
@@ -329,5 +339,5 @@ export function layoutNodeChips({
     ? (containerHeight - padding * 2) / boundingHeight
     : scale;
 
-  return { nodes: positioned, containerWidth, containerHeight, scale: effectiveScale };
+  return { nodes: positioned, hiddenNodes, totalRows, containerWidth, containerHeight, scale: effectiveScale };
 }

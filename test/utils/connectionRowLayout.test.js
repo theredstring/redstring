@@ -213,6 +213,25 @@ describe('layoutNodeChips', () => {
     expect(grid.nodes[0].width * grid.scale).toBeLessThanOrEqual(121);
   });
 
+  it('cuts rows past maxRows instead of shrinking, and hands back what it cut', () => {
+    const all = layoutNodeChips({ nodes: chips(20), text: desktop, maxRowWidth: 300, padding: 8 });
+    const cut = layoutNodeChips({ nodes: chips(20), text: desktop, maxRowWidth: 300, padding: 8, maxRows: 2 });
+
+    expect(cut.scale).toBeCloseTo(desktopScale, 6);
+    expect(cut.totalRows).toBe(all.totalRows);
+    expect(new Set(cut.nodes.map(n => n.y)).size).toBe(2);
+    expect(cut.nodes.length + cut.hiddenNodes.length).toBe(20);
+    expect(cut.hiddenNodes[0].id).toBe(`n${cut.nodes.length}`);
+    expect(cut.containerHeight).toBeLessThan(all.containerHeight);
+  });
+
+  it('hides nothing when the chips fit in maxRows', () => {
+    const grid = layoutNodeChips({ nodes: chips(2), text: desktop, maxRowWidth: 600, padding: 8, maxRows: 2 });
+
+    expect(grid.hiddenNodes).toHaveLength(0);
+    expect(grid.totalRows).toBe(1);
+  });
+
   it('gives up the scale only when the rows outgrow the height cap', () => {
     const grid = layoutNodeChips({ nodes: chips(12), text: desktop, maxRowWidth: 300, maxHeight: 80, padding: 8 });
 
