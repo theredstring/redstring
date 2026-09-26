@@ -1,6 +1,6 @@
 import React, { useState, useMemo, memo } from 'react';
 import { THUMBNAIL_MAX_DIMENSION } from '../../constants.js';
-import { generateThumbnail, loadImageFileAsDataUrl } from '../../utils.js';
+import { generateThumbnail, loadImageFileAsDataUrl, getDefinitionDescription } from '../../utils.js';
 import SharedPanelContent from './SharedPanelContent.jsx';
 import useGraphStore from "../../store/graphStore.js";
 import useCanvasUIStore from '../../store/canvasUIStore.js';
@@ -370,6 +370,18 @@ const PanelContentWrapper = memo(({
   const definitionIndex = Math.max(0, definitionGraphIds.indexOf(shownDefinitionId));
   const currentDefinitionId = getCurrentDefinitionId(nodeData);
 
+  // The Bio is the description of the definition you're on (one definition, one
+  // description: see getDefinitionDescription). Subscribed narrowly, as `graphs`
+  // above isn't reactive.
+  const currentWebDescription = useGraphStore(state => (
+    currentDefinitionId ? state.graphs.get(currentDefinitionId)?.description : undefined
+  ));
+  const bioText = currentDefinitionId
+    ? getDefinitionDescription(nodeData, currentDefinitionId, currentWebDescription)
+    : (nodeData?.description || '');
+  // True when the Bio is stored on the Thing itself (no definitions, or the first).
+  const bioWritesThing = isRealPrototype && (!currentDefinitionId || definitionGraphIds[0] === currentDefinitionId);
+
   const handleDefinitionIndexChange = (index) => {
     const id = definitionGraphIds[index];
     if (id) setBrowsedDefinitionId(id);
@@ -401,9 +413,23 @@ const PanelContentWrapper = memo(({
     storeActions.openRightPanelGraphTab?.(graphId, isRealPrototype ? nodeData.id : null);
   };
 
+  // Where a definition's description is kept: the first's on the Thing, the
+  // rest on their Webs. A Web with no Thing keeps its own.
   const handleUpdateDefinitionDescription = (graphId, description) => {
     if (!graphId) return;
+    if (isRealPrototype && definitionGraphIds[0] === graphId) {
+      storeActions.updateNodePrototype(nodeData.id, (draft) => { draft.description = description; });
+      return;
+    }
     storeActions.updateGraph?.(graphId, (draft) => { draft.description = description; });
+  };
+
+  const handleBioChange = (description) => {
+    if (currentDefinitionId) {
+      handleUpdateDefinitionDescription(currentDefinitionId, description);
+    } else if (isRealPrototype) {
+      storeActions.updateNodePrototype(nodeData.id, (draft) => { draft.description = description; });
+    }
   };
 
   const handleTypeSelect = (nodeId) => {
@@ -585,6 +611,9 @@ const PanelContentWrapper = memo(({
         onOpenDefinition={handleOpenDefinition}
         onOpenDefinitionInPanel={handleOpenDefinitionInPanel}
         onUpdateDefinitionDescription={handleUpdateDefinitionDescription}
+        bioText={bioText}
+        onBioChange={handleBioChange}
+        bioWritesThing={bioWritesThing}
         canEditDefinitions={isRealPrototype}
         activeGraphId={activeGraphId}
         subjectWebId={subjectWebId}

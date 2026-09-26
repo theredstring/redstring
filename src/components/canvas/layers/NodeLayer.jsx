@@ -15,7 +15,7 @@
 import { memo } from 'react';
 import { createPortal } from 'react-dom';
 import Node from '../../../Node.jsx';
-import { getNodeDimensions } from '../../../utils.js';
+import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
 import { showContextMenu } from '../../GlobalContextMenu';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
@@ -46,7 +46,7 @@ function NodeLayer({
     if (!definitionGraphId) return null;
 
     const graphData = graphsMap.get(definitionGraphId);
-    return graphData?.description || null;
+    return getDefinitionDescription(node, definitionGraphId, graphData?.description) || null;
   };
 
 

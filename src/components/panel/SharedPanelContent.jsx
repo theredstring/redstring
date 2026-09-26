@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch, Sparkles } from 'lucide-react';
@@ -1356,6 +1356,12 @@ const SharedPanelContent = ({
   activeGraphId = null,
   subjectWebId = null,
 
+  // Bio: the description of the definition you're on (see PanelContentWrapper).
+  // Without these, the Bio is the Thing's own description, as it always was.
+  bioText,
+  onBioChange,
+  bioWritesThing = true,
+
   // UI state
   isUltraSlim = false,
   showExpandButton = true,
@@ -1424,9 +1430,16 @@ const SharedPanelContent = ({
   // expanded, which would gate enrichment on the section being open.
   useAutoEnrichIdentifiers(nodeData, onNodeUpdate);
 
+  const bio = bioText ?? nodeData?.description ?? '';
+  // The Wikipedia pull reads the description it would fill, so on a later
+  // definition it has to see that definition's, not the Thing's.
+  const enrichmentNodeData = useMemo(() => (
+    bioWritesThing || !nodeData ? nodeData : { ...nodeData, description: bio }
+  ), [bioWritesThing, nodeData, bio]);
+
 
   const handleBioDoubleClick = () => {
-    setTempBio(nodeData.description || '');
+    setTempBio(bio);
     setIsEditingBio(true);
     isSavingBioRef.current = false; // Reset lock on open
     // Trigger auto-resize after a short delay to ensure DOM is updated
@@ -1442,7 +1455,8 @@ const SharedPanelContent = ({
   const handleBioSave = () => {
     if (isSavingBioRef.current) return;
     isSavingBioRef.current = true;
-    onNodeUpdate({ ...nodeData, description: tempBio });
+    if (onBioChange) onBioChange(tempBio);
+    else onNodeUpdate({ ...nodeData, description: tempBio });
     setIsEditingBio(false);
     setTimeout(() => { isSavingBioRef.current = false; }, 200);
   };
@@ -1459,6 +1473,15 @@ const SharedPanelContent = ({
     } else if (e.key === 'Escape') {
       handleBioCancel();
     }
+  };
+
+  // A Wikipedia pull describes the definition you're on, like the Bio it sits in;
+  // everything else it writes (links, metadata, image) belongs to the Thing.
+  const handleEnrichmentUpdate = (updates) => {
+    if (bioWritesThing || !onBioChange || updates?.description === undefined) return onNodeUpdate(updates);
+    const { description, ...rest } = updates;
+    onBioChange(description);
+    return Object.keys(rest).length > 0 ? onNodeUpdate(rest) : undefined;
   };
 
   const handleTitleDoubleClick = () => {
@@ -1568,12 +1591,8 @@ const SharedPanelContent = ({
     const query = nodeData?.name || '';
     if (!query.trim()) return;
     try {
-      // Ask left panel to switch to Semantic Discovery
+      // Ask left panel to switch to Semantic Discovery; its listener runs the search
       window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
-      // Also trigger search directly if the view is already active
-      if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
-        window.triggerSemanticSearch(query);
-      }
     } catch { }
   };
 
@@ -1806,7 +1825,7 @@ const SharedPanelContent = ({
               fontSize: '1.0rem',
               fontFamily: "'EmOne', sans-serif",
               lineHeight: '1.4',
-              color: nodeData.description ? theme.canvas.textPrimary : theme.canvas.textSecondary,
+              color: bio ? theme.canvas.textPrimary : theme.canvas.textSecondary,
               cursor: 'pointer',
               borderRadius: '4px',
               minHeight: '20px',
@@ -1815,15 +1834,15 @@ const SharedPanelContent = ({
             }}
             title="Double-click to edit"
           >
-            {nodeData.description || 'Double-click to add a bio...'}
+            {bio || 'Double-click to add a bio...'}
           </div>
         )}
 
         {/* Wikipedia Enrichment - moved inside Bio section */}
         <div style={{ marginTop: '12px' }}>
           <WikipediaEnrichment
-            nodeData={nodeData}
-            onUpdateNode={onNodeUpdate}
+            nodeData={enrichmentNodeData}
+            onUpdateNode={handleEnrichmentUpdate}
             triggerRef={wikiSearchRef}
             onSearchingChange={setWikiIsSearching}
           />

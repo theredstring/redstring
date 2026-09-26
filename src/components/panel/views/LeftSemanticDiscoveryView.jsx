@@ -1062,6 +1062,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   // Function to trigger search from individual concept cards
   const triggerSearchFromConcept = async (conceptName) => {
     console.log(`[SemanticDiscovery] Triggering search for concept: "${conceptName}"`);
+    // Callers are mostly outside this view (the canvas pie, the right panel's
+    // Text Search), so it may be sitting on History, Catalog or a concept's
+    // detail page. Results render only on Discover's list, so go back there.
+    setViewMode('discover');
+    setFocusedConcept(null);
+    setNavigationStack([]);
     setManualQuery(conceptName);
     await performSearch(conceptName);
   };

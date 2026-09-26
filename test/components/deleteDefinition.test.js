@@ -5,6 +5,7 @@ import { useCanvasDialogStore } from '../../src/components/canvas/dialogs/canvas
 import {
   requestDeleteDefinition, describeDefinitionDeletion, deleteDefinition,
 } from '../../src/components/canvas/dialogs/deleteDefinition.js';
+import { getDefinitionDescription } from '../../src/utils.js';
 
 // Deleting a definition asks first, and afterwards every context's definition
 // index still points at the definition it showed.
@@ -95,5 +96,33 @@ describe('Web tabs', () => {
     st().openRightPanelGraphTab('d0', 'p-box');
     st().closeRightPanelTab('p-box');
     expect(st().rightPanelTabs.map((t) => t.graphId || t.type)).toEqual(['home', 'd0']);
+  });
+});
+
+describe('one definition, one description', () => {
+  const thing = { description: 'A Danish-Norwegian band.', definitionGraphIds: ['band', 'water'] };
+
+  it('describes the first definition with the Thing\'s description', () => {
+    expect(getDefinitionDescription(thing, 'band', '')).toBe('A Danish-Norwegian band.');
+    expect(getDefinitionDescription({ ...thing, description: '' }, 'band', 'From the Web')).toBe('From the Web');
+  });
+
+  it('gives every later definition its own', () => {
+    expect(getDefinitionDescription(thing, 'water', '')).toBe('');
+    expect(getDefinitionDescription(thing, 'water', 'H2O.')).toBe('H2O.');
+  });
+
+  it('moves the next definition\'s description up when the first is deleted', () => {
+    useGraphStore.setState((state) => {
+      const graphs = new Map(state.graphs);
+      graphs.set('d1', { ...graphs.get('d1'), description: 'The second meaning.' });
+      const nodePrototypes = new Map(state.nodePrototypes);
+      nodePrototypes.set('p-box', { ...nodePrototypes.get('p-box'), description: 'The first meaning.' });
+      return { graphs, nodePrototypes };
+    });
+    deleteDefinition('p-box', 'd0');
+    const box = st().nodePrototypes.get('p-box');
+    expect(box.definitionGraphIds[0]).toBe('d1');
+    expect(getDefinitionDescription(box, 'd1', st().graphs.get('d1').description)).toBe('The second meaning.');
   });
 });

@@ -4,7 +4,7 @@ import './NodeCanvas.css';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import { setActionHover } from './utils/canvas/actionHover.js';
-import { getNodeDimensions } from './utils.js';
+import { getNodeDimensions, getDefinitionDescription } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
 import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom } from './services/labelSpriteCache.js';
 import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from './utils/colorUtils.js';
@@ -2504,7 +2504,7 @@ function NodeCanvas() {
     if (!definitionGraphId) return null;
 
     const graphData = graphsMap.get(definitionGraphId);
-    return graphData?.description || null;
+    return getDefinitionDescription(node, definitionGraphId, graphData?.description) || null;
   };
 
   const isInsideNode = (nodeData, clientX, clientY) => {

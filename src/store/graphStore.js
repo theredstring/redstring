@@ -7552,6 +7552,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (index > -1) {
           node.definitionGraphIds.splice(index, 1);
           console.log(`[Store removeDefinitionFromNode] Removed graph ${graphId} from node ${nodeId} definitions.`);
+          // The first definition is described by the Thing's own description
+          // (getDefinitionDescription). When it goes, the next one moves up and
+          // brings its description with it; a Thing left with no definitions
+          // keeps the one it had.
+          if (index === 0 && node.definitionGraphIds.length > 0) {
+            node.description = draft.graphs.get(node.definitionGraphIds[0])?.description || '';
+          }
         } else {
           console.warn(`[Store removeDefinitionFromNode] Graph ${graphId} not found in node ${nodeId} definitions.`);
           return;

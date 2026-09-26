@@ -4,7 +4,7 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hover preview
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
-import { getNodeDimensions } from './utils.js'; // Import needed for node dims
+import { getNodeDimensions, getDefinitionDescription } from './utils.js'; // Import needed for node dims
 import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
 import { getTextColor } from './utils/colorUtils.js';
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
@@ -332,7 +332,7 @@ const Node = ({
   const currentGraphDescription = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return 'No description.';
     const graphData = graphsMap.get(currentGraphId);
-    const description = graphData?.description || 'No description.';
+    const description = getDefinitionDescription(node, currentGraphId, graphData?.description) || 'No description.';
     if (description === 'No description.' || !innerNetworkWidth) return description;
 
     const augTs = { ...textSettings, fontSize: textSettings.fontSize * effNodeScale };
@@ -348,7 +348,7 @@ const Node = ({
     const visibleLines = lines.slice(0, DESCRIPTION_MAX_LINES - 1);
     visibleLines.push(`${lastLine}...`);
     return visibleLines.join(' ');
-  }, [isPreviewing, currentGraphId, graphsMap, innerNetworkWidth, textSettings, effNodeScale]);
+  }, [isPreviewing, currentGraphId, graphsMap, innerNetworkWidth, textSettings, effNodeScale, node.description, definitionGraphIds]);
 
   // Use the passed descriptionAreaHeight which is now calculated dynamically in utils.js
   const actualDescriptionHeight = descriptionAreaHeight;
@@ -737,6 +737,7 @@ const Node = ({
                 <InnerNetwork
                   nodes={currentGraphNodes}
                   edges={currentGraphEdges}
+                  groups={graphsMap?.get(currentGraphId)?.groups}
                   width={innerNetworkWidth}
                   height={innerNetworkHeight}
                   padding={14 * effNodeScale}

@@ -1,7 +1,7 @@
-import { useDeferredValue, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpFromDot, ChevronLeft, ChevronRight, NotebookText, Plus, Trash2 } from 'lucide-react';
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
-import { getNodeDimensions } from '../../utils.js';
+import { getNodeDimensions, getDefinitionDescription } from '../../utils.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { buildNodeFontString, wrapTextToLines } from '../../services/textMeasurement.js';
 import { LABEL_FONT_SIZE_BASE, LABEL_LINE_HEIGHT_BASE } from '../../utils/nodeLabelStyle.js';
@@ -9,6 +9,10 @@ import { useTheme } from '../../hooks/useTheme.js';
 import useGraphStore from '../../store/graphStore.js';
 import InnerNetwork from '../../InnerNetwork.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+
+// Lines of description shown before "Show more"; enough to tell definitions apart
+// while skimming.
+const DESCRIPTION_CLAMP_LINES = 3;
 
 // Node.jsx: the label container's vertical padding and the background rect's inset.
 const LABEL_PADDING_V = 34;
@@ -27,6 +31,7 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
   // that graph, its instances and edge list only when its contents do.
   const instances = useGraphStore((s) => s.graphs.get(graphId)?.instances);
   const edgeIds = useGraphStore((s) => s.graphs.get(graphId)?.edgeIds);
+  const groups = useGraphStore((s) => s.graphs.get(graphId)?.groups);
   const webName = useGraphStore((s) => s.graphs.get(graphId)?.name);
   const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
   const edgesMap = useGraphStore((s) => s.edges);
@@ -49,6 +54,7 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
   // tab showing its own graph); let the canvas frame win.
   const deferredNodes = useDeferredValue(nodes);
   const deferredEdges = useDeferredValue(edges);
+  const deferredGroups = useDeferredValue(groups);
 
   const nodeScale = textSettings?.nodeScale ?? 1;
   const title = (typeof webName === 'string' && webName.trim()) ? webName.trim() : nodeName;
@@ -123,6 +129,7 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
           <InnerNetwork
             nodes={deferredNodes}
             edges={deferredEdges}
+            groups={deferredGroups}
             width={inner.w}
             height={inner.h}
             padding={14 * nodeScale}
@@ -146,13 +153,35 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
   );
 };
 
-/** The definition's own description: what this Thing means under this Web. */
-const DefinitionDescription = ({ graphId, onUpdate }) => {
+/**
+ * The definition's own description: what this Thing means under this Web. The
+ * first definition's is the Thing's description (getDefinitionDescription).
+ */
+const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
   const theme = useTheme();
-  const description = useGraphStore((s) => s.graphs.get(graphId)?.description) || '';
+  const webDescription = useGraphStore((s) => s.graphs.get(graphId)?.description);
+  const description = getDefinitionDescription(thing, graphId, webDescription);
   const [draft, setDraft] = useState(null);
   const savingRef = useRef(false);
   const editing = draft !== null;
+  // Clamped until asked; the card is keyed per definition, so each starts clamped.
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const textRef = useRef(null);
+  const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
+
+  // Only a clamped box can tell whether it is hiding anything, so measure while
+  // collapsed and keep the answer while expanded.
+  useLayoutEffect(() => {
+    const el = textRef.current;
+    if (!el || expanded) return undefined;
+    const measure = () => setOverflows(el.scrollHeight - el.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [description, expanded, editing]);
 
   const save = () => {
     if (savingRef.current || !editing) return;
@@ -215,19 +244,39 @@ const DefinitionDescription = ({ graphId, onUpdate }) => {
   }
 
   return (
-    <div
-      onDoubleClick={() => { savingRef.current = false; setDraft(description); }}
-      title="Double-click to edit"
-      style={{
-        ...textStyle,
-        padding: '14px 8px 6px',
-        color: description ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-        cursor: 'pointer',
-        userSelect: 'text',
-        whiteSpace: 'pre-wrap'
-      }}
-    >
-      {description || 'Double-click to describe this definition...'}
+    <div style={{ padding: '14px 8px 6px' }}>
+      <div
+        ref={textRef}
+        onDoubleClick={() => { savingRef.current = false; setDraft(description); }}
+        title="Double-click to edit"
+        style={{
+          ...textStyle,
+          color: description ? theme.canvas.textPrimary : theme.canvas.textSecondary,
+          cursor: 'pointer',
+          userSelect: 'text',
+          whiteSpace: 'pre-wrap',
+          ...(expanded ? {} : {
+            display: '-webkit-box',
+            WebkitLineClamp: DESCRIPTION_CLAMP_LINES,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden'
+          })
+        }}
+      >
+        {description || 'Double-click to describe this definition...'}
+      </div>
+      {(overflows || expanded) && (
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+          <PanelIconButton
+            label={expanded ? 'Show less' : 'Show more'}
+            labelFontSize={11}
+            variant="outline"
+            color={accentColor}
+            onClick={() => setExpanded((v) => !v)}
+            style={{ borderColor: accentColor }}
+          />
+        </div>
+      )}
     </div>
   );
 };
@@ -376,7 +425,7 @@ const WebDefinitionsSection = ({
         display: 'flex',
         flexDirection: isUltraSlim ? 'column' : 'row',
         flexWrap: 'wrap',
-        alignItems: isUltraSlim ? 'flex-start' : 'center',
+        alignItems: 'center',
         justifyContent: 'space-between',
         rowGap: '8px',
         columnGap: '12px',
@@ -394,7 +443,7 @@ const WebDefinitionsSection = ({
         />
       )}
       {shownGraphId && (
-        <DefinitionDescription key={`desc-${shownGraphId}`} graphId={shownGraphId} onUpdate={onUpdateDescription} />
+        <DefinitionDescription key={`desc-${shownGraphId}`} graphId={shownGraphId} thing={nodeData} onUpdate={onUpdateDescription} />
       )}
     </div>
   );

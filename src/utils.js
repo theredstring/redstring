@@ -534,3 +534,20 @@ export const loadImageFileAsDataUrl = async (file) => {
   const img = await decodeDataUrl(convertedUrl);
   return { dataUrl: convertedUrl, width: img.naturalWidth, height: img.naturalHeight };
 };
+
+/**
+ * One definition, one description. A Thing's first definition is described by
+ * the Thing's own description — the text Wikipedia, the Wizard and the Bio have
+ * always written — and each later definition by its own Web's description, so a
+ * Thing that means two things can say two things.
+ *
+ * @param {{description?: string, definitionGraphIds?: string[]}} thing - The prototype (or a hydrated node).
+ * @param {string} graphId - One of its definition graphs.
+ * @param {string} [webDescription] - That graph's `description`.
+ * @returns {string}
+ */
+export const getDefinitionDescription = (thing, graphId, webDescription) => {
+  const own = typeof webDescription === 'string' ? webDescription : '';
+  if (graphId && thing?.definitionGraphIds?.[0] === graphId) return thing?.description || own;
+  return own;
+};
