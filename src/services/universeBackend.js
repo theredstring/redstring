@@ -300,6 +300,7 @@ class UniverseBackend {
             hadFileHandle: localFile.hadFileHandle,
             lastFilePath: localFile.lastFilePath,
             lastSaved: localFile.lastSaved,
+            lastSavedUserNodes: localFile.lastSavedUserNodes,
             fileHandleStatus: localFile.fileHandleStatus,
             unavailableReason: localFile.unavailableReason
           }
@@ -371,6 +372,11 @@ class UniverseBackend {
         ?? rest?.localFile?.lastSaved
         ?? incomingRaw?.localFile?.lastSaved
         ?? null,
+      // How many things the user had made at the last successful write (see
+      // _hasSavedContent). Absent on universes saved before it was recorded.
+      lastSavedUserNodes: incomingLocalFile?.lastSavedUserNodes
+        ?? rest?.localFile?.lastSavedUserNodes
+        ?? incomingRaw?.localFile?.lastSavedUserNodes,
       fileHandleStatus: incomingLocalFile?.fileHandleStatus || null,
       unavailableReason: incomingLocalFile?.unavailableReason || null
     };
@@ -2297,8 +2303,7 @@ class UniverseBackend {
             // If the universe has ever been saved (metadata.lastSaved is set),
             // refuse to overwrite it with empty content — the matching
             // GitSyncEngine.updateState guard does the same on the Git side.
-            const hasPriorSave = !!(universe?.metadata?.lastSaved || universe?.metadata?.lastSync);
-            if (hasPriorSave) {
+            if (this._hasSavedContent(universe)) {
               const counts = this.analyzeStoreData(state);
               if (counts.userNodeCount === 0) {
                 umWarn(`[UniverseBackend] Refusing local save for ${slug}: state has 0 nodes but universe has prior saves (lastSaved=${universe.metadata?.lastSaved}). On-disk file preserved.`);
@@ -6222,6 +6227,12 @@ class UniverseBackend {
         umLog(`[UniverseBackend] Saving to local file`);
         try {
           const result = await this.saveToLinkedLocalFile(universeSlug, storeState);
+          // A guard can refuse without throwing ({ skipped, reason }); that is
+          // not a save, and reporting it as one is how Save Now said "Saved"
+          // over a file it never wrote.
+          if (result?.skipped || result?.blocked) {
+            throw new Error(`save refused (${result.reason || 'guard'})`);
+          }
           results.localFile = { success: true, fileName: result.fileName };
           hasAnySuccess = true;
           umLog(`[UniverseBackend] ✓ Local file saved: ${result.fileName}`);
@@ -6316,6 +6327,18 @@ class UniverseBackend {
           await this._persistPostSaveTelemetry(universeSlug, storeState);
         } catch (metaError) {
           umWarn('[UniverseBackend] Failed to update post-save telemetry:', metaError);
+        }
+
+        // Tell autosave. It keeps its own record of what is unsaved, and a
+        // write made here never reached it (see markSavedExternally).
+        const localDurable = results.localFile === null || results.localFile?.success;
+        if (localDurable && universeSlug === this.activeUniverseSlug) {
+          try {
+            const { saveCoordinator } = await import('../backend/sync/index.js');
+            saveCoordinator?.markSavedExternally?.(storeState);
+          } catch (coordError) {
+            umWarn('[UniverseBackend] Could not update autosave after a forced save:', coordError);
+          }
         }
 
         const message = savedTo.length > 0
@@ -6648,6 +6671,28 @@ class UniverseBackend {
   }
 
   /**
+   * Whether this universe's last save held things the user made, which is
+   * what the empty-state guards protect: writing an empty universe over a file
+   * that has content.
+   *
+   * "Has it ever been saved" was the old test, and it is true of a universe
+   * made a moment ago in onboarding, whose first write is an empty file. Its
+   * next empty autosave was then refused as if it would wipe something, and
+   * the indicator read "Not saved" before the user had done anything. The
+   * last write's own count answers the real question. Universes saved before
+   * the count was recorded have none, and stay protected.
+   *
+   * @param {Object|null} universe
+   * @returns {boolean}
+   */
+  _hasSavedContent(universe) {
+    const hasPriorSave = !!(universe?.metadata?.lastSaved || universe?.metadata?.lastSync);
+    if (!hasPriorSave) return false;
+    const lastCount = universe?.localFile?.lastSavedUserNodes;
+    return typeof lastCount === 'number' ? lastCount > 0 : true;
+  }
+
+  /**
    * Save current universe store state to the previously linked file handle
   */
   async saveToLinkedLocalFile(universeSlug, storeState = null, options = {}) {
@@ -6690,8 +6735,7 @@ class UniverseBackend {
     // universe being created) can pass options.allowEmpty=true.
     if (!allowEmpty) {
       const guardUniverse = this.getUniverse(universeSlug);
-      const hasPriorSave = !!(guardUniverse?.metadata?.lastSaved || guardUniverse?.metadata?.lastSync);
-      if (hasPriorSave) {
+      if (this._hasSavedContent(guardUniverse)) {
         const counts = this.analyzeStoreData(storeState);
         if (counts.userNodeCount === 0) {
           umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: state has 0 nodes but universe has prior saves (lastSaved=${guardUniverse?.metadata?.lastSaved}). On-disk file preserved.`);
@@ -6831,7 +6875,7 @@ class UniverseBackend {
     };
 
     // Last-resort guard, and the only one that reads the thing it is about to
-    // destroy. `hasPriorSave` above is device-local bookkeeping and reads
+    // destroy. `_hasSavedContent` above is device-local bookkeeping and reads
     // clean on a machine that never saved this universe; the file on disk
     // cannot lie. Runs only when the outgoing state is empty, so normal saves
     // pay nothing.
@@ -6886,6 +6930,7 @@ class UniverseBackend {
           hadFileHandle: true,
           lastFilePath: usesPathHandles() ? handle : fileName,
           lastSaved: new Date().toISOString(),
+          lastSavedUserNodes: this.analyzeStoreData(storeState).userNodeCount,
           fileHandleStatus: 'connected',
           unavailableReason: null
         }

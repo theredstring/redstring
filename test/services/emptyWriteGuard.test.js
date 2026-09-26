@@ -103,6 +103,24 @@ describe('checkDestinationBeforeEmptyWrite', () => {
     }
   });
 
+  it('counts only user-made things, so a new universe\'s file reads as empty', async () => {
+    // Onboarding writes an empty universe, which still carries the seeded base
+    // Thing and Connection. Counting those made the next empty save look like
+    // it would overwrite data, and it was refused (2026-09-26).
+    const seeded = fileDoc(0, 0);
+    seeded.prototypeSpace.prototypes = {
+      'base-thing-prototype': { id: 'base-thing-prototype' },
+      'base-connection-prototype': { id: 'base-connection-prototype' }
+    };
+    const result = await checkDestinationBeforeEmptyWrite({ readDestination: async () => JSON.stringify(seeded) });
+    expect(result).toEqual({ safe: true, reason: 'destination-empty' });
+
+    seeded.prototypeSpace.prototypes.p0 = { id: 'p0' };
+    const withThing = await checkDestinationBeforeEmptyWrite({ readDestination: async () => JSON.stringify(seeded) });
+    expect(withThing.safe).toBe(false);
+    expect(withThing.destination.nodeCount).toBe(1);
+  });
+
   it('refuses an AMBIGUOUS read rather than assuming absent', async () => {
     // The mobile-git wipe shape: an auth race or 5xx is not a 404, and reading
     // it as "nothing there" is what let an empty state overwrite a real repo.

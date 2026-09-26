@@ -123,3 +123,102 @@ describe('SaveCoordinator shrinkage baseline', () => {
       .toEqual({ nodes: 12, graphs: 0 });
   });
 });
+
+/**
+ * The floor belongs to one universe. On 2026-09-26 a universe created from the
+ * welcome screen, after a large one had been open, kept the large one's floor:
+ * its first three things read as a 99% collapse, every save was refused
+ * ("Unsaved"), and a reload found it empty. The `type:'load'` notice that
+ * should have reset the floor had been replaced in the store's batch, so the
+ * guard now follows the state's own universe stamp.
+ */
+describe('SaveCoordinator guard follows the universe', () => {
+  beforeEach(() => {
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator.activeUniverseSlugForGuard = null;
+    saveCoordinator.lastBlockReason = null;
+    saveCoordinator.nextStateToProcess = null;
+    try { window.localStorage.clear(); } catch { /* no storage */ }
+  });
+
+  afterEach(() => {
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator.activeUniverseSlugForGuard = null;
+    saveCoordinator.lastBlockReason = null;
+    saveCoordinator.nextStateToProcess = null;
+    saveCoordinator.pendingHash = null;
+    saveCoordinator.isDirty = false;
+  });
+
+  it('a new universe does not inherit the previous universe\'s floor', () => {
+    saveCoordinator.activeUniverseSlugForGuard = 'big-universe';
+    saveCoordinator.dataBaseline = { nodes: 2001, graphs: 1 };
+    const fresh = state(3, { slug: 'universe' });
+
+    saveCoordinator._syncGuardUniverse(fresh._universeSlug);
+
+    expect(saveCoordinator.activeUniverseSlugForGuard).toBe('universe');
+    expect(saveCoordinator._isCatastrophicShrinkage(fresh)).toBe(false);
+  });
+
+  it('switching back restores that universe\'s own saved floor', () => {
+    saveCoordinator.activeUniverseSlugForGuard = 'big-universe';
+    saveCoordinator.dataBaseline = { nodes: 2001, graphs: 1 };
+    saveCoordinator._persistGuardState('big-universe');
+
+    saveCoordinator._syncGuardUniverse('universe');
+    expect(saveCoordinator.dataBaseline).toEqual({ nodes: 0, graphs: 0 });
+
+    saveCoordinator._syncGuardUniverse('big-universe');
+    expect(saveCoordinator.dataBaseline.nodes).toBe(2001);
+    expect(saveCoordinator._isCatastrophicShrinkage(state(0, { slug: 'big-universe' }))).toBe(true);
+  });
+
+  it('the same universe keeps its floor, so a bad empty read is still refused', () => {
+    saveCoordinator.activeUniverseSlugForGuard = 'claude-s-chambers-2';
+    saveCoordinator.dataBaseline = { nodes: 1822, graphs: 191 };
+
+    saveCoordinator._syncGuardUniverse('claude-s-chambers-2');
+
+    expect(saveCoordinator._isCatastrophicShrinkage(state(0))).toBe(true);
+  });
+
+  it('a floor set before any universe was known is kept, only tagged', () => {
+    saveCoordinator.dataBaseline = { nodes: 1822, graphs: 191 };
+
+    saveCoordinator._syncGuardUniverse('claude-s-chambers-2');
+
+    expect(saveCoordinator.activeUniverseSlugForGuard).toBe('claude-s-chambers-2');
+    expect(saveCoordinator.dataBaseline.nodes).toBe(1822);
+  });
+
+  it('a save made outside autosave (Save Now) clears what autosave was holding', () => {
+    const saved = state(3, { slug: 'universe' });
+    saveCoordinator.activeUniverseSlugForGuard = 'universe';
+    saveCoordinator.dataBaseline = { nodes: 50, graphs: 1 };
+    saveCoordinator.nextStateToProcess = saved;
+    saveCoordinator.pendingHash = 'abc';
+    saveCoordinator.isDirty = true;
+    saveCoordinator.lastBlockReason = 'refused';
+
+    saveCoordinator.markSavedExternally(saved);
+
+    expect(saveCoordinator.hasUnsavedChanges()).toBe(false);
+    expect(saveCoordinator.lastBlockReason).toBeNull();
+    // A deliberate write becomes the floor, so autosave stops refusing it.
+    expect(saveCoordinator._isCatastrophicShrinkage(saved)).toBe(false);
+  });
+
+  it('a newer edit made during Save Now is still saved by autosave', () => {
+    const saved = state(3, { slug: 'universe' });
+    const newer = state(4, { slug: 'universe' });
+    saveCoordinator.activeUniverseSlugForGuard = 'universe';
+    saveCoordinator.nextStateToProcess = newer;
+    saveCoordinator.pendingHash = 'newer';
+    saveCoordinator.isDirty = true;
+
+    saveCoordinator.markSavedExternally(saved);
+
+    expect(saveCoordinator.hasUnsavedChanges()).toBe(true);
+  });
+});

@@ -16,7 +16,20 @@
  * Pure, so the claim each state makes can be asserted in a test.
  *
  * Priority: no universe > no storage > needs auth > error > paused > loading >
- * writing > stalled > debouncing > git behind > never loaded > saved.
+ * writing > refused or stalled > waiting to write > git behind > never loaded >
+ * saved.
+ *
+ * Local saves read like Git's: "Saving..." from the edit until the bytes land,
+ * then "Saved". The wait before a write used to show nothing, which was
+ * defensible while it lasted 3.5s and made one edit look like a long save;
+ * with the pipeline at ~1.5s, saying nothing only hid whether a save was
+ * coming. While the user is still dragging, nothing is shown, because nothing
+ * is written until they let go.
+ *
+ * A refused or failed write says "Not saved" at once, as a call to action
+ * that opens the Universes panel (where Save Now and reconnecting live), with
+ * the reason as `detail`. It used to wait ten seconds and then say "Unsaved"
+ * with no reason and nothing to click.
  *
  * `needsGitAuth`: the universe syncs to Git but the GitHub App isn't linked.
  * With nobody signed in, the sync summary calls that 'standby', same as
@@ -37,8 +50,10 @@ export const resolveSaveStatus = ({
   isPaused = false,
   isLoadingFromRepo = false,
   isSaving = false,
+  blockedReason = null,
   dirtyStalled = false,
   hasUnsavedChanges = false,
+  isInteracting = false,
   gitBehind = false,
   universeReady = false
 } = {}) => {
@@ -52,15 +67,22 @@ export const resolveSaveStatus = ({
   // A local write is genuinely in flight.
   if (isSaving) return { text: 'Saving...', isCTA: false };
 
-  // Past the debounce by a wide margin — the write failed and is in retry
-  // backoff, or a guard refused it. Say so rather than sitting silently on a
-  // stale-looking "Saved".
-  if (dirtyStalled) return { text: 'Unsaved', isCTA: false };
+  // A guard refused the write or it failed (`blockedReason`), or changes have
+  // sat unwritten far past the debounce for a reason nobody reported.
+  if (blockedReason || dirtyStalled) {
+    return {
+      text: 'Not saved',
+      isCTA: true,
+      action: 'universes',
+      detail: blockedReason || 'These changes have not reached the file yet.'
+    };
+  }
 
-  // Normal debounce window. Nothing useful to report yet, so report nothing —
-  // labelling these few seconds "Saving..." made one edit look like a
-  // ten-second save.
-  if (hasUnsavedChanges) return { text: null, isCTA: false };
+  // Waiting out the debounce: the write is coming. Mid-drag nothing is written
+  // until release, so say nothing rather than "Saving..." for the whole drag.
+  if (hasUnsavedChanges) {
+    return isInteracting ? { text: null, isCTA: false } : { text: 'Saving...', isCTA: false };
+  }
 
   // Local bytes are durable; Git is still catching up. A different and much
   // less urgent state than "not yet saved".

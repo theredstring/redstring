@@ -64,7 +64,13 @@ function statsOfContent(content) {
       return { nodeCount: null, graphCount: null, unparseable: true };
     }
   }
-  return getRedstringStats(data);
+  const stats = getRedstringStats(data);
+  if (stats.nodeCount === null && stats.graphCount === null) return stats;
+  // Safety counts, like every other guard: things the USER made. Every file
+  // carries the seeded base Thing, including a universe created a moment ago,
+  // whose first write is otherwise empty; counted as data, it made that
+  // universe's next empty save "overwrite data" and it was refused.
+  return { ...stats, nodeCount: countUserPrototypes(data) };
 }
 
 /**

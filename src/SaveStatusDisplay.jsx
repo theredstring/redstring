@@ -7,20 +7,19 @@ import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
 import { persistentAuth } from './services/persistentAuth.js';
 
-// How long changes may sit un-written before the indicator says so. The normal
-// pipeline dispatches ~3.5s after an edit (500ms worker debounce + 3s save
-// debounce), so anything past this is a genuine stall — a failed write in
-// retry backoff, or a data-loss guard refusing the save — and the user needs
-// to know. The dirty clock is held at zero during interaction (see below), so
-// a long drag never trips it.
-const STALLED_DIRTY_MS = 10000;
+// How long changes may sit un-written before the indicator says so even with
+// no reason reported. The normal pipeline writes ~1.5s after an edit (500ms
+// worker debounce + 1s save debounce); a refused or failed write reports its
+// reason at once (`saveCoordinator.lastBlockReason`), so this only catches a
+// stall nobody explained. The dirty clock is held at zero during interaction
+// (see below), so a long drag never trips it.
+const STALLED_DIRTY_MS = 6000;
 
 const SaveStatusDisplay = ({ hidden = false }) => {
-  // `null` means "nothing worth saying" — the quiet debounce window between an
-  // edit and its write. Previously this window rendered "Saving..." even
-  // though no write was in flight, which is what made a single edit look like
-  // it was saving for many seconds.
+  // `null` means "nothing worth saying" (mid-drag, before anything is written).
   const [statusText, setStatusText] = useState('Loading...');
+  // Why a save didn't happen, shown on hover over "Not saved".
+  const [statusDetail, setStatusDetail] = useState(null);
   const [isCTA, setIsCTA] = useState(false);
   // What the CTA does: 'reconnect' opens GitReconnectModal (a Git universe
   // with nobody signed in); anything else opens the Universes panel.
@@ -179,8 +178,10 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           isPaused: !!engine?.isPaused,
           isLoadingFromRepo,
           isSaving: coordinatorIsSaving,
+          blockedReason: coordinatorHasUnsaved ? saveCoordinator.lastBlockReason : null,
           dirtyStalled,
           hasUnsavedChanges: coordinatorHasUnsaved,
+          isInteracting: !!saveCoordinator.isGlobalDragging,
           gitBehind: isCommitting || pendingCommits > 0 || hasUnsavedChanges,
           /*
            * The store is the authority on whether a universe is actually in.
@@ -197,6 +198,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
             || saveCoordinator.hasLoadedFromFile
         });
         setStatusText(status.text);
+        setStatusDetail(status.detail || null);
         setIsCTA(status.isCTA);
         setCtaAction(status.action || null);
       } catch (error) {
@@ -205,16 +207,16 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           setStatusText('Unknown');
           setIsCTA(false);
         }
-      }
-
-      // Reschedule with potentially updated interval
-      const nextInterval = getPollInterval();
-      if (nextInterval !== currentInterval) {
-        currentInterval = nextInterval;
-        if (pollInterval) clearTimeout(pollInterval);
-        pollInterval = setTimeout(poll, currentInterval);
-      } else {
-        pollInterval = setTimeout(poll, currentInterval);
+      } finally {
+        // Reschedule in `finally`: the early returns above ("No universe",
+        // "Connect") used to skip this and stop polling for good. Always clear
+        // first: poll() is also called from events, and without the clear each
+        // of those calls started a second, permanent polling chain.
+        if (!cancelled) {
+          currentInterval = getPollInterval();
+          if (pollInterval) clearTimeout(pollInterval);
+          pollInterval = setTimeout(poll, currentInterval);
+        }
       }
     };
 
@@ -230,8 +232,16 @@ const SaveStatusDisplay = ({ hidden = false }) => {
     window.addEventListener('redstring:universe-created', handleUniverseChange);
     window.addEventListener('redstring:universe-updated', handleUniverseChange);
 
+    // Re-read at once when the coordinator reports (changes detected, a save
+    // landed or was refused), so "Saving..." and "Saved" track the write
+    // itself rather than the next tick of the poll.
+    const unsubscribeCoordinator = saveCoordinator.onStatusChange?.(() => {
+      if (!cancelled) poll();
+    });
+
     return () => {
       cancelled = true;
+      try { unsubscribeCoordinator?.(); } catch { }
       if (pollInterval) clearTimeout(pollInterval);
       window.removeEventListener('redstring:universe-created', handleUniverseChange);
       window.removeEventListener('redstring:universe-updated', handleUniverseChange);
@@ -279,6 +289,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         transition: 'opacity 1s ease',
         pointerEvents: (isVisible && !hidden) ? 'auto' : 'none'
       }}
+      title={statusDetail || undefined}
       onClick={handleClick}
       onMouseEnter={(e) => {
         if (!isCTA) return;

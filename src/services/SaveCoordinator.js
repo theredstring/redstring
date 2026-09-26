@@ -21,8 +21,11 @@ import { userDataCounts } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 
-// SIMPLIFIED: No priorities - all changes batched together with a single debounce
-const DEBOUNCE_MS = 3000; // Wait 3000ms after last change before saving (merges node drop + view restore)
+// SIMPLIFIED: No priorities - all changes batched together with a single debounce.
+// With the 500ms worker debounce, an edit reaches the file about 1.5s later. It
+// was 3000ms, which left local saves feeling slow; the interaction gate and the
+// post-interaction cooldown (not this debounce) are what keep a write off a drag.
+const DEBOUNCE_MS = 1000;
 
 // How often the load-gate watchdog re-checks a token that hasn't settled. It
 // is NOT a deadline on loading — a slow load releases normally via `finally`,
@@ -129,6 +132,15 @@ class SaveCoordinator {
     // context fires).
     this.activeUniverseSlugForGuard = null;
 
+    // Why the last write didn't happen (a guard refused it, or it failed), for
+    // the save indicator. Cleared by the next confirmed save.
+    this.lastBlockReason = null;
+
+    // A change has arrived and not yet been hashed (the 500ms worker wait).
+    // Counts as unsaved, so the indicator says "Saving..." the moment an edit
+    // or a drop lands rather than half a second later.
+    this.awaitingWorker = false;
+
     // console.log('[SaveCoordinator] Initialized with simple batched saves');
   }
 
@@ -206,6 +218,37 @@ class SaveCoordinator {
     } catch (e) {
       return false;
     }
+  }
+
+  /**
+   * Points the data-loss guard at `slug`'s own floor.
+   *
+   * The shrinkage floor is per universe: 1,800 things in one universe say
+   * nothing about the next. Switching used to depend on a `type:'load'` notice
+   * reaching `onStateChange`, but the store batches its notices and a later
+   * change in the same tick can replace that type, so the switch went unseen.
+   * A universe created from the welcome screen then inherited the previous
+   * universe's floor, and every save of its first few things read as a 99%
+   * collapse and was refused: "Unsaved" until a reload, then empty
+   * (2026-09-26). The state carries its universe stamp, so the guard follows
+   * that instead.
+   *
+   * A null guard slug means the floor was set before any universe was known
+   * (boot); that floor is kept and only tagged.
+   *
+   * @private
+   * @param {string|null|undefined} slug - The universe the state belongs to.
+   */
+  _syncGuardUniverse(slug) {
+    if (!slug || slug === this.activeUniverseSlugForGuard) return;
+    if (this.activeUniverseSlugForGuard) {
+      console.log(`[SaveCoordinator] Guard follows the universe switch: ${this.activeUniverseSlugForGuard} → ${slug}`);
+      this.dataBaseline = { nodes: 0, graphs: 0 };
+      this.retryAttempt = 0;
+      this.lastBlockReason = null;
+    }
+    this.activeUniverseSlugForGuard = slug;
+    this._restoreGuardState(slug);
   }
 
   /**
@@ -389,6 +432,10 @@ class SaveCoordinator {
     // drag (processStateChange early-returned before scheduling one). Schedule
     // one now so the latest queued state actually gets serialized + saved.
     if (this.nextStateToProcess) {
+      // A drop usually ends here, not through an `end` change, so this is the
+      // moment the indicator can say "Saving...". Only when the drag actually
+      // changed something (the gate marks those dirty).
+      if (this.isDirty) this._markAwaitingWorker();
       if (this.workerProcessing) {
         this.workerDirty = true;
       } else {
@@ -398,6 +445,18 @@ class SaveCoordinator {
         }, 300);
       }
     }
+  }
+
+  /**
+   * Flags a change as waiting on the worker, and tells listeners once, on the
+   * transition, so the indicator shows "Saving..." without waiting for a poll.
+   *
+   * @private
+   */
+  _markAwaitingWorker() {
+    if (this.awaitingWorker) return;
+    this.awaitingWorker = true;
+    this.notifyStatus('info', 'Changes pending');
   }
 
   /**
@@ -423,7 +482,7 @@ class SaveCoordinator {
       if (typeof window !== 'undefined' && window.localStorage) {
         const activeSlug = window.localStorage.getItem('active_universe_slug');
         if (activeSlug) {
-          this._restoreGuardState(activeSlug);
+          this._syncGuardUniverse(activeSlug);
         }
       }
     } catch (e) {
@@ -499,6 +558,12 @@ class SaveCoordinator {
 
         // Schedule the actual write
         this.scheduleSave();
+      } else if (hash === this.lastSaveHash && this.pendingHash === null && this.isDirty) {
+        // The content matches what was last saved (a press that moved nothing,
+        // an edit undone). The drag gate marks every interaction dirty, and
+        // nothing used to clear it, so the indicator went on to report a stall
+        // over a file that was already up to date.
+        this.isDirty = false;
       }
     } else if (type === 'error') {
       // The worker threw while serializing/hashing (e.g. a deterministic
@@ -518,6 +583,9 @@ class SaveCoordinator {
     if (this.workerDirty) {
       this.workerDirty = false;
       this.sendToWorker();
+    } else if (this.awaitingWorker && type === 'save_processed') {
+      this.awaitingWorker = false;
+      if (!this.hasUnsavedChanges()) this.notifyStatus('info', 'No changes to save');
     }
   }
 
@@ -531,7 +599,12 @@ class SaveCoordinator {
    * if the worker never responds.
    */
   sendToWorker() {
-    if (!this.nextStateToProcess) return;
+    if (!this.nextStateToProcess) {
+      // Nothing left to hash. Unless a pass is still running (its reply
+      // settles the flag), no change is waiting on the worker.
+      if (!this.workerProcessing) this.awaitingWorker = false;
+      return;
+    }
 
     // No worker available (init failed, was terminated after onerror, or the
     // browser doesn't support module workers — iOS Safari < 15). Do the same
@@ -667,6 +740,7 @@ class SaveCoordinator {
     if (!state) return;
     this.lastState = state;
     this.nextStateToProcess = null;
+    this.awaitingWorker = false;
     try {
       const hash = this.generateStateHash(state);
       if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
@@ -679,6 +753,8 @@ class SaveCoordinator {
         this.isDirty = true;
         try { gitAutosavePolicy.onEditActivity(); } catch { /* noop */ }
         this.scheduleSave();
+      } else if (hash === this.lastSaveHash && this.pendingHash === null) {
+        this.isDirty = false;
       }
     } catch (err) {
       console.warn('[SaveCoordinator] Main-thread save processing failed, scheduling anyway:', err);
@@ -714,6 +790,8 @@ class SaveCoordinator {
       return;
     }
 
+    this._syncGuardUniverse(newState._universeSlug);
+
     // SoT swap in progress — capture the latest state but don't schedule a
     // dispatch. endSwap() will flush whatever's queued through scheduleSave.
     if (this.swapInProgress) {
@@ -742,6 +820,7 @@ class SaveCoordinator {
         this.pendingRedstringData = null;
         this.pendingStringState = null;
         this.isDirty = false;
+        this.awaitingWorker = false;
         if (this.saveTimer) {
           clearTimeout(this.saveTimer);
           this.saveTimer = null;
@@ -925,6 +1004,8 @@ class SaveCoordinator {
         }
       }
 
+      this._markAwaitingWorker();
+
       // Debounce sending to worker to avoid flooding it
       // But ONLY if we're not in an interaction - worker serialization is expensive
       if (this.workerProcessing) {
@@ -949,7 +1030,7 @@ class SaveCoordinator {
   /**
    * Schedules a debounced write, resetting the timer on each call.
    *
-   * Fires `executeSave` after `DEBOUNCE_MS` (3000ms) with no further calls.
+   * Fires `executeSave` after `DEBOUNCE_MS` (1000ms) with no further calls.
    * Always cancels any previously pending timer before setting a new one.
    */
   scheduleSave() {
@@ -1041,6 +1122,7 @@ class SaveCoordinator {
     // collapsed to near-empty while the baseline had real data. This catches
     // HMR re-instantiating an empty store, accidental reset paths, and other
     // surprise-empty states. forceSave() (user-triggered) bypasses this.
+    this._syncGuardUniverse(state?._universeSlug);
     if (this._isCatastrophicShrinkage(state)) {
       // Save Now confirms a PARTIAL shrink, but it cannot persist a universe
       // emptied completely — the destination guards refuse that, by design.
@@ -1049,6 +1131,9 @@ class SaveCoordinator {
       this.notifyStatus('warning', cleared
         ? 'Save blocked: this universe now has no things but the saved copy does. Reload to recover it. Emptying a universe completely is not supported yet; leaving one thing in place and pressing Save Now does work.'
         : 'Save blocked: data shrank unexpectedly. Reload to recover, or use Save Now to confirm.');
+      this.lastBlockReason = cleared
+        ? 'This universe now has no things but its saved copy does. Reload to recover it.'
+        : 'Much less is here than was last saved, so autosave stopped to be safe. Reload to recover, or press Save Now to keep this version.';
       // Don't clear pending — leave state as-is so a future legitimate save can fire.
       this.isSaving = false;
       return;
@@ -1120,6 +1205,7 @@ class SaveCoordinator {
           // that is what previously made failed saves unretryable (the
           // identical re-hash was skipped forever).
           this.isDirty = true;
+          this.lastBlockReason = localOutcome.reason || 'The write was refused.';
           if (localOutcome.status === 'failed') {
             this.lastError = localOutcome.reason;
             this.notifyStatus('error', `Save failed: ${localOutcome.reason}. Changes are kept and will retry.`, { persistent: true });
@@ -1151,6 +1237,7 @@ class SaveCoordinator {
   _onSaveConfirmed(state, confirmedHash) {
     this.retryAttempt = 0;
     this.lastError = null;
+    this.lastBlockReason = null;
 
     // If confirmedHash is missing (worker stalled, main-thread fallback),
     // compute it now so the next worker callback for the same content
@@ -1286,7 +1373,7 @@ class SaveCoordinator {
 
   /**
    * Immediately writes any unsaved changes, bypassing debounce and interaction
-   * gates. Used on quit/close/tab-hide, where waiting out the 3s debounce
+   * gates. Used on quit/close/tab-hide, where waiting out the debounce
    * means losing the user's last edits.
    *
    * Unlike `forceSave`, this respects the catastrophic-shrinkage guard —
@@ -1414,6 +1501,51 @@ class SaveCoordinator {
    * @returns {Promise<true>} Resolves `true` on success.
    * @throws {Error} If the coordinator is not initialized or the local save fails.
    */
+  /**
+   * Records a write made outside this pipeline: "Save Now", and the first write
+   * of a universe made during onboarding. Both go through
+   * `universeBackend.forceSave`, which writes the file directly. Nothing told
+   * this coordinator, so it kept the edit it was holding as unsaved and kept
+   * refusing it: Save Now wrote the file while the indicator went on saying
+   * "Unsaved", and a shrinkage refusal outlived the Save Now that was meant to
+   * confirm it.
+   *
+   * Treated like `forceSave`: a deliberate write, so its shape becomes the
+   * baseline. Pending work is cleared only when this state is the newest one
+   * the coordinator has; a newer edit still saves on its own.
+   *
+   * @param {Object} state - The store snapshot that was written.
+   */
+  markSavedExternally(state) {
+    if (!state) return;
+    this._syncGuardUniverse(state._universeSlug);
+    try {
+      this.lastSaveHash = this.generateStateHash(state);
+    } catch (hashErr) {
+      console.warn('[SaveCoordinator] Hash after an external save failed:', hashErr);
+    }
+    try {
+      this.dataBaseline = this._countDataItems(state);
+      this.hasLoadedFromFile = true;
+      if (this.activeUniverseSlugForGuard) this._persistGuardState(this.activeUniverseSlugForGuard);
+    } catch (_) { /* non-fatal */ }
+    this.retryAttempt = 0;
+    this.lastError = null;
+    this.lastBlockReason = null;
+
+    const newest = this.nextStateToProcess;
+    if (!newest || newest === state) {
+      if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+      this.pendingHash = null;
+      this.pendingString = null;
+      this.pendingRedstringData = null;
+      this.pendingStringState = null;
+      this.isDirty = false;
+      this.awaitingWorker = false;
+    }
+    this.notifyStatus('success', 'Save completed');
+  }
+
   async forceSave(state, { allowDuringLoad = false } = {}) {
     if (!this.isEnabled) {
       throw new Error('Save coordinator not initialized');
@@ -1737,7 +1869,9 @@ class SaveCoordinator {
     this.pendingStringState = null;
     this.lastState = null;
     this.isDirty = false;
+    this.awaitingWorker = false;
     this.retryAttempt = 0;
+    this.lastBlockReason = null;
     // Reset the data-loss guard. The new universe's load needs to happen
     // before saves are allowed again.
     this.hasLoadedFromFile = false;
@@ -1748,10 +1882,11 @@ class SaveCoordinator {
   /**
    * Returns `true` if there are changes not yet written to disk.
    *
-   * @returns {boolean} `true` when `isDirty` or a pending hash is queued.
+   * @returns {boolean} `true` when `isDirty`, a pending hash is queued, or a
+   *   change is waiting to be hashed.
    */
   hasUnsavedChanges() {
-    return this.isDirty || (this.pendingHash !== null);
+    return this.isDirty || (this.pendingHash !== null) || this.awaitingWorker;
   }
 
   /**

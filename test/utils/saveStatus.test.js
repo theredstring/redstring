@@ -37,18 +37,30 @@ describe('resolveSaveStatus', () => {
     expect(status.text).not.toBe('Saved');
   });
 
-  it('says nothing at all during the normal debounce window', () => {
-    // Not "Saving..." — that made a single edit look like a ten-second save.
-    expect(resolveSaveStatus({ ...settled, hasUnsavedChanges: true }).text).toBeNull();
-  });
-
-  it('says Saving only while a write is genuinely in flight', () => {
+  it('says Saving from the edit until the write lands, like Git says Syncing', () => {
+    // Local saves had no indicator at all while a write was pending, so the
+    // user could not tell whether one was coming (2026-09-26).
+    expect(resolveSaveStatus({ ...settled, hasUnsavedChanges: true }).text).toBe('Saving...');
     expect(resolveSaveStatus({ ...settled, isSaving: true }).text).toBe('Saving...');
   });
 
-  it('surfaces a refused or failed write instead of sitting on a stale Saved', () => {
-    expect(resolveSaveStatus({ ...settled, hasUnsavedChanges: true, dirtyStalled: true }).text)
-      .toBe('Unsaved');
+  it('says nothing mid-drag, when nothing is written until release', () => {
+    expect(resolveSaveStatus({ ...settled, hasUnsavedChanges: true, isInteracting: true }).text).toBeNull();
+  });
+
+  it('says Not saved at once when a write is refused, with the reason and a way to act', () => {
+    const status = resolveSaveStatus({
+      ...settled, hasUnsavedChanges: true, blockedReason: 'Much less is here than was last saved'
+    });
+    expect(status).toEqual({
+      text: 'Not saved', isCTA: true, action: 'universes', detail: 'Much less is here than was last saved'
+    });
+  });
+
+  it('says Not saved when changes stall with no reason reported', () => {
+    const status = resolveSaveStatus({ ...settled, hasUnsavedChanges: true, dirtyStalled: true });
+    expect(status.text).toBe('Not saved');
+    expect(status.detail).toBeTruthy();
   });
 
   it('distinguishes git catching up from not yet saved', () => {
@@ -80,13 +92,13 @@ describe('resolveSaveStatus', () => {
     expect(resolveSaveStatus({ hasUniverse: false, hasStorage: false }).text).toBe('No universe');
   });
 
-  it('only ever offers a call to action for missing storage', () => {
+  it('offers a call to action only for something the user can act on', () => {
     const states = [
       {}, settled,
       { ...settled, isSaving: true },
+      { ...settled, hasUnsavedChanges: true },
       { ...settled, isLoadingFromRepo: true },
       { ...settled, isInErrorBackoff: true },
-      { ...settled, hasUnsavedChanges: true, dirtyStalled: true },
       { hasUniverse: false }
     ];
     for (const state of states) {
