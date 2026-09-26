@@ -546,53 +546,6 @@ const StorageSetupModal = ({
         </h2>
       </div>
 
-      {/* Universe name */}
-      <div style={{ marginBottom: '14px', flexShrink: 0 }}>
-        <label style={{
-          display: 'block',
-          marginBottom: '6px',
-          fontWeight: 'bold',
-          fontSize: '0.76rem',
-          color: theme.canvas.textPrimary,
-          fontFamily: "'EmOne', sans-serif"
-        }}>
-          Universe name
-        </label>
-        {nameLocked ? (
-          <div style={{
-            padding: '8px 12px',
-            fontSize: '0.95rem',
-            fontWeight: 'bold',
-            borderRadius: '8px',
-            border: `2px solid ${theme.canvas.border}`,
-            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
-            color: theme.canvas.textPrimary,
-            fontFamily: "'EmOne', sans-serif"
-          }}>
-            {universeName || 'Universe'}
-          </div>
-        ) : (
-          <input
-            type="text"
-            value={universeName}
-            onChange={(e) => setUniverseName(e.target.value)}
-            placeholder="Universe"
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              fontSize: '0.95rem',
-              borderRadius: '8px',
-              border: `2px solid ${theme.canvas.border}`,
-              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-              color: theme.canvas.textPrimary,
-              boxSizing: 'border-box',
-              fontFamily: "'EmOne', sans-serif",
-              outline: 'none'
-            }}
-          />
-        )}
-      </div>
-
       {/* Workspace folder (desktop) — global location where local files land */}
       {showWorkspaceRow && (
         <div style={{ marginBottom: '14px', flexShrink: 0 }}>
@@ -670,20 +623,55 @@ const StorageSetupModal = ({
         </div>
       )}
 
+      {/* Universe name */}
+      <div style={{ marginBottom: '14px', flexShrink: 0 }}>
+        <label style={{
+          display: 'block',
+          marginBottom: '6px',
+          fontWeight: 'bold',
+          fontSize: '0.76rem',
+          color: theme.canvas.textPrimary,
+          fontFamily: "'EmOne', sans-serif"
+        }}>
+          Universe Name
+        </label>
+        {nameLocked ? (
+          <div style={{
+            padding: '8px 12px',
+            fontSize: '0.95rem',
+            fontWeight: 'bold',
+            borderRadius: '8px',
+            border: `2px solid ${theme.canvas.border}`,
+            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+            color: theme.canvas.textPrimary,
+            fontFamily: "'EmOne', sans-serif"
+          }}>
+            {universeName || 'Universe'}
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={universeName}
+            onChange={(e) => setUniverseName(e.target.value)}
+            placeholder="Universe"
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: '0.95rem',
+              borderRadius: '8px',
+              border: `2px solid ${theme.canvas.border}`,
+              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+              color: theme.canvas.textPrimary,
+              boxSizing: 'border-box',
+              fontFamily: "'EmOne', sans-serif",
+              outline: 'none'
+            }}
+          />
+        )}
+      </div>
+
       {/* Storage slots for this one universe */}
       <div style={{ flexShrink: 0 }}>
-        {showGitOption && renderSlotCard({
-          icon: <Github size={22} />,
-          title: gitFirst ? 'Sync with GitHub' : 'GitHub Repository',
-          description: 'Sync across devices',
-          done: slotStatus.git.done,
-          doneBadge: 'Connected ✓',
-          doneDetail: slotStatus.git.label,
-          actionLabel: 'Add Repository',
-          onAction: handleAddRepository,
-          actionSolid: gitFirst
-        })}
-
         {showLocalSlot && renderSlotCard({
           icon: <Save size={22} />,
           // iOS has no file picker and no user-visible filesystem, so name the
@@ -701,6 +689,18 @@ const StorageSetupModal = ({
           actionSolid: false
         })}
 
+        {showGitOption && renderSlotCard({
+          icon: <Github size={22} />,
+          title: gitFirst ? 'Sync with GitHub' : 'GitHub Repository',
+          description: 'Sync across devices',
+          done: slotStatus.git.done,
+          doneBadge: 'Connected ✓',
+          doneDetail: slotStatus.git.label,
+          actionLabel: 'Add Repository',
+          onAction: handleAddRepository,
+          actionSolid: gitFirst
+        })}
+
         {/* Source of truth line, once at least one slot is filled */}
         {anySlotFilled && (
           <div style={{
@@ -712,8 +712,8 @@ const StorageSetupModal = ({
             {bothSlotsFilled ? (
               <div style={{ display: 'flex', gap: 6 }}>
                 {[
-                  { key: 'git', label: 'GitHub' },
-                  { key: 'local', label: isCapacitor() ? 'On This Device' : 'Local File' }
+                  { key: 'local', label: isCapacitor() ? 'On This Device' : 'Local File' },
+                  { key: 'git', label: 'GitHub' }
                 ].map(({ key, label }) => {
                   const active = sourceOfTruth === key;
                   return (
