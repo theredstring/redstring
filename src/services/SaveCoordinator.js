@@ -27,6 +27,13 @@ import { generateStateHash as computeStateHash } from './saveHash.js';
 // post-interaction cooldown (not this debounce) are what keep a write off a drag.
 const DEBOUNCE_MS = 1000;
 
+// A change that only switched webs (see NAVIGATION_CHANGE_TYPES in graphStore)
+// waits this long on a Git-backed universe before it starts a save, or rides
+// along with the next real edit, whichever comes first. Clicking between webs
+// otherwise rewrote the whole universe on every click. A universe whose local
+// file is the source of truth saves it straight away, as before.
+const NAVIGATION_SAVE_DELAY_MS = 3000;
+
 // How often the load-gate watchdog re-checks a token that hasn't settled. It
 // is NOT a deadline on loading — a slow load releases normally via `finally`,
 // however long it takes. It only decides when to look at a possibly-hung token
@@ -56,6 +63,7 @@ class SaveCoordinator {
     this.lastState = null;
     this.lastChangeContext = {};
     this.saveTimer = null; // Single timer for all changes
+    this.navigationTimer = null; // A waiting web switch; see NAVIGATION_SAVE_DELAY_MS
 
     // CRITICAL data-loss guard: do NOT save anything until we have observed at
     // least one explicit `load` change context. Otherwise, when the universe
@@ -792,6 +800,14 @@ class SaveCoordinator {
 
     this._syncGuardUniverse(newState._universeSlug);
 
+    // Any change that is not just navigation carries a waiting web switch
+    // with it: it saves the whole state, the switch included. A camera move
+    // saves nothing, so it must not cancel the wait either.
+    if (this.navigationTimer && changeContext.navigationOnly !== true && changeContext.type !== 'viewport') {
+      clearTimeout(this.navigationTimer);
+      this.navigationTimer = null;
+    }
+
     // SoT swap in progress — capture the latest state but don't schedule a
     // dispatch. endSwap() will flush whatever's queued through scheduleSave.
     if (this.swapInProgress) {
@@ -990,6 +1006,21 @@ class SaveCoordinator {
         return;
       }
 
+      // Only switched webs, on a Git-backed universe, with nothing else in
+      // flight: hold it. When the wait ends it re-enters here as an ordinary
+      // change, so every guard above applies to it then, not just now.
+      if (changeContext.navigationOnly === true && this._navigationMayWait()) {
+        this.nextStateToProcess = newState;
+        this.lastChangeContext = changeContext;
+        if (this.navigationTimer) clearTimeout(this.navigationTimer);
+        this.navigationTimer = setTimeout(() => {
+          this.navigationTimer = null;
+          const latest = this.nextStateToProcess;
+          if (latest) this.onStateChange(latest, { type: 'navigation_settled' });
+        }, NAVIGATION_SAVE_DELAY_MS);
+        return;
+      }
+
       // Update latest state
       this.nextStateToProcess = newState;
       this.lastChangeContext = changeContext;
@@ -1025,6 +1056,25 @@ class SaveCoordinator {
       console.error('[SaveCoordinator] Error processing state change:', error);
       this.notifyStatus('error', `Save coordination failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Whether a navigation-only change may wait (NAVIGATION_SAVE_DELAY_MS).
+   *
+   * Only on a Git-backed universe: with the local file as source of truth
+   * (or no Git engine at all) a switch saves straight away, as it always has.
+   * And only while the pipeline is idle: if an edit is already on its way to
+   * the file, the switch joins that save rather than splitting off from it.
+   *
+   * @private
+   * @returns {boolean}
+   */
+  _navigationMayWait() {
+    const engine = this.gitSyncEngine;
+    if (!engine || engine.sourceOfTruth === 'local') return false;
+    const pipelineBusy = !!(this.workerTimer || this.workerProcessing || this.awaitingWorker
+      || this.saveTimer || this.isSaving || this.isDirty || this.pendingHash !== null);
+    return !pipelineBusy;
   }
 
   /**
@@ -1400,6 +1450,8 @@ class SaveCoordinator {
 
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
+    // A waiting web switch is written now, with everything else.
+    if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
 
     // The app is closing/hiding — any interaction is over by definition.
     this.isGlobalDragging = false;
@@ -1857,6 +1909,7 @@ class SaveCoordinator {
    */
   cancelPendingSaves() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
     if (this.workerWatchdogTimer) { clearTimeout(this.workerWatchdogTimer); this.workerWatchdogTimer = null; }
     if (this._dragGateFailsafe) { clearTimeout(this._dragGateFailsafe); this._dragGateFailsafe = null; }

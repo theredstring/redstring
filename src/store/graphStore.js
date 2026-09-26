@@ -1258,6 +1258,22 @@ const removeMembersWithDescendants = (graph, groupId, instanceIds) => {
   return changedAny;
 };
 
+/**
+ * Changes that only move around the universe: which webs are open, which one
+ * is active, which panel tab is showing. The file remembers them so a reopened
+ * universe comes back where it was left, but none of them is an edit.
+ * SaveCoordinator lets a batch made only of these wait a few seconds on a
+ * Git-backed universe instead of rewriting the whole file on every click.
+ */
+const NAVIGATION_CHANGE_TYPES = new Set([
+  'tab_open',
+  'tab_close',
+  'tab_move',
+  'tab_activate',
+  'active_graph_change',
+  'graph_expand_toggle'
+]);
+
 // Middleware to integrate with SaveCoordinator
 const saveCoordinatorMiddleware = (config) => {
   let saveCoordinator = null;
@@ -1541,6 +1557,13 @@ const saveCoordinatorMiddleware = (config) => {
         type: isMeaningfulType(batchedContext.type) && !isMeaningfulType(changeContext.type)
           ? batchedContext.type
           : changeContext.type,
+        // Judged per change, never from the batch's reported `type`: that type
+        // is the LAST meaningful one, so an edit sharing a tick with a tab
+        // switch would read as navigation. One non-navigation change (an
+        // untyped one included) makes the whole batch an ordinary save.
+        // Camera moves are neutral.
+        navigationOnly: batchedContext.navigationOnly !== false
+          && (NAVIGATION_CHANGE_TYPES.has(changeContext.type) || changeContext.type === 'viewport'),
       };
 
       pendingNotification = setTimeout(async () => {
