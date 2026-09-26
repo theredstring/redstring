@@ -31,6 +31,7 @@ export function resolveStoreActions(ctx) {
       clearSelectedEdgeIds: () => { },
       setNodeType: () => { },
       openRightPanelNodeTab: () => { },
+      openRightPanelGraphTab: () => { },
       createAndAssignGraphDefinition: () => { },
       createAndAssignGraphDefinitionWithoutActivation: () => { },
       closeRightPanelTab: () => { },

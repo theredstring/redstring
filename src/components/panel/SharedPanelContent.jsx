@@ -1345,12 +1345,16 @@ const SharedPanelContent = ({
   // Web Definitions (see PanelContentWrapper)
   definitionGraphIds = [],
   definitionIndex = 0,
+  currentDefinitionId = null,
   onDefinitionIndexChange,
   onAddDefinition,
   onDeleteDefinition,
   onOpenDefinition,
+  onOpenDefinitionInPanel,
+  onUpdateDefinitionDescription,
   canEditDefinitions = false,
   activeGraphId = null,
+  subjectWebId = null,
 
   // UI state
   isUltraSlim = false,
@@ -2029,8 +2033,8 @@ const SharedPanelContent = ({
       {/* Dividing line above Web Definitions section */}
       <StandardDivider margin="20px 0" />
 
-      {/* Web Definitions: the Webs that define this Thing, drawn as the decompose
-          preview draws them, with the decompose pie's controls. */}
+      {/* Web Definitions: the Webs that define this Thing, for skimming — each
+          drawn as the decompose preview draws it, with its own description. */}
       <CollapsibleSection
         title="Web Definitions"
         count={definitionGraphIds.length}
@@ -2040,12 +2044,17 @@ const SharedPanelContent = ({
           nodeData={nodeData}
           definitionGraphIds={definitionGraphIds}
           definitionIndex={definitionIndex}
+          currentDefinitionId={currentDefinitionId}
           onDefinitionIndexChange={onDefinitionIndexChange}
           onAddDefinition={onAddDefinition}
           onDeleteDefinition={onDeleteDefinition}
           onOpenDefinition={onOpenDefinition}
+          onOpenDefinitionInPanel={onOpenDefinitionInPanel}
+          onUpdateDescription={onUpdateDefinitionDescription}
           canEdit={canEditDefinitions}
           activeGraphId={activeGraphId}
+          subjectWebId={subjectWebId}
+          isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>
 

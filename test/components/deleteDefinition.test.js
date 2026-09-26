@@ -32,6 +32,7 @@ beforeEach(() => {
     openGraphIds: ['main'],
     activeGraphId: 'main',
     expandedGraphIds: new Set(),
+    rightPanelTabs: [{ type: 'home', isActive: true }],
   });
   useCanvasUIStore.getState().setNodeDefinitionIndices(new Map());
   useCanvasDialogStore.setState({ deleteDefinitionDialog: null });
@@ -65,5 +66,34 @@ describe('deleteDefinition', () => {
     deleteDefinition('p-box', 'd2');
     expect(indices().get('p-box-main')).toBe(1);
     expect(indices().get('p-box-other')).toBe(0);
+  });
+
+  it('closes the tab of a Web that went with its definition', () => {
+    st().openRightPanelGraphTab('d1', 'p-box');
+    deleteDefinition('p-box', 'd1');
+    expect(st().rightPanelTabs.some((t) => t.type === 'graph')).toBe(false);
+    expect(st().rightPanelTabs[0].isActive).toBe(true);
+  });
+});
+
+describe('Web tabs', () => {
+  it('opens once per Web and sits beside its Thing\'s tab', () => {
+    st().openRightPanelNodeTab('p-box');
+    st().openRightPanelGraphTab('d0', 'p-box');
+    st().openRightPanelGraphTab('d0', 'p-box');
+    st().openRightPanelGraphTab('d2', 'p-box');
+    const tabs = st().rightPanelTabs;
+    expect(tabs.map((t) => t.type)).toEqual(['home', 'node', 'graph', 'graph']);
+    expect(tabs.find((t) => t.isActive)).toMatchObject({ type: 'graph', graphId: 'd2', nodeId: 'p-box' });
+  });
+
+  it('closes a Web tab without closing its Thing\'s tab', () => {
+    st().openRightPanelNodeTab('p-box');
+    st().openRightPanelGraphTab('d0', 'p-box');
+    st().closeRightPanelTab('d0');
+    expect(st().rightPanelTabs.map((t) => t.type)).toEqual(['home', 'node']);
+    st().openRightPanelGraphTab('d0', 'p-box');
+    st().closeRightPanelTab('p-box');
+    expect(st().rightPanelTabs.map((t) => t.graphId || t.type)).toEqual(['home', 'd0']);
   });
 });

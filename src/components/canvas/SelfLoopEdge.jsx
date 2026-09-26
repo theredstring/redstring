@@ -191,11 +191,12 @@ const SelfLoopEdge = ({
         const ly = loop.loopCy + loop.radius * Math.sin(loop.outwardAngle);
 
         // A loop has no run to lie along — the label sits horizontally at the
-        // apex of a circle. What bounds it is the circle's own width, which is
-        // also the widest the loop looks from any direction, so a label cut to
-        // that never sticks out further than the loop it names.
+        // apex of a circle, out in open space. The circle alone is only a
+        // couple of characters wide, so the label gets the node's width, and
+        // never less than about a dozen characters.
+        const labelRoom = Math.max(loop.radius * 2, nodeDims.currentWidth, fontSize * 8);
         const displayName = connectionLabelTruncate
-          ? truncateEdgeLabel(connectionName, fontSize, loop.radius * 2 * LABEL_TRUNCATE_FILL)
+          ? truncateEdgeLabel(connectionName, fontSize, labelRoom * LABEL_TRUNCATE_FILL)
           : connectionName;
 
         // Same contract as the straight/routed renderer: record whether the

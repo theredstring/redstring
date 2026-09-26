@@ -17,8 +17,9 @@ import { requestDeleteDefinition } from '../canvas/dialogs/deleteDefinition.js';
  * PERFORMANCE: This component is memoized to prevent re-renders during zoom/pan
  */
 const PanelContentWrapper = memo(({
-  tabType, // 'home' | 'node'
+  tabType, // 'home' | 'node' | 'graph'
   nodeId = null,
+  graphId = null, // 'graph' tabs: the Web the tab is about
   storeActions,
   onTypeSelect,
   onStartHurtleAnimationFromPanel,
@@ -51,29 +52,33 @@ const PanelContentWrapper = memo(({
   const [colorPickerPosition, setColorPickerPosition] = useState({ x: 0, y: 0 });
   const [colorPickerNodeId, setColorPickerNodeId] = useState(null);
 
+  // The Web a home or Web tab is about: the open one, or the tab's own.
+  const subjectWebId = tabType === 'home' ? activeGraphId : (tabType === 'graph' ? graphId : null);
+
   // Determine which node data to use based on tab type
   const getNodeData = () => {
-    if (tabType === 'home') {
-      // For home tab, we need either a defining node OR just graph data
-      // Don't return null if we have an active graph, even without a defining node
-      if (!graphs || !activeGraphId) return null;
-      const currentGraph = graphs.get(activeGraphId);
-      if (!currentGraph) return null;
+    if (tabType === 'home' || tabType === 'graph') {
+      // A Web's page is its Thing's page, opened on that Web. A Web no Thing
+      // defines stands in for its own Thing.
+      if (!graphs || !subjectWebId) return null;
+      const web = graphs.get(subjectWebId);
+      if (!web) return null;
 
-      const definingNodeId = currentGraph?.definingNodeIds?.[0];
-      if (definingNodeId && nodePrototypes && nodePrototypes.has(definingNodeId)) {
-        // Verify the defining node actually exists
-        return nodePrototypes.get(definingNodeId);
-      }
+      // A Web tab remembers the Thing it was opened from; the Web may have more
+      // than one defining Thing.
+      const definingIds = [nodeId, ...(web.definingNodeIds || [])].filter(Boolean);
+      const definingNodeId = definingIds.find((id) => (
+        nodePrototypes?.get(id)?.definitionGraphIds?.includes(subjectWebId)
+      )) || (web.definingNodeIds || []).find((id) => nodePrototypes?.has(id));
+      if (definingNodeId) return nodePrototypes.get(definingNodeId);
 
-      // If no defining node or defining node doesn't exist, create a fallback node data object from the graph
       return {
-        id: activeGraphId,
-        name: currentGraph.name || 'New Thing',
-        description: currentGraph.description || '',
-        color: currentGraph.color || theme.accent.primary,
+        id: subjectWebId,
+        name: web.name || 'New Thing',
+        description: web.description || '',
+        color: web.color || theme.accent.primary,
         typeNodeId: null,
-        definitionGraphIds: [activeGraphId]
+        definitionGraphIds: [subjectWebId]
       };
     } else if (tabType === 'node' && nodeId && nodePrototypes) {
       // For node tab, use the specific node
@@ -84,19 +89,29 @@ const PanelContentWrapper = memo(({
 
   // Get graph data
   const getGraphData = () => {
-    return graphs && activeGraphId ? graphs.get(activeGraphId) : null;
+    const id = subjectWebId || activeGraphId;
+    return graphs && id ? graphs.get(id) : null;
   };
 
-  // The definition this tab shows: the canvas's `"nodeId-graphId"` context index, so
-  // the panel, the decompose preview and the Components list all step together. A
-  // home tab with no index yet opens on the Web it is the home of.
-  const getDefinitionIndex = (prototype) => {
+  // The definition "you're on": the tab's own Web, then the open Web when it
+  // is one of this Thing's, then the one the canvas previews for it here.
+  const getCurrentDefinitionId = (prototype) => {
     const defIds = Array.isArray(prototype?.definitionGraphIds) ? prototype.definitionGraphIds : [];
-    if (defIds.length === 0) return 0;
-    const contextKey = `${prototype.id}-${activeGraphId}`;
-    const stored = nodeDefinitionIndices?.get(contextKey);
-    const fallback = tabType === 'home' ? Math.max(0, defIds.indexOf(activeGraphId)) : 0;
-    return Math.min(Math.max(stored ?? fallback, 0), defIds.length - 1);
+    if (defIds.length === 0) return null;
+    if (subjectWebId && defIds.includes(subjectWebId)) return subjectWebId;
+    if (defIds.includes(activeGraphId)) return activeGraphId;
+    const index = nodeDefinitionIndices?.get(`${prototype.id}-${activeGraphId}`) ?? 0;
+    return defIds[Math.min(Math.max(index, 0), defIds.length - 1)];
+  };
+
+  // Stepping through definitions here is the tab's own business: it never moves
+  // the canvas, and it is gone when the tab is left (Panel keys this component
+  // per tab), so every visit opens on the definition you're on.
+  const [browsedDefinitionId, setBrowsedDefinitionId] = useState(null);
+  const getShownDefinitionId = (prototype) => {
+    const defIds = Array.isArray(prototype?.definitionGraphIds) ? prototype.definitionGraphIds : [];
+    if (browsedDefinitionId && defIds.includes(browsedDefinitionId)) return browsedDefinitionId;
+    return getCurrentDefinitionId(prototype);
   };
 
   // Get nodes for the current context
@@ -105,18 +120,11 @@ const PanelContentWrapper = memo(({
     const startTime = performance.now();
     // Agent log removed
     // #endregion
-    let targetGraphId = activeGraphId;
-
-    // For node tabs, show components from the node's definition graph if it has one
-    if (tabType === 'node' && nodeId && nodePrototypes) {
-      const nodeData = nodePrototypes.get(nodeId);
-      if (nodeData && nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
-        targetGraphId = nodeData.definitionGraphIds[getDefinitionIndex(nodeData)];
-      } else {
-        // Node has no definition graphs - return empty array instead of falling back to active graph
-        return [];
-      }
-    }
+    // The components of the definition Web Definitions is showing. A Thing with
+    // no definitions has none; a Web with no Thing lists its own.
+    const nodeData = getNodeData();
+    const targetGraphId = getShownDefinitionId(nodeData);
+    if (!targetGraphId) return [];
 
     if (!graphs) return [];
     const targetGraph = graphs.get(targetGraphId);
@@ -214,10 +222,6 @@ const PanelContentWrapper = memo(({
 
     return Array.from(parentNodes.values());
   })();
-
-  // Check if this node is the defining node of the current active graph
-  const isDefiningNodeOfCurrentGraph = activeGraphId && graphData &&
-    graphData.definingNodeIds && graphData.definingNodeIds.includes(nodeData?.id);
 
   // Action handlers
   /**
@@ -330,8 +334,8 @@ const PanelContentWrapper = memo(({
 
     // Same logic as PieMenu expand but using hurtle animation from panel
     if (nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
-      // Node has existing definition(s) - start hurtle animation to first one
-      const graphIdToOpen = nodeData.definitionGraphIds[0];
+      // Node has existing definition(s) - open the one Web Definitions is showing
+      const graphIdToOpen = shownDefinitionId || nodeData.definitionGraphIds[0];
       if (onStartHurtleAnimationFromPanel) {
         onStartHurtleAnimationFromPanel(nodeId, graphIdToOpen, nodeId, iconRect);
       } else if (storeActions?.openGraphTabAndBringToTop) {
@@ -358,25 +362,23 @@ const PanelContentWrapper = memo(({
     }
   };
 
-  // Web Definitions. Only a real prototype has definitions to edit: a home tab
-  // for a Web no Thing defines shows that Web alone.
+  // Web Definitions. Only a real prototype has definitions to edit: a page for
+  // a Web no Thing defines shows that Web alone.
   const isRealPrototype = !!(nodeData?.id && nodePrototypes?.has(nodeData.id));
   const definitionGraphIds = Array.isArray(nodeData?.definitionGraphIds) ? nodeData.definitionGraphIds : [];
-  const definitionIndex = getDefinitionIndex(nodeData);
+  const shownDefinitionId = getShownDefinitionId(nodeData);
+  const definitionIndex = Math.max(0, definitionGraphIds.indexOf(shownDefinitionId));
+  const currentDefinitionId = getCurrentDefinitionId(nodeData);
 
   const handleDefinitionIndexChange = (index) => {
-    if (!isRealPrototype) return;
-    useCanvasUIStore.getState().setNodeDefinitionIndex(`${nodeData.id}-${activeGraphId}`, index);
+    const id = definitionGraphIds[index];
+    if (id) setBrowsedDefinitionId(id);
   };
 
   const handleAddDefinition = () => {
     if (!isRealPrototype) return;
     const newGraphId = storeActions.createAndAssignGraphDefinitionWithoutActivation?.(nodeData.id);
-    if (!newGraphId) return;
-    // Show the new one; the stale `nodeData` doesn't list it yet.
-    const ids = useGraphStore.getState().nodePrototypes.get(nodeData.id)?.definitionGraphIds || [];
-    const index = ids.indexOf(newGraphId);
-    if (index >= 0) handleDefinitionIndexChange(index);
+    if (newGraphId) setBrowsedDefinitionId(newGraphId);
   };
 
   const handleDeleteDefinition = (graphId) => {
@@ -391,6 +393,17 @@ const PanelContentWrapper = memo(({
     } else if (storeActions?.openGraphTabAndBringToTop) {
       storeActions.openGraphTabAndBringToTop(graphId, nodeData.id);
     }
+  };
+
+  // A Web's own tab, or this one when it already is that Web's page.
+  const handleOpenDefinitionInPanel = (graphId) => {
+    if (!graphId || graphId === subjectWebId) return;
+    storeActions.openRightPanelGraphTab?.(graphId, isRealPrototype ? nodeData.id : null);
+  };
+
+  const handleUpdateDefinitionDescription = (graphId, description) => {
+    if (!graphId) return;
+    storeActions.updateGraph?.(graphId, (draft) => { draft.description = description; });
   };
 
   const handleTypeSelect = (nodeId) => {
@@ -565,15 +578,20 @@ const PanelContentWrapper = memo(({
         onMaterializeConnection={handleMaterializeConnection}
         definitionGraphIds={definitionGraphIds}
         definitionIndex={definitionIndex}
+        currentDefinitionId={currentDefinitionId}
         onDefinitionIndexChange={handleDefinitionIndexChange}
         onAddDefinition={handleAddDefinition}
         onDeleteDefinition={handleDeleteDefinition}
         onOpenDefinition={handleOpenDefinition}
+        onOpenDefinitionInPanel={handleOpenDefinitionInPanel}
+        onUpdateDefinitionDescription={handleUpdateDefinitionDescription}
         canEditDefinitions={isRealPrototype}
         activeGraphId={activeGraphId}
+        subjectWebId={subjectWebId}
         isHomeTab={tabType === 'home'}
         showExpandButton={true}
-        expandButtonDisabled={isDefiningNodeOfCurrentGraph}
+        // Off only when the definition on show is the Web already open.
+        expandButtonDisabled={!!shownDefinitionId && shownDefinitionId === activeGraphId}
         isUltraSlim={isUltraSlim}
       />
 

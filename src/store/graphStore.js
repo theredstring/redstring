@@ -44,6 +44,7 @@ import {
   collectDescendantGroupIds,
 } from '../services/groupLayout.js';
 import { debugLogSync } from '../utils/debugLogger.js';
+import { rightPanelTabKey } from '../utils/rightPanelTabs.js';
 import useHistoryStore from './historyStore.js';
 import { generateDescription } from '../utils/actionDescriptions.js';
 import {
@@ -576,6 +577,7 @@ const sanitizeStoreStateReferences = (storeState) => {
   if (Array.isArray(storeState.rightPanelTabs)) {
     try {
       const tabs = storeState.rightPanelTabs.filter(tab => {
+        if (tab?.type === 'graph') return !!storeState.graphs?.has?.(tab.graphId);
         if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
         return storeState.nodePrototypes?.has?.(tab.nodeId);
       });
@@ -6107,6 +6109,36 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
+     * Opens (or activates) the right panel tab for one Web: the page of a Thing
+     * opened on that particular definition. The Web Definitions section's
+     * "Open in panel" lands here.
+     *
+     * @param {string} graphId - The Web.
+     * @param {string|null} [nodeId] - The Thing it was opened from, if any.
+     */
+    openRightPanelGraphTab: (graphId, nodeId = null) => navSet('tab_open', produce((draft) => {
+      const graph = draft.graphs.get(graphId);
+      if (!graph) {
+        console.warn(`openRightPanelGraphTab: Graph ${graphId} not found.`);
+        return;
+      }
+      draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
+      const existing = draft.rightPanelTabs.find(tab => tab.type === 'graph' && tab.graphId === graphId);
+      if (existing) {
+        existing.isActive = true;
+      } else {
+        draft.rightPanelTabs.push({
+          type: 'graph',
+          graphId,
+          nodeId: nodeId || graph.definingNodeIds?.[0] || null,
+          title: graph.name || 'Web',
+          isActive: true
+        });
+      }
+      draft.rightPanelExpanded = true;
+    })),
+
+    /**
      * Activates a right panel tab by its zero-based index.
      * All other tabs are deactivated.
      *
@@ -6127,11 +6159,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Removes a node tab from the right panel. The home tab (index 0) is never removed.
      * If the closed tab was active, activates the home tab.
      *
-     * @param {string} nodeIdToClose - Prototype ID of the tab to close.
+     * @param {string} nodeIdToClose - Key of the tab to close (see rightPanelTabKey):
+     *   a Thing tab's prototype ID or a Web tab's graph ID.
      */
     closeRightPanelTab: (nodeIdToClose) => navSet('tab_close', produce((draft) => {
-      // Find the index of the tab with the matching nodeId
-      const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToClose);
+      // Find the index of the tab with the matching key
+      const index = draft.rightPanelTabs.findIndex(tab => rightPanelTabKey(tab) === nodeIdToClose);
 
       // Check if found and it's not the home tab (index 0)
       if (index === -1 || index === 0) {
@@ -6158,7 +6191,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} nodeIdToKeep - Prototype ID of the tab to keep open.
      */
     closeOtherRightPanelTabs: (nodeIdToKeep) => navSet('tab_close', produce((draft) => {
-      const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeIdToKeep);
+      const index = draft.rightPanelTabs.findIndex(tab => rightPanelTabKey(tab) === nodeIdToKeep);
       if (index <= 0) {
         console.warn(`closeOtherRightPanelTabs: Tab with node ID ${nodeIdToKeep} not found or is home tab.`);
         return;
@@ -6183,7 +6216,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} nodeId - Prototype ID of the anchor tab.
      */
     closeRightPanelTabsToRight: (nodeId) => navSet('tab_close', produce((draft) => {
-      const index = draft.rightPanelTabs.findIndex(tab => tab.nodeId === nodeId);
+      const index = draft.rightPanelTabs.findIndex(tab => rightPanelTabKey(tab) === nodeId);
       if (index <= 0 || index === draft.rightPanelTabs.length - 1) {
         return;
       }
@@ -7624,6 +7657,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       if (Array.isArray(draft.rightPanelTabs)) {
         const originalTabs = draft.rightPanelTabs.slice();
         draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => {
+          if (tab?.type === 'graph') return draft.graphs.has(tab.graphId);
           if (!tab || tab.type !== 'node') return true; // keep non-node tabs (e.g., home)
           return draft.nodePrototypes.has(tab.nodeId);
         });
@@ -8530,7 +8564,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.savedNodeIds.delete(prototypeId);
 
       // Remove from right panel tabs if open
-      draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => tab.nodeId !== prototypeId);
+      draft.rightPanelTabs = draft.rightPanelTabs.filter(tab => tab.type !== 'node' || tab.nodeId !== prototypeId);
 
       // Clear active definition node if it was this one
       if (draft.activeDefinitionNodeId === prototypeId) {

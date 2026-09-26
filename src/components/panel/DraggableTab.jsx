@@ -6,12 +6,15 @@ import { PANEL_CLOSE_ICON_SIZE } from '../../constants';
 import { useTheme } from '../../hooks/useTheme.js';
 import { getTextColor, hexToHsl, hslToHex } from '../../utils/colorUtils';
 import { showContextMenu } from '../GlobalContextMenu.jsx';
+import { rightPanelTabKey } from '../../utils/rightPanelTabs.js';
 
 const ItemTypes = {
   TAB: 'tab'
 };
 
-const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction, nodeColor, getContextMenuOptions }) => {
+// `icon` marks a kind of tab that could otherwise pass for another (a Web's tab
+// next to its Thing's).
+const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, activateTabAction, closeTabAction, nodeColor, getContextMenuOptions, icon: Icon = null }) => {
   const ref = useRef(null);
   const theme = useTheme();
 
@@ -48,7 +51,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
   const [{ isDragging }, drag, preview] = useDrag({
     type: ItemTypes.TAB,
     item: () => ({
-      id: tab.nodeId,
+      id: rightPanelTabKey(tab),
       index: index - 1,
       title: dragItemTitle,
       tab: tab
@@ -118,9 +121,10 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         if (typeof getContextMenuOptions !== 'function') return;
         e.preventDefault();
         e.stopPropagation();
-        showContextMenu(e.clientX, e.clientY, getContextMenuOptions(tab.nodeId));
+        showContextMenu(e.clientX, e.clientY, getContextMenuOptions(rightPanelTabKey(tab)));
       }}
     >
+      {Icon && <Icon size={13} style={{ flexShrink: 0, marginRight: '5px' }} />}
       <span style={{
         whiteSpace: 'nowrap',
         overflow: 'hidden',
@@ -143,8 +147,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         }}
         onClick={(e) => {
           e.stopPropagation();
-          console.log('[DraggableTab Close Click] Tab object:', tab);
-          closeTabAction(tab.nodeId);
+          closeTabAction(rightPanelTabKey(tab));
         }}
       />
     </div>

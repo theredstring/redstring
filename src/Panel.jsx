@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, laz
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
-import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History, MoreHorizontal } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, Network, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History, MoreHorizontal } from 'lucide-react';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -16,6 +16,7 @@ import PanelColorPickerPortal from './components/PanelColorPickerPortal.jsx';
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import NodeSelectionGrid for type selection
 import UnifiedSelector from './UnifiedSelector'; // Import the new UnifiedSelector
 import { debugConfig } from './utils/debugConfig.js';
+import { rightPanelTabKey } from './utils/rightPanelTabs.js';
 import useGraphStore, {
   getActiveGraphId,
   getHydratedNodesForGraph,
@@ -575,6 +576,15 @@ const Panel = memo(
     const activeDefinitionNodeId = useGraphStore(state => state.activeDefinitionNodeId);
     // <<< ADD: Select rightPanelTabs reactively >>>
     const rightPanelTabs = useGraphStore(state => state.rightPanelTabs);
+    // Names of the Webs that have tabs, joined so the selector stays a string:
+    // the panel doesn't subscribe to `graphs` (it changes on every pan/zoom).
+    const graphTabNamesKey = useGraphStore(state => (state.rightPanelTabs || [])
+      .filter(tab => tab?.type === 'graph')
+      .map(tab => `${tab.graphId}\u0001${state.graphs?.get?.(tab.graphId)?.name ?? ''}`)
+      .join('\u0000'));
+    const graphTabNames = useMemo(() => new Map(
+      graphTabNamesKey ? graphTabNamesKey.split('\u0000').map(entry => entry.split('\u0001')) : []
+    ), [graphTabNamesKey]);
 
     // Reserve bottom space for TypeList footer bar when visible
     const typeListMode = useGraphStore(state => state.typeListMode);
@@ -1858,7 +1868,10 @@ const Panel = memo(
       } else if (activeRightPanelTab.type === 'home') {
         panelContent = (
           <div className="panel-content-inner">
+            {/* Keyed per tab (and, for home, per open Web) so what a tab was
+                browsing is dropped when you leave it. */}
             <PanelContentWrapper
+              key={`home:${activeGraphId}`}
               tabType="home"
               storeActions={storeActions}
               onTypeSelect={handleTypeNodeSelection}
@@ -1881,6 +1894,7 @@ const Panel = memo(
           panelContent = (
             <div className="panel-content-inner">
               <PanelContentWrapper
+                key={`node:${nodeId}`}
                 tabType="node"
                 nodeId={nodeId}
                 storeActions={storeActions}
@@ -1891,6 +1905,22 @@ const Panel = memo(
             </div>
           );
         }
+      } else if (activeRightPanelTab.type === 'graph') {
+        // A Web's tab: its Thing's page, opened on that definition.
+        panelContent = (
+          <div className="panel-content-inner">
+            <PanelContentWrapper
+              key={`graph:${activeRightPanelTab.graphId}`}
+              tabType="graph"
+              graphId={activeRightPanelTab.graphId}
+              nodeId={activeRightPanelTab.nodeId}
+              storeActions={storeActions}
+              onTypeSelect={handleTypeNodeSelection}
+              onStartHurtleAnimationFromPanel={onStartHurtleAnimationFromPanel}
+              isUltraSlim={isUltraSlim}
+            />
+          </div>
+        );
       }
     }
 
@@ -1995,7 +2025,7 @@ const Panel = memo(
     // Right-click menu options for a node tab, disabled when nothing to act on.
     // Index 0 is the locked home tab, so only tabs after it participate.
     const getTabContextMenuOptions = useCallback((nodeId) => {
-      const idx = rightPanelTabs.findIndex(tab => tab.nodeId === nodeId);
+      const idx = rightPanelTabs.findIndex(tab => rightPanelTabKey(tab) === nodeId);
       const hasOthers = rightPanelTabs.length > 2;
       const hasRight = idx > 0 && idx < rightPanelTabs.length - 1;
       return [
@@ -2069,7 +2099,7 @@ const Panel = memo(
                   return hslToHex(h, Math.min(s, 100), 12);
                 };
                 if (side === 'right' && activeRightPanelTab) {
-                  if (activeRightPanelTab.type === 'node' && activeRightPanelTab.nodeId) {
+                  if ((activeRightPanelTab.type === 'node' || activeRightPanelTab.type === 'graph') && activeRightPanelTab.nodeId) {
                     const c = nodePrototypesMap.get(activeRightPanelTab.nodeId)?.color;
                     return c ? darken(c) : '#716C6C';
                   }
@@ -2219,17 +2249,29 @@ const Panel = memo(
                         transition: 'background-color 0.2s ease'
                       }}
                     >
-                      {/* Map ONLY node tabs (index > 0) - deduplicate by nodeId to handle corrupted state */}
+                      {/* Map the Thing and Web tabs (index > 0) - deduplicate by key to handle corrupted state */}
                       {rightPanelTabs.slice(1).filter((tab, i, arr) =>
-                        arr.findIndex(t => t.nodeId === tab.nodeId) === i
+                        arr.findIndex(t => rightPanelTabKey(t) === rightPanelTabKey(tab)) === i
                       ).map((tab, i) => {
                         const nodeProto = nodePrototypesMap.get(tab.nodeId);
-                        const nodeCurrentName = nodeProto?.name || tab.title;
+                        let nodeCurrentName = nodeProto?.name || tab.title;
+                        if (tab.type === 'graph') {
+                          // A Web goes by its own name; one still named after its
+                          // Thing gets its definition number, so two definitions
+                          // of the same Thing can be told apart.
+                          const webName = (graphTabNames.get(tab.graphId) || '').trim() || tab.title || 'Web';
+                          const defIds = nodeProto?.definitionGraphIds || [];
+                          const number = defIds.indexOf(tab.graphId) + 1;
+                          nodeCurrentName = (webName === nodeProto?.name && defIds.length > 1 && number > 0)
+                            ? `${webName} (${number})`
+                            : webName;
+                        }
                         return (
                           <DraggableTab
-                            key={tab.nodeId}
+                            key={rightPanelTabKey(tab)}
                             tab={tab}
                             index={i + 1}
+                            icon={tab.type === 'graph' ? Network : null}
                             displayTitle={nodeCurrentName}
                             dragItemTitle={nodeCurrentName}
                             moveTabAction={moveRightPanelTab}

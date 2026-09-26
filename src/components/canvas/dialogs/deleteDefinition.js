@@ -63,4 +63,10 @@ export function deleteDefinition(prototypeId, graphId) {
   if (next) ui.setNodeDefinitionIndices(next);
 
   useGraphStore.getState().removeDefinitionFromNode(prototypeId, graphId);
+
+  // A Web that went with its definition takes its panel tab with it.
+  const after = useGraphStore.getState();
+  if (!after.graphs.has(graphId) && after.rightPanelTabs?.some((tab) => tab.type === 'graph' && tab.graphId === graphId)) {
+    after.closeRightPanelTab(graphId);
+  }
 }
