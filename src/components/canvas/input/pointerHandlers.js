@@ -511,6 +511,10 @@ export function createPointerHandlers(ctxRef) {
           connectionHoverTargetRef.current = armedTarget;
           if (armedTarget) haptic('connectionTarget', { force: true });
         }
+        // Drives ConnectionDrawOverlay's target glow. Written every move, not
+        // only on change, so a value left behind by an abandoned draw can't
+        // outlive the first move of the next one (the setter skips no-ops).
+        useCanvasUIStore.getState().setConnectionDropTargetId(armedTarget);
       }
     } else if (isPanningRef.current && !pinchRef.current.active) {
       if (abstractionCarouselVisible) {
