@@ -114,8 +114,10 @@ export default function ControlPanelsHost({ ctx }) {
   const selectedNodePrototypes = useMemo(() => {
     const list = [];
     if (!nodes || nodes.length === 0) return list;
+    // A Map rather than a find per id: a marquee over a big web selects hundreds.
+    const nodesById = new Map(nodes.map(n => [n.id, n]));
     selectedInstanceIds.forEach((instanceId) => {
-      const inst = nodes.find(n => n.id === instanceId);
+      const inst = nodesById.get(instanceId);
       if (inst && inst.prototypeId) {
         const proto = nodePrototypesMap.get(inst.prototypeId);
         if (proto) list.push(proto);

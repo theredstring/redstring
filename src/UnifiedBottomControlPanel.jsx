@@ -193,9 +193,11 @@ const measureAppWidth = () => {
   }
   return document.documentElement?.clientWidth || window.innerWidth || 1024;
 };
-// The node-chip grid stops growing here and starts scaling instead — past this
-// the panel would be taller than the screen it sits on.
-const NODE_GRID_MAX_HEIGHT = { desktop: 220, mobile: 200 };
+// A big selection is cut, never shrunk: the preview keeps this many rows of
+// chips (or connections) at full size and summarises the rest as "+ N others",
+// which expands the panel into a scrolling list of all of them.
+const NODE_GRID_COLLAPSED_ROWS = 2;
+const CONNECTION_ROWS_COLLAPSED = { desktop: 3, mobile: 2 };
 // One chip never takes more than this much of a row, so a single long name is
 // truncated instead of turning the strip into one wide pill.
 const NODE_CHIP_MAX_WIDTH = 260;
@@ -298,6 +300,12 @@ const UnifiedBottomControlPanel = ({
   const [shouldRender, setShouldRender] = useState(true);
   const nodeGroupPreviewRef = useRef(null);
   const mobileState = useMobileDetection();
+  // Whether a selection too big for the preview is showing all of it. Each
+  // appearance of the panel starts collapsed.
+  const [selectionExpanded, setSelectionExpanded] = useState(false);
+  useEffect(() => {
+    if (isVisible) setSelectionExpanded(false);
+  }, [isVisible, mode]);
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const dragStartYRef = useRef(0);
@@ -510,18 +518,46 @@ const UnifiedBottomControlPanel = ({
   // Text targets for every preview in this panel; see PREVIEW_TEXT.
   const previewText = previewTextFor(mobileState.isMobile);
 
+  // One chip per Thing, not per instance: several copies of the same Thing in a
+  // selection are the same prototype, and drawing each as its own chip gave the
+  // renderer duplicate keys (chips flickered and swapped as the selection
+  // changed) while saying nothing the count doesn't. The count goes on the name.
+  const { selectionChips, selectionChipSource } = useMemo(() => {
+    const source = new Map();
+    const counts = new Map();
+    (Array.isArray(selectedNodes) ? selectedNodes : []).forEach((node) => {
+      if (!node) return;
+      if (!source.has(node.id)) source.set(node.id, node);
+      counts.set(node.id, (counts.get(node.id) || 0) + 1);
+    });
+    const chips = Array.from(source.values()).map((node) => {
+      const count = counts.get(node.id);
+      return count > 1
+        ? { ...node, name: `${node.name || 'Thing'} ×${count}`, selectionCount: count }
+        : { ...node, selectionCount: 1 };
+    });
+    return { selectionChips: chips, selectionChipSource: source };
+  }, [selectedNodes]);
+
+  // Hand the click the original node, not the chip, so a "×3" never reaches a
+  // tab title.
+  const handleChipClick = useCallback((chip) => {
+    onNodeClick?.(selectionChipSource.get(chip?.id) || chip);
+  }, [onNodeClick, selectionChipSource]);
+
   const nodeRendererMetrics = useMemo(() => {
     const padding = mobileState.isMobile ? 4 : 8;
-    if (!(isNodes || isDecompose) || !Array.isArray(selectedNodes) || selectedNodes.length === 0) {
-      return { nodesForRenderer: [], containerWidth: 0, containerHeight: 0, padding };
+    if (!(isNodes || isDecompose) || selectionChips.length === 0) {
+      return { nodesForRenderer: [], containerWidth: 0, containerHeight: 0, padding, hiddenCount: 0, canCollapse: false };
     }
     // Chips draw at the platform's fixed text size, packed into rows; a long
-    // name is truncated, and only a selection too tall for the panel scales.
+    // name is truncated, and a selection past the collapsed rows is cut and
+    // counted rather than scaled.
     const grid = layoutNodeChips({
-      nodes: selectedNodes,
+      nodes: selectionChips,
       text: previewText,
       maxRowWidth: mobileState.isMobile ? viewportLimit : Math.min(viewportLimit, NODE_GRID_MAX_ROW_WIDTH),
-      maxHeight: mobileState.isMobile ? NODE_GRID_MAX_HEIGHT.mobile : NODE_GRID_MAX_HEIGHT.desktop,
+      maxRows: selectionExpanded ? Infinity : NODE_GRID_COLLAPSED_ROWS,
       padding,
       columnGap: mobileState.isMobilePortrait ? 10 : 12,
       rowGap: mobileState.isMobilePortrait ? 8 : 10,
@@ -531,9 +567,76 @@ const UnifiedBottomControlPanel = ({
       nodesForRenderer: grid.nodes,
       containerWidth: grid.containerWidth,
       containerHeight: grid.containerHeight,
-      padding
+      padding,
+      // Instances, not chips: "+ 5 others" counts the selection.
+      hiddenCount: grid.hiddenNodes.reduce((sum, n) => sum + (n.selectionCount || 1), 0),
+      canCollapse: grid.totalRows > NODE_GRID_COLLAPSED_ROWS
     };
-  }, [isNodes, isDecompose, selectedNodes, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
+  }, [isNodes, isDecompose, selectionChips, selectionExpanded, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
+
+  // Connections are drawn one row per connection (subject —name→ object),
+  // stacked. They used to share one row — every endpoint of every connection in
+  // a line with the connections drawn across it — which shrank to 30% by ten
+  // connections and ran lines through the boxes between their ends.
+  const connectionRowLimit = mobileState.isMobile ? CONNECTION_ROWS_COLLAPSED.mobile : CONNECTION_ROWS_COLLAPSED.desktop;
+  const connectionRows = useMemo(() => {
+    if (mode !== 'connections' || !Array.isArray(triples) || triples.length === 0) return [];
+    // Get edges from store for preserving definitionNodeIds
+    const edges = useGraphStore.getState().edges;
+    const visible = selectionExpanded ? triples : triples.slice(0, connectionRowLimit);
+    const rendererPadding = 6;
+    return visible.map((t) => {
+      const previewNodes = [];
+      if (t.subject?.id) previewNodes.push({ id: t.subject.id, name: t.subject.name, color: t.subject.color });
+      if (t.object?.id && t.object.id !== t.subject?.id) {
+        previewNodes.push({ id: t.object.id, name: t.object.name, color: t.object.color });
+      }
+      // Get the original edge to preserve definitionNodeIds
+      const originalEdge = edges.get(t.id);
+      const connection = {
+        id: t.id,
+        sourceId: t.subject?.id,
+        destinationId: t.object?.id,
+        // Don't truncate - let it flow naturally
+        connectionName: t.predicate?.name || 'Connection',
+        color: t.predicate?.color || '#000000',
+        // Preserve original edge data for proper name resolution
+        definitionNodeIds: originalEdge?.definitionNodeIds,
+        typeNodeId: originalEdge?.typeNodeId,
+        // Add directionality for arrows
+        directionality: {
+          arrowsToward: new Set([
+            ...(t.hasLeftArrow ? [t.subject?.id] : []),
+            ...(t.hasRightArrow ? [t.object?.id] : [])
+          ])
+        }
+      };
+      // Self-loops render as two side-by-side copies in UniversalNodeRenderer;
+      // the layout budgets a second box for each.
+      const isSelfLoop = connection.sourceId && connection.sourceId === connection.destinationId;
+      // Names and labels draw at the platform's fixed size; the row fits the
+      // viewport by narrowing its gaps and then truncating its longest names,
+      // never by shrinking the text. The container comes back sized to the
+      // content so the renderer lands on that scale.
+      const row = layoutConnectionRow({
+        nodes: previewNodes,
+        labels: [connection.connectionName],
+        maxWidth: viewportLimit,
+        text: previewText,
+        padding: rendererPadding,
+        duplicateNodeIds: isSelfLoop ? [connection.sourceId] : [],
+        hasArrows: connection.directionality.arrowsToward.size > 0
+      });
+      return {
+        id: t.id,
+        row,
+        padding: rendererPadding,
+        connection: { ...connection, connectionName: row.labels[0] }
+      };
+    });
+  }, [mode, triples, selectionExpanded, connectionRowLimit, viewportLimit, previewText]);
+  const connectionHiddenCount = Math.max(0, (triples?.length || 0) - connectionRows.length);
+  const connectionsCanCollapse = (triples?.length || 0) > connectionRowLimit;
 
   // Subscribed, not a getState() snapshot: the linked prototype owns the node-group's
   // name and color, so renaming or recoloring it (from here or anywhere else) has to
@@ -656,6 +759,22 @@ const UnifiedBottomControlPanel = ({
     && selectedNodes.length > 0
     && selectedNodes.every(n => savedNodeIds?.has(n.id));
 
+  // The toggle under a selection too big to preview whole: "+ N others" while
+  // collapsed, "Show fewer" once expanded.
+  const isConnectionList = mode === 'connections';
+  const isNodeList = isNodes && selectionChips.length > 0;
+  const hiddenInSelection = isNodeList ? nodeRendererMetrics.hiddenCount : isConnectionList ? connectionHiddenCount : 0;
+  const selectionCanCollapse = isNodeList ? nodeRendererMetrics.canCollapse : isConnectionList && connectionsCanCollapse;
+  let overflowToggleLabel = null;
+  if (selectionExpanded && selectionCanCollapse) {
+    overflowToggleLabel = 'Show fewer';
+  } else if (!selectionExpanded && hiddenInSelection > 0) {
+    const noun = isConnectionList
+      ? (hiddenInSelection === 1 ? 'other connection' : 'other connections')
+      : (hiddenInSelection === 1 ? 'other' : 'others');
+    overflowToggleLabel = `+ ${hiddenInSelection} ${noun}`;
+  }
+
   return (
     <div
       className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
@@ -691,17 +810,19 @@ const UnifiedBottomControlPanel = ({
           ) : null}
 
           {(isNodes || isDecompose) ? (
-            selectedNodes && selectedNodes.length > 0 ? (
-              <UniversalNodeRenderer
-                nodes={nodeRendererMetrics.nodesForRenderer}
-                connections={[]}
-                containerWidth={nodeRendererMetrics.containerWidth}
-                containerHeight={nodeRendererMetrics.containerHeight}
-                padding={nodeRendererMetrics.padding}
-                ignoreGlobalScale={true}
-                onNodeClick={onNodeClick}
-                interactive={true}
-              />
+            selectionChips.length > 0 ? (
+              <div className={selectionExpanded && nodeRendererMetrics.canCollapse ? 'selection-scroll' : undefined}>
+                <UniversalNodeRenderer
+                  nodes={nodeRendererMetrics.nodesForRenderer}
+                  connections={[]}
+                  containerWidth={nodeRendererMetrics.containerWidth}
+                  containerHeight={nodeRendererMetrics.containerHeight}
+                  padding={nodeRendererMetrics.padding}
+                  ignoreGlobalScale={true}
+                  onNodeClick={handleChipClick}
+                  interactive={true}
+                />
+              </div>
             ) : null
           ) : isNodeGroup ? (
             nodeGroupRendererNode ? (
@@ -736,88 +857,15 @@ const UnifiedBottomControlPanel = ({
           ) : isAbstraction ? (
             customContent
           ) : (
-            (() => {
-              // Get edges from store for preserving definitionNodeIds
-              const edges = useGraphStore.getState().edges;
-
-              // Extract unique nodes from triples
-              const nodesMap = new Map();
-              triples.forEach(t => {
-                if (t.subject?.id) {
-                  nodesMap.set(t.subject.id, {
-                    id: t.subject.id,
-                    name: t.subject.name,
-                    color: t.subject.color
-                  });
-                }
-                if (t.object?.id) {
-                  nodesMap.set(t.object.id, {
-                    id: t.object.id,
-                    name: t.object.name,
-                    color: t.object.color
-                  });
-                }
-              });
-              const previewNodes = Array.from(nodesMap.values());
-
-              // Transform triples to the format expected by UniversalNodeRenderer
-              const connections = triples.map(t => {
-                // Get the original edge to preserve definitionNodeIds
-                const originalEdge = edges.get(t.id);
-                // Don't truncate - let it flow naturally
-                const connectionName = t.predicate?.name || 'Connection';
-
-                return {
-                  id: t.id,
-                  sourceId: t.subject?.id,
-                  destinationId: t.object?.id,
-                  connectionName,
-                  color: t.predicate?.color || '#000000',
-                  // Preserve original edge data for proper name resolution
-                  definitionNodeIds: originalEdge?.definitionNodeIds,
-                  typeNodeId: originalEdge?.typeNodeId,
-                  // Add directionality for arrows
-                  directionality: {
-                    arrowsToward: new Set([
-                      ...(t.hasLeftArrow ? [t.subject?.id] : []),
-                      ...(t.hasRightArrow ? [t.object?.id] : [])
-                    ])
-                  }
-                };
-              });
-
-              // Self-loops render as two side-by-side copies in UniversalNodeRenderer;
-              // the layout budgets a second box for each.
-              const selfLoopNodeIds = connections
-                .filter(c => c.sourceId && c.destinationId && c.sourceId === c.destinationId)
-                .map(c => c.sourceId);
-
-              // Names and labels draw at the platform's fixed size; the row fits
-              // the viewport by narrowing its gaps and then truncating its longest
-              // names, never by shrinking the text. The container comes back
-              // sized to the content so the renderer lands on that scale.
-              const rendererPadding = 6;
-              const row = layoutConnectionRow({
-                nodes: previewNodes,
-                labels: connections.map(conn => conn.connectionName),
-                maxWidth: viewportLimit,
-                text: previewText,
-                padding: rendererPadding,
-                duplicateNodeIds: selfLoopNodeIds,
-                hasArrows: connections.some(c => c.directionality?.arrowsToward?.size > 0)
-              });
-              const fittedConnections = connections.map((conn, i) => ({
-                ...conn,
-                connectionName: row.labels[i]
-              }));
-
-              return (
+            <div className={`connection-stack ${selectionExpanded && connectionsCanCollapse ? 'selection-scroll' : ''}`}>
+              {connectionRows.map(({ id, row, padding: rowPadding, connection }) => (
                 <UniversalNodeRenderer
+                  key={id}
                   {...RENDERER_PRESETS.CONNECTION_PANEL}
                   {...connectionPreviewRendererProps()}
                   nodes={row.nodes}
-                  connections={fittedConnections}
-                  padding={rendererPadding}
+                  connections={[connection]}
+                  padding={rowPadding}
                   containerWidth={row.containerWidth}
                   containerHeight={row.containerHeight}
                   maxNodeScale={row.scale}
@@ -839,8 +887,8 @@ const UnifiedBottomControlPanel = ({
                     }
                   }}
                 />
-              );
-            })()
+              ))}
+            </div>
           )}
 
           {(isNodes || isDecompose) ? (
@@ -858,6 +906,22 @@ const UnifiedBottomControlPanel = ({
             </div>
           ) : null}
         </div>
+
+        {/* The rest of a selection too big to preview: a count that expands the
+            preview into a scrolling list of all of it, and collapses it again. */}
+        {overflowToggleLabel && (
+          <button
+            type="button"
+            className="selection-overflow-toggle"
+            aria-expanded={selectionExpanded}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectionExpanded(prev => !prev);
+            }}
+          >
+            {overflowToggleLabel}
+          </button>
+        )}
 
         {/* Row 2: Pie-menu buttons */}
         <div className="piemenu-row">
@@ -1334,8 +1398,10 @@ const UnifiedBottomControlPanel = ({
             ) : (
               // Multi-select (and the panel's exit animation, where the target
               // edge id is already gone): the connection menu has no form for
-              // this, so these stay hand-written and keep their selection-wide
-              // handlers.
+              // this, so these stay hand-written. With several connections only
+              // the actions that act on all of them are offered — Define, Open
+              // Definition and Open in Panel are about one connection's type and
+              // would silently act on whichever sorted first.
               <>
                 <div
                   className="piemenu-button"
@@ -1346,33 +1412,37 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Trash2 size={iconSize} />
                 </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onAdd}
-                  title="Define"
-                  onMouseEnter={() => triggerActionHover('control-add', 'Define')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <Edit3 size={iconSize} />
-                </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onUp}
-                  title="Open Definition"
-                  onMouseEnter={() => triggerActionHover('control-open-definition', 'Open Definition')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <ArrowUpFromDot size={iconSize} />
-                </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onOpenInPanel}
-                  title="Open in Panel"
-                  onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <NotebookText size={iconSize} />
-                </div>
+                {triples.length <= 1 && (
+                  <>
+                    <div
+                      className="piemenu-button"
+                      onClick={onAdd}
+                      title="Define"
+                      onMouseEnter={() => triggerActionHover('control-add', 'Define')}
+                      onMouseLeave={clearActionHover}
+                    >
+                      <Edit3 size={iconSize} />
+                    </div>
+                    <div
+                      className="piemenu-button"
+                      onClick={onUp}
+                      title="Open Definition"
+                      onMouseEnter={() => triggerActionHover('control-open-definition', 'Open Definition')}
+                      onMouseLeave={clearActionHover}
+                    >
+                      <ArrowUpFromDot size={iconSize} />
+                    </div>
+                    <div
+                      className="piemenu-button"
+                      onClick={onOpenInPanel}
+                      title="Open in Panel"
+                      onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
+                      onMouseLeave={clearActionHover}
+                    >
+                      <NotebookText size={iconSize} />
+                    </div>
+                  </>
+                )}
                 {wizardEnabled && onAskWizard && (
                   <div
                     className="piemenu-button"

@@ -47,6 +47,9 @@ const DROP_DURATION = 50; // ms
 // pop is needed to read through it.
 const LIFT_SCALE = 1.15;
 const LIFT_SCALE_ZOOM = 1.4;
+// Edge auto-pan speed with the pointer at the very edge of the viewport
+// (screen px per second). It eases in across the 75px margin.
+const EDGE_PAN_MAX_SPEED_PX_PER_SEC = 1000;
 
 /**
  * Move a selected connection's endpoint dots. React placed them at the
@@ -256,7 +259,6 @@ export const useNodeDrag = ({
   const wasDraggingRef = useRef(false);
   const dragHistoryRecordedRef = useRef(false);
   const isEdgePanningRef = useRef(false);
-  const panRafRef = useRef(null);
 
   // RAF throttling for drag position updates
   const pendingDragUpdate = useRef(null);
@@ -2985,11 +2987,19 @@ export const useNodeDrag = ({
   useEffect(() => {
     if (!draggingNodeInfo) return;
 
+    // Every reschedule goes through this one id so the cleanup always cancels
+    // the live frame. (Paused frames used to go to a separate ref the cleanup
+    // never saw, so a drag ending mid-zoom-restore leaked the loop and the
+    // next drag panned once per leaked copy.)
     let animationFrameId;
+    let lastTime = null;
 
-    const panLoop = () => {
+    const panLoop = (now) => {
+      const dt = lastTime === null ? 0 : Math.min(now - lastTime, 50);
+      lastTime = now;
+
       if (isAnimatingZoomRef.current || dragPhaseRef.current !== 'dragging') {
-        panRafRef.current = requestAnimationFrame(panLoop);
+        animationFrameId = requestAnimationFrame(panLoop);
         return;
       }
 
@@ -3007,7 +3017,9 @@ export const useNodeDrag = ({
       const { x: mouseX, y: mouseY } = mousePositionRef.current;
       const bounds = viewportBoundsRef.current;
       const margin = 75;
-      const maxSpeed = 10;
+      // Screen px per second at the very edge; scaled by frame time so the
+      // speed is the same on 60 Hz and 120 Hz displays.
+      const maxSpeed = EDGE_PAN_MAX_SPEED_PX_PER_SEC * (dt / 1000);
 
       let dx = 0;
       let dy = 0;

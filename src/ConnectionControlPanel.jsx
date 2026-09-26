@@ -179,10 +179,11 @@ const ConnectionControlPanel = ({
 
   const handlePredicateClick = (tripleId) => {
     if (onOpenConnectionDialog) {
-      // Find the actual edge ID from the selected edges
+      // The row that was clicked, not the first selected — with several
+      // connections stacked in the panel each label names its own.
       const edges = selectedEdge ? [selectedEdge] : selectedEdges;
-      const actualEdgeId = edges[0]?.id || tripleId;
-      onOpenConnectionDialog(actualEdgeId);
+      const clicked = edges.find(e => String(e.id) === String(tripleId));
+      onOpenConnectionDialog(clicked?.id || edges[0]?.id || tripleId);
     }
   };
 
