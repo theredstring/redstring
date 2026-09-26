@@ -21,6 +21,7 @@ import { collectAncestorGroupIds } from '../../../services/groupLayout.js';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
+import { queueEdgeHandoff } from '../edges/edgeTransitions.js';
 
 /** @param {{ current: object }} ctxRef */
 export function createPointerHandlers(ctxRef) {
@@ -791,6 +792,13 @@ export function createPointerHandlers(ctxRef) {
           // The curve offset rendering will display them properly
           const newEdgeId = uuidv4();
           const newEdgeData = { id: newEdgeId, sourceId, destinationId: targetId };
+          // The drawn line morphs into the new connection rather than vanishing.
+          if (containerRef.current) {
+            const rect = containerRef.current.getBoundingClientRect();
+            queueEdgeHandoff(newEdgeId,
+              { x: drawingConnectionFrom.startX, y: drawingConnectionFrom.startY },
+              clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize));
+          }
           storeActions.addEdge(activeGraphId, newEdgeData);
         }
         setDrawingConnectionFrom(null);

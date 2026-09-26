@@ -46,6 +46,9 @@ import { LABEL_TRUNCATE_FILL, chooseRoutedLabelPlacement, estimateTextWidth, lab
  * or drop any of them and node drag breaks silently at runtime — nothing here
  * will throw.
  *
+ * `[data-edge-main]` (the visible stroke) and `[data-edge-hit]` are also read by
+ * edges/edgeTransitions.js for the create and delete animations.
+ *
  * @param {object} edge Raw edge record from the store.
  * @param {object} ctx  Every component-scope value the renderer reads.
  * @returns {JSX.Element|null}
@@ -703,6 +706,7 @@ export function renderConnectionEdge(edge, ctx) {
             <line x1={endX} y1={endY} x2={x2} y2={y2} stroke={edgeColor} strokeWidth={27 * connectionWidth} strokeLinecap="round" />
           )}
           <path
+            data-edge-main
             d={orthoPathD}
             fill="none"
             stroke={edgeColor}
@@ -713,6 +717,7 @@ export function renderConnectionEdge(edge, ctx) {
         </>
       ) : useCurve ? (
         <path
+          data-edge-main
           d={trimmedPath ? trimmedPath.path : parallelPath.path}
           fill="none"
           stroke={edgeColor}
@@ -722,6 +727,7 @@ export function renderConnectionEdge(edge, ctx) {
         />
       ) : (
         <line
+          data-edge-main
           x1={lineStartX}
           y1={lineStartY}
           x2={lineEndX}

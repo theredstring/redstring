@@ -13,6 +13,7 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { edgeZSlotFor } from '../../../services/groupLayout.js';
 import { renderConnectionEdge } from '../renderConnectionEdge.jsx';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
+import EdgeTransitionLayer from '../edges/EdgeTransitionLayer.jsx';
 
 /**
  * @param {object} p
@@ -113,6 +114,8 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
             {nodeGroupShellsByDepth.get(slot)}
           </React.Fragment>
         ))}
+        {/* Create/delete animations: masks, and the ghosts of deleted connections. */}
+        <EdgeTransitionLayer />
       </>
     </Profiler>
   );
