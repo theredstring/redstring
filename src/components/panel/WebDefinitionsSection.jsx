@@ -7,6 +7,7 @@ import { buildNodeFontString, wrapTextToLines } from '../../services/textMeasure
 import { LABEL_FONT_SIZE_BASE, LABEL_LINE_HEIGHT_BASE } from '../../utils/nodeLabelStyle.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import useGraphStore from '../../store/graphStore.js';
+import useDoubleTap from '../../hooks/useDoubleTap.js';
 import InnerNetwork from '../../InnerNetwork.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
@@ -191,6 +192,9 @@ const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
     setTimeout(() => { savingRef.current = false; }, 200);
   };
 
+  const startEditing = () => { savingRef.current = false; setDraft(description); };
+  const descriptionDoubleTap = useDoubleTap(startEditing);
+
   const sizeToContent = (el) => {
     if (!el) return;
     el.style.height = 'auto';
@@ -247,7 +251,8 @@ const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
     <div style={{ padding: '14px 8px 6px' }}>
       <div
         ref={textRef}
-        onDoubleClick={() => { savingRef.current = false; setDraft(description); }}
+        onDoubleClick={startEditing}
+        {...descriptionDoubleTap}
         title="Double-click to edit"
         style={{
           ...textStyle,

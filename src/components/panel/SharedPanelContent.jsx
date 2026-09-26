@@ -17,6 +17,7 @@ import WebDefinitionsSection from './WebDefinitionsSection.jsx';
 import { ABOUT_INTRO } from './aboutCopy.js';
 import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
+import useDoubleTap from '../../hooks/useDoubleTap.js';
 import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from '../../services/imageCache.js';
 import { linkedWikipediaTitle } from '../../services/conceptEnrichment.js';
@@ -1451,6 +1452,7 @@ const SharedPanelContent = ({
       }
     }, 10);
   };
+  const bioDoubleTap = useDoubleTap(handleBioDoubleClick);
 
   const handleBioSave = () => {
     if (isSavingBioRef.current) return;
@@ -1819,6 +1821,7 @@ const SharedPanelContent = ({
         ) : (
           <div
             onDoubleClick={handleBioDoubleClick}
+            {...bioDoubleTap}
             style={{
               marginRight: '15px',
               padding: '8px',
