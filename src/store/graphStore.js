@@ -721,6 +721,49 @@ const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, 
 };
 
 /**
+ * Pairs each old instance with the most similar new one, for carrying connections
+ * across a wholesale replacement (a node-group refreshed from its definition).
+ *
+ * Similar means the same prototype first, then the nearest position — each side
+ * measured from its own top-left corner, so a box that moved still lines up. Pairing
+ * is one-to-one: two old "Wheel"s go to two different new "Wheel"s, closest pairs
+ * first. Old instances left over (their prototype is gone, or there are fewer of it
+ * now) are absent from the result.
+ *
+ * @param {Array<{id, prototypeId, x, y}>} oldInstances
+ * @param {Array<{id, prototypeId, x, y}>} newInstances
+ * @returns {Map<string,string>} oldInstanceId → newInstanceId
+ */
+const matchSimilarInstances = (oldInstances, newInstances) => {
+  const relative = (list) => {
+    if (list.length === 0) return [];
+    const minX = Math.min(...list.map(i => i.x ?? 0));
+    const minY = Math.min(...list.map(i => i.y ?? 0));
+    return list.map(i => ({ id: i.id, prototypeId: i.prototypeId, x: (i.x ?? 0) - minX, y: (i.y ?? 0) - minY }));
+  };
+  const olds = relative(oldInstances);
+  const news = relative(newInstances);
+
+  const pairs = [];
+  for (const o of olds) {
+    for (const n of news) {
+      if (o.prototypeId !== n.prototypeId) continue;
+      pairs.push({ oldId: o.id, newId: n.id, distance: Math.hypot(o.x - n.x, o.y - n.y) });
+    }
+  }
+  pairs.sort((a, b) => a.distance - b.distance);
+
+  const match = new Map();
+  const takenNew = new Set();
+  for (const { oldId, newId } of pairs) {
+    if (match.has(oldId) || takenNew.has(newId)) continue;
+    match.set(oldId, newId);
+    takenNew.add(newId);
+  }
+  return match;
+};
+
+/**
  * Copies a source graph's groups into a target graph alongside a just-copied instance
  * set, remapping every instance reference through `instanceIdMap`.
  *
@@ -3253,14 +3296,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * definition graph currently contains. The inverse of `updateDefinitionFromNodeGroup`.
      *
      * Use when the definition graph was edited elsewhere and the group (an in-place
-     * expansion of it) has drifted out of sync. Any edges from the group's old members to
-     * nodes outside the group are deleted — there's no way to know which fresh member
-     * should inherit them.
+     * expansion of it) has drifted out of sync. Connections from the group's old members
+     * to nodes outside the group are kept: each moves to the most similar fresh member
+     * (same prototype, nearest position — see matchSimilarInstances). One whose old end
+     * has no counterpart in the definition any more moves onto the group's own node,
+     * the way collapsing does, rather than being deleted.
      *
      * @param {string} graphId - Graph containing the node-group.
      * @param {string} groupId - Node-group to refresh.
      * @param {Object} [contextOptions] - Save context flags.
-     * @returns {{ memberCount: number, droppedCrossEdgeCount: number }|null}
+     * @returns {{ memberCount: number, reattachedCrossEdgeCount: number, movedToGroupNodeCount: number, droppedCrossEdgeCount: number }|null}
      */
     refreshNodeGroupFromDefinition: (graphId, groupId, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_refresh_from_definition', target: 'group', ...contextOptions });
@@ -3335,25 +3380,29 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           offsetY = anchorY - minY;
         }
 
-        // Drop any edges touching the old members — internal ones no longer have valid
-        // endpoints once the members are gone, and cross-edges have no principled owner
-        // among the fresh replacements.
-        let droppedCrossEdgeCount = 0;
+        // Edges wholly inside the old members go: the definition brings its own copies.
+        // Edges crossing the group's edge are held back and reattached once the fresh
+        // members exist (below).
+        const oldMemberSnapshots = oldMemberInstances.map(inst => ({
+          id: inst.id, prototypeId: inst.prototypeId, x: inst.x, y: inst.y
+        }));
+        const crossEdgeIds = [];
         const edgesToRemove = [];
         draft.edges.forEach((edge, edgeId) => {
           const sourceInGroup = oldMemberIdSet.has(edge.sourceId);
           const destInGroup = oldMemberIdSet.has(edge.destinationId);
           if (!sourceInGroup && !destInGroup) return;
-          if (sourceInGroup !== destInGroup) droppedCrossEdgeCount++;
-          edgesToRemove.push(edgeId);
+          if (sourceInGroup !== destInGroup) crossEdgeIds.push(edgeId);
+          else edgesToRemove.push(edgeId);
         });
-        edgesToRemove.forEach(edgeId => {
+        const removeEdge = (edgeId) => {
           draft.edges.delete(edgeId);
           if (graph.edgeIds) {
             const index = graph.edgeIds.indexOf(edgeId);
             if (index > -1) graph.edgeIds.splice(index, 1);
           }
-        });
+        };
+        edgesToRemove.forEach(removeEdge);
 
         oldMemberIds.forEach(memberId => {
           if (graph.instances?.has(memberId)) graph.instances.delete(memberId);
@@ -3407,11 +3456,47 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         });
         addMembersWithAncestors(graph, groupId, newInstanceIds);
 
-        if (droppedCrossEdgeCount > 0) {
-          console.warn(`[refreshNodeGroupFromDefinition] Dropped ${droppedCrossEdgeCount} edge(s) that connected the old group members to nodes outside the group.`);
+        // Reattach the held-back connections to the fresh members most like their old
+        // ends. No counterpart left → the group's own node, as collapsing does. Only a
+        // connection that would then loop from the group's node to itself is dropped.
+        const freshMembers = newInstanceIds.map(newId => graph.instances.get(newId)).filter(Boolean);
+        const similar = matchSimilarInstances(oldMemberSnapshots, freshMembers);
+        const groupNodeId = group.anchorInstanceId && graph.instances?.has(group.anchorInstanceId)
+          ? group.anchorInstanceId
+          : null;
+        let reattachedCrossEdgeCount = 0;
+        let movedToGroupNodeCount = 0;
+        let droppedCrossEdgeCount = 0;
+        for (const edgeId of crossEdgeIds) {
+          const edge = draft.edges.get(edgeId);
+          if (!edge) continue;
+          const innerEnd = oldMemberIdSet.has(edge.sourceId) ? 'sourceId' : 'destinationId';
+          const outerEnd = innerEnd === 'sourceId' ? 'destinationId' : 'sourceId';
+          const oldId = edge[innerEnd];
+          const matchedId = similar.get(oldId);
+          const newId = matchedId || groupNodeId;
+          if (!newId || newId === edge[outerEnd]) {
+            removeEdge(edgeId);
+            droppedCrossEdgeCount++;
+            continue;
+          }
+          const normalized = normalizeEdgeDirectionality(edge.directionality);
+          const arrowsToward = new Set(normalized.arrowsToward || []);
+          if (arrowsToward.has(oldId)) {
+            arrowsToward.delete(oldId);
+            arrowsToward.add(newId);
+          }
+          edge[innerEnd] = newId;
+          edge.directionality = { ...normalized, arrowsToward };
+          if (matchedId) reattachedCrossEdgeCount++;
+          else movedToGroupNodeCount++;
         }
 
-        result = { memberCount: newInstanceIds.length, droppedCrossEdgeCount };
+        if (movedToGroupNodeCount > 0 || droppedCrossEdgeCount > 0) {
+          console.warn(`[refreshNodeGroupFromDefinition] ${movedToGroupNodeCount} outside connection(s) lost their inner node and moved onto the group's node; ${droppedCrossEdgeCount} dropped (would have looped onto the group's node).`);
+        }
+
+        result = { memberCount: newInstanceIds.length, reattachedCrossEdgeCount, movedToGroupNodeCount, droppedCrossEdgeCount };
         console.log(`[refreshNodeGroupFromDefinition] Refreshed group ${groupId} with ${newInstanceIds.length} member(s) from definition graph ${defGraphId}.`);
       }));
       return result;
