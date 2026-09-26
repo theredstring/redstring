@@ -17,7 +17,7 @@ import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
 import { haptic } from '../../../services/haptics.js';
 import { TOUCH_PAN_DRAG_SENSITIVITY, isMac, TOUCH_MOMENTUM_STATIONARY_GAP_MS, TOUCH_MOMENTUM_VELOCITY_WINDOW_MS, TOUCH_MOMENTUM_LAUNCH_MIN_SPEED, PAN_MOMENTUM_MIN_SPEED } from '../../../utils/canvas/input/inputTuning.js';
 import { v4 as uuidv4 } from 'uuid';
-import { collectAncestorGroupIds } from '../../../services/groupLayout.js';
+import { findGroupDropTarget, groupDropDialogFor } from '../groups/groupDropTarget.js';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
@@ -842,74 +842,13 @@ export function createPointerHandlers(ctxRef) {
               const primaryCenterX = posX + primaryDims.currentWidth / 2;
               const primaryCenterY = posY + primaryDims.currentHeight / 2;
 
-              // Innermost hit wins. Insertion order says nothing about nesting, so
-              // score by containment depth — otherwise dropping onto a plain group
-              // that sits inside a node-group lands in whichever of the two happens
-              // to come later in the Map, usually the outer one.
-              const dropDepths = groupStructure.groupDepths;
-              let targetGroup = null;
-              let targetDepth = -1;
-              for (let i = 0; i < groups.length; i++) {
-                const group = groups[i];
-                if (group.memberInstanceIds.includes(primaryNodeId)) continue;
-                const depth = dropDepths.get(group.id) ?? 0;
-                // `>=` so a later sibling at the same depth still wins, preserving
-                // the previous reverse-insertion tie-break.
-                if (depth < targetDepth) continue;
-
-                const members = nodes.filter(n => group.memberInstanceIds.includes(n.id));
-                const margin = Math.max(24, Math.round(gridSize * 0.2));
-
-                let groupMinX, groupMinY, groupMaxX, groupMaxY;
-                if (members.length) {
-                  const memberDims = members.map(n => getNodeDimensions(n, false, null));
-                  const xs = members.map((n) => n.x);
-                  const ys = members.map((n) => n.y);
-                  const rights = members.map((n, idx) => n.x + memberDims[idx].currentWidth);
-                  const bottoms = members.map((n, idx) => n.y + memberDims[idx].currentHeight);
-                  groupMinX = Math.min(...xs) - margin;
-                  groupMinY = Math.min(...ys) - margin;
-                  groupMaxX = Math.max(...rights) + margin;
-                  groupMaxY = Math.max(...bottoms) + margin;
-                } else if (group.linkedNodePrototypeId && group.anchorInstanceId) {
-                  // Empty node-group placeholder: hold open a drop target at the
-                  // group's frozen placeholder origin — the same position the box
-                  // actually renders at (see groupLayout.js) — not the anchor's live
-                  // x/y, which tracks the rendered title-tab spot instead.
-                  const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-                  const origin = group.emptyPlaceholderOrigin || anchorNode;
-                  if (!origin || !anchorNode) continue;
-                  const anchorDims = getNodeDimensions(anchorNode, false, null);
-                  groupMinX = origin.x - margin;
-                  groupMinY = origin.y - margin;
-                  groupMaxX = origin.x + anchorDims.currentWidth + margin;
-                  groupMaxY = origin.y + anchorDims.currentHeight + margin;
-                } else {
-                  continue;
-                }
-
-                if (primaryCenterX >= groupMinX && primaryCenterX <= groupMaxX &&
-                  primaryCenterY >= groupMinY && primaryCenterY <= groupMaxY) {
-                  targetGroup = group;
-                  targetDepth = depth;
-                }
-              }
-
+              const targetGroup = findGroupDropTarget({
+                point: { x: primaryCenterX, y: primaryCenterY }, excludeNodeId: primaryNodeId,
+                groups, nodes, groupDepths: groupStructure.groupDepths, gridSize,
+              });
               if (targetGroup) {
-                const isNodeGroup = !!targetGroup.linkedNodePrototypeId;
-                // The node joins every group this one sits inside, so shells the
-                // user didn't drop onto will visibly take it in. Say so when
-                // there's actually a chain above the target.
-                const ancestorCount = collectAncestorGroupIds(targetGroup.id, groupStructure.parentGroupIds).size;
-                const groupName = (targetGroup.name || 'Unnamed Group')
-                  + (ancestorCount > 0 ? ' (and others)' : '');
-                setAddToGroupDialog({
-                  nodeIds: dragResult.draggedNodeIds,
-                  groupId: targetGroup.id,
-                  groupName: groupName,
-                  isNodeGroup: isNodeGroup,
-                  position: { x: e.clientX, y: e.clientY }
-                });
+                setAddToGroupDialog(groupDropDialogFor(targetGroup, dragResult.draggedNodeIds,
+                  groupStructure.parentGroupIds, { x: e.clientX, y: e.clientY }));
               }
             }
           }
@@ -1100,9 +1039,15 @@ export function createPointerHandlers(ctxRef) {
     // and fall back to the geometry for clicks that never dwelled.
     // Clicking the already-selected connection still falls through, so a second
     // click deselects.
+    // A node-group's interior is canvas too: a click there picks a connection,
+    // deselects or spawns a plus sign exactly as it would outside the group.
+    const groupInteriorId = e.target.classList?.contains('node-group-interior')
+      ? e.target.closest('[data-group-id]')?.getAttribute('data-group-id') ?? null
+      : null;
     const isBareCanvasTarget = (
       (e.target.tagName === 'svg' && e.target.classList.contains('canvas')) ||
-      (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area'))
+      (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area')) ||
+      groupInteriorId !== null
     );
     if (isBareCanvasTarget && !ignoreCanvasClick.current && !draggingNodeInfo
       && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
@@ -1148,12 +1093,8 @@ export function createPointerHandlers(ctxRef) {
     if (e.target.closest('.pie-menu')) {
       return;
     }
-    // Allow clicks on the canvas SVG or the canvas-area container div
-    const isValidCanvasTarget = (
-      (e.target.tagName === 'svg' && e.target.classList.contains('canvas')) ||
-      (e.target.tagName === 'DIV' && e.target.classList.contains('canvas-area'))
-    );
-    if (!isValidCanvasTarget) return;
+    // Allow clicks on the canvas SVG, the canvas-area container div or a node-group's interior
+    if (!isBareCanvasTarget) return;
 
     // For canvas clicks, we don't need to wait for the CLICK_DELAY since we're not dealing with double-click detection
     // Only check if we're in a state that should block canvas interactions
@@ -1226,7 +1167,8 @@ export function createPointerHandlers(ctxRef) {
     const { x: mouseX, y: mouseY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
     if (!plusSign && selectedInstanceIds.size === 0 && !useCanvasUIStore.getState().hoveredEdgeInfo) {
-      setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '' });
+      // clientX/Y and groupInteriorId are for the "Add to group?" offer once it lands (plusSignMorph).
+      setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '', clientX: e.clientX, clientY: e.clientY, groupInteriorId });
     } else {
       if (nodeNamePrompt.visible) return;
       // A plus sign that's morphing into a node is committed — don't let a

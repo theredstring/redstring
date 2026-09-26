@@ -211,17 +211,18 @@ export function buildGroupElements({
         <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
           {/* Colored band is purely decorative — pointer-events:none lets
               connections routing under it stay clickable. Selection happens
-              via the title label; deselection via the inner canvas-bg rect. */}
+              via the title label. The interior is canvas: handleCanvasClick
+              treats a click on .node-group-interior like one on bare canvas. */}
           <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
             rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none"
             pointerEvents="none" />
           <rect
+            className="node-group-interior"
             x={innerCanvasRect.x} y={innerCanvasRect.y}
             width={innerCanvasRect.w}
             height={innerCanvasRect.h}
             rx={innerCanvasRect.r} ry={innerCanvasRect.r} fill={innerCanvasFill} stroke="none"
             style={{ cursor: 'default', pointerEvents: 'auto' }}
-            onClick={handlers.innerCanvasClick}
           />
           {/* The base grid is painted at the bottom of the z-stack, so this
               opaque interior would otherwise cut a blank hole in it. Repaint

@@ -46,8 +46,9 @@ import { LABEL_TRUNCATE_FILL, chooseRoutedLabelPlacement, estimateTextWidth, lab
  * or drop any of them and node drag breaks silently at runtime — nothing here
  * will throw.
  *
- * `[data-edge-main]` (the visible stroke) and `[data-edge-hit]` are also read by
- * edges/edgeTransitions.js for the create and delete animations.
+ * `[data-edge-main]` (the visible stroke), `[data-edge-hit]`, `[data-edge-label]`
+ * and `[data-arrow]` are also read by edges/edgeTransitions.js for the create
+ * and delete animations.
  *
  * @param {object} edge Raw edge record from the store.
  * @param {object} ctx  Every component-scope value the renderer reads.
@@ -1858,7 +1859,7 @@ export function renderConnectionEdge(edge, ctx) {
         };
 
         return (
-          <g>
+          <g data-edge-label>
             {/* Invisible click target covering the label text */}
             <rect
               x={labelRenderX - labelHitW / 2}

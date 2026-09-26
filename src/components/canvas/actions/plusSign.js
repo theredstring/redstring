@@ -36,7 +36,7 @@ const waitForCachedImage = (protoId, timeoutMs) => new Promise((resolve) => {
 export function usePlusSignActions({
   activeGraphId, gridMode, keysPressed, nodePrototypesMap, plusSign,
   setNodeNamePrompt, setPlusSign, setVideoAnimation, snapToGridAnimated, storeActions,
-  videoAnimation, visibleNodeIds,
+  videoAnimation, visibleNodeIds, nodes, groupStructure, gridSize,
 }) {
   const handlePlusSignClick = () => {
     if (!plusSign) return;
@@ -110,7 +110,7 @@ export function usePlusSignActions({
   }, [landedInstanceId, visibleNodeIds]);
 
   const handleMorphDone = (...args) => finishPlusSignMorph({
-    plusSign, activeGraphId, getPlusSignMorphTarget, storeActions, setPlusSign,
+    plusSign, activeGraphId, getPlusSignMorphTarget, storeActions, setPlusSign, nodes, groupStructure, gridSize,
   }, ...args);
 
   const handleVideoAnimationComplete = (...args) => finishVideoAnimation({

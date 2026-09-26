@@ -93,8 +93,9 @@ const SelfLoopEdge = ({
   const glowStrokeWidth = 20 * cw;
   const hitStrokeWidth = Math.max(50, 44 * cw);
 
+  // data-edge-decor: faded, not sliced, by the create/delete animations.
   const renderDot = (anchor) => (
-    <g>
+    <g data-edge-decor>
       <circle
         cx={anchor.x}
         cy={anchor.y}
@@ -226,7 +227,7 @@ const SelfLoopEdge = ({
         };
 
         return (
-          <g>
+          <g data-edge-label>
             {/* Outermost ring in the connection's own color — SVG paints one
                 stroke per element, so it's a second <text> underneath. */}
             {labelColors.outerStroke && (

@@ -4,6 +4,8 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { getNodeDimensions } from '../../../utils.js';
+import { findGroupDropTarget, groupDropDialogFor } from '../groups/groupDropTarget.js';
+import { setAddToGroupDialog } from '../dialogs/canvasDialogs.js';
 
 /** The plus sign has finished morphing: create or place the Thing it became. */
 export function finishPlusSignMorph(ctx) {
@@ -45,6 +47,24 @@ export function finishPlusSignMorph(ctx) {
   }
 
   setPlusSign(added ? { ...plusSign, mode: 'landed', landedInstanceId: newInstanceId } : null);
+  if (added) offerGroupForLandedThing(ctx, newInstanceId, center);
+}
+
+// A Thing made inside a group gets the same "Add to group?" a Thing dragged to
+// that point would. If the drop test misses but the plus sign was opened on a
+// node-group's interior (its border strip is wider than the drop margin), that
+// group is still the one the user clicked into.
+function offerGroupForLandedThing(ctx, newInstanceId, center) {
+  const { plusSign, nodes, groupStructure, gridSize } = ctx;
+  const groupsById = groupStructure?.groupsById;
+  if (!groupsById?.size) return;
+  const targetGroup = findGroupDropTarget({
+    point: center, excludeNodeId: newInstanceId, groups: Array.from(groupsById.values()),
+    nodes, groupDepths: groupStructure.groupDepths, gridSize,
+  }) || (plusSign.groupInteriorId ? groupsById.get(plusSign.groupInteriorId) : null);
+  if (!targetGroup) return;
+  const position = plusSign.clientX != null ? { x: plusSign.clientX, y: plusSign.clientY } : undefined;
+  setAddToGroupDialog(groupDropDialogFor(targetGroup, [newInstanceId], groupStructure.parentGroupIds, position));
 }
 
 /** The Y-key video animation has finished. */

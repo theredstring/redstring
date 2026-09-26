@@ -7,24 +7,24 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import useGraphStore from '../../../store/graphStore.js';
 import {
-  pendingHandoffs, expireHandoffs, handoffEdge, retractEdge, findEdgeWrapper,
+  pendingEntrances, expireEntrances, playEntrance, retractEdge, findEdgeWrapper,
   prefersReducedMotion, MAX_RETRACTS,
 } from './edgeTransitions.js';
 
 export default function EdgeTransitionLayer() {
   const hostRef = useRef(null);
 
-  // Handoffs: runs after every EdgeLayer commit, before paint. Free when idle.
+  // Entrances: runs after every EdgeLayer commit, before paint. Free when idle.
   useLayoutEffect(() => {
     const host = hostRef.current;
-    if (!host || pendingHandoffs.size === 0) return;
-    for (const [edgeId, handoff] of pendingHandoffs) {
+    if (!host || pendingEntrances.size === 0) return;
+    for (const [edgeId, entrance] of pendingEntrances) {
       const wrapper = findEdgeWrapper(host, edgeId);
       if (!wrapper) continue;
-      pendingHandoffs.delete(edgeId);
-      if (!prefersReducedMotion()) handoffEdge(host, wrapper, handoff);
+      pendingEntrances.delete(edgeId);
+      if (!prefersReducedMotion()) playEntrance(host, wrapper, entrance);
     }
-    expireHandoffs(performance.now());
+    expireEntrances(performance.now());
   });
 
   // Retracts: catch deletions while the connection is still in the DOM.
@@ -40,7 +40,7 @@ export default function EdgeTransitionLayer() {
       if (removed.length > MAX_RETRACTS) return;
     }
     for (const id of removed) {
-      pendingHandoffs.delete(id);
+      pendingEntrances.delete(id);
       const wrapper = findEdgeWrapper(host, id);
       if (wrapper) retractEdge(host, wrapper);
     }

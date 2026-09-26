@@ -2819,7 +2819,7 @@ function NodeCanvas() {
   } = usePlusSignActions({
     activeGraphId, gridMode, keysPressed, nodePrototypesMap, plusSign,
     setNodeNamePrompt, setPlusSign, setVideoAnimation, snapToGridAnimated, storeActions,
-    videoAnimation, visibleNodeIds,
+    videoAnimation, visibleNodeIds, nodes, groupStructure, gridSize,
   });
 
 

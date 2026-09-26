@@ -10,7 +10,6 @@
  */
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { placeholderIdForGroup } from '../../../services/groupLayout.js';
-import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
 /** @param {{ current: object }} ctxRef */
 export function createGroupInputHandlers(ctxRef) {
@@ -337,35 +336,6 @@ export function createGroupInputHandlers(ctxRef) {
         }
       }
       setEditingGroupId(null);
-    },
-
-    innerCanvasClick(e) {
-      const {
-        draggingNodeInfo, drawingConnectionFrom, mouseMoved, nodeNamePrompt, activeGraphId,
-        groupControlPanelShouldShow, groupControlPanelVisible, selectedGroup, setGroupControlPanelVisible,
-        setSelectedGroup, abstractionCarouselVisible, selectedNodeIdForPieMenu, carouselAnimationState,
-        selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, setSelectedInstanceIds,
-        selectedEdgeId, selectedEdgeIds, storeActions,
-      } = ctxRef.current;
-      e.stopPropagation();
-      if (draggingNodeInfo || drawingConnectionFrom || mouseMoved.current || nodeNamePrompt.visible || !activeGraphId) return;
-      if (groupControlPanelShouldShow || groupControlPanelVisible || selectedGroup) {
-        if (groupControlPanelShouldShow || groupControlPanelVisible) setGroupControlPanelVisible(false);
-        if (selectedGroup) setSelectedGroup(null);
-        return;
-      }
-      if (abstractionCarouselVisible && !selectedNodeIdForPieMenu) {
-        useCanvasUIStore.getState().dispatchPie({ type: 'CAROUSEL_TEARDOWN' });
-        return;
-      }
-      if (abstractionCarouselVisible && carouselAnimationState === 'exiting') return;
-      if (selectedInstanceIds.size > 0) {
-        if (justCompletedCarouselExit || carouselExitInProgressRef.current) return;
-        setSelectedInstanceIds(new Set()); return;
-      }
-      if ((selectedEdgeId || selectedEdgeIds.size > 0) && !useCanvasUIStore.getState().hoveredEdgeInfo) {
-        storeActions.setSelectedEdgeId(null); storeActions.clearSelectedEdgeIds(); return;
-      }
     },
   };
 }

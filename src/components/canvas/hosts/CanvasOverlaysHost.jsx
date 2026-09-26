@@ -21,6 +21,7 @@ import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
 import DeleteDefinitionDialog from '../dialogs/DeleteDefinitionDialog.jsx';
 import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
+import { queueEdgeTrace } from '../edges/edgeTransitions.js';
 
 export default function CanvasOverlaysHost({ ctx }) {
   const {
@@ -131,8 +132,10 @@ export default function CanvasOverlaysHost({ ctx }) {
           onClose={() => setSelfLoopDialog(null)}
           onConfirm={() => {
             if (activeGraphId && selfLoopDialog.sourceInstanceId) {
+              const edgeId = uuidv4();
+              queueEdgeTrace(edgeId);
               storeActions.addEdge(activeGraphId, {
-                id: uuidv4(),
+                id: edgeId,
                 sourceId: selfLoopDialog.sourceInstanceId,
                 destinationId: selfLoopDialog.sourceInstanceId
               });
