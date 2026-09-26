@@ -62,9 +62,11 @@ export function copySelection(selectedInstanceIds, graph, nodePrototypes, edges)
           picture: edge.picture,
           color: edge.color,
           typeNodeId: edge.typeNodeId,
-          definitionNodeIds: [...edge.definitionNodeIds],
+          // Not every edge carries these (Wizard-made and older-file edges
+          // can lack them); copying one used to throw and abort the copy.
+          definitionNodeIds: [...(edge.definitionNodeIds || [])],
           directionality: {
-            arrowsToward: new Set(edge.directionality.arrowsToward)
+            arrowsToward: new Set(edge.directionality?.arrowsToward || [])
           }
         }
       });
@@ -331,7 +333,7 @@ export function pasteClipboard(
 
     // Remap directionality arrows
     const newArrowsToward = new Set();
-    for (const oldId of edge.edgeData.directionality.arrowsToward) {
+    for (const oldId of (edge.edgeData.directionality?.arrowsToward || [])) {
       const newId = instanceIdMap.get(oldId);
       if (newId) {
         newArrowsToward.add(newId);
@@ -347,7 +349,7 @@ export function pasteClipboard(
       picture: edge.edgeData.picture,
       color: edge.edgeData.color,
       typeNodeId: edge.edgeData.typeNodeId,
-      definitionNodeIds: [...edge.edgeData.definitionNodeIds],
+      definitionNodeIds: [...(edge.edgeData.definitionNodeIds || [])],
       directionality: {
         arrowsToward: newArrowsToward
       }
