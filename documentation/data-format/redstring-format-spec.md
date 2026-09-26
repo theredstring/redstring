@@ -75,7 +75,14 @@ Redstring uses a dual format approach for edges to support both native applicati
 - **`directionality`**: Arrow direction configuration
 - **`typeNodeId`**: Connection type prototype ID
 - **`definitionNodeIds`**: Array of definition node IDs
+- **`sourceVia`**, **`destinationVia`** (optional): when an end lives inside a definition opened in place, the instance ids, from this edge's own graph inward, of the nodes whose definitions it is reached through. `{ sourceId: "a", sourceVia: ["box"] }` in web Main reads "in Main, the A inside Box connects to …". The RDF statement is unaffected: it is always between the prototypes themselves.
 - **`name`**, **`description`**: Human-readable metadata
+
+### Definitions opened in place
+
+An instance may carry **`redstring:openDefinition`**: `{ "redstring:definitionIndex": 0, "redstring:xOffset": 400, "redstring:yOffset": 450 }`. The node is shown open, with that definition's own instances drawn inside it at the offset (relative to the instance's graph). Nothing is copied into the outer graph. The field and the edge vias are additive and optional (no version bump). Builds that predate them keep them in `_preserved`, show the node closed and keep the connections; the reader recovers both from `_preserved`.
+
+A copy-style node-group may carry **`redstring:definitionFingerprint`**: a hash of its definition's contents when the copy was opened, so closing it can tell an edit made in the copy from one made elsewhere.
 
 ### RDF Format (Semantic Web)
 - **`rdfStatement`**: RDF Statement with subject-predicate-object

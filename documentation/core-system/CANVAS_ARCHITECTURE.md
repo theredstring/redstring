@@ -163,6 +163,24 @@ Use a command, not a new window event or a callback prop threaded through NodeCa
 
 **Never add a feature to `NodeCanvas.jsx`.** Its line budget (`test/meta/nodecanvas-budget.json`) only goes down: a commit that shrinks the file lowers it, and raising it needs a DECISION in the refactor folder.
 
+## Definitions opened in place
+
+Decompose opens a Thing onto its definition itself (`src/core/openDefinitions.js`); nothing is copied. The instance carries `openDefinition: { index, offset }`, and the definition graph at that index is projected into whatever web is being viewed.
+
+- **Reading: the canvas sees each web as viewed.**
+  - `projectGraphView(state, graphId)` returns the web with every open definition's instances (shifted by the box's offset), connections and groups added, plus one synthetic group per open box (`open:<anchorId>`, `isOpenDefinition: true`).
+  - An open box's anchor is flagged `isGroupAnchor` in the view only, so it hides behind the shell.
+  - NodeCanvas's `graphsMap.get` and `edgesMap` both go through it (`createGraphViewMap`, `viewEdges`). Code that reads `useGraphStore.getState().graphs.get(...)` directly sees the raw web and misses open boxes; use `projectGraphView` there.
+  - With nothing open, the raw graph comes back unchanged, so the view costs nothing until a box is opened.
+- **Writing: store actions route by owner.**
+  - The instance actions take the viewed web's id, as before. `updateNodeInstance`, `updateMultipleNodeInstancePositions`, the removes and `addEdge` find the graph each instance really lives in and write there, in that graph's coordinates.
+  - A batch that moves everything inside a box moves only the box's offset, so the definition's arrangement (and every other place it shows) stays put.
+  - Group actions given an `open:` id do the right thing: rename or recolour the Thing, add nodes into the definition, and close on combine or delete.
+- **Connections across a box's edge** live in the outer web, with `sourceVia` / `destinationVia` naming the boxes the end is reached through. With the box closed they are drawn to the Thing's node (`openView.edges`); nothing is rewritten.
+- **One opening per view.** A definition opens once per web and never inside itself, so every drawn instance id is unique.
+- **The setting.** Settings › Panels › "Decompose Into The Definition" (`openDefinitionsInPlace`, default on). Off, Decompose copies into a node-group as before (`actions/expandInPlace.js` chooses).
+- **Old copy-style boxes** keep working. Closing one saves only what changed, keeps both definitions if the definition changed elsewhere meanwhile (`definitionFingerprint`), and carries its outside connections into the definition instead of collapsing them onto the node.
+
 ## Patterns
 
 - **Moving code: verbatim first.**
