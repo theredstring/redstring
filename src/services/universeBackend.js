@@ -73,6 +73,32 @@ const umLog = (...args) => __umNativeLog.call(console, '[UniverseBackend]', ...a
 const umWarn = (...args) => __umNativeWarn.call(console, '[UniverseBackend]', ...args);
 const umError = (...args) => __umNativeError.call(console, '[UniverseBackend]', ...args);
 
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+/**
+ * One log line per universe load saying where the time went, e.g.
+ * `[LoadTiming] my-universe: check reads 1180ms, compare 420ms, reads 3ms
+ * (reused), sync 40ms — total 1650ms`. Loading a large universe linked to
+ * both a file and a repository takes seconds, and without this the only
+ * evidence is a stopwatch.
+ */
+const createLoadTiming = (label) => {
+  const start = nowMs();
+  let last = start;
+  const steps = [];
+  return {
+    step(name, note) {
+      const now = nowMs();
+      steps.push(`${name} ${Math.round(now - last)}ms${note ? ` (${note})` : ''}`);
+      last = now;
+    },
+    done(outcome) {
+      const total = Math.round(nowMs() - start);
+      umLog(`[LoadTiming] ${label}: ${steps.join(', ') || 'no steps'} — total ${total}ms${outcome ? ` (${outcome})` : ''}`);
+    }
+  };
+};
+
 // Storage keys
 const STORAGE_KEYS = {
   UNIVERSES_LIST: 'unified_universes_list',
@@ -1247,6 +1273,7 @@ class UniverseBackend {
       }
     }, 12000);
 
+    const bootTiming = createLoadTiming('boot');
     try {
       umLog('[UniverseBackend] Ensuring auth state is loaded...');
 
@@ -1262,12 +1289,14 @@ class UniverseBackend {
       ]);
 
 
+      bootTiming.step('auth');
       umLog('[UniverseBackend] Getting authentication status...');
       this.authStatus = persistentAuth.getAuthStatus();
 
       umLog('[UniverseBackend] Setting up store operations...');
 
       await this.setupStoreOperations();
+      bootTiming.step('store setup');
 
 
       umLog('[UniverseBackend] Setting up event listeners...');
@@ -1292,6 +1321,7 @@ class UniverseBackend {
         umWarn('[UniverseBackend] Background sync failed or timed out:', error.message);
         umLog('[UniverseBackend] Continuing with backend initialization...');
       }
+      bootTiming.step('background sync');
 
       umLog('[UniverseBackend] Skipping auto-setup of ALL existing universes to avoid hanging...');
       // await this.autoSetupExistingUniverses(); // DISABLED - can hang during initialization
@@ -1318,6 +1348,7 @@ class UniverseBackend {
               umWarn('[UniverseBackend] Waiting for file handle restoration failed:', restoreError);
             }
           }
+          bootTiming.step('file handles');
           /*
            * The five-second timer here did TWO things, and only one of them
            * was harmful. Removing both was the mistake.
@@ -1361,6 +1392,9 @@ class UniverseBackend {
           if (typeof window !== 'undefined') {
             window.removeEventListener('redstring:stop-waiting-for-universe', onStopWaiting);
           }
+          bootTiming.step('universe', timedResult === STILL_RUNNING
+            ? `still reading after ${INIT_UNBLOCK_MS}ms, continues in background`
+            : timedResult === ABANDONED ? 'user stopped waiting' : undefined);
 
           if (timedResult === ABANDONED || timedResult === STILL_RUNNING) {
             if (timedResult === ABANDONED) {
@@ -1608,6 +1642,7 @@ class UniverseBackend {
       throw error;
     } finally {
       clearTimeout(initWatchdog);
+      bootTiming.done();
       if (initWatchdogFired) {
         umLog('[UniverseBackend] Init completed after watchdog had already released UI');
       }
@@ -3987,9 +4022,14 @@ class UniverseBackend {
       umWarn('[UniverseBackend] Could not arm save gate for load (continuing):', gateError);
     }
 
+    const timing = createLoadTiming(universe?.slug || 'unknown');
+    let outcome = 'failed';
     try {
-      return await this._loadUniverseDataInner(universe, options);
+      const result = await this._loadUniverseDataInner(universe, options, timing);
+      outcome = result ? 'loaded' : 'nothing loaded';
+      return result;
     } finally {
+      timing.done(outcome);
       this.loadsInFlight = Math.max(0, this.loadsInFlight - 1);
       if (loadGateToken !== null) {
         try { loadGateCoordinator.endLoad(loadGateToken); }
@@ -4016,7 +4056,7 @@ class UniverseBackend {
    *
    * @private
    */
-  async _loadUniverseDataInner(universe, options = {}) {
+  async _loadUniverseDataInner(universe, options = {}, timing = createLoadTiming(universe?.slug || 'unknown')) {
     const { sourceOfTruth } = universe;
     const {
       skipConflictDetection = false,
@@ -4027,12 +4067,20 @@ class UniverseBackend {
     const hasGit = universe.gitRepo?.enabled;
     const primaryDefined = sourceOfTruth === SOURCE_OF_TRUTH.LOCAL || sourceOfTruth === SOURCE_OF_TRUTH.GIT;
 
+    // What the conflict check already read, for the load below to reuse. On a
+    // universe linked to both a file and a repository this used to read both
+    // twice in a row — and the repository read is the whole universe over the
+    // network, which `no-store` (rightly) keeps any cache from answering.
+    const slotReads = {};
+
     // If both local and Git are enabled, check for conflicts or missing primary selection
     if (!skipConflictDetection && hasLocal && hasGit) {
       try {
         let conflict = await this.detectSlotConflict(universe, {
-          forcePrompt: !primaryDefined
+          forcePrompt: !primaryDefined,
+          reads: slotReads
         });
+        timing.step('check (reads + compare)', slotReads.identical ? 'slots identical' : undefined);
         if (conflict) {
           // Auto-resolve when source of truth is defined AND has data.
           // Only show conflict dialog when:
@@ -4152,11 +4200,15 @@ class UniverseBackend {
     // 4. Return the first successful 'authoritative' result if possible, or best available
 
     const loadPromies = [];
+    const reused = [];
 
     // 1. Local Load (High Priority)
     if (universe.localFile?.enabled) {
+      if (slotReads.local) reused.push('local');
       loadPromies.push(
-        this.loadFromLocalFile(universe, { allowPermissionPrompt })
+        (slotReads.local
+          ? Promise.resolve(slotReads.local)
+          : this.loadFromLocalFile(universe, { allowPermissionPrompt }))
           .then(data => ({ source: SOURCE_OF_TRUTH.LOCAL, data, error: null }))
           .catch(error => ({ source: SOURCE_OF_TRUTH.LOCAL, data: null, error }))
       );
@@ -4167,7 +4219,8 @@ class UniverseBackend {
     const hasLinkedGitRepo = universe.gitRepo?.enabled && universe.gitRepo?.linkedRepo;
 
     if (hasLinkedGitRepo) {
-      const gitPromise = this.loadFromGit(universe)
+      if (slotReads.git) reused.push('git');
+      const gitPromise = (slotReads.git ? Promise.resolve(slotReads.git) : this.loadFromGit(universe))
         .catch(async (engineError) => {
           // Direct provider read gets one shot as a fallback — but if it
           // ALSO can't produce data, the original error must surface as an
@@ -4207,6 +4260,16 @@ class UniverseBackend {
     // (In a future iteration we could use Promise.race for even faster UI, but we need to respect Source of Truth)
     const results = await Promise.all(loadPromies);
     const resultsMap = new Map(results.map(r => [r.source, r]));
+    timing.step('reads', reused.length ? `reused ${reused.join(' + ')}` : undefined);
+
+    // Write the other slots, timed as its own step.
+    const syncTimed = async (state, syncOptions) => {
+      try {
+        return await this.syncAndReturn(universe, state, syncOptions);
+      } finally {
+        timing.step('sync other copies');
+      }
+    };
 
     // Decision Logic:
 
@@ -4229,7 +4292,7 @@ class UniverseBackend {
           await this._offerRestoreIfHistoryHasData(universe);
         }
 
-        return this.syncAndReturn(universe, localRes.data, {
+        return syncTimed(localRes.data, {
           force: true,
           source: SOURCE_OF_TRUTH.LOCAL,
           allowPermissionPrompt
@@ -4270,10 +4333,14 @@ class UniverseBackend {
           await this._offerRestoreIfHistoryHasData(universe);
         }
 
-        return this.syncAndReturn(universe, gitRes.data, {
+        return syncTimed(gitRes.data, {
           force: true,
           source: SOURCE_OF_TRUTH.GIT,
-          allowPermissionPrompt
+          allowPermissionPrompt,
+          // The conflict check just proved the local file holds the same
+          // knowledge as this repository copy, so rewriting it would change
+          // nothing. It was a full re-export and write on every load.
+          localKnownEqual: slotReads.identical === true && gitRes.data === slotReads.git
         });
       }
       // Hard error from Git (auth, network) — surface it rather than silently
@@ -4365,7 +4432,7 @@ class UniverseBackend {
    * Returns conflict data if slots have diverged, null if they match or one is missing
    */
   async detectSlotConflict(universe, options = {}) {
-    const { forcePrompt = false } = options;
+    const { forcePrompt = false, reads = null } = options;
     umLog('[UniverseBackend] Checking for slot conflicts...');
 
     // Load data from both slots in parallel
@@ -4376,6 +4443,15 @@ class UniverseBackend {
 
     const localData = localResult.status === 'fulfilled' ? localResult.value : null;
     const gitData = gitResult.status === 'fulfilled' ? gitResult.value : null;
+
+    // Hand the reads back to a load that is about to make the same two reads.
+    // Only successes: a failed read is re-made by the caller, which needs the
+    // error (and, for the local file, may be allowed to prompt).
+    if (reads) {
+      reads.local = localData;
+      reads.git = gitData;
+      reads.identical = false;
+    }
 
     // If either slot is missing, no conflict
     if (!localData || !gitData) {
@@ -4420,6 +4496,7 @@ class UniverseBackend {
       umLog(`[UniverseBackend] No conflict (${decision.reason})`, {
         localNodes: localInfo.userNodeCount, gitNodes: gitInfo.userNodeCount
       });
+      if (reads) reads.identical = decision.reason === 'equal';
       return null;
     }
 
@@ -4526,7 +4603,10 @@ class UniverseBackend {
       force = false,
       throttleMs = 0,
       source = universe.sourceOfTruth,
-      allowPermissionPrompt = true
+      allowPermissionPrompt = true,
+      // The caller has just compared the local file with `storeState` and
+      // found the same knowledge: there is nothing to write there.
+      localKnownEqual = false
     } = options;
 
     const syncState = this.getSecondarySyncState(slug);
@@ -4545,7 +4625,11 @@ class UniverseBackend {
     const handle = this.fileHandles.get(slug);
 
     if (universe.localFile?.enabled && handle && source !== SOURCE_OF_TRUTH.LOCAL) {
-      if (isSourceEmpty) {
+      if (localKnownEqual) {
+        umLog('[UniverseBackend] Secondary sync: local file already matches, not rewriting it');
+        nextState.local = now;
+        updated = true;
+      } else if (isSourceEmpty) {
         umLog('[UniverseBackend] Secondary sync skipped: source state is empty, not overwriting local file implicitly');
       } else if (shouldSync(syncState.local)) {
         let saved = false;
