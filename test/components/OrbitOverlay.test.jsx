@@ -7,6 +7,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import OrbitOverlay from '../../src/components/OrbitOverlay.jsx';
 import { EDGE_LABEL_BASE_FONT_SIZE, estimateEdgeLabelWidth } from '../../src/services/layoutGeometry.js';
 import { POLY_TIP } from '../../src/utils/canvas/edgeRouting.js';
+import { CONNECTION_WIDTH_BASE_SCALE } from '../../src/constants.js';
 
 // Drive requestAnimationFrame by hand so we can count frames and React commits.
 let rafQueue = [];
@@ -153,7 +154,9 @@ describe('OrbitOverlay', () => {
     const polygon = container.querySelector('.orbit-connection polygon');
     expect(polygon.getAttribute('points')).toBe('-26,34 26,34 0,-34');
     const line = container.querySelector('.orbit-connection line');
-    expect(Number(line.getAttribute('stroke-width'))).toBe(27);
+    // NodeCanvas draws 27 * connectionWidth, and connectionWidth carries
+    // CONNECTION_WIDTH_BASE_SCALE since 36125d87 (the old 1.25x became 1x).
+    expect(Number(line.getAttribute('stroke-width'))).toBe(27 * CONNECTION_WIDTH_BASE_SCALE);
   });
 
   it('stops the arrow at the target border rather than inside the node', () => {

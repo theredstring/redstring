@@ -28,6 +28,9 @@ const createComplexTestState = () => {
         id: graphId1,
         name: 'Main Graph',
         description: 'Primary workspace',
+        // Per-graph viewport: explicit, non-default, so the round-trip proves it
+        panOffset: { x: -240, y: 135 },
+        zoomLevel: 0.65,
         instances: new Map([
           [instanceId1, { id: instanceId1, prototypeId: nodeId1, x: 100, y: 200 }],
           [instanceId2, { id: instanceId2, prototypeId: nodeId2, x: 300, y: 400 }]
@@ -37,6 +40,9 @@ const createComplexTestState = () => {
         id: graphId2,
         name: 'Definition Graph',
         description: 'Node definition space',
+        // The values the format writes for a graph never viewed
+        panOffset: { x: 0, y: 0 },
+        zoomLevel: 1,
         instances: new Map([
           [instanceId3, { id: instanceId3, prototypeId: nodeId3, x: 50, y: 100 }]
         ])
@@ -71,7 +77,17 @@ const createComplexTestState = () => {
         ],
         citations: [
           { '@id': 'doi:10.1000/reference1' }
-        ]
+        ],
+        semanticMetadata: {
+          source: 'wikipedia',
+          enrichedAt: '2026-01-15T12:00:00.000Z'
+        },
+        agentConfig: {
+          enabled: true,
+          type: 'router',
+          prompt: 'Route the message',
+          maxTokens: 500
+        }
       }],
       [nodeId2, {
         id: nodeId2,
@@ -87,7 +103,10 @@ const createComplexTestState = () => {
         },
         externalLinks: ['https://arxiv.org/abs/2024.12345'],
         equivalentClasses: [],
-        citations: []
+        citations: [],
+        // The values the format writes for a prototype without either
+        semanticMetadata: null,
+        agentConfig: null
       }],
       [nodeId3, {
         id: nodeId3,
@@ -101,7 +120,9 @@ const createComplexTestState = () => {
         abstractionChains: {},
         externalLinks: [],
         equivalentClasses: [],
-        citations: []
+        citations: [],
+        semanticMetadata: null,
+        agentConfig: null
       }]
     ]),
     

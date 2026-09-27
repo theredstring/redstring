@@ -10,6 +10,14 @@ vi.mock('../../ai/palettes.js', () => ({
   getRandomPalette: vi.fn(() => 'test-palette')
 }));
 
+// expandGraph refuses a target graph that is not in graphState (05bf06a2), so
+// the fixture carries the active graph, as the composition block below does.
+const makeGraphState = () => ({
+  activeGraphId: 'graph-1',
+  graphs: [{ id: 'graph-1', name: 'Test Graph', instances: [], edgeIds: [], groups: [] }],
+  nodePrototypes: []
+});
+
 describe('expandGraph', () => {
   const mockEnsureSchedulerStarted = vi.fn();
   const mockCid = 'test-cid-123';
@@ -19,11 +27,7 @@ describe('expandGraph', () => {
   });
 
   it('returns spec with nodes and edges for UI application', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
+    const graphState = makeGraphState();
 
     const result = await expandGraph(
       {
@@ -115,12 +119,20 @@ describe('expandGraph', () => {
     ).rejects.toThrow('No target graph specified and no active graph available.');
   });
 
-  it('handles missing nodes array', async () => {
+  it('throws error when the target graph does not exist', async () => {
     const graphState = {
       activeGraphId: 'graph-1',
       graphs: [],
       nodePrototypes: []
     };
+
+    await expect(
+      expandGraph({ nodes: [{ name: 'Node One' }] }, graphState, mockCid, mockEnsureSchedulerStarted)
+    ).rejects.toThrow('Cannot expand graph: target graph "graph-1" does not exist. Available graphs: none');
+  });
+
+  it('handles missing nodes array', async () => {
+    const graphState = makeGraphState();
 
     const result = await expandGraph(
       { edges: [{ source: 'Node A', target: 'Node B', type: 'connects' }] },
@@ -140,11 +152,7 @@ describe('expandGraph', () => {
   });
 
   it('handles missing edges array', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
+    const graphState = makeGraphState();
 
     const result = await expandGraph(
       { nodes: [{ name: 'Node One' }] },
@@ -159,11 +167,7 @@ describe('expandGraph', () => {
   });
 
   it('handles definitionNode in edges', async () => {
-    const graphState = {
-      activeGraphId: 'graph-1',
-      graphs: [],
-      nodePrototypes: []
-    };
+    const graphState = makeGraphState();
 
     const result = await expandGraph(
       {

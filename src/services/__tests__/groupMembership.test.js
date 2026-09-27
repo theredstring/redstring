@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { applyLayout, deriveGroupVisualBounds } from '../graphLayoutService.js';
+import { applyLayout, deriveGroupVisualBounds, estimateEdgeLabelWidth } from '../graphLayoutService.js';
 import { node, edge } from './layoutHelpers.js';
 
 const OPTS = { width: 3000, height: 2200, padding: 200 };
@@ -225,15 +225,48 @@ describe('grouped graphs keep their routing-native layout', () => {
     }));
   };
 
+  /**
+   * Length of the straight run between the two node BORDERS along the centre
+   * line — the stretch a label drawn on the connection actually has.
+   */
+  const borderSpans = (updates, nodes, edges) => {
+    const p = new Map(updates.map(u => [u.instanceId, u]));
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    return edges.map(e => {
+      const a = byId.get(e.sourceId);
+      const b = byId.get(e.destinationId);
+      const ax = p.get(a.id).x + a.width / 2, ay = p.get(a.id).y + a.height / 2;
+      const bx = p.get(b.id).x + b.width / 2, by = p.get(b.id).y + b.height / 2;
+      const dx = Math.abs(bx - ax), dy = Math.abs(by - ay);
+      const len = Math.hypot(dx, dy);
+      // Fraction of the centre line spent inside a w x h box centred on it.
+      const inside = (n) => Math.min(dx ? (n.width / 2) / dx : Infinity, dy ? (n.height / 2) / dy : Infinity);
+      return len * (1 - inside(a) - inside(b));
+    });
+  };
+
   it('reserves the same room for a labelled connection inside a group as outside one', () => {
     const { nodes, edges, groups } = spacingGraph();
     const opts = { ...OPTS, edgeLabelFontSize: 32, routingStyle: 'lombardi' };
     const ungrouped = shortestEdge(applyLayout(nodes, edges, 'pattern', opts), nodes, edges);
-    const grouped = shortestEdge(applyLayout(nodes, edges, 'pattern', { ...opts, groups }), nodes, edges);
     // Not "roughly similar" — the grouped interior runs the identical solver on
     // the identical subgraph, so anything materially shorter means the label
-    // went missing on the way in.
-    expect(grouped).toBeGreaterThan(ungrouped * 0.9);
+    // went missing on the way in. Compaction is switched off for this half:
+    // since 927d9807 each group level is deliberately drawn together afterwards
+    // (compactBodies), which an ungrouped graph never gets, so with it on the
+    // two are no longer the same solver and the comparison means nothing.
+    const uncompacted = shortestEdge(
+      applyLayout(nodes, edges, 'pattern', { ...opts, groups, compactGroups: false }), nodes, edges);
+    expect(uncompacted).toBeGreaterThan(ungrouped * 0.9);
+
+    // ...and compaction, which is on by default, may close a group in only as
+    // far as its labels allow: every connection still has at least its own
+    // text's length of clear run between the two nodes.
+    const compacted = applyLayout(nodes, edges, 'pattern', { ...opts, groups });
+    const needed = estimateEdgeLabelWidth(edges[0].name, 32);
+    borderSpans(compacted, nodes, edges).forEach((span, i) => {
+      expect(span, `${edges[i].id} clear run`).toBeGreaterThanOrEqual(needed);
+    });
   });
 
   it('is deterministic for a grouped Lombardi layout, ungrouped nodes included', () => {

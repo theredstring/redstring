@@ -1,498 +1,188 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import React from 'react';
+
+// UniverseManager used to be the "Git-Native Semantic Web" provider form
+// (GitHub token / Gitea endpoint fields wired to SemanticSyncEngine and
+// SemanticFederation). It is now the universes / repositories / accounts panel,
+// and GitHub access goes through the shared OAuth flow in githubAuthFlows.js.
+// These tests cover that panel. Icons are real: nothing here asserts on them,
+// and a hand-listed lucide-react mock broke the whole file every time the
+// panel started using a new icon.
+
+vi.mock('../../src/services/githubAuthFlows.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    connectOAuth: vi.fn(),
+    disconnectOAuth: vi.fn(),
+  };
+});
+
 import UniverseManager from '../../src/UniverseManager.jsx';
-import { SemanticProviderFactory } from '../../src/services/gitNativeProvider.js';
-import { SemanticSyncEngine } from '../../src/services/semanticSyncEngine.js';
-import { SemanticFederation } from '../../src/services/semanticFederation.js';
+import universeBackendBridge from '../../src/services/universeBackendBridge.js';
+import { connectOAuth } from '../../src/services/githubAuthFlows.js';
 
-// Mock the services
-vi.mock('../../src/services/gitNativeProvider.js', () => ({
-  SemanticProviderFactory: {
-    createProvider: vi.fn(),
-    getAvailableProviders: vi.fn()
-  }
-}));
+const UNIVERSES = [
+  { slug: 'research', name: 'Research Notes', sourceOfTruth: 'browser' },
+  { slug: 'garden', name: 'Idea Garden', sourceOfTruth: 'browser' },
+];
 
-vi.mock('../../src/services/semanticSyncEngine.js', () => ({
-  SemanticSyncEngine: vi.fn()
-}));
+const NOT_CONNECTED = { hasOAuthTokens: false, isAuthenticated: false };
+const CONNECTED = { hasOAuthTokens: true, isAuthenticated: true };
 
-vi.mock('../../src/services/semanticFederation.js', () => ({
-  SemanticFederation: vi.fn()
-}));
+let authStatus;
 
-// Mock lucide-react icons
-vi.mock('lucide-react', () => ({
-  GitBranch: vi.fn(() => 'GitBranch'),
-  GitCommit: vi.fn(() => 'GitCommit'),
-  GitPullRequest: vi.fn(() => 'GitPullRequest'),
-  Globe: vi.fn(() => 'Globe'),
-  Settings: vi.fn(() => 'Settings'),
-  CheckCircle: vi.fn(() => 'CheckCircle'),
-  XCircle: vi.fn(() => 'XCircle'),
-  AlertCircle: vi.fn(() => 'AlertCircle'),
-  ExternalLink: vi.fn(() => 'ExternalLink'),
-  Copy: vi.fn(() => 'Copy'),
-  Server: vi.fn(() => 'Server'),
-  RefreshCw: vi.fn(() => 'RefreshCw'),
-  Plus: vi.fn(() => 'Plus'),
-  Users: vi.fn(() => 'Users'),
-  Network: vi.fn(() => 'Network'),
-  Zap: vi.fn(() => 'Zap'),
-  Shield: vi.fn(() => 'Shield'),
-  ArrowRight: vi.fn(() => 'ArrowRight'),
-  Download: vi.fn(() => 'Download'),
-  Upload: vi.fn(() => 'Upload'),
-  GitMerge: vi.fn(() => 'GitMerge'),
-  GitFork: vi.fn(() => 'GitFork'),
-  GitCompare: vi.fn(() => 'GitCompare'),
-  GitPullRequestClosed: vi.fn(() => 'GitPullRequestClosed'),
-  GitBranchPlus: vi.fn(() => 'GitBranchPlus'),
-  GitCommitHorizontal: vi.fn(() => 'GitCommitHorizontal'),
-  GitGraph: vi.fn(() => 'GitGraph'),
-  Info: vi.fn(() => 'Info'),
-  Github: vi.fn(() => 'Github'),
-  Key: vi.fn(() => 'Key')
-}));
+beforeEach(() => {
+  authStatus = NOT_CONNECTED;
+  vi.stubGlobal('ResizeObserver', vi.fn(() => ({
+    observe: vi.fn(), unobserve: vi.fn(), disconnect: vi.fn(),
+  })));
+
+  // The panel reads everything through universeManagerService, which reads the
+  // backend through this bridge. Stubbing the bridge keeps the service's own
+  // mapping (names, active flag, auth merge) under test.
+  vi.spyOn(universeBackendBridge, 'getAllUniverses').mockResolvedValue(UNIVERSES);
+  vi.spyOn(universeBackendBridge, 'getActiveUniverse').mockResolvedValue(UNIVERSES[0]);
+  vi.spyOn(universeBackendBridge, 'getGitStatusDashboard').mockResolvedValue(null);
+  vi.spyOn(universeBackendBridge, 'getAuthStatus').mockImplementation(async () => authStatus);
+
+  connectOAuth.mockReset();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+const renderLoaded = async () => {
+  const utils = render(<UniverseManager />);
+  await waitFor(() => {
+    expect(screen.getByText('Research Notes')).toBeTruthy();
+  });
+  return utils;
+};
 
 describe('UniverseManager', () => {
-  let mockProvider;
-  let mockSyncEngine;
-  let mockFederation;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-
-    // Create mock provider
-    mockProvider = {
-      name: 'Test Provider',
-      isAvailable: vi.fn().mockResolvedValue(true)
-    };
-
-    // Create mock sync engine
-    mockSyncEngine = {
-      onStatusChange: vi.fn(),
-      loadFromProvider: vi.fn(),
-      forceSync: vi.fn(),
-      migrateProvider: vi.fn()
-    };
-
-    // Create mock federation
-    mockFederation = {
-      subscribeToSpace: vi.fn(),
-      unsubscribeFromSpace: vi.fn(),
-      getFederationStats: vi.fn().mockReturnValue({
-        activeSubscriptions: 2,
-        totalSubscribedConcepts: 5,
-        cachedExternalConcepts: 3,
-        lastPoll: new Date().toISOString()
-      }),
-      getSubscriptions: vi.fn().mockReturnValue([
-        {
-          url: 'https://alice.github.io/semantic/',
-          name: 'Alice Research',
-          concepts: new Set(['concept1', 'concept2']),
-          lastChecked: new Date().toISOString(),
-          lastUpdate: null
-        },
-        {
-          url: 'https://bob.gitlab.com/knowledge/',
-          name: 'Bob Knowledge',
-          concepts: new Set(['concept3']),
-          lastChecked: new Date().toISOString(),
-          lastUpdate: new Date().toISOString()
-        }
-      ])
-    };
-
-    SemanticProviderFactory.createProvider.mockReturnValue(mockProvider);
-    SemanticSyncEngine.mockImplementation(() => mockSyncEngine);
-    SemanticFederation.mockImplementation(() => mockFederation);
-
-    SemanticProviderFactory.getAvailableProviders.mockReturnValue([
-      {
-        type: 'github',
-        name: 'GitHub',
-        description: 'GitHub-hosted semantic spaces',
-        authMechanism: 'oauth',
-        configFields: ['user', 'repo', 'token', 'semanticPath']
-      },
-      {
-        type: 'gitea',
-        name: 'Self-Hosted Gitea',
-        description: 'Self-hosted Gitea instance',
-        authMechanism: 'token',
-        configFields: ['endpoint', 'user', 'repo', 'token', 'semanticPath']
-      }
-    ]);
-  });
-
-  afterEach(() => {
-    vi.clearAllTimers();
-  });
-
   describe('Initial State', () => {
-    it('should render connection form when not connected', () => {
-      render(<UniverseManager />);
+    it('renders the universes, repositories and accounts sections', async () => {
+      await renderLoaded();
 
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
-      expect(screen.getByText('Connect to any Git provider for real-time, decentralized storage of your own semantic web.')).toBeTruthy();
-      expect(screen.getByText(/Provider Configuration/)).toBeTruthy();
-      expect(screen.getByText('GitHub')).toBeTruthy();
-      expect(screen.getByText('Self-Hosted Gitea')).toBeTruthy();
-      expect(screen.getByRole('button', { name: /Connect with GitHub/ })).toBeTruthy();
+      expect(screen.getByText('Universes')).toBeTruthy();
+      expect(screen.getByText('Manage your knowledge spaces')).toBeTruthy();
+      expect(screen.getByText('Repositories')).toBeTruthy();
+      expect(screen.getByText('Accounts & Access')).toBeTruthy();
     });
 
-    it('should show GitHub OAuth configuration by default', () => {
-      render(<UniverseManager />);
+    it('lists the universes the backend reports', async () => {
+      await renderLoaded();
 
-      expect(screen.getByText('Authentication Method:')).toBeTruthy();
-      expect(screen.getByText('OAuth')).toBeTruthy();
-      expect(screen.getByText('Token')).toBeTruthy();
-      expect(screen.getByRole('button', { name: /Connect with GitHub/ })).toBeTruthy();
+      expect(screen.getByText('Research Notes')).toBeTruthy();
+      expect(screen.getByText('Idea Garden')).toBeTruthy();
+      expect(universeBackendBridge.getAllUniverses).toHaveBeenCalled();
     });
 
-    it('should show Gitea configuration when selected', () => {
-      render(<UniverseManager />);
+    it('shows GitHub as not connected, with Connect and Install App offered', async () => {
+      await renderLoaded();
 
-      // Click on Gitea provider
-      fireEvent.click(screen.getByText('Self-Hosted Gitea'));
-
-      expect(screen.getByLabelText('Gitea Endpoint:')).toBeTruthy();
-      expect(screen.getByLabelText('Username:')).toBeTruthy();
-      expect(screen.getByLabelText('Repository Name:')).toBeTruthy();
-      expect(screen.getByLabelText('Access Token:')).toBeTruthy();
-    });
-  });
-
-  describe('Provider Configuration', () => {
-    it('should handle GitHub configuration input when token mode is selected', () => {
-      render(<UniverseManager />);
-
-      // Switch to token mode first
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      const usernameInput = screen.getByLabelText('GitHub Username:');
-      const repoInput = screen.getByLabelText('Repository:');
-      const tokenInput = screen.getByLabelText('Personal Access Token:');
-
-      fireEvent.change(usernameInput, { target: { value: 'testuser' } });
-      fireEvent.change(repoInput, { target: { value: 'testrepo' } });
-      fireEvent.change(tokenInput, { target: { value: 'ghp_testtoken123' } });
-
-      expect(usernameInput.value).toBe('testuser');
-      expect(repoInput.value).toBe('testrepo');
-      expect(tokenInput.value).toBe('ghp_testtoken123');
+      expect(screen.getByText('GitHub OAuth')).toBeTruthy();
+      expect(screen.getByText('Not connected')).toBeTruthy();
+      expect(screen.getByText('Connect OAuth to browse repositories')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^Connect$/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Install App/ })).toBeTruthy();
     });
 
-    it('should handle Gitea configuration input', () => {
-      render(<UniverseManager />);
+    it('shows the empty repositories state', async () => {
+      await renderLoaded();
 
-      // Switch to Gitea
-      fireEvent.click(screen.getByText('Self-Hosted Gitea'));
-
-      const endpointInput = screen.getByLabelText('Gitea Endpoint:');
-      const usernameInput = screen.getByLabelText('Username:');
-      const repoInput = screen.getByLabelText('Repository Name:');
-      const tokenInput = screen.getByLabelText('Access Token:');
-
-      fireEvent.change(endpointInput, { target: { value: 'https://git.example.com' } });
-      fireEvent.change(usernameInput, { target: { value: 'testuser' } });
-      fireEvent.change(repoInput, { target: { value: 'testrepo' } });
-      fireEvent.change(tokenInput, { target: { value: 'testtoken123' } });
-
-      expect(endpointInput.value).toBe('https://git.example.com');
-      expect(usernameInput.value).toBe('testuser');
-      expect(repoInput.value).toBe('testrepo');
-      expect(tokenInput.value).toBe('testtoken123');
-    });
-
-    it('should toggle advanced settings', () => {
-      render(<UniverseManager />);
-
-      const advancedButton = screen.getByText('Show Advanced');
-      fireEvent.click(advancedButton);
-
-      expect(screen.getByText('Hide Advanced')).toBeTruthy();
-      expect(screen.getByLabelText('Schema Path:')).toBeTruthy();
-
-      fireEvent.click(screen.getByText('Hide Advanced'));
-      expect(screen.getByText('Show Advanced')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Add Repositories/ })).toBeTruthy();
+      expect(screen.getByText(/No repositories in your list/)).toBeTruthy();
     });
   });
 
   describe('Connection Management', () => {
-    it('should connect to provider successfully with token method', async () => {
-      render(<UniverseManager />);
+    it('connects through the GitHub OAuth flow and refreshes auth', async () => {
+      connectOAuth.mockImplementation(async () => {
+        authStatus = CONNECTED;
+        return { connected: true };
+      });
+      await renderLoaded();
 
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      // Fill in GitHub configuration
-      fireEvent.change(screen.getByLabelText('GitHub Username:'), { target: { value: 'testuser' } });
-      fireEvent.change(screen.getByLabelText('Repository:'), { target: { value: 'testrepo' } });
-      fireEvent.change(screen.getByLabelText('Personal Access Token:'), { target: { value: 'ghp_testtoken123' } });
-
-      // Click connect
-      fireEvent.click(screen.getByText(/Connect to Git Provider/));
+      fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }));
 
       await waitFor(() => {
-        expect(SemanticProviderFactory.createProvider).toHaveBeenCalledWith({
-          type: 'github',
-          user: 'testuser',
-          repo: 'testrepo',
-          token: 'ghp_testtoken123',
-          semanticPath: 'schema'
-        });
+        expect(connectOAuth).toHaveBeenCalledTimes(1);
       });
+      await waitFor(() => {
+        expect(screen.getByText('Connected')).toBeTruthy();
+      });
+      expect(screen.getByText('OAuth available for browsing')).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Reconnect/ })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /Disconnect/ })).toBeTruthy();
+    });
+
+    it('stays not connected when the flow does not complete', async () => {
+      connectOAuth.mockResolvedValue({ connected: false });
+      await renderLoaded();
+
+      fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }));
 
       await waitFor(() => {
-        expect(mockProvider.isAvailable).toHaveBeenCalled();
+        expect(connectOAuth).toHaveBeenCalledTimes(1);
       });
-    });
-
-    it('should handle connection failures', async () => {
-      mockProvider.isAvailable.mockResolvedValue(false);
-
-      render(<UniverseManager />);
-
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      // Fill in configuration
-      fireEvent.change(screen.getByLabelText('GitHub Username:'), { target: { value: 'testuser' } });
-      fireEvent.change(screen.getByLabelText('Repository:'), { target: { value: 'testrepo' } });
-      fireEvent.change(screen.getByLabelText('Personal Access Token:'), { target: { value: 'invalid-token' } });
-
-      // Click connect
-      fireEvent.click(screen.getByText(/Connect to Git Provider/));
-
-      await waitFor(() => {
-        expect(screen.getByText(/Connection failed/)).toBeTruthy();
-      });
-    });
-
-    it('should disconnect from provider', async () => {
-      // Mock connected state
-      const { rerender } = render(<UniverseManager />);
-
-      // Simulate connected state
-      SemanticSyncEngine.mockImplementation(() => mockSyncEngine);
-      SemanticFederation.mockImplementation(() => mockFederation);
-
-      // Re-render with connected state
-      rerender(<UniverseManager />);
-
-      // Mock the connected state by setting up the component with provider
-      const mockConnectedComponent = {
-        ...mockProvider,
-        name: 'Test Provider'
-      };
-
-      // This would require more complex state management testing
-      // For now, we'll test the disconnect functionality exists
-      expect(screen.getByRole('button', { name: /Connect with GitHub/ })).toBeTruthy();
-    });
-  });
-
-  describe('Connected State', () => {
-    beforeEach(() => {
-      // Mock connected state by creating a component with provider already set
-      vi.spyOn(React, 'useState').mockImplementation((initialValue) => {
-        if (initialValue === null) {
-          return [mockProvider, vi.fn()];
-        }
-        return [initialValue, vi.fn()];
-      });
-    });
-
-    it('should show connection status when connected', () => {
-      render(<UniverseManager />);
-
-      // This would require more complex state mocking
-      // For now, we'll verify the basic structure
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
-    });
-
-    it('should show federation statistics', () => {
-      render(<UniverseManager />);
-
-      // Federation stats would be displayed in connected state
-      // This requires more complex state management testing
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
-    });
-
-    it('should allow adding subscriptions', async () => {
-      render(<UniverseManager />);
-
-      // This would be tested in connected state
-      // For now, we'll verify the basic structure
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
+      expect(screen.getByText('Not connected')).toBeTruthy();
     });
   });
 
   describe('Error Handling', () => {
-    it('should display connection errors', async () => {
-      mockProvider.isAvailable.mockRejectedValue(new Error('Invalid credentials'));
+    it('displays an OAuth failure', async () => {
+      connectOAuth.mockRejectedValue(new Error('Invalid credentials'));
+      await renderLoaded();
 
-      render(<UniverseManager />);
-
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      // Fill in configuration
-      fireEvent.change(screen.getByLabelText('GitHub Username:'), { target: { value: 'testuser' } });
-      fireEvent.change(screen.getByLabelText('Repository:'), { target: { value: 'testrepo' } });
-      fireEvent.change(screen.getByLabelText('Personal Access Token:'), { target: { value: 'invalid-token' } });
-
-      // Click connect
-      fireEvent.click(screen.getByText(/Connect to Git Provider/));
+      fireEvent.click(screen.getByRole('button', { name: /^Connect$/ }));
 
       await waitFor(() => {
-        expect(screen.getByText(/Connection failed/)).toBeTruthy();
+        expect(screen.getByText(/OAuth authentication failed: Invalid credentials/)).toBeTruthy();
       });
+      expect(screen.getByText('Not connected')).toBeTruthy();
     });
 
-    it('should display subscription errors', async () => {
-      mockFederation.subscribeToSpace.mockRejectedValue(new Error('Invalid URL'));
-
+    it('reports a failed state load', async () => {
+      universeBackendBridge.getAllUniverses.mockRejectedValue(new Error('backend down'));
       render(<UniverseManager />);
-
-      // This would be tested in connected state
-      // For now, we'll verify the basic structure
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
-    });
-  });
-
-  describe('Integration with Services', () => {
-    it('should initialize sync engine when provider is set with token', async () => {
-      render(<UniverseManager />);
-
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      // Fill in and connect
-      fireEvent.change(screen.getByLabelText('GitHub Username:'), { target: { value: 'testuser' } });
-      fireEvent.change(screen.getByLabelText('Repository:'), { target: { value: 'testrepo' } });
-      fireEvent.change(screen.getByLabelText('Personal Access Token:'), { target: { value: 'ghp_testtoken123' } });
-
-      fireEvent.click(screen.getByText(/Connect to Git Provider/));
 
       await waitFor(() => {
-        expect(SemanticSyncEngine).toHaveBeenCalledWith({
-          type: 'github',
-          user: 'testuser',
-          repo: 'testrepo',
-          token: 'ghp_testtoken123',
-          semanticPath: 'schema'
-        });
-      });
-    });
-
-    it('should initialize federation when sync engine is set', async () => {
-      render(<UniverseManager />);
-
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      // Fill in and connect
-      fireEvent.change(screen.getByLabelText('GitHub Username:'), { target: { value: 'testuser' } });
-      fireEvent.change(screen.getByLabelText('Repository:'), { target: { value: 'testrepo' } });
-      fireEvent.change(screen.getByLabelText('Personal Access Token:'), { target: { value: 'ghp_testtoken123' } });
-
-      fireEvent.click(screen.getByText(/Connect to Git Provider/));
-
-      await waitFor(() => {
-        expect(SemanticFederation).toHaveBeenCalledWith(mockSyncEngine);
-      });
-    });
-
-    it('should subscribe to status updates', async () => {
-      render(<UniverseManager />);
-
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      // Fill in and connect
-      fireEvent.change(screen.getByLabelText('GitHub Username:'), { target: { value: 'testuser' } });
-      fireEvent.change(screen.getByLabelText('Repository:'), { target: { value: 'testrepo' } });
-      fireEvent.change(screen.getByLabelText('Personal Access Token:'), { target: { value: 'ghp_testtoken123' } });
-
-      fireEvent.click(screen.getByText(/Connect to Git Provider/));
-
-      await waitFor(() => {
-        expect(mockSyncEngine.onStatusChange).toHaveBeenCalled();
+        expect(screen.getByText(/Unable to load Git federation state/)).toBeTruthy();
       });
     });
   });
 
   describe('Accessibility', () => {
-    it('should have proper labels for OAuth mode', () => {
-      render(<UniverseManager />);
+    it('gives the primary actions accessible names', async () => {
+      await renderLoaded();
 
-      expect(screen.getByText('Authentication Method:')).toBeTruthy();
-      expect(screen.getByText('GitHub OAuth:')).toBeTruthy();
-      expect(screen.getByRole('button', { name: /OAuth/ })).toBeTruthy();
-      expect(screen.getByRole('button', { name: /Token/ })).toBeTruthy();
-    });
-
-    it('should have proper button text', () => {
-      render(<UniverseManager />);
-
-      expect(screen.getByRole('button', { name: /Connect with GitHub/ })).toBeTruthy();
-      expect(screen.getByText(/Show Advanced/)).toBeTruthy();
-    });
-
-    it('should handle keyboard navigation in token mode', () => {
-      render(<UniverseManager />);
-
-      // Switch to token mode
-      const tokenButton = screen.getByRole('button', { name: /Token/ });
-      fireEvent.click(tokenButton);
-
-      const usernameInput = screen.getByLabelText('GitHub Username:');
-      const repoInput = screen.getByLabelText('Repository:');
-
-      // Tab navigation
-      usernameInput.focus();
-      expect(document.activeElement).toBe(usernameInput);
-
-      // Test that both inputs exist and are focusable
-      expect(usernameInput).toBeTruthy();
-      expect(repoInput).toBeTruthy();
+      for (const name of [/^Load$/, /^New$/, /Add Repositories/, /^Connect$/, /Install App/]) {
+        expect(screen.getByRole('button', { name })).toBeTruthy();
+      }
     });
   });
 
   describe('Responsive Design', () => {
-    it('should render on different screen sizes', () => {
-      // Test mobile viewport
-      Object.defineProperty(window, 'innerWidth', {
-        writable: true,
-        configurable: true,
-        value: 375,
-      });
+    it('renders at phone and desktop widths', async () => {
+      const originalWidth = window.innerWidth;
+      try {
+        Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 375 });
+        const { unmount } = await renderLoaded();
+        expect(screen.getByText('Accounts & Access')).toBeTruthy();
+        unmount();
 
-      const { unmount } = render(<UniverseManager />);
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
-      unmount();
-
-      // Test desktop viewport
-      Object.defineProperty(window, 'innerWidth', {
-        writable: true,
-        configurable: true,
-        value: 1920,
-      });
-
-      render(<UniverseManager />);
-      expect(screen.getByText(/Git-Native Semantic Web/)).toBeTruthy();
+        Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: 1920 });
+        await renderLoaded();
+        expect(screen.getByText('Accounts & Access')).toBeTruthy();
+      } finally {
+        Object.defineProperty(window, 'innerWidth', { writable: true, configurable: true, value: originalWidth });
+      }
     });
   });
-}); 
+});

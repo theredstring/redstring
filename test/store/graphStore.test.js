@@ -1,117 +1,92 @@
+/**
+ * graphStore: core actions and selectors.
+ *
+ * These tests were first written against a pre-release model where every node
+ * lived in one global `nodes` pool, graphs listed `nodeIds`, nodes carried
+ * their own `edgeIds`, and a `loadGraph(graphInstance)` action pulled data out
+ * of core class instances. The store shipped on the prototype/instance model
+ * instead: `nodePrototypes` holds what a Thing is, `graph.instances` holds where
+ * it sits, and edges connect instance IDs. `addNode`/`updateNode`/`removeNode`
+ * and `loadGraph` are deprecated no-ops; `getNodeDataById`/`getNodesForGraph`
+ * became `getNodePrototypeById`/`getInstancesForGraph`/`getHydratedNodesForGraph`.
+ * The intents are kept and asserted against the current actions.
+ */
 import { act } from '@testing-library/react';
-// Import Vitest functions
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-// Adjust import path for the store
 import useGraphStore, {
-    // Import selectors using new names (Data suffix)
     getGraphDataById,
-    getNodeDataById,
-    getEdgeDataById, // New selector
+    getNodePrototypeById,
+    getEdgeDataById,
     getActiveGraphData,
-    getNodesForGraph,
-    getEdgesForGraph, // New selector
-    getNodesByParent,
+    getInstancesForGraph,
+    getHydratedNodesForGraph,
+    getEdgesForGraph,
     getGraphTitleById,
     getOpenGraphIds,
     getActiveGraphId
-} from '../../src/store/graphStore.js'; // Corrected path: from test/store go up two levels, then src/store
-// No longer need class imports
-// import Node from '../../src/core/Node';
-// import Edge from '../../src/core/Edge';
-import { v4 as uuidv4 } from 'uuid'; // For generating IDs in mocks
+} from '../../src/store/graphStore.js';
 
 // --- Helper Functions to create Plain Test Data ---
 
-const createNodeData = (id = uuidv4(), overrides = {}) => ({
+const createPrototypeData = (id, overrides = {}) => ({
     id,
-    name: `Node ${id}`,
-    description: 'Node Description',
-    picture: '',
-    color: '',
-    data: { value: `Data for ${id}` },
+    name: `Thing ${id}`,
+    description: 'Prototype Description',
+    color: '#800000',
+    typeNodeId: 'base-thing-prototype',
+    definitionGraphIds: [],
+    ...overrides,
+});
+
+const createInstanceData = (id, prototypeId, overrides = {}) => ({
+    id,
+    prototypeId,
     x: 0,
     y: 0,
     scale: 1,
-    imageSrc: null,
-    thumbnailSrc: null,
-    imageAspectRatio: null,
-    parentDefinitionNodeId: null,
-    edgeIds: [], // Initialize with empty edge IDs
-    definitionGraphIds: [],
-    ...overrides, // Allow overriding defaults
+    ...overrides,
 });
 
-const createEdgeData = (id = uuidv4(), sourceId, destinationId, overrides = {}) => ({
+const createEdgeData = (id, sourceId, destinationId, overrides = {}) => ({
     id,
     sourceId,
     destinationId,
-    definitionNodeId: null,
     name: `Edge ${id}`,
     description: 'Edge Description',
-    picture: '',
-    color: '',
-    data: { value: `Data for ${id}` },
-    directed: true,
+    typeNodeId: 'base-connection-prototype',
     ...overrides,
 });
 
-const createGraphData = (id = uuidv4(), nodeIds = [], edgeIds = [], overrides = {}) => ({
+const createGraphData = (id, instances = [], edgeIds = [], overrides = {}) => ({
     id,
     name: `Graph ${id}`,
     description: 'Graph Description',
-    picture: '',
     color: '',
     directed: true,
-    nodeIds: [...nodeIds],
+    instances: new Map(instances.map((inst) => [inst.id, inst])),
     edgeIds: [...edgeIds],
+    groups: new Map(),
     ...overrides,
 });
 
-// Mock Graph Instance (only for loadGraph action test)
-// This mimics the *input* to loadGraph, not the stored state.
-const mockGraphInstance = (id = uuidv4(), nodes = [], edges = []) => ({
-    getId: vi.fn(() => id),
-    getName: vi.fn(() => `Graph ${id}`),
-    getDescription: vi.fn(() => 'Graph Description'),
-    getPicture: vi.fn(() => ''),
-    getColor: vi.fn(() => ''),
-    isDirected: vi.fn(() => true),
-    getNodes: vi.fn(() => nodes), // Returns array of mock Node instances
-    getEdges: vi.fn(() => edges), // Returns array of mock Edge instances
-});
-
-// Mock Node Instance (only for loadGraph action test)
-const mockNodeInstance = (id = uuidv4(), edgeIds = [], definitionGraphIds = []) => ({
-    getId: vi.fn(() => id),
-    getName: vi.fn(() => `Node ${id}`),
-    getDescription: vi.fn(() => 'Node Description'),
-    getPicture: vi.fn(() => ''),
-    getColor: vi.fn(() => ''),
-    getData: vi.fn(() => ({ value: `Data for ${id}` })),
-    getX: vi.fn(() => 0),
-    getY: vi.fn(() => 0),
-    getScale: vi.fn(() => 1),
-    getImageSrc: vi.fn(() => null),
-    getThumbnailSrc: vi.fn(() => null),
-    getImageAspectRatio: vi.fn(() => null),
-    getParentDefinitionNodeId: vi.fn(() => null),
-    getEdgeIds: vi.fn(() => edgeIds),
-    getDefinitionGraphIds: vi.fn(() => definitionGraphIds),
-});
-
-// Mock Edge Instance (only for loadGraph action test)
-const mockEdgeInstance = (id = uuidv4(), sourceId, destinationId) => ({
-     getId: vi.fn(() => id),
-    getSourceId: vi.fn(() => sourceId),
-    getDestinationId: vi.fn(() => destinationId),
-    getDefinitionNodeId: vi.fn(() => null),
-    getName: vi.fn(() => `Edge ${id}`),
-    getDescription: vi.fn(() => 'Edge Description'),
-    getPicture: vi.fn(() => ''),
-    getColor: vi.fn(() => ''),
-    getData: vi.fn(() => ({ value: `Data for ${id}` })),
-    isDirected: vi.fn(() => true),
-});
+// Two Things placed in g1 and connected by e1: the shape most tests start from.
+const seedConnectedPair = () => {
+    const base = useGraphStore.getState().nodePrototypes;
+    const nodePrototypes = new Map(base);
+    nodePrototypes.set('p1', createPrototypeData('p1'));
+    nodePrototypes.set('p2', createPrototypeData('p2'));
+    const i1 = createInstanceData('i1', 'p1');
+    const i2 = createInstanceData('i2', 'p2', { x: 100 });
+    const e1 = createEdgeData('e1', 'i1', 'i2');
+    act(() => {
+        useGraphStore.setState({
+            nodePrototypes,
+            graphs: new Map([['g1', createGraphData('g1', [i1, i2], ['e1'])]]),
+            edges: new Map([['e1', e1]]),
+        });
+    });
+    return { i1, i2, e1 };
+};
 
 // --- Tests ---
 
@@ -130,7 +105,10 @@ describe('useGraphStore', () => {
     it('should have correct initial state', () => {
         const state = useGraphStore.getState();
         expect(state.graphs).toEqual(new Map());
-        expect(state.nodes).toEqual(new Map());
+        // Only the seeded base types; there is no global node pool any more.
+        expect(Array.from(state.nodePrototypes.keys()).sort())
+            .toEqual(['base-connection-prototype', 'base-thing-prototype']);
+        expect(state.nodes).toBeUndefined();
         expect(state.edges).toEqual(new Map()); // Check initial edges map
         expect(state.openGraphIds).toEqual([]);
         expect(state.activeGraphId).toBeNull();
@@ -139,173 +117,157 @@ describe('useGraphStore', () => {
     // --- Action Tests ---
 
     describe('actions', () => {
-        it('loadGraph: should load graph, node, and edge data from instances', () => {
-            // Create mock instances for input
-            const nodeInst1 = mockNodeInstance('n1');
-            const nodeInst2 = mockNodeInstance('n2', ['e1']);
-            const edgeInst1 = mockEdgeInstance('e1', 'n1', 'n2');
-            nodeInst1.getEdgeIds.mockReturnValue(['e1']); // Ensure node mocks return edgeId
-            const graphInst1 = mockGraphInstance('g1', [nodeInst1, nodeInst2], [edgeInst1]);
+        it('loadUniverseFromFile: should load graph, prototype, instance and edge data', () => {
+            const p1 = createPrototypeData('p1');
+            const p2 = createPrototypeData('p2');
+            const i1 = createInstanceData('i1', 'p1');
+            const i2 = createInstanceData('i2', 'p2');
+            const e1 = createEdgeData('e1', 'i1', 'i2');
+            const g1 = createGraphData('g1', [i1, i2], ['e1']);
 
+            let loaded;
             act(() => {
-                useGraphStore.getState().loadGraph(graphInst1);
+                loaded = useGraphStore.getState().loadUniverseFromFile({
+                    graphs: new Map([['g1', g1]]),
+                    nodePrototypes: new Map([['p1', p1], ['p2', p2]]),
+                    edges: new Map([['e1', e1]]),
+                    openGraphIds: ['g1'],
+                    activeGraphId: 'g1',
+                });
             });
+            expect(loaded).toBe(true);
 
             const state = useGraphStore.getState();
 
-            // Check graphs map
+            // Graph with its placed instances
             expect(state.graphs.size).toBe(1);
-            const expectedGraphData = {
-                id: 'g1', name: 'Graph g1', description: 'Graph Description', picture: '', color: '',
-                directed: true, nodeIds: ['n1', 'n2'], edgeIds: ['e1']
-            };
-            expect(state.graphs.get('g1')).toEqual(expectedGraphData);
+            const graph = state.graphs.get('g1');
+            expect(graph.name).toBe('Graph g1');
+            expect(Array.from(graph.instances.keys())).toEqual(['i1', 'i2']);
+            expect(graph.instances.get('i1').prototypeId).toBe('p1');
+            expect(graph.edgeIds).toEqual(['e1']);
 
-            // Check nodes map
-            expect(state.nodes.size).toBe(2);
-            const expectedNode1Data = createNodeData('n1', { edgeIds: ['e1'] });
-            const expectedNode2Data = createNodeData('n2', { edgeIds: ['e1'] });
-            expect(state.nodes.get('n1')).toEqual(expectedNode1Data);
-            expect(state.nodes.get('n2')).toEqual(expectedNode2Data);
+            // Prototypes
+            expect(state.nodePrototypes.get('p1').name).toBe('Thing p1');
+            expect(state.nodePrototypes.get('p2').name).toBe('Thing p2');
 
-            // Check edges map
+            // Edges connect instance IDs
             expect(state.edges.size).toBe(1);
-            const expectedEdge1Data = createEdgeData('e1', 'n1', 'n2');
-            expect(state.edges.get('e1')).toEqual(expectedEdge1Data);
+            expect(state.edges.get('e1')).toMatchObject({ sourceId: 'i1', destinationId: 'i2' });
 
-            // Check tab state
+            // Tab state
             expect(state.openGraphIds).toEqual(['g1']);
             expect(state.activeGraphId).toBe('g1');
+            expect(state.isUniverseLoaded).toBe(true);
+            expect(state.universeLoadingError).toBeNull();
         });
 
-        it('loadGraph: should not reload data for an existing graph', () => {
-            const graphInst1 = mockGraphInstance('g1');
-            act(() => { useGraphStore.getState().loadGraph(graphInst1); });
-            const state1 = useGraphStore.getState();
-            act(() => { useGraphStore.getState().loadGraph(graphInst1); }); // Try loading again
-            const state2 = useGraphStore.getState();
-
-            expect(state2.graphs.size).toBe(1);
-            expect(state2.nodes.size).toBe(0);
-            expect(state2.edges.size).toBe(0);
-            expect(state2).toEqual(state1); // Whole state should be unchanged
-        });
-
-        it('addNode: should add new node data to global pool and graph', () => {
-            const graphData1 = createGraphData('g1');
-            act(() => { useGraphStore.setState({ graphs: new Map([['g1', graphData1]]) }); }); // Setup initial graph
-
-            const newNodeData = createNodeData('n-new');
+        it('addNodePrototype + addNodeInstance: should add a Thing and place it in a graph', () => {
+            act(() => { useGraphStore.setState({ graphs: new Map([['g1', createGraphData('g1')]]) }); });
 
             act(() => {
-                useGraphStore.getState().addNode('g1', newNodeData);
+                useGraphStore.getState().addNodePrototype(createPrototypeData('p-new'));
+                useGraphStore.getState().addNodeInstance('g1', 'p-new', { x: 10, y: 20 }, 'i-new');
             });
 
             const state = useGraphStore.getState();
-            expect(state.nodes.size).toBe(1);
-            expect(state.nodes.get('n-new')).toEqual(newNodeData);
+            expect(state.nodePrototypes.get('p-new')).toMatchObject({ id: 'p-new', name: 'Thing p-new' });
 
-            const updatedGraph = state.graphs.get('g1');
-            expect(updatedGraph.nodeIds).toEqual(['n-new']); // Check ID added to graph
+            const instances = state.graphs.get('g1').instances;
+            expect(instances.size).toBe(1);
+            expect(instances.get('i-new')).toEqual({ id: 'i-new', prototypeId: 'p-new', x: 10, y: 20, scale: 1 });
         });
 
-        it('updateNode: should update existing node data', () => {
-            const nodeData1 = createNodeData('n1', { data: { value: 'initial' } });
-            act(() => { useGraphStore.setState({ nodes: new Map([['n1', nodeData1]]) }); });
+        it('addNodeInstance: should refuse a prototype that does not exist', () => {
+            act(() => { useGraphStore.setState({ graphs: new Map([['g1', createGraphData('g1')]]) }); });
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-            const updateFunction = (node) => ({ ...node, data: { value: 'updated' }, name: 'Updated Name' });
+            act(() => { useGraphStore.getState().addNodeInstance('g1', 'p-missing', { x: 0, y: 0 }, 'i-x'); });
+
+            expect(useGraphStore.getState().graphs.get('g1').instances.size).toBe(0);
+            errorSpy.mockRestore();
+        });
+
+        it('updateNodePrototype / updateNodeInstance: should update existing node data', () => {
+            seedConnectedPair();
 
             act(() => {
-                useGraphStore.getState().updateNode('n1', updateFunction);
+                useGraphStore.getState().updateNodePrototype('p1', (proto) => {
+                    proto.name = 'Updated Name';
+                    proto.description = 'updated';
+                });
+                useGraphStore.getState().updateNodeInstance('g1', 'i1', (inst) => {
+                    inst.x = 42;
+                });
             });
 
             const state = useGraphStore.getState();
-            const updatedNode = state.nodes.get('n1');
-            expect(updatedNode.data.value).toBe('updated');
-            expect(updatedNode.name).toBe('Updated Name');
+            expect(state.nodePrototypes.get('p1').name).toBe('Updated Name');
+            expect(state.nodePrototypes.get('p1').description).toBe('updated');
+            expect(state.graphs.get('g1').instances.get('i1').x).toBe(42);
+            // The other Thing is untouched
+            expect(state.nodePrototypes.get('p2').name).toBe('Thing p2');
         });
 
-        it('addEdge: should add new edge data to global pool, graph, and nodes', () => {
-            const nodeData1 = createNodeData('n1');
-            const nodeData2 = createNodeData('n2');
-            const graphData1 = createGraphData('g1', ['n1', 'n2']);
-            act(() => {
-                useGraphStore.setState({ 
-                    graphs: new Map([['g1', graphData1]]), 
-                    nodes: new Map([['n1', nodeData1], ['n2', nodeData2]]) 
-                }); 
-            });
+        it('addEdge: should add new edge data to the edge pool and the graph', () => {
+            seedConnectedPair();
+            act(() => { useGraphStore.getState().removeEdge('e1'); });
 
-            const newEdgeData = createEdgeData('e1', 'n1', 'n2');
-
+            const newEdgeData = createEdgeData('e2', 'i1', 'i2');
             act(() => {
                 useGraphStore.getState().addEdge('g1', newEdgeData);
             });
 
             const state = useGraphStore.getState();
             expect(state.edges.size).toBe(1);
-            expect(state.edges.get('e1')).toEqual(newEdgeData);
-
-            // Check graph
-            const updatedGraph = state.graphs.get('g1');
-            expect(updatedGraph.edgeIds).toEqual(['e1']);
-
-            // Check nodes
-            const updatedNode1 = state.nodes.get('n1');
-            const updatedNode2 = state.nodes.get('n2');
-            expect(updatedNode1.edgeIds).toEqual(['e1']);
-            expect(updatedNode2.edgeIds).toEqual(['e1']);
+            expect(state.edges.get('e2')).toMatchObject({ id: 'e2', sourceId: 'i1', destinationId: 'i2' });
+            expect(state.graphs.get('g1').edgeIds).toEqual(['e2']);
         });
 
-        it('removeNode: should remove node data and associated edges/references', () => {
-            const nodeData1 = createNodeData('n1', { edgeIds: ['e1'] });
-            const nodeData2 = createNodeData('n2', { edgeIds: ['e1'] });
-            const edgeData1 = createEdgeData('e1', 'n1', 'n2');
-            const graphData1 = createGraphData('g1', ['n1', 'n2'], ['e1']);
-            act(() => {
-                useGraphStore.setState({ 
-                    graphs: new Map([['g1', graphData1]]), 
-                    nodes: new Map([['n1', nodeData1], ['n2', nodeData2]]), 
-                    edges: new Map([['e1', edgeData1]])
-                }); 
-            });
+        it('addEdge: should refuse an edge whose ends are not in the graph', () => {
+            seedConnectedPair();
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
             act(() => {
-                useGraphStore.getState().removeNode('n1');
+                useGraphStore.getState().addEdge('g1', createEdgeData('e-bad', 'i1', 'i-missing'));
             });
 
             const state = useGraphStore.getState();
-
-            // Check node removed
-            expect(state.nodes.has('n1')).toBe(false);
-            expect(state.nodes.size).toBe(1);
-
-            // Check edge removed
-            expect(state.edges.has('e1')).toBe(false);
-            expect(state.edges.size).toBe(0);
-
-            // Check graph updated
-            const updatedGraph = state.graphs.get('g1');
-            expect(updatedGraph.nodeIds).toEqual(['n2']);
-            expect(updatedGraph.edgeIds).toEqual([]);
-
-            // Check remaining node updated
-            const updatedNode2 = state.nodes.get('n2');
-            expect(updatedNode2.edgeIds).toEqual([]);
+            expect(state.edges.has('e-bad')).toBe(false);
+            expect(state.graphs.get('g1').edgeIds).toEqual(['e1']);
+            errorSpy.mockRestore();
         });
 
-        it('removeEdge: should remove edge data and references from graph/nodes', () => {
-            const nodeData1 = createNodeData('n1', { edgeIds: ['e1'] });
-            const nodeData2 = createNodeData('n2', { edgeIds: ['e1'] });
-            const edgeData1 = createEdgeData('e1', 'n1', 'n2');
-            const graphData1 = createGraphData('g1', ['n1', 'n2'], ['e1']);
+        it('removeNodeInstance: should remove the instance and its connected edges', () => {
+            seedConnectedPair();
+            // A third Thing connected to i2 only: its edge must survive.
             act(() => {
-                useGraphStore.setState({ 
-                    graphs: new Map([['g1', graphData1]]), 
-                    nodes: new Map([['n1', nodeData1], ['n2', nodeData2]]), 
-                    edges: new Map([['e1', edgeData1]])
-                }); 
+                useGraphStore.getState().addNodeInstance('g1', 'p2', { x: 200, y: 0 }, 'i3');
+                useGraphStore.getState().addEdge('g1', createEdgeData('e2', 'i2', 'i3'));
             });
+
+            act(() => {
+                useGraphStore.getState().removeNodeInstance('g1', 'i1');
+            });
+
+            const state = useGraphStore.getState();
+            const graph = state.graphs.get('g1');
+
+            // Instance removed, others kept
+            expect(graph.instances.has('i1')).toBe(false);
+            expect(Array.from(graph.instances.keys())).toEqual(['i2', 'i3']);
+
+            // Connected edge removed from the pool and the graph; unrelated edge kept
+            expect(state.edges.has('e1')).toBe(false);
+            expect(state.edges.has('e2')).toBe(true);
+            expect(graph.edgeIds).toEqual(['e2']);
+
+            // Removing a placement does not delete the Thing itself
+            expect(state.nodePrototypes.has('p1')).toBe(true);
+        });
+
+        it('removeEdge: should remove edge data and its reference from the graph', () => {
+            seedConnectedPair();
 
             act(() => {
                 useGraphStore.getState().removeEdge('e1');
@@ -317,22 +279,17 @@ describe('useGraphStore', () => {
             expect(state.edges.has('e1')).toBe(false);
             expect(state.edges.size).toBe(0);
 
-            // Check graph updated
+            // Check graph updated; the Things it connected stay placed
             const updatedGraph = state.graphs.get('g1');
             expect(updatedGraph.edgeIds).toEqual([]);
-
-            // Check nodes updated
-            const updatedNode1 = state.nodes.get('n1');
-            const updatedNode2 = state.nodes.get('n2');
-            expect(updatedNode1.edgeIds).toEqual([]);
-            expect(updatedNode2.edgeIds).toEqual([]);
+            expect(Array.from(updatedGraph.instances.keys())).toEqual(['i1', 'i2']);
         });
 
         // --- Tab Management Tests (should still pass if logic unchanged) ---
         it('openGraphTab: should add graph id to openGraphIds if valid and not already open', () => {
             const graphData1 = createGraphData('g1');
              act(() => { useGraphStore.setState({ graphs: new Map([['g1', graphData1]]) }); });
-            // Manually set active/open state for test setup if loadGraph isn't used
+            // Manually set active/open state for test setup
             act(() => { useGraphStore.setState({ openGraphIds: ['g1'], activeGraphId: 'g1' }) }); 
             act(() => { useGraphStore.setState({ openGraphIds: [] }); }); // Manually close
 
@@ -385,10 +342,12 @@ describe('useGraphStore', () => {
             expect(useGraphStore.getState().activeGraphId).toBe('g2');
 
             // Try setting non-open but existing graph
-            const graphInst3 = mockGraphInstance('g3'); // Use mock instance for loadGraph
-            act(() => { useGraphStore.getState().loadGraph(graphInst3); });
-            // Manually remove from open list if needed for the test condition
-            act(() => { useGraphStore.setState(state => ({ openGraphIds: state.openGraphIds.filter(id => id !== 'g3') })) });
+            act(() => {
+                useGraphStore.setState(state => ({
+                    graphs: new Map([...state.graphs, ['g3', createGraphData('g3')]])
+                }));
+            });
+            expect(useGraphStore.getState().openGraphIds).not.toContain('g3');
 
             act(() => { useGraphStore.getState().setActiveGraphTab('g3'); });
             expect(useGraphStore.getState().activeGraphId).toBe('g2'); // Should not change
@@ -402,21 +361,22 @@ describe('useGraphStore', () => {
     // --- Selector Tests --- (Using plain data with injected state)
 
     describe('selectors', () => {
-        let nodeDataA, nodeDataB, nodeDataC, edgeDataX, graphDataX, graphDataY, testState;
+        let protoA, protoB, instA, instB, instC, edgeDataX, graphDataX, graphDataY, testState;
 
         // Inject test state for selectors
         beforeEach(() => {
-            // Define plain data for selector tests
-            nodeDataA = createNodeData('nA', { parentDefinitionNodeId: 'parent1', edgeIds: ['eX'] });
-            nodeDataB = createNodeData('nB', { parentDefinitionNodeId: 'parent1', edgeIds: ['eX'] });
-            nodeDataC = createNodeData('nC', { parentDefinitionNodeId: 'parent2' });
-            edgeDataX = createEdgeData('eX', 'nA', 'nB');
-            graphDataX = createGraphData('gX', ['nA', 'nB'], ['eX'], { name: 'Graph X' });
-            graphDataY = createGraphData('gY', ['nC'], [], { name: 'Graph Y' });
+            protoA = createPrototypeData('pA', { name: 'Thing A' });
+            protoB = createPrototypeData('pB', { name: 'Thing B' });
+            instA = createInstanceData('iA', 'pA', { x: 1 });
+            instB = createInstanceData('iB', 'pB', { x: 2 });
+            instC = createInstanceData('iC', 'pA', { x: 3 }); // a second placement of Thing A
+            edgeDataX = createEdgeData('eX', 'iA', 'iB');
+            graphDataX = createGraphData('gX', [instA, instB], ['eX'], { name: 'Graph X' });
+            graphDataY = createGraphData('gY', [instC], [], { name: 'Graph Y' });
 
             testState = {
                 graphs: new Map([['gX', graphDataX], ['gY', graphDataY]]),
-                nodes: new Map([['nA', nodeDataA], ['nB', nodeDataB], ['nC', nodeDataC]]),
+                nodePrototypes: new Map([['pA', protoA], ['pB', protoB]]),
                 edges: new Map([['eX', edgeDataX]]),
                 openGraphIds: ['gX', 'gY'],
                 activeGraphId: 'gX',
@@ -430,9 +390,9 @@ describe('useGraphStore', () => {
             expect(selectorNonExistent(testState)).toBeUndefined();
         });
 
-        it('getNodeDataById: should return the correct node data', () => {
-            expect(getNodeDataById('nB')(useGraphStore.getState())).toEqual(nodeDataB);
-            const selectorNonExistent = getNodeDataById('nD');
+        it('getNodePrototypeById: should return the correct prototype data', () => {
+            expect(getNodePrototypeById('pB')(useGraphStore.getState())).toEqual(protoB);
+            const selectorNonExistent = getNodePrototypeById('pD');
             expect(selectorNonExistent(testState)).toBeUndefined();
         });
 
@@ -447,14 +407,25 @@ describe('useGraphStore', () => {
             expect(getActiveGraphData(useGraphStore.getState())).toBeUndefined();
         });
 
-        it('getNodesForGraph: should return correct node data for the graph', () => {
-            const nodesX = getNodesForGraph('gX')(useGraphStore.getState());
-            expect(nodesX).toEqual([nodeDataA, nodeDataB]); // Order might depend on map/array stability
-            const selectorY = getNodesForGraph('gY');
-            const nodesY = selectorY(useGraphStore.getState());
-            expect(nodesY).toEqual([nodeDataC]);
-            const nodesZ = getNodesForGraph('gZ')(useGraphStore.getState());
-            expect(nodesZ).toEqual([]);
+        it('getInstancesForGraph: should return the instances placed in the graph', () => {
+            expect(getInstancesForGraph('gX')(useGraphStore.getState())).toEqual([instA, instB]);
+            expect(getInstancesForGraph('gY')(useGraphStore.getState())).toEqual([instC]);
+            expect(getInstancesForGraph('gZ')(useGraphStore.getState())).toEqual([]);
+        });
+
+        it('getHydratedNodesForGraph: should combine each instance with its prototype', () => {
+            const nodesX = getHydratedNodesForGraph('gX')(useGraphStore.getState());
+            expect(nodesX).toEqual([
+                { ...protoA, ...instA },
+                { ...protoB, ...instB },
+            ]);
+            // The instance id wins over the prototype id; the name comes from the prototype
+            expect(nodesX[0].id).toBe('iA');
+            expect(nodesX[0].name).toBe('Thing A');
+
+            const nodesY = getHydratedNodesForGraph('gY')(useGraphStore.getState());
+            expect(nodesY).toEqual([{ ...protoA, ...instC }]);
+            expect(getHydratedNodesForGraph('gZ')(useGraphStore.getState())).toEqual([]);
         });
 
         it('getEdgesForGraph: should return correct edge data for the graph', () => {
@@ -462,15 +433,6 @@ describe('useGraphStore', () => {
             expect(edgesX).toEqual([edgeDataX]);
             const edgesY = getEdgesForGraph('gY')(useGraphStore.getState());
             expect(edgesY).toEqual([]);
-        });
-
-        it('getNodesByParent: should return nodes with the specified parentDefinitionNodeId', () => {
-            const nodesP1 = getNodesByParent('parent1')(useGraphStore.getState());
-            expect(nodesP1).toEqual([nodeDataA, nodeDataB]);
-            const nodesP2 = getNodesByParent('parent2')(useGraphStore.getState());
-            expect(nodesP2).toEqual([nodeDataC]);
-            const nodesP3 = getNodesByParent('parent3')(useGraphStore.getState());
-            expect(nodesP3).toEqual([]);
         });
 
         it('getGraphTitleById: should return the graph name', () => {
@@ -488,4 +450,4 @@ describe('useGraphStore', () => {
             expect(getActiveGraphId(testState)).toBe('gX');
         });
     });
-}); 
+});

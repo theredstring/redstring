@@ -6,12 +6,37 @@ import {
   SemanticProviderFactory 
 } from '../../src/services/gitNativeProvider.js';
 
+// GitHub writes go through GitHubAPIWrapper, which takes its Authorization
+// header from persistentAuth (the signed-in session), not from the provider's
+// own token. Stand in a signed-in OAuth session holding the same token.
+const { auth } = vi.hoisted(() => ({
+  auth: {
+    readyPromise: null,
+    getAppInstallation: () => null,
+    getAccessToken: async () => 'ghp_testtoken123',
+    clearTokens: async () => {},
+    clearAppInstallation: async () => {}
+  }
+}));
+vi.mock('../../src/services/persistentAuth.js', () => ({ persistentAuth: auth }));
+
 // Mock fetch globally
 global.fetch = vi.fn();
 
+// isAvailable() reads GitHub's identifying headers off the response.
+const okResponse = (body) => ({
+  ok: true,
+  status: 200,
+  headers: new Headers(),
+  json: () => Promise.resolve(body)
+});
+const notFound = () => ({ ok: false, status: 404, headers: new Headers() });
+
 describe('Git-Native Semantic Web Provider', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // Reset (not just clear): queued mockResolvedValueOnce responses a test
+    // didn't consume must not leak into the next test.
+    vi.resetAllMocks();
   });
 
   describe('SemanticProvider Base Class', () => {
@@ -85,25 +110,21 @@ describe('Git-Native Semantic Web Provider', () => {
     it('should write semantic file successfully', async () => {
       const provider = new GitHubSemanticProvider(mockConfig);
       
-      // Mock successful file write
-      global.fetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ sha: 'abc123' })
-      });
+      // Mock file existence check (the SHA probe runs first)
+      global.fetch.mockResolvedValueOnce(okResponse({ sha: 'abc123' }));
 
-      // Mock file existence check
-      global.fetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ sha: 'abc123' })
-      });
+      // Mock successful file write
+      global.fetch.mockResolvedValueOnce(okResponse({ sha: 'def456' }));
 
       const result = await provider.writeSemanticFile('test-concept', 'test content');
 
+      expect(result).toEqual({ sha: 'def456' });
       expect(fetch).toHaveBeenCalledWith(
         'https://api.github.com/repos/testuser/testrepo/contents/semantic/test-concept.ttl',
         expect.objectContaining({
           method: 'PUT',
           headers: {
+            'Accept': 'application/vnd.github.v3+json',
             'Authorization': 'token ghp_testtoken123',
             'Content-Type': 'application/json'
           },
@@ -120,13 +141,11 @@ describe('Git-Native Semantic Web Provider', () => {
       const provider = new GitHubSemanticProvider(mockConfig);
       
       // Mock file info response
-      global.fetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          content: btoa('test content'),
-          sha: 'abc123'
-        })
-      });
+      global.fetch.mockResolvedValueOnce(okResponse({
+        content: btoa('test content'),
+        sha: 'abc123',
+        size: 'test content'.length
+      }));
 
       const content = await provider.readSemanticFile('test-concept');
 
@@ -135,7 +154,8 @@ describe('Git-Native Semantic Web Provider', () => {
         'https://api.github.com/repos/testuser/testrepo/contents/semantic/test-concept.ttl',
         expect.objectContaining({
           headers: {
-            'Authorization': 'token ghp_testtoken123'
+            'Authorization': 'token ghp_testtoken123',
+            'Accept': 'application/vnd.github.v3+json'
           }
         })
       );
@@ -145,10 +165,7 @@ describe('Git-Native Semantic Web Provider', () => {
       const provider = new GitHubSemanticProvider(mockConfig);
       
       // Mock multiple file writes
-      global.fetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ sha: 'abc123' })
-      });
+      global.fetch.mockResolvedValue(okResponse({ sha: 'abc123' }));
 
       const spaceInfo = await provider.createSemanticSpace('test-space');
 
@@ -161,9 +178,7 @@ describe('Git-Native Semantic Web Provider', () => {
     it('should check availability successfully', async () => {
       const provider = new GitHubSemanticProvider(mockConfig);
       
-      global.fetch.mockResolvedValueOnce({
-        ok: true
-      });
+      global.fetch.mockResolvedValueOnce(okResponse({}));
 
       const isAvailable = await provider.isAvailable();
 
@@ -182,9 +197,7 @@ describe('Git-Native Semantic Web Provider', () => {
     it('should get status information', async () => {
       const provider = new GitHubSemanticProvider(mockConfig);
       
-      global.fetch.mockResolvedValueOnce({
-        ok: true
-      });
+      global.fetch.mockResolvedValueOnce(okResponse({}));
 
       const status = await provider.getStatus();
 
@@ -237,13 +250,13 @@ describe('Git-Native Semantic Web Provider', () => {
     it('should write semantic file successfully', async () => {
       const provider = new GiteaSemanticProvider(mockConfig);
       
-      global.fetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ sha: 'abc123' })
-      });
+      // Existence probe: the file is new, so the write is a create (POST)
+      global.fetch.mockResolvedValueOnce(notFound());
+      global.fetch.mockResolvedValueOnce(okResponse({ sha: 'abc123' }));
 
       const result = await provider.writeSemanticFile('test-concept', 'test content');
 
+      expect(result).toEqual({ sha: 'abc123' });
       expect(fetch).toHaveBeenCalledWith(
         'https://git.example.com/api/v1/repos/testuser/testrepo/contents/knowledge/test-concept.ttl',
         expect.objectContaining({
@@ -362,7 +375,7 @@ describe('Git-Native Semantic Web Provider', () => {
       });
       expect(providers[1]).toEqual({
         type: 'gitea',
-        name: 'Self-Hosted Gitea',
+        name: 'Self-Host',
         description: 'Self-hosted Gitea instance',
         authMechanism: 'token',
         configFields: ['endpoint', 'user', 'repo', 'token', 'semanticPath']
@@ -379,13 +392,26 @@ describe('Git-Native Semantic Web Provider', () => {
       });
 
       // Mock file existence check to return null (file doesn't exist)
-      global.fetch.mockResolvedValueOnce({ ok: false, status: 404 });
+      global.fetch.mockResolvedValueOnce(notFound());
 
-      // Mock the actual write operation to fail
-      global.fetch.mockResolvedValueOnce({ ok: false, text: () => Promise.resolve('Not Found') });
+      // Mock the actual write operation to fail (GitHubAPIWrapper retries it
+      // with exponential backoff, so every attempt fails the same way)
+      global.fetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+        headers: new Headers(),
+        text: () => Promise.resolve('Not Found')
+      });
 
-      await expect(provider.writeSemanticFile('test', 'content'))
-        .rejects.toThrow('GitHub API error: Not Found');
+      vi.useFakeTimers();
+      try {
+        const write = provider.writeSemanticFile('test', 'content');
+        const assertion = expect(write).rejects.toThrow('GitHub API error 404: Not Found');
+        await vi.runAllTimersAsync();
+        await assertion;
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('should handle Gitea API errors gracefully', async () => {
@@ -396,10 +422,12 @@ describe('Git-Native Semantic Web Provider', () => {
         token: 'testtoken123'
       });
 
-      global.fetch.mockResolvedValueOnce({ ok: false, text: () => Promise.resolve('Unauthorized') });
+      // Existence probe says the file is new; the create itself is refused
+      global.fetch.mockResolvedValueOnce(notFound());
+      global.fetch.mockResolvedValueOnce({ ok: false, status: 401, text: () => Promise.resolve('Unauthorized') });
 
       await expect(provider.writeSemanticFile('test', 'content'))
-        .rejects.toThrow('Gitea API error: Unauthorized');
+        .rejects.toThrow('Gitea API error: 401 Unauthorized');
     });
 
     it('should handle network errors gracefully', async () => {
@@ -424,22 +452,17 @@ describe('Git-Native Semantic Web Provider', () => {
         token: 'ghp_testtoken123'
       });
 
-      // Mock file listing
-      global.fetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([
-          { path: 'semantic/vocabulary/concepts/test.ttl', name: 'test.ttl' }
-        ])
-      });
+      // Mock file listing (under the default semantic path, 'schema')
+      global.fetch.mockResolvedValueOnce(okResponse([
+        { path: 'schema/vocabulary/concepts/test.ttl', name: 'test.ttl' }
+      ]));
 
       // Mock file content
-      global.fetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({
-          content: btoa('test content'),
-          sha: 'abc123'
-        })
-      });
+      global.fetch.mockResolvedValueOnce(okResponse({
+        content: btoa('test content'),
+        sha: 'abc123',
+        size: 'test content'.length
+      }));
 
       const archive = await provider.exportFullGraph();
 
@@ -447,7 +470,9 @@ describe('Git-Native Semantic Web Provider', () => {
       expect(archive.user).toBe('testuser');
       expect(archive.repo).toBe('testrepo');
       expect(archive.exportedAt).toBeDefined();
-      expect(archive.files).toHaveProperty('semantic/vocabulary/concepts/test.ttl');
+      expect(archive.files).toEqual({
+        'schema/vocabulary/concepts/test.ttl': 'test content'
+      });
     });
 
     it('should import full graph to GitHub', async () => {
@@ -463,17 +488,18 @@ describe('Git-Native Semantic Web Provider', () => {
         repo: 'testrepo',
         exportedAt: new Date().toISOString(),
         files: {
-          'semantic/vocabulary/concepts/test.ttl': 'test content'
+          'schema/vocabulary/concepts/test.ttl': 'test content'
         }
       };
 
       // Mock file write
-      global.fetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ sha: 'abc123' })
-      });
+      global.fetch.mockResolvedValue(okResponse({ sha: 'abc123' }));
 
       await expect(provider.importFullGraph(archive)).resolves.not.toThrow();
+      expect(fetch).toHaveBeenCalledWith(
+        'https://api.github.com/repos/testuser/testrepo/contents/schema/vocabulary/concepts/test.ttl',
+        expect.objectContaining({ method: 'PUT' })
+      );
     });
 
     it('should reject import of wrong provider type', async () => {

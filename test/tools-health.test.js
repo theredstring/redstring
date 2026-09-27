@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
-const BASE = 'http://localhost:3001';
+// Same port resolution as wizard-server.js, so a second wizard can be pointed at.
+const BASE = `http://localhost:${process.env.WIZARD_PORT || process.env.BRIDGE_PORT || '3001'}`;
 
 async function post(path, body) {
   const r = await fetch(`${BASE}${path}`, {
@@ -43,18 +44,42 @@ async function isUIProjectionActive({ recentMs = 4000 } = {}) {
   }
 }
 
+async function getHealth() {
+  try {
+    return await get('/api/bridge/health');
+  } catch {
+    return null;
+  }
+}
+
 describe('Tools layer healthcheck (daemon HTTP)', () => {
-  it('fast-path: commit-ops applies without UI (create graph only)', async () => {
+  // `/test/commit-ops` went with bridge-daemon-legacy.js (73f4f43d). Applying
+  // actions with no UI is now the headless wizard's job: with a workspace
+  // configured, /api/bridge/pending-actions/enqueue executes in-process.
+  it('fast-path: a headless wizard applies actions without UI (create graph only)', async (ctx) => {
+    // Skip unless a HEADLESS wizard answers. In browser-relay mode (the
+    // Electron app's bridge) enqueued actions land in the user's open universe.
+    const health = await getHealth();
+    if (!health?.headless) ctx.skip();
+
     const gid = `graph-fast-${Date.now()}`;
-    const resp = await post('/test/commit-ops', {
-      graphId: 'unknown',
-      ops: [ { type: 'createNewGraph', initialData: { id: gid, name: 'Fast Path', color: '#5B6CFF' } } ],
-      threadId: 'tools-fast'
+    const resp = await post('/api/bridge/pending-actions/enqueue', {
+      actions: [ { action: 'createNewGraph', params: [ { id: gid, name: 'Fast Path', color: '#5B6CFF' } ] } ]
     });
     expect(resp.ok).toBe(true);
-    // Sanity: the bridge can be read
+    expect(resp.storeMode).toBe('runtime');
+    expect(resp.actionIds).toHaveLength(1);
+
+    let status = null;
+    const done = await waitFor(async () => {
+      status = await get(`/api/bridge/action-status/${resp.actionIds[0]}`);
+      return status.status === 'completed';
+    });
+    expect(done).toBe(true);
+    expect(status.result?.success).not.toBe(false);
+
     const state = await get('/api/bridge/state');
-    expect(state).toBeTruthy();
+    expect(state.graphs.some(g => g.id === gid)).toBe(true);
   }, 10000);
 
   it('pending-actions: opens graph, adds/moves nodes, updates prototype (requires UI projection)', async () => {

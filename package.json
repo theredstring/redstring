@@ -135,6 +135,7 @@
     "jsonld": "^8.3.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.454.0",
+    "n3": "^1.26.0",
     "node-fetch": "^3.3.2",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.5.207",

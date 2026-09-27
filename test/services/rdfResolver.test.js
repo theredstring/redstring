@@ -13,6 +13,9 @@ describe('RDF Resolver', () => {
 
   beforeEach(() => {
     resolver = new RDFResolver();
+    // The resolver's cache is module-level (shared by every instance), so a
+    // result cached by one test would otherwise answer the next test's fetch.
+    resolver.clearCache();
     vi.clearAllMocks();
   });
 
@@ -53,10 +56,25 @@ describe('RDF Resolver', () => {
     });
 
     it('should handle network errors gracefully', async () => {
+      // Network/CORS failures deliberately resolve to fallback data (an empty,
+      // flagged record labelled from the URI) instead of rejecting, so one
+      // unreachable external link doesn't break enrichment for the others.
       global.fetch.mockRejectedValue(new Error('Network error'));
 
+      const result = await resolver.resolveURI('http://example.com/test');
+
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(result.uri).toBe('http://example.com/test');
+      expect(result.triples).toEqual([]);
+      expect(result.metadata.corsBlocked).toBe(true);
+      expect(result.metadata.label).toBe('test');
+    });
+
+    it('should still reject on non-network errors', async () => {
+      global.fetch.mockRejectedValue(new Error('Something else broke'));
+
       await expect(resolver.resolveURI('http://example.com/test'))
-        .rejects.toThrow('Network error');
+        .rejects.toThrow('Something else broke');
     });
 
     it('should use cached results when available', async () => {

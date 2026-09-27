@@ -1,48 +1,89 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, act, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import App from './App';
-import useGraphStore from './store/graphStore.js'; // Import the store
 
-// Mock the useCanvasWorker hook
-vi.mock('./hooks/useCanvasWorker', () => ({
-  __esModule: true, // Use this for ES Modules
-  default: vi.fn(() => ({
-    // Mock the return value of the hook
-    worker: null, // Or a mock worker object if needed
-    postMessageToWorker: vi.fn(),
-    // Add other functions/properties returned by the hook if needed
-  })),
+// App mounts NodeCanvas, so it needs the same hoisted setup as the canvas
+// tests (see src/test-utils/canvasHarness.jsx for why each piece exists).
+vi.hoisted(() => {
+  try { globalThis.localStorage?.setItem('redstring_disable_culling', 'true'); } catch { /* ignore */ }
+});
+
+vi.mock('./services/WorkspaceService.js', () => {
+  const stub = { initialize: async () => ({ status: 'NOOP' }), getFolderHandle: () => null };
+  return { default: stub, workspaceService: stub };
+});
+
+vi.mock('./useCanvasWorker.js', () => ({
+  useCanvasWorker: () => ({
+    calculatePan: vi.fn(),
+    calculateNodePositions: vi.fn(),
+    calculateZoom: vi.fn(),
+    calculateSelection: vi.fn(),
+  }),
 }));
 
-// Mock the components if they aren't essential for the integration test logic
-// and might cause issues (e.g., complex rendering, external dependencies)
-// vi.mock('./components/GraphBrowserPanel', () => ({
-//   default: ({ children }) => <div data-testid="mock-browser-panel">{children}</div>,
-// }));
-// vi.mock('./components/TabbedCanvasView', () => ({
-//   default: ({ children }) => <div data-testid="mock-canvas-view">{children}</div>,
-// }));
+import App from './App';
+import {
+  installCanvasStubs,
+  teardownCanvasStubs,
+  flushFrames,
+  holdUniverseOpen,
+  makeGraph,
+  makePrototype,
+  useGraphStore,
+} from './test-utils/canvasHarness.jsx';
 
-// Helper to reset store before each test
-const resetStore = () => {
+// A universe with one open Web ("Main Workspace Graph") holding one Thing whose
+// definition is a second Web ("My Definition Graph") that is not open yet.
+// Header tabs only show for graphs that have a defining node, so the main Web
+// is defined by its own prototype.
+const seedUniverse = () => {
   useGraphStore.setState({
-    graphs: new Map(),
-    nodes: new Map(),
+    graphs: new Map([
+      ['g-main', makeGraph('g-main', { name: 'Main Workspace Graph', definingNodeIds: ['p-main'] })],
+      ['g-def', makeGraph('g-def', { name: 'My Definition Graph', definingNodeIds: ['p-def'] })],
+    ]),
+    graphViews: new Map(),
+    nodePrototypes: new Map([
+      ['p-main', makePrototype('p-main', 'Main Workspace', { definitionGraphIds: ['g-main'] })],
+      ['p-def', makePrototype('p-def', 'Click Me To Open Definition', { definitionGraphIds: ['g-def'] })],
+    ]),
     edges: new Map(),
-    openGraphIds: [],
-    activeGraphId: null,
-  }); // Remove the 'true' flag to use default merge behavior
+    openGraphIds: ['g-main'],
+    activeGraphId: 'g-main',
+    activeDefinitionNodeId: null,
+    rightPanelTabs: [{ type: 'home', isActive: true }],
+    expandedGraphIds: new Set(),
+    savedNodeIds: new Set(),
+    savedGraphIds: new Set(),
+    typeListMode: 'closed',
+    isUniverseLoaded: true,
+    isUniverseLoading: false,
+    universeLoadingError: null,
+    hasUniverseFile: true,
+  }, false, 'app_test_seed');
+  useGraphStore.getState().addNodeInstance('g-main', 'p-def', { x: 0, y: 0 }, 'i-def');
 };
 
+const headerTabIds = () =>
+  [...document.querySelectorAll('[data-header-tab-id]')].map((el) => el.getAttribute('data-header-tab-id'));
 
 describe('App Integration Test', () => {
   beforeEach(() => {
-    // Reset Zustand store state before each test to ensure isolation
-    resetStore();
-    // You might need to clear any console mocks or other setup here
+    installCanvasStubs();
+    // Header holds its tab strip back until its logo images preload, and jsdom
+    // never fires image load events.
+    vi.stubGlobal('Image', class {
+      set src(value) { this._src = value; queueMicrotask(() => this.onload?.()); }
+      get src() { return this._src; }
+    });
+    seedUniverse();
+  });
+
+  afterEach(() => {
+    teardownCanvasStubs();
   });
 
   it('should render layout, load initial data, and open definition graph in a tab on click', async () => {
@@ -51,35 +92,40 @@ describe('App Integration Test', () => {
         <App />
       </DndProvider>
     );
+    flushFrames(3);
 
-    // 1. Verify initial layout and data loading
-    // Check if the definition node name from mock data appears in the browser panel area
-    const definitionNodeElement = await screen.findByText('Click Me To Open Definition');
-    expect(definitionNodeElement).toBeInTheDocument();
+    // 1. Layout and data: the canvas draws the Thing, the header shows the open Web.
+    await waitFor(() => {
+      expect(document.querySelector('svg.canvas')).toBeTruthy();
+    });
+    act(() => { holdUniverseOpen(); });
+    flushFrames(3);
+    expect(document.querySelector('[data-instance-id="i-def"]')).toBeTruthy();
+    await waitFor(() => {
+      expect(headerTabIds()).toEqual(['g-main']);
+    });
+    expect(screen.getByTitle('Main Workspace Graph')).toBeTruthy();
+    expect(screen.queryByTitle('My Definition Graph')).toBeNull();
 
-    // Check if the tab container exists (assuming TabbedCanvasView renders some identifiable container)
-    // This might need adjustment based on TabbedCanvasView's actual structure
-    // For example, if it has a role='tablist'
-    // const tabList = screen.getByRole('tablist');
-    // expect(tabList).toBeInTheDocument();
+    // 2. Open the Thing's panel tab, then its "Open this Web" button.
+    act(() => { useGraphStore.getState().openRightPanelNodeTab('p-def'); });
+    flushFrames(3);
+    const openWebButton = await screen.findByTitle('Open this Web');
 
-    // Ensure the definition graph tab is NOT initially open
-    expect(screen.queryByRole('tab', { name: /My Definition Graph/i })).not.toBeInTheDocument();
+    // The button launches the hurtle orb, which opens the tab when it lands.
+    // Its start time comes from performance.now(); pin it to the harness's rAF
+    // clock so the flight completes within the frames flushed below.
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(0);
+    act(() => { openWebButton.click(); });
+    nowSpy.mockRestore();
+    flushFrames(40);
 
-
-    // 2. Test basic flow: Click definition node -> Open tab
-    fireEvent.click(definitionNodeElement);
-
-    // 3. Verify that the new tab appears
-    // Wait for the tab with the definition graph's name to appear
-    const definitionTab = await screen.findByRole('tab', { name: /My Definition Graph/i });
-    expect(definitionTab).toBeInTheDocument();
-
-    // Optional: Verify the tab is now active (this depends on TabbedCanvasView implementation)
-    // expect(definitionTab).toHaveAttribute('aria-selected', 'true');
-
-     // Optional: Verify the main workspace graph tab might also be present if it's opened by default
-     // const mainTab = await screen.findByRole('tab', { name: /Main Workspace Graph/i });
-     // expect(mainTab).toBeInTheDocument();
+    // 3. The definition Web is now an open, active header tab.
+    await waitFor(() => {
+      expect(headerTabIds()).toEqual(['g-main', 'g-def']);
+    });
+    expect(screen.getByTitle('My Definition Graph')).toBeTruthy();
+    expect(useGraphStore.getState().activeGraphId).toBe('g-def');
+    expect(screen.getByTitle('This Web is open')).toBeTruthy();
   });
-}); 
+});

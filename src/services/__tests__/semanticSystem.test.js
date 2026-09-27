@@ -3,6 +3,19 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+
+// The real measurer wraps @chenglou/pretext, which needs a canvas 2d context
+// and throws without one; jsdom has no canvas backend. Same stand-in as
+// test/services/labelSpriteBake.test.js: width grows with the label length
+// and the font size, which is all the radial layout depends on.
+vi.mock('../textMeasurement.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  measureTextWidth: (text, fontString) => {
+    if (!text) return 0;
+    const px = Number((/([\d.]+)px/.exec(fontString) || [])[1]) || 16;
+    return text.length * px * 0.6;
+  }
+}));
 import { discoverConnections } from '../semanticDiscovery.js';
 import { calculateEntityMatchConfidence, deduplicateEntities } from '../entityMatching.js';
 import { layoutRadialGraph, calculateNodeDimensions } from '../radialLayout.js';
@@ -82,8 +95,10 @@ describe('Entity Matching', () => {
   });
 
   it('should match entities with similar labels', () => {
+    // A fuzzy label match only counts above 85% similarity (entityMatching.js),
+    // so the near-miss here is one letter, not an abbreviation.
     const entity1 = {
-      name: 'Super Mario Bros',
+      name: 'Super Mario Brother',
       source: 'dbpedia'
     };
 
@@ -95,6 +110,18 @@ describe('Entity Matching', () => {
     const match = calculateEntityMatchConfidence(entity1, entity2);
 
     expect(match.confidence).toBeGreaterThan(0.6);
+    expect(match.factors.map((f) => f.factor)).toContain('label_fuzzy_match');
+  });
+
+  it('does not fuzzy-match labels below the 85% similarity bar', () => {
+    // "Bros" vs "Brothers" is 80% similar: on its label alone this pair is
+    // not evidence of sameness.
+    const match = calculateEntityMatchConfidence(
+      { name: 'Super Mario Bros', source: 'dbpedia' },
+      { name: 'Super Mario Brothers', source: 'wikipedia' }
+    );
+
+    expect(match.confidence).toBe(0);
   });
 
   it('should deduplicate entity list', () => {

@@ -5,6 +5,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { replaceEdges } from './replaceEdges.js';
 
+// replaceEdges resolves every endpoint against the target graph's instances
+// (9c185e4b), so the fixture has to hold the nodes the edges name.
+const makeGraphState = (names) => ({
+    activeGraphId: 'graph-1',
+    graphs: [{
+        id: 'graph-1',
+        instances: names.map((name, i) => ({ id: `inst-${i + 1}`, prototypeId: `proto-${i + 1}` }))
+    }],
+    nodePrototypes: names.map((name, i) => ({ id: `proto-${i + 1}`, name }))
+});
+
 describe('replaceEdges', () => {
     const mockEnsureSchedulerStarted = vi.fn();
     const mockCid = 'test-cid-123';
@@ -14,11 +25,7 @@ describe('replaceEdges', () => {
     });
 
     it('returns replacement specs for UI application', async () => {
-        const graphState = {
-            activeGraphId: 'graph-1',
-            graphs: [],
-            nodePrototypes: []
-        };
+        const graphState = makeGraphState(['Node A', 'Node B', 'Node C', 'Node D']);
 
         const result = await replaceEdges(
             {
@@ -88,11 +95,7 @@ describe('replaceEdges', () => {
     });
 
     it('defaults directionality to unidirectional', async () => {
-        const graphState = {
-            activeGraphId: 'graph-1',
-            graphs: [],
-            nodePrototypes: []
-        };
+        const graphState = makeGraphState(['A', 'B']);
 
         const result = await replaceEdges(
             {
@@ -107,11 +110,7 @@ describe('replaceEdges', () => {
     });
 
     it('preserves explicit directionality', async () => {
-        const graphState = {
-            activeGraphId: 'graph-1',
-            graphs: [],
-            nodePrototypes: []
-        };
+        const graphState = makeGraphState(['A', 'B']);
 
         const result = await replaceEdges(
             {
@@ -124,5 +123,18 @@ describe('replaceEdges', () => {
 
         expect(result.replacements[0].directionality).toBe('bidirectional');
         expect(result.replacements[0].type).toBe('Loves');
+    });
+
+    it('throws with the available nodes when an endpoint is not in the graph', async () => {
+        const graphState = makeGraphState(['A', 'B']);
+
+        await expect(
+            replaceEdges(
+                { edges: [{ source: 'A', target: 'Missing', type: 'contains' }] },
+                graphState,
+                mockCid,
+                mockEnsureSchedulerStarted
+            )
+        ).rejects.toThrow('Could not resolve nodes: "Missing" (target). Available nodes: A, B.');
     });
 });

@@ -5,7 +5,7 @@
  * to resolve external URIs to actual RDF data.
  */
 
-import N3Parser from '@rdfjs/parser-n3';
+import { Parser as N3StringParser } from 'n3';
 import JsonLDParser from '@rdfjs/parser-jsonld';
 import jsonld from 'jsonld';
 import { createTimeoutSignal } from '../utils/abortSignal.js';
@@ -25,7 +25,6 @@ const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 export class RDFResolver {
   constructor() {
     this.parsers = {
-      turtle: new N3Parser(),
       jsonld: new JsonLDParser()
     };
     
@@ -161,24 +160,22 @@ export class RDFResolver {
    * @private
    */
   async _parseTurtle(content, baseUri) {
-    return new Promise((resolve, reject) => {
-      const triples = [];
-      const metadata = { format: 'turtle', baseUri };
-      
-      this.parsers.turtle.import(content)
-        .on('data', (quad) => {
-          triples.push({
-            subject: this._termToString(quad.subject),
-            predicate: this._termToString(quad.predicate),
-            object: this._termToString(quad.object),
-            graph: quad.graph ? this._termToString(quad.graph) : null
-          });
-        })
-        .on('end', () => {
-          resolve({ triples, metadata });
-        })
-        .on('error', reject);
-    });
+    // n3's Parser takes the document as a string (no Node stream needed, so
+    // this works in the browser and the Electron renderer). Called without a
+    // quad callback it parses synchronously and throws on a syntax error.
+    // (@rdfjs/parser-n3's import() needs a readable stream: passing it a
+    // string threw "input.pipe is not a function".)
+    const parser = new N3StringParser({ baseIRI: baseUri || undefined });
+    const quads = parser.parse(content);
+    const triples = quads.map((quad) => ({
+      subject: this._termToString(quad.subject),
+      predicate: this._termToString(quad.predicate),
+      object: this._termToString(quad.object),
+      graph: quad.graph && quad.graph.termType !== 'DefaultGraph'
+        ? this._termToString(quad.graph)
+        : null
+    }));
+    return { triples, metadata: { format: 'turtle', baseUri } };
   }
 
   /**

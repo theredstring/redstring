@@ -241,13 +241,16 @@ function applyStaggering(layout) {
  */
 function routeConnections(layout, centralNode, connections) {
   const routes = [];
+  // `centralNode` is the central POSITION ({ node, x, y, ... }), like every
+  // entry in `layout`, so its name lives on `.node`.
+  const centralName = centralNode.node?.name;
 
   for (const connection of connections) {
-    const sourceNode = connection.source === centralNode.name
+    const sourceNode = connection.source === centralName
       ? centralNode
       : layout.find(n => n.node.name === connection.source);
 
-    const targetNode = connection.target === centralNode.name
+    const targetNode = connection.target === centralName
       ? centralNode
       : layout.find(n => n.node.name === connection.target);
 

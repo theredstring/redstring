@@ -248,21 +248,76 @@ describe('parallel connections between the same two nodes', () => {
       );
       const p = chooseRoutedLabelPlacement(routing, NAMES[i], nodes, visible, dims,
         placed, FONT, edge.id, new Set(), { obstacles, segmentIndex: null });
-      const rect = labelBoundsFor(p.x, p.y, estimateTextWidth(NAMES[i], FONT), FONT * 1.1, p.angle);
+      const width = estimateTextWidth(NAMES[i], FONT);
+      const rect = labelBoundsFor(p.x, p.y, width, FONT * 1.1, p.angle);
       placed.set(edge.id, { rect, position: { x: p.x, y: p.y, angle: p.angle } });
-      return { ...p, rect };
+      return { ...p, rect, box: rotatedBox(p.x, p.y, width, FONT * 1.1, p.angle) };
     });
   };
 
-  const overlaps = (a, b) => !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+  // The box each label is DRAWN in: its registered width x 1.1 line height,
+  // rotated to its angle. Not the axis-aligned `rect`: since c35d68dd (PHANTOM
+  // CORNERS in edgeLabelPlacement.js) the placer deliberately lets two tilted
+  // labels' AABBs share their empty corner triangles, so comparing AABBs flags
+  // labels whose text is ~30px apart. Labels drawn on top of one another is a
+  // statement about the rotated boxes, so that is what gets compared.
+  const rotatedBox = (x, y, w, h, angle) => {
+    const r = (angle * Math.PI) / 180;
+    const c = Math.cos(r);
+    const s = Math.sin(r);
+    return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]
+      .map(([u, v]) => [x + u * c - v * s, y + u * s + v * c]);
+  };
+  // Separating-axis test for two convex quads.
+  const overlaps = (A, B) => {
+    for (const P of [A, B]) {
+      for (let i = 0; i < 4; i++) {
+        const [x1, y1] = P[i];
+        const [x2, y2] = P[(i + 1) % 4];
+        const ax = y1 - y2;
+        const ay = x2 - x1;
+        const pa = A.map(([x, y]) => x * ax + y * ay);
+        const pb = B.map(([x, y]) => x * ax + y * ay);
+        if (Math.max(...pa) < Math.min(...pb) || Math.max(...pb) < Math.min(...pa)) return false;
+      }
+    }
+    return true;
+  };
 
   for (const k of [2, 3, 4]) {
     it(`keeps ${k} labels clear of each other`, () => {
       const out = place(k);
       for (let i = 0; i < out.length; i++) {
         for (let j = i + 1; j < out.length; j++) {
-          expect(overlaps(out[i].rect, out[j].rect)).toBe(false);
+          expect(overlaps(out[i].box, out[j].box)).toBe(false);
         }
+      }
+    });
+
+    it(`only lets ${k} labels share the empty corners of their boxes`, () => {
+      // The rotated-box check above cannot fail on this fixture by itself:
+      // lanes 100px apart hold 65px-tall labels clear even when every one sits
+      // at its arc midpoint. What the placer actually promises is narrower:
+      // where two tilted labels' AABBs meet, they meet only inside the corner
+      // allowance PHANTOM CORNERS grants (OVERLAP_PHANTOM_SHARE, 5% of the empty
+      // corner area). Left stacked at their midpoints the AABBs overlap by
+      // ~9,000-19,000 px², an order of magnitude past it.
+      const out = place(k);
+      const width = (i) => estimateTextWidth(NAMES[i], FONT);
+      const allowance = (i) => {
+        const r = (out[i].angle * Math.PI) / 180;
+        const h = FONT * 1.1;
+        return Math.abs(Math.sin(r) * Math.cos(r)) * (width(i) ** 2 + h ** 2) * 0.05;
+      };
+      const aabbOverlap = (a, b) => {
+        const w = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+        const h = Math.min(a.maxY, b.maxY) - Math.max(a.minY, b.minY);
+        return w > 0 && h > 0 ? w * h : 0;
+      };
+      for (let j = 1; j < out.length; j++) {
+        let buried = 0;
+        for (let i = 0; i < j; i++) buried += aabbOverlap(out[i].rect, out[j].rect);
+        expect(buried).toBeLessThanOrEqual(allowance(j));
       }
     });
   }

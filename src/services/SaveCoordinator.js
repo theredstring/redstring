@@ -449,6 +449,7 @@ class SaveCoordinator {
       } else {
         if (this.workerTimer) clearTimeout(this.workerTimer);
         this.workerTimer = setTimeout(() => {
+          this.workerTimer = null;
           this.sendToWorker();
         }, 300);
       }
@@ -1046,6 +1047,7 @@ class SaveCoordinator {
         if (this.workerTimer) clearTimeout(this.workerTimer);
         
         this.workerTimer = setTimeout(() => {
+          this.workerTimer = null;
           this.sendToWorker();
         }, 500); // 500ms debounce — keeps structured-clone postMessage off the
                   // tail of the 250ms drag zoom-restore animation, and batches
@@ -1091,8 +1093,10 @@ class SaveCoordinator {
     
     // console.log(`[SaveCoordinator] Scheduling write in ${DEBOUNCE_MS}ms`);
     
-    // Schedule new save
+    // Schedule new save. The handle is cleared when it fires: a stale handle
+    // reads as "a save is pending" to getStatus() and _navigationMayWait().
     this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
       this.executeSave();
     }, DEBOUNCE_MS);
   }
@@ -1384,6 +1388,7 @@ class SaveCoordinator {
     this.retryAttempt++;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
       this.executeSave();
     }, delay);
   }
@@ -1617,9 +1622,13 @@ class SaveCoordinator {
       // console.log('[SaveCoordinator] Force save requested');
       this.notifyStatus('info', 'Force saving...');
       
-      if (this.saveTimer) clearTimeout(this.saveTimer);
-      if (this.workerTimer) clearTimeout(this.workerTimer);
-      
+      if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+      if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
+      // The change that armed the cancelled worker timer is part of this
+      // write, so nothing waits on the worker any more. A change that arrives
+      // during the write below re-arms it; a failed write sets isDirty.
+      this.awaitingWorker = false;
+
       this.lastState = state;
       this.isSaving = true;
       
