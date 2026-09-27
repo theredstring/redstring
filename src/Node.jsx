@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen 
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.js"; // Import store selectors
 
 import { useTheme } from './hooks/useTheme.js';
+import { projectGraphView, viewEdges } from './core/openDefinitions.js';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
 const DESCRIPTION_MAX_LINES = 3; // Matches utils.js's cap on descriptionAreaHeight
@@ -222,7 +223,6 @@ const Node = ({
   // mini-graph preview rendering. Non-previewing nodes return null, avoiding re-renders
   // when the store changes (e.g. during drag position updates).
   const graphsMap = useGraphStore((state) => isPreviewing ? state.graphs : null);
-  const edgesMap = useGraphStore((state) => isPreviewing ? state.edges : null);
   const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
   const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
@@ -293,12 +293,18 @@ const Node = ({
   // Get the currently displayed graph ID
   const currentGraphId = definitionGraphIds[currentDefinitionIndex] || definitionGraphIds[0];
 
+  // The definition as viewed, like the canvas: a Thing opened in place inside it
+  // shows its own definition's nodes in its box, and a connection into a closed
+  // box is drawn to the box.
+  const currentViewGraph = useGraphStore((state) => (isPreviewing && currentGraphId ? projectGraphView(state, currentGraphId) : null));
+  const currentViewEdges = useGraphStore((state) => (isPreviewing && currentGraphId ? viewEdges(state, currentGraphId) : null));
+
   // Filter nodes and edges for the current graph definition
   const currentGraphNodes = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
 
     // Manual hydration to avoid storeState dependency
-    const graphData = graphsMap.get(currentGraphId);
+    const graphData = currentViewGraph;
     if (!graphData || !graphData.instances) return [];
 
     const nodes = [];
@@ -312,18 +318,18 @@ const Node = ({
     });
 
     return nodes;
-  }, [isPreviewing, currentGraphId, graphsMap, nodePrototypesMap]);
+  }, [isPreviewing, currentGraphId, currentViewGraph, nodePrototypesMap]);
 
   const currentGraphEdges = useMemo(() => {
     if (!isPreviewing || !currentGraphId) return [];
-    const graphData = graphsMap.get(currentGraphId);
-    if (!graphData || !graphData.edgeIds) return [];
+    const graphData = currentViewGraph;
+    if (!graphData || !graphData.edgeIds || !currentViewEdges) return [];
 
-    // Map edge IDs to actual edge data from the global edges map
+    // Map edge IDs to the edges as drawn in this view
     return graphData.edgeIds
-      .map(edgeId => edgesMap.get(edgeId))
+      .map(edgeId => currentViewEdges.get(edgeId))
       .filter(edge => edge !== undefined);
-  }, [isPreviewing, currentGraphId, graphsMap, edgesMap]);
+  }, [isPreviewing, currentGraphId, currentViewGraph, currentViewEdges]);
 
   // Get the current definition graph's description, truncated (by character count, on the
   // last visible line) to fit the fixed-height description area. CSS line-clamp doesn't
@@ -737,7 +743,7 @@ const Node = ({
                 <InnerNetwork
                   nodes={currentGraphNodes}
                   edges={currentGraphEdges}
-                  groups={graphsMap?.get(currentGraphId)?.groups}
+                  groups={currentViewGraph?.groups}
                   width={innerNetworkWidth}
                   height={innerNetworkHeight}
                   padding={14 * effNodeScale}

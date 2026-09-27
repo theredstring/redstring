@@ -147,7 +147,7 @@ Use a command, not a new window event or a callback prop threaded through NodeCa
 | `menus/` | Context-menu builders |
 | `orbit/` | Semantic orbit: data, actions, constants, the hook, its layers |
 | `pie/` | Pie button builders, pie data, the machine, its commands, the edge pie hooks |
-| `renderConnectionEdge.jsx`, `SelfLoopEdge.jsx` | One connection's rendering |
+| `renderConnectionEdge.jsx`, `SelfLoopEdge.jsx` | One connection's rendering. Its resting geometry (not hovered, not selected) is mirrored as data in `utils/canvas/settledConnection.js`, which the web previews draw from (`components/webPreview/`: the Open Webs list, a definition in the right panel, a node's decomposition preview). `NodeCanvas.previewParity.test.jsx` checks the two agree in every routing style, so a change to the resting geometry here has to follow there |
 
 ## Where new features go
 

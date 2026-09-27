@@ -9,6 +9,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import useGraphStore from '../../store/graphStore.js';
 import useDoubleTap from '../../hooks/useDoubleTap.js';
 import InnerNetwork from '../../InnerNetwork.jsx';
+import { projectGraphView, viewEdges } from '../../core/openDefinitions.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
 // Lines of description shown before "Show more"; enough to tell definitions apart
@@ -29,13 +30,16 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
   const theme = useTheme();
   const textSettings = useGraphStore((s) => s.textSettings);
   // Narrow selectors: the graph object itself changes on every pan and zoom of
-  // that graph, its instances and edge list only when its contents do.
-  const instances = useGraphStore((s) => s.graphs.get(graphId)?.instances);
-  const edgeIds = useGraphStore((s) => s.graphs.get(graphId)?.edgeIds);
-  const groups = useGraphStore((s) => s.graphs.get(graphId)?.groups);
+  // that graph, its instances and edge list only when its contents do. Read as
+  // viewed, like the canvas: a Thing opened in place inside this Web shows its
+  // definition's nodes in its box, and a connection into a closed box is drawn
+  // to the box.
+  const instances = useGraphStore((s) => projectGraphView(s, graphId)?.instances);
+  const edgeIds = useGraphStore((s) => projectGraphView(s, graphId)?.edgeIds);
+  const groups = useGraphStore((s) => projectGraphView(s, graphId)?.groups);
   const webName = useGraphStore((s) => s.graphs.get(graphId)?.name);
   const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
-  const edgesMap = useGraphStore((s) => s.edges);
+  const edgesMap = useGraphStore((s) => viewEdges(s, graphId));
 
   const nodes = useMemo(() => {
     if (!instances) return [];
