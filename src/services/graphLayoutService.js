@@ -30,6 +30,8 @@ import {
   lombardiPaths
 } from './pathClearance.js';
 import { multilevelStressLayout } from './multilevelLayout.js';
+import { repairLayout } from './layoutRepair.js';
+import { significantCommunities } from './communityDetection.js';
 // Pattern layouts import estimateEdgeLabelWidth / forceDirectedLayout from
 // this module, so the two form an import cycle. It resolves safely because
 // every cross-module reference happens inside a function body, never at
@@ -533,8 +535,8 @@ function generateGroupAwareInitialPositions(nodes, adjacency, groups, width, hei
     if (groupIds.length === 0) {
       // Ungrouped node - position near center with jitter
       positions.set(node.id, {
-        x: centerX + (Math.random() - 0.5) * 200,
-        y: centerY + (Math.random() - 0.5) * 200
+        x: centerX + idJitter(node.id, 'ux') * 200,
+        y: centerY + idJitter(node.id, 'uy') * 200
       });
     } else if (groupIds.length === 1) {
       // Single group - position near group centroid
@@ -542,10 +544,10 @@ function generateGroupAwareInitialPositions(nodes, adjacency, groups, width, hei
       const memberCount = groupMemberCounts.get(groupIds[0]) || 1;
       const nodeRadius = 80 + Math.sqrt(memberCount) * 40;
       const centroid = groupCentroids.get(groupIds[0]);
-      const jitter = nodeRadius * (Math.random() - 0.5) * 2;
+      const jitter = nodeRadius * idJitter(node.id, 'cx') * 2;
       positions.set(node.id, {
         x: centroid.x + jitter,
-        y: centroid.y + (Math.random() - 0.5) * nodeRadius * 2
+        y: centroid.y + idJitter(node.id, 'cy') * nodeRadius * 2
       });
     } else {
       // Multiple groups - position at average of centroids  
@@ -560,8 +562,8 @@ function generateGroupAwareInitialPositions(nodes, adjacency, groups, width, hei
       avgX /= groupIds.length;
       avgY /= groupIds.length;
       positions.set(node.id, {
-        x: avgX + (Math.random() - 0.5) * 100,
-        y: avgY + (Math.random() - 0.5) * 100
+        x: avgX + idJitter(node.id, 'mx') * 100,
+        y: avgY + idJitter(node.id, 'my') * 100
       });
     }
   });
@@ -2670,8 +2672,8 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
 
     if (hasStackedNodes) {
       initial.forEach((pos, id) => {
-        pos.x += (Math.random() - 0.5) * jitterRadius * 2;
-        pos.y += (Math.random() - 0.5) * jitterRadius * 2;
+        pos.x += idJitter(id, 'stack-x') * jitterRadius * 2;
+        pos.y += idJitter(id, 'stack-y') * jitterRadius * 2;
       });
     }
 
@@ -3216,7 +3218,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
               force.fy += (dy / dist) * pushStrength;
             } else {
               // Node at group center — push in random direction
-              const angle = Math.random() * Math.PI * 2;
+              const angle = (idJitter(node.id, `excl-${iter}`) + 0.5) * Math.PI * 2;
               force.fx += Math.cos(angle) * pushStrength;
               force.fy += Math.sin(angle) * pushStrength;
             }
@@ -3471,7 +3473,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
   condenseClusters(positions, clusters, centerX, centerY, config, nodeGroupsMap);
 
   // ── Fix 5: Edge crossing reduction ──────────────────────────────────
-  reduceEdgeCrossings(positions, edges, nodes, nodeById, 5);
+  reduceEdgeCrossings(positions, edges, nodes, nodeById, 5, groups.length > 0 ? nodeGroupsMap : null);
 
   // ── Final label-aware edge correction ──────────────────────────────
   // Re-run the edge constraint after condensation and crossing reduction, both
@@ -4741,8 +4743,28 @@ function segmentsCross(a1x, a1y, a2x, a2y, b1x, b1y, b2x, b2y) {
  *   Phase 1: Try swapping endpoint positions — accept only if total crossings decrease.
  *   Phase 2: Adaptive nudge fallback — scale nudge to edge length instead of fixed 20px.
  */
-function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 5) {
+// Segment-pair tests reduceEdgeCrossings may spend. The pass is a greedy
+// improver, so stopping early keeps every swap it made; without a cap it was
+// most of the run time on big graphs (84s of a 606-node grouped layout went
+// here — each trial swap recounts the crossings of four nodes against every
+// connection). A count, not a clock, so the result is the same on every
+// machine.
+const CROSSING_REDUCTION_WORK = 2e7;
+
+function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 5, nodeGroupsMap = null) {
   if (edges.length < 2) return;
+  let work = 0;
+  // Swapping two nodes' positions is only a local edit if they live in the
+  // same place: a swap across a group boundary teleports a member out of its
+  // group and a stranger into it.
+  const sameGroups = (a, b) => {
+    if (!nodeGroupsMap) return true;
+    const ga = nodeGroupsMap.get(a), gb = nodeGroupsMap.get(b);
+    if (!ga && !gb) return true;
+    if (!ga || !gb || ga.size !== gb.size) return false;
+    for (const g of ga) if (!gb.has(g)) return false;
+    return true;
+  };
 
   // Pre-build adjacency: nodeId → list of edges involving that node
   const nodeEdgeMap = new Map();
@@ -4758,6 +4780,7 @@ function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 5) {
     let count = 0;
     const nodeEdges = nodeEdgeMap.get(nodeId);
     if (!nodeEdges) return 0;
+    work += nodeEdges.length * edges.length;
     for (const ne of nodeEdges) {
       for (let k = 0; k < edges.length; k++) {
         const oe = edges[k];
@@ -4777,8 +4800,8 @@ function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 5) {
   for (let pass = 0; pass < maxPasses; pass++) {
     let improved = false;
 
-    for (let i = 0; i < edges.length; i++) {
-      for (let j = i + 1; j < edges.length; j++) {
+    for (let i = 0; i < edges.length && work < CROSSING_REDUCTION_WORK; i++) {
+      for (let j = i + 1; j < edges.length && work < CROSSING_REDUCTION_WORK; j++) {
         const e1 = edges[i];
         const e2 = edges[j];
 
@@ -4808,6 +4831,7 @@ function reduceEdgeCrossings(positions, edges, nodes, nodeById, maxPasses = 5) {
         let bestReduction = 0;
 
         for (const { a, b } of candidates) {
+          if (!sameGroups(a, b)) continue;
           const pa = positions.get(a), pb = positions.get(b);
           const beforeA = countNodeCrossings(a);
           const beforeB = countNodeCrossings(b);
@@ -5035,7 +5059,7 @@ export function radialLayout(nodes, edges, options = {}) {
   // Handle disconnected nodes
   nodes.forEach(node => {
     if (!positions.has(node.id)) {
-      const angle = Math.random() * 2 * Math.PI;
+      const angle = (idJitter(node.id, 'orbit') + 0.5) * 2 * Math.PI;
       const radius = startRadius + orbits.length * radiusStep;
       positions.set(node.id, {
         x: centerX + Math.cos(angle) * radius,
@@ -5136,8 +5160,8 @@ export function eulerLayout(nodes, edges, options = {}) {
     if (!groupIds || groupIds.size === 0) {
       // Place non-grouped nodes outside or in center
       positions.set(node.id, {
-        x: width / 2 + (Math.random() - 0.5) * 200,
-        y: height / 2 + (Math.random() - 0.5) * 200
+        x: width / 2 + idJitter(node.id, 'ex') * 200,
+        y: height / 2 + idJitter(node.id, 'ey') * 200
       });
       return;
     }
@@ -5156,8 +5180,8 @@ export function eulerLayout(nodes, edges, options = {}) {
     if (count > 0) {
       // Add a jitter to prevent total overlap
       positions.set(node.id, {
-        x: sumX / count + (Math.random() - 0.5) * 100,
-        y: sumY / count + (Math.random() - 0.5) * 100
+        x: sumX / count + idJitter(node.id, 'gx') * 100,
+        y: sumY / count + idJitter(node.id, 'gy') * 100
       });
     } else {
       positions.set(node.id, { x: width / 2, y: height / 2 });
@@ -5317,6 +5341,118 @@ export function circularLayout(nodes, edges, options = {}) {
  * Apply layout algorithm and return position updates
  */
 export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
+  if (algorithm === 'best') return bestLayout(nodes, edges, options);
+  if (algorithm === 'community') {
+    const blocks = communityGroups(nodes, edges, options);
+    if (!blocks) return applyLayout(nodes, edges, 'node-driven', options);
+    // Blocks first: each community laid out on its own and the blocks kept
+    // apart. Then the ordinary solver refines the WHOLE graph from there with
+    // no groups — the blocks have already put every community in its own
+    // region, and a force layout keeps the macro-structure it starts from,
+    // while its interiors come out as good as any ungrouped layout's.
+    const seeded = solveLayout(nodes, edges, 'node-driven', {
+      ...options, groups: blocks, useExistingPositions: false,
+      onProgress: progressScope(options, 0, 0.5)
+    });
+    const at = new Map(seeded.map(u => [u.instanceId, u]));
+    const placed = nodes.map(n => (at.has(n.id) ? { ...n, x: at.get(n.id).x, y: at.get(n.id).y } : n));
+    return applyLayout(placed, edges, 'node-driven', {
+      ...options, groups: blocks, useExistingPositions: true, repairGroups: options.groups || [],
+      onProgress: progressScope(options, 0.5, 0.5)
+    });
+  }
+  const updates = solveLayout(nodes, edges, algorithm, options);
+  // The label-aware finisher models straight connections only; routed styles
+  // draw their labels on polylines it doesn't know about (and pathClearance
+  // already keeps those routes off nodes).
+  const straight = !options.routingStyle || options.routingStyle === 'straight';
+  if (options.labelRepair === false || !straight || updates.length < 2) return updates;
+  const positions = new Map(updates.map(u => [u.instanceId, { x: u.x, y: u.y }]));
+  const repaired = repairLayout(positions, nodes, edges, repairOptions(options));
+  return toUpdates(repaired.positions);
+}
+
+/** The repair fences only what is DRAWN — community blocks are not. */
+const repairOptions = (options) => (options.repairGroups
+  ? { ...options, groups: options.repairGroups }
+  : options);
+
+/**
+ * An ungrouped graph's communities as invisible groups, so the group pipeline
+ * lays each one out as its own block and keeps the blocks apart — clusters
+ * treated as groups, without drawing a shell the user never made. Only when
+ * the structure is significant (see significantCommunities); null otherwise.
+ */
+function communityGroups(nodes, edges, options) {
+  if ((options.groups || []).length > 0) return null;
+  const found = significantCommunities(nodes, edges);
+  if (!found) return null;
+  return found.communities.map((ids, k) => ({
+    id: `__community__${k}`,
+    name: '',
+    memberInstanceIds: ids,
+    virtual: true
+  }));
+}
+
+/**
+ * Portfolio selection: lay the graph out several ways, finish each with the
+ * label repair, and keep the one that draws best.
+ *
+ * No single solver wins everywhere. On the layout bench the force solver and
+ * the pattern pipeline each produced the better drawing on about half the
+ * graphs — trees, rings and hubs favour the constructions, meshes and
+ * irregular webs favour the forces — and picking per graph beat either one by
+ * several grade points. Which one wins can't be read off the topology reliably
+ * (that is what the pattern dispatcher already tries), but it can be MEASURED:
+ * repairLayout scores the drawn scene it leaves behind, so each candidate is
+ * judged on what the user would actually see (Rice's algorithm-selection
+ * problem, answered empirically per instance).
+ *
+ * Cost is the sum of the candidates, so the portfolio is only run where that
+ * is cheap; past PORTFOLIO_MAX_NODES the force solver runs alone.
+ */
+const PORTFOLIO_MAX_NODES = 150;
+
+function bestLayout(nodes, edges, options) {
+  const straight = !options.routingStyle || options.routingStyle === 'straight';
+  const candidates = [{ algorithm: 'node-driven', options: {} }];
+  // Clusters the selector should see kept apart: significant communities.
+  let qualityClusters = null;
+  if (nodes.length <= PORTFOLIO_MAX_NODES) {
+    // A fresh start as well as the incremental one: refinement keeps the
+    // user's arrangement when it is good, a fresh start escapes it when not.
+    if (options.useExistingPositions) candidates.push({ algorithm: 'node-driven', options: { useExistingPositions: false } });
+    candidates.push({ algorithm: 'pattern', options: {} });
+    const blocks = communityGroups(nodes, edges, options);
+    if (blocks) {
+      candidates.push({ algorithm: 'community', options: {} });
+      qualityClusters = new Map();
+      blocks.forEach(b => b.memberInstanceIds.forEach(id => qualityClusters.set(id, b.id)));
+    }
+  }
+  if (!straight || candidates.length === 1) {
+    return applyLayout(nodes, edges, straight ? 'node-driven' : 'pattern', options);
+  }
+  let best = null;
+  candidates.forEach((cand, i) => {
+    const opts = {
+      ...options,
+      ...cand.options,
+      onProgress: progressScope(options, i / candidates.length, 1 / candidates.length)
+    };
+    // Candidates come back UNrepaired so every one is finished — and scored —
+    // by the same repair call below.
+    const updates = applyLayout(nodes, edges, cand.algorithm, { ...opts, labelRepair: false });
+    if (updates.length < 2) return;
+    const positions = new Map(updates.map(u => [u.instanceId, { x: u.x, y: u.y }]));
+    const repaired = repairLayout(positions, nodes, edges, { ...opts, qualityClusters });
+    if (!best || repaired.quality < best.quality) best = { quality: repaired.quality, positions: repaired.positions };
+  });
+  return best ? toUpdates(best.positions) : [];
+}
+
+function solveLayout(nodes, edges, algorithm, options) {
   let positions;
 
   // Pattern layouts are size- and label-aware and produce deterministic
