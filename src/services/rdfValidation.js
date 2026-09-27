@@ -433,7 +433,17 @@ export class RDFValidation {
       if (node.externalLinks) {
         for (const link of node.externalLinks) {
           try {
-            await rdfResolver.resolveURI(link, { timeout: 5000 });
+            const resolved = await rdfResolver.resolveURI(link, { timeout: 5000 });
+            // resolveURI answers an unreachable URI with a placeholder rather
+            // than throwing, so the UI can still show a label. For validation
+            // that is exactly the failure to report.
+            if (resolved?.metadata?.fallbackReason === 'unreachable') {
+              unresolvedLinks.push({
+                nodeId: node.id,
+                uri: link,
+                error: 'Unreachable (network error, or the server blocks browser requests)'
+              });
+            }
           } catch (error) {
             unresolvedLinks.push({
               nodeId: node.id,

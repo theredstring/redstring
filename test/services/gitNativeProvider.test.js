@@ -6,16 +6,16 @@ import {
   SemanticProviderFactory 
 } from '../../src/services/gitNativeProvider.js';
 
-// GitHub writes go through GitHubAPIWrapper, which takes its Authorization
-// header from persistentAuth (the signed-in session), not from the provider's
-// own token. Stand in a signed-in OAuth session holding the same token.
+// The signed-in session holds a DIFFERENT token from the provider's, so the
+// write tests prove every request of one write is signed with the provider's
+// own token (the SHA probe, the PUT and a 409 retry alike).
 const { auth } = vi.hoisted(() => ({
   auth: {
     readyPromise: null,
     getAppInstallation: () => null,
-    getAccessToken: async () => 'ghp_testtoken123',
-    clearTokens: async () => {},
-    clearAppInstallation: async () => {}
+    getAccessToken: async () => 'ghp_session_token_other',
+    clearTokens: vi.fn(async () => {}),
+    clearAppInstallation: vi.fn(async () => {})
   }
 }));
 vi.mock('../../src/services/persistentAuth.js', () => ({ persistentAuth: auth }));
@@ -394,24 +394,61 @@ describe('Git-Native Semantic Web Provider', () => {
       // Mock file existence check to return null (file doesn't exist)
       global.fetch.mockResolvedValueOnce(notFound());
 
-      // Mock the actual write operation to fail (GitHubAPIWrapper retries it
-      // with exponential backoff, so every attempt fails the same way)
-      global.fetch.mockResolvedValue({
+      // The write itself is refused: reported once, not retried blind.
+      global.fetch.mockResolvedValueOnce({
         ok: false,
         status: 404,
         headers: new Headers(),
         text: () => Promise.resolve('Not Found')
       });
 
-      vi.useFakeTimers();
-      try {
-        const write = provider.writeSemanticFile('test', 'content');
-        const assertion = expect(write).rejects.toThrow('GitHub API error 404: Not Found');
-        await vi.runAllTimersAsync();
-        await assertion;
-      } finally {
-        vi.useRealTimers();
+      await expect(provider.writeSemanticFile('test', 'content'))
+        .rejects.toThrow('GitHub API error: 404 - Not Found');
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries a 409 conflict with the fresh SHA, signed with the provider token', async () => {
+      const provider = new GitHubSemanticProvider({
+        user: 'testuser',
+        repo: 'testrepo',
+        token: 'ghp_testtoken123'
+      });
+
+      global.fetch.mockResolvedValueOnce(okResponse({ sha: 'stale111' }));   // probe
+      global.fetch.mockResolvedValueOnce({                                   // PUT
+        ok: false, status: 409, headers: new Headers(),
+        text: () => Promise.resolve('sha does not match')
+      });
+      global.fetch.mockResolvedValueOnce(okResponse({ sha: 'fresh222' }));   // re-probe
+      global.fetch.mockResolvedValueOnce(okResponse({ sha: 'written333' }));  // retry PUT
+
+      const result = await provider.writeSemanticFile('test', 'content');
+
+      expect(result).toEqual({ sha: 'written333' });
+      const puts = fetch.mock.calls.filter(([, o]) => o?.method === 'PUT');
+      expect(puts).toHaveLength(2);
+      expect(JSON.parse(puts[1][1].body).sha).toBe('fresh222');
+      for (const [, opts] of fetch.mock.calls) {
+        expect(opts.headers.Authorization).toBe('token ghp_testtoken123');
       }
+    });
+
+    it('never clears the saved sign-in when a write is refused with 401', async () => {
+      const provider = new GitHubSemanticProvider({
+        user: 'testuser',
+        repo: 'testrepo',
+        token: 'ghp_testtoken123'
+      });
+
+      global.fetch.mockResolvedValueOnce(notFound());
+      global.fetch.mockResolvedValueOnce({
+        ok: false, status: 401, headers: new Headers(),
+        text: () => Promise.resolve('Bad credentials')
+      });
+
+      await expect(provider.writeSemanticFile('test', 'content')).rejects.toThrow('401');
+      expect(auth.clearTokens).not.toHaveBeenCalled();
+      expect(auth.clearAppInstallation).not.toHaveBeenCalled();
     });
 
     it('should handle Gitea API errors gracefully', async () => {

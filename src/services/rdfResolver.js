@@ -54,12 +54,16 @@ export class RDFResolver {
 
     try {
       const result = await this._fetchAndParse(uri, options);
-      
-      // Cache the result
-      rdfCache.set(cacheKey, {
-        data: result,
-        timestamp: Date.now()
-      });
+
+      // Cache the result. Not a placeholder for an unreachable URI, though:
+      // that was a moment's network state, and caching it for 24h would hide
+      // both a recovery and (to rdfValidation) the failure itself.
+      if (result?.metadata?.fallbackReason !== 'unreachable') {
+        rdfCache.set(cacheKey, {
+          data: result,
+          timestamp: Date.now()
+        });
+      }
       
       return result;
     } catch (error) {
@@ -77,7 +81,7 @@ export class RDFResolver {
       // Check if this is a known CORS-problematic domain
       if (this._isCORSProblematic(uri)) {
         console.warn(`[RDF Resolver] Skipping CORS-problematic URI: ${uri}`);
-        return this._createFallbackData(uri);
+        return this._createFallbackData(uri, 'known-cors-domain');
       }
 
       const headers = { ...this.defaultHeaders, ...options.headers };
@@ -122,7 +126,7 @@ export class RDFResolver {
       // Handle CORS and network errors gracefully
       if (this._isCORSOrNetworkError(error)) {
         console.warn(`[RDF Resolver] CORS/Network error for ${uri}, using fallback`);
-        return this._createFallbackData(uri);
+        return this._createFallbackData(uri, 'unreachable');
       }
       
       throw error;
@@ -404,9 +408,13 @@ export class RDFResolver {
 
   /**
    * Create fallback data for CORS-blocked URIs
+   * @param {string} uri
+   * @param {'known-cors-domain'|'unreachable'} reason - skipped up front for a
+   *   domain known to block browsers, or the fetch itself failed (network
+   *   down, or a CORS block the browser can't tell apart from one)
    * @private
    */
-  _createFallbackData(uri) {
+  _createFallbackData(uri, reason) {
     const label = this._extractLabelFromURI(uri);
     return {
       uri,
@@ -416,7 +424,8 @@ export class RDFResolver {
         label: label,
         description: `External resource (CORS-protected): ${label}`,
         url: uri,
-        corsBlocked: true
+        corsBlocked: true,
+        fallbackReason: reason
       },
       resolvedAt: new Date().toISOString()
     };

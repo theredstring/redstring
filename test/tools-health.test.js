@@ -82,13 +82,14 @@ describe('Tools layer healthcheck (daemon HTTP)', () => {
     expect(state.graphs.some(g => g.id === gid)).toBe(true);
   }, 10000);
 
-  it('pending-actions: opens graph, adds/moves nodes, updates prototype (requires UI projection)', async () => {
+  // Drives a RUNNING app's canvas: everything it creates lands in whatever
+  // universe is open, and the bridge has no deleteGraph to clean up after.
+  // So it only runs when asked for (REDSTRING_LIVE_UI_TEST=1), against a
+  // throwaway universe, never merely because the app happens to be open.
+  it('pending-actions: opens graph, adds/moves nodes, updates prototype (requires UI projection)', async (ctx) => {
+    if (process.env.REDSTRING_LIVE_UI_TEST !== '1') ctx.skip();
     const hasUIProjection = await isUIProjectionActive({ recentMs: 5000 });
-    if (!hasUIProjection) {
-      // Skip when UI is not actively posting state and leasing pending actions
-      expect(true).toBe(true);
-      return;
-    }
+    if (!hasUIProjection) ctx.skip();
 
     const gid = `graph-tools-${Date.now()}`;
     const pid = `prototype-tools-${Math.random().toString(36).slice(2,8)}`;
@@ -96,11 +97,9 @@ describe('Tools layer healthcheck (daemon HTTP)', () => {
     const instB = `inst-${Math.random().toString(36).slice(2,8)}`;
     const instC = `inst-${Math.random().toString(36).slice(2,8)}`;
 
-    // 1) Create graph via fast path (approved patch)
-    await post('/test/commit-ops', {
-      graphId: 'unknown',
-      ops: [ { type: 'createNewGraph', initialData: { id: gid, name: 'Tools Health', color: '#5B6CFF' } } ],
-      threadId: 'tools-health'
+    // 1) Create the graph (/test/commit-ops went with bridge-daemon-legacy.js)
+    await post('/api/bridge/pending-actions/enqueue', {
+      actions: [ { action: 'createNewGraph', params: [ { id: gid, name: 'Tools Health', color: '#5B6CFF' } ] } ]
     });
 
     // 2) Open graph and add prototype + instances

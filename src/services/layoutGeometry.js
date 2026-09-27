@@ -445,34 +445,41 @@ const rectGap = (a, b) => {
 };
 
 /**
- * Smallest gap between any rect of A and any rect of B, given each block's
- * current translation. Short-circuits on the bounding boxes: a block's bounds
- * contain its rects, so `boundsGap >= gap` already proves every pair is clear
- * and the quadratic scan can be skipped. That early-out is what keeps this
- * affordable — the full scan only runs for blocks that are actually near.
+ * How far short of its floor the closest pair of rects between A and B falls,
+ * given each block's current translation: positive means too close, zero or
+ * negative means clear. With one floor for the whole pair this is just
+ * `ceiling - smallest gap`; with `rectFloor` each rect pair is held to its own
+ * floor and the worst shortfall wins.
+ *
+ * Short-circuits on the bounding boxes: a block's bounds contain its rects, so
+ * `boundsGap >= ceiling` already proves every pair is clear (the ceiling is the
+ * largest floor any rect pair can ask for) and the quadratic scan can be
+ * skipped. That early-out is what keeps this affordable — the full scan only
+ * runs for blocks that are actually near.
  */
-const blockGap = (A, B, ceiling) => {
+const blockDeficit = (A, B, ceiling, rectFloor) => {
   const boundsDistance = rectGap(
     { minX: A.bounds.minX + A.dx, minY: A.bounds.minY + A.dy, maxX: A.bounds.maxX + A.dx, maxY: A.bounds.maxY + A.dy },
     { minX: B.bounds.minX + B.dx, minY: B.bounds.minY + B.dy, maxX: B.bounds.maxX + B.dx, maxY: B.bounds.maxY + B.dy }
   );
-  if (boundsDistance >= ceiling) return boundsDistance;
+  if (boundsDistance >= ceiling) return ceiling - boundsDistance;
 
-  let min = Infinity;
+  let worst = -Infinity;
   for (const a of A.rects) {
     const ax0 = a.minX + A.dx, ax1 = a.maxX + A.dx;
     const ay0 = a.minY + A.dy, ay1 = a.maxY + A.dy;
     for (const b of B.rects) {
       const dx = Math.max(0, ax0 - (b.maxX + B.dx), (b.minX + B.dx) - ax1);
       const dy = Math.max(0, ay0 - (b.maxY + B.dy), (b.minY + B.dy) - ay1);
-      const d = Math.hypot(dx, dy);
-      if (d < min) {
-        min = d;
-        if (min === 0) return 0;
+      const shortfall = (rectFloor ? rectFloor(a, b) : ceiling) - Math.hypot(dx, dy);
+      if (shortfall > worst) {
+        worst = shortfall;
+        // Touching under a single floor: nothing can fall further short.
+        if (!rectFloor && worst >= ceiling) return worst;
       }
     }
   }
-  return min;
+  return worst;
 };
 
 /**
@@ -503,10 +510,18 @@ const blockGap = (A, B, ceiling) => {
  * whichever pair needs the most casts the whole layout apart. Callers derive
  * each pair's floor from whatever constraint actually applies to it.
  *
+ * `options.rectGap(i, j, a, b)` goes one level finer, for blocks whose rects are
+ * not all the same kind of thing — a group shell carrying a loose satellite
+ * with it, say, where the shell needs a group's corridor from its neighbours
+ * and the satellite only a node's. When given, each rect pair is held to its
+ * own floor, and `gap(i, j)` must be the largest floor it returns for that
+ * block pair: it is the ceiling the bounding-box early-out tests against.
+ *
  * @param {Array<{rects: Array, movable?: boolean}>} blocks
  * @param {number | ((i: number, j: number) => number)} gap required clear space
  *        between two blocks, uniform or per index pair
- * @param {{center?: {x,y}, iterations?: number, pullRate?: number}} options
+ * @param {{center?: {x,y}, iterations?: number, pullRate?: number,
+ *          rectGap?: (i: number, j: number, a: object, b: object) => number}} options
  * @returns {Array<{dx: number, dy: number}>} translations, parallel to `blocks`
  */
 export function condenseBlocks(blocks, gap, options = {}) {
@@ -534,6 +549,7 @@ export function condenseBlocks(blocks, gap, options = {}) {
   const iterations = options.iterations ?? 24;
   const pullRate = options.pullRate ?? 0.12;
   const gapFor = typeof gap === 'function' ? gap : () => gap;
+  const rectGapFor = options.rectGap || null;
 
   // One separation sweep: push every too-close pair apart along the line
   // between their centres. Both blocks share the correction when both may
@@ -545,9 +561,8 @@ export function condenseBlocks(blocks, gap, options = {}) {
         const A = state[i];
         const B = state[j];
         if (!A.movable && !B.movable) continue;
-        const pairGap = gapFor(i, j);
-        const distance = blockGap(A, B, pairGap);
-        const deficit = pairGap - distance;
+        const deficit = blockDeficit(A, B, gapFor(i, j),
+          rectGapFor ? (a, b) => rectGapFor(i, j, a, b) : null);
         if (deficit <= SEPARATION_EPSILON) continue;
         worst = Math.max(worst, deficit);
 

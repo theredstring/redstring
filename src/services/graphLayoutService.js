@@ -949,8 +949,17 @@ function calculateAutoScale(nodeCount) {
  * Bodies translate as wholes, so every child group's interior — and every edge,
  * label and clearance its own solver established — comes through untouched.
  *
+ * RIDERS. A body may carry `riders`: groupless components that hang off it and
+ * nothing else. They translate with the body instead of as bodies of their own,
+ * because the pull is toward the COMMON centre and knows nothing about
+ * connections — a satellite compacted as a peer is drawn to the middle of the
+ * drawing, which is next to whichever group happens to face it, not the one it
+ * is attached to. Each rider rect is still held to its own floor against every
+ * other body (a node's, not a group shell's), so riding costs no extra space.
+ *
  * @param {Map<string, {x: number, y: number}>} positions - TOP-LEFT, mutated
- * @param {Array<{ids: string[], rect: object, group: object|null}>} bodies
+ * @param {Array<{ids: string[], rect: object, group: object|null,
+ *                riders?: Array<{ids: string[], rect: object}>}>} bodies
  * @param {Array} edges - connections, for the label floors
  * @param {object} config
  * @param {(a: object, b: object) => number} structuralGap - floor for a pair
@@ -962,7 +971,19 @@ function compactBodies(positions, bodies, edges, config, structuralGap) {
   const bodyIndexByNodeId = new Map();
   bodies.forEach((body, index) => {
     body.ids.forEach(id => bodyIndexByNodeId.set(id, index));
+    (body.riders || []).forEach(rider => {
+      rider.ids.forEach(id => bodyIndexByNodeId.set(id, index));
+    });
   });
+
+  // Every rect a body occupies. The body's own rect comes first; any after it
+  // are riders, which the structural floor treats as the plain groupless things
+  // they are. Copies — condenseBlocks reads them, the originals move below.
+  const RIDER = { group: null };
+  const rectsOf = bodies.map(body => [
+    { ...body.rect },
+    ...(body.riders || []).map(rider => ({ ...rider.rect, rider: true })),
+  ]);
 
   // Widest label on any connection crossing each pair. A label is drawn along
   // its edge, so the span between the two bodies has to hold the text —
@@ -985,36 +1006,70 @@ function compactBodies(positions, bodies, edges, config, structuralGap) {
     Math.max(0, a.minY - b.maxY, b.minY - a.maxY)
   );
 
-  const gapFor = (i, j) => {
-    const key = i < j ? `${i}|${j}` : `${j}|${i}`;
-    const structural = structuralGap(bodies[i], bodies[j]);
-    const label = labelFloor.get(key);
-    if (!label) return structural;
-    // COMPACTION MUST NEVER ADD SPACE. A rect-to-rect gap is a far stronger
-    // demand than the label actually makes — the connection runs endpoint to
-    // endpoint, which for two group shells is nothing like the distance between
-    // their nearest edges — so treating the label width as an unconditional
-    // floor here pushes pairs APART, and a "compaction" that expands the
-    // drawing is worse than none. Cap it at the room the pair already has:
-    // whatever the solver established for this label survives untouched, and
-    // compaction can still close in to the structural floor. Only that floor,
-    // which is a membership-legibility guarantee rather than an aesthetic one,
-    // is allowed to separate an overlapping pair.
-    const initial = gapBetween(bodies[i].rect, bodies[j].rect);
-    return Math.max(structural, Math.min(label + (config.labelPadding ?? 40), initial));
+  // Every floor below is fixed for the whole call — it depends on what the
+  // rects are and where they STARTED — so each is worked out once. The sweep
+  // asks for them on every pass.
+  const floors = new Map();
+  const floorFor = (i, j, riderA, riderB) => {
+    const cacheKey = `${i}|${j}|${riderA ? 1 : 0}|${riderB ? 1 : 0}`;
+    const cached = floors.get(cacheKey);
+    if (cached !== undefined) return cached;
+    const pairKey = i < j ? `${i}|${j}` : `${j}|${i}`;
+    let floor = structuralGap(riderA ? RIDER : bodies[i], riderB ? RIDER : bodies[j]);
+    const label = labelFloor.get(pairKey);
+    if (label) {
+      // COMPACTION MUST NEVER ADD SPACE. A rect-to-rect gap is a far stronger
+      // demand than the label actually makes — the connection runs endpoint to
+      // endpoint, which for two group shells is nothing like the distance
+      // between their nearest edges — so treating the label width as an
+      // unconditional floor here pushes pairs APART, and a "compaction" that
+      // expands the drawing is worse than none. Cap it at the room the pair
+      // already has: whatever the solver established for this label survives
+      // untouched, and compaction can still close in to the structural floor.
+      // Only that floor, which is a membership-legibility guarantee rather than
+      // an aesthetic one, is allowed to separate an overlapping pair.
+      let initial = Infinity;
+      rectsOf[i].forEach(a => rectsOf[j].forEach(b => {
+        initial = Math.min(initial, gapBetween(a, b));
+      }));
+      floor = Math.max(floor, Math.min(label + (config.labelPadding ?? 40), initial));
+    }
+    floors.set(cacheKey, floor);
+    return floor;
   };
 
-  const shifts = condenseBlocks(bodies.map(b => ({ rects: [b.rect] })), gapFor);
+  const hasRiders = bodies.some(body => body.riders?.length);
+  // The ceiling for a pair: the largest floor any of its rect pairs asks for.
+  const gapFor = (i, j) => {
+    let max = floorFor(i, j, false, false);
+    if (!hasRiders) return max;
+    const ridersI = rectsOf[i].length > 1;
+    const ridersJ = rectsOf[j].length > 1;
+    if (ridersJ) max = Math.max(max, floorFor(i, j, false, true));
+    if (ridersI) max = Math.max(max, floorFor(i, j, true, false));
+    if (ridersI && ridersJ) max = Math.max(max, floorFor(i, j, true, true));
+    return max;
+  };
+  const rectGap = hasRiders
+    ? (i, j, a, b) => floorFor(i, j, !!a.rider, !!b.rider)
+    : undefined;
 
+  const shifts = condenseBlocks(rectsOf.map(rects => ({ rects })), gapFor, { rectGap });
+
+  const moveRect = (rect, dx, dy) => {
+    rect.minX += dx; rect.maxX += dx;
+    rect.minY += dy; rect.maxY += dy;
+  };
   bodies.forEach((body, index) => {
     const { dx, dy } = shifts[index];
     if (dx === 0 && dy === 0) return;
-    body.ids.forEach(id => {
+    const ids = [body.ids, ...(body.riders || []).map(rider => rider.ids)].flat();
+    ids.forEach(id => {
       const pos = positions.get(id);
       if (pos) { pos.x += dx; pos.y += dy; }
     });
-    body.rect.minX += dx; body.rect.maxX += dx;
-    body.rect.minY += dy; body.rect.maxY += dy;
+    moveRect(body.rect, dx, dy);
+    (body.riders || []).forEach(rider => moveRect(rider.rect, dx, dy));
   });
 }
 
@@ -1726,6 +1781,19 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     return isFinite(minX) ? { minX, minY, maxX, maxY } : null;
   };
 
+  // Each groupless component's connections into a group, as [its own node,
+  // the group member at the other end] — what "near the group it hangs off"
+  // actually has to mean for a satellite to read as attached.
+  const componentGroupEdges = new Map();
+  edges.forEach(e => {
+    [[e.sourceId, e.destinationId], [e.destinationId, e.sourceId]].forEach(([a, b]) => {
+      const metaId = ungroupedMetaOf.get(a);
+      if (!metaId || !nodeToGroups.get(b)?.size) return;
+      if (!componentGroupEdges.has(metaId)) componentGroupEdges.set(metaId, []);
+      componentGroupEdges.get(metaId).push([a, b, e.name]);
+    });
+  });
+
   /**
    * Reel every attached groupless component back in toward the group it hangs
    * off, in place.
@@ -1736,12 +1804,22 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
    * them. Left out there a satellite reads as unrelated to the thing it is
    * literally connected to.
    *
-   * So slide each component back along the line from its anchor group's centre
-   * — the direction the meta solver already chose for it — until it is one
-   * corridor off that group's rect, stopping early at whatever it would have
-   * run into. Translating rigidly along that one line is what makes this safe
-   * to run as a finisher: it preserves the component's internal layout and
-   * keeps it inside the corridor already cleared for it.
+   * So slide each component in until it sits just off its anchor group's rect
+   * (how far off is worked out below — a corridor for a bridge between groups,
+   * the compaction floor for a satellite), stopping early at whatever it would
+   * have run into. Translating rigidly is what makes this safe to run as a
+   * finisher: it preserves the component's internal layout.
+   *
+   * WHICH SIDE. A component linked to several groups keeps the direction the
+   * layout already gave it: it belongs between them, and the meta solver's
+   * springs put it there. A SATELLITE — linked to one group only — is seated
+   * instead: every side of its group is tried, and the one kept is the one with
+   * the shortest connections into the group that does not face another group.
+   * The meta solver's direction is no guide for a satellite: the forces that
+   * placed it are group-scale, and once compaction draws the groups together a
+   * satellite left on the side facing a neighbour is sandwiched between the two
+   * — measurably nearer the neighbour's middle than its own group's. On the
+   * far side, the neighbour cannot get at it.
    *
    * Run BOTH before Phase 3 (so the refinement starts from a sane placement)
    * and after it (Phase 3's group-exclusion force is strong enough to shove an
@@ -1753,6 +1831,19 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
     const overlaps = (a, b, pad) =>
       a.minX < b.maxX + pad && a.maxX > b.minX - pad &&
       a.minY < b.maxY + pad && a.maxY > b.minY - pad;
+    const gapBetween = (a, b) => Math.hypot(
+      Math.max(0, a.minX - b.maxX, b.minX - a.maxX),
+      Math.max(0, a.minY - b.maxY, b.minY - a.maxY)
+    );
+    const shifted = (b, dx, dy) => ({
+      minX: b.minX + dx, minY: b.minY + dy, maxX: b.maxX + dx, maxY: b.maxY + dy,
+    });
+    const centreOf = (id) => {
+      const pos = topLeft.get(id);
+      if (!pos) return null;
+      const n = nodeById.get(id);
+      return { x: pos.x + (n?.width || 150) / 2, y: pos.y + (n?.height || 100) / 2 };
+    };
     // Clear a box being SLID PAST by the width the group-exclusion pass will
     // insist on anyway, not by a whole corridor. A corridor is the gap that has
     // to hold a label between two groups; demanding it here just to slip past a
@@ -1771,7 +1862,9 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const vb = deriveGroupVisualBounds(group, bbox, config);
       groupBoxes.set(gId, {
         minX: vb.x, minY: vb.y, maxX: vb.x + vb.w, maxY: vb.y + vb.h,
-        centerX: vb.x + vb.w / 2, centerY: vb.y + vb.h / 2
+        centerX: vb.x + vb.w / 2, centerY: vb.y + vb.h / 2,
+        // The rect the exclusion pass and compaction hold non-members clear of.
+        enforced: inflateToRenderedRect(group, bbox, clearance, config),
       });
     });
 
@@ -1793,6 +1886,9 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       return ((ba.maxX - ba.minX) * (ba.maxY - ba.minY)) - ((bb.maxX - bb.minX) * (bb.maxY - bb.minY));
     });
 
+    // Every side a satellite may be seated on.
+    const SEAT_DIRECTIONS = 16;
+
     for (const metaId of reelOrder) {
       const links = componentGroupLinks.get(metaId);
       if (!links || links.size === 0) continue;  // free-floating: leave it where it is
@@ -1803,26 +1899,118 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const halfH = (box.maxY - box.minY) / 2;
 
       // Anchor on the connected group whose rect is nearest.
-      let anchor = null, anchorDist = Infinity;
+      let anchor = null, anchorId = null, anchorDist = Infinity;
       links.forEach(gid => {
         const gb = groupBoxes.get(gid);
         if (!gb) return;
         const bp = nearestBoundaryPoint(gb, cx, cy);
         const d = Math.hypot(bp.x - cx, bp.y - cy);
-        if (d < anchorDist) { anchorDist = d; anchor = gb; }
+        if (d < anchorDist) { anchorDist = d; anchor = gb; anchorId = gid; }
       });
       if (!anchor) continue;
 
-      const exit = nearestBoundaryPoint(anchor, cx, cy);
+      // Everything the component must not land on. The anchor is excluded: the
+      // target sits clear of it by construction, so including it would only
+      // let float error reject the component's own destination.
+      const obstacles = [
+        ...[...groupBoxes.values()].filter(b => b !== anchor),
+        ...[...componentBoxes.entries()].filter(([id]) => id !== metaId).map(([, b]) => b),
+      ];
+      const lands = (dx, dy) => !obstacles.some(o => overlaps(shifted(box, dx, dy), o, clearance));
+
+      // How far off the anchor the component belongs. A bridge between groups
+      // sits in the corridor between them, so it is held one corridor off the
+      // anchor's drawn rect. A satellite has no corridor to share: the only
+      // thing that crosses its gap is its own connection, so it sits at the
+      // floor compaction would draw any loose body in to — a node gap off the
+      // rect the exclusion pass enforces, or its widest label with padding.
+      // Holding it a whole group corridor out, facing away from everything,
+      // spends that corridor on the outside of the drawing.
+      let reference = anchor;
+      let offset = corridor;
+      if (links.size === 1) {
+        const widestLabel = (componentGroupEdges.get(metaId) || []).reduce((widest, [, , name]) =>
+          name ? Math.max(widest, estimateEdgeLabelWidth(name, config.edgeLabelFontSize)) : widest, 0);
+        reference = anchor.enforced;
+        // Same two floors compactBodies holds a loose body to beside a group.
+        offset = Math.max(Math.max(30, config.nodeGap ?? 140),
+          widestLabel > 0 ? widestLabel + (config.labelPadding ?? 40) : 0);
+      }
+
+      // The move that puts the component's centre on the ray from the anchor's
+      // centre along (ux, uy), `offset` clear of the reference rect. The gap
+      // only grows along the ray, so bisect for where it reaches the offset.
+      const moveAlong = (ux, uy) => {
+        const gapAt = (t) => gapBetween(reference, {
+          minX: anchor.centerX + ux * t - halfW, maxX: anchor.centerX + ux * t + halfW,
+          minY: anchor.centerY + uy * t - halfH, maxY: anchor.centerY + uy * t + halfH,
+        });
+        let lo = 0;
+        let hi = (reference.maxX - reference.minX) + (reference.maxY - reference.minY) + 2 * (halfW + halfH + offset);
+        for (let k = 0; k < 40; k++) {
+          const mid = (lo + hi) / 2;
+          if (gapAt(mid) < offset) lo = mid; else hi = mid;
+        }
+        return { dx: anchor.centerX + ux * hi - cx, dy: anchor.centerY + uy * hi - cy };
+      };
+
+      let chosen = null;
       let ux = cx - anchor.centerX;
       let uy = cy - anchor.centerY;
       const uLen = Math.hypot(ux, uy);
-      if (uLen < 1) continue;
-      ux /= uLen; uy /= uLen;
-      const reach = corridor + Math.abs(ux) * halfW + Math.abs(uy) * halfH;
-      const desired = { x: exit.x + ux * reach, y: exit.y + uy * reach };
+      if (uLen >= 1) { ux /= uLen; uy /= uLen; }
 
-      // One corridor off the anchor, in whichever direction that is — this used
+      if (links.size === 1) {
+        // Cost of a seat: how long its connections into the group run, plus
+        // how squarely it faces each other group. The facing penalty is priced
+        // in units of the anchor's own extent — the most a detour round the
+        // anchor can add to a connection — so a side facing a neighbour loses
+        // to any side that does not, unless it is the only one there is.
+        const hostEdges = (componentGroupEdges.get(metaId) || [])
+          .map(([own, other]) => [centreOf(own), centreOf(other)])
+          .filter(([a, b]) => a && b);
+        const neighbours = [...groupBoxes.entries()]
+          .filter(([gid]) => gid !== anchorId)
+          .map(([, gb]) => {
+            const nx = gb.centerX - anchor.centerX;
+            const ny = gb.centerY - anchor.centerY;
+            const len = Math.hypot(nx, ny) || 1;
+            return { x: nx / len, y: ny / len };
+          });
+        const facingWeight = Math.max(anchor.maxX - anchor.minX, anchor.maxY - anchor.minY);
+        const costOf = (dirX, dirY, dx, dy) => {
+          const reach = hostEdges.length === 0 ? 0 : hostEdges.reduce(
+            (sum, [a, b]) => sum + Math.hypot(a.x + dx - b.x, a.y + dy - b.y), 0) / hostEdges.length;
+          const facing = neighbours.reduce(
+            (sum, n) => sum + Math.max(0, dirX * n.x + dirY * n.y), 0);
+          return reach + facingWeight * facing;
+        };
+
+        const directions = [];
+        if (uLen >= 1) directions.push([ux, uy]);
+        for (let k = 0; k < SEAT_DIRECTIONS; k++) {
+          const angle = (2 * Math.PI * k) / SEAT_DIRECTIONS;
+          directions.push([Math.cos(angle), Math.sin(angle)]);
+        }
+        let bestCost = Infinity;
+        directions.forEach(([dirX, dirY]) => {
+          const { dx, dy } = moveAlong(dirX, dirY);
+          if (!lands(dx, dy)) return;
+          const cost = costOf(dirX, dirY, dx, dy);
+          // Strictly better only: ties keep the earlier candidate, and the
+          // component's current side is tried first.
+          if (cost < bestCost - 1e-6) {
+            bestCost = cost;
+            chosen = { dx, dy, box: shifted(box, dx, dy) };
+          }
+        });
+      }
+
+      // A bridge between groups — or a satellite with no free side — slides in
+      // along the direction it already has, stopping early at whatever it would
+      // have run into.
+      //
+      // Held off the anchor, in whichever direction that is — this used
       // to pull only. Reeling a stranded satellite back in was the original job,
       // but the same target is also the FLOOR, and only the ceiling was being
       // enforced: Phase 3's springs pull an attached component in against the
@@ -1830,28 +2018,16 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       // further out", and the component stayed where the springs left it — which
       // measured about a tenth of the corridor two groups get between each
       // other, with a labelled connection drawn through it. The move is capped
-      // at the corridor by construction, so allowing it outward can only undo a
+      // at that offset by construction, so allowing it outward can only undo a
       // squeeze; it cannot strand anything.
-      const moveX = desired.x - cx;
-      const moveY = desired.y - cy;
-
-      // Everything the component must not land on. The anchor is excluded: the
-      // target sits exactly one corridor off it by construction, so including
-      // it would only let float error reject the component's own destination.
-      const obstacles = [
-        ...[...groupBoxes.values()].filter(b => b !== anchor),
-        ...[...componentBoxes.entries()].filter(([id]) => id !== metaId).map(([, b]) => b),
-      ];
-      let chosen = null;
-      for (const t of [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1]) {
-        const dx = moveX * t, dy = moveY * t;
-        const cand = {
-          minX: box.minX + dx, minY: box.minY + dy,
-          maxX: box.maxX + dx, maxY: box.maxY + dy,
-        };
-        if (obstacles.some(o => overlaps(cand, o, clearance))) continue;
-        chosen = { dx, dy, box: cand };
-        break;
+      if (!chosen && uLen >= 1) {
+        const { dx: moveX, dy: moveY } = moveAlong(ux, uy);
+        for (const t of [1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1]) {
+          const dx = moveX * t, dy = moveY * t;
+          if (!lands(dx, dy)) continue;
+          chosen = { dx, dy, box: shifted(box, dx, dy) };
+          break;
+        }
       }
       if (!chosen) continue;
 
@@ -1990,6 +2166,7 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
 
     // Top level: each top-level group as a whole, plus each groupless component.
     const topBodies = [];
+    const topBodyOf = new Map();
     hierarchy.topLevelGroupIds.forEach(gId => {
       const ids = idsOwnedBy.get(gId);
       const rect = rectOwnedBy.get(gId);
@@ -2000,16 +2177,35 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
       const withAnchor = group?.anchorInstanceId && topLeft.has(group.anchorInstanceId)
         ? [...ids, group.anchorInstanceId]
         : ids;
-      topBodies.push({ ids: withAnchor, rect, group });
+      const body = { ids: withAnchor, rect, group, riders: [] };
+      topBodies.push(body);
+      topBodyOf.set(gId, body);
     });
     const componentIds = new Map();
     ungroupedMetaOf.forEach((metaId, nodeId) => {
       if (!componentIds.has(metaId)) componentIds.set(metaId, []);
       componentIds.get(metaId).push(nodeId);
     });
-    componentIds.forEach(ids => {
+    componentIds.forEach((ids, metaId) => {
       const bbox = boundsOf(topLeft, ids);
-      if (bbox) topBodies.push({ ids, rect: { ...bbox }, group: null });
+      if (!bbox) return;
+      // A satellite — connected to one group and nothing else — rides with
+      // that group rather than being compacted as a peer of it: the pull is
+      // toward the middle of the drawing, and a satellite that goes there on
+      // its own lands beside whichever group faces it. It rides only from a
+      // seat CLEAR of its host; one overlapping the host's rect stays a body
+      // of its own, so the separation sweep can still get it out.
+      const links = componentGroupLinks.get(metaId);
+      const host = links?.size === 1 ? topBodyOf.get([...links][0]) : null;
+      const clearOfHost = host && (
+        bbox.maxX <= host.rect.minX || bbox.minX >= host.rect.maxX ||
+        bbox.maxY <= host.rect.minY || bbox.minY >= host.rect.maxY
+      );
+      if (clearOfHost) {
+        host.riders.push({ ids, rect: { ...bbox } });
+        return;
+      }
+      topBodies.push({ ids, rect: { ...bbox }, group: null });
     });
     compactBodies(topLeft, topBodies, edges, config, structuralGapFor);
   };
@@ -2120,8 +2316,11 @@ function groupSeparatedLayout(nodes, edges, options = {}) {
   // Phase 3's group-exclusion force treats an ungrouped node as something to
   // push out of every rect, with nothing but one spring holding it to the group
   // it belongs beside — enough, on a canvas the groups mostly fill, to shove a
-  // satellite past a neighbouring group entirely. Reel once more before the
-  // claims pass gets the last word.
+  // satellite past a neighbouring group entirely. Reel it back to its seat
+  // BEFORE compacting, too: a satellite rides with its group through
+  // compaction, so wherever Phase 3 left it is where the groups close in
+  // around it.
+  reelAttachedComponents(refined);
   compactGroupTree(refined);
   const settled = enforceGroupClaims(refined);
   if (ungroupedLayouts.length === 0) return settled;

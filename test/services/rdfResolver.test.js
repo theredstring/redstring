@@ -67,7 +67,33 @@ describe('RDF Resolver', () => {
       expect(result.uri).toBe('http://example.com/test');
       expect(result.triples).toEqual([]);
       expect(result.metadata.corsBlocked).toBe(true);
+      expect(result.metadata.fallbackReason).toBe('unreachable');
       expect(result.metadata.label).toBe('test');
+    });
+
+    it('does not cache the placeholder for an unreachable URI', async () => {
+      global.fetch.mockRejectedValueOnce(new Error('Network error'));
+      await resolver.resolveURI('http://example.com/flaky');
+
+      // The network is back: the next ask fetches again and gets real data.
+      global.fetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Map([['content-type', 'text/turtle']]),
+        text: () => Promise.resolve('<http://example.com/flaky> <http://example.com/p> "v" .')
+      });
+      const result = await resolver.resolveURI('http://example.com/flaky');
+
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(result.triples).toHaveLength(1);
+    });
+
+    it('caches the placeholder for a domain known to block browsers', async () => {
+      const first = await resolver.resolveURI('https://schema.org/Person');
+      const second = await resolver.resolveURI('https://schema.org/Person');
+
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(first.metadata.fallbackReason).toBe('known-cors-domain');
+      expect(second).toBe(first);
     });
 
     it('should still reject on non-network errors', async () => {

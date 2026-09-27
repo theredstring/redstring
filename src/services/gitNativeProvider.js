@@ -5,7 +5,6 @@
  */
 
 import githubRateLimiter from './githubRateLimiter.js';
-import { githubAPI } from './GitHubAPIWrapper.js';
 
 /**
  * Base64-encode raw bytes.
@@ -571,10 +570,18 @@ This repository was automatically initialized by Redstring UI React. You can now
         console.log('[GitHubSemanticProvider] Creating new file');
       }
       
-      const response = await githubAPI.requestWithRetry(`${this.rootUrl}/${fullPath}`, {
+      // Plain fetch with the provider's own token, like the SHA probe above,
+      // the 409 retry below and writeFileRaw. githubAPI would sign with
+      // persistentAuth's token instead (one write, two identities), throw on
+      // a 409 before the fresh-SHA retry below could run, and clear the saved
+      // sign-in on a 401.
+      githubRateLimiter.recordRequest(this.authMethod);
+      const response = await fetch(`${this.rootUrl}/${fullPath}`, {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
+          'Authorization': this.getAuthHeader(),
+          'Accept': 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
       });
