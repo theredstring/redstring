@@ -34,18 +34,20 @@ async function closeOldCopyBox(page) {
   await waitForCameraSettled(page);
 }
 
-async function openClusterFromPie(page) {
-  await openPieMenu(page, CLUSTER);
+async function openFromPie(page, instanceId) {
+  await openPieMenu(page, instanceId);
   await pieButton(page, 'package-open').click(); // Decompose: preview the definition
   await expect.poll(() => page.evaluate(async () => {
     const { default: ui } = await import('/src/store/canvasUIStore.js');
     return ui.getState().previewingNodeId;
-  })).toBe(CLUSTER);
+  })).toBe(instanceId);
   await nextFrames(page, 30);
   await pieButton(page, 'package-open').click(); // Decompose Further: open in place
-  await expect.poll(() => storeEval(page, (st, [w, id]) => !!st.graphs.get(w).instances.get(id).openDefinition, [WEB, CLUSTER])).toBe(true);
+  await expect.poll(() => storeEval(page, (st, [w, id]) => !!st.graphs.get(w).instances.get(id).openDefinition, [WEB, instanceId])).toBe(true);
   await waitForCameraSettled(page);
 }
+
+const openClusterFromPie = (page) => openFromPie(page, CLUSTER);
 
 test('F39 closing an old copy box leaves an unchanged definition as it was', async ({ page }) => {
   await openFixture(page, 'small');
@@ -101,4 +103,38 @@ test('F39 edits inside the box land in the definition; connections out survive c
   await expect(edge(page, 'e-f39-across')).toHaveCount(1);
   expect((await nodeBox(page, CLUSTER)).width).toBeGreaterThan(0);
   expect(await storeEval(page, (st, [d, z]) => st.graphs.get(d).instances.has(z), [DEF, ZETA])).toBe(true);
+});
+
+test('F39 the Open Webs list draws a Thing opened in place as its box, not as one node', async ({ page }) => {
+  await openFixture(page, 'small');
+  // A new Thing: Alpha has no definition, so Decompose opens an empty box.
+  await openFromPie(page, 'i-alpha');
+  // Drop Beta and Gamma into it: they move into Alpha's definition.
+  await storeEval(page, (st, w) => st.addInstancesToGroup(w, 'open:i-alpha', ['i-beta', 'i-gamma']), WEB);
+
+  await page.evaluate(async (w) => {
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    const s = window.useGraphStore.getState();
+    s.setLeftPanelExpanded(true);
+    ui.getState().openLeftPanelView('grid');
+    if (!s.expandedGraphIds.has(w)) s.toggleGraphExpanded(w);
+  }, WEB);
+
+  // The thumbnail draws Alpha's shell (a filled, undashed rect in Alpha's colour)
+  // with Beta and Gamma inside it, and no plain node for Alpha itself.
+  const thumbnail = page.locator(`[data-graph-id="${WEB}"] svg`).first();
+  await expect(thumbnail).toBeVisible();
+  const drawn = await thumbnail.evaluate((svg, alphaColor) => {
+    const rects = [...svg.querySelectorAll('rect')];
+    const shell = rects.find(r => r.getAttribute('fill') === alphaColor && r.getAttribute('rx') === '24' && !r.getAttribute('stroke-dasharray'));
+    const nodeRects = rects.filter(r => r.getAttribute('rx') === '56');
+    return { shell: !!shell, nodes: nodeRects.length };
+  }, await storeEval(page, (st) => st.nodePrototypes.get('p-alpha').color));
+  const expectedNodes = await storeEval(page, (st, w) => {
+    const web = st.graphs.get(w);
+    // Everything on web A except Alpha (now its box's title) and the old copy box's anchor, plus Beta and Gamma inside.
+    const anchors = [...web.groups.values()].map(g => g.anchorInstanceId).filter(Boolean);
+    return [...web.instances.keys()].filter(id => id !== 'i-alpha' && !anchors.includes(id)).length + 2;
+  }, WEB);
+  expect(drawn).toEqual({ shell: true, nodes: expectedNodes });
 });
