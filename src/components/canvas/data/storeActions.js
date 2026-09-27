@@ -13,6 +13,7 @@ export function resolveStoreActions(ctx) {
     return {
       updateNodePrototype: () => { },
       updateNodeInstance: () => { },
+      commitPositionMove: () => { },
       updateEdge: () => { },
       addEdge: () => { },
       addNodePrototype: () => { },

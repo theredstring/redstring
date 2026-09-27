@@ -5412,7 +5412,9 @@ function communityGroups(nodes, edges, options) {
  * Cost is the sum of the candidates, so the portfolio is only run where that
  * is cheap; past PORTFOLIO_MAX_NODES the force solver runs alone.
  */
-const PORTFOLIO_MAX_NODES = 150;
+// ~1-2s in the worker at the cap (four candidates, each solved and repaired).
+// Every graph in the real universes on hand sits well under it (15-54 nodes).
+const PORTFOLIO_MAX_NODES = 80;
 
 function bestLayout(nodes, edges, options) {
   const straight = !options.routingStyle || options.routingStyle === 'straight';

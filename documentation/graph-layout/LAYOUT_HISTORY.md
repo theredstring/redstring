@@ -97,6 +97,29 @@ Spacing scales with graph size — fewer nodes get stronger forces and more spre
 overlaps. Cluster count scales separation independently. This sits under the user-facing
 scale multiplier rather than replacing it.
 
+### 8. The layout bench, label repair and 'best' (Sep 2026)
+
+A graded benchmark (`test/layout-bench/`, see its README) measures the drawn
+scene against the readability literature. On it the force solver's worst
+failures were all label conflicts — every solver reserved room for a label
+*along* its own line, none checked the label box against other lines, labels
+and nodes. Three changes followed:
+
+- **`layoutRepair.js`** — a deterministic local search run after every
+  straight-routed layout. It moves one node at a time, accepts only moves that
+  lower a drawn-scene cost, and treats node overlap, group intrusion, a line
+  through a node and a label no longer fitting its line as lexicographically
+  hard (no move may worsen them, whatever it buys).
+- **`communityDetection.js`** — Louvain modularity; significant communities
+  (Q ≥ 0.3) are laid out as invisible groups, so clusters read as clusters.
+- **`'best'`** (the default) — force (incremental and fresh), pattern and
+  community candidates, each repaired, the cleanest kept by the repair's own
+  score. Up to 80 nodes; above that, force + repair.
+
+Also: `reduceEdgeCrossings` got a work cap and stopped swapping nodes across
+group boundaries (84s → 17s on a 606-node grouped graph), and the force path's
+last `Math.random()` calls became id-hashed. Grade 62.8 → 82.5.
+
 ---
 
 ## What was dropped in consolidation

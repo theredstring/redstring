@@ -8,6 +8,7 @@ import {
   estimateEdgeLabelWidth
 } from '../services/graphLayoutService.js';
 import { EDGE_LABEL_BASE_FONT_SIZE } from '../services/layoutGeometry.js';
+import useGraphStore from '../store/graphStore.js';
 
 /**
  * Custom hook encapsulating the force-directed simulation engine.
@@ -203,7 +204,14 @@ export function useForceSimulation({
       y: node.y + (Math.random() - 0.5) * spreadRadius * 2
     }));
     if (updates.length > 0) {
-      storeActions.updateMultipleNodeInstancePositions(graphId, updates, { skipSave: true });
+      // A user action, so an undoable one (it used to be written unsaved and
+      // unrecorded, like a sim frame).
+      storeActions.commitPositionMove(
+        graphId,
+        nodes.map(node => ({ instanceId: node.id, x: node.x, y: node.y })),
+        updates,
+        { label: 'Randomize positions', source: 'force-simulation' }
+      );
       onPositionsUpdated?.();
     }
     handleReset();
@@ -898,12 +906,24 @@ export function useForceSimulation({
     runFrameRef.current = runFrame;
   });
 
+  // Where the store has each node right now.
+  const readStorePositions = () => {
+    const graph = useGraphStore.getState().graphs.get(graphId);
+    return graph?.instances
+      ? Array.from(graph.instances.values()).map(i => ({ instanceId: i.id, x: i.x, y: i.y }))
+      : [];
+  };
+
   // Animation loop
   useEffect(() => {
     if (isRunning) {
       // Fresh run: drop sim-local positions so the sim picks up any changes
       // made while paused (manual drags, store updates)
       simPositionsRef.current.clear();
+      // Every frame of a run is written unrecorded and unsaved, so the run as
+      // a whole is committed when it stops — settled, paused, or the panel
+      // closed — as one undoable "Force simulation" step from here.
+      const runStart = readStorePositions();
       const animate = () => {
         runFrameRef.current();
         animationRef.current = requestAnimationFrame(animate);
@@ -911,6 +931,20 @@ export function useForceSimulation({
       animationRef.current = requestAnimationFrame(animate);
       return () => {
         if (animationRef.current) cancelAnimationFrame(animationRef.current);
+        // The store is written on a throttle; the sim's own positions are the
+        // latest word on anything it moved since.
+        const latest = new Map(simPositionsRef.current);
+        const end = readStorePositions().map(p => (latest.has(p.instanceId)
+          ? { instanceId: p.instanceId, ...latest.get(p.instanceId) }
+          : p));
+        const before = new Map(runStart.map(p => [p.instanceId, p]));
+        const moved = end.some(p => p.x !== before.get(p.instanceId)?.x || p.y !== before.get(p.instanceId)?.y);
+        if (moved && storeActions?.commitPositionMove) {
+          storeActions.commitPositionMove(graphId, runStart, end, {
+            label: autoStart ? 'Auto layout' : 'Force simulation',
+            source: 'force-simulation'
+          });
+        }
       };
     }
   }, [isRunning]);

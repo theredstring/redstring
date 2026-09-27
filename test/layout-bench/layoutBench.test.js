@@ -2,8 +2,8 @@
  * Auto-layout bench: lay out every corpus graph the way the app does, grade
  * what gets drawn, write the numbers down.
  *
- *   npm run bench:layout                               # default configs
- *   LAYOUT_BENCH_CONFIGS=app,pattern,stress npm run bench:layout
+ *   npm run bench:layout                               # baseline vs app
+ *   LAYOUT_BENCH_CONFIGS=app,force,pattern npm run bench:layout
  *   LAYOUT_BENCH_LABEL=after-fix npm run bench:layout  # results/after-fix.json
  *   LAYOUT_BENCH_LARGE=1 npm run bench:layout          # + the 606-node stress web
  *   LAYOUT_BENCH_ONLY=parse-tree npm run bench:layout  # substring filter on case names
@@ -22,7 +22,7 @@ import { withEmptyGroupPlaceholders } from '../../src/services/groupLayout.js';
 
 const RUN = !!process.env.LAYOUT_BENCH;
 const LABEL = process.env.LAYOUT_BENCH_LABEL || 'latest';
-const CONFIG_NAMES = (process.env.LAYOUT_BENCH_CONFIGS || 'app').split(',');
+const CONFIG_NAMES = (process.env.LAYOUT_BENCH_CONFIGS || 'baseline,app').split(',');
 const ONLY = process.env.LAYOUT_BENCH_ONLY || '';
 const SEEDS = Number(process.env.LAYOUT_BENCH_SEEDS || 1);
 
@@ -83,18 +83,20 @@ function offscreenOptions(c) {
 }
 
 export const CONFIGS = {
-  app: { algorithm: 'node-driven', options: {} },
-  'app-norepair': { algorithm: 'node-driven', options: { labelRepair: false } },
-  best: { algorithm: 'best', options: {} },
-  community: { algorithm: 'community', options: {} },
-  'best-decay': { algorithm: 'best', options: {}, fixDecay: true },
-  offscreen: { algorithm: 'force-directed', build: offscreenOptions },
-  // Experiments: the hook with its two option bugs fixed.
-  'app-decay': { algorithm: 'node-driven', options: {}, fixDecay: true },
-  'app-fresh': { algorithm: 'node-driven', options: { useExistingPositions: false }, fixDecay: true },
+  // What the Auto Layout button runs today (store default 'best').
+  app: { algorithm: 'best', options: {} },
+  // The pre-bench default: force solver alone, no label repair. The baseline
+  // every grade in the README is measured against.
+  baseline: { algorithm: 'node-driven', options: { labelRepair: false } },
+  // Single solvers, each finished by the repair (the portfolio's candidates).
+  force: { algorithm: 'node-driven', options: {} },
   pattern: { algorithm: 'pattern', options: {} },
+  community: { algorithm: 'community', options: {} },
   stress: { algorithm: 'node-driven', options: { solver: 'stress' } },
+  offscreen: { algorithm: 'best', build: offscreenOptions },
+  // Routed styles (no repair — it models straight connections only).
   lombardi: { algorithm: 'pattern', options: { routingStyle: 'lombardi' } },
+  // Legacy shapes, for reference.
   hierarchical: { algorithm: 'hierarchical', options: {} },
   radial: { algorithm: 'radial', options: {} },
   circular: { algorithm: 'circular', options: {} },
@@ -117,11 +119,7 @@ function runCase(c, configName, seed) {
     return n ? { currentWidth: n.width, currentHeight: n.height } : null;
   });
   const cc = { ...c, nodes: aug.nodes, groups: aug.groups };
-  let options = cfg.build ? cfg.build(cc) : appOptions(cc, cfg.options);
-  if (cfg.fixDecay) {
-    const b = iterationBudget(c.nodes.length, c.edges.length, LAYOUT_ITERATION_PRESETS.balanced.iterations);
-    options = { ...options, iterations: b.iterations, alphaDecay: b.alphaDecay };
-  }
+  const options = cfg.build ? cfg.build(cc) : appOptions(cc, cfg.options);
   const t0 = performance.now();
   const updates = withSeed(seed, () => applyLayout(aug.nodes, c.edges, cfg.algorithm, options));
   const ms = performance.now() - t0;

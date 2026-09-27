@@ -327,7 +327,11 @@ const getDefaultAutoLayoutSettings = () => ({
   layoutScale: 'balanced',
   layoutScaleMultiplier: 1.0,
   layoutIterations: 'balanced',
-  groupLayoutAlgorithm: 'node-driven',
+  // 'best' lays the graph out several ways and keeps the one that draws most
+  // cleanly (graphLayoutService bestLayout) — so straight-routed graphs get the
+  // tree / ring / chain / star constructions where they fit, and the force
+  // solver where they don't.
+  groupLayoutAlgorithm: 'best',
   // When the routing style is manhattan / clean / lombardi, run the shape-aware
   // pattern dispatcher instead of the plain force solver — those styles want
   // layouts built for them (see orthogonalLayout.js and lombardiLayout.js).
@@ -5308,6 +5312,34 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Commits an animated, many-node move — auto-layout, snap to grid, a force
+     * simulation run — as ONE undoable step, from where the nodes started to
+     * where they ended.
+     *
+     * Why it can't just be the last write: those movers tween, writing every
+     * frame to the store (unfinalized, so unrecorded) and landing on the final
+     * positions before they commit. The commit then changes nothing, produces
+     * no patches, and the move vanishes from history — Cmd+Z did nothing after
+     * an auto-layout. So: rewind silently to `from`, then write `to` once,
+     * finalized. Both happen in the same tick, so nothing renders in between.
+     *
+     * @param {string} graphId
+     * @param {Array<{instanceId, x, y}>} from positions before the move
+     * @param {Array<{instanceId, x, y}>} to positions after it
+     * @param {{label?: string, source?: string}} [options] label is what the
+     *        history panel shows
+     */
+    commitPositionMove: (graphId, from, to, { label = 'Moved nodes', source } = {}) => {
+      const actions = get();
+      actions.updateMultipleNodeInstancePositions(graphId, from, { ignore: true, skipSave: true });
+      actions.updateMultipleNodeInstancePositions(graphId, to, {
+        finalize: true,
+        historyLabel: label,
+        ...(source ? { source } : {})
+      });
+    },
+
+    /**
      * Pastes nodes and edges as an atomic operation — used by the copy/paste system.
      *
      * Skips any edge whose source or destination instance is missing from the graph
@@ -7436,7 +7468,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /**
      * Sets the algorithm used to lay out node-groups.
-     * @param {'node-driven'|string} algorithm
+     * @param {'best'|'pattern'|'node-driven'|string} algorithm
      */
     setGroupLayoutAlgorithm: (algorithm) => set(produce((draft) => {
       if (!draft.autoLayoutSettings) {

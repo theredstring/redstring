@@ -25,6 +25,7 @@ const Toggle = ({ checked, onChange, disabled = false }) => (
 );
 
 const LAYOUT_ALGORITHMS = [
+  { label: 'Best', value: 'best' },
   { label: 'Pattern', value: 'pattern' },
   { label: 'Force', value: 'node-driven' },
   { label: 'Euler', value: 'euler' },
@@ -53,7 +54,7 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
 
   useEffect(() => debugConfig.addListener(setSettings), []);
 
-  const groupLayoutAlgorithm = useGraphStore(s => s.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
+  const groupLayoutAlgorithm = useGraphStore(s => s.autoLayoutSettings?.groupLayoutAlgorithm || 'best');
   const showClusterHulls = useGraphStore(s => s.autoLayoutSettings?.showClusterHulls || false);
 
   const resetOnboarding = async () => {

@@ -116,7 +116,7 @@ export function applyOffscreenLayout(graphId) {
   // Honor the user's chosen layout algorithm here too — otherwise definition
   // graphs built offscreen (AI generation, auto-created definitions) would
   // always come back force-directed regardless of the setting.
-  const algorithm = st.autoLayoutSettings?.groupLayoutAlgorithm || 'force-directed';
+  const algorithm = st.autoLayoutSettings?.groupLayoutAlgorithm || 'best';
 
   let updates = applyLayout(layoutNodes, layoutEdges, algorithm, {
     width: 2000,
@@ -166,6 +166,6 @@ export function applyOffscreenLayout(graphId) {
   }
 
   st.updateMultipleNodeInstancePositions(graphId, updates, {
-    finalize: true, source: 'auto-layout', algorithm: 'force-directed'
+    finalize: true, source: 'auto-layout', algorithm: 'force-directed', historyLabel: 'Auto layout'
   });
 }

@@ -147,7 +147,7 @@ export const useGraphLayout = ({
     const layoutScalePreset = useGraphStore(state => state.autoLayoutSettings?.layoutScale || 'balanced');
     const layoutScaleMultiplier = useGraphStore(state => state.autoLayoutSettings?.layoutScaleMultiplier ?? 1);
     const layoutIterationPreset = useGraphStore(state => state.autoLayoutSettings?.layoutIterations || 'balanced');
-    const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'node-driven');
+    const groupLayoutAlgorithm = useGraphStore(state => state.autoLayoutSettings?.groupLayoutAlgorithm || 'best');
     // How the edges will be DRAWN. Lombardi routes every edge as an arc, which
     // changes both which layout suits a given shape and how much room each edge
     // needs — the conditional dispatcher in patternLayouts reads both of these.
@@ -625,12 +625,19 @@ export const useGraphLayout = ({
                 }
             };
 
+            // Where every node stood when the layout started — the undo target.
+            // Captured here rather than read back from the store at commit
+            // time, because by then the tween has already walked the store to
+            // the final positions.
+            const fromPositions = layoutNodes.map(n => ({ instanceId: n.id, x: n.x, y: n.y }));
+
             const finishLayout = () => {
-                storeActions.updateMultipleNodeInstancePositions(
-                    activeGraphId,
-                    updates,
-                    { finalize: true, source: 'auto-layout', algorithm: 'force-directed' }
-                );
+                // One undoable history entry, "Auto layout", from the arrangement
+                // the user had to the new one (see commitPositionMove).
+                storeActions.commitPositionMove(activeGraphId, fromPositions, updates, {
+                    label: 'Auto layout',
+                    source: 'auto-layout'
+                });
                 if (resetConnectionLabelCache) resetConnectionLabelCache();
                 try {
                     moveOutOfBoundsNodesInBounds();
@@ -747,16 +754,16 @@ export const useGraphLayout = ({
 
         // ── Routing style steers algorithm selection ────────────────────────
         // `routingStyle` reaches the solver in options, but applyLayout
-        // dispatches on the ALGORITHM, and the store's default is
-        // 'node-driven' → forceDirectedLayout. So the shape-aware pipelines —
-        // Lombardi's, and now the orthogonal one — were only reachable if the
-        // user had gone and picked "Pattern (Auto-Detect)" by hand. A curved or
-        // orthogonal routing style is a request for a layout that suits it, so
-        // unless an algorithm was explicitly chosen, route through 'pattern'
-        // and let it dispatch per component.
+        // dispatches on the ALGORITHM. A curved or orthogonal routing style is
+        // a request for a layout that suits it, so unless an algorithm was
+        // explicitly chosen, route through 'pattern' and let it dispatch per
+        // component. Straight routing keeps the default, 'best', which tries
+        // the pattern constructions AND the force solver and keeps whichever
+        // draws more cleanly — its scoring models straight connections only,
+        // which is why the routed styles go straight to 'pattern'.
         const wantsShapeAwareLayout = routingStyle !== 'straight'
             && routingDrivesAlgorithm
-            && (groupLayoutAlgorithm === 'node-driven' || groupLayoutAlgorithm === 'force-directed');
+            && (groupLayoutAlgorithm === 'best' || groupLayoutAlgorithm === 'node-driven' || groupLayoutAlgorithm === 'force-directed');
         const algorithm = wantsShapeAwareLayout ? 'pattern' : groupLayoutAlgorithm;
 
         runLayout(layoutNodes, layoutEdges, algorithm, layoutOptions, {
@@ -837,10 +844,13 @@ export const useGraphLayout = ({
         if (!moved) return;
 
         const finishSnap = () => {
-            storeActions.updateMultipleNodeInstancePositions(
+            // Same tween-then-commit shape as auto-layout, so the same commit:
+            // one "Snap to grid" entry from the unsnapped positions.
+            storeActions.commitPositionMove(
                 activeGraphId,
+                targets.map(t => ({ instanceId: t.instanceId, x: t.startX, y: t.startY })),
                 targets.map(t => ({ instanceId: t.instanceId, x: t.x, y: t.y })),
-                { finalize: true, source: 'snap-to-grid' }
+                { label: 'Snap to grid', source: 'snap-to-grid' }
             );
             if (resetConnectionLabelCache) resetConnectionLabelCache();
         };
@@ -892,7 +902,7 @@ export const useGraphLayout = ({
         storeActions.updateMultipleNodeInstancePositions(
             activeGraphId,
             updates,
-            { finalize: true, source: 'condense' }
+            { finalize: true, source: 'condense', historyLabel: 'Condense nodes' }
         );
         if (resetConnectionLabelCache) resetConnectionLabelCache();
     }, [activeGraphId, nodes, canvasSize, storeActions, resetConnectionLabelCache]);
