@@ -7,10 +7,13 @@ import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
+import { projectGraphView, viewEdges } from '../../../core/openDefinitions.js';
 
 // Each open web with its nodes and edges, for the list and its previews.
 // Subscribed here rather than in Panel (P2.09): the previews need positions,
 // so this follows every node move, but only while the Open Webs tab is open.
+// Each web is read as viewed, like the canvas: a Thing opened in place shows its
+// definition's nodes inside its box, not a single node.
 function useOpenGraphsForList() {
   const openGraphIds = useGraphStore(state => state.openGraphIds);
   const graphsMap = useGraphStore(state => state.graphs);
@@ -20,8 +23,10 @@ function useOpenGraphsForList() {
     // Dedupe: list entries are keyed by graph id, so a repeated entry would
     // produce two children with the same React key.
     return [...new Set(openGraphIds)].map(id => {
-      const graphData = graphsMap.get(id);
+      const state = { graphs: graphsMap, nodePrototypes: nodePrototypesMap, edges: edgesMap };
+      const graphData = projectGraphView(state, id);
       if (!graphData) return null;
+      const edgesInView = viewEdges(state, id);
 
       // Derive color from the defining node
       const definingNodeId = graphData.definingNodeIds?.[0];
@@ -41,7 +46,7 @@ function useOpenGraphsForList() {
         };
       }).filter(Boolean);
 
-      const edges = edgeIds.map(edgeId => edgesMap.get(edgeId)).filter(Boolean);
+      const edges = edgeIds.map(edgeId => edgesInView.get(edgeId)).filter(Boolean);
       return { ...graphData, color: graphColor, nodes, edges };
     }).filter(Boolean);
   }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
