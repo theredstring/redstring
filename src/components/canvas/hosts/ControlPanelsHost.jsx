@@ -27,6 +27,7 @@ import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { expandNodeInPlace } from '../actions/expandInPlace.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -63,9 +64,10 @@ export default function ControlPanelsHost({ ctx }) {
   const showGroupControlPanel = useGraphStore((state) => state.showGroupControlPanel ?? true);
   const showAbstractionControlPanel = useGraphStore((state) => state.showAbstractionControlPanel ?? true);
   // The group the panel is about, read through to the active web so a rename or
-  // recolour elsewhere shows up (P2.03b).
+  // recolour elsewhere shows up (P2.03b). Read as viewed: an open box's group
+  // (`open:<anchorId>`) exists only in the projection, not the raw graph.
   const selectedGroupId = useCanvasUIStore((s) => s.selectedGroupId);
-  const selectedGroup = useGraphStore((s) => (selectedGroupId ? s.graphs.get(s.activeGraphId)?.groups?.get(selectedGroupId) ?? null : null));
+  const selectedGroup = useGraphStore((s) => (selectedGroupId ? projectGraphView(s, s.activeGraphId)?.groups?.get(selectedGroupId) ?? null : null));
   const {
     decomposePanelInfo, typeListVisible, storeActions, startHurtleAnimation, graphsMap, activeGraphId,
     setSelectedInstanceIds, nodePieMenuPages, singleSelectedInstanceId, handlePieMenuHoverChange, wizardEnabled,
@@ -339,7 +341,7 @@ export default function ControlPanelsHost({ ctx }) {
     storeActions.refreshNodeGroupFromDefinition(activeGraphId, selectedGroup.id);
 
     const gs = useGraphStore.getState();
-    const refreshedGroup = gs.graphs?.get(activeGraphId)?.groups?.get(selectedGroup.id);
+    const refreshedGroup = projectGraphView(gs, activeGraphId)?.groups?.get(selectedGroup.id);
     if (refreshedGroup) {
       setSelectedGroup(refreshedGroup);
     }
