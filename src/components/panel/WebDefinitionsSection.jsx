@@ -12,7 +12,7 @@ import InnerNetwork from '../../InnerNetwork.jsx';
 import { projectGraphView, viewEdges } from '../../core/openDefinitions.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
-// Lines of description shown before "Show more"; enough to tell definitions apart
+// Lines of description shown before "Show More"; enough to tell definitions apart
 // while skimming.
 const DESCRIPTION_CLAMP_LINES = 3;
 
@@ -277,7 +277,7 @@ const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
       {(overflows || expanded) && (
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
           <PanelIconButton
-            label={expanded ? 'Show less' : 'Show more'}
+            label={expanded ? 'Show Less' : 'Show More'}
             labelFontSize={11}
             variant="outline"
             color={accentColor}

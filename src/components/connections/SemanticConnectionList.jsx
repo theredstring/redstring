@@ -338,7 +338,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
           <PanelIconButton
             icon={ChevronDown}
             size={14}
-            label={`Show more (${visible.length - shown})`}
+            label={`Show More (${visible.length - shown})`}
             labelPosition="left"
             labelFontSize={11}
             variant="outline"
