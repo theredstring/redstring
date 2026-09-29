@@ -331,13 +331,15 @@ const ConceptDetailView = ({ concept, onBack, onOpenConcept, onSearch, canGoBack
               {description}
             </div>
             {description.length > 280 && (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                style={{ ...small, background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer', fontWeight: 'bold' }}
-              >
-                {expanded ? 'Less' : 'More'}
-              </button>
+              // The same outlined pill Web Definitions uses under a clamped description.
+              <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: '10px' }}>
+                <PanelIconButton
+                  label={expanded ? 'Show less' : 'Show more'}
+                  labelFontSize={11}
+                  variant="outline"
+                  onClick={() => setExpanded((v) => !v)}
+                />
+              </div>
             )}
           </>
         ) : (

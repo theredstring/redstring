@@ -1,11 +1,21 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { CircleDot } from 'lucide-react';
+import { CircleDot, ChevronDown, BookOpen, Globe, TextSearch } from 'lucide-react';
 import useGraphStore from '../store/graphStore.js';
-import Dropdown from './Dropdown.jsx';
+import { useTheme } from '../hooks/useTheme.js';
+import PanelIconButton from './shared/PanelIconButton.jsx';
+import { showContextMenuForElement } from './GlobalContextMenu.jsx';
 import TripletPreview from './connections/TripletPreview.jsx';
 import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './connections/CompactConnectionRow.jsx';
 import './ConnectionBrowser.css';
+
+// The scopes, each wearing the icon of the left-panel tab it matches: an open
+// web, the universe, the semantic web.
+const CONNECTION_SCOPES = [
+  { value: 'graph', label: 'In Graph', Icon: BookOpen },
+  { value: 'universe', label: 'Universe', Icon: Globe },
+  { value: 'semantic', label: 'Semantic Web', Icon: TextSearch },
+];
 
 /**
  * One of this Thing's own connections, drawn with the shared triplet preview.
@@ -61,10 +71,12 @@ const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth, 
 
 /**
  * Connection Browser Component
- * Shows connections with dropdown: In Graph | Universe | Semantic Web
+ * Shows connections with a scope chooser: In Graph | Universe | Semantic Web
  */
 const ConnectionBrowser = ({ nodeData }) => {
+  const theme = useTheme();
   const [connectionScope, setConnectionScope] = useState('graph'); // 'graph' | 'universe' | 'semantic'
+  const activeScope = CONNECTION_SCOPES.find(s => s.value === connectionScope) || CONNECTION_SCOPES[0];
   const [nativeConnections, setNativeConnections] = useState([]);
   const [containerWidth, setContainerWidth] = useState(400); // Default width
   const connectionListRef = useRef(null);
@@ -282,19 +294,32 @@ const ConnectionBrowser = ({ nodeData }) => {
 
   return (
     <div className="connection-browser">
-      {/* Scope Dropdown */}
-      <Dropdown
-        options={[
-          { value: 'graph', label: 'In Graph' },
-          { value: 'universe', label: 'Universe' },
-          { value: 'semantic', label: 'Semantic Web' }
-        ]}
-        value={connectionScope}
-        onChange={setConnectionScope}
-        rightContent={connectionScope === 'semantic'
-          ? null
-          : `${filteredConnections.length} connection${filteredConnections.length !== 1 ? 's' : ''}`}
-      />
+      {/* Scope chooser: the same outlined pill and maroon menu as the
+          Universes and Semantic Discovery headers. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+        <PanelIconButton
+          icon={activeScope.Icon}
+          size={16}
+          label={
+            <React.Fragment>
+              {activeScope.label}{' '}
+              <ChevronDown size={12} style={{ verticalAlign: 'middle', marginBottom: '1px' }} />
+            </React.Fragment>
+          }
+          variant="outline"
+          onClick={(e) => showContextMenuForElement(e.currentTarget, CONNECTION_SCOPES.map(opt => ({
+            label: opt.label,
+            icon: <opt.Icon size={14} />,
+            active: connectionScope === opt.value,
+            action: () => setConnectionScope(opt.value),
+          })))}
+        />
+        {connectionScope !== 'semantic' && (
+          <span style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif", whiteSpace: 'nowrap' }}>
+            {filteredConnections.length} connection{filteredConnections.length !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
 
       <div className="connection-list" ref={connectionListRef}>
         {connectionScope === 'semantic' ? (
