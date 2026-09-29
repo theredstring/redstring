@@ -68,6 +68,19 @@ describe('updateNode', () => {
     expect(result.updates.name).toBeUndefined();
   });
 
+  it('treats blank strings as not given, so a recolor never blanks the description', async () => {
+    // Seen live on Claude Sonnet 5.5: with every field sent as required, the
+    // model filled the ones it wasn't changing with "".
+    const result = await updateNode(
+      { nodeName: 'Alpha Node', name: '', color: 'blue', description: '  ', typeNodeId: '' },
+      graphStateWithNode,
+      mockCid,
+      null
+    );
+
+    expect(result.updates).toEqual({ color: 'blue' });
+  });
+
   it('throws error when nodeName is missing', async () => {
     await expect(
       updateNode({}, graphStateWithNode, mockCid, null)

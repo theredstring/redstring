@@ -104,6 +104,18 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
     adj.set(name, new Set());
   }
 
+  // Nodes already in the graph (expandGraph adds to one). An edge to one of
+  // them is a real connection for the new node, so they count as endpoints, but
+  // they are not what is being graded. They collapse into a single anchor: the
+  // existing graph is one piece, and without it a new node wired only to an
+  // existing one was reported as orphaned.
+  const EXISTING = '\u0000existing';
+  const existingSet = new Set(
+    (opts.existingNames || []).map(n => String(n || '').toLowerCase().trim()).filter(n => n && !nameSet.has(n))
+  );
+  if (existingSet.size > 0) adj.set(EXISTING, new Set());
+  const endpoint = (name) => (nameSet.has(name) ? name : existingSet.has(name) ? EXISTING : null);
+
   // Endpoint tallies drive the hub check: a node's degree undercounts it when the
   // model wires the same pair repeatedly, and the hub is about traffic, not
   // distinct neighbours.
@@ -112,14 +124,14 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
   let countedEdges = 0;
 
   for (const edge of (edges || [])) {
-    const src = (edge.source || '').toLowerCase().trim();
-    const tgt = (edge.target || '').toLowerCase().trim();
-    if (!nameSet.has(src) || !nameSet.has(tgt)) continue;
+    const src = endpoint((edge.source || '').toLowerCase().trim());
+    const tgt = endpoint((edge.target || '').toLowerCase().trim());
+    if (!src || !tgt || (src === EXISTING && tgt === EXISTING)) continue;
 
     adj.get(src).add(tgt);
     adj.get(tgt).add(src);
-    endpointCounts.set(src, (endpointCounts.get(src) || 0) + 1);
-    endpointCounts.set(tgt, (endpointCounts.get(tgt) || 0) + 1);
+    if (src !== EXISTING) endpointCounts.set(src, (endpointCounts.get(src) || 0) + 1);
+    if (tgt !== EXISTING) endpointCounts.set(tgt, (endpointCounts.get(tgt) || 0) + 1);
     countedEdges++;
 
     const rel = String(edge.type || edge.definitionNode?.name || '').trim();
@@ -135,6 +147,7 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
   const degrees = new Map();
 
   for (const [name, neighbors] of adj) {
+    if (name === EXISTING) continue;
     const degree = neighbors.size;
     degrees.set(name, degree);
     if (degree === 0) orphanedNodes.push(displayName(name));

@@ -167,7 +167,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // Analyze graph quality for LLM feedback. Layers are passed through so an edge
   // pointing at one counts as a real connection rather than leaving its other
   // endpoint looking orphaned.
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
+  const targetGraph = (graphState.graphs || []).find(g => g.id === graphId);
+  const protoNameById = new Map((graphState.nodePrototypes || []).map(p => [p.id, p.name]));
+  const namesInGraph = (targetGraph?.instances || [])
+    .map(inst => inst?.name || protoNameById.get(inst?.prototypeId))
+    .filter(Boolean);
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs, existingNames: namesInGraph });
 
   // Part B — Structure review over the newly-added nodes/edges (free detection;
   // model pass only on dense candidates, biased to suggest nothing). Surfaced in

@@ -1,5 +1,11 @@
 import { resolveGraphId } from './resolveGraphId.js';
 
+// Every tool field is sent as required (see LLMClient makeAllRequired), so
+// models fill the ones they aren't changing with "". A blank string is "not
+// given", never "set to empty": treating it as an edit blanked descriptions
+// the model only meant to leave alone.
+const given = (v) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '');
+
 /**
  * Resolve a node by name from graph state
  */
@@ -87,8 +93,8 @@ export async function updateEdge(args, graphState, cid, ensureSchedulerStarted) 
     }
 
     const updates = {};
-    if (type !== undefined) updates.type = type;
-    if (directionality !== undefined) updates.directionality = directionality;
+    if (given(type)) updates.type = type;
+    if (given(directionality)) updates.directionality = directionality;
 
     return {
         action: 'updateEdge',

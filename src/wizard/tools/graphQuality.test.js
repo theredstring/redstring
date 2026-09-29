@@ -278,3 +278,26 @@ describe('analyzeGraphQuality — flatness is evidence-based', () => {
     expect(report.feedback).toMatch(/Kitchen Brigade/);
   });
 });
+
+describe('analyzeGraphQuality with nodes already in the graph', () => {
+  it('counts an edge to an existing node as a connection, without grading the existing node', () => {
+    // Seen live (expandGraph "Add Transpiration and connect it to Evaporation"):
+    // the only edge went to an existing node, so the new node read as orphaned.
+    const report = analyzeGraphQuality(
+      [{ name: 'Transpiration', description: 'x' }],
+      [{ source: 'Transpiration', target: 'Evaporation', type: 'Adds Vapor To' }],
+      { existingNames: ['Evaporation', 'Condensation'] }
+    );
+    expect(report.orphanedNodes).toEqual([]);
+    expect(report.disconnectedComponents).toBe(1);
+  });
+
+  it('still reports a new node that touches nothing', () => {
+    const report = analyzeGraphQuality(
+      [{ name: 'Transpiration', description: 'x' }, { name: 'Sun', description: 'y' }],
+      [{ source: 'Transpiration', target: 'Evaporation', type: 'Adds Vapor To' }],
+      { existingNames: ['Evaporation'] }
+    );
+    expect(report.orphanedNodes).toEqual(['Sun']);
+  });
+});
