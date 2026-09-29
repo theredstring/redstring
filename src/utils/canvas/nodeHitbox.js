@@ -31,6 +31,36 @@ export const getNodeHitbox = (node, dims, isSelected = false) => {
 };
 
 /**
+ * The anchor record one end of a connection should be drawn against.
+ *
+ * A node-group's anchor is its title pill, but a connection arriving from
+ * OUTSIDE the group is occluded by the whole group: it ends on the outer box
+ * (`outerBounds`) and is cut along the shell (`shellRect`). When the other end
+ * sits INSIDE that box, as when a member is wired to its own group's Thing,
+ * the box isn't between them. Ending on the outer box then puts the arrowhead
+ * on the far rim behind the member, and the shell cutout erases the whole line,
+ * since all of it lies within the shell. So that end is just the pill.
+ *
+ * Decided by position, not membership: what matters is whether the box is
+ * between the two ends as drawn, and the renderer, the drag writer and the
+ * previews all have both ends' boxes but not the group records.
+ *
+ * @param {Object|null} info - anchorPositions record (x, y, width, height, outerBounds, shellRect)
+ * @param {Object} otherNode - the connection's other end, already at its drawn position
+ * @param {Object} otherDims - its drawn { currentWidth, currentHeight }
+ * @returns {Object|null} `info`, or a copy without the group's box
+ */
+export const anchorInfoFacing = (info, otherNode, otherDims) => {
+  const ob = info?.outerBounds;
+  const box = ob || (info?.shellRect ? { x: info.shellRect.x, y: info.shellRect.y, width: info.shellRect.w, height: info.shellRect.h } : null);
+  if (!box || !otherNode || !otherDims) return info;
+  const cx = otherNode.x + otherDims.currentWidth / 2;
+  const cy = otherNode.y + otherDims.currentHeight / 2;
+  const inside = cx >= box.x && cx <= box.x + box.width && cy >= box.y && cy <= box.y + box.height;
+  return inside ? { ...info, outerBounds: null, shellRect: null } : info;
+};
+
+/**
  * Calculate intersection point of a line with a rectangular node bounds
  * Uses ray-AABB (Axis-Aligned Bounding Box) intersection
  *

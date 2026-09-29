@@ -5,7 +5,7 @@ import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
-import { getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
@@ -922,8 +922,8 @@ export const useNodeDrag = ({
       // each React frame), NOT the stored instance position + default node dims. Mirror that
       // here so the drag-time line and label exactly match the settled (drop) render — and so
       // the label can be pushed off the group's outer bounds the same way.
-      const sAnchor = sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
-      const eAnchor = dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
+      let sAnchor = sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
+      let eAnchor = dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
       // The pill wins UNCONDITIONALLY, including when the anchor carries a drag
       // position of its own. It used to defer to `dragPos` (`if
       // (!dragPos.has(id))`), and that is the whole of "connections into a
@@ -950,6 +950,10 @@ export const useNodeDrag = ({
         dDims = { currentWidth: eAnchor.width, currentHeight: eAnchor.height };
         dPos = { x: eAnchor.x, y: eAnchor.y };
       }
+      // A member wired to its own group's Thing draws to the pill, not the
+      // group's box: the same call the settled render makes (anchorInfoFacing).
+      sAnchor = anchorInfoFacing(sAnchor, dPos, dDims);
+      eAnchor = anchorInfoFacing(eAnchor, sPos, sDims);
 
       // A group anchor's own dims are its TITLE PILL, but what actually occludes
       // a connection into that group is the group's whole outer box. The settled
@@ -969,21 +973,24 @@ export const useNodeDrag = ({
       // boxes as they resize under the drag. Without this the connection keeps
       // being cut against wherever the shell WAS, which reads as the line
       // spontaneously severing itself mid-gesture.
-      if (sAnchor?.shellRect || eAnchor?.shellRect) {
+      //
+      // Runs whenever the edge HAS a clip element, not only when a shell still
+      // applies: a node dragged into a group it's wired to stops being cut by
+      // that shell (anchorInfoFacing), and the clip left at its last shape would
+      // erase the line until the drop.
+      if (edgeEls.some(({ shellClip }) => shellClip)) {
         const arrowsSet = edge.directionality?.arrowsToward instanceof Set
           ? edge.directionality.arrowsToward
           : new Set(Array.isArray(edge.directionality?.arrowsToward) ? edge.directionality.arrowsToward : []);
         const shells = [];
         if (sAnchor?.shellRect && !arrowsSet.has(edge.sourceId)) shells.push(sAnchor.shellRect);
         if (eAnchor?.shellRect && !arrowsSet.has(edge.destinationId)) shells.push(eAnchor.shellRect);
-        if (shells.length > 0) {
-          const cs = canvasSizeRef.current;
-          const d = buildShellCutoutPath(
-            { x: cs.offsetX, y: cs.offsetY, w: cs.width, h: cs.height },
-            shells
-          );
-          edgeEls.forEach(({ shellClip }) => { if (shellClip && d) shellClip.setAttribute('d', d); });
-        }
+        const cs = canvasSizeRef.current;
+        const d = buildShellCutoutPath(
+          { x: cs.offsetX, y: cs.offsetY, w: cs.width, h: cs.height },
+          shells
+        );
+        edgeEls.forEach(({ shellClip }) => { if (shellClip && d) shellClip.setAttribute('d', d); });
       }
 
       // Self-loop: recompute arc from the moving node's current drag position.

@@ -9,7 +9,7 @@ import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting } 
 import { placeLabelOnRoute } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { getVisualConnectionEndpoints } from '../../../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath } from '../../../utils/canvas/parallelEdgeUtils.js';
-import { getNodeHitbox } from '../../../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getNodeHitbox } from '../../../utils/canvas/nodeHitbox.js';
 import { trimRouteEnd, lombardiArcFor, sampleArc } from '../../../utils/canvas/edgeRouting.js';
 import { samePolylines, buildEdgeSegmentIndex } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { getVisibleObstacleRects } from '../../../utils/canvas/edgeLabelPlacement.js';
@@ -117,16 +117,20 @@ export function computeLabelCrossingIndex(ctx) {
   // Always the UNSELECTED hitbox: trimming by the 6 px selection outline made
   // every selection re-solve every label, which reshuffles a few (F-21, F-72).
   // Labels stay put on select instead (D-18).
-  const occluderFor = (node, dims) => {
-    const vb = node.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id)?.outerBounds : null;
+  //
+  // A member wired to its own group's Thing is occluded by the pill alone, as
+  // the renderer draws it (anchorInfoFacing).
+  const occluderFor = (node, dims, other, otherDims) => {
+    const info = node.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id) : null;
+    const vb = anchorInfoFacing(info, other, otherDims)?.outerBounds;
     return vb
       ? { minX: vb.x, minY: vb.y, maxX: vb.x + vb.width, maxY: vb.y + vb.height }
       : getNodeHitbox(node, dims, false);
   };
   const visibleOnly = (pts, srcNode, dstNode, sDims, dDims) => {
     if (!pts || pts.length < 2) return pts;
-    const fromSource = trimRouteEnd(pts, occluderFor(srcNode, sDims), true, 0).points;
-    return trimRouteEnd(fromSource, occluderFor(dstNode, dDims), false, 0).points;
+    const fromSource = trimRouteEnd(pts, occluderFor(srcNode, sDims, dstNode, dDims), true, 0).points;
+    return trimRouteEnd(fromSource, occluderFor(dstNode, dDims, srcNode, sDims), false, 0).points;
   };
 
   const polylines = new Map();

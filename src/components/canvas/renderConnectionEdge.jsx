@@ -6,7 +6,7 @@ import { getConnectionLabelColors } from '../../utils/colorUtils.js';
 import { haptic } from '../../services/haptics.js';
 import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
 import { buildShellCutoutPath } from '../../services/groupLayout.js';
-import { getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints } from '../../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints } from '../../utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
 import { computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
@@ -120,8 +120,8 @@ export function renderConnectionEdge(edge, ctx) {
   }
   // For anchor nodes, use current-frame ref positions (not stale store positions)
   // and title dimensions instead of node dimensions
-  const sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
-  const eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+  let sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
+  let eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
   if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
   if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
   const sNodeDims = sAnchorInfo
@@ -130,6 +130,9 @@ export function renderConnectionEdge(edge, ctx) {
   const eNodeDims = eAnchorInfo
     ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
     : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
+  // A member wired to its own group's Thing draws to the pill, not the box.
+  sAnchorInfo = anchorInfoFacing(sAnchorInfo, destNode, eNodeDims);
+  eAnchorInfo = anchorInfoFacing(eAnchorInfo, sourceNode, sNodeDims);
 
   if (edge.sourceId === edge.destinationId) {
     const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;

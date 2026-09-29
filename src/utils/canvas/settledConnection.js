@@ -18,7 +18,7 @@
  *   settledConnectionGeometry(edge, scene)      one connection's stroke and arrows
  */
 import { CONNECTION_WIDTH_BASE_SCALE, NODE_DEFAULT_COLOR } from '../../constants';
-import { getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
+import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
 import {
   computeCleanRouting, computeLombardiRouting, computeLombardiTangents, computeManhattanRouting,
   connectionCurveMinBow, LOMBARDI_LANE_FRACTION, ORTHOGONAL_LANE_FRACTION,
@@ -181,8 +181,8 @@ export function settledConnectionGeometry(edge, scene) {
   let destNode = nodeById.get(edge.destinationId);
   if (!sourceNode || !destNode) return null;
 
-  const sAnchorInfo = sourceNode.isGroupAnchor ? anchors.get(sourceNode.id) : null;
-  const eAnchorInfo = destNode.isGroupAnchor ? anchors.get(destNode.id) : null;
+  let sAnchorInfo = sourceNode.isGroupAnchor ? anchors.get(sourceNode.id) : null;
+  let eAnchorInfo = destNode.isGroupAnchor ? anchors.get(destNode.id) : null;
   if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
   if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
   const sNodeDims = sAnchorInfo
@@ -192,6 +192,8 @@ export function settledConnectionGeometry(edge, scene) {
     ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
     : dimsById.get(destNode.id);
   if (!sNodeDims || !eNodeDims) return null;
+  sAnchorInfo = anchorInfoFacing(sAnchorInfo, destNode, eNodeDims);
+  eAnchorInfo = anchorInfoFacing(eAnchorInfo, sourceNode, sNodeDims);
 
   const arrowsToward = edge.directionality?.arrowsToward instanceof Set
     ? edge.directionality.arrowsToward
