@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Merge, CheckCircle, HelpCircle, EyeOff, X } from 'lucide-react';
+import { Merge, CheckCircle, HelpCircle, EyeOff, X, Search } from 'lucide-react';
 import CanvasModal from '../CanvasModal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
@@ -235,6 +235,9 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
 const MergeThingsModal = ({ isVisible, onClose }) => {
   const theme = useTheme();
   const [activeBand, setActiveBand] = useState('certain');
+  // One query across all three bands, so switching band keeps what you typed
+  // and the counts beside each band say where the matches are.
+  const [query, setQuery] = useState('');
   const [result, setResult] = useState(null);
   const [mergedCount, setMergedCount] = useState(0);
   // Dismissals live in the store, not here. Held locally they were rebuilt
@@ -419,6 +422,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     setMergedCount(0);
     setActions([]);
     setResult(null);
+    setQuery('');
     pickBandRef.current = true;
     // Dismissals naming a thing that has since been merged away are dead
     // weight; clearing them here keeps the list from growing forever.
@@ -480,27 +484,6 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [isVisible, undoLast]);
 
-  const handleMergeAllCertain = useCallback(() => {
-    const pending = (result?.certain || []).filter((c) => !dismissed[c.key]);
-    const store = useGraphStore.getState();
-    let merged = 0;
-    const removed = [];
-    for (const c of pending) {
-      // Each is re-checked inside mergeThings; a pair whose thing was already
-      // folded in by an earlier merge in this same loop is skipped, not fatal.
-      if (store.mergeThings(c.survivorId, c.loserId, { carryOver: c.carryOver })) {
-        merged += 1;
-        removed.push(c.loserId);
-      }
-    }
-    setMergedCount((n) => n + merged);
-    // One entry each, so Cmd+Z steps back through a bulk run pair by pair
-    // rather than being unable to touch it.
-    setActions((prev) => [...prev, ...Array.from({ length: merged }, () => ({ type: 'merge' }))]);
-    // One fold for the whole run, not one scan per pair.
-    applyMergeLocally(removed);
-  }, [result, dismissed, applyMergeLocally]);
-
   const bands = useMemo(() => {
     const empty = { certain: [], review: [], unlikely: [] };
     if (!result) return empty;
@@ -531,12 +514,43 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
       return others > 0 ? { ...c, alsoMatches: others } : c;
     };
 
+    // Filtered after the cluster count, so "1 of 3 lookalikes" still counts
+    // the copies a search is hiding.
+    const needle = query.trim().toLowerCase();
+    const matches = (c) => !needle
+      || (c.survivor.name || '').toLowerCase().includes(needle)
+      || (c.loser.name || '').toLowerCase().includes(needle);
+    const shown = (list) => list.map(withCluster).filter(matches);
+
     return {
-      certain: live.certain.map(withCluster),
-      review: live.review.map(withCluster),
-      unlikely: live.unlikely.map(withCluster),
+      certain: shown(live.certain),
+      review: shown(live.review),
+      unlikely: shown(live.unlikely),
     };
-  }, [result, dismissed]);
+  }, [result, dismissed, query]);
+
+  const handleMergeAllCertain = useCallback(() => {
+    // What is on screen, not the whole band: with a search active, "Merge all
+    // 3" means the three shown.
+    const pending = bands.certain;
+    const store = useGraphStore.getState();
+    let merged = 0;
+    const removed = [];
+    for (const c of pending) {
+      // Each is re-checked inside mergeThings; a pair whose thing was already
+      // folded in by an earlier merge in this same loop is skipped, not fatal.
+      if (store.mergeThings(c.survivorId, c.loserId, { carryOver: c.carryOver })) {
+        merged += 1;
+        removed.push(c.loserId);
+      }
+    }
+    setMergedCount((n) => n + merged);
+    // One entry each, so Cmd+Z steps back through a bulk run pair by pair
+    // rather than being unable to touch it.
+    setActions((prev) => [...prev, ...Array.from({ length: merged }, () => ({ type: 'merge' }))]);
+    // One fold for the whole run, not one scan per pair.
+    applyMergeLocally(removed);
+  }, [bands, applyMergeLocally]);
 
   const visible = bands[activeBand] || [];
 
@@ -637,6 +651,31 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           {BANDS.find((b) => b.key === activeBand)?.title}
         </h2>
 
+        <div style={{ position: 'relative', marginBottom: 14 }}>
+          <Search
+            size={14}
+            style={{
+              position: 'absolute',
+              left: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              opacity: 0.6,
+              color: theme.canvas.textPrimary,
+              pointerEvents: 'none'
+            }}
+          />
+          <input
+            type="text"
+            className="modal-input"
+            aria-label="Search duplicates"
+            placeholder="Search by name…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
+            style={{ paddingLeft: 32 }}
+          />
+        </div>
+
         {mergedCount > 0 && !isFirstScan && (
           <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
             {mergedCount} merged.
@@ -703,7 +742,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
             border: `1px dashed ${theme.canvas.border}`,
             fontStyle: 'italic'
           }}>
-            Nothing here.
+            {query.trim() ? `Nothing here matches “${query.trim()}”.` : 'Nothing here.'}
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

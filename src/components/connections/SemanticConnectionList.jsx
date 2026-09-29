@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2, ListPlus } from 'lucide-react';
 import useGraphStore from '../../store/graphStore.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -7,9 +8,12 @@ import useElementWidth from '../../hooks/useElementWidth.js';
 import useSemanticConnections from '../../hooks/useSemanticConnections.js';
 import useActiveGraphStructureKey from '../../hooks/useActiveGraphStructureKey.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import TripletPreview from './TripletPreview.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './CompactConnectionRow.jsx';
-import { conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, revealInstances, existingInstanceFor } from '../../services/semanticPlacement.js';
+import {
+  conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, placeConnections, revealInstances, existingInstanceFor
+} from '../../services/semanticPlacement.js';
 import { haptic } from '../../services/haptics.js';
 
 const PAGE = 20;
@@ -26,7 +30,9 @@ const SOURCE_NAMES = { wikidata: 'Wikidata', dbpedia: 'DBpedia' };
  * the connection's label, clear of what's there where it can be — joined by
  * that connection, the same add the orbit does. When the other end is already
  * in the Web the row links to it instead (a link icon, not a +). A row the Web
- * already says shows a check, which takes you to it.
+ * already says shows a check, which takes you to it. "Add all" brings in every
+ * connection the list holds (or every one the filter matches) at once, after
+ * saying how many.
  *
  * @param {Object} props
  * @param {Object} props.seed - a prototype or a discovered concept
@@ -41,6 +47,8 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const [shown, setShown] = useState(PAGE);
   const [filter, setFilter] = useState('');
   const [hoveredId, setHoveredId] = useState(null);
+  // The "add all" being asked about: { statements, added, linked }.
+  const [bulk, setBulk] = useState(null);
 
   const activeGraphId = useGraphStore((s) => s.activeGraphId);
   // What's in the Web, not where it sits: a drag must not redraw every row.
@@ -108,6 +116,13 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
     return connections.filter((c) => lower(c.predicate).includes(q) || lower(c.other.name).includes(q));
   }, [connections, filter]);
 
+  const provenanceOf = (c) => ({
+    source: c.provider,
+    uri: c.other.semanticMetadata?.originalUri || null,
+    predicate: c.predicateUri || c.predicate,
+    retrieved_at: new Date().toISOString()
+  });
+
   const add = (c) => {
     if (!activeGraphId || !anchor) return;
     haptic('nodeSpawn', { force: true });
@@ -117,12 +132,42 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
       anchorInstanceId: anchor.id,
       predicate: c.predicate,
       direction: c.direction,
-      provenance: {
-        source: c.provider,
-        uri: c.other.semanticMetadata?.originalUri || null,
-        predicate: c.predicateUri || c.predicate,
-        retrieved_at: new Date().toISOString()
-      }
+      provenance: provenanceOf(c)
+    });
+  };
+
+  // Everything the list holds that the Web doesn't say yet, counted into new
+  // Things and links to ones already here, for the dialog to state.
+  const askAddAll = () => {
+    if (!activeGraphId || !anchor) return;
+    const state = { graphs, nodePrototypes };
+    const pending = visible.filter((c) => !presentAs(c));
+    if (pending.length === 0) return;
+    // A Thing reached by two connections is made once; the second one links to it.
+    const seen = new Set();
+    let added = 0;
+    pending.forEach((c) => {
+      const keys = [...conceptUris(c.other), `name:${lower(c.other.name)}`];
+      const here = keys.some((k) => seen.has(k)) || existingInstanceFor(activeGraphId, c.other, anchor.id, state);
+      keys.forEach((k) => seen.add(k));
+      if (!here) added += 1;
+    });
+    setBulk({ pending, added, linked: pending.length - added });
+  };
+
+  const addAll = () => {
+    if (!bulk || !activeGraphId || !anchor) return;
+    haptic('nodeSpawn', { force: true });
+    placeConnections({
+      graphId: activeGraphId,
+      anchorInstanceId: anchor.id,
+      statements: bulk.pending.map((c) => ({
+        concept: c.other,
+        predicate: c.predicate,
+        direction: c.direction,
+        provenance: provenanceOf(c)
+      })),
+      label: `Added ${bulk.pending.length} connections of ${seedName}`
     });
   };
 
@@ -138,6 +183,9 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const canAdd = !!anchor;
   // Below this a triplet's names truncate to a few letters; rows go compact.
   const compact = width > 0 && width < COMPACT_CONNECTIONS_BELOW;
+  // Offered once the list has settled, so "all" means all of it.
+  const remaining = canAdd && status === 'ready' ? visible.filter((c) => !presentAs(c)).length : 0;
+  const filtering = !!lower(filter);
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
@@ -167,6 +215,24 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
               style={{ marginLeft: '3px', maxWidth: 'calc(100% - 6px)', minWidth: 0 }}
             />
           )}
+        </div>
+      )}
+
+      {remaining > 1 && (
+        <div style={{ marginBottom: '10px' }}>
+          <PanelIconButton
+            icon={ListPlus}
+            size={14}
+            label={filtering ? `Add ${remaining} matching` : `Add all ${remaining}`}
+            labelFontSize={12}
+            variant="outline"
+            onClick={askAddAll}
+            title={filtering
+              ? `Add the ${remaining} connections matching "${filter.trim()}"`
+              : `Add all ${remaining} connections of ${seedName} to this web`}
+            // Room for the hover ring at the panel's edge.
+            style={{ marginLeft: '3px' }}
+          />
         </div>
       )}
 
@@ -318,6 +384,25 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
           </a>
         )}
       </div>
+
+      {/* On the body: a panel can sit in a transformed box, which would pin a
+          fixed dialog to the panel instead of the window. */}
+      {bulk && createPortal(
+        <ConfirmDialog
+          isOpen
+          onClose={() => setBulk(null)}
+          onConfirm={addAll}
+          title={`Add ${bulk.pending.length} connections?`}
+          message={[
+            bulk.added > 0 && `${bulk.added} new Thing${bulk.added === 1 ? '' : 's'} will be placed around ${seedName}`,
+            bulk.linked > 0 && `${bulk.added > 0 ? 'and ' : ''}${bulk.linked} more connection${bulk.linked === 1 ? '' : 's'} drawn to Things already here`
+          ].filter(Boolean).join(', ') + '.'}
+          details="One undo takes them all back out."
+          confirmLabel={`Add ${bulk.pending.length}`}
+          variant="info"
+        />,
+        document.body
+      )}
     </div>
   );
 };

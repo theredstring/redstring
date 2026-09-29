@@ -23,6 +23,11 @@ import { getNodeDimensions } from '../utils.js';
 import useImageCache from './imageCache.js';
 import { navigateToCoordinates } from './canvasNavigationService.js';
 
+// How far past the nearest clean distance a spot beside an anchor may be.
+const STRETCHES = [1, 1.3, 1.7, 2.2];
+// A bulk add fills the ring around the anchor, so it keeps looking further out.
+const BULK_STRETCHES = [1, 1.3, 1.7, 2.2, 2.8, 3.5, 4.4, 5.5, 7, 9];
+
 // Room left between a placed node and anything already there.
 const NODE_GAP = 48;
 // Room left between a node placed in open space and any cluster.
@@ -78,13 +83,7 @@ export function ensureConceptPrototype(concept) {
   const st = useGraphStore.getState();
   const existing = findPrototypeForConcept(concept, st.nodePrototypes);
   if (existing) {
-    const patch = backfillConceptLinks(existing, concept);
-    if (patch) {
-      st.updateNodePrototype(existing.id, (draft) => {
-        draft.externalLinks = patch.externalLinks;
-        draft.semanticMetadata = patch.semanticMetadata;
-      });
-    }
+    topUpLinks(existing, concept);
     return existing.id;
   }
 
@@ -103,8 +102,42 @@ export function ensureConceptPrototype(concept) {
   });
   // addNodePrototype already saves a new prototype; toggling unconditionally unsaved it (B-16).
   if (!useGraphStore.getState().savedNodeIds.has(id)) useGraphStore.getState().toggleSavedNode(id);
-  enrichPrototypeFromLinks(id, fields.externalLinks);
+  enrichLater(id, fields.externalLinks);
   return id;
+}
+
+// A bulk add makes a hundred Things at once; each one's article is fetched a
+// few at a time rather than all together, which Wikipedia would refuse.
+const ENRICH_CONCURRENCY = 4;
+const enrichQueue = [];
+let enriching = 0;
+function enrichLater(prototypeId, links) {
+  enrichQueue.push([prototypeId, links]);
+  pumpEnrichment();
+}
+function pumpEnrichment() {
+  while (enriching < ENRICH_CONCURRENCY && enrichQueue.length > 0) {
+    const [prototypeId, links] = enrichQueue.shift();
+    enriching += 1;
+    Promise.resolve(enrichPrototypeFromLinks(prototypeId, links))
+      .catch(() => null)
+      .finally(() => { enriching -= 1; pumpEnrichment(); });
+  }
+}
+
+/**
+ * Give a prototype any links a concept has that it lacks. The semantic web
+ * names one Thing in several places (Wikidata, DBpedia), and not every
+ * statement carries all of them; without this, a later statement reaching the
+ * same Thing only by its DBpedia link wouldn't find it, and made a copy.
+ */
+function topUpLinks(proto, concept) {
+  const patch = backfillConceptLinks(proto, concept);
+  if (!patch) return;
+  useGraphStore.getState().updateNodePrototype(proto.id, (draft) => {
+    draft.externalLinks = patch.externalLinks;
+    draft.semanticMetadata = patch.semanticMetadata;
+  });
 }
 
 /** The Thing that defines a connection named `label`, made (and saved) if there isn't one. */
@@ -318,7 +351,7 @@ function edgeLabelFontSize(state) {
  * 'open' searches outward from `origin` for the nearest spot clear of every
  * cluster by a generous margin.
  */
-export function findPlacement({ graphId, mode, anchorInstanceId = null, origin = null, size, predicateLabel = '' }, state = useGraphStore.getState()) {
+export function findPlacement({ graphId, mode, anchorInstanceId = null, origin = null, size, predicateLabel = '', stretches = STRETCHES }, state = useGraphStore.getState()) {
   const { clusters, boxes } = clustersOf(graphId, state);
   const anchorBox = anchorInstanceId ? boxes.get(anchorInstanceId) : null;
   const w = size.w; const h = size.h;
@@ -360,7 +393,7 @@ export function findPlacement({ graphId, mode, anchorInstanceId = null, origin =
       const angle = (k / DIRECTIONS) * 2 * Math.PI;
       const dx = Math.cos(angle); const dy = Math.sin(angle);
       const reach = extentTowards(anchorBox, dx, dy) + extentTowards({ w, h }, dx, dy) + labelLength + labelAir * 2 + NODE_GAP;
-      for (const stretch of [1, 1.3, 1.7, 2.2]) {
+      for (const stretch of stretches) {
         const r = reach * stretch;
         const cx = ax + dx * r; const cy = ay + dy * r;
         const box = at(cx, cy);
@@ -467,13 +500,14 @@ function groupOf(graphId, instanceId, state) {
  *   finding or making one for `concept`
  * @param {boolean} [args.joinGroup] - join the anchor's group; defaults to
  *   placing in its cluster
+ * @param {number[]} [args.stretches] - how far out beside the anchor to look
  * @returns {{ prototypeId, instanceId, edgeId, linked: boolean }} `linked` when the
  *   other end was already in this Web and only the connection was drawn
  */
 export function placeConcept({
   graphId, concept, mode = 'cluster', anchorInstanceId = null, predicate = null, direction = 'out',
   provenance = null, origin = null, reveal = true, position = null, prototypeId: givenPrototypeId = null,
-  joinGroup = mode === 'cluster'
+  joinGroup = mode === 'cluster', stretches = STRETCHES
 }) {
   const predicateLabel = predicate ? formatPredicate(predicate) : '';
   const st0 = useGraphStore.getState();
@@ -491,6 +525,11 @@ export function placeConcept({
     });
     if (reveal) setTimeout(() => revealInstances(graphId, [anchorInstanceId, existingEnd]), 0);
     const prototypeId = st0.graphs.get(graphId).instances.get(existingEnd).prototypeId;
+    // The same Thing by a shared link: it learns the statement's other links.
+    // One matched only by name (a hand-made "France") is left as it is.
+    const endProto = st0.nodePrototypes.get(prototypeId);
+    const uris = conceptUris(concept);
+    if (endProto && [...conceptUris(endProto)].some((u) => uris.has(u))) topUpLinks(endProto, concept);
     return { prototypeId, instanceId: existingEnd, edgeId, linked: true };
   }
 
@@ -509,7 +548,8 @@ export function placeConcept({
     anchorInstanceId: hasAnchor ? anchorInstanceId : null,
     origin: center,
     size: { w: dims.currentWidth, h: dims.currentHeight },
-    predicateLabel
+    predicateLabel,
+    stretches
   }, st);
 
   const instanceId = `instance-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -530,6 +570,47 @@ export function placeConcept({
     setTimeout(() => revealInstances(graphId, ids), 0);
   }
   return { prototypeId, instanceId, edgeId, linked: false };
+}
+
+/**
+ * Bring many statements about one Thing into a Web at once: every other end
+ * placed around the anchor (or linked to, when it's already here), each with
+ * the room a single add would give it, as one step to undo.
+ *
+ * Ends are placed one after another, so each spot is chosen knowing where the
+ * ones before it went; as the ring around the anchor fills, the search reaches
+ * further out. Statements the Web already makes are left alone.
+ *
+ * @param {Object} args
+ * @param {string} args.graphId
+ * @param {string} args.anchorInstanceId
+ * @param {Array<{concept, predicate, direction, provenance}>} args.statements
+ * @param {string} [args.label] - the undo entry's name
+ * @returns {{ added: number, linked: number, skipped: number, instanceIds: string[] }}
+ */
+export function placeConnections({ graphId, anchorInstanceId, statements, label = 'Added connections' }) {
+  const result = { added: 0, linked: 0, skipped: 0, instanceIds: [] };
+  const st = useGraphStore.getState();
+  if (!st.graphs.get(graphId)?.instances?.has(anchorInstanceId)) return result;
+  const run = () => {
+    for (const { concept, predicate, direction, provenance } of statements) {
+      if (hasConnection(graphId, anchorInstanceId, concept, predicate)) { result.skipped += 1; continue; }
+      const placed = placeConcept({
+        graphId, concept, anchorInstanceId, predicate, direction, provenance,
+        reveal: false, stretches: BULK_STRETCHES
+      });
+      if (placed.linked) result.linked += 1;
+      else if (placed.instanceId) result.added += 1;
+      if (placed.instanceId) result.instanceIds.push(placed.instanceId);
+    }
+  };
+  if (typeof st.withHistoryTransaction === 'function') st.withHistoryTransaction(label, run);
+  else run();
+  // Deferred a frame so the new nodes are in the view the reveal measures.
+  if (result.instanceIds.length > 0) {
+    setTimeout(() => revealInstances(graphId, [anchorInstanceId, ...result.instanceIds]), 0);
+  }
+  return result;
 }
 
 /**

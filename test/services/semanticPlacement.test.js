@@ -14,8 +14,10 @@ vi.mock('../../src/services/canvasNavigationService.js', () => ({ navigateToNode
 import useGraphStore from '../../src/store/graphStore.js';
 import { estimateEdgeLabelWidth, resolveEdgeLabelFontSize } from '../../src/services/layoutGeometry.js';
 import {
-  findPrototypeForConcept, ensureConceptPrototype, placeConcept, clustersOf, findPlacement, hasConnection
+  findPrototypeForConcept, ensureConceptPrototype, placeConcept, placeConnections, clustersOf, findPlacement, hasConnection
 } from '../../src/services/semanticPlacement.js';
+import useHistoryStore from '../../src/store/historyStore.js';
+import { performUndo } from '../../src/store/historyActions.js';
 
 // Bringing a semantic-web Thing into a Web: one prototype per subject (found
 // again by URI), placed beside its anchor or in open space, joined by the
@@ -209,5 +211,49 @@ describe('semanticPlacement', () => {
     expect(st().graphs.get(graphId).instances.has(res.instanceId)).toBe(true);
     expect(res.edgeId).toBeNull();
     expect(st().edges.size).toBe(edgesBefore);
+  });
+
+  it('adds many at once: new Things placed clear of each other, existing ones linked, stated ones left alone', () => {
+    const statements = [
+      // Already said: Paris → Near → Seine.
+      { concept: { name: 'Seine' }, predicate: 'Near', direction: 'out' },
+      // Seine is here, by another connection: linked, not copied.
+      { concept: { name: 'Seine' }, predicate: 'Located Next To Body Of Water', direction: 'out' },
+      ...Array.from({ length: 30 }, (_, i) => ({
+        concept: concept(`Twin City Number ${i + 1}`, `Q${9000 + i}`),
+        predicate: i % 2 ? 'Twinned Administrative Body' : 'Shares Border With',
+        direction: i % 3 ? 'out' : 'in'
+      }))
+    ];
+    const before = st().graphs.get(graphId).instances.size;
+    const res = placeConnections({ graphId, anchorInstanceId: 'i-paris', statements });
+    expect(res).toMatchObject({ added: 30, linked: 1, skipped: 1 });
+    expect(st().graphs.get(graphId).instances.size).toBe(before + 30);
+
+    const { boxes } = clustersOf(graphId);
+    const all = [...boxes.values()];
+    for (let i = 0; i < all.length; i++) {
+      for (let j = i + 1; j < all.length; j++) expect(boxesOverlap(all[i], all[j])).toBe(false);
+    }
+    // Every new Thing hangs off Paris, arrowed the way its statement reads.
+    const graphEdges = st().graphs.get(graphId).edgeIds.map((id) => st().edges.get(id));
+    expect(graphEdges.filter((e) => e.sourceId === 'i-paris' || e.destinationId === 'i-paris')).toHaveLength(1 + 1 + 30);
+  });
+
+  it('adds many as one step to undo', () => {
+    st().flushHistoryBatch(); // the setup's own writes, closed as their own entry
+    const before = useHistoryStore.getState().history.length;
+    placeConnections({
+      graphId,
+      anchorInstanceId: 'i-paris',
+      statements: [0, 1, 2].map((i) => ({ concept: concept(`City ${i}`, `Q${7000 + i}`), predicate: 'Twinned Administrative Body' }))
+    });
+    expect(useHistoryStore.getState().history.length).toBe(before + 1);
+
+    const instances = st().graphs.get(graphId).instances.size;
+    const edges = st().graphs.get(graphId).edgeIds.length;
+    performUndo();
+    expect(st().graphs.get(graphId).instances.size).toBe(instances - 3);
+    expect(st().graphs.get(graphId).edgeIds.length).toBe(edges - 3);
   });
 });
