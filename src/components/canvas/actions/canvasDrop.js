@@ -5,9 +5,8 @@
  * grid when it is on.
  */
 import { haptic } from '../../../services/haptics.js';
-import { backfillConceptLinks, conceptToPrototypeFields } from '../../../services/candidates.js';
 import useGraphStore from '../../../store/graphStore.js';
-import { enrichPrototypeFromLinks } from '../../../services/conceptEnrichment.js';
+import { ensureConceptPrototype } from '../../../services/semanticPlacement.js';
 import { getNodeDimensions } from '../../../utils.js';
 
 /** The useDrop `drop` handler; NodeCanvas keeps the spec and its dependencies. */
@@ -32,56 +31,9 @@ export function handleCanvasDrop(ctx, item, monitor) {
   // Handle semantic concepts that need materialization
   if (item.needsMaterialization && item.conceptData) {
 
-    // Check if this semantic concept already exists as a prototype
-    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
-      proto.semanticMetadata?.isSemanticNode &&
-      proto.name === item.conceptData.name &&
-      proto.semanticMetadata?.originMetadata?.source === item.conceptData.source &&
-      proto.semanticMetadata?.originMetadata?.originalUri === item.conceptData.semanticMetadata?.originalUri
-    );
-
-    let prototypeId;
-
-    if (existingPrototype) {
-      // Use existing prototype, topping up any links it predates.
-      prototypeId = existingPrototype.id;
-      const patch = backfillConceptLinks(existingPrototype, item.conceptData);
-      if (patch) {
-        storeActions.updateNodePrototype(prototypeId, (draft) => {
-          draft.externalLinks = patch.externalLinks;
-          draft.semanticMetadata = patch.semanticMetadata;
-        });
-      }
-
-    } else {
-      // Create new prototype
-      prototypeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-      // Carries the concept's own URI onto the prototype as a real
-      // externalLinks entry, not just into the semanticMetadata blob.
-      const fields = conceptToPrototypeFields(item.conceptData);
-
-      // Add the prototype to the store
-      storeActions.addNodePrototype({
-        id: prototypeId,
-        name: item.conceptData.name,
-        description: '', // No custom bio - will show origin info instead
-        color: item.conceptData.color,
-        typeNodeId: 'base-thing-prototype',
-        definitionGraphIds: [],
-        externalLinks: fields.externalLinks,
-        semanticMetadata: fields.semanticMetadata,
-        originalDescription: fields.originalDescription
-      });
-
-      // Auto-save semantic nodes to Library. // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
-      if (!useGraphStore.getState().savedNodeIds.has(prototypeId)) storeActions.toggleSavedNode(prototypeId);
-
-      // Description and picture arrive a moment later, from the article
-      // this concept already names — no second search, no guessing.
-      enrichPrototypeFromLinks(prototypeId, fields.externalLinks);
-
-    }
+    // Found again by its URI, or made, saved and enriched — the same
+    // prototype every other way of bringing this concept in would give.
+    const prototypeId = ensureConceptPrototype(item.conceptData);
 
     // Now use the prototype ID for positioning
     const prototype = {

@@ -313,8 +313,9 @@ export function layoutConnectionRow({
 
 /**
  * The right panel's Connections list: a two-node row in a column whose width is
- * the panel's, not the content's. The renderer is still handed the full column
- * so the row centres in it.
+ * the panel's, not the content's. `width` is the row's own width — hand the
+ * renderer that to set the row at the column's start, or the full column to
+ * centre it.
  */
 export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArrows, text }) {
   const row = layoutConnectionRow({
@@ -329,6 +330,7 @@ export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArr
     nodes: row.nodes,
     span: row.spacing,
     scale: row.scale,
+    width: row.containerWidth,
     height: row.containerHeight,
     labelFontScale: row.labelFontScale,
     predicate: row.labels[0]

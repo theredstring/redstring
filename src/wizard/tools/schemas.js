@@ -1018,7 +1018,7 @@ export function getToolDefinitions(options = {}) {
         // ── Semantic Web Tools ──────────────────────────────────────────
         {
             name: 'discoverOrbit',
-            description: 'SEMANTIC WEB TOOL: Discover linked-data connections for an entity from Wikidata/DBpedia. Returns ranked relationships in 4 quality rings. Only use when user explicitly wants semantic web exploration — not for general graph building. Use before materializeSemanticEntities.',
+            description: 'SEMANTIC WEB TOOL: Discover linked-data connections for an entity from Wikidata/DBpedia. Returns ranked relationships in 4 quality rings, in both directions: each has a direction ("out": entity → relation → name; "in": name → relation → entity) and a ready-made statement. Only use when user explicitly wants semantic web exploration — not for general graph building. Use before materializeSemanticEntities, keeping each statement\'s direction as its source/target.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -1036,7 +1036,7 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'semanticSearch',
-            description: 'SEMANTIC WEB TOOL: Search Wikidata/DBpedia for entity data. "enrich" mode: entity lookup with descriptions/links. "related" mode: find related concepts via SPARQL. Only use when user explicitly wants semantic web data — not for general graph building.',
+            description: 'SEMANTIC WEB TOOL: Search Wikidata/DBpedia for entity data. "enrich" mode: entity lookup with descriptions/links. "related" mode: the entity\'s statements in both directions, each with a direction and statement. Only use when user explicitly wants semantic web data — not for general graph building.',
             parameters: {
                 type: 'object',
                 properties: {

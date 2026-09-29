@@ -99,17 +99,31 @@ describe('reading at a revision (GitHub)', () => {
   beforeEach(() => { global.fetch = vi.fn(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
+  it('reads the blob the revision names, so the bytes are that revision\'s', async () => {
+    const body = 'x'.repeat(4096);
+    global.fetch
+      .mockResolvedValueOnce(jsonResponse({ size: 4096, sha: 'b10b', encoding: 'none', content: '' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'b10b', size: 4096, encoding: 'base64', content: Buffer.from(body, 'utf8').toString('base64') }));
+
+    const result = await github().readFileRawWithMeta(PATH, { ref: 'c11c2089' });
+
+    expect(result.content).toBe(body);
+    expect(global.fetch.mock.calls[0][0]).toContain('?ref=c11c2089');
+    expect(global.fetch.mock.calls[1][0]).toContain('/git/blobs/b10b');
+  });
+
   it('passes the revision to both the probe and the raw leg', async () => {
     const body = 'x'.repeat(6916496);
     global.fetch
       .mockResolvedValueOnce(jsonResponse({ size: 6916496, sha: 'c11c2089', encoding: 'none', content: '' }))
+      .mockResolvedValueOnce(jsonResponse({ message: 'Server Error' }, { status: 500 })) // blob unavailable
       .mockResolvedValueOnce(textResponse(body));
 
     const result = await github().readFileRawWithMeta(PATH, { ref: 'c11c2089' });
 
     expect(result.content).toBe(body);
     expect(global.fetch.mock.calls[0][0]).toContain('?ref=c11c2089');
-    expect(global.fetch.mock.calls[1][0]).toContain('?ref=c11c2089');
+    expect(global.fetch.mock.calls[2][0]).toContain('?ref=c11c2089');
   });
 
   it('reads the branch tip when no revision is given', async () => {
@@ -128,6 +142,7 @@ describe('reading at a revision (GitHub)', () => {
   it('still verifies the body against the blob size at a revision', async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse({ size: 6916496, sha: 'c11c2089', encoding: 'none', content: '' }))
+      .mockResolvedValueOnce(jsonResponse({ sha: 'c11c2089', size: 9, encoding: 'base64', content: Buffer.from('truncated').toString('base64') }))
       .mockResolvedValueOnce(textResponse('truncated'));
 
     await expect(github().readFileRawWithMeta(PATH, { ref: 'c11c2089' }))

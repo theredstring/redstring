@@ -1,16 +1,26 @@
 import React, { useEffect, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Search, Bookmark, ArrowRight } from 'lucide-react';
+import { Search, Bookmark, ArrowRight, Link2 } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import useElementWidth from '../../../hooks/useElementWidth.js';
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { findPrototypeForConcept } from '../../../services/semanticPlacement.js';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
 };
 
 const SOURCE_LABELS = { wikidata: 'Wikidata', wikipedia: 'Wikipedia', dbpedia: 'DBpedia' };
+
+// Below this card width the actions leave their column on the right and sit
+// in a row under the text, so the name and description keep the full width.
+const NARROW_CARD = 260;
+// Round hit areas of this size: big enough to hit on touch, and the same
+// shape the pie bubbles and the panel's other icon buttons have.
+const HIT = 36;
 
 /**
  * Who says so. A consolidated result names every authority folded into it,
@@ -23,8 +33,9 @@ const sourceLabel = (concept) => (
     : (SOURCE_LABELS[concept.source] || concept.source)
 );
 
-const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, onFocus, isSelected }) => {
+const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, onFocus }) => {
   const theme = useTheme();
+  const [cardRef, width] = useElementWidth(320);
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -38,11 +49,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
       needsMaterialization: true // Flag to indicate this needs to be created
     },
     end: (item, monitor) => {
-      // If the item was dropped successfully, materialize it
-      if (monitor.didDrop()) {
-        const materializedId = onMaterialize(concept);
-        console.log(`[SemanticDiscovery] Auto-materialized ${concept.name} with ID: ${materializedId}`);
-      }
+      if (monitor.didDrop()) onMaterialize(concept);
     },
     collect: (monitor) => ({
       isDragging: !!monitor.isDragging(),
@@ -53,225 +60,168 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
     preview(getEmptyImage(), { captureDraggingState: true });
   }, [preview]);
 
+  // Saved means in the Library — not merely that a prototype exists, which it
+  // can after being unsaved.
+  // Found once per change to the prototypes, not on every store update — the
+  // store updates every frame of a drag.
+  const nodePrototypes = useGraphStore((state) => state.nodePrototypes);
+  const savedNodeIds = useGraphStore((state) => state.savedNodeIds);
+  const proto = useMemo(() => findPrototypeForConcept(concept, nodePrototypes), [concept, nodePrototypes]);
+  const isBookmarked = !!(proto && savedNodeIds.has(proto.id));
+
   const handleSaveToggle = () => {
-    if (isBookmarked) {
-      // If already bookmarked, unsave it
-      onUnsave(concept);
-    } else {
-      // If not bookmarked, save it
-      const nodeId = onMaterialize(concept);
-    }
-    onSelect(null); // Deselect after action
+    if (isBookmarked) onUnsave(concept);
+    else if (proto) useGraphStore.getState().toggleSavedNode(proto.id);
+    else onMaterialize(concept);
+    onSelect?.(null);
   };
 
-  // Check if this concept is bookmarked (materialized)
-  // Subscribe to store changes to check if this concept is already materialized
-  const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
-  const isBookmarked = useMemo(() => {
-    if (!nodePrototypesMap || typeof nodePrototypesMap.get !== 'function') {
-      return false;
-    }
+  const ink = getTextColor(concept.color, theme.darkMode);
+  const narrow = width > 0 && width < NARROW_CARD;
+  const predicate = concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate;
+  const originalEntity = concept.semanticMetadata?.connectionInfo?.originalEntity;
 
-    return Array.from(nodePrototypesMap.values()).some(node =>
-      node.semanticMetadata?.isSemanticNode &&
-      node.name === concept.name
-    );
-  }, [nodePrototypesMap, concept.name]);
+  const buttonStyle = { width: HIT, height: HIT, padding: 0 };
+  const actions = (
+    <div style={{
+      display: 'flex',
+      flexDirection: narrow ? 'row' : 'column',
+      gap: '4px',
+      flexShrink: 0,
+      alignItems: 'center'
+    }}>
+      <PanelIconButton
+        icon={Search}
+        size={18}
+        color={ink}
+        style={buttonStyle}
+        onClick={() => window.triggerSemanticSearch?.(concept.name)}
+        title={`Search for more about "${concept.name}"`}
+      />
+      <PanelIconButton
+        icon={Bookmark}
+        size={18}
+        color={ink}
+        filled={isBookmarked}
+        fillColor={ink}
+        style={buttonStyle}
+        onClick={handleSaveToggle}
+        title={isBookmarked ? `Saved to your Library. Unsave "${concept.name}"` : `Save "${concept.name}" to your Library`}
+      />
+    </div>
+  );
+
+  const info = (
+    <div style={{
+      color: ink,
+      fontFamily: "'EmOne', sans-serif",
+      fontSize: '10px',
+      opacity: 0.8,
+      display: 'flex',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: '4px 6px',
+      minWidth: 0
+    }}>
+      {concept.relationships?.length > 0 && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+          <Link2 size={11} /> {concept.relationships.length}
+        </span>
+      )}
+      <span>{sourceLabel(concept)}</span>
+    </div>
+  );
 
   return (
     <div
-      ref={drag}
+      ref={(el) => { drag(el); cardRef.current = el; }}
       style={{
-        padding: '10px 70px 10px 10px', // More right padding for better icon spacing
-        background: concept.color, // Background is node color
-        borderRadius: '12px', // More rounded like actual nodes
+        display: 'flex',
+        flexDirection: narrow ? 'column' : 'row',
+        alignItems: narrow ? 'stretch' : 'center',
+        gap: narrow ? '6px' : '8px',
+        padding: narrow ? '10px 10px 6px' : '10px 6px 10px 12px',
+        background: concept.color,
+        borderRadius: '12px',
         border: `1px solid ${theme.darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
         cursor: 'grab',
         opacity: isDragging ? 0.5 : 1,
-        transition: 'all 0.2s ease',
-        marginBottom: '6px',
+        transition: 'opacity 0.2s ease, box-shadow 0.2s ease',
         boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.15)',
-        position: 'relative',
         userSelect: 'none',
-        animation: `conceptSlideIn 0.3s ease ${index * 50}ms both`,
-        pointerEvents: 'auto' // Ensure drag still works
+        animation: `conceptSlideIn 0.3s ease ${index * 50}ms both`
       }}
-      title="Click to view details, drag to canvas"
+      title="Click to see its page, drag onto the canvas"
       onClick={() => {
-        if (!isDragging && onFocus) {
-          onFocus(concept);
-        }
+        if (!isDragging && onFocus) onFocus(concept);
       }}
     >
-      {/* Search Button - Large, panel background colored icon with square hit box */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          right: '50px', // More spacing from edge
-          transform: 'translateY(-50%)',
-          width: '44px', // Square hit box
-          height: '44px', // Square hit box
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          opacity: 0.8,
-          transition: 'all 0.2s ease'
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          // Trigger a new search with this concept's name
-          if (typeof window !== 'undefined' && window.triggerSemanticSearch) {
-            window.triggerSemanticSearch(concept.name);
-          }
-        }}
-        title={`Search for more about "${concept.name}"`}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.opacity = 1;
-          e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.opacity = 0.8;
-          e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
-        }}
-      >
-        <Search
-          size={32}
-          style={{
-            color: getTextColor(concept.color, theme.darkMode), // Contrasting color
-            pointerEvents: 'none'
-          }}
-        />
-      </div>
-
-      {/* Save/Unsave Button - Toggles between bookmark and trash icons */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '50%',
-          right: '10px', // More spacing from edge
-          transform: 'translateY(-50%)',
-          width: '44px', // Square hit box
-          height: '44px', // Square hit box
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          opacity: 0.8,
-          transition: 'all 0.2s ease'
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          handleSaveToggle();
-        }}
-        title={isBookmarked ? `Remove "${concept.name}" from your graph` : `Save "${concept.name}" to your graph`}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.opacity = 1;
-          e.currentTarget.style.transform = 'translateY(-50%) scale(1.1)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.opacity = 0.8;
-          e.currentTarget.style.transform = 'translateY(-50%) scale(1)';
-        }}
-      >
-        <Bookmark
-          size={32}
-          style={{
-            color: getTextColor(concept.color, theme.darkMode), // Contrasting color
-            fill: isBookmarked ? getTextColor(concept.color, theme.darkMode) : 'transparent', // Filled when saved, transparent when unsaved
-            pointerEvents: 'none'
-          }}
-        />
-      </div>
-
-      {/* Node Name */}
-      <div style={{
-        color: getTextColor(concept.color, theme.darkMode), // Node name in contrasting color
-        fontFamily: "'EmOne', sans-serif",
-        fontSize: '16px', // Larger title
-        fontWeight: 'bold',
-        marginBottom: '4px', // Reduced margin
-        lineHeight: '1.3',
-        paddingRight: '45px', // Adjusted for chip padding + icons
-        wordWrap: 'break-word',
-        overflow: 'hidden',
-        display: '-webkit-box',
-        WebkitLineClamp: 2,
-        WebkitBoxOrient: 'vertical'
-      }}>
-        {concept.name}
-      </div>
-
-      {/* Connection Context Header (Moved Below Name) */}
-      {(concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate) && (
+      <div style={{ flex: 1, minWidth: 0, color: ink, fontFamily: "'EmOne', sans-serif" }}>
         <div style={{
-          fontSize: '10px',
-          color: getTextColor(concept.color, theme.darkMode), // In contrasting color
-          opacity: 0.8,
-          fontFamily: "'EmOne', sans-serif",
-          marginBottom: '6px',
-          fontStyle: 'italic',
-          paddingRight: '45px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '4px'
+          fontSize: '16px',
+          fontWeight: 'bold',
+          lineHeight: 1.3,
+          marginBottom: '4px',
+          overflowWrap: 'anywhere',
+          overflow: 'hidden',
+          display: '-webkit-box',
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: 'vertical'
         }}>
-          {/* If we have the original entity name, show Subject -> Predicate -> Object format */}
-          {concept.semanticMetadata?.connectionInfo?.originalEntity ? (
-            <>
-              <span style={{ maxWidth: '80px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {concept.semanticMetadata.connectionInfo.originalEntity}
-              </span>
-              <ArrowRight size={10} color={getTextColor(concept.color, theme.darkMode)} />
-              <span>
-                {concept.semanticMetadata.connectionInfo.predicate || concept.defaultPredicate}
-              </span>
-              <ArrowRight size={10} color={getTextColor(concept.color, theme.darkMode)} />
-            </>
-          ) : (
-            // Fallback for when we don't know the exact subject (e.g. general search results)
-            <span>via {concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate}</span>
-          )}
+          {concept.name}
         </div>
-      )}
 
-      {/* Truncated Description */}
-      <div style={{
-        color: getTextColor(concept.color, theme.darkMode), // Description in contrasting color
-        fontFamily: "'EmOne', sans-serif",
-        fontSize: '11px',
-        lineHeight: '1.4',
-        marginBottom: '8px',
-        opacity: 0.9,
-        paddingRight: '45px', // Adjusted for chip padding + icons
-        wordWrap: 'break-word',
-        overflow: 'hidden',
-        display: '-webkit-box',
-        WebkitLineClamp: 3, // Allow 3 lines with better wrapping
-        WebkitBoxOrient: 'vertical'
-      }}>
-        {concept.description}
+        {predicate && (
+          <div style={{
+            fontSize: '10px',
+            opacity: 0.8,
+            marginBottom: '6px',
+            fontStyle: 'italic',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            minWidth: 0
+          }}>
+            {originalEntity ? (
+              <>
+                <span style={{ maxWidth: '40%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {originalEntity}
+                </span>
+                <ArrowRight size={10} style={{ flexShrink: 0 }} />
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{predicate}</span>
+                <ArrowRight size={10} style={{ flexShrink: 0 }} />
+              </>
+            ) : (
+              <span>via {predicate}</span>
+            )}
+          </div>
+        )}
+
+        {concept.description && (
+          <div style={{
+            fontSize: '11px',
+            lineHeight: 1.4,
+            opacity: 0.9,
+            marginBottom: narrow ? 0 : '8px',
+            overflowWrap: 'anywhere',
+            overflow: 'hidden',
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical'
+          }}>
+            {concept.description}
+          </div>
+        )}
+
+        {!narrow && info}
       </div>
 
-      {/* Bottom Info Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{
-          color: getTextColor(concept.color, theme.darkMode), // Info bar in contrasting color
-          fontFamily: "'EmOne', sans-serif",
-          fontSize: '10px', // Larger for better readability
-          opacity: 0.8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px'
-        }}>
-          <span>🔗 {concept.relationships?.length || 0}</span>
-          {concept.semanticMetadata?.confidence && (
-            <span>• {Math.round(concept.semanticMetadata.confidence * 100)}%</span>
-          )}
-          <span>• {sourceLabel(concept)}</span>
+      {narrow ? (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          {info}
+          {actions}
         </div>
-      </div>
+      ) : actions}
     </div>
   );
 };

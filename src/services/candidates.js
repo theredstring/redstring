@@ -2,6 +2,7 @@
 import { PALETTES } from '../ai/palettes.js';
 import { canonicalizeLink, setLinkState, LINK_STATES } from '../formats/linkState.js';
 import { isValidURL } from '../utils/externalIdentifiers.js';
+import titleCaseName from '../utils/titleCaseName.js';
 
 // Get a consistent color from existing palettes based on a string
 // Dynamically uses all palette colors, so updates when palettes change
@@ -137,13 +138,10 @@ export function scoreCandidate({ sourceTrust = 0.8, predicate, valueSalience = 0
 // Title-case a name if it's all lowercase; preserve all-caps words and mixed-case names
 function tidyName(raw) {
   if (!raw || raw === 'Untitled') return raw;
-  // If every character is already lowercase (or non-letter), title-case each word
-  // But if the name has any uppercase letters, assume it's intentionally cased — leave it
-  if (raw !== raw.toLowerCase()) return raw;
-  return raw
-    .split(' ')
-    .map(w => w.length === 0 ? '' : w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
+  // Word by word: a word with a capital keeps its shape, a lower-case one is
+  // lifted — so "Artificial photosynthesis" reads "Artificial Photosynthesis"
+  // and "DNA replication" keeps its DNA.
+  return titleCaseName(raw);
 }
 
 // Normalize any provider result into a canonical Candidate object

@@ -1319,6 +1319,19 @@ This repository was automatically initialized by Redstring UI React. You can now
       return { content: decoded, sha: info.sha, size };
     }
 
+    // Preferred: the blob by SHA. Its URL is not the contents URL, so no cache
+    // can hand it the envelope (the cache defenses below were not enough —
+    // on 2026-09-28 a 1.7 MB universe still got the envelope on the raw leg),
+    // and the blob names its own SHA, so a wrong answer is detectable.
+    if (info.sha) {
+      try {
+        const content = await this._readBlobVerified(info.sha, size, safePath);
+        return { content, sha: info.sha, size };
+      } catch (blobError) {
+        console.warn(`[GitHubSemanticProvider] Blob read failed for ${safePath}, trying the raw leg:`, blobError?.message || blobError);
+      }
+    }
+
     console.log(`[GitHubSemanticProvider] Contents API truncated ${safePath} (${size} bytes) — fetching raw`);
     githubRateLimiter.recordRequest(this.authMethod);
     const rawResponse = await fetch(`${this.rootUrl}/${apiPath}${refQuery}`, {
@@ -1347,6 +1360,35 @@ This repository was automatically initialized by Redstring UI React. You can now
     const { content, byteLength } = await responseToTextWithBytes(rawResponse);
     assertRawBodyMatches(content, size, safePath, byteLength);
     return { content, sha: info.sha, size };
+  }
+
+  /**
+   * Read a blob by SHA through the Git Data API (good to 100 MB) and verify it
+   * is the blob asked for, at the size the contents API reported.
+   */
+  async _readBlobVerified(blobSha, size, label) {
+    // rootUrl ends in /contents; git data lives beside it on the repo root.
+    const repoUrl = this.rootUrl.replace(/\/contents$/, '');
+    await githubRateLimiter.waitForAvailability(this.authMethod);
+    githubRateLimiter.recordRequest(this.authMethod);
+    const response = await fetch(`${repoUrl}/git/blobs/${encodeURIComponent(blobSha)}`, {
+      cache: NO_HTTP_CACHE,
+      headers: {
+        'Authorization': this.getAuthHeader(),
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+    if (!response.ok) {
+      throw readTruncated(`Blob read failed for ${label} (HTTP ${response.status})`);
+    }
+    const blob = await response.json();
+    if (blob?.sha !== blobSha || blob?.encoding !== 'base64' || typeof blob?.content !== 'string') {
+      throw readTruncated(`Blob read for ${label} returned something other than blob ${String(blobSha).slice(0, 8)}`);
+    }
+    const bytes = base64ToBytes(blob.content);
+    const decoded = new TextDecoder().decode(bytes);
+    assertRawBodyMatches(decoded, size, label, bytes.length);
+    return decoded;
   }
 
   /**

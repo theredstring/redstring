@@ -9,8 +9,8 @@ import ConceptDetailView from './ConceptDetailView.jsx';
 import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
 import { searchConcepts } from '../../../services/identifierSearch.js';
-import { normalizeToCandidate, candidateToConcept, conceptToPrototypeFields, backfillConceptLinks } from '../../../services/candidates.js';
-import { enrichPrototypeFromLinks } from '../../../services/conceptEnrichment.js';
+import { normalizeToCandidate, candidateToConcept } from '../../../services/candidates.js';
+import { ensureConceptPrototype, findPrototypeForConcept } from '../../../services/semanticPlacement.js';
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
@@ -20,6 +20,7 @@ import { useTheme } from '../../../hooks/useTheme.js';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { HEADER_HEIGHT } from '../../../constants.js';
 import { formatPredicate } from '../../../utils/predicateFormatter.js';
+import titleCaseName from '../../../utils/titleCaseName.js';
 
 // Left Semantic Discovery View - Concept Discovery Engine
 
@@ -226,6 +227,9 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
   // the search at the moment you are about to throw it away.
   const [isOverDelete, setIsOverDelete] = useState(false);
   const open = () => onOpen(item);
+  const theme = useTheme();
+  const isPage = item.kind === 'concept';
+  const pageColor = item.concept?.color || theme.accent.primary;
 
   return (
     <div
@@ -243,6 +247,30 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, minWidth: 0 }}>
+        {isPage ? (
+          // A page visited: the Thing, as the Thing looks.
+          <span
+            title={`Open ${item.query}'s page again`}
+            style={{
+              minWidth: 0,
+              maxWidth: '100%',
+              background: pageColor,
+              color: getTextColor(pageColor, theme.darkMode),
+              borderRadius: '10px',
+              padding: '5px 10px 4px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              fontFamily: "'EmOne', sans-serif",
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              boxShadow: isHovered && !isOverDelete ? `0 0 0 3px ${theme.accent.primary}` : 'none',
+              transition: 'box-shadow 0.15s ease'
+            }}
+          >
+            {item.query}
+          </span>
+        ) : (
         <PanelIconButton
           icon={Search}
           size={14}
@@ -258,6 +286,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
           title={`Show the ${item.resultCount} concepts this search found`}
           style={{ minWidth: 0, maxWidth: '100%' }}
         />
+        )}
         {/* Wrapped because PanelIconButton owns its hover state and exposes no
             mouse handlers; the wrapper is what the card watches. */}
         <span
@@ -279,7 +308,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
         color: tokens.muted,
         marginTop: '6px'
       }}>
-        {item.resultCount} concepts · {item.timestamp.toLocaleString()}
+        {isPage ? 'Page' : `${item.resultCount} concepts`} · {item.timestamp.toLocaleString()}
       </div>
     </div>
   );
@@ -306,7 +335,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     (typeListMode === 'closed' && !mobileLandscapeShell) ? HEADER_HEIGHT + 10 : 0
   );
   const [isSearching, setIsSearching] = useState(false);
-  const [isFetchingDetails, setIsFetchingDetails] = useState(false);
   const [discoveredConcepts, setDiscoveredConcepts] = useState([]);
   const [searchHistory, setSearchHistory] = useState([]);
   const [selectedConcept, setSelectedConcept] = useState(null);
@@ -617,6 +645,44 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     setSearchHistory([]);
   };
 
+  // A concept page visited is a step in discovery too, alongside the searches.
+  // Revisiting one moves it to the top rather than listing it twice. Only the
+  // concept is kept — enough to open its page again, which refetches the rest.
+  const recordConceptVisit = (concept) => {
+    if (!concept?.name) return;
+    const key = concept.semanticMetadata?.originalUri || concept.id || concept.name;
+    const entry = {
+      id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      kind: 'concept',
+      key,
+      query: concept.name,
+      timestamp: new Date(),
+      concept: {
+        id: concept.id,
+        name: concept.name,
+        color: concept.color,
+        description: concept.description || '',
+        source: concept.source,
+        sources: concept.sources,
+        semanticMetadata: {
+          originalUri: concept.semanticMetadata?.originalUri || null,
+          externalLinks: concept.semanticMetadata?.externalLinks || []
+        }
+      }
+    };
+    setSearchHistory((prev) => [entry, ...prev.filter((h) => !(h.kind === 'concept' && h.key === key))].slice(0, 40));
+  };
+
+  // Open a concept's page: from the results list (a fresh trail) or by
+  // following a connection (one step deeper, so Back returns here).
+  const openConceptPage = (concept, { follow = false } = {}) => {
+    if (follow && focusedConcept) setNavigationStack((prev) => [...prev, focusedConcept]);
+    else setNavigationStack([]);
+    setFocusedConcept(concept);
+    setViewMode('discover');
+    recordConceptVisit(concept);
+  };
+
   // Get dual context (panel + graph)
   const getContexts = () => {
     const contexts = { panel: null, graph: null };
@@ -867,6 +933,24 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     });
   };
 
+  // A federation result in the concept shape the cards, the drag and the
+  // detail page share. The federation keeps its URIs under semanticMetadata,
+  // and normalizeToCandidate reads them from the top level — without lifting
+  // them, every Related result took its `federation-X` id as its only "link"
+  // and was added to the universe linked to nothing.
+  const federationResultToConcept = (r) => {
+    const concept = candidateToConcept(normalizeToCandidate({
+      ...r,
+      uri: r.semanticMetadata?.originalUri,
+      externalLinks: r.semanticMetadata?.externalLinks || []
+    }));
+    return {
+      ...concept,
+      relationships: r.relationships || [],
+      semanticMetadata: { ...concept.semanticMetadata, connectionInfo: r.semanticMetadata?.connectionInfo }
+    };
+  };
+
   const fetchFederatedConcepts = async (query, options) => {
     const { maxDepth, maxEntitiesPerLevel } = options || {};
     const cacheKey = `${query}::d${maxDepth || 1}::p${maxEntitiesPerLevel || 15}`;
@@ -950,7 +1034,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           timestamp: new Date(),
           resultCount: normalized.length,
           concepts: normalized.slice(0, 10)
-        }, ...prev].slice(0, 20));
+        }, ...prev].slice(0, 40));
         return;
       }
 
@@ -973,8 +1057,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       const ranked = filterRankDedup(combined, rawQuery).slice(0, 30); // Cap initial set
       if (latestSearchTokenRef.current !== token) return; // stale
       console.log(`[SemanticDiscovery] Showing ${ranked.length} ranked concepts (from ${combined.length} raw)`);
-      // Normalize to Candidate then convert to concept shape for drag payload
-      const normalized = ranked.map(r => candidateToConcept(normalizeToCandidate(r)));
+      const normalized = ranked.map(federationResultToConcept);
       setDiscoveredConcepts(normalized);
       const historyItem = {
         id: token,
@@ -983,7 +1066,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         resultCount: normalized.length,
         concepts: normalized.slice(0, 10)
       };
-      setSearchHistory(prev => [historyItem, ...prev].slice(0, 20));
+      setSearchHistory(prev => [historyItem, ...prev].slice(0, 40));
     } catch (error) {
       console.error('[SemanticDiscovery] Search failed:', error);
       if (latestSearchTokenRef.current !== token) return;
@@ -1006,7 +1089,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
    * screen, which came from the lookup APIs.
    */
   const handleLoadMore = async () => {
-    const lastSearch = searchHistory[0];
+    const lastSearch = searchHistory.find((h) => h.kind !== 'concept');
     if (!lastSearch) return;
 
     setIsSearching(true);
@@ -1044,7 +1127,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       const normalizedAdditions = ranked
         .filter(c => !existingKeys.has(canonicalKey(c.name)))
         .slice(0, 40)
-        .map(r => candidateToConcept(normalizeToCandidate(r)));
+        .map(federationResultToConcept);
       console.log(`[SemanticDiscovery] Loaded ${normalizedAdditions.length} additional concepts (from ${combined.length} raw)`);
       // Every source can fail independently behind allSettled, so "nothing came
       // back" is the common failure and it used to look identical to a click
@@ -1072,77 +1155,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     await performSearch(conceptName);
   };
 
-  // Effect: Fetch details when focused concept changes
-  useEffect(() => {
-    if (!focusedConcept) return;
-
-    // If relationships are missing or very sparse (<= 1), fetch more details
-    // We also check if we've already fetched to avoid loops (add a flag or check rich data)
-    if (!focusedConcept._hasFullDetails && (!focusedConcept.relationships || focusedConcept.relationships.length <= 1)) {
-      fetchConceptDetails(focusedConcept);
-    }
-  }, [focusedConcept]);
-
-  const fetchConceptDetails = async (concept) => {
-    if (isFetchingDetails) return;
-    setIsFetchingDetails(true);
-    try {
-      console.log(`[SemanticDetail] Fetching deep details for ${concept.name}`);
-      // Use knowledge federation to find related entities (SPARQL/API)
-      // This will use dbpedia/wikidata to find what links TO and FROM this entity
-      const relatedResults = await knowledgeFederation.importKnowledgeCluster(concept.name, {
-        maxDepth: 1,
-        maxEntitiesPerLevel: 30, // Get a good set of connections
-        includeRelationships: true,
-        includeSources: ['wikidata', 'dbpedia']
-      });
-
-      // Transform results into relationship objects attached to this concept
-      // relationships: [{ source, target, predicate, type }]
-      const newRelationships = [];
-      const seenRels = new Set();
-
-      const seedName = concept.name;
-
-      if (relatedResults && relatedResults.relationships) {
-        relatedResults.relationships.forEach(rel => {
-          // We only care about relationships involving our seed concept
-          const isSource = rel.source === seedName;
-          const isTarget = rel.target === seedName;
-
-          if (isSource || isTarget) {
-            const signature = `${rel.source}-${rel.predicate}-${rel.target}`;
-            if (!seenRels.has(signature)) {
-              seenRels.add(signature);
-              newRelationships.push({
-                source: rel.source,
-                target: rel.target,
-                predicate: formatPredicate(rel.predicate || rel.type),
-                type: rel.type
-              });
-            }
-          }
-        });
-      }
-
-      // Update the focused concept in place (or clone) with new data
-      setFocusedConcept(prev => {
-        if (!prev || prev.id !== concept.id) return prev;
-        return {
-          ...prev,
-          relationships: newRelationships,
-          _hasFullDetails: true // Mark as fetched
-        };
-      });
-      console.log(`[SemanticDetail] Loaded ${newRelationships.length} relationships for ${concept.name}`);
-
-    } catch (err) {
-      console.error('[SemanticDetail] Failed to fetch details:', err);
-    } finally {
-      setIsFetchingDetails(false);
-    }
-  };
-
   // Expose search function globally for concept card search buttons
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -1167,105 +1179,22 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       .replace(/\s+/g, ' ') // Normalize whitespace
       .trim();
 
-    // Capitalize properly - handle acronyms and proper nouns
-    cleaned = cleaned
-      .split(' ')
-      .map(word => {
-        // Keep common acronyms uppercase
-        if (/^[A-Z]{2,}$/.test(word)) return word;
-        // Keep known abbreviations
-        if (['AI', 'ML', 'API', 'HTTP', 'URL', 'DNA', 'RNA', 'CEO', 'CTO'].includes(word.toUpperCase())) {
-          return word.toUpperCase();
-        }
-        // Capitalize first letter, lowercase rest
-        return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-      })
-      .join(' ');
+    // Title case that keeps a word's own capitals (DNA, iPhone, McDonald's).
+    cleaned = titleCaseName(cleaned);
 
     return cleaned || 'Unknown Concept';
   };
 
-  // Create Redstring node prototype from discovered concept
-  const materializeConcept = (concept) => {
-    // Check if this semantic concept already exists as a prototype
-    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
-      proto.semanticMetadata?.isSemanticNode &&
-      proto.name === concept.name &&
-      proto.semanticMetadata?.originMetadata?.source === concept.source &&
-      proto.semanticMetadata?.originMetadata?.originalUri === concept.semanticMetadata?.originalUri
-    );
-
-    if (existingPrototype) {
-      // Reuse it, but top up any links it predates.
-      const patch = backfillConceptLinks(existingPrototype, concept);
-      if (patch && storeActions?.updateNodePrototype) {
-        storeActions.updateNodePrototype(existingPrototype.id, (draft) => {
-          draft.externalLinks = patch.externalLinks;
-          draft.semanticMetadata = patch.semanticMetadata;
-        });
-        console.log(`[SemanticDiscovery] Backfilled links on existing prototype: ${concept.name}`);
-      }
-      console.log(`[SemanticDiscovery] Reusing existing semantic prototype: ${concept.name} (ID: ${existingPrototype.id})`);
-      return existingPrototype.id;
-    }
-
-    // Create new prototype
-    const newNodeId = `semantic-node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-
-    const fields = conceptToPrototypeFields(concept);
-
-    // Use regular addNodePrototype since addNodePrototypeWithDeduplication may not be available
-    if (storeActions?.addNodePrototype) {
-      storeActions.addNodePrototype({
-        id: newNodeId,
-        name: concept.name,
-        description: '', // No custom bio - will show origin info instead
-        color: concept.color,
-        typeNodeId: 'base-thing-prototype',
-        definitionGraphIds: [],
-        externalLinks: fields.externalLinks,
-        semanticMetadata: {
-          ...fields.semanticMetadata,
-          generatedColor: concept.color // Store the generated color for consistency
-        },
-        // Store the original description for potential use
-        originalDescription: fields.originalDescription
-      });
-
-      // Auto-save semantic nodes to Library. // addNodePrototype already saves a new prototype; toggling here unsaved it (B-16).
-      if (!useGraphStore.getState().savedNodeIds.has(newNodeId)) storeActions?.toggleSavedNode(newNodeId);
-
-      // Fill in the description and picture from the article this concept
-      // already names. Fire and forget so the node appears immediately.
-      enrichPrototypeFromLinks(newNodeId, fields.externalLinks);
-    } else {
-      console.error('[SemanticDiscovery] storeActions.addNodePrototype is not available');
-    }
-
-    console.log(`[SemanticDiscovery] Created/merged semantic prototype: ${concept.name} (ID: ${newNodeId})`);
-    return newNodeId;
-  };
+  // The prototype for a discovered concept: found again by its URI, or made,
+  // saved to the Library and enriched — the same one any other way of bringing
+  // it in would give.
+  const materializeConcept = (concept) => ensureConceptPrototype(concept);
 
   // Remove saved semantic concept from the graph
   const unsaveConcept = (concept) => {
-    // Find the existing prototype for this concept
-    const existingPrototype = Array.from(nodePrototypesMap.values()).find(proto =>
-      proto.semanticMetadata?.isSemanticNode &&
-      proto.name === concept.name &&
-      proto.semanticMetadata?.originMetadata?.source === concept.source &&
-      proto.semanticMetadata?.originMetadata?.originalUri === concept.semanticMetadata?.originalUri
-    );
-
-    if (existingPrototype) {
-      // Unsave the node from Library
-      if (storeActions?.toggleSavedNode) {
-        storeActions.toggleSavedNode(existingPrototype.id);
-        console.log(`[SemanticDiscovery] Unsaved semantic prototype: ${concept.name} (ID: ${existingPrototype.id})`);
-      } else {
-        console.error('[SemanticDiscovery] storeActions.toggleSavedNode is not available');
-      }
-    } else {
-      console.log(`[SemanticDiscovery] No existing prototype found to unsave: ${concept.name}`);
+    const existingPrototype = findPrototypeForConcept(concept);
+    if (existingPrototype && useGraphStore.getState().savedNodeIds.has(existingPrototype.id)) {
+      storeActions?.toggleSavedNode?.(existingPrototype.id);
     }
   };
 
@@ -1632,7 +1561,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         {viewMode === 'discover' && focusedConcept ? (
           <ConceptDetailView
             concept={focusedConcept}
-            isLoading={isFetchingDetails}
+            canGoBack={navigationStack.length > 0}
+            bottomClearance={resultsBottomClearance}
             onBack={() => {
               if (navigationStack.length > 0) {
                 const prev = navigationStack[navigationStack.length - 1];
@@ -1642,33 +1572,10 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 setFocusedConcept(null);
               }
             }}
-            onNavigate={(targetName) => {
-              // Browser-style navigation: Push current to stack and load new concept
-              setNavigationStack(prev => [...prev, focusedConcept]);
-
-              // Create a temporary concept object to show while loading
-              // The useEffect hook will detect this and fetch full details
-              const newConcept = {
-                id: `nav-${targetName}-${Date.now()}`,
-                name: targetName,
-                description: '',
-                source: 'loading...',
-                relationships: [], // Empty relationships trigger the fetch
-                color: theme.accent.primary,
-                semanticMetadata: {
-                  confidence: 0,
-                  externalLinks: []
-                },
-                _hasFullDetails: false
-              };
-
-              setFocusedConcept(newConcept);
-            }}
-            onMaterialize={materializeConcept}
-            onPreviewGraph={(concept) => {
-              console.log('Preview graph for', concept.name);
-              // Phase 4: Implement graph preview
-            }}
+            // Following a connection: the other end is already a full concept
+            // (its URI, its description), so it opens as itself, not a stub.
+            onOpenConcept={(next) => openConceptPage(next, { follow: true })}
+            onSearch={triggerSearchFromConcept}
           />
         ) : viewMode === 'discover' && (
           <>
@@ -1811,10 +1718,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       onMaterialize={materializeConcept}
                       onUnsave={unsaveConcept}
                       onSelect={setSelectedConcept}
-                      onFocus={(concept) => {
-                        setNavigationStack([]); // Clear stack on new entry from list
-                        setFocusedConcept(concept);
-                      }}
+                      onFocus={(concept) => openConceptPage(concept)}
                       isSelected={selectedConcept?.id === concept.id}
                     />
                   ))}
@@ -2012,7 +1916,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             </div>
             {searchHistory.length === 0 ? (
               <div style={{ padding: '20px', textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '12px', fontFamily: "'EmOne', sans-serif" }}>
-                No discoveries yet. Open a node and search for related concepts.
+                No discoveries yet. Searches and the pages you open show up here.
               </div>
             ) : (
               searchHistory.map(historyItem => (
@@ -2021,7 +1925,16 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   item={historyItem}
                   onDelete={handleDeleteHistoryItem}
                   onOpen={(item) => {
-                    setDiscoveredConcepts(item.concepts);
+                    if (item.kind === 'concept') {
+                      openConceptPage(item.concept);
+                      return;
+                    }
+                    // Back to that search's results — off any concept page that
+                    // was open, or the list would change unseen beneath it.
+                    setFocusedConcept(null);
+                    setNavigationStack([]);
+                    setManualQuery(item.query);
+                    setDiscoveredConcepts(item.concepts || []);
                     setViewMode('discover');
                   }}
                 />

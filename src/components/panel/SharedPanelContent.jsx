@@ -1341,7 +1341,6 @@ const SharedPanelContent = ({
   onExpandNode,
   onNavigateDefinition,
   onTypeSelect,
-  onMaterializeConnection,
 
   // Web Definitions (see PanelContentWrapper)
   definitionGraphIds = [],
@@ -2165,7 +2164,6 @@ const SharedPanelContent = ({
       >
         <ConnectionBrowser
           nodeData={nodeData}
-          onMaterializeConnection={onMaterializeConnection}
           isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>

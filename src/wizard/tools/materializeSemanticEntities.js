@@ -8,15 +8,25 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
+import titleCaseName from '../../utils/titleCaseName.js';
+import { formatPredicate } from '../../utils/predicateFormatter.js';
 
 /**
- * Convert predicate string to Title Case for definitionNode name
+ * Names (lower-cased) of the Things already in a graph. An entity by one of
+ * these names is connected to where it stands, not re-made — and not
+ * re-coloured or re-described, which the bulk apply would otherwise do to a
+ * reused node.
  */
-function predicateToTitle(predicate) {
-  if (!predicate) return 'Connection';
-  // Split camelCase: "isPartOf" → "is Part Of"
-  const spaced = predicate.replace(/([a-z])([A-Z])/g, '$1 $2');
-  return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+function namesInGraph(graphState, graphId) {
+  const graphs = Array.isArray(graphState?.graphs) ? graphState.graphs : [];
+  const graph = graphs.find((g) => g?.id === graphId);
+  const protoNames = new Map((graphState?.nodePrototypes || []).map((p) => [p.id, (p.name || '').trim().toLowerCase()]));
+  const names = new Set();
+  Object.values(graph?.instances || {}).forEach((inst) => {
+    const name = protoNames.get(inst?.prototypeId);
+    if (name) names.add(name);
+  });
+  return names;
 }
 
 /**
@@ -58,19 +68,25 @@ export async function materializeSemanticEntities(args, graphState) {
 
   const activePalette = palette || getRandomPalette();
 
-  // Build node specs
-  const nodeSpecs = entities.map(e => ({
-    name: e.name,
-    color: resolvePaletteColor(activePalette, e.color || generateColor(e.name)),
-    description: e.description || ''
-  }));
-
-  // Build edge specs from semantic connections
-  const edgeSpecs = connections.map(c => {
-    const typeName = predicateToTitle(c.relation || c.type || 'Connection');
+  // Named the way the UI names semantic-web Things (title case, a word's own
+  // capitals kept), so the same Thing added here and from the panel matches.
+  const existing = namesInGraph(graphState, graphId);
+  const nodeSpecs = entities.map(e => {
+    const name = titleCaseName(e.name);
+    if (existing.has(name.trim().toLowerCase())) return { name };
     return {
-      source: c.source,
-      target: c.target,
+      name,
+      color: resolvePaletteColor(activePalette, e.color || generateColor(name)),
+      description: e.description || ''
+    };
+  });
+
+  // Build edge specs from semantic connections, relations named as the UI names them
+  const edgeSpecs = connections.map(c => {
+    const typeName = formatPredicate(c.relation || c.type || 'Connection');
+    return {
+      source: titleCaseName(c.source),
+      target: titleCaseName(c.target),
       directionality: c.directionality || 'unidirectional',
       type: typeName,
       definitionNode: {

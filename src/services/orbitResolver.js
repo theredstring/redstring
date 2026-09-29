@@ -1,17 +1,7 @@
 import { normalizeToCandidate } from './candidates.js';
-import { KnowledgeFederation } from './knowledgeFederation.js';
+import { getSemanticConnections } from './semanticSearchEngine.js';
 import { findRelatedConcepts } from './semanticWebQuery.js';
 import { findLocalOrbitCandidates } from './orbitLocalIndex.js';
-
-// Lazy import helper to avoid circular dependency
-let _useGraphStore = null;
-const getGraphStore = async () => {
-  if (!_useGraphStore) {
-    const module = await import('../store/graphStore.js');
-    _useGraphStore = module.default;
-  }
-  return _useGraphStore;
-};
 
 // Simple in-memory cache keyed by prototypeId
 const orbitCache = new Map(); // prototypeId -> { timestamp, candidates }
@@ -71,11 +61,6 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
   try {
     console.log(`🔍 Fetching real orbit data for "${prototype.name}"`);
 
-    // Real data fetching - comment out for mock mode
-    const useGraphStore = await getGraphStore();
-    const graphStore = useGraphStore.getState();
-    const federation = new KnowledgeFederation(graphStore);
-
     const seed = prototype.name;
     const context = { contextFit: 0.85 };
 
@@ -116,14 +101,17 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
         console.log(`📊 findRelatedConcepts returned ${results?.length || 0} results for "${seed}"`);
         if (!Array.isArray(results)) return [];
         return results.map((r) => {
+          const uri = r.item?.value || r.resource?.value || r.uri;
           const candidate = normalizeToCandidate(
             {
               name: r.itemLabel?.value || r.label?.value || r.name || 'Unknown',
-              uri: r.item?.value || r.resource?.value || r.uri,
+              uri,
               predicate: r.connectionType ?? r.predicate ?? null,
               source: r.source || 'external',
               sourceTrust: getSourceTrust(r.source || 'external'),
-              externalLinks: r.externalLinks || (r.uri ? [r.uri] : []),
+              // The URI is on `item`, never `uri`: reading `r.uri` here left
+              // every candidate linked to nothing once placed.
+              externalLinks: r.externalLinks || (uri ? [uri] : []),
               equivalentClasses: r.types || [],
               claims: r.claims || [],
             },
@@ -138,44 +126,32 @@ export async function fetchOrbitCandidatesForPrototype(prototype, options = {}) 
       })
     );
 
-    // 2) KnowledgeFederation: importSingleEntity then findEntitiesRelated if available
-    try {
-      providers.push(
-        federation.importSingleEntity(seed, ['wikidata', 'dbpedia']).then((entity) => {
-          console.log(`🏛️ KnowledgeFederation returned entity:`, entity ? 'found' : 'none');
-          if (!entity) return [];
-          const asCandidate = [];
-          // Convert properties to pairs resembling predicate -> value
-          if (entity.properties instanceof Map) {
-            entity.properties.forEach((arr, predicate) => {
-              arr.forEach((p) => {
-                asCandidate.push(
-                  normalizeToCandidate(
-                    {
-                      name: String(p.value?.label || p.value || ''),
-                      uri: p.value?.uri || null,
-                      predicate,
-                      source: p.source,
-                      sourceTrust: getSourceTrust(p.source),
-                      externalLinks: p.value?.uri ? [p.value.uri] : [],
-                      types: entity.types?.map?.(t => t.type) || [],
-                    },
-                    context
-                  )
-                );
-              });
-            });
-          }
-          console.log(`  ↳ Extracted ${asCandidate.length} candidates from federation`);
-          return asCandidate;
-        }).catch(error => {
-          console.warn(`❌ KnowledgeFederation failed for "${seed}":`, error.message);
-          return [];
-        })
-      );
-    } catch (error) {
-      console.warn(`❌ KnowledgeFederation setup failed:`, error.message);
-    }
+    // 2) The semantic search engine: the statements this Thing makes, found by the
+    //    subject its links name (or an exact-name concept search), not by
+    //    guessing from its name alone. Outgoing only — an orbit connection
+    //    always points from the focused node to the one placed.
+    providers.push(
+      getSemanticConnections(prototype).then(({ connections }) => {
+        const outgoing = (connections || []).filter((c) => c.direction === 'out');
+        console.log(`🧭 Semantic search engine returned ${outgoing.length} outgoing statements for "${seed}"`);
+        return outgoing.map((c) => normalizeToCandidate(
+          {
+            name: c.other.name,
+            uri: c.other.semanticMetadata?.originalUri,
+            predicate: c.predicateKey || c.predicate,
+            source: c.provider,
+            sourceTrust: getSourceTrust(c.provider),
+            externalLinks: c.other.semanticMetadata?.externalLinks || [],
+            description: c.other.description,
+            color: c.other.color,
+          },
+          context
+        ));
+      }).catch((error) => {
+        console.warn(`❌ Semantic search engine failed for "${seed}":`, error.message);
+        return [];
+      })
+    );
 
     // 3) Fallback: use simple heuristics from prototype.externalLinks (sameAs)
     const externalLinks = prototype.externalLinks || [];

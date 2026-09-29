@@ -73,12 +73,15 @@ describe('placeOrbitCandidate', () => {
     expect(exitOrbitMode).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses the prototype and the predicate node the second time', () => {
+  it('the second time, connects to the one already there instead of adding a copy', () => {
     placeOrbitCandidate(candidate, 500, 300, null, ctx());
     const protos = st().nodePrototypes.size;
+    const edges = st().edges.size;
     placeOrbitCandidate(candidate, 900, 300, null, ctx());
     expect(st().nodePrototypes.size).toBe(protos);
-    expect([...st().graphs.get(graphId).instances.values()].filter((i) => i.prototypeId !== 'p-focus')).toHaveLength(2);
+    expect([...st().graphs.get(graphId).instances.values()].filter((i) => i.prototypeId !== 'p-focus')).toHaveLength(1);
+    // And the same statement isn't drawn twice.
+    expect(st().edges.size).toBe(edges);
   });
 
   it('snaps through the grid when the grid is on', () => {

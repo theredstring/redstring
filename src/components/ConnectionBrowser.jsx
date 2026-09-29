@@ -1,179 +1,39 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { ArrowRight, Plus, CircleDot, RefreshCw, List, Network, Sparkles, Search, X } from 'lucide-react';
+import { CircleDot } from 'lucide-react';
 import useGraphStore from '../store/graphStore.js';
-import { discoverConnections } from '../services/semanticDiscovery.js';
-import { fastEnrichFromSemanticWeb } from '../services/semanticWebQuery.js';
 import Dropdown from './Dropdown.jsx';
-import { useTheme } from '../hooks/useTheme.js';
-import UniversalNodeRenderer from '../UniversalNodeRenderer';
-import { RENDERER_PRESETS } from '../UniversalNodeRenderer.presets';
-import { connectionPreviewRendererProps, previewTextFor } from '../utils/connectionPreview.js';
-import {
-  PANEL_RENDERER_PADDING,
-  layoutPanelConnection
-} from '../utils/connectionRowLayout.js';
-import useMobileDetection from '../hooks/useMobileDetection';
+import TripletPreview from './connections/TripletPreview.jsx';
+import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
 import './ConnectionBrowser.css';
 
 /**
- * Connection Triplet Component
- * Renders subject -> predicate -> object using UniversalNodeRenderer
- * for visual consistency with the canvas, hover view, and control panel.
+ * One of this Thing's own connections, drawn with the shared triplet preview.
+ * Arrowheads follow the edge's own directionality.
  */
-const ConnectionTriplet = ({
-  subject,
-  predicate,
-  object,
-  subjectColor,
-  objectColor,
-  onMaterialize,
-  connection,
-  containerWidth = 400
-}) => {
-  const defaultColor = '#8B0000';
-  const { isMobile } = useMobileDetection();
-
-  // Confidence badge for semantic connections
-  const showConfidence = connection?.type === 'semantic' && connection?.confidence;
-  const confidencePercent = showConfidence ? Math.round(connection.confidence * 100) : null;
-  const confidenceColor = confidencePercent >= 80 ? '#4CAF50' :
-    confidencePercent >= 60 ? '#FF9800' : '#F44336';
-
-  // Source badge info
-  const sourceInfo = {
-    wikidata: { label: 'W', color: '#006699', title: 'Wikidata' },
-    dbpedia: { label: 'D', color: '#FF6600', title: 'DBpedia' },
-    wikipedia: { label: 'W', color: '#000000', title: 'Wikipedia' },
-    semantic_web: { label: 'SW', color: '#8B0000', title: 'Semantic Web' }
-  };
-  const source = connection?.source?.toLowerCase() || '';
-  const sourceBadge = sourceInfo[source] || { label: 'S', color: '#666', title: 'Semantic' };
-
-  // Connection color
-  const connectionColor = connection?.connectionColor || subjectColor || defaultColor;
-
-  // Build nodes for UniversalNodeRenderer
-  const subjectName = typeof subject === 'string' ? subject : JSON.stringify(subject);
-  const objectName = typeof object === 'string' ? object : JSON.stringify(object);
-  const predicateName = typeof predicate === 'string' ? predicate : JSON.stringify(predicate);
-
-  // Map directionality to arrowsToward Set with synthetic node IDs
+const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth }) => {
   const arrowsToward = new Set();
-  const dirType = connection?.directionality;
-  const connType = connection?.type;
-
-  if (connType === 'semantic') {
-    arrowsToward.add('object');
-  } else if (typeof dirType === 'string') {
-    if (dirType === 'directed') {
-      arrowsToward.add('object');
-    } else if (dirType === 'bidirectional') {
-      arrowsToward.add('subject');
-      arrowsToward.add('object');
-    }
-    // 'nondirectional': empty set
-  } else if (dirType && typeof dirType === 'object' && dirType.arrowsToward instanceof Set) {
-    if (dirType.arrowsToward.has(connection.sourceInstanceId)) {
-      arrowsToward.add('subject');
-    }
-    if (dirType.arrowsToward.has(connection.destinationInstanceId)) {
-      arrowsToward.add('object');
-    }
+  const dir = connection?.directionality;
+  if (typeof dir === 'string') {
+    if (dir === 'directed') arrowsToward.add('object');
+    else if (dir === 'bidirectional') { arrowsToward.add('subject'); arrowsToward.add('object'); }
+  } else if (dir && typeof dir === 'object' && dir.arrowsToward instanceof Set) {
+    if (dir.arrowsToward.has(connection.sourceInstanceId)) arrowsToward.add('subject');
+    if (dir.arrowsToward.has(connection.destinationInstanceId)) arrowsToward.add('object');
   } else {
     arrowsToward.add('object');
   }
 
-  // Divide the row between the two node boxes and the connection between them at
-  // the platform's fixed text size — node names and the predicate come back
-  // already truncated to their budgets, and the scale pins the renderer there.
-  const { nodes, span, height, scale, labelFontScale, predicate: displayPredicate } =
-    layoutPanelConnection({
-      nodes: [
-        { id: 'subject', name: subjectName, color: subjectColor || defaultColor },
-        { id: 'object', name: objectName, color: objectColor || defaultColor }
-      ],
-      predicate: predicateName,
-      containerWidth,
-      hasArrows: arrowsToward.size > 0,
-      text: previewTextFor(isMobile)
-    });
-
-  const connections = [{
-    id: 'conn',
-    sourceId: 'subject',
-    destinationId: 'object',
-    connectionName: displayPredicate,
-    color: connectionColor,
-    directionality: { arrowsToward }
-  }];
-
   return (
-    <div
-      className="connection-triplet"
-      onClick={() => {
-        if (connection?.type === 'semantic' && onMaterialize) {
-          onMaterialize({ subject, predicate, object });
-        }
-      }}
-      style={{
-        cursor: connection?.type === 'semantic' ? 'pointer' : 'default',
-        position: 'relative'
-      }}
-      title={connection?.description || `${subject} → ${predicate} → ${object}`}
-    >
-      {/* Badges overlay */}
-      <div style={{
-        position: 'absolute',
-        top: '-8px',
-        right: '-8px',
-        display: 'flex',
-        gap: '4px',
-        alignItems: 'center',
-        zIndex: 10
-      }}>
-        {connection?.type === 'semantic' && (
-          <div
-            title={sourceBadge.title}
-            style={{
-              background: sourceBadge.color,
-              color: 'white',
-              borderRadius: '10px',
-              padding: '2px 5px',
-              fontSize: '9px',
-              fontWeight: 'bold',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-              border: '1px solid rgba(255,255,255,0.3)'
-            }}
-          >
-            {sourceBadge.label}
-          </div>
-        )}
-        {showConfidence && (
-          <div style={{
-            background: confidenceColor,
-            color: 'white',
-            borderRadius: '12px',
-            padding: '2px 6px',
-            fontSize: '10px',
-            fontWeight: 'bold',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-          }}>
-            {confidencePercent}%
-          </div>
-        )}
-      </div>
-
-      <UniversalNodeRenderer
-        {...RENDERER_PRESETS.CONNECTION_BROWSER}
-        {...connectionPreviewRendererProps()}
-        nodes={nodes}
-        connections={connections}
-        padding={PANEL_RENDERER_PADDING}
+    <div className="connection-triplet" title={`${connection.subject} → ${connection.predicate} → ${connection.object}`}>
+      <TripletPreview
+        subject={connection.subject}
+        predicate={connection.predicate}
+        object={connection.object}
+        subjectColor={subjectColor}
+        objectColor={objectColor}
+        connectionColor={connection.connectionColor || subjectColor}
+        arrowsToward={arrowsToward}
         containerWidth={containerWidth}
-        containerHeight={height}
-        maxNodeScale={scale}
-        horizontalSpacing={span}
-        connectionFontScale={labelFontScale}
       />
     </div>
   );
@@ -183,17 +43,10 @@ const ConnectionTriplet = ({
  * Connection Browser Component
  * Shows connections with dropdown: In Graph | Universe | Semantic Web
  */
-const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
-  const theme = useTheme();
+const ConnectionBrowser = ({ nodeData }) => {
   const [connectionScope, setConnectionScope] = useState('graph'); // 'graph' | 'universe' | 'semantic'
-  const [semanticConnections, setSemanticConnections] = useState([]);
   const [nativeConnections, setNativeConnections] = useState([]);
-  const [isLoadingSemanticWeb, setIsLoadingSemanticWeb] = useState(false);
-  const [isDebouncing, setIsDebouncing] = useState(false); // Track debounce state
-  const [error, setError] = useState(null);
   const [containerWidth, setContainerWidth] = useState(400); // Default width
-  const [searchFilter, setSearchFilter] = useState(''); // Search filter
-  const [minConfidence, setMinConfidence] = useState(0); // Confidence filter for semantic connections
   const connectionListRef = useRef(null);
 
   // Per field, not the whole store (F-78).
@@ -231,113 +84,6 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
       }
     };
   }, []);
-
-  // Load semantic web connections from new discovery system (with debouncing!)
-  useEffect(() => {
-    if (!nodeData?.name || nodeData.name.trim() === '') {
-      console.log('[ConnectionBrowser] No valid node name, skipping semantic web connection load');
-      setSemanticConnections([]);
-      setIsDebouncing(false);
-      return;
-    }
-
-    // Show debouncing indicator immediately
-    setIsDebouncing(true);
-
-    // Debounce the query - wait 800ms after user stops typing
-    const debounceTimer = setTimeout(() => {
-      setIsDebouncing(false); // Done debouncing, now loading
-
-      const loadSemanticConnections = async () => {
-        setIsLoadingSemanticWeb(true);
-        setError(null);
-
-        try {
-          console.log(`[ConnectionBrowser] Discovering connections for: "${nodeData.name}"`);
-
-          // Use new property-path discovery system (FAST!)
-          const discoveryResults = await discoverConnections(nodeData.name, {
-            timeout: 12000, // 12 seconds (faster than old system)
-            limit: 25,
-            minConfidence: 0.5,
-            sources: ['dbpedia', 'wikidata']
-          });
-
-          // Convert discovery results to connection format with CLEAR LABELS
-          const federatedConnections = discoveryResults.connections.map((conn, index) => ({
-            id: `disc-${index}`,
-            subject: conn.source,
-            predicate: conn.relation, // This is the key! "developer", "genre", etc.
-            object: conn.target,
-            confidence: conn.confidence,
-            source: conn.provider,
-            type: 'semantic',
-            description: conn.description,
-            relationUri: conn.relationUri,
-            targetUri: conn.targetUri
-          }));
-
-          console.log(`[ConnectionBrowser] Discovered ${federatedConnections.length} connections with labels:`);
-          federatedConnections.forEach(conn => {
-            console.log(`  ${conn.subject} → ${conn.predicate} → ${conn.object} (${(conn.confidence * 100).toFixed(0)}%)`);
-          });
-
-          setSemanticConnections(federatedConnections);
-
-        } catch (err) {
-          console.error('[ConnectionBrowser] Discovery failed, falling back to enrichment:', err);
-
-          // Fallback to old system if new one fails
-          try {
-            const enrichmentResults = await fastEnrichFromSemanticWeb(nodeData.name, {
-              timeout: 10000
-            });
-
-            const fallbackConnections = [];
-
-            if (enrichmentResults.sources.wikidata?.found) {
-              fallbackConnections.push({
-                id: 'fb-wikidata',
-                subject: nodeData.name,
-                predicate: 'found in',
-                object: 'Wikidata',
-                confidence: 0.9,
-                source: 'wikidata',
-                type: 'semantic'
-              });
-            }
-
-            if (enrichmentResults.sources.dbpedia?.found) {
-              fallbackConnections.push({
-                id: 'fb-dbpedia',
-                subject: nodeData.name,
-                predicate: 'found in',
-                object: 'DBpedia',
-                confidence: 0.9,
-                source: 'dbpedia',
-                type: 'semantic'
-              });
-            }
-
-            setSemanticConnections(fallbackConnections);
-          } catch (fallbackErr) {
-            console.error('[ConnectionBrowser] Fallback also failed:', fallbackErr);
-            setError('Unable to load connections from semantic web');
-            setSemanticConnections([]);
-          }
-        } finally {
-          setIsLoadingSemanticWeb(false);
-        }
-      };
-
-      loadSemanticConnections();
-    }, 800); // Wait 800ms after user stops typing
-
-    // Cleanup: cancel the timeout if nodeData.name changes again
-    return () => {
-      clearTimeout(debounceTimer);
-    };
-  }, [nodeData?.name]);
 
   // Create a stable structural hash of the connection topology
   // This only changes when edges or instances are added/removed, not when positions change
@@ -488,47 +234,12 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
     loadNativeConnections();
   }, [nodeData?.id, connectionStructureHash, nodePrototypes, activeGraphId]);
 
-  // Filter connections based on scope AND search/confidence filters
-  const filteredConnections = useMemo(() => {
-    let connections = [];
-
-    switch (connectionScope) {
-      case 'graph':
-        // Show only native connections that are in the current active graph
-        connections = nativeConnections.filter(conn => conn.inCurrentGraph);
-        break;
-      case 'universe':
-        // Show all native connections across all graphs
-        connections = nativeConnections;
-        break;
-      case 'semantic':
-        // Show semantic web connections
-        connections = semanticConnections;
-        break;
-      default:
-        connections = [];
-    }
-
-    // Apply search filter (searches in predicate, subject, object)
-    if (searchFilter.trim()) {
-      const search = searchFilter.toLowerCase();
-      connections = connections.filter(conn =>
-        (conn.predicate?.toLowerCase() || '').includes(search) ||
-        (conn.subject?.toLowerCase() || '').includes(search) ||
-        (conn.object?.toLowerCase() || '').includes(search) ||
-        (conn.description?.toLowerCase() || '').includes(search)
-      );
-    }
-
-    // Apply confidence filter (only for semantic connections)
-    if (connectionScope === 'semantic' && minConfidence > 0) {
-      connections = connections.filter(conn =>
-        (conn.confidence || 0) * 100 >= minConfidence
-      );
-    }
-
-    return connections;
-  }, [connectionScope, nativeConnections, semanticConnections, searchFilter, minConfidence]);
+  // Which of this Thing's own connections the scope shows.
+  const filteredConnections = useMemo(() => (
+    connectionScope === 'graph' ? nativeConnections.filter(conn => conn.inCurrentGraph)
+      : connectionScope === 'universe' ? nativeConnections
+        : []
+  ), [connectionScope, nativeConnections]);
 
   // Get appropriate color for nodes based on existing prototypes
   const getNodeColor = (nodeName) => {
@@ -541,17 +252,6 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
     return '#8B0000'; // Default maroon
   };
 
-  const handleMaterializeConnection = (connection) => {
-    if (onMaterializeConnection) {
-      onMaterializeConnection({
-        ...connection,
-        subjectColor: getNodeColor(connection.subject),
-        objectColor: getNodeColor(connection.object)
-      });
-    }
-    console.log('[ConnectionBrowser] Materializing connection:', connection);
-  };
-
   if (!nodeData) {
     return (
       <div className="connection-browser-empty">
@@ -559,9 +259,6 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
       </div>
     );
   }
-
-  // Determine loading state based on current scope
-  const isLoading = connectionScope === 'semantic' ? (isLoadingSemanticWeb || isDebouncing) : false;
 
   return (
     <div className="connection-browser">
@@ -574,145 +271,35 @@ const ConnectionBrowser = ({ nodeData, onMaterializeConnection }) => {
         ]}
         value={connectionScope}
         onChange={setConnectionScope}
-        rightContent={
-          isLoading ? (
-            <div className="loading-indicator">
-              <RefreshCw size={12} className="spin" />
-              <span>Loading...</span>
-            </div>
-          ) : (
-            `${filteredConnections.length} connection${filteredConnections.length !== 1 ? 's' : ''}`
-          )
-        }
+        rightContent={connectionScope === 'semantic'
+          ? null
+          : `${filteredConnections.length} connection${filteredConnections.length !== 1 ? 's' : ''}`}
       />
 
-      {/* Search & Filter Bar (only for semantic web) */}
-      {connectionScope === 'semantic' && !isLoading && semanticConnections.length > 0 && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          padding: '8px',
-          backgroundColor: 'rgba(139, 0, 0, 0.05)',
-          borderRadius: '6px',
-          marginTop: '8px'
-        }}>
-          {/* Search Input */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Search size={14} color="#8B0000" />
-            <input
-              type="text"
-              placeholder="Search connections, relationships..."
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '6px 8px',
-                border: '1px solid #8B0000',
-                borderRadius: '4px',
-                fontSize: '13px',
-                fontFamily: "'EmOne', sans-serif"
-              }}
-            />
-            {searchFilter && (
-              <button
-                onClick={() => setSearchFilter('')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#8B0000',
-                  cursor: 'pointer',
-                  padding: '4px'
-                }}
-                title="Clear search"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-
-          {/* Confidence Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' }}>
-            <span style={{ color: '#666', whiteSpace: 'nowrap' }}>Min confidence:</span>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="5"
-              value={minConfidence}
-              onChange={(e) => setMinConfidence(Number(e.target.value))}
-              style={{ flex: 1 }}
-            />
-            <span style={{
-              color: '#8B0000',
-              fontWeight: 'bold',
-              minWidth: '40px',
-              textAlign: 'right'
-            }}>
-              {minConfidence}%
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Connection List */}
       <div className="connection-list" ref={connectionListRef}>
-        {error && connectionScope === 'semantic' ? (
-          <div className="connection-error">
-            <span>Error loading semantic web connections: {error}</span>
-            <button
-              className="retry-button"
-              onClick={() => {
-                setSemanticConnections([]);
-                setError(null);
-                // Trigger reload by changing a dependency
-                const event = new CustomEvent('retryConnections');
-                window.dispatchEvent(event);
-              }}
-            >
-              Retry
-            </button>
-          </div>
-        ) : isLoading ? (
-          <div className="connection-loading">
-            <RefreshCw size={20} className="spin" />
-            <span>
-              {isDebouncing
-                ? 'Waiting for input to stabilize...'
-                : connectionScope === 'semantic'
-                  ? 'Loading connections from semantic web...'
-                  : 'Loading connections...'
-              }
-            </span>
-          </div>
+        {connectionScope === 'semantic' ? (
+          <SemanticConnectionList
+            seed={nodeData}
+            seedPrototypeId={nodeData.id}
+            seedColor={nodeData.color}
+          />
         ) : filteredConnections.length === 0 ? (
           <div className="no-connections">
-            <CircleDot size={20} color="#666" />
-            <span>
-              No {connectionScope === 'graph' ? 'graph' :
-                connectionScope === 'universe' ? 'universe' :
-                  'semantic web'} connections found
-            </span>
-            {connectionScope !== 'semantic' && (
-              <div style={{ fontSize: '0.75rem', color: '#999', marginTop: '4px' }}>
-                {connectionScope === 'graph'
-                  ? 'Connect nodes in this graph to see relationships here'
-                  : 'Connect instances of this node across any graph'
-                }
-              </div>
-            )}
+            <CircleDot size={20} />
+            <span>No {connectionScope === 'graph' ? 'graph' : 'universe'} connections found</span>
+            <div style={{ fontSize: '0.75rem', opacity: 0.75, marginTop: '4px' }}>
+              {connectionScope === 'graph'
+                ? 'Connect nodes in this graph to see relationships here'
+                : 'Connect instances of this node across any graph'}
+            </div>
           </div>
         ) : (
           filteredConnections.map((connection) => (
-            <ConnectionTriplet
+            <NativeTriplet
               key={connection.id}
-              subject={connection.subject}
-              predicate={connection.predicate}
-              object={connection.object}
+              connection={connection}
               subjectColor={getNodeColor(connection.subject)}
               objectColor={getNodeColor(connection.object)}
-              onMaterialize={() => handleMaterializeConnection(connection)}
-              connection={connection}
               // minus the triplet's own 8px padding + 1px border per side
               containerWidth={Math.max(160, containerWidth - 18)}
             />

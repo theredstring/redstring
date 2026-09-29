@@ -57,6 +57,17 @@ const textResponse = (text, { status = 200, contentType = 'text/plain; charset=u
   arrayBuffer: async () => new TextEncoder().encode(text).buffer
 });
 
+/** The blob endpoint failing, so the read falls through to the raw leg. */
+const blobUnavailable = () => jsonResponse({ message: 'Server Error' }, { status: 500 });
+
+/** A Git Data API blob response for `text`. */
+const blobResponse = (text, sha = envelope().sha) => jsonResponse({
+  sha,
+  size: new TextEncoder().encode(text).length,
+  encoding: 'base64',
+  content: Buffer.from(text, 'utf8').toString('base64')
+});
+
 /** A body whose UTF-8 byte length is exactly `size`. */
 const bodyOfBytes = (size) => 'x'.repeat(size);
 
@@ -123,33 +134,70 @@ describe('GitHubSemanticProvider.readFileRawWithMeta', () => {
   beforeEach(() => { global.fetch = vi.fn(); });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('reads an oversized file through the raw leg, with caching disabled on both requests', async () => {
+  it('reads an oversized file as the blob named by the probe, never re-asking the contents URL', async () => {
+    const body = bodyOfBytes(4096);
+    global.fetch
+      .mockResolvedValueOnce(jsonResponse(envelope({ size: 4096 }))) // probe
+      .mockResolvedValueOnce(blobResponse(body));                    // blob
+
+    const result = await github().readFileRawWithMeta(PATH);
+
+    expect(result).toEqual({ content: body, sha: envelope().sha, size: 4096 });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch.mock.calls[1][0]).toBe(`https://api.github.com/repos/g/O/git/blobs/${envelope().sha}`);
+    expect(global.fetch.mock.calls[1][0]).not.toBe(global.fetch.mock.calls[0][0]);
+    expect(global.fetch.mock.calls[1][1].cache).toBe('no-store');
+  });
+
+  it('2026-09-28: ignores a blob answer for a different SHA and falls back to the raw leg', async () => {
+    const body = bodyOfBytes(4096);
+    global.fetch
+      .mockResolvedValueOnce(jsonResponse(envelope({ size: 4096 })))
+      .mockResolvedValueOnce(blobResponse(body, 'someotherblob'))
+      .mockResolvedValueOnce(textResponse(body));
+
+    const result = await github().readFileRawWithMeta(PATH);
+    expect(result.content).toBe(body);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects a blob whose bytes do not match the reported size, and a raw leg that serves the envelope', async () => {
+    global.fetch
+      .mockResolvedValueOnce(jsonResponse(envelope({ size: 4096 })))
+      .mockResolvedValueOnce(blobResponse(bodyOfBytes(100)))
+      .mockResolvedValueOnce(jsonResponse(envelope({ size: 4096 })));
+
+    await expect(github().readFileRawWithMeta(PATH)).rejects.toMatchObject({ code: 'READ_TRUNCATED' });
+  });
+
+  it('falls back to the raw leg when the blob is unavailable, with caching disabled on every request', async () => {
     const body = bodyOfBytes(BLOB_SIZE);
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope()))       // probe
+      .mockResolvedValueOnce(blobUnavailable())              // blob
       .mockResolvedValueOnce(textResponse(body));            // raw leg
 
     const result = await github().readFileRawWithMeta(PATH);
 
     expect(result.content).toBe(body);
     expect(result.size).toBe(BLOB_SIZE);
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    // Both legs must opt out of the HTTP cache — they share a URL and differ
-    // only by Accept, which is exactly what browser caches get wrong.
-    expect(global.fetch.mock.calls[0][1].cache).toBe('no-store');
-    expect(global.fetch.mock.calls[1][1].cache).toBe('no-store');
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    // Every leg must opt out of the HTTP cache — probe and raw share a URL and
+    // differ only by Accept, which is exactly what browser caches get wrong.
+    for (const call of global.fetch.mock.calls) expect(call[1].cache).toBe('no-store');
     // The raw leg must not ask for a JSON media type: `vnd.github.raw+json`
     // is a JSON type, which makes a cached JSON envelope a likelier match.
-    const rawAccept = global.fetch.mock.calls[1][1].headers.Accept;
+    const rawAccept = global.fetch.mock.calls[2][1].headers.Accept;
     expect(rawAccept).toBe('application/vnd.github.raw');
     expect(rawAccept).not.toMatch(/json/);
     // Same URL both times — the reason the cache could collide them.
-    expect(global.fetch.mock.calls[0][0]).toBe(global.fetch.mock.calls[1][0]);
+    expect(global.fetch.mock.calls[0][0]).toBe(global.fetch.mock.calls[2][0]);
   });
 
   it('THE INCIDENT: rejects a cached JSON envelope served to the raw leg', async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope()))
+      .mockResolvedValueOnce(blobUnavailable())
       .mockResolvedValueOnce(jsonResponse(envelope())); // cache replays the probe's body
 
     await expect(github().readFileRawWithMeta(PATH)).rejects.toMatchObject({ code: 'READ_TRUNCATED' });
@@ -158,6 +206,7 @@ describe('GitHubSemanticProvider.readFileRawWithMeta', () => {
   it('rejects the envelope body even without a JSON content-type header', async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope()))
+      .mockResolvedValueOnce(blobUnavailable())
       .mockResolvedValueOnce(textResponse(JSON.stringify(envelope())));
 
     // Caught by byte-length mismatch (10KB envelope vs 6.9MB blob).
@@ -167,6 +216,7 @@ describe('GitHubSemanticProvider.readFileRawWithMeta', () => {
   it('rejects a truncated body that is merely short', async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope()))
+      .mockResolvedValueOnce(blobUnavailable())
       .mockResolvedValueOnce(textResponse(bodyOfBytes(1024)));
 
     await expect(github().readFileRawWithMeta(PATH)).rejects.toMatchObject({ code: 'READ_TRUNCATED' });
@@ -175,6 +225,7 @@ describe('GitHubSemanticProvider.readFileRawWithMeta', () => {
   it('rejects a failed raw fetch rather than reporting an empty file', async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope()))
+      .mockResolvedValueOnce(blobUnavailable())
       .mockResolvedValueOnce(textResponse('', { status: 500 }));
 
     await expect(github().readFileRawWithMeta(PATH)).rejects.toMatchObject({ code: 'READ_TRUNCATED' });
@@ -215,9 +266,10 @@ describe('GitHubSemanticProvider.readFileRawWithMeta', () => {
     const small = await github().readFileRawWithMeta(PATH);
     expect(JSON.parse(small.content).format).toBe('redstring-v4.1.0');
 
-    // raw leg
+    // blob unavailable → raw leg
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope({ size: onDisk.length })))
+      .mockResolvedValueOnce(blobUnavailable())
       .mockResolvedValueOnce(textResponse(withBom));
     const large = await github().readFileRawWithMeta(PATH);
     expect(JSON.parse(large.content).format).toBe('redstring-v4.1.0');
@@ -236,6 +288,7 @@ describe('GitHubSemanticProvider.readFileRawWithMeta', () => {
   it('readSemanticFile goes through the same verified reader', async () => {
     global.fetch
       .mockResolvedValueOnce(jsonResponse(envelope({ path: 'schema/x.ttl' })))
+      .mockResolvedValueOnce(blobUnavailable())
       .mockResolvedValueOnce(jsonResponse(envelope())); // cached envelope again
 
     await expect(github().readSemanticFile('x')).rejects.toMatchObject({ code: 'READ_TRUNCATED' });
