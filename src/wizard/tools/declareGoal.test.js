@@ -46,16 +46,35 @@ describe('declareGoal', () => {
     expect(result.goal.verdict).toBe('');
   });
 
-  it('refuses an essay where a rubric was asked for', async () => {
-    // Every field is re-read each iteration and rendered in the chat, so the
-    // tool holds the line on size rather than the prompt merely asking nicely.
-    await expect(declareGoal({ ...base, verdict: 'x'.repeat(GOAL_LIMITS.verdict + 1), status: 'satisfied' })).rejects.toThrow(/Cite, don't narrate/);
-    await expect(declareGoal({ ...base, satisfiedWhen: 'y'.repeat(GOAL_LIMITS.satisfiedWhen + 1) })).rejects.toThrow(/rubric, not a spec/);
-    await expect(declareGoal({ ...base, failsIf: Array.from({ length: GOAL_LIMITS.failsIfItems + 1 }, (_, i) => `fail ${i}`) })).rejects.toThrow(/Fold related conditions/);
-    await expect(declareGoal({ ...base, failsIf: ['z'.repeat(GOAL_LIMITS.failsIfItem + 1)] })).rejects.toThrow(/short clause/);
-    // At the limit is fine.
+  it('accepts an over-long field and says so, rather than costing a retry', async () => {
+    // Rejecting a 634-character verdict re-sent the whole context to save a few
+    // dozen tokens, and put an error on screen after the work was done.
+    const verdict = 'v'.repeat(GOAL_LIMITS.verdict + 34);
+    const result = await declareGoal({ ...base, status: 'satisfied', verdict });
+    expect(result.settled).toBe(true);
+    expect(result.goal.verdict).toBe(verdict);
+    expect(result.note).toMatch(/Accepted as written; no need to resend/);
+    expect(result.note).toMatch(/verdict ran 634 characters/);
+
+    const long = await declareGoal({
+      ...base,
+      satisfiedWhen: 'y'.repeat(GOAL_LIMITS.satisfiedWhen + 1),
+      failsIf: Array.from({ length: GOAL_LIMITS.failsIfItems + 1 }, (_, i) => `fail ${i}`)
+    });
+    expect(long.goal.failsIf).toHaveLength(GOAL_LIMITS.failsIfItems + 1);
+    expect(long.note).toMatch(/satisfiedWhen ran/);
+    expect(long.note).toMatch(/failsIf has 7 items/);
+
+    // Within the targets there is no note at all.
     const ok = await declareGoal({ ...base, status: 'satisfied', verdict: 'v'.repeat(GOAL_LIMITS.verdict) });
-    expect(ok.settled).toBe(true);
+    expect(ok.note).toBeUndefined();
+  });
+
+  it('trims only a runaway field, far past its target', async () => {
+    const result = await declareGoal({ ...base, status: 'satisfied', verdict: 'v'.repeat(GOAL_LIMITS.verdict * 10) });
+    expect(result.goal.verdict.length).toBe(GOAL_LIMITS.verdict * 3);
+    expect(result.goal.verdict.endsWith('…')).toBe(true);
+    expect(result.settled).toBe(true);
   });
 
   it('renders identically for identical goals (used as the goal identity)', async () => {

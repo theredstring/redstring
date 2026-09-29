@@ -51,11 +51,16 @@ export function renderGoalText(goal) {
 const cleanString = (v) => (typeof v === 'string' ? v.trim() : '');
 
 /**
- * Size limits. The goal is a rubric, not a spec, and everything here is
- * re-read every iteration and rendered in the chat: a verdict that restates
- * every condition with proof is three copies of the same content on screen.
- * Generous enough that a real citation fits; tight enough that an essay
- * does not.
+ * Target sizes. The goal is a rubric, not a spec, and everything here is
+ * re-read every iteration and rendered in the chat, so these are what the
+ * model is steered toward.
+ *
+ * They are targets, not gates. Rejecting an over-long field cost a full round
+ * trip (the whole context re-sent, ~25k tokens) to save a few dozen tokens per
+ * iteration, and a rejected verdict landed on screen as an error after the work
+ * was done. Over a target, the text is accepted and the result carries a note so
+ * the next one is shorter; only text past HARD_CEILING times the target is
+ * trimmed, to keep a runaway field from riding in every request.
  */
 export const GOAL_LIMITS = {
   goal: 240,
@@ -64,6 +69,10 @@ export const GOAL_LIMITS = {
   failsIfItem: 160,
   verdict: 600
 };
+
+const HARD_CEILING = 3;
+
+const trimTo = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
 
 export async function declareGoal(args) {
   const goalText = cleanString(args?.goal);
@@ -82,40 +91,40 @@ export async function declareGoal(args) {
     ? args.failsIf.map(cleanString).filter(Boolean)
     : [];
 
-  if (goalText.length > GOAL_LIMITS.goal) {
-    throw new Error(`goal is ${goalText.length} characters; keep it to one sentence (under ${GOAL_LIMITS.goal}). Put conditions in satisfiedWhen, not in the goal.`);
-  }
-  if (satisfiedWhen.length > GOAL_LIMITS.satisfiedWhen) {
-    throw new Error(`satisfiedWhen is ${satisfiedWhen.length} characters; keep it to one or two sentences (under ${GOAL_LIMITS.satisfiedWhen}). It is a rubric, not a spec — name what must exist, not how you will build it.`);
-  }
+  // Over a target: accept, note it for next time, trim only a runaway.
+  const notes = [];
+  const fit = (text, limit, field, advice) => {
+    if (text.length <= limit) return text;
+    notes.push(`${field} ran ${text.length} characters (aim for under ${limit}): ${advice}`);
+    return trimTo(text, limit * HARD_CEILING);
+  };
+  const goalFit = fit(goalText, GOAL_LIMITS.goal, 'goal', 'one sentence; conditions belong in satisfiedWhen.');
+  const satisfiedFit = fit(satisfiedWhen, GOAL_LIMITS.satisfiedWhen, 'satisfiedWhen', 'a rubric, not a spec.');
+  const verdictFit = fit(verdict, GOAL_LIMITS.verdict, 'verdict', 'cite the deciding nodes and connections; don\'t narrate.');
   if (failsIf.length > GOAL_LIMITS.failsIfItems) {
-    throw new Error(`failsIf has ${failsIf.length} items; keep it to ${GOAL_LIMITS.failsIfItems} or fewer. Fold related conditions together, and do not restate satisfiedWhen as its negation.`);
+    notes.push(`failsIf has ${failsIf.length} items (aim for ${GOAL_LIMITS.failsIfItems} or fewer): fold related conditions together.`);
   }
-  const longFail = failsIf.find(f => f.length > GOAL_LIMITS.failsIfItem);
-  if (longFail) {
-    throw new Error(`A failsIf item is ${longFail.length} characters; keep each under ${GOAL_LIMITS.failsIfItem} — a short clause naming the failure, not an explanation.`);
-  }
-  if (verdict.length > GOAL_LIMITS.verdict) {
-    throw new Error(`verdict is ${verdict.length} characters; keep it under ${GOAL_LIMITS.verdict}. Cite, don't narrate: name the specific nodes and connections that decide it (or the failsIf that tripped) in two or three sentences. Do not restate the conditions.`);
-  }
+  const failsIfFit = failsIf
+    .slice(0, GOAL_LIMITS.failsIfItems * HARD_CEILING)
+    .map(f => fit(f, GOAL_LIMITS.failsIfItem, 'A failsIf item', 'a short clause naming the failure.'));
 
   // A verdict without evidence is the goal grading itself. Refuse it so the
   // model has to point at the web (or at the failure mode it hit) before the
   // turn is allowed to end.
-  if (status !== 'open' && !verdict) {
+  if (status !== 'open' && !verdictFit) {
     throw new Error(`A ${status} verdict needs a verdict string naming the evidence: for "satisfied", which nodes and connections meet satisfiedWhen; for "failed", which failsIf condition tripped and why.`);
   }
   // A verdict on an open goal is just commentary — keep the goal open.
-  if (status === 'open' && verdict) {
+  if (status === 'open' && verdictFit) {
     status = 'open';
   }
 
   const goal = {
-    goal: goalText,
-    satisfiedWhen,
-    failsIf,
+    goal: goalFit,
+    satisfiedWhen: satisfiedFit,
+    failsIf: failsIfFit,
     status,
-    verdict: status === 'open' ? '' : verdict
+    verdict: status === 'open' ? '' : verdictFit
   };
 
   return {
@@ -124,8 +133,9 @@ export async function declareGoal(args) {
     settled: isGoalSettled(goal),
     goalText: renderGoalText(goal),
     summary: status === 'open'
-      ? `Goal declared: ${goalText}`
-      : `Goal ${status}: ${goalText}`
+      ? `Goal declared: ${goalFit}`
+      : `Goal ${status}: ${goalFit}`,
+    ...(notes.length ? { note: `Accepted as written; no need to resend. For next time: ${notes.join(' ')}` } : {})
   };
 }
 
