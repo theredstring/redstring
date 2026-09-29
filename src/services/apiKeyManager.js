@@ -5,7 +5,27 @@
  * Keys are stored locally on the user's machine only
  */
 
-import { encryptSecret, decryptSecret, isEncrypted } from '../utils/secureStore.js';
+import {
+  encryptSecret,
+  decryptSecret,
+  isEncrypted,
+  isPlainHandoff,
+  isSecureRef,
+  makeSecureRef,
+  secureRefName,
+  hasNativeSecretStore,
+  storeInNativeSecretStore,
+  readFromNativeSecretStore,
+  deleteSecret
+} from '../utils/secureStore.js';
+
+// Native secret-store names for profile keys. A profile record keeps only a
+// pointer (`rsref:v1:<name>`) when its key lives in the Keychain / Keystore /
+// safeStorage; on the web the record keeps AES-GCM ciphertext, as before.
+const PROFILE_SECRET_PREFIX = 'redstring_ai_key.';
+const MIRROR_SECRET_NAME = `${PROFILE_SECRET_PREFIX}_mirror`;
+const profileSecretName = (profileId) =>
+  `${PROFILE_SECRET_PREFIX}${String(profileId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 96)}`;
 import { getFallbackModels } from './modelCatalog.js';
 
 class APIKeyManager {
@@ -17,6 +37,12 @@ class APIKeyManager {
     this.OPENROUTER_MODELS_KEY = 'redstring_openrouter_recent_models';
     this.GEMINI_MODELS_CACHE_KEY = 'redstring_gemini_models_cache';
     this.GEMINI_MODELS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+    this._migrationPromise = null;
+    if (typeof window !== 'undefined') {
+      // Move keys into the OS secret store soon after startup rather than on
+      // the first AI request, so a plaintext migration handoff doesn't linger.
+      setTimeout(() => { this._ensureMigrated(); }, 0);
+    }
   }
 
   /**
@@ -39,8 +65,22 @@ class APIKeyManager {
       // storing raw plaintext here silently corrupted the key on the way back
       // out. Obfuscate in that case to keep the invariant the reader relies on:
       // unmarked always means obfuscated, never plaintext.
-      const stored = await encryptSecret(apiKey);
-      const encryptedKey = isEncrypted(stored) ? stored : this.obfuscate(apiKey);
+      await this._ensureMigrated();
+      const profiles = await this._getProfilesInternal();
+      const id = (config.profileId) || `prof_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // Native platforms: the key goes to the OS secret store and the record
+      // keeps a pointer. If the store refuses, fall back to the web format
+      // below rather than losing the key.
+      let encryptedKey = null;
+      if (await hasNativeSecretStore()) {
+        const name = profileSecretName(id);
+        if (await storeInNativeSecretStore(name, apiKey)) encryptedKey = makeSecureRef(name);
+      }
+      if (!encryptedKey) {
+        const stored = await encryptSecret(apiKey);
+        encryptedKey = isEncrypted(stored) ? stored : this.obfuscate(apiKey);
+      }
 
       const keyData = {
         key: encryptedKey,
@@ -64,8 +104,6 @@ class APIKeyManager {
       });
 
       // Save into profiles list
-      const profiles = await this._getProfilesInternal();
-      const id = (config.profileId) || `prof_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       profiles[id] = keyData;
       localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
       localStorage.setItem(this.ACTIVE_PROFILE, id);
@@ -95,14 +133,10 @@ class APIKeyManager {
    */
   async getAPIKey() {
     try {
+      await this._ensureMigrated();
       const keyData = await this._getActiveProfileData();
       if (!keyData) return null;
-      // New format is encrypted (marker prefix); legacy profiles used the old
-      // reversible obfuscation. Branch so existing users are never locked out —
-      // their key upgrades to ciphertext on the next storeAPIKey().
-      const plainKey = isEncrypted(keyData.key)
-        ? await decryptSecret(keyData.key)
-        : this._deobfuscateOrPassThrough(keyData.key);
+      const plainKey = await this._decodeStoredKey(keyData.key);
 
       console.log('[API Key Manager] API key retrieved successfully');
       return plainKey;
@@ -188,8 +222,10 @@ class APIKeyManager {
       const activeId = localStorage.getItem(this.ACTIVE_PROFILE);
       const profiles = await this._getProfilesInternal();
       if (activeId && profiles[activeId]) {
+        const removedKey = profiles[activeId].key;
         delete profiles[activeId];
         localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
+        await this._releaseSecretIfUnused(removedKey);
       }
       localStorage.removeItem(this.ACTIVE_PROFILE);
       // Keep legacy key for safety
@@ -219,8 +255,10 @@ class APIKeyManager {
   async deleteProfile(profileId) {
     const profiles = await this._getProfilesInternal();
     if (profiles[profileId]) {
+      const removedKey = profiles[profileId].key;
       delete profiles[profileId];
       localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
+      await this._releaseSecretIfUnused(removedKey);
       if (localStorage.getItem(this.ACTIVE_PROFILE) === profileId) {
         localStorage.removeItem(this.ACTIVE_PROFILE);
       }
@@ -263,9 +301,12 @@ class APIKeyManager {
       }
       if (!match?.key) return null;
 
-      return isEncrypted(match.key)
-        ? await decryptSecret(match.key)
-        : this._deobfuscateOrPassThrough(match.key);
+      await this._ensureMigrated();
+      // Re-read: migration may have swapped the stored key for a pointer.
+      const fresh = Object.values(await this._getProfilesInternal())
+        .filter((data) => String(data?.provider || '').toLowerCase() === target)
+        .pop();
+      return this._decodeStoredKey(fresh?.key ?? match.key);
     } catch (error) {
       console.warn('[API Key Manager] Failed to retrieve key for provider', provider, error);
       return null;
@@ -288,6 +329,91 @@ class APIKeyManager {
       return data;
     }
     return null;
+  }
+
+  /**
+   * Turn a profile's stored `key` field back into the plaintext key.
+   * Formats, newest first: a pointer into the native secret store; AES-GCM
+   * ciphertext; plaintext handed over by a storage-origin migration; the
+   * legacy reversible obfuscation (or, from a WebCrypto-less save, raw text).
+   */
+  async _decodeStoredKey(stored) {
+    if (!stored || typeof stored !== 'string') return null;
+    if (isSecureRef(stored)) return readFromNativeSecretStore(secureRefName(stored));
+    if (isEncrypted(stored) || isPlainHandoff(stored)) return decryptSecret(stored);
+    return this._deobfuscateOrPassThrough(stored);
+  }
+
+  /**
+   * One-time (per session) move of profile keys into the native secret
+   * store, on platforms that have one. Lossless: each key is written, read
+   * back and compared before its record is rewritten to a pointer, and a key
+   * that cannot be decoded here is left exactly as it was. Idempotent: a
+   * record that already holds a pointer is skipped.
+   */
+  _ensureMigrated() {
+    if (!this._migrationPromise) {
+      this._migrationPromise = this._migrateKeysToNativeStore().catch((error) => {
+        console.warn('[API Key Manager] Key migration to the secure store failed; keys stay where they were:', error?.message || error);
+      });
+    }
+    return this._migrationPromise;
+  }
+
+  async _migrateKeysToNativeStore() {
+    if (typeof localStorage === 'undefined') return;
+    if (!(await hasNativeSecretStore())) return;
+
+    const moveOne = async (stored, name) => {
+      if (!stored || isSecureRef(stored)) return null;
+      const plain = await this._decodeStoredKey(stored);
+      if (!plain) return null;
+      return (await storeInNativeSecretStore(name, plain)) ? makeSecureRef(name) : null;
+    };
+
+    const profiles = await this._getProfilesInternal();
+    let changed = false;
+    for (const [id, data] of Object.entries(profiles)) {
+      const ref = await moveOne(data?.key, profileSecretName(id));
+      if (ref) {
+        profiles[id] = { ...data, key: ref };
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
+
+    // The legacy single-key mirror holds a copy of a key too.
+    const mirrorRaw = localStorage.getItem(this.STORAGE_KEY);
+    if (mirrorRaw) {
+      let mirror = null;
+      try { mirror = JSON.parse(mirrorRaw); } catch { mirror = null; }
+      if (mirror && mirror.key && !isSecureRef(mirror.key)) {
+        const activeId = localStorage.getItem(this.ACTIVE_PROFILE);
+        const active = activeId ? profiles[activeId] : null;
+        // Usually the mirror is the active profile: share its pointer rather
+        // than keeping a second copy.
+        let ref = null;
+        if (active && isSecureRef(active.key)) {
+          const [mirrorPlain, activePlain] = await Promise.all([
+            this._decodeStoredKey(mirror.key),
+            this._decodeStoredKey(active.key)
+          ]);
+          if (mirrorPlain && mirrorPlain === activePlain) ref = active.key;
+        }
+        if (!ref) ref = await moveOne(mirror.key, MIRROR_SECRET_NAME);
+        if (ref) localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ ...mirror, key: ref }));
+      }
+    }
+  }
+
+  /** Delete a native-store secret once no profile (or the mirror) points at it. */
+  async _releaseSecretIfUnused(storedKey) {
+    if (!isSecureRef(storedKey)) return;
+    const stillUsed = Object.values(await this._getProfilesInternal()).some((data) => data?.key === storedKey)
+      || (() => {
+        try { return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || 'null')?.key === storedKey; } catch { return false; }
+      })();
+    if (!stillUsed) await deleteSecret(secureRefName(storedKey));
   }
 
   async _getProfilesInternal() {

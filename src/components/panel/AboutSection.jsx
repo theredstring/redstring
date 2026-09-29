@@ -13,6 +13,7 @@ import {
   STANDARD_KINDS
 } from '../../utils/externalIdentifiers.js';
 import { resolveOrigin } from '../../utils/nodeOrigin.js';
+import { safeExternalHref, openExternalUrl } from '../../utils/safeUrl.js';
 import { searchIdentifiers, describeIdentifier } from '../../services/identifierSearch.js';
 import {
   LINK_STATES,
@@ -439,11 +440,13 @@ const IdentifierRow = ({
           ariaHasPopup="dialog"
         />
       )}
-      {url && (
+      {/* No open button for a row whose URL isn't a plain web link: the
+          identifier still shows, as text, and can still be removed. */}
+      {url && href && (
         <PanelIconButton
           icon={ExternalLink}
           size={14}
-          onClick={() => window.open(href, '_blank')}
+          onClick={() => openExternalUrl(href)}
           title={`Open in ${derivedAuthority}`}
         />
       )}
@@ -726,8 +729,8 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens, isUltraSlim })
       {row('From', (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           {from.label}
-          {from.href && (
-            <a href={from.href} target="_blank" rel="noopener noreferrer" style={{ color: tokens.brand }}>
+          {safeExternalHref(from.href) && (
+            <a href={safeExternalHref(from.href)} target="_blank" rel="noopener noreferrer" style={{ color: tokens.brand }}>
               ↗
             </a>
           )}

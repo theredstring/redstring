@@ -1,5 +1,28 @@
 /**
- * secureStore — encryption-at-rest for secrets kept in browser localStorage.
+ * secureStore — secrets at rest (GitHub tokens, BYOK API keys).
+ *
+ * Two layers:
+ *
+ * 1. Named secrets — `getSecret(name)` / `setSecret(name, value)` /
+ *    `deleteSecret(name)`. The backend is picked per platform:
+ *      Electron   window.electron.secrets (main-process safeStorage, the OS
+ *                 keychain / DPAPI / libsecret), when present and available
+ *      iOS/Android the Keychain / Android Keystore, through
+ *                 @aparajita/capacitor-secure-storage. iOS items are
+ *                 kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly and never
+ *                 sync to iCloud
+ *      web        AES-GCM ciphertext in localStorage under the same name, with
+ *                 the key in IndexedDB (below) — unchanged from before
+ *    On a native backend, a value still sitting in localStorage under the same
+ *    name is a legacy copy: the first read moves it (write → read back →
+ *    compare → only then remove the old copy). A legacy value that cannot be
+ *    decrypted here is left untouched, never deleted. If the native store
+ *    refuses a write, the value falls back to the web layer rather than being
+ *    dropped: a lost token is worse than a less-protected one.
+ *
+ * 2. Value encryption — `encryptSecret` / `decryptSecret` / `isEncrypted`, the
+ *    web layer, also used directly by callers that keep a secret inside a
+ *    larger record (AI profiles).
  *
  * Replaces plaintext / trivially-reversible ("base64 of reversed string")
  * storage of API keys and GitHub tokens. Values are encrypted with AES-256-GCM
@@ -19,10 +42,28 @@
  * upgraded to ciphertext on the next write.
  */
 
+import { isCapacitor } from './capacitorAdapter.js';
+
 const DB_NAME = 'redstring-secure';
 const DB_STORE = 'keys';
 const KEY_ID = 'secret-store-aes-key';
 const MARKER = 'rsenc:v1:';
+
+/**
+ * Plaintext handed over by a storage-origin migration (Electron's move from
+ * file:// to app://, where the old origin's AES key cannot come along). The
+ * migration decrypts in the old origin and writes `rsplain:v1:<secret>` in the
+ * same place; the first read here moves it into the native store and removes
+ * it. Explicitly marked so it can never be confused with the legacy
+ * "obfuscated" API-key format.
+ */
+export const PLAIN_HANDOFF_MARKER = 'rsplain:v1:';
+
+/**
+ * A pointer stored in place of a secret inside a larger record (an AI profile)
+ * when the secret itself lives in the native store: `rsref:v1:<name>`.
+ */
+export const SECURE_REF_PREFIX = 'rsref:v1:';
 
 let cryptoKeyPromise = null;
 let inMemoryKey = null; // session fallback when IndexedDB is unavailable
@@ -117,6 +158,24 @@ export function isEncrypted(value) {
   return typeof value === 'string' && value.startsWith(MARKER);
 }
 
+/** True for a migration-handoff plaintext value (see PLAIN_HANDOFF_MARKER). */
+export function isPlainHandoff(value) {
+  return typeof value === 'string' && value.startsWith(PLAIN_HANDOFF_MARKER);
+}
+
+/** True for a pointer to a native-store secret (see SECURE_REF_PREFIX). */
+export function isSecureRef(value) {
+  return typeof value === 'string' && value.startsWith(SECURE_REF_PREFIX);
+}
+
+export function makeSecureRef(name) {
+  return `${SECURE_REF_PREFIX}${assertSecretName(name)}`;
+}
+
+export function secureRefName(value) {
+  return isSecureRef(value) ? value.slice(SECURE_REF_PREFIX.length) : null;
+}
+
 /**
  * Encrypt a secret for storage. On any failure (no WebCrypto, etc.) returns the
  * plaintext unmarked so callers still function — it simply won't be encrypted.
@@ -147,6 +206,7 @@ export async function encryptSecret(plaintext) {
  * @returns {Promise<string|null>}
  */
 export async function decryptSecret(stored) {
+  if (isPlainHandoff(stored)) return stored.slice(PLAIN_HANDOFF_MARKER.length);
   if (!isEncrypted(stored)) return stored;
   try {
     const subtle = getSubtle();
@@ -161,4 +221,245 @@ export async function decryptSecret(stored) {
     console.warn('[secureStore] Failed to decrypt stored secret:', err?.message || err);
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Named secrets and backend selection
+// ---------------------------------------------------------------------------
+
+const SECRET_NAME_RE = /^[A-Za-z0-9_.-]{1,128}$/;
+
+/** Secret names use a fixed, boring charset so every backend accepts them. */
+export function assertSecretName(name) {
+  if (typeof name !== 'string' || !SECRET_NAME_RE.test(name)) {
+    throw new Error(`[secureStore] Invalid secret name: ${JSON.stringify(name)}`);
+  }
+  return name;
+}
+
+// Keychain/Keystore namespace. Changing it would orphan every stored secret.
+const NATIVE_KEY_PREFIX = 'redstring.';
+
+let backendPromise = null;
+let backendOverride; // tests only: undefined = auto, null = force web, object = that backend
+
+function webStorage() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+    if (typeof localStorage !== 'undefined') return localStorage;
+  } catch { /* storage blocked */ }
+  return null;
+}
+
+async function electronBackend() {
+  if (typeof window === 'undefined') return null;
+  const api = window.electron?.secrets;
+  if (!api || typeof api.get !== 'function' || typeof api.set !== 'function' || typeof api.delete !== 'function') {
+    return null;
+  }
+  try {
+    // safeStorage is unavailable on Linux without a keyring; the web layer
+    // (still encrypted) is better than refusing to keep the token at all.
+    if (typeof api.isAvailable === 'function' && !(await api.isAvailable())) return null;
+  } catch {
+    return null;
+  }
+  return {
+    kind: 'electron',
+    get: (name) => api.get(name),
+    set: (name, value) => api.set(name, value),
+    delete: (name) => api.delete(name)
+  };
+}
+
+async function nativeBackend() {
+  if (!isCapacitor()) return null;
+  try {
+    const { SecureStorage, KeychainAccess } = await import('@aparajita/capacitor-secure-storage');
+    await SecureStorage.setKeyPrefix(NATIVE_KEY_PREFIX);
+    // Never to iCloud Keychain; readable after first unlock (background saves
+    // need the GitHub token) and never restored onto a different device.
+    await SecureStorage.setSynchronize(false);
+    await SecureStorage.setDefaultKeychainAccess(KeychainAccess.afterFirstUnlockThisDeviceOnly);
+    return {
+      kind: 'native',
+      get: (name) => SecureStorage.getItem(name),
+      set: (name, value) => SecureStorage.setItem(name, value),
+      delete: (name) => SecureStorage.removeItem(name)
+    };
+  } catch (error) {
+    console.warn('[secureStore] Native secure storage unavailable, using the web layer:', error?.message || error);
+    return null;
+  }
+}
+
+async function resolveBackend() {
+  if (backendOverride !== undefined) return backendOverride;
+  if (!backendPromise) {
+    backendPromise = (async () => (await electronBackend()) || (await nativeBackend()) || null)();
+  }
+  return backendPromise;
+}
+
+/** 'electron' | 'native' | 'web' — where named secrets live on this platform. */
+export async function getSecretBackendKind() {
+  const backend = await resolveBackend();
+  return backend?.kind || 'web';
+}
+
+/** True when named secrets live outside the WebView (keychain/keystore/safeStorage). */
+export async function hasNativeSecretStore() {
+  return !!(await resolveBackend());
+}
+
+const normalize = (value) => (value == null || value === '' ? null : String(value));
+
+/** Write, read back, compare. Only a verified write counts. */
+async function writeVerified(backend, name, value) {
+  await backend.set(name, value);
+  return normalize(await backend.get(name)) === value;
+}
+
+/**
+ * Put a secret into the native backend only — no web fallback. True only when
+ * the backend holds exactly `value` afterwards. For callers migrating a secret
+ * out of a larger record, who must keep their own copy until this says true.
+ */
+export async function storeInNativeSecretStore(name, value) {
+  assertSecretName(name);
+  const backend = await resolveBackend();
+  if (!backend || value == null || value === '') return false;
+  try {
+    return await writeVerified(backend, name, String(value));
+  } catch (error) {
+    console.warn(`[secureStore] Native store refused ${name}:`, error?.message || error);
+    return false;
+  }
+}
+
+/** Read from the native backend only (null when absent or no backend). */
+export async function readFromNativeSecretStore(name) {
+  assertSecretName(name);
+  const backend = await resolveBackend();
+  if (!backend) return null;
+  try {
+    return normalize(await backend.get(name));
+  } catch (error) {
+    console.warn(`[secureStore] Could not read ${name} from the ${backend.kind} store:`, error?.message || error);
+    return null;
+  }
+}
+
+/**
+ * Read a named secret. Returns the plaintext, or null when there is none (or
+ * none readable here).
+ */
+export async function getSecret(name) {
+  assertSecretName(name);
+  const storage = webStorage();
+  const backend = await resolveBackend();
+
+  if (!backend) {
+    const raw = storage?.getItem(name) ?? null;
+    const plain = normalize(await decryptSecret(raw));
+    // Upgrade a plaintext or handed-over value to ciphertext while we hold it.
+    if (plain && raw && !isEncrypted(raw)) {
+      try {
+        const encrypted = await encryptSecret(plain);
+        if (isEncrypted(encrypted)) storage.setItem(name, encrypted);
+      } catch { /* stays as it was; still readable */ }
+    }
+    return plain;
+  }
+
+  let stored = null;
+  let backendReadable = true;
+  try {
+    stored = normalize(await backend.get(name));
+  } catch (error) {
+    backendReadable = false;
+    console.warn(`[secureStore] Could not read ${name} from the ${backend.kind} store:`, error?.message || error);
+  }
+  if (stored) return stored;
+
+  // A copy in localStorage: pre-migration, a native write that failed, or a
+  // storage-origin migration handoff.
+  const legacy = storage?.getItem(name) ?? null;
+  if (!legacy) return null;
+  const plain = normalize(await decryptSecret(legacy));
+  if (!plain) return null; // not decryptable in this origin: leave it be
+  if (!backendReadable) return plain; // never migrate into a store we can't read back
+
+  let moved = false;
+  try {
+    moved = await writeVerified(backend, name, plain);
+    if (!moved) console.warn(`[secureStore] ${name}: native copy did not verify; keeping the legacy copy`);
+  } catch (error) {
+    console.warn(`[secureStore] ${name}: move to the ${backend.kind} store failed; keeping the legacy copy:`, error?.message || error);
+  }
+  if (moved) {
+    storage.removeItem(name);
+  } else {
+    // A bad native copy would shadow the good legacy one on the next read.
+    try { await backend.delete(name); } catch { /* best effort */ }
+  }
+  return plain;
+}
+
+/**
+ * Store a named secret. An empty value deletes it. Resolves true when the
+ * value was stored somewhere durable.
+ */
+export async function setSecret(name, value) {
+  assertSecretName(name);
+  if (value == null || value === '') {
+    await deleteSecret(name);
+    return true;
+  }
+  const text = String(value);
+  const storage = webStorage();
+  const backend = await resolveBackend();
+
+  if (backend) {
+    try {
+      if (await writeVerified(backend, name, text)) {
+        try { storage?.removeItem(name); } catch { /* a stale legacy copy is shadowed by the native one */ }
+        return true;
+      }
+      console.warn(`[secureStore] ${name}: native write did not verify; keeping it in the web layer instead`);
+    } catch (error) {
+      console.warn(`[secureStore] ${name}: native write failed; keeping it in the web layer instead:`, error?.message || error);
+    }
+    // A stale native value would shadow the fallback copy on the next read.
+    try { await backend.delete(name); } catch { /* best effort */ }
+  }
+
+  if (!storage) return false;
+  try {
+    storage.setItem(name, await encryptSecret(text));
+    return true;
+  } catch (error) {
+    console.warn(`[secureStore] Could not store ${name}:`, error?.message || error);
+    return false;
+  }
+}
+
+/** Remove a named secret from every place it may live. */
+export async function deleteSecret(name) {
+  assertSecretName(name);
+  const backend = await resolveBackend();
+  if (backend) {
+    try {
+      await backend.delete(name);
+    } catch (error) {
+      console.warn(`[secureStore] Could not delete ${name} from the ${backend.kind} store:`, error?.message || error);
+    }
+  }
+  try { webStorage()?.removeItem(name); } catch { /* storage blocked */ }
+}
+
+/** Tests only. undefined = auto-detect, null = web layer, object = {kind,get,set,delete}. */
+export function __setSecretBackendForTests(backend) {
+  backendOverride = backend;
+  backendPromise = null;
 }

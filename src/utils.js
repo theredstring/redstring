@@ -521,7 +521,10 @@ export const loadImageFileAsDataUrl = async (file) => {
 
   let jpegBlob;
   try {
-    const { heicTo } = await import('heic-to');
+    // The /csp build: the default build compiles code with `new Function`
+    // inside its worker, which the app's Content-Security-Policy (no
+    // 'unsafe-eval', index.html) refuses.
+    const { heicTo } = await import('heic-to/csp');
     jpegBlob = await heicTo({ blob: file, type: 'image/jpeg', quality: 0.9 });
   } catch (err) {
     // Surface the real decoder error so genuinely-unsupported files are

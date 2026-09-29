@@ -11,10 +11,16 @@ import { spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const PORT = process.env.WIZARD_PORT || '3019';
 const BASE = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// The daemon requires its token on every request (C-6). Fix one for this run and
+// send it on every call this file makes (the module-level `fetch` shadows the global).
+const TOKEN = crypto.randomBytes(32).toString('hex');
+const fetch = (u, o = {}) => globalThis.fetch(u, { ...o, headers: { ...(o.headers || {}), 'X-Redstring-Token': TOKEN } });
 
 let daemon, tmpDir, useGraphStore, controller, exportToRedstring;
 let fetchImpl;                 // swappable so we can simulate the daemon vanishing
@@ -41,7 +47,7 @@ beforeAll(async () => {
   const universe = path.join(tmpDir, 'u.redstring');
   daemon = spawn('node', ['wizard-server.js'], {
     cwd: process.cwd(),
-    env: { ...process.env, REDSTRING_UNIVERSE: universe, WIZARD_PORT: PORT },
+    env: { ...process.env, REDSTRING_UNIVERSE: universe, WIZARD_PORT: PORT, REDSTRING_AGENT_TOKEN: TOKEN, REDSTRING_HOME: path.join(tmpDir, 'home') },
     stdio: ['ignore', 'ignore', 'ignore']
   });
   // wait for health

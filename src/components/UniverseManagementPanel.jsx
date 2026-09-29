@@ -25,6 +25,7 @@ import RepositoryDropdown from './repositories/RepositoryDropdown.jsx';
 import { persistentAuth } from '../services/persistentAuth.js';
 import { formatUniverseNameFromRepo, buildUniqueUniverseName } from '../utils/universeNaming.js';
 import { isCapacitor } from '../utils/capacitorAdapter.js';
+import { openExternalUrl } from '../utils/safeUrl.js';
 
 // Simple device detection
 const getDeviceInfo = () => {
@@ -778,8 +779,7 @@ const UniverseManagementPanel = ({
                           <button
                             onClick={() => {
                               const { user, repo } = universe.gitRepo.linkedRepo;
-                              const url = `https://github.com/${user}/${repo}`;
-                              window.open(url, '_blank', 'noopener');
+                              openExternalUrl(`https://github.com/${encodeURIComponent(user)}/${encodeURIComponent(repo)}`);
                             }}
                             style={{
                               padding: '4px 8px',

@@ -1,6 +1,8 @@
 # Logs
 logs
 *.log
+# LevelDB write-ahead logs used as test fixtures (Electron storage migration)
+!test/security/electron/fixtures/**/*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -74,3 +76,10 @@ CHANGELOG.md
 
 # Local-only canvas perf fixtures (real universes, never committed; see documentation/dev-ops/nodecanvas-refactor/)
 test/fixtures/canvas/local/
+
+# Security hardening (S-59/S-60): secrets and runtime user data
+.env.*
+!.env.example
+github.env*
+data/analytics/
+agent.json

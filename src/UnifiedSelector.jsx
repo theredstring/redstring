@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sanitizeHtml } from './utils/sanitizeHtml.js';
+import { sanitizeColor } from './utils/safeColor.js';
+import { cssImageUrl } from './utils/safeUrl.js';
 import { createPortal } from 'react-dom';
 import { X, Palette, Plus } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
@@ -514,7 +516,7 @@ const UnifiedSelector = ({
                         // selector to navigate by. See utils/gamepadMenuNav.js.
                         className="unified-selector-card"
                         style={{
-                          background: prototype.color || '#8B0000',
+                          background: sanitizeColor(prototype.color, '#8B0000'),
                           borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
                           padding: isMobilePortrait ? '10px' : (isSmallScreen ? '12px' : '10px'),
                           cursor: 'pointer',
@@ -572,12 +574,12 @@ const UnifiedSelector = ({
                         }}
                       >
                         {/* Thumbnail background if available */}
-                        {prototype.thumbnailSrc && (
+                        {cssImageUrl(prototype.thumbnailSrc) && (
                           <div
                             style={{
                               position: 'absolute',
                               top: 0, left: 0, right: 0, bottom: 0,
-                              backgroundImage: `url(${prototype.thumbnailSrc})`,
+                              backgroundImage: cssImageUrl(prototype.thumbnailSrc),
                               backgroundSize: 'cover',
                               backgroundPosition: 'center',
                               borderRadius: '16px', // Match container rounding
@@ -587,7 +589,7 @@ const UnifiedSelector = ({
                         )}
                         <span
                           style={{
-                            color: getTextColor(prototype.color || '#8B0000', theme.darkMode),
+                            color: getTextColor(sanitizeColor(prototype.color, '#8B0000'), theme.darkMode),
                             fontWeight: 'bold',
                             fontFamily: "'EmOne', sans-serif",
                             textAlign: 'center',

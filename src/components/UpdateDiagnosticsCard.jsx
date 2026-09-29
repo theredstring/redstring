@@ -115,7 +115,10 @@ export default function UpdateDiagnosticsCard({ isOpen, anchorBottom = 16, onClo
     }
   };
 
-  const downgradeAvailable = diagnostics?.isPackaged && diagnostics?.platform === 'darwin';
+  // The preload only exposes debugDowngrade in development or when the app was
+  // started with REDSTRING_ENABLE_DEBUG_DOWNGRADE=1.
+  const downgradeAvailable = diagnostics?.isPackaged && diagnostics?.platform === 'darwin' &&
+    typeof window.electron?.updater?.debugDowngrade === 'function';
 
   const formatTime = (iso) => {
     if (!iso) return '—';

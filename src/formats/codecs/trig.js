@@ -14,6 +14,7 @@
  */
 
 import jsonld from 'jsonld';
+import { JSONLD_SAFE_OPTIONS } from '../jsonldLoader.js';
 import { exportToRedstring, toIri } from '../redstringFormat.js';
 
 // When a map entry lacks an explicit "@id", JSON-LD @container:@id expands the
@@ -76,7 +77,7 @@ export async function toTriG(storeState, { rdfStar = true, emitV4 = false } = {}
   });
 
   // Get quads as an iterable dataset (RDF.js Quad objects).
-  const dataset = await jsonld.toRDF(doc, { safe: false });
+  const dataset = await jsonld.toRDF(doc, { safe: false, ...JSONLD_SAFE_OPTIONS });
 
   // Partition quads by subject membership.
   const defaultQuads = [];

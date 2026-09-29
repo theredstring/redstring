@@ -14,6 +14,7 @@
  * blob, so adding it later is additive too.
  */
 import { identifierFromUrl } from './externalIdentifiers.js';
+import { safeExternalHref } from './safeUrl.js';
 
 /**
  * Sources written by the semantic-discovery and orbit paths at creation time.
@@ -45,9 +46,11 @@ export const LOCAL_ORIGIN_LABEL = 'Redstring';
 export const resolveOrigin = (prototype) => {
   const sm = prototype?.semanticMetadata;
 
+  // Both hrefs come from the file, so they only become links when they are
+  // plain http(s)/mailto URLs (safeExternalHref); anything else shows as text.
   const declared = sm?.origin;
   if (declared?.label) {
-    return { label: declared.label, href: declared.href || null, isLocal: !!declared.isLocal };
+    return { label: String(declared.label), href: safeExternalHref(declared.href), isLocal: !!declared.isLocal };
   }
 
   const om = sm?.originMetadata;
@@ -61,7 +64,7 @@ export const resolveOrigin = (prototype) => {
       if (derived && derived !== 'Link') label = derived;
     }
     if (!label) label = source.charAt(0).toUpperCase() + source.slice(1);
-    return { label, href: om.originalUri || null, isLocal: false };
+    return { label, href: safeExternalHref(om.originalUri), isLocal: false };
   }
 
   return { label: LOCAL_ORIGIN_LABEL, href: null, isLocal: true };

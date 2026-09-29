@@ -11,7 +11,9 @@ import rateLimit from 'express-rate-limit';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, realpathSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { resolve as pathResolve } from 'path';
 import tokenVault from './src/services/server/tokenVault.js';
 import userAnalytics from './src/services/UserAnalytics.js';
 
@@ -156,16 +158,11 @@ app.get('/health', (req, res) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
   
-  res.json({ 
-    status: 'healthy', 
-    service: 'oauth-server',
-    port: PORT,
-    configured: !!(clientId && clientSecret),
-    clientIdConfigured: !!clientId,
-    clientSecretConfigured: !!clientSecret,
-    clientIdLength: clientId ? clientId.length : 0,
-    clientSecretLength: clientSecret ? clientSecret.length : 0,
-    environment: process.env.NODE_ENV || 'development'
+  // S-09: configuration details stay in the server log, not the response.
+  if (!(clientId && clientSecret)) logger.warn('[OAuth] Health: OAuth client id/secret not configured');
+  res.json({
+    status: 'healthy',
+    service: 'oauth-server'
   });
 });
 
@@ -206,6 +203,191 @@ function resolveGitHubAppIdentifiers() {
   ));
 
   return { ids, slugs };
+}
+
+// =============================================================================
+// Installation ownership (contract C-9) — the same algorithm as
+// functions/_lib/ownership.ts, which is what redstring.io runs. Fail closed:
+// GET /user (caller token) → GET /app/installations/{id} (App JWT) → a User
+// install must belong to the caller; an Organization install needs an active
+// membership. Any GitHub error, unexpected shape, suspended install, other
+// App's install or other target type is a denial — never "mint anyway".
+// =============================================================================
+
+const GH_API = 'https://api.github.com';
+const OWNERSHIP_USER_AGENT = 'Redstring-GitHubApp-Server/1.0';
+
+const isPositiveSafeInt = (v) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0;
+
+function parseInstallationId(raw) {
+  if (typeof raw === 'number') return isPositiveSafeInt(raw) ? raw : null;
+  if (typeof raw !== 'string' || !/^[1-9][0-9]{0,15}$/.test(raw)) return null;
+  const n = Number(raw);
+  return isPositiveSafeInt(n) ? n : null;
+}
+
+async function ownershipGetJson(url, authorization) {
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': authorization,
+        'User-Agent': OWNERSHIP_USER_AGENT,
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      redirect: 'manual'
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) {
+    try { await res.text(); } catch { /* ignore */ }
+    return { status: res.status, body: null };
+  }
+  try {
+    return { status: res.status, body: await res.json() };
+  } catch {
+    return { status: 0, body: null };
+  }
+}
+
+async function verifyInstallOwnership(rawId, oauthToken, appJwtStr, configuredAppId) {
+  const deny = (code, status) => ({ ok: false, code, status });
+
+  const installationId = parseInstallationId(rawId);
+  if (installationId == null) return deny('invalid_installation_id', 400);
+
+  if (typeof oauthToken !== 'string' || !oauthToken || oauthToken.length > 512 || !/^[\x21-\x7e]+$/.test(oauthToken)) {
+    return deny('oauth_required', 401);
+  }
+  if (oauthToken.startsWith('ghs_')) return deny('wrong_token_type', 400);
+
+  const appId = typeof configuredAppId === 'string' && /^[1-9][0-9]{0,15}$/.test(configuredAppId.trim())
+    ? Number(configuredAppId.trim())
+    : configuredAppId;
+  if (!isPositiveSafeInt(appId)) return deny('app_not_configured', 500);
+  if (typeof appJwtStr !== 'string' || !appJwtStr) return deny('app_not_configured', 500);
+
+  const userRes = await ownershipGetJson(`${GH_API}/user`, `token ${oauthToken}`);
+  if (!userRes) return deny('github_error', 502);
+  if (userRes.status === 401) return deny('oauth_invalid', 401);
+  if (userRes.status !== 200) return deny('github_error', 502);
+  const user = userRes.body;
+  if (!isPositiveSafeInt(user?.id) || typeof user?.login !== 'string') return deny('github_error', 502);
+
+  const instRes = await ownershipGetJson(`${GH_API}/app/installations/${installationId}`, `Bearer ${appJwtStr}`);
+  if (!instRes) return deny('github_error', 502);
+  if (instRes.status === 404) return deny('installation_not_found', 404);
+  if (instRes.status === 401) return deny('github_app_auth_failed', 502);
+  if (instRes.status !== 200) return deny('github_error', 502);
+  const inst = instRes.body;
+  if (!inst || typeof inst !== 'object' || inst.id !== installationId) return deny('github_error', 502);
+  if (!isPositiveSafeInt(inst.app_id) || inst.app_id !== appId) return deny('app_credentials_mismatch', 409);
+  if (inst.suspended_at) return deny('installation_suspended', 403);
+  const account = inst.account;
+  if (!account || !isPositiveSafeInt(account.id) || typeof account.login !== 'string' || !account.login) {
+    return deny('github_error', 502);
+  }
+  if (account.type != null && account.type !== inst.target_type) return deny('unsupported_target', 403);
+
+  const ok = () => ({ ok: true, installationId: inst.id, installation: inst, user: { id: user.id, login: user.login } });
+
+  if (inst.target_type === 'User') {
+    return account.id === user.id ? ok() : deny('account_mismatch', 403);
+  }
+  if (inst.target_type === 'Organization') {
+    const memRes = await ownershipGetJson(
+      `${GH_API}/user/memberships/orgs/${encodeURIComponent(account.login)}`,
+      `token ${oauthToken}`
+    );
+    if (!memRes) return deny('github_error', 502);
+    if (memRes.status === 401) return deny('oauth_invalid', 401);
+    if (memRes.status === 403 || memRes.status === 404) return deny('not_org_member', 403);
+    if (memRes.status !== 200) return deny('github_error', 502);
+    const m = memRes.body;
+    if (m?.state === 'active' && isPositiveSafeInt(m?.organization?.id) && m.organization.id === account.id) {
+      return ok();
+    }
+    return deny('not_org_member', 403);
+  }
+  return deny('unsupported_target', 403);
+}
+
+const OWNERSHIP_MESSAGES = {
+  invalid_installation_id: 'Invalid installation ID',
+  oauth_required: 'OAuth token required',
+  wrong_token_type: 'Wrong token type',
+  app_not_configured: 'GitHub App not configured',
+  oauth_invalid: 'GitHub OAuth token is invalid or expired. Please reconnect OAuth and retry.',
+  installation_not_found: 'Installation not found',
+  app_credentials_mismatch: 'GitHub App credential mismatch',
+  installation_suspended: 'Installation suspended',
+  account_mismatch: 'GitHub App installation not accessible for the connected OAuth account',
+  not_org_member: 'GitHub App installation not accessible for the connected OAuth account',
+  unsupported_target: 'GitHub App installation not accessible for the connected OAuth account',
+  github_app_auth_failed: 'GitHub App authentication failed',
+  github_error: 'GitHub request failed'
+};
+
+function configuredAppSlots() {
+  return [
+    {
+      slot: 'prod',
+      appId: process.env.GITHUB_APP_ID ? Number(process.env.GITHUB_APP_ID) : null,
+      privateKey: process.env.GITHUB_APP_PRIVATE_KEY || null,
+      slug: process.env.GITHUB_APP_SLUG || null
+    },
+    {
+      slot: 'dev',
+      appId: process.env.GITHUB_APP_ID_DEV ? Number(process.env.GITHUB_APP_ID_DEV) : null,
+      privateKey: process.env.GITHUB_APP_PRIVATE_KEY_DEV || null,
+      slug: process.env.GITHUB_APP_SLUG_DEV || null
+    }
+  ].filter((c) => isPositiveSafeInt(c.appId) && c.privateKey);
+}
+
+function signAppJwt(appId, privateKey) {
+  const now = Math.floor(Date.now() / 1000);
+  return jwt.sign({ iat: now - 60, exp: now + (10 * 60), iss: appId }, privateKey, { algorithm: 'RS256' });
+}
+
+// Route gate: requires `Authorization: token <oauth_token>` from the caller
+// and proves ownership against whichever configured App (prod/dev slot) owns
+// the installation. Sends the refusal itself and returns null, or returns
+// { installationId, installation, user, appJWT, slot }.
+async function requireInstallOwnership(req, res, rawInstallationId) {
+  const authHeader = req.headers.authorization || '';
+  const match = authHeader.match(/^(?:token|Bearer)\s+(.+)$/i);
+  const oauthToken = match ? match[1].trim() : null;
+  if (!oauthToken) {
+    res.status(401).json({ error: OWNERSHIP_MESSAGES.oauth_required, code: 'oauth_required', service: 'oauth-server' });
+    return null;
+  }
+  const slots = configuredAppSlots();
+  if (slots.length === 0) {
+    res.status(500).json({ error: OWNERSHIP_MESSAGES.app_not_configured, code: 'app_not_configured', service: 'oauth-server' });
+    return null;
+  }
+
+  let result = null;
+  for (const slot of slots) {
+    let appJWT;
+    try {
+      appJWT = signAppJwt(slot.appId, slot.privateKey);
+    } catch (e) {
+      logger.error('[GitHubApp] JWT signing failed for slot', slot.slot, e?.message || e);
+      result = { ok: false, code: 'app_not_configured', status: 500 };
+      continue;
+    }
+    result = await verifyInstallOwnership(rawInstallationId, oauthToken, appJWT, slot.appId);
+    if (result.ok) return { ...result, appJWT, slot };
+    // Only "this App has no such install" moves on to the next configured App.
+    if (result.code !== 'installation_not_found') break;
+  }
+  logger.warn('[GitHubApp] Installation access denied:', { code: result.code });
+  res.status(result.status).json({ error: OWNERSHIP_MESSAGES[result.code], code: result.code, service: 'oauth-server' });
+  return null;
 }
 
 async function findInstallationViaOAuth(accessToken, installationId) {
@@ -667,19 +849,12 @@ app.get('/oauth/callback', (req, res) => {
 
   if (error) {
     logger.error('[OAuth] GitHub callback error:', error);
-    return res.status(400).send(`GitHub OAuth error: ${error}`);
+    // Plain text: `error` comes straight from the query string.
+    return res.status(400).type('text/plain').send('GitHub OAuth error');
   }
 
   if (!code || !state) {
     return res.status(400).send('Missing code or state from GitHub OAuth callback');
-  }
-
-  // Check for Electron prefix in state
-  if (typeof state === 'string' && state.startsWith('electron:')) {
-    const realState = state.slice('electron:'.length);
-    const redirectUrl = `redstring://auth?code=${encodeURIComponent(code)}&state=${encodeURIComponent(realState)}`;
-    logger.info('[OAuth] Redirecting to Electron protocol handler');
-    return res.redirect(redirectUrl);
   }
 
   // Browser flow: redirect back to the frontend app with code/state as query params
@@ -893,24 +1068,24 @@ app.delete('/api/github/oauth/revoke', oauthSensitiveLimiter, async (req, res) =
 // Exchange OAuth code for access token with enhanced error handling
 app.post('/api/github/oauth/token', oauthSensitiveLimiter, async (req, res) => {
   try {
-    const { code, state, redirect_uri } = req.body;
-    
+    const { code, state, redirect_uri, code_verifier } = req.body || {};
+
     logger.debug('[OAuth] Token exchange request:', {
       hasCode: !!code,
       hasState: !!state,
       hasRedirectUri: !!redirect_uri,
-      redirect_uri: redirect_uri,
-      redirect_uri_exact: JSON.stringify(redirect_uri),
-      codeLength: code ? code.length : 0,
-      stateLength: state ? state.length : 0
+      hasCodeVerifier: !!code_verifier
     });
-    
+
     if (!code || !state) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Missing code or state',
-        service: 'oauth-server',
-        received: { hasCode: !!code, hasState: !!state }
+        code: 'missing_code_or_state',
+        service: 'oauth-server'
       });
+    }
+    if (code_verifier != null && (typeof code_verifier !== 'string' || !/^[A-Za-z0-9\-._~]{43,128}$/.test(code_verifier))) {
+      return res.status(400).json({ error: 'Invalid code_verifier', code: 'invalid_code_verifier', service: 'oauth-server' });
     }
     
     // Select dev/prod OAuth credentials based on redirect_uri or request origin
@@ -934,16 +1109,10 @@ app.post('/api/github/oauth/token', oauthSensitiveLimiter, async (req, res) => {
         clientSecretLength: clientSecret ? clientSecret.length : 0
       });
       
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'GitHub OAuth not configured',
-        hint: 'Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET environment variables',
-        service: 'oauth-server',
-        details: {
-          clientIdConfigured: !!clientId,
-          clientSecretConfigured: !!clientSecret,
-          clientIdLength: clientId ? clientId.length : 0,
-          clientSecretLength: clientSecret ? clientSecret.length : 0
-        }
+        code: 'oauth_not_configured',
+        service: 'oauth-server'
       });
     }
     
@@ -960,14 +1129,9 @@ app.post('/api/github/oauth/token', oauthSensitiveLimiter, async (req, res) => {
       });
       
       return res.status(500).json({
-        error: 'Invalid OAuth credentials format',
-        service: 'oauth-server',
-        details: {
-          clientIdValid,
-          clientSecretValid,
-          clientIdLength: clientId.length,
-          clientSecretLength: clientSecret.length
-        }
+        error: 'GitHub OAuth not configured',
+        code: 'oauth_not_configured',
+        service: 'oauth-server'
       });
     }
     
@@ -980,9 +1144,10 @@ app.post('/api/github/oauth/token', oauthSensitiveLimiter, async (req, res) => {
       redirect_uri,
       state
     };
-    
-    logger.debug('[OAuth] Sending to GitHub:', JSON.stringify(requestPayload, null, 2));
-    
+    // PKCE (S-07): forward the verifier when the SPA sent one.
+    if (typeof code_verifier === 'string') requestPayload.code_verifier = code_verifier;
+    // (The payload carries the client secret — never log it.)
+
     // Exchange code for access token with GitHub
     const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
@@ -1323,7 +1488,10 @@ app.get('/api/github/auth/state', async (req, res) => {
 
 app.get('/api/github/auth/oauth/token', (req, res) => {
   try {
-    const credentials = tokenVault.getOAuthCredentials();
+    // Unauthenticated read of the server-side vault: only in explicit
+    // single-user server-persistence mode. Stateless (the default) never
+    // hands out stored credentials, even if a vault file exists.
+    const credentials = ENABLE_SERVER_PERSISTENCE ? tokenVault.getOAuthCredentials() : null;
     if (!credentials?.accessToken) {
       return res.status(404).json({
         error: 'No OAuth token stored',
@@ -1429,7 +1597,10 @@ app.delete('/api/github/auth/oauth', (req, res) => {
 
 app.get('/api/github/auth/github-app', (req, res) => {
   try {
-    const credentials = tokenVault.getGitHubAppInstallation();
+    // See /auth/oauth/token: the vault is only readable in explicit
+    // server-persistence mode. (The installation-token route used to write
+    // every minted token here, where any caller could read it back.)
+    const credentials = ENABLE_SERVER_PERSISTENCE ? tokenVault.getGitHubAppInstallation() : null;
     if (!credentials) {
       return res.status(404).json({
         error: 'No GitHub App installation stored',
@@ -1658,171 +1829,36 @@ app.get('/api/github/app/info', (req, res) => {
   }
 });
 
-// Generate installation access token (server-side only for security)
+// Generate installation access token (server-side only for security).
+//
+// S-02: requires the caller's OAuth token and proves ownership (C-9) before
+// minting — the old handler checked a server-side vault token (absent in
+// stateless mode → 'skipped') and minted for any installation id. The token
+// is minted for the id GitHub returned for the verified installation and is
+// NOT written to the server-side vault.
 app.post('/api/github/app/installation-token', async (req, res) => {
   try {
-    const { installation_id } = req.body;
-    
-    if (!installation_id) {
+    const { installation_id } = req.body || {};
+
+    if (installation_id == null || installation_id === '') {
       return res.status(400).json({
         error: 'Installation ID is required',
-        service: 'oauth-server'
-      });
-    }
-
-    // Enumerate every App credential slot this deployment has configured.
-    // We pick which one to use *after* verifying the installation, based on
-    // which App actually owns this install_id (GitHub reports app_id/app_slug
-    // on every installation). Picking by NODE_ENV alone — what this used to
-    // do — silently 404s whenever the install was created against a
-    // different App than the env-default picked.
-    const credentialSlots = [
-      {
-        slot: 'prod',
-        appId: process.env.GITHUB_APP_ID ? Number(process.env.GITHUB_APP_ID) : null,
-        privateKey: process.env.GITHUB_APP_PRIVATE_KEY || null,
-        slug: process.env.GITHUB_APP_SLUG || null
-      },
-      {
-        slot: 'dev',
-        appId: process.env.GITHUB_APP_ID_DEV ? Number(process.env.GITHUB_APP_ID_DEV) : null,
-        privateKey: process.env.GITHUB_APP_PRIVATE_KEY_DEV || null,
-        slug: process.env.GITHUB_APP_SLUG_DEV || null
-      }
-    ].filter((c) => c.appId && c.privateKey && !Number.isNaN(c.appId));
-
-    if (credentialSlots.length === 0) {
-      return res.status(500).json({
-        error: 'GitHub App not configured',
-        hint: 'Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY environment variables',
-        service: 'oauth-server'
-      });
-    }
-
-    const oauthCredentials = tokenVault.getOAuthCredentials();
-    const verificationResult = await verifyInstallationWithOAuth(installation_id, oauthCredentials);
-    let verificationRecord = createVerificationRecord(verificationResult, oauthCredentials);
-    const verificationSummary = formatVerificationForResponse(verificationRecord);
-
-    logger.debug('[GitHubApp] Installation verification result:', {
-      installation_id,
-      status: verificationResult.status,
-      reason: verificationResult.reason || null,
-      oauthLogin: verificationSummary?.oauthLogin || null
-    });
-
-    if (verificationResult.status === 'missing_installation') {
-      return res.status(400).json({
-        error: 'Invalid installation ID',
         code: 'missing_installation',
-        verification: verificationSummary,
         service: 'oauth-server'
       });
     }
 
-    if (verificationResult.status === 'account_mismatch' || verificationResult.status === 'not_found') {
-      return res.status(403).json({
-        error: 'GitHub App installation not accessible for the connected OAuth account',
-        code: verificationResult.status,
-        verification: verificationSummary,
-        service: 'oauth-server'
-      });
-    }
-
-    if (verificationResult.status === 'oauth_invalid') {
-      return res.status(401).json({
-        error: 'GitHub OAuth token is invalid or expired. Please reconnect OAuth and retry.',
-        code: 'oauth_invalid',
-        verification: verificationSummary,
-        service: 'oauth-server'
-      });
-    }
-
-    if (verificationResult.status === 'error') {
-      return res.status(502).json({
-        error: 'Failed to verify GitHub App installation via OAuth',
-        code: 'verification_failed',
-        verification: verificationSummary,
-        details: verificationResult.details || null,
-        service: 'oauth-server'
-      });
-    }
-
-    // Route to the App credentials that actually own this installation.
-    // GitHub stamps each installation with app_id + app_slug; we use them to
-    // pick from the deployment's configured slots. If none match, the
-    // install was created against an App that isn't configured here —
-    // surface that as a 409 with a diagnostic instead of letting GitHub
-    // 404 the mint and returning an opaque "Installation not found."
-    const installation = verificationResult.installation || null;
-    const installAppId = installation?.app_id ? Number(installation.app_id) : null;
-    const installAppSlug = installation?.app_slug || null;
-
-    let chosenSlot = null;
-    if (installAppId != null && !Number.isNaN(installAppId)) {
-      chosenSlot = credentialSlots.find((c) => c.appId === installAppId) || null;
-    }
-    if (!chosenSlot && installAppSlug) {
-      chosenSlot = credentialSlots.find((c) => c.slug === installAppSlug) || null;
-    }
-    if (!chosenSlot && installAppId == null && !installAppSlug) {
-      // No app metadata on the verification (older cache, partial info).
-      // Fall back to the NODE_ENV-based default — the same behavior as
-      // before this change, so we don't regress legacy cache paths.
-      const useDev = isLocalRequest(req);
-      chosenSlot = useDev
-        ? (credentialSlots.find((c) => c.slot === 'dev') || credentialSlots[0])
-        : (credentialSlots.find((c) => c.slot === 'prod') || credentialSlots[0]);
-    }
-
-    if (!chosenSlot) {
-      const installedOnDesc = installAppId != null
-        ? `app_id=${installAppId}${installAppSlug ? ` (slug=${installAppSlug})` : ''}`
-        : 'unknown App';
-      const configuredDesc = credentialSlots
-        .map((c) => `${c.slot} slot: id=${c.appId}${c.slug ? ` (slug=${c.slug})` : ''}`)
-        .join('; ') || '(none configured)';
-      logger.warn('[GitHubApp] No matching credentials for installation:', {
-        installation_id,
-        installAppId,
-        installAppSlug,
-        configured: credentialSlots.map((c) => ({ slot: c.slot, appId: c.appId, slug: c.slug }))
-      });
-      return res.status(409).json({
-        error: 'GitHub App credential mismatch',
-        code: 'app_credentials_mismatch',
-        hint: `Installation ${installation_id} belongs to ${installedOnDesc}, but this deployment only has credentials for: ${configuredDesc}. Either install the App via this deployment's install URL, or configure the matching App's credentials here.`,
-        verification: verificationSummary,
-        service: 'oauth-server'
-      });
-    }
-
-    const appId = String(chosenSlot.appId);
-    const privateKey = chosenSlot.privateKey;
+    const gate = await requireInstallOwnership(req, res, installation_id);
+    if (!gate) return;
+    const { installationId, installation, user, appJWT, slot } = gate;
 
     logger.info('[GitHubApp] Installation token request:', {
-      installation_id,
-      resolvedAppId: chosenSlot.appId,
-      resolvedAppSlot: chosenSlot.slot,
-      installAppSlug,
-      installAppId,
-      host: req.headers.host,
-      forwardedHost: req.headers['x-forwarded-host']
+      installationId,
+      resolvedAppSlot: slot.slot,
+      targetType: installation.target_type
     });
 
-    logger.debug('[GitHubApp] Generating installation token for installation:', installation_id);
-
-    // Generate JWT for app authentication
-    const payload = {
-      iat: Math.floor(Date.now() / 1000) - 60,
-      exp: Math.floor(Date.now() / 1000) + (10 * 60),
-      iss: parseInt(appId, 10)
-    };
-
-    const appJWT = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
-
-    // Get installation access token
-    const tokenResponse = await fetch(`https://api.github.com/app/installations/${installation_id}/access_tokens`, {
+    const tokenResponse = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
       method: 'POST',
       headers: {
         'Accept': 'application/vnd.github.v3+json',
@@ -1832,62 +1868,27 @@ app.post('/api/github/app/installation-token', async (req, res) => {
     });
 
     if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
+      const errorText = await tokenResponse.text().catch(() => '');
       logger.error('[GitHubApp] Installation token request failed:', {
         status: tokenResponse.status,
-        statusText: tokenResponse.statusText,
-        installation_id,
-        appId: appId ? `${appId.substring(0, 4)}...` : 'MISSING',
-        slot: chosenSlot.slot,
-        installAppId,
-        installAppSlug,
-        errorText
+        installationId,
+        slot: slot.slot,
+        errorText: errorText.slice(0, 300)
       });
-
-      // IMPROVED ERROR HANDLING: Provide specific error responses for common failures
-      let errorResponse = {
-        error: 'Failed to generate installation token',
-        status: tokenResponse.status,
-        details: errorText,
-        service: 'oauth-server'
-      };
-
-      if (tokenResponse.status === 401) {
-        errorResponse.error = 'GitHub App authentication failed';
-        errorResponse.hint = 'The GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY may be incorrect. Please verify environment variables.';
-      } else if (tokenResponse.status === 404) {
-        errorResponse.error = 'Installation not found';
-        errorResponse.hint = `Installation ID ${installation_id} does not exist or the GitHub App does not have access to it.`;
-      } else if (tokenResponse.status === 403) {
-        errorResponse.error = 'Installation access forbidden';
-        errorResponse.hint = 'The GitHub App may have been suspended or uninstalled.';
+      if (tokenResponse.status === 404) {
+        return res.status(404).json({ error: 'Installation not found', code: 'installation_not_found', service: 'oauth-server' });
       }
-
-      return res.status(tokenResponse.status === 404 ? 404 : 502).json(errorResponse);
+      if (tokenResponse.status === 401) {
+        return res.status(502).json({ error: 'GitHub App authentication failed', code: 'github_app_auth_failed', service: 'oauth-server' });
+      }
+      if (tokenResponse.status === 403) {
+        return res.status(502).json({ error: 'Installation access forbidden', code: 'installation_forbidden', service: 'oauth-server' });
+      }
+      return res.status(502).json({ error: 'Failed to generate installation token', code: 'token_mint_failed', service: 'oauth-server' });
     }
 
     const tokenData = await tokenResponse.json();
     logger.info('[GitHubApp] Installation token generated successfully');
-
-    let account = null;
-    try {
-      const installationInfoResponse = await fetch(`https://api.github.com/app/installations/${installation_id}`, {
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': `Bearer ${appJWT}`,
-          'User-Agent': 'Redstring-GitHubApp-Server/1.0'
-        }
-      });
-      if (installationInfoResponse.ok) {
-        const installationInfo = await installationInfoResponse.json();
-        account = installationInfo?.account || null;
-      } else {
-        const text = await installationInfoResponse.text().catch(() => '');
-        logger.warn('[GitHubApp] Failed to fetch installation info:', installationInfoResponse.status, text);
-      }
-    } catch (infoError) {
-      logger.warn('[GitHubApp] Installation info fetch error:', infoError.message);
-    }
 
     let repositories = [];
     try {
@@ -1904,74 +1905,36 @@ app.post('/api/github/app/installation-token', async (req, res) => {
           repositories = repoData.repositories;
         }
       } else {
-        const text = await reposResponse.text().catch(() => '');
-        logger.warn('[GitHubApp] Failed to fetch installation repositories:', reposResponse.status, text);
+        logger.warn('[GitHubApp] Failed to fetch installation repositories:', reposResponse.status);
       }
     } catch (repoError) {
       logger.warn('[GitHubApp] Installation repositories fetch error:', repoError.message);
     }
 
-    const tokenExpiresAtTs = tokenData.expires_at
-      ? new Date(tokenData.expires_at).getTime()
-      : null;
-
-    if (verificationRecord) {
-      const numericInstallationId = Number(installation_id);
-      verificationRecord = {
-        ...verificationRecord,
-        installationAccount: account?.login || verificationRecord.installationAccount || null,
-        installationId: verificationRecord.installationId ?? (Number.isFinite(numericInstallationId) ? numericInstallationId : null),
-        checkedAt: Date.now()
-      };
-    }
-
-    let storedInstallation = null;
-    try {
-      storedInstallation = tokenVault.setGitHubAppInstallation({
-        installationId: installation_id,
-        accessToken: tokenData.token,
-        tokenExpiresAt: tokenExpiresAtTs,
-        repositories,
-        account,
-        permissions: tokenData.permissions || null,
-        verification: verificationRecord || null
-      });
-    } catch (vaultError) {
-      logger.warn('[GitHubApp] Failed to persist GitHub App credentials:', vaultError.message);
-      storedInstallation = {
-        installationId: installation_id,
-        accessToken: tokenData.token,
-        tokenExpiresAt: tokenExpiresAtTs,
-        repositories,
-        account,
-        permissions: tokenData.permissions || null,
-        verification: verificationRecord || null
-      };
-    }
-
-    const verificationForResponse = formatVerificationForResponse(
-      storedInstallation?.verification || verificationRecord || null
-    );
-
-    const responsePayload = {
+    res.json({
       token: tokenData.token,
       expires_at: tokenData.expires_at,
       permissions: tokenData.permissions,
-      account,
+      account: installation.account || null,
       repositories,
-      service: 'oauth-server'
-    };
-
-    if (verificationForResponse) {
-      responsePayload.verification = verificationForResponse;
-    }
-
-    res.json(responsePayload);
+      service: 'oauth-server',
+      verification: {
+        status: 'verified',
+        oauthLogin: user.login,
+        installationId,
+        checkedInstallationId: installationId,
+        installationAccount: installation.account?.login || null,
+        targetType: installation.target_type,
+        appId: installation.app_id,
+        checkedAt: new Date().toISOString()
+      }
+    });
 
   } catch (error) {
     console.error('[GitHubApp] Installation token generation failed:', error);
     res.status(500).json({
-      error: error.message,
+      error: 'Internal error',
+      code: 'internal_error',
       service: 'oauth-server'
     });
   }
@@ -2044,6 +2007,7 @@ app.get('/api/github/app/installations', async (req, res) => {
     if (!installsForFiltering) {
       // Step 1: verify who this OAuth token belongs to.
       let oauthLogin = null;
+      let oauthUserId = null;
       try {
         const userResp = await fetch('https://api.github.com/user', {
           headers: {
@@ -2055,18 +2019,19 @@ app.get('/api/github/app/installations', async (req, res) => {
         if (userResp.ok) {
           const userJson = await userResp.json().catch(() => null);
           oauthLogin = userJson?.login || null;
+          oauthUserId = isPositiveSafeInt(userJson?.id) ? userJson.id : null;
         }
       } catch (e) {
         logger.warn('[GitHubApp] OAuth /user lookup failed during fallback:', e?.message || e);
       }
 
-      if (!oauthLogin) {
-        // Can't identify caller at all → can't safely scope. Pass through
-        // the original 403 so the client surfaces it.
-        return res.status(primaryFailure?.status || 502).json({
+      if (!oauthLogin || !oauthUserId) {
+        // Can't identify caller at all → can't safely scope.
+        logger.warn('[GitHubApp] Installation listing: caller identity unknown', primaryFailure);
+        const status = primaryFailure?.status === 401 ? 401 : primaryFailure?.status === 403 ? 403 : 502;
+        return res.status(status).json({
           error: 'Failed to list installations for OAuth user',
-          details: primaryFailure?.details || 'Could not identify OAuth user via /user fallback',
-          reason: primaryFailure?.reason || 'fallback_identity_unknown',
+          code: status === 401 ? 'oauth_invalid' : 'identity_unknown',
           service: 'oauth-server'
         });
       }
@@ -2106,14 +2071,12 @@ app.get('/api/github/app/installations', async (req, res) => {
         }
       }
 
-      // Step 3: KEEP ONLY installs whose account login matches the OAuth
-      // user (case-insensitive). This is the privacy guarantee that
-      // replaces /user/installations' built-in scoping.
-      const loginLc = oauthLogin.toLowerCase();
-      installsForFiltering = allAppInstalls.filter((inst) => {
-        const acct = (inst?.account?.login || '').toLowerCase();
-        return acct === loginLc;
-      });
+      // Step 3: KEEP ONLY personal installs whose account id is the OAuth
+      // user's id. This is the privacy guarantee that replaces
+      // /user/installations' built-in scoping. (Ids, not logins: logins can
+      // be renamed and later re-registered by someone else.)
+      installsForFiltering = allAppInstalls.filter((inst) =>
+        inst?.target_type === 'User' && inst?.account?.id === oauthUserId && !inst?.suspended_at);
 
       logger.info('[GitHubApp] Fallback enumeration succeeded:', {
         oauthLogin,
@@ -2156,198 +2119,113 @@ app.get('/api/github/app/installations', async (req, res) => {
   }
 });
 
-// Get installation data
+// Mint an installation token for an already-verified installation (helper for
+// the two routes below). Returns the token string, or sends the error.
+async function mintVerifiedInstallationToken(res, installationId, appJWT) {
+  const tokenResponse = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/vnd.github.v3+json',
+      'Authorization': `Bearer ${appJWT}`,
+      'User-Agent': 'Redstring-GitHubApp-Server/1.0'
+    }
+  });
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text().catch(() => '');
+    logger.error('[GitHubApp] Installation token request failed:', {
+      status: tokenResponse.status,
+      installationId,
+      errorText: errorText.slice(0, 300)
+    });
+    const status = tokenResponse.status === 404 ? 404 : 502;
+    res.status(status).json({
+      error: status === 404 ? 'Installation not found' : 'Failed to generate installation token',
+      code: status === 404 ? 'installation_not_found' : 'token_mint_failed',
+      service: 'oauth-server'
+    });
+    return null;
+  }
+  const tokenData = await tokenResponse.json();
+  return tokenData?.token || null;
+}
+
+// Get installation data (S-02: ownership-gated; previously unauthenticated).
 app.get('/api/github/app/installation/:installation_id', async (req, res) => {
   try {
-    const { installation_id } = req.params;
-    
-    const useDevGet = isLocalRequest(req);
-    const appId = useDevGet
-      ? (process.env.GITHUB_APP_ID_DEV || process.env.GITHUB_APP_ID)
-      : process.env.GITHUB_APP_ID;
-    const privateKey = useDevGet
-      ? (process.env.GITHUB_APP_PRIVATE_KEY_DEV || process.env.GITHUB_APP_PRIVATE_KEY)
-      : process.env.GITHUB_APP_PRIVATE_KEY;
+    const gate = await requireInstallOwnership(req, res, req.params.installation_id);
+    if (!gate) return;
+    const { installationId, installation, appJWT } = gate;
 
-    if (!appId || !privateKey) {
-      return res.status(500).json({
-        error: 'GitHub App not configured',
-        service: 'oauth-server'
-      });
-    }
-
-    // Generate JWT for app authentication
-    const payload = {
-      iat: Math.floor(Date.now() / 1000) - 60,
-      exp: Math.floor(Date.now() / 1000) + (10 * 60),
-      iss: parseInt(appId, 10)
-    };
-
-    const appJWT = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
-
-    // Get installation data
-    const installationResponse = await fetch(`https://api.github.com/app/installations/${installation_id}`, {
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Bearer ${appJWT}`,
-        'User-Agent': 'Redstring-GitHubApp-Server/1.0'
+    // The repositories endpoint requires an installation token, not the App JWT.
+    const installationToken = await mintVerifiedInstallationToken(res, installationId, appJWT);
+    if (!installationToken) {
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Failed to generate installation token', code: 'token_mint_failed', service: 'oauth-server' });
       }
-    });
-
-    if (!installationResponse.ok) {
-      throw new Error(`GitHub API error: ${installationResponse.status}`);
+      return;
     }
 
-    const installationData = await installationResponse.json();
-
-    // First get installation access token (repositories endpoint requires installation token, not app JWT)
-    const tokenResponse = await fetch(`https://api.github.com/app/installations/${installation_id}/access_tokens`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Bearer ${appJWT}`,
-        'User-Agent': 'Redstring-GitHubApp-Server/1.0'
-      }
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      logger.error('[GitHubApp] Installation token request failed:', {
-        status: tokenResponse.status,
-        error: errorText,
-        installation_id
-      });
-      throw new Error(`Failed to get installation token: ${tokenResponse.status}`);
-    }
-
-    const tokenData = await tokenResponse.json();
-    const installationToken = tokenData.token;
-
-    // Now use installation token to get repositories (this is the correct way)
-    const reposUrl = `https://api.github.com/installation/repositories`;
-    logger.debug('[GitHubApp] Attempting to fetch repositories with installation token:', {
-      url: reposUrl,
-      installation_id,
-      hasInstallationToken: !!installationToken
-    });
-    
-    const reposResponse = await fetch(reposUrl, {
+    let repositories = [];
+    const reposResponse = await fetch('https://api.github.com/installation/repositories', {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
         'Authorization': `token ${installationToken}`,
         'User-Agent': 'Redstring-GitHubApp-Server/1.0'
       }
     });
-
-    let repositories = [];
     if (reposResponse.ok) {
       const reposData = await reposResponse.json();
-      
-      // DEBUG: Log the actual response structure to understand the issue
-      logger.debug('[GitHubApp] Repositories API response structure:', {
-        keys: Object.keys(reposData),
-        total_count: reposData.total_count,
-        repositories_length: reposData.repositories?.length,
-        full_response: JSON.stringify(reposData, null, 2)
-      });
-      
-      // GitHub API returns { total_count: N, repositories: [...] }
       repositories = reposData.repositories || [];
-      
-      // Additional logging for debugging
-      if (repositories.length === 0) {
-        logger.warn('[GitHubApp] No repositories found for installation:', installation_id);
-        logger.warn('[GitHubApp] Response total_count:', reposData.total_count);
-        logger.warn('[GitHubApp] This may indicate: 1) No repos selected during installation, 2) App lacks repository permissions, 3) All repos were deselected');
-      }
     } else {
-      const errorText = await reposResponse.text();
-      logger.error('[GitHubApp] Repositories request failed:', {
-        status: reposResponse.status,
-        error: errorText,
-        installation_id
-      });
+      logger.warn('[GitHubApp] Repositories request failed:', { status: reposResponse.status, installationId });
     }
 
     res.json({
-      installation: installationData,
+      installation,
       repositories,
-      account: installationData.account,
-      permissions: installationData.permissions,
+      account: installation.account,
+      permissions: installation.permissions,
       service: 'oauth-server'
     });
 
   } catch (error) {
     console.error('[GitHubApp] Installation data request failed:', error);
     res.status(500).json({
-      error: error.message,
+      error: 'Internal error',
+      code: 'internal_error',
       service: 'oauth-server'
     });
   }
 });
 
-// Create repository via GitHub App installation
+// Create repository via GitHub App installation (S-02: ownership-gated;
+// previously unauthenticated).
 app.post('/api/github/app/create-repository', async (req, res) => {
   try {
-    const { installation_id, name, private: isPrivate, description, auto_init } = req.body;
-    
-    if (!installation_id || !name) {
+    const { installation_id, name, private: isPrivate, description, auto_init } = req.body || {};
+
+    if (installation_id == null || installation_id === '' || !name || typeof name !== 'string') {
       return res.status(400).json({
         error: 'Installation ID and repository name are required',
+        code: 'missing_fields',
         service: 'oauth-server'
       });
     }
 
-    const useDevCreate = isLocalRequest(req);
-    const appId = useDevCreate
-      ? (process.env.GITHUB_APP_ID_DEV || process.env.GITHUB_APP_ID)
-      : process.env.GITHUB_APP_ID;
-    const privateKey = useDevCreate
-      ? (process.env.GITHUB_APP_PRIVATE_KEY_DEV || process.env.GITHUB_APP_PRIVATE_KEY)
-      : process.env.GITHUB_APP_PRIVATE_KEY;
+    const gate = await requireInstallOwnership(req, res, installation_id);
+    if (!gate) return;
+    const { installationId, appJWT } = gate;
 
-    if (!appId || !privateKey) {
-      return res.status(500).json({
-        error: 'GitHub App not configured',
-        hint: 'Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY environment variables',
-        service: 'oauth-server'
-      });
-    }
+    logger.debug('[GitHubApp] Creating repository via installation:', { installationId, name, isPrivate });
 
-    logger.debug('[GitHubApp] Creating repository via installation:', { installation_id, name, isPrivate });
-
-    // Generate JWT for app authentication
-    const payload = {
-      iat: Math.floor(Date.now() / 1000) - 60,
-      exp: Math.floor(Date.now() / 1000) + (10 * 60),
-      iss: parseInt(appId, 10)
-    };
-
-    const appJWT = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
-
-    // Get installation access token first
-    const tokenResponse = await fetch(`https://api.github.com/app/installations/${installation_id}/access_tokens`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'Authorization': `Bearer ${appJWT}`,
-        'User-Agent': 'Redstring-GitHubApp-Server/1.0'
+    const installationToken = await mintVerifiedInstallationToken(res, installationId, appJWT);
+    if (!installationToken) {
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Failed to generate installation token', code: 'token_mint_failed', service: 'oauth-server' });
       }
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      console.error('[GitHubApp] Installation token failed:', errorText);
-      return res.status(tokenResponse.status).json({
-        error: `Failed to get installation token: ${errorText}`,
-        service: 'oauth-server'
-      });
+      return;
     }
 
-    const tokenData = await tokenResponse.json();
-    const installationToken = tokenData.token;
-
-    // Create repository using the installation token
     const createRepoResponse = await fetch('https://api.github.com/user/repos', {
       method: 'POST',
       headers: {
@@ -2365,36 +2243,35 @@ app.post('/api/github/app/create-repository', async (req, res) => {
     });
 
     if (!createRepoResponse.ok) {
-      const errorText = await createRepoResponse.text();
+      const errorText = await createRepoResponse.text().catch(() => '');
       console.error('[GitHubApp] Repository creation failed:', {
         status: createRepoResponse.status,
-        statusText: createRepoResponse.statusText,
-        errorText
+        errorText: errorText.slice(0, 300)
       });
-      
-      // Return detailed error for 403 Forbidden
+
       if (createRepoResponse.status === 403) {
         return res.status(403).json({
           error: 'Repository creation forbidden',
+          code: 'repository_creation_forbidden',
           details: 'GitHub App installation does not have permission to create repositories. Please check the app permissions or create the repository manually.',
-          github_error: errorText,
           service: 'oauth-server'
         });
       }
-      
-      return res.status(createRepoResponse.status).json({
+
+      const status = createRepoResponse.status >= 400 && createRepoResponse.status < 500 ? createRepoResponse.status : 502;
+      return res.status(status).json({
         error: `Repository creation failed: ${createRepoResponse.status}`,
-        details: errorText,
+        code: 'repository_creation_failed',
         service: 'oauth-server'
       });
     }
 
     const newRepo = await createRepoResponse.json();
-    
+
     logger.info('[GitHubApp] Repository created successfully:', {
       name: newRepo.full_name,
       private: newRepo.private,
-      installation_id
+      installationId
     });
 
     res.json({
@@ -2413,7 +2290,8 @@ app.post('/api/github/app/create-repository', async (req, res) => {
   } catch (error) {
     console.error('[GitHubApp] Repository creation error:', error);
     res.status(500).json({
-      error: error.message,
+      error: 'Internal error',
+      code: 'internal_error',
       service: 'oauth-server'
     });
   }
@@ -2442,17 +2320,18 @@ app.get('/api/github/app/client-id', (req, res) => {
 // GitHub App webhook handler.
 // Defense in depth: even though the edge (app-semantic-server) verifies the
 // signature when GITHUB_WEBHOOK_SECRET is set, re-verify here in case this
-// service is ever reached directly. Behavior matches the edge — strict when
-// the secret is set, warn-and-pass when it isn't.
-const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || '';
+// service is ever reached directly. Unsigned deliveries are never accepted:
+// with no secret configured every delivery is refused (503).
+const webhookSecret = () => process.env.GITHUB_WEBHOOK_SECRET || '';
 function verifyGithubSignature(rawBody, header) {
-  if (!GITHUB_WEBHOOK_SECRET || !header || !rawBody) return false;
+  const secret = webhookSecret();
+  if (!secret || !header || !rawBody) return false;
   const expected = 'sha256=' + crypto
-    .createHmac('sha256', GITHUB_WEBHOOK_SECRET)
+    .createHmac('sha256', secret)
     .update(rawBody)
     .digest('hex');
   const a = Buffer.from(expected);
-  const b = Buffer.from(header);
+  const b = Buffer.from(String(header));
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
 }
@@ -2460,15 +2339,15 @@ function verifyGithubSignature(rawBody, header) {
 app.post('/api/github/app/webhook', async (req, res) => {
   const event = req.headers['x-github-event'];
   const signature = req.headers['x-hub-signature-256'];
-  const payload = req.body;
+  const payload = req.body || {};
 
-  if (GITHUB_WEBHOOK_SECRET) {
-    if (!verifyGithubSignature(req.rawBody, signature)) {
-      logger.warn('[GitHubApp] Invalid webhook signature, rejecting', { event });
-      return res.status(401).json({ error: 'Invalid signature' });
-    }
-  } else {
-    logger.warn('[GitHubApp] GITHUB_WEBHOOK_SECRET not set — accepting unverified webhook');
+  if (!webhookSecret()) {
+    logger.warn('[GitHubApp] GITHUB_WEBHOOK_SECRET not set — refusing webhook delivery', { event });
+    return res.status(503).json({ error: 'Webhook not configured', code: 'webhook_not_configured' });
+  }
+  if (!verifyGithubSignature(req.rawBody, signature)) {
+    logger.warn('[GitHubApp] Invalid webhook signature, rejecting', { event });
+    return res.status(401).json({ error: 'Invalid signature', code: 'invalid_signature' });
   }
 
   logger.debug('[GitHubApp] Webhook received:', {
@@ -2505,53 +2384,84 @@ app.post('/api/github/app/webhook', async (req, res) => {
   res.status(200).json({ received: true });
 });
 
-// Start server
-app.listen(PORT, () => {
-  logger.info(`🔐 OAuth Server running on port ${PORT}`);
-  logger.info(`📋 Health check: http://localhost:${PORT}/health`);
+// Start server — only when run directly (`node oauth-server.js`), so tests can
+// import the app without binding a port.
+//
+// S-52: binds to loopback by default. The server is normally reached through
+// an in-container proxy (app-semantic-server → http://localhost:3002) or by a
+// local Vite dev server; a deployment that must accept outside connections (a
+// standalone Cloud Run service) opts in with OAUTH_BIND_HOST=0.0.0.0.
+// (Not OAUTH_HOST: app-semantic-server already uses that name for the REMOTE
+// oauth host it proxies to, and both processes share one environment.)
+const BIND_HOST = process.env.OAUTH_BIND_HOST || '127.0.0.1';
+const HOST = BIND_HOST;
 
-  // STATELESS MODE INFO
-  if (ENABLE_SERVER_PERSISTENCE) {
-    logger.warn('⚠️  Server persistence ENABLED - user tokens stored on server');
-    logger.warn('⚠️  This is NOT recommended for production (ephemeral filesystem on Cloud Run)');
-  } else {
-    logger.info('✅ STATELESS MODE - User data stays in browser localStorage');
-    logger.info('✅ Server only facilitates OAuth exchange, does NOT persist tokens');
-    logger.info('✅ Perfect for Cloud Run ephemeral containers!');
+const isMainModule = (() => {
+  try {
+    if (!process.argv[1]) return false;
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(pathResolve(process.argv[1]));
+  } catch {
+    return false;
   }
+})();
 
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
-  const appId = process.env.GITHUB_APP_ID;
-  const privateKey = process.env.GITHUB_APP_PRIVATE_KEY;
-
-  if (clientId && clientSecret) {
-    logger.info('✅ GitHub OAuth configured');
-    logger.debug(`📋 Client ID length: ${clientId.length}`);
-    logger.debug(`📋 Client Secret length: ${clientSecret.length}`);
-  } else {
-    logger.warn('⚠️  GitHub OAuth not configured - set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET');
+if (isMainModule) {
+  // `localhost` can resolve to ::1 first; when bound to the IPv4 loopback by
+  // default, also listen on the IPv6 loopback (best effort) so clients that
+  // dial http://localhost:3002 connect either way.
+  if (HOST === '127.0.0.1') {
+    const v6 = app.listen(PORT, '::1');
+    v6.on('error', () => { /* no IPv6 loopback here — IPv4 is enough */ });
   }
+  app.listen(PORT, HOST, () => {
+    logger.info(`🔐 OAuth Server running on ${HOST}:${PORT}`);
+    logger.info(`📋 Health check: http://localhost:${PORT}/health`);
 
-  if (appId && privateKey) {
-    logger.info('✅ GitHub App configured');
-    logger.debug(`📋 App ID: ${appId}`);
-    logger.debug(`📋 Private Key length: ${privateKey.length}`);
-    if (process.env.PRIVATE_KEY_PATH) {
-      logger.info(`  Key loaded from file: ${process.env.PRIVATE_KEY_PATH}`);
+    // STATELESS MODE INFO
+    if (ENABLE_SERVER_PERSISTENCE) {
+      logger.warn('⚠️  Server persistence ENABLED - user tokens stored on server');
+      logger.warn('⚠️  This is NOT recommended for production (ephemeral filesystem on Cloud Run)');
+    } else {
+      logger.info('✅ STATELESS MODE - User data stays in browser localStorage');
+      logger.info('✅ Server only facilitates OAuth exchange, does NOT persist tokens');
+      logger.info('✅ Perfect for Cloud Run ephemeral containers!');
     }
-  } else {
-    logger.warn('⚠️  GitHub App not configured - set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY');
-    logger.warn('🔍 Check Secret Manager permissions for Cloud Run service account');
-  }
 
-  if (existsSync('github.env.local')) {
-    logger.info('  Loaded supplementary env from github.env.local');
-  }
-});
+    const clientId = process.env.GITHUB_CLIENT_ID;
+    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+    const appId = process.env.GITHUB_APP_ID;
+    const privateKey = process.env.GITHUB_APP_PRIVATE_KEY;
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('🔐 OAuth Server shutting down...');
-  process.exit(0);
-});
+    if (clientId && clientSecret) {
+      logger.info('✅ GitHub OAuth configured');
+      logger.debug(`📋 Client ID length: ${clientId.length}`);
+      logger.debug(`📋 Client Secret length: ${clientSecret.length}`);
+    } else {
+      logger.warn('⚠️  GitHub OAuth not configured - set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET');
+    }
+
+    if (appId && privateKey) {
+      logger.info('✅ GitHub App configured');
+      logger.debug(`📋 App ID: ${appId}`);
+      logger.debug(`📋 Private Key length: ${privateKey.length}`);
+      if (process.env.PRIVATE_KEY_PATH) {
+        logger.info(`  Key loaded from file: ${process.env.PRIVATE_KEY_PATH}`);
+      }
+    } else {
+      logger.warn('⚠️  GitHub App not configured - set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY');
+      logger.warn('🔍 Check Secret Manager permissions for Cloud Run service account');
+    }
+
+    if (existsSync('github.env.local')) {
+      logger.info('  Loaded supplementary env from github.env.local');
+    }
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    logger.info('🔐 OAuth Server shutting down...');
+    process.exit(0);
+  });
+}
+
+export { app, verifyInstallOwnership, parseInstallationId };

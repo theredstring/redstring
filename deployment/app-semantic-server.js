@@ -60,6 +60,13 @@ const oauthBaseUrl = OAUTH_HOST === 'localhost'
     ? OAUTH_HOST
     : `https://${OAUTH_HOST}`;
 
+// The OAuth server decides ownership from the caller's GitHub token (e.g.
+// installation-token, installation/:id, create-repository), so every proxy
+// forwards the caller's Authorization header and nothing else of theirs.
+function forwardAuth(req) {
+  return req.headers.authorization ? { Authorization: req.headers.authorization } : {};
+}
+
 // In Docker, we're in /app and dist is at /app/dist
 const distPath = path.join(process.cwd(), 'dist');
 
@@ -218,6 +225,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// Constant-time bearer check against a configured secret. Fails closed: an
+// unset secret matches nothing.
+function bearerMatches(req, secret) {
+  if (!secret) return false;
+  const auth = req.headers.authorization || '';
+  const provided = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!provided) return false;
+  const a = crypto.createHash('sha256').update(String(secret)).digest();
+  const b = crypto.createHash('sha256').update(provided).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+// Analytics reads expose users' ids, logins, IPs and activity. They require
+// `Authorization: Bearer $ANALYTICS_ADMIN_TOKEN`; with the env unset they are
+// off entirely (404), not public.
+const ANALYTICS_ADMIN_TOKEN = process.env.ANALYTICS_ADMIN_TOKEN || '';
+function requireAnalyticsAdmin(req, res, next) {
+  if (!ANALYTICS_ADMIN_TOKEN) return res.status(404).json({ error: 'Not found' });
+  if (!bearerMatches(req, ANALYTICS_ADMIN_TOKEN)) return res.status(401).json({ error: 'Unauthorized' });
+  return next();
+}
+app.use(['/api/analytics/stats', '/api/analytics/active-users', '/api/analytics/user', '/api/analytics/activity'], requireAnalyticsAdmin);
+
 // Analytics API endpoints
 app.get('/api/analytics/stats', (req, res) => {
   try {
@@ -310,20 +340,20 @@ app.post('/api/analytics/track', analyticsLimiter, (req, res) => {
 
 // Initialize AI bridge service for AI agent functionality
 import { initializeBridgeService } from '../src/services/ai-bridge-service.js';
+import { readAgentToken } from '../src/headless/agentToken.js';
+
+// The bridge service (and Committer via bridgeFetch) forward to the local agent
+// server, which requires its token (C-6). Read it per call from
+// ~/.redstring/agent.json for BRIDGE_INTERNAL_URL's port.
+globalThis.__redstringAgentTokenProvider = () => {
+  let port = 3001;
+  try { port = Number(new URL(process.env.BRIDGE_INTERNAL_URL || 'http://localhost:3001').port) || 3001; } catch { /* default */ }
+  return readAgentToken({ port });
+};
 
 logger.info('[App] Initializing AI bridge service...');
 initializeBridgeService(app, { logger });
 logger.info('[App] AI bridge service ready');
-
-// =============================================================================
-// AI Agent Proxy Endpoints (for Cloud Run)
-// =============================================================================
-
-// In Cloud Run, the bridge daemon runs on localhost:3001 inside the container
-// We need to proxy AI agent requests from the public port (4000) to the internal bridge
-const BRIDGE_INTERNAL_URL = process.env.BRIDGE_INTERNAL_URL || 'http://localhost:3001';
-
-logger.info(`[App] Setting up MCP bridge proxy to ${BRIDGE_INTERNAL_URL}`);
 
 // The wizard's agent loop, Wikipedia enrichment and one-shot chat all run in
 // the browser now (src/wizard/runWizardInProcess.js), so the proxies that used
@@ -332,63 +362,10 @@ logger.info(`[App] Setting up MCP bridge proxy to ${BRIDGE_INTERNAL_URL}`);
 // had none even before that: wizard-server never implemented those routes, so
 // the proxy answered every request with a 404 from upstream.
 //
-// What stays below is the MCP bridge, which remains a local/Electron feature.
-
-// MCP endpoint proxy (for Claude Desktop compatibility)
-app.post('/api/mcp/request', strictLimiter, async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/mcp/request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[MCP Proxy] Error:', error);
-    res.status(503).json({ error: 'MCP service unavailable', details: error.message });
-  }
-});
-
-logger.info('[App] AI agent proxy endpoints configured');
-
-// Bridge state sync endpoints (CRITICAL for edits to work)
-app.post('/api/bridge/state', async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/bridge/state`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(req.body)
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[Bridge State Proxy] Error:', error);
-    res.status(503).json({ error: 'Bridge state sync unavailable', details: error.message });
-  }
-});
-
-app.get('/api/bridge/actions', async (req, res) => {
-  try {
-    const response = await fetch(`${BRIDGE_INTERNAL_URL}/api/bridge/actions`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch (error) {
-    logger.error('[Bridge Actions Proxy] Error:', error);
-    res.status(503).json({ error: 'Bridge actions unavailable', details: error.message });
-  }
-});
-
-logger.info('[App] Bridge state sync proxy endpoints configured');
+// The MCP-request and bridge-state/actions proxies that used to be here were
+// removed: they relayed unauthenticated internet requests into the local agent
+// server, whose state is per-machine and which now requires its own token (C-6).
+// The MCP bridge is a local/Electron feature; clients reach it on localhost.
 
 // =============================================================================
 // OAuth Proxy Endpoints
@@ -397,7 +374,7 @@ logger.info('[App] Bridge state sync proxy endpoints configured');
 // Proxy OAuth requests to internal OAuth server
 app.get('/api/github/oauth/client-id', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}/api/github/oauth/client-id`);
+    const response = await fetch(`${oauthBaseUrl}/api/github/oauth/client-id`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -408,7 +385,7 @@ app.get('/api/github/oauth/client-id', async (req, res) => {
 
 app.get('/api/github/oauth/health', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}/health`);
+    const response = await fetch(`${oauthBaseUrl}/health`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -423,6 +400,7 @@ app.post('/api/github/oauth/token', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -437,7 +415,7 @@ app.post('/api/github/oauth/token', async (req, res) => {
 // Secure auth state proxies
 app.get('/api/github/auth/state', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}${req.originalUrl}`);
+    const response = await fetch(`${oauthBaseUrl}${req.originalUrl}`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
@@ -448,7 +426,7 @@ app.get('/api/github/auth/state', async (req, res) => {
 
 app.get('/api/github/auth/oauth/token', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}${req.originalUrl}`);
+    const response = await fetch(`${oauthBaseUrl}${req.originalUrl}`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
@@ -463,6 +441,7 @@ app.post('/api/github/auth/oauth', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -480,6 +459,7 @@ app.delete('/api/github/auth/oauth', async (req, res) => {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       }
     });
     const data = await response.json();
@@ -492,7 +472,7 @@ app.delete('/api/github/auth/oauth', async (req, res) => {
 
 app.get('/api/github/auth/github-app', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}${req.originalUrl}`);
+    const response = await fetch(`${oauthBaseUrl}${req.originalUrl}`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
@@ -507,6 +487,7 @@ app.post('/api/github/auth/github-app', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -524,6 +505,7 @@ app.delete('/api/github/auth/github-app', async (req, res) => {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       }
     });
     const data = await response.json();
@@ -807,7 +789,7 @@ app.get('/oauth/callback', (req, res) => {
 // GitHub App client-id proxy to OAuth server
 app.get('/api/github/app/client-id', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}/api/github/app/client-id`);
+    const response = await fetch(`${oauthBaseUrl}/api/github/app/client-id`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -818,7 +800,7 @@ app.get('/api/github/app/client-id', async (req, res) => {
 
 app.get('/api/github/app/info', async (req, res) => {
   try {
-    const response = await fetch(`${oauthBaseUrl}/api/github/app/info`);
+    const response = await fetch(`${oauthBaseUrl}/api/github/app/info`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -834,6 +816,7 @@ app.post('/api/github/app/installation-token', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -848,7 +831,7 @@ app.post('/api/github/app/installation-token', async (req, res) => {
 app.get('/api/github/app/installation/:installation_id', async (req, res) => {
   try {
     const { installation_id } = req.params;
-    const response = await fetch(`${oauthBaseUrl}/api/github/app/installation/${encodeURIComponent(installation_id)}`);
+    const response = await fetch(`${oauthBaseUrl}/api/github/app/installation/${encodeURIComponent(installation_id)}`, { headers: forwardAuth(req) });
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (error) {
@@ -886,6 +869,7 @@ app.post('/api/github/app/create-repository', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -904,6 +888,7 @@ app.post('/api/github/oauth/create-repository', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -922,6 +907,7 @@ app.post('/api/github/oauth/validate', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -940,6 +926,7 @@ app.post('/api/github/oauth/refresh', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -996,6 +983,7 @@ app.post('/api/github/app/webhook', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
         'x-github-event': req.headers['x-github-event'] || '',
         'x-hub-signature-256': signature,
         'x-github-delivery': req.headers['x-github-delivery'] || ''
@@ -1017,6 +1005,7 @@ app.delete('/api/github/oauth/revoke', async (req, res) => {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
+        ...forwardAuth(req),
       },
       body: JSON.stringify(req.body)
     });
@@ -1322,23 +1311,19 @@ app.get(['/semantic/universe.ttl', '/semantic/:slug/universe.ttl'], async (req, 
 
 // Update universe via JSON-LD (bidirectional sync entry point).
 //
-// Tenancy guard: when UNIVERSE_WRITE_TOKEN is set, callers must present
-// `Authorization: Bearer <token>` to overwrite a universe file. When unset,
-// writes are allowed but logged as a warning — set the token in production
-// to prevent anonymous overwrites of arbitrary `:slug` universe files.
+// Tenancy guard: callers must present `Authorization: Bearer <token>` matching
+// UNIVERSE_WRITE_TOKEN to overwrite a universe file. Fails closed: with the
+// env unset, writes are disabled (503) rather than anonymous.
 const UNIVERSE_WRITE_TOKEN = process.env.UNIVERSE_WRITE_TOKEN || '';
 app.post(['/semantic/universe.jsonld', '/semantic/:slug/universe.jsonld'], async (req, res) => {
   try {
     const slug = req.params.slug || DEFAULT_UNIVERSE_SLUG;
 
-    if (UNIVERSE_WRITE_TOKEN) {
-      const auth = req.headers.authorization || '';
-      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
-      if (token !== UNIVERSE_WRITE_TOKEN) {
-        return res.status(401).json({ error: 'Unauthorized universe write' });
-      }
-    } else {
-      logger.warn('[Universe Write] UNIVERSE_WRITE_TOKEN not set — accepting anonymous write', { slug });
+    if (!UNIVERSE_WRITE_TOKEN) {
+      return res.status(503).json({ error: 'Universe writes are disabled (UNIVERSE_WRITE_TOKEN not configured)' });
+    }
+    if (!bearerMatches(req, UNIVERSE_WRITE_TOKEN)) {
+      return res.status(401).json({ error: 'Unauthorized universe write' });
     }
 
     const body = req.body;
@@ -1413,8 +1398,11 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  logger.info(`🚀 Redstring server running on port ${PORT}`);
+// Loopback unless HOST is set explicitly — the container entrypoint
+// (deployment/docker/start.sh) sets HOST=0.0.0.0 for Cloud Run.
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  logger.info(`🚀 Redstring server running on ${HOST}:${PORT}`);
   logger.info(`📋 Health check: http://localhost:${PORT}/health`);
 });
 

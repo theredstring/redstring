@@ -6,3 +6,21 @@
 /deployment/ @theredstring
 /package.json @theredstring
 /LICENSE @theredstring
+
+# Security-sensitive: CI/release pipeline, desktop shell, server-side auth,
+# deploy scripts, the security tooling and its tests, and what the browser
+# enforces (CSP, response headers). See documentation/security/THREAT_MODEL.md.
+/.github/workflows/ @theredstring
+/.github/dependabot.yml @theredstring
+/.github/CODEOWNERS @theredstring
+/electron/ @theredstring
+/electron-builder.json @theredstring
+/entitlements.mac.plist @theredstring
+/functions/ @theredstring
+/scripts/cf-*.sh @theredstring
+/scripts/publish-release.sh @theredstring
+/scripts/security/ @theredstring
+/test/security/ @theredstring
+/public/_headers @theredstring
+/index.html @theredstring
+/package-lock.json @theredstring

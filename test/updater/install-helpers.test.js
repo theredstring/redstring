@@ -4,6 +4,7 @@ import {
   pickPreviousRelease,
   pickAssetForArch,
   buildSwapAndRelaunchScript,
+  buildSwapAndRelaunchArgs,
   deriveTargetBundlePath
 } from '../../electron/updater-install-helpers.cjs';
 
@@ -156,7 +157,9 @@ describe('deriveTargetBundlePath', () => {
   });
 });
 
-describe('buildSwapAndRelaunchScript', () => {
+// The script carries no data: paths, pid and log path arrive as argv ($1..$5)
+// via buildSwapAndRelaunchArgs (see test/security/electron/updaterInstall.test.js).
+describe('buildSwapAndRelaunchScript / buildSwapAndRelaunchArgs', () => {
   const baseArgs = {
     stagedBundlePath: '/tmp/staged/Redstring.app',
     targetBundlePath: '/Applications/Redstring.app',
@@ -165,47 +168,46 @@ describe('buildSwapAndRelaunchScript', () => {
   };
 
   it('throws when required args are missing', () => {
-    expect(() => buildSwapAndRelaunchScript({})).toThrow();
-    expect(() => buildSwapAndRelaunchScript({ ...baseArgs, stagedBundlePath: '' })).toThrow();
-    expect(() => buildSwapAndRelaunchScript({ ...baseArgs, parentPid: 0 })).toThrow();
+    expect(() => buildSwapAndRelaunchArgs({})).toThrow();
+    expect(() => buildSwapAndRelaunchArgs({ ...baseArgs, stagedBundlePath: '' })).toThrow();
+    expect(() => buildSwapAndRelaunchArgs({ ...baseArgs, parentPid: 0 })).toThrow();
   });
 
-  it('embeds all paths into the script', () => {
-    const script = buildSwapAndRelaunchScript(baseArgs);
-    expect(script).toContain('/tmp/staged/Redstring.app');
-    expect(script).toContain('/Applications/Redstring.app');
-    expect(script).toContain('/tmp/installer.log');
-    expect(script).toContain('12345');
+  it('passes all paths as positional arguments, not script text', () => {
+    const args = buildSwapAndRelaunchArgs(baseArgs);
+    expect(args.slice(3, 7)).toEqual(['/tmp/staged/Redstring.app', '/Applications/Redstring.app', '12345', '/tmp/installer.log']);
+    expect(args[1]).not.toContain('/tmp/staged/Redstring.app');
+    expect(args[1]).not.toContain('12345');
   });
 
   it('waits on the parent pid via kill -0', () => {
-    const script = buildSwapAndRelaunchScript(baseArgs);
-    expect(script).toContain('kill -0 12345');
+    const script = buildSwapAndRelaunchScript();
+    expect(script).toContain('kill -0 "$PARENT_PID"');
   });
 
   it('aborts if staged bundle is missing', () => {
-    const script = buildSwapAndRelaunchScript(baseArgs);
+    const script = buildSwapAndRelaunchScript();
     expect(script).toMatch(/staged bundle missing/);
   });
 
   it('clears the quarantine xattr after swap', () => {
-    const script = buildSwapAndRelaunchScript(baseArgs);
-    expect(script).toContain('xattr -dr com.apple.quarantine');
+    const script = buildSwapAndRelaunchScript();
+    expect(script).toContain('xattr -dr com.apple.quarantine "$TARGET"');
   });
 
   it('defaults to "open" as the launch command', () => {
-    const script = buildSwapAndRelaunchScript(baseArgs);
-    expect(script).toMatch(/^[^#]*?open "\/Applications\/Redstring\.app"/m);
+    const script = buildSwapAndRelaunchScript();
+    expect(script).toMatch(/^[^#]*?open "\$TARGET"/m);
   });
 
   it('honors a custom openCommand for tests', () => {
-    const script = buildSwapAndRelaunchScript({ ...baseArgs, openCommand: 'echo OPENED' });
-    expect(script).toContain('echo OPENED "/Applications/Redstring.app"');
+    const script = buildSwapAndRelaunchScript({ openCommand: 'echo OPENED' });
+    expect(script).toContain('echo OPENED "$TARGET"');
     expect(script).not.toContain('^open "');
   });
 
   it('respects maxWaitSeconds', () => {
-    const script = buildSwapAndRelaunchScript({ ...baseArgs, maxWaitSeconds: 5 });
+    const script = buildSwapAndRelaunchScript({ maxWaitSeconds: 5 });
     // 5 seconds * 2 iterations/sec = 10
     expect(script).toContain('seq 1 10');
   });

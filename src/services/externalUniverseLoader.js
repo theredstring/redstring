@@ -41,8 +41,10 @@ export function classifyUrl(input) {
     return { kind: 'invalid', reason: 'Not a valid URL' };
   }
 
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    return { kind: 'invalid', reason: 'URL must use http or https' };
+  // https only: a universe fetched over plain http can be rewritten by anyone
+  // on the network path before it is imported.
+  if (url.protocol !== 'https:') {
+    return { kind: 'invalid', reason: 'URL must use https' };
   }
 
   const host = url.hostname.toLowerCase();
@@ -102,16 +104,97 @@ export function classifyUrl(input) {
   return { kind: 'invalid', reason: 'URL must end in .redstring or be a GitHub URL' };
 }
 
+const MB = 1024 * 1024;
+
+/**
+ * Largest file we will download from a link. A phone's web view has far less
+ * memory to hold the text, the parse and the imported store at once.
+ */
+export const maxExternalUniverseBytes = () => {
+  const native = typeof window !== 'undefined'
+    && typeof window.Capacitor?.isNativePlatform === 'function'
+    && window.Capacitor.isNativePlatform() === true;
+  return native ? 25 * MB : 50 * MB;
+};
+
+/** Deepest bracket nesting accepted. Real .redstring files sit well under 32. */
+export const MAX_JSON_DEPTH = 256;
+
+/**
+ * Deepest `{`/`[` nesting in a JSON text, ignoring brackets inside strings.
+ * Linear and allocation-free, so it runs before JSON.parse and the recursive
+ * import walkers ever see a pathologically nested document.
+ */
+export function jsonNestingDepth(text) {
+  let depth = 0;
+  let max = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (inString) {
+      if (c === 92 /* \ */) i++;
+      else if (c === 34 /* " */) inString = false;
+      continue;
+    }
+    if (c === 34) inString = true;
+    else if (c === 123 || c === 91) { if (++depth > max) max = depth; }
+    else if (c === 125 || c === 93) depth--;
+  }
+  return max;
+}
+
+const tooLarge = (limit) => new Error(`File is too large to load from a link (over ${Math.round(limit / MB)} MB)`);
+
+/** Read a response body as text, refusing to buffer more than `limit` bytes. */
+async function readTextCapped(res, limit) {
+  const declared = Number(res.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > limit) throw tooLarge(limit);
+
+  if (!res.body?.getReader) {
+    const text = await res.text();
+    // UTF-16 length is a lower bound on the byte count, good enough as a cap.
+    if (text.length > limit) throw tooLarge(limit);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  const parts = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      try { await reader.cancel(); } catch { /* already closed */ }
+      throw tooLarge(limit);
+    }
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  parts.push(decoder.decode());
+  return parts.join('');
+}
+
 /**
  * Fetch and parse a .redstring file from a direct URL.
  *
- * @param {string} rawUrl
+ * @param {string} rawUrl - must be https
+ * @param {{ maxBytes?: number }} [options]
  * @returns {Promise<object>} parsed JSON ready for importFromRedstring()
  */
-export async function fetchRedstringJson(rawUrl) {
+export async function fetchRedstringJson(rawUrl, { maxBytes = maxExternalUniverseBytes() } = {}) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(String(rawUrl));
+  } catch {
+    throw new Error('Not a valid URL');
+  }
+  if (parsedUrl.protocol !== 'https:') {
+    throw new Error('URL must use https');
+  }
+
   let res;
   try {
-    res = await fetch(rawUrl);
+    res = await fetch(parsedUrl.href, { credentials: 'omit' });
   } catch (err) {
     throw new Error(`Network error: ${err.message || err}`);
   }
@@ -120,9 +203,13 @@ export async function fetchRedstringJson(rawUrl) {
     throw new Error(`Fetch failed: HTTP ${res.status} ${res.statusText}`);
   }
 
-  const text = await res.text();
+  const text = await readTextCapped(res, maxBytes);
   if (!text || !text.trim()) {
     throw new Error('File is empty');
+  }
+
+  if (jsonNestingDepth(text) > MAX_JSON_DEPTH) {
+    throw new Error('Invalid JSON: nested too deeply to be a Redstring file');
   }
 
   try {

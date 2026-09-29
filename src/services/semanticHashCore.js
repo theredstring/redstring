@@ -5,6 +5,7 @@
  */
 
 import jsonld from 'jsonld';
+import { JSONLD_SAFE_OPTIONS } from '../formats/jsonldLoader.js';
 
 export async function sha256hex(str) {
   const buf = await globalThis.crypto.subtle.digest(
@@ -54,6 +55,9 @@ export async function semanticHash(doc) {
     algorithm: 'URDNA2015',
     format: 'application/n-quads',
     safe: false,
+    // The doc can be someone else's file: its remote @context URLs resolve
+    // only from the vocabulary allowlist.
+    ...JSONLD_SAFE_OPTIONS,
   });
   return sha256hex(nq);
 }

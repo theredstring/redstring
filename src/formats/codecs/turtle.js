@@ -10,6 +10,7 @@
  */
 
 import jsonld from 'jsonld';
+import { JSONLD_SAFE_OPTIONS } from '../jsonldLoader.js';
 import { exportToRedstring } from '../redstringFormat.js';
 
 const PREFIXES = [
@@ -66,7 +67,7 @@ function termStr(term) {
  */
 export async function toTurtle(storeState, { emitV4 = false } = {}) {
   const doc = exportToRedstring(storeState, null, { emitV4 });
-  const dataset = await jsonld.toRDF(doc, { safe: false });
+  const dataset = await jsonld.toRDF(doc, { safe: false, ...JSONLD_SAFE_OPTIONS });
 
   // Group triples: subject → predicate → object[]  (insertion-order preserved).
   const subjectMap = new Map();

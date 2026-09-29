@@ -21,6 +21,7 @@ import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.
 import { HEADER_HEIGHT } from '../../../constants.js';
 import { formatPredicate } from '../../../utils/predicateFormatter.js';
 import titleCaseName from '../../../utils/titleCaseName.js';
+import { sanitizeColor } from '../../../utils/safeColor.js';
 
 // Left Semantic Discovery View - Concept Discovery Engine
 
@@ -229,7 +230,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
   const open = () => onOpen(item);
   const theme = useTheme();
   const isPage = item.kind === 'concept';
-  const pageColor = item.concept?.color || theme.accent.primary;
+  const pageColor = sanitizeColor(item.concept?.color, theme.accent.primary);
 
   return (
     <div

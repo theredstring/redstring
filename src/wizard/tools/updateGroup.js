@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { sanitizeColor } from '../../utils/safeColor.js';
 
 // Every tool field is sent as required (see LLMClient makeAllRequired), so
 // models fill the ones they aren't changing with "". A blank string is "not
@@ -65,7 +66,8 @@ export async function updateGroup(args, graphState, cid, ensureSchedulerStarted)
 
   const updates = {};
   if (given(newName)) updates.name = newName;
-  if (given(newColor)) updates.color = newColor;
+  // Only a plain colour: it lands in inline styles. Anything else is ignored.
+  if (given(newColor) && sanitizeColor(newColor) !== null) updates.color = sanitizeColor(newColor);
   if (addMembers.length > 0) updates.addMembers = addMembers;
   if (removeMembers.length > 0) updates.removeMembers = removeMembers;
 

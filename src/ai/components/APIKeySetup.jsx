@@ -3,6 +3,8 @@ import { Key, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, Settings, Tra
 import apiKeyManager from '../../services/apiKeyManager.js';
 import { useProviderModels } from '../../hooks/useProviderModels.js';
 import './APIKeySetup.css';
+// Installs the one-time "who receives what" consent in front of every AI request.
+import '../aiConsentPrompt.js';
 
 const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   const [apiKey, setApiKey] = useState('');

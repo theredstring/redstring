@@ -13,6 +13,7 @@ import { wrapTextToLines } from '../services/textMeasurement.js';
 import { getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
 import { resolveEdgeLabelFontSize, estimateEdgeLabelWidth } from '../services/layoutGeometry.js';
 import { POLY_TIP } from '../utils/canvas/edgeRouting.js';
+import { safeImageSrc } from '../utils/safeUrl.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -493,7 +494,8 @@ const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
 
   const label = candidate.name || 'Untitled';
   const fill = candidate.color || NODE_DEFAULT_COLOR;
-  const hasImage = Boolean(candidate.imageSrc);
+  const imageSrc = safeImageSrc(candidate.imageSrc);
+  const hasImage = Boolean(imageSrc);
 
   const { currentWidth, currentHeight, scaledCornerRadius } = dims;
   const effectiveCornerRadius = scaledCornerRadius || NODE_CORNER_RADIUS;
@@ -580,7 +582,7 @@ const DraggableOrbitItem = React.memo(function DraggableOrbitItem({
           y={y}
           width={currentWidth}
           height={currentHeight}
-          href={candidate.imageSrc}
+          href={imageSrc}
           preserveAspectRatio="xMidYMid slice"
           clipPath={`url(#orbit-image-clip-${candidate.id})`}
           style={{ pointerEvents: 'none' }}

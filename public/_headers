@@ -1,0 +1,28 @@
+# Cloudflare Pages response headers for static assets (S-11).
+#
+# Applies to files served from dist/ only — NOT to Pages Function responses
+# (/api/github/*, /github/app/callback), which set their own headers in
+# functions/. The full Content-Security-Policy lives in index.html as a
+# <meta> tag so web, Electron and Capacitor share one policy; only the
+# directives a <meta> CSP cannot carry (frame-ancestors) are sent here.
+#
+# When two rules match, Pages joins repeated header values with ", ". For
+# Referrer-Policy that is well defined: the last recognised token wins, so
+# /oauth/* ends up with no-referrer.
+
+/*
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: accelerometer=(), browsing-topics=(), camera=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), serial=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+
+# The OAuth callback page carries ?code=&state= in its URL: never leak it in
+# a Referer. COOP is detached here so a popup-based callback (the page's
+# window.opener branch) keeps its opener; the SPA's own flow is a full-page
+# redirect and is unaffected either way.
+/oauth/*
+  Referrer-Policy: no-referrer
+  ! Cross-Origin-Opener-Policy

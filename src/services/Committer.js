@@ -486,8 +486,8 @@ class CommitterService {
                       : []
                   };
 
-                  // Get API credentials
-                  console.log(`[Committer] Debug Meta:`, JSON.stringify(unseen[0]?.meta || {}));
+                  // Get API credentials — from the live in-memory patch only (the
+                  // queue journal never stores them). Never log meta: it holds the key.
                   const apiKey = unseen[0]?.meta?.apiKey;
                   const apiConfig = unseen[0]?.meta?.apiConfig;
 

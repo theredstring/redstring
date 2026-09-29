@@ -1,0 +1,27 @@
+{
+  "_readme": [
+    "Justified exceptions to the security invariants in test/security/invariants/*.test.js.",
+    "Each entry: { \"rule\": \"<rule id>\", \"file\": \"<repo-relative path>\", \"contains\"?: \"<text in the violation>\", \"reason\": \"<why this is safe>\" }.",
+    "The reason must say why the flagged code cannot be reached by untrusted input (not just 'false positive').",
+    "Entries that no longer match anything fail the test: delete them in the same change that fixes the code.",
+    "Rule ids and what they mean: test/security/invariants/_lib/rules.js. How to add one: test/security/README.md."
+  ],
+  "entries": [
+    {
+      "rule": "renderer/anchor-href",
+      "file": "src/ai/components/APIKeySetup.jsx",
+      "contains": "selectedPreset.docsUrl",
+      "reason": "selectedPreset is one of the hardcoded local-LLM presets in src/services/apiKeyManager.js (docsUrl is a fixed https:// constant or null); no user, file or network data reaches it."
+    },
+    {
+      "rule": "meta/unparseable",
+      "file": "src/components/repositories/RepositoryList.jsx",
+      "reason": "Syntax error in its lucide-react import ('Eye Off'); already listed as unparseable in test/known-undefined-names.json. Vite would fail to build if it were reachable, so it is not in any bundle. Fix the import and delete this entry; its <a href={repo.html_url}> then needs safeExternalHref."
+    },
+    {
+      "rule": "meta/unparseable",
+      "file": "src/examples/UniverseManagerPureUI.jsx",
+      "reason": "Example file with literal \\n escapes in its JSX; listed as unparseable in test/known-undefined-names.json and not imported by the app, so it is not in any bundle."
+    }
+  ]
+}

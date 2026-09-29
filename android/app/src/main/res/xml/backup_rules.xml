@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 and below. allowBackup="false" already turns Auto Backup off;
+  these rules are the second line if that flag is ever flipped: the WebView
+  store (tokens, keys, universe metadata) and the secure-storage prefs are
+  never backed up.
+-->
+<full-backup-content>
+    <exclude domain="root" path="app_webview/" />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+</full-backup-content>

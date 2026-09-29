@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
+import { safeImageSrc } from './utils/safeUrl.js';
 
 const PlusSign = ({
   plusSign,
@@ -466,7 +467,7 @@ const PlusSign = ({
             y={-height / 2 + height * targetImage.fy}
             width={width * targetImage.fw}
             height={height * targetImage.fh}
-            href={targetImage.src}
+            href={safeImageSrc(targetImage.src) || undefined}
             preserveAspectRatio="xMidYMid slice"
             clipPath={`url(#${clipId})`}
             opacity={textOpacity}

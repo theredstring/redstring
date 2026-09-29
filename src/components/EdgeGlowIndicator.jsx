@@ -4,6 +4,11 @@ import { getNodeDimensions } from '../utils';
 import { NODE_HEIGHT } from '../constants';
 import useGraphStore from '../store/graphStore.js';
 import { resolveEdgeGlowQuality, clampEdgeGlowIntensity } from '../utils/colorUtils.js';
+import { toHex6Color } from '../utils/safeColor.js';
+
+// The flare CSS appends its own alpha bytes to the colour, so it needs a bare
+// #rrggbb; anything else (including anything unsafe) is the default maroon.
+const glowColor = (value) => toHex6Color(value, '#8B0000');
 
 // Where the canvas coordinate system's origin sits inside the 100k x 100k sheet.
 // NodeCanvas draws with offsetX/offsetY of -50000, so a node at canvas (0,0) is
@@ -85,7 +90,10 @@ const hex2 = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padSt
  * flares number in the dozens, none of those p90s exist. Which one you get is
  * now the edgeGlowMode setting's business, not this function's.
  */
-const getFlareCss = (color, intensity, isExclusiveMode, quality, strength) => {
+const getFlareCss = (rawColor, intensity, isExclusiveMode, quality, strength) => {
+  // The colour is concatenated into a cssText string, so it must be a bare
+  // hex colour: anything else could close the declaration and add its own.
+  const color = glowColor(rawColor);
   const key = `${color}|${intensity}|${isExclusiveMode ? 1 : 0}|${quality}|${strength}`;
   const hit = glowStyleCache.get(key);
   if (hit) return hit;
@@ -246,7 +254,7 @@ const EdgeGlowIndicator = ({
 
       cx[i] = node.x + dims.currentWidth / 2;
       cy[i] = node.y + (isNodePreviewing ? NODE_HEIGHT / 2 : dims.currentHeight / 2);
-      colors[i] = node.color || node.prototype?.color || '#8B0000';
+      colors[i] = glowColor(node.color || node.prototype?.color);
       ids[i] = node.id;
       labels[i] = node.name || node.prototype?.name || node.id;
     }

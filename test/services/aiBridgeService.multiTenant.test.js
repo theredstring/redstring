@@ -47,6 +47,7 @@ const STATEFUL_GETS = [
 
 const STATEFUL_POSTS = [
   '/api/bridge/state',
+  '/api/bridge/pending-actions',
   '/api/bridge/layout',
   '/api/bridge/register-store',
   '/api/bridge/action-completed',

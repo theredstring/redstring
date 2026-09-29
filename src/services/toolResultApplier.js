@@ -33,6 +33,9 @@ import { bestNameMatch } from '../wizard/tools/utils/nameMatch.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { attachOneShotOutcome } from './oneShot.js';
+import { sanitizeColor } from '../utils/safeColor.js';
+import { normalizeIdentifier } from '../wizard/tools/linkIdentifier.js';
+import { classifyForConfirmation, holdForConfirmation, takePending } from './wizardConfirmationGate.js';
 
 // Part B — structure-review follow-through. The most recent build's group/fold
 // suggestions (with their one-shot callIds) are held here; when the user's next
@@ -899,12 +902,98 @@ export function setWizardProvenanceContext(ctx) {
 }
 const wizardSemanticMetadata = () => (__wizardProvenance ? { provenance: { ...__wizardProvenance } } : undefined);
 
-export function applyToolResultToStore(toolName, result, toolCallId, conversationId) {
-  console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', result?.action, 'hasSpec:', !!result?.spec);
-  if (!result || result.error) {
-    console.warn('[Wizard] applyToolResultToStore: skipping — no result or error:', result?.error);
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const COLOR_KEY = /colou?r$/i;
+
+/**
+ * A copy of a tool result that is safe to write into the store.
+ *
+ * Tool results are model output, and the model reads text it didn't write, so
+ * a result is untrusted the same way a file is: colour fields must be plain
+ * colours (they reach inline styles and cssText), and prototype-polluting keys
+ * are dropped. An unsafe colour becomes undefined, which every handler below
+ * already treats as "not given".
+ */
+export function sanitizeToolResult(value, depth = 0) {
+  if (depth > 32 || value === null || typeof value !== 'object') return value;
+  if (value instanceof Map || value instanceof Set || value instanceof Date) return value;
+  if (Array.isArray(value)) return value.map((item) => sanitizeToolResult(item, depth + 1));
+  const out = {};
+  for (const [key, inner] of Object.entries(value)) {
+    if (DANGEROUS_KEYS.has(key)) continue;
+    if (COLOR_KEY.test(key) && typeof inner === 'string' && inner.trim() !== '') {
+      const safe = sanitizeColor(inner);
+      if (safe === null) continue;
+      out[key] = safe;
+      continue;
+    }
+    out[key] = sanitizeToolResult(inner, depth + 1);
+  }
+  return out;
+}
+
+/**
+ * Apply or drop changes held by the confirmation gate
+ * (wizardConfirmationGate.js). Allowed changes go through this same applier,
+ * as one undo step.
+ *
+ * @param {string[]} ids - held entry ids
+ * @param {boolean} allow
+ */
+export function resolveHeldWizardChanges(ids, allow) {
+  const entries = takePending(ids);
+  if (entries.length === 0) return;
+  if (!allow) {
+    dispatchWizardToolFailed(
+      entries[0].toolName,
+      entries.length === 1
+        ? `you chose not to allow it (${entries[0].summary}).`
+        : `you chose not to allow ${entries.length} changes (${entries.map((e) => e.summary).slice(0, 3).join('; ')}${entries.length > 3 ? '; …' : ''}).`,
+      entries[0].result
+    );
     return;
   }
+  const applyAll = () => {
+    for (const entry of entries) {
+      applyToolResultToStore(entry.toolName, entry.result, entry.toolCallId, entry.conversationId, { confirmed: true });
+    }
+  };
+  const store = useGraphStore.getState();
+  if (entries.length > 1 && typeof store.withHistoryTransaction === 'function') {
+    store.withHistoryTransaction(`Wizard: ${entries.length} confirmed changes`, applyAll);
+  } else {
+    applyAll();
+  }
+}
+
+export function applyToolResultToStore(toolName, rawResult, toolCallId, conversationId, { confirmed = false } = {}) {
+  console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', rawResult?.action, 'hasSpec:', !!rawResult?.spec);
+  if (!rawResult || rawResult.error) {
+    console.warn('[Wizard] applyToolResultToStore: skipping — no result or error:', rawResult?.error);
+    return;
+  }
+  const result = sanitizeToolResult(rawResult);
+
+  // Deleting a web, or more than a handful of Things in one reply, waits for
+  // the person's OK (wizardConfirmationGate.js). Browser only.
+  if (!confirmed) {
+    const holdKind = classifyForConfirmation(toolName, result, conversationId);
+    if (holdKind) {
+      // Tools report webs by id; the question should name them.
+      const graphs = useGraphStore.getState().graphs;
+      const nameOf = (id) => (id && graphs?.get?.(id)?.name) || undefined;
+      const named = {
+        ...result,
+        graphName: result.graphName || nameOf(result.graphId),
+        sourceGraphName: result.sourceGraphName || nameOf(result.sourceGraphId),
+        targetGraphName: result.targetGraphName || nameOf(result.targetGraphId),
+      };
+      holdForConfirmation({ toolName, result: named, toolCallId, conversationId, kind: holdKind });
+      console.log('[Wizard] Holding', result.action || toolName, 'for confirmation (' + holdKind + ')');
+      return;
+    }
+  }
+
   const store = useGraphStore.getState();
 
   // Remember any structure-review suggestions this build surfaced, so a later
@@ -2058,7 +2147,9 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
 
     const proto = store.nodePrototypes.get(realProtoId);
     const newDefIds = (proto.definitionGraphIds || []).filter(id => id !== result.graphId);
-    store.updateNodePrototype(realProtoId, { definitionGraphIds: newDefIds });
+    // updateNodePrototype takes an Immer recipe; an object here threw
+    // "recipe is not a function" before the graph was ever deleted.
+    store.updateNodePrototype(realProtoId, (draft) => { draft.definitionGraphIds = newDefIds; });
     store.deleteGraph(result.graphId);
     console.log('[Wizard] Successfully removed definition graph:', result.graphId, 'from:', result.nodeName);
     return;
@@ -2552,6 +2643,8 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     if (!graphId) return;
 
     for (const update of (result.updates || [])) {
+      // sanitizeToolResult dropped any colour that isn't a plain colour.
+      if (update?.color === undefined) continue;
       store.updateNodePrototype(update.prototypeId, (draft) => {
         draft.color = update.color;
       });
@@ -2582,7 +2675,16 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     // handler (components/panel/AboutSection.jsx) written against the store.
     // The tool already validated each URL and checked any DOI against its
     // registry; this half is the write.
-    const links = Array.isArray(result.links) ? result.links : [];
+    //
+    // Re-read here all the same: a result can also arrive over the MCP bridge,
+    // and a link is only ever a web URL or a doi:/pubmed:/wd: identifier
+    // (normalizeIdentifier). `javascript:` and friends never reach the store.
+    const links = (Array.isArray(result.links) ? result.links : [])
+      .map((link) => {
+        const url = link && typeof link.url === 'string' ? normalizeIdentifier(link.url) : null;
+        return url ? { ...link, url } : null;
+      })
+      .filter(Boolean);
     console.log('[Wizard] Applying linkIdentifier:', links.length, 'link(s)');
     if (links.length === 0) {
       console.error('[Wizard] linkIdentifier: No links to apply');

@@ -10,6 +10,7 @@
 import { isElectron, isCapacitor } from './fileAccessAdapter.js';
 import { getDeviceInfo } from './deviceDetection.js';
 import { getStorageKey } from './storageUtils.js';
+import { openExternalUrl } from './safeUrl.js';
 
 export const DESKTOP_DOWNLOAD_URL = 'https://redstring.net/#download';
 
@@ -49,5 +50,5 @@ export const dismissDesktopDownload = () => {
 };
 
 export const openDesktopDownload = () => {
-  window.open(DESKTOP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+  openExternalUrl(DESKTOP_DOWNLOAD_URL);
 };

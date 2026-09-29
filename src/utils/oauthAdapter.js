@@ -1,68 +1,36 @@
 /**
  * OAuth Adapter
  * 
- * Provides a unified interface for OAuth flows that works in both
- * browser (redirect-based) and Electron (protocol handler) environments.
+ * Browser redirect into GitHub's OAuth authorize page. Desktop and native
+ * builds sign in with the device flow instead (see githubDeviceFlow.js).
  */
 
-import { isElectron } from './fileAccessAdapter.js';
+import { safeExternalHref } from './safeUrl.js';
+
+/** The URL, normalized, when it is an https page on github.com; else null. */
+export const githubAuthUrl = (url) => {
+  const href = safeExternalHref(url);
+  if (!href) return null;
+  const parsed = new URL(href);
+  return parsed.protocol === 'https:' && parsed.hostname === 'github.com' ? href : null;
+};
 
 /**
  * Start OAuth flow
  * @param {string} authUrl - GitHub OAuth authorization URL
  * @returns {Promise<{code: string, state?: string, error?: string}>} - OAuth callback data
  */
-export const startOAuthFlow = async (authUrl) => {
-  if (isElectron()) {
-    // Electron: Use protocol handler
-    return new Promise((resolve, reject) => {
-      // Set up callback listener
-      const callbackHandler = (data) => {
-        window.electron.oauth.onCallback((callbackData) => {
-          if (callbackData.error) {
-            reject(new Error(callbackData.error));
-          } else {
-            resolve(callbackData);
-          }
-        });
-      };
-
-      // Start OAuth flow
-      window.electron.oauth.start(authUrl)
-        .then((result) => {
-          if (result.error) {
-            reject(new Error(result.error));
-          } else {
-            resolve(result);
-          }
-        })
-        .catch(reject);
-    });
-  } else {
-    // Browser: Redirect to OAuth URL
-    // The OAuth server will handle the callback and redirect back
-    window.location.href = authUrl;
-    // This will never resolve in browser context (page redirects)
-    return new Promise(() => {});
+export const startOAuthFlow = async (rawAuthUrl) => {
+  // Only ever GitHub's own https pages: this navigates the whole app, so
+  // nothing else may pass.
+  const authUrl = githubAuthUrl(rawAuthUrl);
+  if (!authUrl) {
+    throw new Error('Refusing to start OAuth: not a https://github.com URL');
   }
+  // Redirect to GitHub; the OAuth callback page brings the user back.
+  // authUrl already passed githubAuthUrl; safeExternalHref again keeps the
+  // sink itself visibly guarded.
+  window.location.href = safeExternalHref(authUrl);
+  // Never resolves: the page navigates away.
+  return new Promise(() => {});
 };
-
-/**
- * Check if OAuth callback is available (Electron only)
- * @returns {boolean}
- */
-export const hasOAuthCallback = () => {
-  return isElectron() && window.electron?.oauth;
-};
-
-
-
-
-
-
-
-
-
-
-
-

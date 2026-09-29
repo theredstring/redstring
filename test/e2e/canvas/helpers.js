@@ -20,6 +20,7 @@
 //     pass, so without this such errors go unnoticed (P4.02 found one this way).
 import { test as base, expect } from '@playwright/test';
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export { expect };
 
@@ -52,7 +53,7 @@ export const CLICK_DELAY_MS = 180; // NodeCanvas CLICK_DELAY (single vs double c
 /** Absolute path of the local-only chambers fixture, or null when absent. */
 export function chambersPath() {
   const p = process.env.REDSTRING_LOCAL_FIXTURE
-    || '/Users/granteubanks/Code/redstringuireact/test/fixtures/canvas/local/claudes-chambers.redstring';
+    || fileURLToPath(new URL('../../fixtures/canvas/local/claudes-chambers.redstring', import.meta.url));
   return existsSync(p) ? p : null;
 }
 

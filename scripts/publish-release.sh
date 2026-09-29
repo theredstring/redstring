@@ -112,18 +112,15 @@ if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null 2>&1; then
     TAG_EXISTS=true
 fi
 
+# A published tag is never moved or re-pushed: installed apps auto-update from
+# the release it names, and moving it would swap different bytes in under the
+# same version. Bump to a new version instead.
 if [ "$TAG_EXISTS" = true ]; then
-    echo ""
-    echo "⚠️  Tag $TAG already exists (locally and/or on origin)."
-    read -p "Delete existing tag and re-release? (y/N) " -n 1 -r REPLY
-    echo ""
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Cancelled."
-        exit 1
-    fi
-    git tag -d "$TAG" 2>/dev/null || true
-    git push origin ":refs/tags/$TAG" 2>/dev/null || true
-    echo "✓ old tag removed"
+    echo "" >&2
+    echo "ERROR: tag $TAG already exists (locally and/or on origin)." >&2
+    echo "       Released versions are immutable. Bump the version (patch|minor|major) and release that." >&2
+    echo "       (A local-only tag left by an aborted run can be removed with: git tag -d $TAG)" >&2
+    exit 1
 fi
 
 # --- Commit (only if needed) ---

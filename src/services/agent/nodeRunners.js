@@ -16,7 +16,7 @@ export async function runExecutor(node, input, workingMemory, apiKey, apiConfig 
   const provider = apiConfig?.provider || 'openrouter';
   const endpoint = apiConfig?.endpoint || null;
   const model = apiConfig?.model || null;
-  const effectiveApiKey = config.apiKeyOverride || apiKey;
+  const effectiveApiKey = apiKey;
 
   // Build context from working memory
   const contextEntries = workingMemory.entries();
@@ -62,7 +62,7 @@ export async function runRouter(node, input, workingMemory, apiKey, apiConfig = 
   const provider = apiConfig?.provider || 'openrouter';
   const endpoint = apiConfig?.endpoint || null;
   const model = apiConfig?.model || null;
-  const effectiveApiKey = config.apiKeyOverride || apiKey;
+  const effectiveApiKey = apiKey;
 
   // Router prompt should return JSON with route decision
   const routerPrompt = `${config.prompt}\n\nAnalyze the input and return JSON with "route" field matching one of these routes: ${Object.keys(config.routes || {}).join(', ')}`;
@@ -113,7 +113,7 @@ export async function runValidator(node, input, workingMemory, apiKey, apiConfig
   const provider = apiConfig?.provider || 'openrouter';
   const endpoint = apiConfig?.endpoint || null;
   const model = apiConfig?.model || null;
-  const effectiveApiKey = config.apiKeyOverride || apiKey;
+  const effectiveApiKey = apiKey;
 
   const validatorPrompt = `${config.prompt}\n\nReturn JSON with "valid" (boolean) and "reason" (string) fields.`;
 
@@ -189,7 +189,7 @@ export async function runAggregator(node, input, workingMemory, apiKey, apiConfi
     const provider = apiConfig?.provider || 'openrouter';
     const endpoint = apiConfig?.endpoint || null;
     const model = apiConfig?.model || null;
-    const effectiveApiKey = config.apiKeyOverride || apiKey;
+    const effectiveApiKey = apiKey;
 
     const aggregationPrompt = config.prompt || 'Combine these outputs into a single coherent result.';
     

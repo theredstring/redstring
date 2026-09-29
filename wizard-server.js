@@ -9,7 +9,6 @@
  */
 
 import express from 'express';
-import cors from 'cors';
 import net from 'net';
 import { parseArgs } from 'node:util';
 import { runAgent } from './src/wizard/AgentLoop.js';
@@ -22,6 +21,8 @@ import SchedulerModule from './src/services/orchestrator/Scheduler.js';
 import { initRuntime, resolveWorkspace } from './src/headless/runtime.js';
 import { GitHubUniverseSync, parseRepoSpec } from './src/headless/githubSync.js';
 import { resolveGithubToken } from './src/headless/config.js';
+import { createLocalServerGuard, allowedOriginsFromEnv } from './src/security/localServerGuard.js';
+import { generateAgentToken, recordAgentToken, forgetAgentToken } from './src/headless/agentToken.js';
 
 const app = express();
 
@@ -61,14 +62,15 @@ function isPortAvailable(port) {
       server.close();
       resolve(true);
     });
-    server.listen(port);
+    server.listen(port, '127.0.0.1');
   });
 }
 
 // Find the port to use
 async function getPort() {
   // Wizard uses 3001 by default (same as legacy bridge for compatibility)
-  const preferred = parseInt(process.env.WIZARD_PORT || process.env.BRIDGE_PORT || '3001', 10);
+  // REDSTRING_AGENT_PORT is what Electron main passes (C-6).
+  const preferred = parseInt(process.env.REDSTRING_AGENT_PORT || process.env.WIZARD_PORT || process.env.BRIDGE_PORT || '3001', 10);
   if (await isPortAvailable(preferred)) {
     return preferred;
   }
@@ -82,38 +84,36 @@ async function getPort() {
   throw new Error(`Port ${preferred} in use. Set WIZARD_PORT env var to use a different port.`);
 }
 
-// Middleware
-// CORS: this bridge binds to 127.0.0.1, so it should only be driven by the
-// local app (Vite dev proxy / Electron renderer / CLI), never by an arbitrary
-// website the user happens to have open. Allow requests with no Origin
-// (same-origin, proxied, curl, Electron) and localhost origins on any port;
-// extend via CORS_ORIGINS (comma-separated) if a specific web origin is needed.
-const wizardAllowedOrigins = new Set(
-  (process.env.CORS_ORIGINS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-);
-// Capacitor/iOS app bundle origins (custom scheme, not a third-party site).
-wizardAllowedOrigins.add('capacitor://localhost');
-wizardAllowedOrigins.add('ionic://localhost');
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (wizardAllowedOrigins.has(origin)) return callback(null, true);
-    try {
-      const host = new URL(origin).hostname;
-      if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
-        return callback(null, true);
-      }
-    } catch { /* invalid Origin header */ }
-    // Omit CORS headers (don't 500) so same-origin loads still work while
-    // cross-origin requests are blocked by the missing allow-origin header.
-    return callback(null, false);
-  },
-  credentials: false,
+// ─────────────────────────────────────────────────────────────
+// Access guard (C-6). Binding to 127.0.0.1 keeps the LAN out, but any website
+// the user has open can still aim requests at localhost, and a DNS-rebinding
+// page can read the answers. So every route requires the loopback Host, an
+// allowed Origin (app://redstring or the vite dev origin; never "null"), JSON
+// bodies, and the per-launch token:
+//   - Electron: main passes REDSTRING_AGENT_TOKEN / REDSTRING_AGENT_PORT and
+//     hands the renderer the same token via window.electron.agent.getConnection()
+//   - standalone / CLI daemon: a random token is generated at start
+// Either way it is recorded in ~/.redstring/agent.json (0600) for the CLI, the
+// MCP server and the vite dev proxy. The guard also answers CORS, so there is
+// no separate CORS middleware. Extra origins: REDSTRING_AGENT_ALLOWED_ORIGINS.
+// ─────────────────────────────────────────────────────────────
+let guardToken = null; // set by startWizardServer(); until then every request 503s
+let guardPort = null;
+app.use(createLocalServerGuard({
+  token: () => guardToken,
+  port: () => guardPort,
+  allowedOrigins: allowedOriginsFromEnv(process.env.REDSTRING_AGENT_ALLOWED_ORIGINS || process.env.CORS_ORIGINS),
+  // EventSource cannot set headers; the event stream alone accepts ?rs_token=.
+  queryTokenPaths: ['/events/stream'],
 }));
-app.use(express.json({ limit: '20mb' }));
+
+// Body limits: 5 MB is ample for every route except those that carry a whole
+// store or spreadsheet (bridge state sync, store import, the wizard's
+// graphState + tabular data), which keep the previous 20 MB ceiling.
+const LARGE_BODY_PATHS = new Set(['/api/bridge/state', '/api/store/import', '/api/wizard', '/api/wizard/execute-tool', '/api/ai/chat']);
+const largeJson = express.json({ limit: '20mb' });
+const defaultJson = express.json({ limit: '5mb' });
+app.use((req, res, next) => (LARGE_BODY_PATHS.has(req.path) ? largeJson : defaultJson)(req, res, next));
 
 // Request logging
 app.use((req, res, next) => {
@@ -629,8 +629,14 @@ app.post('/api/workspace/push', async (req, res) => {
 
 // SSE events stream - UI subscribes to this for real-time updates
 const sseClients = new Set();
+// A handful of windows/tabs is normal; hundreds means a leak or abuse, and each
+// stream pins a socket and a broadcast write.
+const SSE_MAX_CLIENTS = 32;
 
 app.get('/events/stream', (req, res) => {
+  if (sseClients.size >= SSE_MAX_CLIENTS) {
+    return res.status(503).json({ error: 'too_many_event_streams' });
+  }
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -692,8 +698,13 @@ app.get('/api/bridge/telemetry', (req, res) => {
 // Pending Actions Endpoints (for Committer and UI)
 // ─────────────────────────────────────────────────────────────
 
-// GET pending actions - UI polls this to receive mutations
+// POST pending actions - UI polls this to LEASE mutations. It is a POST, not a
+// GET, because it changes state (each call leases what it returns); a GET that
+// mutates is exactly what cross-site requests and prefetchers are allowed to fire.
 app.get('/api/bridge/pending-actions', (req, res) => {
+  res.status(405).set('Allow', 'POST').json({ error: 'Use POST /api/bridge/pending-actions (it leases actions).' });
+});
+app.post('/api/bridge/pending-actions', (req, res) => {
   try {
     // Headless: the runtime executes actions in-process, so never hand them to a
     // (coexisting) browser — that would double-apply the same mutation.
@@ -974,11 +985,27 @@ export async function startWizardServer() {
     debugLogSync('wizard-server.js:getPort:AFTER', 'getPort returned', { port: PORT }, 'debug-session', 'D');
     // #endregion
 
+    // Token (C-6): Electron passes one per launch; otherwise mint one. Exported
+    // to this process's env so in-process callers (Committer, role runners via
+    // bridgeFetch) authenticate against us too.
+    const envToken = typeof process.env.REDSTRING_AGENT_TOKEN === 'string' ? process.env.REDSTRING_AGENT_TOKEN.trim() : '';
+    guardToken = envToken || generateAgentToken();
+    guardPort = PORT;
+    process.env.REDSTRING_AGENT_TOKEN = guardToken;
+
     return new Promise((resolve, reject) => {
       // Bind to loopback so the wizard server is only reachable from the
-      // local machine — it has no auth and exposes graph state + tool
-      // execution endpoints that should never be reachable from the LAN.
+      // local machine; the guard above covers requests from local web pages.
       const server = app.listen(PORT, '127.0.0.1', () => {
+        // Publish the token only once we own the port, so a failed start never
+        // overwrites the entry of the server that does.
+        try {
+          recordAgentToken({ port: PORT, token: guardToken });
+          const forget = () => { try { forgetAgentToken({ port: PORT }); } catch { /* best effort */ } };
+          process.once('exit', forget);
+        } catch (err) {
+          console.error(`[Wizard] Could not record agent token in ~/.redstring/agent.json: ${err.message}`);
+        }
         console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                    🧙 THE WIZARD 🧙                        ║

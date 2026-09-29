@@ -1,31 +1,98 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, Menu, protocol, session } = require('electron');
+const {
+  app, BrowserWindow, ipcMain, shell, dialog, clipboard, Menu, protocol, session, safeStorage, utilityProcess
+} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs').promises;
 const fsSync = require('node:fs');
-const { fork } = require('child_process');
+const crypto = require('node:crypto');
 const { initUpdater } = require('./updater.cjs');
+const {
+  isTrustedSender,
+  isAppUrl,
+  isSafeExternalUrl,
+  isValidStoreName,
+  resolveStorePath,
+  isWithin,
+  createPathApprovals,
+  APP_ORIGIN
+} = require('./ipcGuards.cjs');
+const { registerAppScheme, handleAppProtocol } = require('./appProtocol.cjs');
+const { createSecretsStore } = require('./secretsStore.cjs');
+const legacyMigration = require('./legacyMigration.cjs');
 
 let updaterHandle = null;
 
 const DIST = path.join(__dirname, '../dist');
-const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL'];
 
-// Protocol handling (Redstring)
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('redstring', process.execPath, [path.resolve(process.argv[1])]);
-  }
-} else {
-  app.setAsDefaultProtocolClient('redstring');
-}
+// app://redstring must be registered as a privileged scheme before 'ready'.
+registerAppScheme(protocol);
 
 // Set app name for proper display in menu bar/dock
 app.setName('Redstring');
 
-// Agent server child process
+// Development = running from source. Never trust NODE_ENV for this: an
+// inherited NODE_ENV=development must not switch a packaged build into dev
+// behaviour (dev-server origin trusted, DevTools, update simulator).
+const isDev = !app.isPackaged;
+const DEV_SERVER_URL = 'http://localhost:4001';
+const DEV_ORIGINS = isDev ? [DEV_SERVER_URL, 'http://127.0.0.1:4001'] : [];
+const APP_ENTRY_URL = `${APP_ORIGIN}/index.html`;
+
+// DevTools: always in development; in a packaged build only when explicitly
+// asked for (REDSTRING_ENABLE_DEVTOOLS=1) for field debugging.
+const devToolsEnabled = isDev || process.env.REDSTRING_ENABLE_DEVTOOLS === '1';
+
+// Check for --test flag in command-line arguments
+const isTestMode = process.argv.includes('--test');
+if (isTestMode) {
+  console.log('[Electron] Test mode enabled via --test flag');
+}
+
+// Check for --session flag in command-line arguments (e.g. --session=mySession).
+// The name becomes part of directory names, so it must be a plain identifier.
+const sessionArg = process.argv.find(arg => arg.startsWith('--session='));
+let sessionName = sessionArg ? sessionArg.split('=')[1] : null;
+if (sessionName && !isValidStoreName(sessionName)) {
+  console.warn('[Electron] Ignoring invalid --session name');
+  sessionName = null;
+}
+if (sessionName) {
+  console.log(`[Electron] Starting with isolated session: ${sessionName} `);
+}
+const partitionName = sessionName ? `persist:${sessionName}` : undefined;
+
+const getAppSession = () => (partitionName ? session.fromPartition(partitionName) : session.defaultSession);
+
+// Every IPC handler goes through here. Only the top frame of an app page
+// (app://redstring, or the Vite dev server in development) may call main.
+const isTrusted = (event) => isTrustedSender(event, { devOrigins: DEV_ORIGINS });
+function handle(channel, fn) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isTrustedSender(event, { devOrigins: DEV_ORIGINS })) {
+      console.warn(`[IPC] Refused ${channel} from untrusted sender`);
+      throw new Error('Untrusted IPC sender');
+    }
+    return fn(event, ...args);
+  });
+}
+
+// ============================================================
+// Agent server (wizard backend) — Electron utility process
+// ============================================================
+
+// Local agent server auth (C-6): a fresh random token per launch, handed to the
+// server through its environment and to the renderer through
+// window.electron.agent.getConnection(). Nothing else learns it.
+const agentToken = crypto.randomBytes(32).toString('hex');
+const agentPort = (() => {
+  const p = Number.parseInt(process.env.REDSTRING_AGENT_PORT || '', 10);
+  return Number.isInteger(p) && p >= 1024 && p <= 65535 ? p : 3001;
+})();
+
 let agentServerProcess = null;
 
-// Start the agent server as a child process
+// Start the agent server. A utility process (not child_process.fork with
+// ELECTRON_RUN_AS_NODE) so the runAsNode fuse can stay off.
 function startAgentServer() {
   if (agentServerProcess) {
     console.log('[Electron] Agent server already running');
@@ -34,7 +101,7 @@ function startAgentServer() {
 
   // In production: use the pre-bundled CJS file from app.asar.unpacked/
   // (single file, no ESM/asar issues, no node_modules needed)
-  // In dev: use the original ESM source (system Node.js handles ESM fine)
+  // In dev: use the original ESM source
   let agentServerPath;
   let agentCwd = path.join(__dirname, '..');
   if (app.isPackaged) {
@@ -52,93 +119,113 @@ function startAgentServer() {
 
   console.log('[Electron] Starting agent server from:', agentServerPath);
 
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.NODE_OPTIONS;
+  Object.assign(env, {
+    AGENT_SERVER_MODE: 'true',
+    NODE_ENV: isDev ? (process.env.NODE_ENV || 'development') : 'production',
+    REDSTRING_AGENT_TOKEN: agentToken,
+    REDSTRING_AGENT_PORT: String(agentPort),
+    WIZARD_PORT: String(agentPort)
+  });
+
+  let child;
   try {
-    agentServerProcess = fork(agentServerPath, [], {
+    child = utilityProcess.fork(agentServerPath, [], {
       cwd: agentCwd,
-      stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
-        AGENT_SERVER_MODE: 'true',
-        NODE_ENV: process.env.NODE_ENV || 'development'
-      }
+      stdio: 'pipe',
+      serviceName: 'Redstring Agent Server',
+      env
     });
-    console.log('[Electron] Agent server forked, pid:', agentServerProcess.pid);
   } catch (forkErr) {
     console.error('[Electron] Agent server fork failed:', forkErr.message);
     return;
   }
+  agentServerProcess = child;
 
-  agentServerProcess.stdout.on('data', (data) => {
-    console.log(`[AgentServer] ${data.toString().trim()}`);
+  child.once('spawn', () => {
+    console.log('[Electron] Agent server started, pid:', child.pid);
   });
 
-  agentServerProcess.stderr.on('data', (data) => {
-    console.error(`[AgentServer] ${data.toString().trim()}`);
+  if (child.stdout) {
+    child.stdout.on('data', (data) => {
+      console.log(`[AgentServer] ${data.toString().trim()}`);
+    });
+  }
+  if (child.stderr) {
+    child.stderr.on('data', (data) => {
+      console.error(`[AgentServer] ${data.toString().trim()}`);
+    });
+  }
+
+  child.on('error', (type, location) => {
+    console.error('[Electron] Agent server error:', type, location || '');
   });
 
-  agentServerProcess.on('error', (error) => {
-    console.error('[Electron] Agent server error:', error.message);
-    agentServerProcess = null;
-  });
-
-  agentServerProcess.on('exit', (code, signal) => {
-    console.log(`[Electron] Agent server exited with code ${code}, signal ${signal} `);
-    agentServerProcess = null;
+  child.on('exit', (code) => {
+    console.log(`[Electron] Agent server exited with code ${code}`);
+    if (agentServerProcess === child) agentServerProcess = null;
   });
 }
 
 // Stop the agent server. SIGTERM first, SIGKILL if it lingers — a surviving
-// child holds the wizard port and breaks the next launch. (The bundle also
-// self-exits on IPC disconnect, which covers hard parent exits where this
-// process dies before the escalation timer fires.)
+// child holds the wizard port and breaks the next launch. (Utility processes
+// are also torn down by Chromium when the main process exits.)
 function stopAgentServer() {
   if (agentServerProcess) {
     console.log('[Electron] Stopping agent server...');
     const child = agentServerProcess;
     agentServerProcess = null;
-    child.kill('SIGTERM');
-    const killTimer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch {}
-    }, 2000);
-    if (killTimer.unref) killTimer.unref();
-    child.once('exit', () => clearTimeout(killTimer));
+    const pid = child.pid;
+    try { child.kill(); } catch {}
+    if (pid) {
+      const killTimer = setTimeout(() => {
+        try { process.kill(pid, 'SIGKILL'); } catch {}
+      }, 2000);
+      if (killTimer.unref) killTimer.unref();
+      child.once('exit', () => clearTimeout(killTimer));
+    }
   }
-}
-
-// Check for dev mode - either NODE_ENV or if running from source (not packaged)
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-
-// Check for --test flag in command-line arguments
-const isTestMode = process.argv.includes('--test');
-if (isTestMode) {
-  console.log('[Electron] Test mode enabled via --test flag');
-}
-
-// Check for --session flag in command-line arguments (e.g. --session=mySession)
-const sessionArg = process.argv.find(arg => arg.startsWith('--session='));
-const sessionName = sessionArg ? sessionArg.split('=')[1] : null;
-if (sessionName) {
-  console.log(`[Electron] Starting with isolated session: ${sessionName} `);
 }
 
 let mainWindow = null;
 
 // ============================================================
-// Persistent Storage - replaces localStorage/IndexedDB in Electron
+// Directories
 // ============================================================
 
-// Get the Redstring data directory
+// Renderer-facing key/value stores (storage:*): <userData>/RedstringData
 const getRedstringDataPath = () => {
   const folderName = sessionName ? `RedstringData_${sessionName}` : 'RedstringData';
   return path.join(app.getPath('userData'), folderName);
 };
 
-// Get the default documents folder for user files
+// The default documents folder for user files (a file-IPC root)
 const getRedstringDocumentsPath = () => {
   const folderName = sessionName ? `Redstring_${sessionName}` : 'Redstring';
   return path.join(app.getPath('documents'), folderName);
 };
+
+// A dedicated app-data folder the renderer may use through file IPC (a
+// file-IPC root). Deliberately NOT all of userData, which holds the approvals
+// file, secrets, Chromium's storage and the updater state.
+const getRedstringFilesPath = () => path.join(getRedstringDataPath(), 'files');
+
+// Main-only state: approved paths and migration markers. Reachable by no IPC.
+const getMainOwnedPath = () => {
+  const folderName = sessionName ? `RedstringMain_${sessionName}` : 'RedstringMain';
+  return path.join(app.getPath('userData'), folderName);
+};
+
+// safeStorage-encrypted secrets (C-7). Reachable only through secrets:*.
+const getSecretsPath = () => {
+  const folderName = sessionName ? `secrets_${sessionName}` : 'secrets';
+  return path.join(app.getPath('userData'), folderName);
+};
+
+let approvals = null;
+let secretsStore = null;
 
 // Ensure directories exist
 const ensureDirectories = async () => {
@@ -147,71 +234,90 @@ const ensureDirectories = async () => {
 
   try {
     await fs.mkdir(dataPath, { recursive: true });
+    await fs.mkdir(getRedstringFilesPath(), { recursive: true });
     await fs.mkdir(docsPath, { recursive: true });
+    await fs.mkdir(getMainOwnedPath(), { recursive: true, mode: 0o700 });
     console.log('[Electron] Data directory:', dataPath);
     console.log('[Electron] Documents directory:', docsPath);
-
-    // Seed the file IPC allowlist from previously-persisted file handles so
-    // that file:read on a restored universe path works after restart without
-    // requiring a re-pick.
-    try {
-      const handlesPath = path.join(dataPath, 'fileHandles.json');
-      const raw = await fs.readFile(handlesPath, 'utf-8');
-      const records = JSON.parse(raw);
-      if (records && typeof records === 'object') {
-        for (const record of Object.values(records)) {
-          // Only seed ABSOLUTE paths. A relative handle (the "1.redstring"
-          // bug) resolved against the main-process CWD would approve — and
-          // later read/write/delete — an unrelated file that happens to share
-          // the name in whatever directory the app was launched from.
-          if (record && typeof record.handle === 'string' && path.isAbsolute(record.handle)) {
-            userApprovedPaths.add(record.handle);
-          }
-          if (record && typeof record.displayPath === 'string' && path.isAbsolute(record.displayPath)) {
-            userApprovedPaths.add(record.displayPath);
-          }
-        }
-        console.log(`[FileIPC] Seeded ${userApprovedPaths.size} approved path(s) from persisted handles`);
-      }
-    } catch (err) {
-      if (err.code !== 'ENOENT') {
-        console.warn('[FileIPC] Could not seed approved paths:', err.message);
-      }
-    }
   } catch (error) {
     console.error('[Electron] Failed to create directories:', error);
   }
 };
 
-// Storage file paths
-const getStoragePath = (storeName) => {
-  return path.join(getRedstringDataPath(), `${storeName}.json`);
-};
-
-// ── File IPC path-traversal guard ─────────────────────────────
+// ── File IPC path guard ───────────────────────────────────────
 // The renderer is sandboxed (contextIsolation on), but a single XSS in a
 // node-content render could turn `file:read`/`write`/`delete` into arbitrary
-// filesystem access. We gate those handlers on this allowlist: files are
-// readable/writable only if (a) they live under one of the Redstring app
-// directories, or (b) the user picked them via a system dialog this session.
-const userApprovedPaths = new Set();
-const rememberApprovedPath = (filePath) => {
-  // Only remember absolute paths. Resolving a relative path against the
-  // main-process CWD would approve an arbitrary file in the launch directory
-  // (the "1.redstring" relative-handle bug); reject it so callers surface a
-  // reconnect prompt instead of silently writing to the wrong place.
-  if (typeof filePath === 'string' && filePath && path.isAbsolute(filePath)) {
-    userApprovedPaths.add(filePath);
+// filesystem access. Files are reachable only if (a) they live under one of
+// the two Redstring file roots, or (b) main approved them from a system
+// open/save dialog result (see ipcGuards.createPathApprovals). The renderer has
+// no way to add an approval.
+const initApprovals = () => {
+  approvals = createPathApprovals({ persistPath: path.join(getMainOwnedPath(), 'approved-paths.json') });
+  try {
+    const { loaded } = approvals.load();
+    console.log(`[FileIPC] Loaded ${loaded} approved path(s)`);
+  } catch (err) {
+    console.error('[FileIPC] Could not load approved paths:', err.message);
+  }
+  migrateFileHandleApprovals();
+};
+
+// One time, on the first launch of a version with main-owned approvals:
+// approve the universe files recorded in fileHandles.json. The user picked
+// those under the previous version, whose approvals were rebuilt from this
+// file on every launch; without this step every linked universe would need a
+// re-pick. Read here, in main, from disk — never from renderer IPC — and never
+// again after the marker is written, so records the renderer writes later are
+// not approved.
+const migrateFileHandleApprovals = () => {
+  const markerPath = path.join(getMainOwnedPath(), 'filehandles-approvals-migrated.json');
+  if (fsSync.existsSync(markerPath)) return;
+  let approved = 0;
+  try {
+    const raw = fsSync.readFileSync(path.join(getRedstringDataPath(), 'fileHandles.json'), 'utf-8');
+    const records = JSON.parse(raw);
+    if (records && typeof records === 'object') {
+      for (const record of Object.values(records)) {
+        if (!record || typeof record !== 'object') continue;
+        // Only ABSOLUTE paths (approve() refuses relative ones): a relative
+        // "1.redstring" handle resolved against main's CWD once reached an
+        // unrelated file in the launch directory.
+        if (approvals.approve(record.handle)) approved++;
+        if (approvals.approve(record.displayPath)) approved++;
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      // Unreadable/corrupt: leave the marker unwritten so the next launch
+      // retries rather than silently unlinking everything.
+      console.error('[FileIPC] Could not migrate file-handle approvals:', err.message);
+      return;
+    }
+  }
+  try {
+    approvals.save();
+    fsSync.writeFileSync(markerPath, JSON.stringify({ version: 1, approved, at: new Date().toISOString() }), { mode: 0o600 });
+    console.log(`[FileIPC] Migrated ${approved} approved path(s) from fileHandles.json`);
+  } catch (err) {
+    console.error('[FileIPC] Could not persist migrated approvals:', err.message);
   }
 };
-const isInAllowedRoot = (resolved) => {
-  const roots = [
-    path.resolve(getRedstringDataPath()),
-    path.resolve(getRedstringDocumentsPath()),
-    path.resolve(app.getPath('userData')),
-  ];
-  return roots.some((root) => resolved === root || resolved.startsWith(root + path.sep));
+
+const approveFromDialog = (filePath, kind) => {
+  if (approvals.approve(filePath, { kind })) {
+    try {
+      approvals.save();
+    } catch (err) {
+      console.error('[FileIPC] Could not persist approval:', err.message);
+    }
+  }
 };
+
+const isInAllowedRoot = (resolved) => {
+  const roots = [getRedstringDocumentsPath(), getRedstringFilesPath()];
+  return roots.some((root) => isWithin(root, resolved));
+};
+
 const assertAccessAllowed = (filePath, action) => {
   if (typeof filePath !== 'string' || !filePath) {
     throw new Error(`Invalid file path for ${action}`);
@@ -226,9 +332,24 @@ const assertAccessAllowed = (filePath, action) => {
   }
   const resolved = path.resolve(filePath);
   if (isInAllowedRoot(resolved)) return resolved;
-  if (userApprovedPaths.has(resolved)) return resolved;
+  if (approvals && approvals.isApproved(resolved)) return resolved;
   console.warn(`[FileIPC] Blocked ${action} for unapproved path:`, resolved);
   throw new Error(`File access denied for path not approved by user: ${resolved}`);
+};
+
+// ============================================================
+// Persistent Storage - replaces localStorage/IndexedDB in Electron
+// ============================================================
+
+// Stores main itself keeps in the data directory; not writable over IPC.
+const RESERVED_STORES = new Set(['updater']);
+
+const getStoragePath = (storeName) => resolveStorePath(getRedstringDataPath(), storeName);
+
+const assertRendererStore = (storeName) => {
+  if (!isValidStoreName(storeName) || RESERVED_STORES.has(storeName)) {
+    throw new Error('Invalid storage name');
+  }
 };
 
 // Read storage file
@@ -273,18 +394,107 @@ const writeStorage = async (storeName, data) => {
   }
 };
 
+// ============================================================
+// Session hardening
+// ============================================================
+
+// Permissions the app demonstrably uses; everything else is denied.
+//   clipboard-sanitized-write — navigator.clipboard.writeText (copy buttons)
+//   fullscreen / pointerLock  — canvas presentation + drag interactions
+//   local-network-*           — fetches from app://redstring to the local
+//                               agent server on 127.0.0.1 (Local Network Access)
+const ALLOWED_PERMISSIONS = new Set([
+  'clipboard-sanitized-write',
+  'fullscreen',
+  'pointerLock',
+  'local-network-access',
+  'local-network',
+  'loopback-network'
+]);
+
+const isAppOriginUrl = (url) => isAppUrl(url, { devOrigins: DEV_ORIGINS });
+
+function hardenSession(ses) {
+  ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = (details && details.requestingUrl) || (webContents && webContents.getURL()) || '';
+    const allowed = ALLOWED_PERMISSIONS.has(permission) && isAppOriginUrl(requestingUrl);
+    if (!allowed) console.warn(`[Permissions] Denied ${permission} for ${requestingUrl}`);
+    callback(allowed);
+  });
+  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    return ALLOWED_PERMISSIONS.has(permission) && isAppOriginUrl(requestingOrigin || '');
+  });
+  ses.setDevicePermissionHandler(() => false);
+  handleAppProtocol(ses, { distDir: DIST });
+}
+
+// Applies to every webContents the app ever creates.
+app.on('web-contents-created', (_event, contents) => {
+  // No <webview>, ever.
+  contents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+  });
+
+  // New windows are never opened in-app; safe links go to the browser.
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isSafeExternalUrl(url)) {
+      shell.openExternal(url).catch((err) => console.warn('[Electron] openExternal failed:', err.message));
+    } else {
+      console.warn('[Electron] Blocked window.open for unsafe URL');
+    }
+    return { action: 'deny' };
+  });
+
+  if (contents.getType() !== 'window') return;
+
+  // The top-level page may only ever be the app itself.
+  contents.on('will-navigate', (details) => {
+    if (isAppOriginUrl(details.url)) return;
+    if (devToolsEnabled && String(details.url).startsWith('devtools://')) return;
+    details.preventDefault();
+    console.warn('[Electron] Blocked navigation away from the app:', details.url);
+    if (isSafeExternalUrl(details.url)) {
+      shell.openExternal(details.url).catch(() => {});
+    }
+  });
+  contents.on('will-redirect', (details) => {
+    if (!details.isMainFrame || isAppOriginUrl(details.url)) return;
+    details.preventDefault();
+    console.warn('[Electron] Blocked redirect away from the app:', details.url);
+  });
+  // No subframe may load anything but the app origin (CSP frame-src 'none'
+  // already blocks this in the renderer; this is the main-side backstop).
+  contents.on('will-frame-navigate', (details) => {
+    if (details.isMainFrame) return;
+    if (isAppOriginUrl(details.url) || details.url === 'about:blank') return;
+    details.preventDefault();
+    console.warn('[Electron] Blocked subframe navigation:', details.url);
+  });
+});
+
 function createWindow() {
+  const additionalArguments = [];
+  if (isDev) additionalArguments.push('--redstring-dev');
+  if (isDev || process.env.REDSTRING_ENABLE_DEBUG_DOWNGRADE === '1') {
+    additionalArguments.push('--redstring-debug-downgrade');
+  }
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false, // Don't show until ready to prevent flash
     icon: path.join(__dirname, 'icon.png'), // App icon for dev mode
     webPreferences: {
-      partition: sessionName ? 'persist:' + sessionName : undefined,
+      partition: partitionName,
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
+      navigateOnDragDrop: false,
+      devTools: devToolsEnabled,
       preload: path.join(__dirname, 'preload.cjs'),
-      webSecurity: true, // Enable web security
+      additionalArguments
     },
     title: "Redstring",
   });
@@ -315,11 +525,12 @@ function createWindow() {
       console.warn('[Electron] Quit flush timed out — closing anyway');
       finish();
     }, 5000);
-    const onFlushComplete = () => {
+    const onFlushComplete = (flushEvent) => {
+      if (!isTrustedSender(flushEvent, { devOrigins: DEV_ORIGINS })) return;
       clearTimeout(timeoutId);
       finish();
     };
-    ipcMain.once('app:flush-complete', onFlushComplete);
+    ipcMain.on('app:flush-complete', onFlushComplete);
     try {
       win.webContents.send('app:flush-before-quit');
     } catch (sendError) {
@@ -329,58 +540,48 @@ function createWindow() {
     }
   });
 
-  // Handle new window links externally
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  const params = [];
+  if (isTestMode) params.push('test=true');
+  if (sessionName) params.push(`session=${encodeURIComponent(sessionName)}`);
+  const query = params.length > 0 ? '?' + params.join('&') : '';
 
   if (isDev) {
     // Wait for Vite to be ready (handled by script usually, but good to have fallback)
     // The port 4001 is from the existing vite.config.js
-    let devUrl = 'http://localhost:4001';
-    const params = [];
-    if (isTestMode) params.push('test=true');
-    if (sessionName) params.push(`session=${encodeURIComponent(sessionName)}`);
-
-    if (params.length > 0) {
-      devUrl += '?' + params.join('&');
-    }
+    const devUrl = DEV_SERVER_URL + query;
 
     // Mirror renderer console output into this terminal. Chromium's own
     // warnings (tile memory, raster) already land here, so forwarding the app's
     // logs puts both in one copy-pasteable stream — which is what makes
     // window.__diag output shareable. Dev only.
-    mainWindow.webContents.on('console-message', (_event, level, message, lineNo, sourceId) => {
+    mainWindow.webContents.on('console-message', (details) => {
+      const { level, message, lineNumber, sourceId } = details;
       // Skip Vite's HMR chatter; keep everything the app actually says.
       if (typeof sourceId === 'string' && sourceId.includes('/@vite/')) return;
-      const levelTag = ['LOG', 'WARN', 'ERROR', 'DEBUG'][level] || 'LOG';
-      const where = sourceId ? ` (${String(sourceId).split('/').pop()}:${lineNo})` : '';
+      const levelTag = { info: 'LOG', warning: 'WARN', error: 'ERROR', debug: 'DEBUG' }[level] || 'LOG';
+      const where = sourceId ? ` (${String(sourceId).split('/').pop()}:${lineNumber})` : '';
       console.log(`[renderer:${levelTag}]${where} ${message}`);
     });
 
     mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
-    // In production, load the built index.html
-    const indexPath = path.join(__dirname, '../dist/index.html');
-    console.log('[Electron] Loading production index:', indexPath);
-    const query = {};
-    if (isTestMode) query.test = 'true';
-    if (sessionName) query.session = sessionName;
+    // In production, load the built app from app://redstring (C-5).
+    const entryUrl = APP_ENTRY_URL + query;
+    console.log('[Electron] Loading production app:', entryUrl);
 
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       console.error('[Electron] Failed to load:', { errorCode, errorDescription, validatedURL });
     });
 
-    mainWindow.loadFile(indexPath, { query }).catch(err => {
-      console.error('[Electron] loadFile error:', err);
+    mainWindow.loadURL(entryUrl).catch(err => {
+      console.error('[Electron] loadURL error:', err);
     });
   }
 
   // Fallback: show the window after 5s even if ready-to-show hasn't fired
   setTimeout(() => {
-    if (mainWindow && !mainWindow.isVisible()) {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
       console.warn('[Electron] ready-to-show did not fire, showing window anyway');
       mainWindow.show();
     }
@@ -480,7 +681,8 @@ function createMenu() {
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
-        { role: 'toggleDevTools' },
+        // DevTools only where they are enabled (development, or explicitly).
+        ...(devToolsEnabled ? [{ role: 'toggleDevTools' }] : []),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -533,20 +735,35 @@ function createMenu() {
   Menu.setApplicationMenu(menu);
 }
 
-// File System IPC Handlers
-ipcMain.handle('file:pick', async (event, options = {}) => {
-  // Default to Redstring documents folder
-  const defaultPath = options.defaultPath || getRedstringDocumentsPath();
+// Dialog options the renderer may influence. Everything else (properties,
+// security-scoped bookmarks, …) is decided here.
+const pickDialogOptions = (options) => {
+  const out = {};
+  if (!options || typeof options !== 'object') return out;
+  if (typeof options.title === 'string') out.title = options.title.slice(0, 200);
+  if (typeof options.buttonLabel === 'string') out.buttonLabel = options.buttonLabel.slice(0, 100);
+  if (typeof options.message === 'string') out.message = options.message.slice(0, 500);
+  if (typeof options.defaultPath === 'string' && options.defaultPath.length < 4096) out.defaultPath = options.defaultPath;
+  return out;
+};
 
-  const result = await dialog.showOpenDialog(mainWindow, {
+const dialogParent = (event) => BrowserWindow.fromWebContents(event.sender) || mainWindow;
+
+// File System IPC Handlers
+handle('file:pick', async (event, options = {}) => {
+  const safeOptions = pickDialogOptions(options);
+  // Default to Redstring documents folder
+  const defaultPath = safeOptions.defaultPath || getRedstringDocumentsPath();
+
+  const result = await dialog.showOpenDialog(dialogParent(event), {
+    ...safeOptions,
     properties: ['openFile'],
     defaultPath: defaultPath,
     filters: [
       { name: 'Redstring Files', extensions: ['redstring'] },
       { name: 'JSON Files', extensions: ['json'] },
       { name: 'All Files', extensions: ['*'] }
-    ],
-    ...options
+    ]
   });
 
   if (result.canceled) {
@@ -567,15 +784,16 @@ ipcMain.handle('file:pick', async (event, options = {}) => {
     console.log('[FileHandles] ✓ file:pick returned absolute path:', filePath);
   }
 
-  rememberApprovedPath(filePath);
+  approveFromDialog(filePath, 'file');
   return filePath;
 });
 
-ipcMain.handle('file:pickFolder', async (event, options = {}) => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+handle('file:pickFolder', async (event, options = {}) => {
+  const safeOptions = pickDialogOptions(options);
+  const result = await dialog.showOpenDialog(dialogParent(event), {
+    ...safeOptions,
     properties: ['openDirectory', 'createDirectory'],
-    defaultPath: options.defaultPath || getRedstringDocumentsPath(),
-    ...options
+    defaultPath: safeOptions.defaultPath || getRedstringDocumentsPath()
   });
 
   if (result.canceled) {
@@ -583,20 +801,22 @@ ipcMain.handle('file:pickFolder', async (event, options = {}) => {
   }
 
   const folderPath = result.filePaths[0];
-  // Approve the folder itself so subsequent file:exists / file:mkdir on it
-  // succeed. Files saved into it via file:saveAs are approved separately
-  // when the user confirms the save dialog.
-  rememberApprovedPath(folderPath);
+  // The user chose this folder: its contents are theirs to work in (the
+  // workspace folder creates universe files inside it).
+  approveFromDialog(folderPath, 'folder');
   return folderPath;
 });
 
-ipcMain.handle('file:saveAs', async (event, options = {}) => {
-  const { suggestedName } = options;
+handle('file:saveAs', async (event, options = {}) => {
+  const suggestedName = typeof options?.suggestedName === 'string'
+    ? path.basename(options.suggestedName)
+    : null;
+  const safeOptions = pickDialogOptions(options);
   // Default to Redstring documents folder with suggested name
-  const defaultPath = options.defaultPath ||
+  const defaultPath = safeOptions.defaultPath ||
     path.join(getRedstringDocumentsPath(), suggestedName || 'untitled.redstring');
 
-  const result = await dialog.showSaveDialog(mainWindow, {
+  const result = await dialog.showSaveDialog(dialogParent(event), {
     defaultPath: defaultPath,
     filters: [
       { name: 'Redstring Files', extensions: ['redstring'] },
@@ -621,11 +841,11 @@ ipcMain.handle('file:saveAs', async (event, options = {}) => {
     console.log('[FileHandles] ✓ Resolved to absolute path:', filePath);
   }
 
-  rememberApprovedPath(filePath);
+  approveFromDialog(filePath, 'file');
   return filePath;
 });
 
-ipcMain.handle('file:read', async (event, filePath) => {
+handle('file:read', async (event, filePath) => {
   try {
     const safePath = assertAccessAllowed(filePath, 'file:read');
     const content = await fs.readFile(safePath, 'utf-8');
@@ -641,8 +861,11 @@ ipcMain.handle('file:read', async (event, filePath) => {
 // content. The chain guarantees writes land in call order.
 const fileWriteChains = new Map();
 
-ipcMain.handle('file:write', async (event, filePath, content) => {
+handle('file:write', async (event, filePath, content) => {
   const safePath = assertAccessAllowed(filePath, 'file:write');
+  if (typeof content !== 'string') {
+    throw new Error('Failed to write file: content must be a string');
+  }
   const prior = fileWriteChains.get(safePath) || Promise.resolve();
   const writeOp = prior.catch(() => { /* prior failure doesn't block this write */ }).then(async () => {
     // Atomic write: temp file + rename, same pattern as writeStorage. A crash
@@ -673,7 +896,7 @@ ipcMain.handle('file:write', async (event, filePath, content) => {
   }
 });
 
-ipcMain.handle('file:delete', async (event, filePath) => {
+handle('file:delete', async (event, filePath) => {
   try {
     const safePath = assertAccessAllowed(filePath, 'file:delete');
     // Trash, don't unlink — a wrong-target delete (or a user who clicked the
@@ -686,7 +909,7 @@ ipcMain.handle('file:delete', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('file:exists', async (event, filePath) => {
+handle('file:exists', async (event, filePath) => {
   try {
     const safePath = assertAccessAllowed(filePath, 'file:exists');
     await fs.access(safePath, fsSync.constants.F_OK);
@@ -696,7 +919,7 @@ ipcMain.handle('file:exists', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('file:folderExists', async (event, folderPath) => {
+handle('file:folderExists', async (event, folderPath) => {
   try {
     const safePath = assertAccessAllowed(folderPath, 'file:folderExists');
     const stats = await fs.stat(safePath);
@@ -706,12 +929,12 @@ ipcMain.handle('file:folderExists', async (event, folderPath) => {
   }
 });
 
-ipcMain.handle('file:getPathParent', async (event, filePath) => {
+handle('file:getPathParent', async (event, filePath) => {
   try {
     // Only reveal the parent of a path the user is already allowed to touch,
-    // and only one step up. The returned parent is NOT added to the approved
-    // set, so it can't be fed back in to climb further toward the filesystem
-    // root unless it independently lives under an allowed root.
+    // and only one step up. The returned parent is NOT approved, so it can't
+    // be fed back in to climb further toward the filesystem root unless it
+    // independently lives under an allowed root.
     const resolved = assertAccessAllowed(filePath, 'file:getPathParent');
     return path.dirname(resolved);
   } catch {
@@ -719,7 +942,7 @@ ipcMain.handle('file:getPathParent', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('file:mkdir', async (event, folderPath) => {
+handle('file:mkdir', async (event, folderPath) => {
   try {
     const safePath = assertAccessAllowed(folderPath, 'file:mkdir');
     await fs.mkdir(safePath, { recursive: true });
@@ -729,7 +952,7 @@ ipcMain.handle('file:mkdir', async (event, folderPath) => {
   }
 });
 
-ipcMain.handle('file:showInFolder', async (event, filePath) => {
+handle('file:showInFolder', async (event, filePath) => {
   try {
     if (!filePath) {
       throw new Error('File path is required');
@@ -745,9 +968,10 @@ ipcMain.handle('file:showInFolder', async (event, filePath) => {
   }
 });
 
-// Clipboard IPC Handler
-ipcMain.handle('clipboard:write', async (event, text) => {
-  clipboard.writeText(text);
+// Clipboard IPC Handler (Electron 44: clipboard writes are async)
+handle('clipboard:write', async (event, text) => {
+  if (typeof text !== 'string' || text.length > 20 * 1024 * 1024) return false;
+  await clipboard.writeText(text);
   return true;
 });
 
@@ -756,23 +980,14 @@ ipcMain.handle('clipboard:write', async (event, text) => {
 // ============================================================
 
 // Get default paths
-ipcMain.handle('storage:getPaths', async () => {
+handle('storage:getPaths', async () => {
   return {
     data: getRedstringDataPath(),
     documents: getRedstringDocumentsPath(),
+    files: getRedstringFilesPath(),
     userData: app.getPath('userData')
   };
 });
-
-// File-handle records carry absolute paths the user previously picked. Approve
-// those paths when records flow through the storage IPC so that file:read /
-// file:write succeed after an app restart without requiring a re-pick.
-const FILE_HANDLE_STORE = 'fileHandles';
-const approveFileHandleRecord = (record) => {
-  if (!record || typeof record !== 'object') return;
-  if (typeof record.handle === 'string') rememberApprovedPath(record.handle);
-  if (typeof record.displayPath === 'string') rememberApprovedPath(record.displayPath);
-};
 
 // Serialize read-modify-write storage mutations per store. setItem/removeItem
 // do read → mutate → write; two concurrent calls (e.g. two universes writing
@@ -791,26 +1006,38 @@ const withStoreLock = (storeName, mutator) => {
   return next;
 };
 
+const assertStorageKey = (key) => {
+  if (typeof key !== 'string' || key.length === 0 || key.length > 1024 || key === '__proto__') {
+    throw new Error('Invalid storage key');
+  }
+};
+
+// Storage is data only. Records in the fileHandles store are NOT approvals:
+// a path becomes reachable through file IPC only via a dialog in main.
+
 // Get item from storage (like localStorage.getItem)
-ipcMain.handle('storage:getItem', async (event, storeName, key) => {
+handle('storage:getItem', async (event, storeName, key) => {
+  assertRendererStore(storeName);
+  assertStorageKey(key);
   const data = await readStorage(storeName);
-  const value = data[key] ?? null;
-  if (storeName === FILE_HANDLE_STORE) approveFileHandleRecord(value);
-  return value;
+  return Object.prototype.hasOwnProperty.call(data, key) ? data[key] ?? null : null;
 });
 
 // Set item in storage (like localStorage.setItem)
-ipcMain.handle('storage:setItem', async (event, storeName, key, value) => {
+handle('storage:setItem', async (event, storeName, key, value) => {
+  assertRendererStore(storeName);
+  assertStorageKey(key);
   return withStoreLock(storeName, async () => {
     const data = await readStorage(storeName);
     data[key] = value;
-    if (storeName === FILE_HANDLE_STORE) approveFileHandleRecord(value);
     return await writeStorage(storeName, data);
   });
 });
 
 // Remove item from storage (like localStorage.removeItem)
-ipcMain.handle('storage:removeItem', async (event, storeName, key) => {
+handle('storage:removeItem', async (event, storeName, key) => {
+  assertRendererStore(storeName);
+  assertStorageKey(key);
   return withStoreLock(storeName, async () => {
     const data = await readStorage(storeName);
     delete data[key];
@@ -819,87 +1046,131 @@ ipcMain.handle('storage:removeItem', async (event, storeName, key) => {
 });
 
 // Get all items from storage (like getting all keys from localStorage)
-ipcMain.handle('storage:getAll', async (event, storeName) => {
-  const data = await readStorage(storeName);
-  if (storeName === FILE_HANDLE_STORE && data && typeof data === 'object') {
-    for (const record of Object.values(data)) approveFileHandleRecord(record);
-  }
-  return data;
+handle('storage:getAll', async (event, storeName) => {
+  assertRendererStore(storeName);
+  return readStorage(storeName);
 });
 
 // Set all items in storage (bulk write)
-ipcMain.handle('storage:setAll', async (event, storeName, data) => {
-  if (storeName === FILE_HANDLE_STORE && data && typeof data === 'object') {
-    for (const record of Object.values(data)) approveFileHandleRecord(record);
-  }
+handle('storage:setAll', async (event, storeName, data) => {
+  assertRendererStore(storeName);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid storage data');
   return withStoreLock(storeName, () => writeStorage(storeName, data));
 });
 
 // Clear storage (like localStorage.clear for a specific store)
-ipcMain.handle('storage:clear', async (event, storeName) => {
+handle('storage:clear', async (event, storeName) => {
+  assertRendererStore(storeName);
   return withStoreLock(storeName, () => writeStorage(storeName, {}));
 });
 
-// GitHub OAuth Protocol Handler
-let oauthCallbackResolve = null;
+// ============================================================
+// Secrets at rest (C-7) — safeStorage, <userData>/secrets/
+// ============================================================
 
-app.setAsDefaultProtocolClient('redstring');
+const requireSecrets = () => {
+  if (!secretsStore) throw new Error('Secure storage not ready');
+  return secretsStore;
+};
+handle('secrets:isAvailable', async () => !!secretsStore && secretsStore.isAvailable());
+handle('secrets:get', async (event, key) => (secretsStore ? secretsStore.get(key) : null));
+handle('secrets:set', async (event, key, value) => requireSecrets().set(key, value));
+handle('secrets:delete', async (event, key) => requireSecrets().delete(key));
 
-app.on('open-url', (event, url) => {
-  event.preventDefault();
-  handleOAuthCallback(url);
-});
+// ============================================================
+// file:// → app://redstring storage migration (C-5)
+// ============================================================
 
-// Second-launch attempts are forwarded here by the single-instance lock.
-// On Windows/Linux this also carries protocol URLs; macOS delivers those
-// via 'open-url' instead, so the argv scan just finds nothing there.
-app.on('second-instance', (event, commandLine, workingDirectory) => {
-  // Look for redstring:// URL in command line arguments
-  const url = commandLine.find(arg => arg.startsWith('redstring://'));
-  if (url) {
-    handleOAuthCallback(url);
-  }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  } else if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
+// Payload waiting for the renderer (see electron/legacyMigration.cjs). Null
+// when there is nothing to import or it has been imported.
+let legacyHandoff = null;
+const getOriginMigrationMarker = () => path.join(getMainOwnedPath(), 'app-origin-migration.json');
 
-function handleOAuthCallback(url) {
+const writeOriginMigrationMarker = (details) => {
+  const marker = getOriginMigrationMarker();
+  const tmp = `${marker}.${process.pid}.tmp`;
+  fsSync.writeFileSync(tmp, JSON.stringify({ version: 1, at: new Date().toISOString(), ...details }, null, 2), { mode: 0o600 });
+  fsSync.renameSync(tmp, marker);
+};
+
+// Returns 'quit' when the user chose to quit instead of continuing.
+async function runOriginMigration() {
+  if (fsSync.existsSync(getOriginMigrationMarker())) return 'done';
+
+  // With the grantFileProtocolExtraPrivileges fuse off, file:// is Chromium's
+  // plain file handler, which can't read inside app.asar — so the page ships
+  // unpacked (electron-builder asarUnpack: electron/migration/**).
+  const pagePath = path.join(__dirname, 'migration', 'legacy-origin.html')
+    .replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+
+  let legacyState;
   try {
-    const urlObj = new URL(url);
-    if (urlObj.protocol === 'redstring:' && urlObj.hostname === 'auth') {
-      const code = urlObj.searchParams.get('code');
-      const state = urlObj.searchParams.get('state');
-      const error = urlObj.searchParams.get('error');
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('oauth:callback', { code, state, error });
-      }
-
-      if (oauthCallbackResolve) {
-        oauthCallbackResolve({ code, state, error });
-        oauthCallbackResolve = null;
-      }
-    }
-  } catch (error) {
-    console.error('[Electron] Error handling OAuth callback:', error);
+    legacyState = await legacyMigration.runLegacyExport({
+      BrowserWindow,
+      pagePath,
+      partition: partitionName,
+      userDataDir: app.getPath('userData'),
+      timeoutMs: 120000
+    });
+  } catch (err) {
+    console.error('[Migration] Could not read storage from the previous version:', err.message);
+    const choice = dialog.showMessageBoxSync({
+      type: 'warning',
+      buttons: ['Quit and Try Again', 'Continue Anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      message: 'Redstring couldn’t carry your settings over from the previous version.',
+      detail: 'Nothing has been changed or removed. Quitting and reopening Redstring will try again. ' +
+        'If you continue, the app opens without your saved settings, API keys and GitHub connection for now; your universe files are untouched.'
+    });
+    return choice === 0 ? 'quit' : 'continue';
   }
+
+  // Decrypted secrets travel as `rsplain:v1:` values; the renderer's
+  // secureStore moves them into window.electron.secrets (safeStorage) on first
+  // read and scrubs them from localStorage.
+  const handoff = legacyMigration.buildHandoffPayload(legacyState);
+  console.log('[Migration] Legacy storage exported:', JSON.stringify(handoff.summary));
+
+  if (handoff.isEmpty) {
+    try {
+      writeOriginMigrationMarker({ result: 'nothing-to-migrate', summary: handoff.summary });
+    } catch (err) {
+      console.error('[Migration] Could not write marker:', err.message);
+    }
+    return 'done';
+  }
+  legacyHandoff = { payload: handoff.payload, summary: handoff.summary };
+  return 'pending';
 }
 
-ipcMain.handle('oauth:start', async (event, authUrl) => {
-  return new Promise((resolve) => {
-    oauthCallbackResolve = resolve;
-    shell.openExternal(authUrl);
-  });
+handle('migration:takeLegacyState', async () => (legacyHandoff ? legacyHandoff.payload : null));
+
+handle('migration:complete', async (event, result) => {
+  if (!legacyHandoff) return false;
+  if (result && result.ok === true) {
+    try {
+      writeOriginMigrationMarker({ result: 'imported', summary: legacyHandoff.summary, counts: result.counts || null });
+      console.log('[Migration] Legacy storage imported into app://redstring:', JSON.stringify(result.counts || {}));
+      legacyHandoff = null;
+      return true;
+    } catch (err) {
+      console.error('[Migration] Could not write marker:', err.message);
+      return false;
+    }
+  }
+  console.error('[Migration] Renderer import failed; legacy data kept, will retry next launch:', result && result.error);
+  return false;
 });
 
+// ============================================================
 // GitHub Device Flow — fully local, no OAuth server / no client_secret.
 // Both endpoints live on github.com (not api.github.com) and do NOT send
 // CORS headers, so the renderer can't call them directly. We proxy them
 // from the main process and let the renderer drive the polling cadence.
+// ============================================================
+
+const GITHUB_CLIENT_ID_RE = /^[A-Za-z0-9._-]{1,100}$/;
 
 async function githubFetchJSON(url, init) {
   const res = await fetch(url, {
@@ -915,11 +1186,11 @@ async function githubFetchJSON(url, init) {
   return { ok: res.ok, status: res.status, body };
 }
 
-ipcMain.handle('github:deviceFlow:requestCode', async (event, { clientId, scope }) => {
-  if (!clientId) throw new Error('Missing GitHub client_id');
+handle('github:deviceFlow:requestCode', async (event, { clientId, scope } = {}) => {
+  if (!clientId || !GITHUB_CLIENT_ID_RE.test(String(clientId))) throw new Error('Missing GitHub client_id');
   const params = new URLSearchParams();
   params.set('client_id', clientId);
-  if (scope) params.set('scope', scope);
+  if (typeof scope === 'string' && scope) params.set('scope', scope.slice(0, 500));
   return githubFetchJSON('https://github.com/login/device/code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -927,9 +1198,9 @@ ipcMain.handle('github:deviceFlow:requestCode', async (event, { clientId, scope 
   });
 });
 
-ipcMain.handle('github:deviceFlow:pollToken', async (event, { clientId, deviceCode }) => {
-  if (!clientId) throw new Error('Missing GitHub client_id');
-  if (!deviceCode) throw new Error('Missing device_code');
+handle('github:deviceFlow:pollToken', async (event, { clientId, deviceCode } = {}) => {
+  if (!clientId || !GITHUB_CLIENT_ID_RE.test(String(clientId))) throw new Error('Missing GitHub client_id');
+  if (!deviceCode || typeof deviceCode !== 'string' || deviceCode.length > 512) throw new Error('Missing device_code');
   const params = new URLSearchParams();
   params.set('client_id', clientId);
   params.set('device_code', deviceCode);
@@ -941,12 +1212,47 @@ ipcMain.handle('github:deviceFlow:pollToken', async (event, { clientId, deviceCo
   });
 });
 
-ipcMain.handle('shell:openExternal', async (event, url) => {
-  if (typeof url !== 'string') return false;
-  // Only allow http/https — never let the renderer trigger arbitrary protocols.
-  if (!/^https?:\/\//i.test(url)) return false;
+handle('shell:openExternal', async (event, url) => {
+  // https/http/mailto only — never let the renderer trigger file:, smb:, or
+  // another app's custom scheme.
+  if (!isSafeExternalUrl(url)) return false;
   await shell.openExternal(url);
   return true;
+});
+
+// ============================================================
+// Agent server IPC
+// ============================================================
+
+handle('agent:status', async () => {
+  return {
+    running: agentServerProcess !== null,
+    pid: agentServerProcess?.pid || null
+  };
+});
+
+handle('agent:restart', async () => {
+  stopAgentServer();
+  // Small delay to ensure clean shutdown
+  await new Promise(resolve => setTimeout(resolve, 500));
+  startAgentServer();
+  return { success: true };
+});
+
+// C-6: where the local agent server listens, and the token it requires.
+handle('agent:getConnection', async () => ({
+  baseUrl: `http://127.0.0.1:${agentPort}`,
+  token: agentToken
+}));
+
+// Second-launch attempts are forwarded here by the single-instance lock.
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else if (app.isReady() && BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
 });
 
 app.whenReady().then(async () => {
@@ -966,6 +1272,20 @@ app.whenReady().then(async () => {
 
   // Create Redstring directories
   await ensureDirectories();
+  initApprovals();
+  secretsStore = createSecretsStore({ dir: getSecretsPath(), safeStorage });
+
+  hardenSession(getAppSession());
+
+  // Packaged builds moved from file:// to app://redstring; carry the old
+  // origin's storage across before the app window exists.
+  if (!isDev) {
+    const outcome = await runOriginMigration();
+    if (outcome === 'quit') {
+      app.quit();
+      return;
+    }
+  }
 
   // Start the agent server (AI backend)
   startAgentServer();
@@ -977,11 +1297,18 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 
-  // Initialize updater (handles preflight cleanup, event wiring, IPC, periodic recheck)
+  // Initialize updater (handles preflight cleanup, event wiring, IPC, periodic recheck).
+  // REDSTRING_DISABLE_UPDATER=1 skips it entirely — for smoke-testing a local
+  // build without touching the installed app's shared ShipIt/updater caches.
+  if (process.env.REDSTRING_DISABLE_UPDATER === '1') {
+    console.log('[Electron] Updater disabled by REDSTRING_DISABLE_UPDATER');
+    return;
+  }
   updaterHandle = initUpdater({
     app,
     getMainWindow: () => mainWindow,
     isDev,
+    isTrustedSender: isTrusted,
     stopAgentServer,
     sessionName
   });
@@ -1001,21 +1328,4 @@ app.on('before-quit', () => {
   stopAgentServer();
 });
 
-// IPC handlers for agent server control
-ipcMain.handle('agent:status', async () => {
-  return {
-    running: agentServerProcess !== null,
-    pid: agentServerProcess?.pid || null
-  };
-});
-
-ipcMain.handle('agent:restart', async () => {
-  stopAgentServer();
-  // Small delay to ensure clean shutdown
-  await new Promise(resolve => setTimeout(resolve, 500));
-  startAgentServer();
-  return { success: true };
-});
-
 // Updater IPC handlers live in electron/updater.cjs (registered by initUpdater)
-

@@ -16,6 +16,7 @@
  */
 
 import { isElectron } from '../utils/fileAccessAdapter.js';
+import { openExternalUrl } from '../utils/safeUrl.js';
 import { isCapacitor, capHttpJSON } from '../utils/capacitorAdapter.js';
 import {
   DEFAULT_OAUTH_CLIENT_ID,
@@ -106,7 +107,10 @@ export async function requestDeviceCode({ clientId, scope } = {}) {
  * Falls back silently if the IPC isn't wired up.
  */
 export async function openVerificationUrl(url) {
-  if (!url) return false;
+  // Only ever GitHub pages over https (device verification, install and
+  // settings pages). The device-code response is network input; refuse to
+  // hand anything else to the OS browser / window.open.
+  if (!isGitHubHttpsUrl(url)) return false;
   try {
     if (isCapacitor()) {
       // SFSafariViewController — the user enters the code and swipes back.
@@ -117,8 +121,19 @@ export async function openVerificationUrl(url) {
     if (isElectron() && window.electron?.github?.openExternal) {
       return await window.electron.github.openExternal(url);
     }
-    window.open(url, '_blank', 'noopener');
-    return true;
+    return openExternalUrl(url);
+  } catch {
+    return false;
+  }
+}
+
+export function isGitHubHttpsUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:'
+      && !u.username && !u.password
+      && (u.hostname === 'github.com' || u.hostname.endsWith('.github.com'));
   } catch {
     return false;
   }

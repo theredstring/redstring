@@ -8,6 +8,7 @@
 import { Parser as N3StringParser } from 'n3';
 import JsonLDParser from '@rdfjs/parser-jsonld';
 import jsonld from 'jsonld';
+import { JSONLD_SAFE_OPTIONS } from '../formats/jsonldLoader.js';
 import { createTimeoutSignal } from '../utils/abortSignal.js';
 
 // RDF format priorities for content negotiation
@@ -189,7 +190,8 @@ export class RDFResolver {
   async _parseJsonLD(content, baseUri) {
     try {
       const jsonData = JSON.parse(content);
-      const expanded = await jsonld.expand(jsonData, { base: baseUri });
+      // Remote @context URLs resolve only from the vocabulary allowlist.
+      const expanded = await jsonld.expand(jsonData, { base: baseUri, ...JSONLD_SAFE_OPTIONS });
       
       const triples = [];
       for (const item of expanded) {

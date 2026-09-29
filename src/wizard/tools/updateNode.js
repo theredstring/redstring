@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { sanitizeColor } from '../../utils/safeColor.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 
 // Every tool field is sent as required (see LLMClient makeAllRequired), so
@@ -71,7 +72,8 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
 
   const updates = {};
   if (given(name)) updates.name = name;
-  if (given(color)) updates.color = color;
+  // Only a plain colour: it lands in inline styles. Anything else is ignored.
+  if (given(color) && sanitizeColor(color) !== null) updates.color = sanitizeColor(color);
   if (given(description)) updates.description = description;
   if (given(typeNodeId)) updates.typeNodeId = typeNodeId;
 

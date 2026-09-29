@@ -390,11 +390,23 @@ function throwIfStreamError(chunk, label) {
   }
 }
 
+/**
+ * Optional check awaited before any request leaves for a provider. The
+ * renderer installs one (the one-time "who receives what" consent, see
+ * src/services/aiConsent.js); Node callers (MCP server, CLI) never do. It
+ * throws to stop the request — nothing is sent.
+ */
+let requestGate = null;
+export function setLLMRequestGate(gate) {
+  requestGate = typeof gate === 'function' ? gate : null;
+}
+
 export async function* streamLLM(messages, tools = [], config = {}, signal = null) {
   const defaults = getDefaultConfig();
   const provider = config.provider || defaults.provider;
   const endpoint = resolveEndpoint(provider, config.endpoint);
   const model = config.model || defaults.model;
+  if (requestGate) await requestGate({ provider, endpoint, model });
   const apiKey = config.apiKey || '';
   const maxTokens = config.maxTokens ?? defaults.maxTokens;
 

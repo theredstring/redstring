@@ -8,6 +8,35 @@
 // Check if we're in Node.js environment
 const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
 
+// Universe ID for debug logging (can be configured). Declared before the
+// module-load health check below, which reads DEBUG_SERVER_URL.
+const DEFAULT_UNIVERSE_ID = '52d0fe28-158e-49a4-b331-f013fcb14181';
+// Production Vite builds fold `import.meta.env.PROD` to true, so the dev-only
+// ingest address never ships in the bundle (checked by check-dist).
+const DEBUG_SERVER_URL = import.meta.env?.PROD ? null : 'http://127.0.0.1:7242';
+
+/**
+ * The debug ingest server is a developer tool: it receives log payloads that
+ * can include LLM output previews and graph data. It is OFF unless
+ *   - this is a Vite dev build (import.meta.env.DEV; production bundles
+ *     compile the check to false, and the test mode is excluded), or
+ *   - REDSTRING_DEBUG_LOG=1 is set (Node: the agent server, CLI, MCP server).
+ * Plain Node and the esbuild agent bundle have no import.meta.env, so they
+ * stay off without the flag.
+ */
+export function isDebugLogEnabled() {
+  if (!DEBUG_SERVER_URL) return false;
+  try {
+    if (globalThis.process?.env?.REDSTRING_DEBUG_LOG === '1') return true;
+  } catch { /* no process */ }
+  try {
+    const env = import.meta.env;
+    return !!env && env.DEV === true && env.MODE !== 'test';
+  } catch {
+    return false;
+  }
+}
+
 // Cache for server availability to avoid repeated checks
 // Try to restore from sessionStorage to persist across page reloads
 function loadDebugServerHealth() {
@@ -59,7 +88,7 @@ let serverAvailabilityCache = loadDebugServerHealth();
 
 // On module load, do a quick async check to see if server is available
 // This prevents the first request from being made if server is known to be down
-if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+if (typeof window !== 'undefined' && typeof fetch !== 'undefined' && isDebugLogEnabled()) {
   // Check server availability in the background
   (async () => {
     try {
@@ -90,10 +119,6 @@ if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
     }
   })();
 }
-
-// Universe ID for debug logging (can be configured)
-const DEFAULT_UNIVERSE_ID = '52d0fe28-158e-49a4-b331-f013fcb14181';
-const DEBUG_SERVER_URL = 'http://127.0.0.1:7242';
 
 /**
  * Check if the debug logging server is available
@@ -143,6 +168,7 @@ async function checkServerAvailability() {
  * @param {string} hypothesisId - Hypothesis identifier (optional)
  */
 export async function debugLog(location, message, data = {}, sessionId = 'debug-session', hypothesisId = null) {
+  if (!isDebugLogEnabled()) return;
   // Only attempt logging if server might be available
   // Check availability asynchronously without blocking
   checkServerAvailability().then(isAvailable => {
@@ -180,6 +206,7 @@ export async function debugLog(location, message, data = {}, sessionId = 'debug-
  * Works in both browser and Node.js
  */
 export function debugLogSync(location, message, data = {}, sessionId = 'debug-session', hypothesisId = null) {
+  if (!isDebugLogEnabled()) return;
   // Silently skip if fetch is not available (shouldn't happen in modern environments)
   if (typeof fetch === 'undefined') {
     return;

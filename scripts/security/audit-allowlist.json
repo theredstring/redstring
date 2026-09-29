@@ -1,0 +1,9 @@
+{
+  "_readme": [
+    "Exceptions for scripts/security/audit-gate.mjs (high/critical advisories in runtime dependencies).",
+    "Entry: { \"package\": \"<npm name>\", \"advisories\": [\"GHSA-...\"] (optional), \"reason\": \"why it is not exploitable in Redstring\", \"expires\": \"YYYY-MM-DD\" }.",
+    "Expiry at most 180 days out; an expired entry fails the gate so the exception is re-reviewed.",
+    "Prefer fixing: upgrade, replace, or move the package to devDependencies if it never ships."
+  ],
+  "entries": []
+}

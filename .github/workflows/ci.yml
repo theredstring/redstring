@@ -5,19 +5,37 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  schedule:
+    # Weekly (Mondays 06:17 UTC): full-history secret scan + dependency audit,
+    # so a newly published advisory or a key that slipped into any branch shows
+    # up even in a week with no pushes.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+# Least privilege for GITHUB_TOKEN: nothing in CI writes to the repo.
+permissions:
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Actions are pinned to full commit SHAs (a tag can be moved by whoever
+# controls the action's repo). Dependabot (.github/dependabot.yml) proposes
+# updates. Look a SHA up with:
+#   git ls-remote https://github.com/actions/checkout refs/tags/v4.4.0
+
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: '20'
         cache: 'npm'
@@ -42,3 +60,81 @@ jobs:
       run: npm run build
       env:
         NODE_OPTIONS: --max-old-space-size=4096
+
+  # The security gate. Make this a required status check on main (see
+  # documentation/security/RUNBOOK.md). Every check runs even if an earlier one
+  # fails, so one red run shows everything that is wrong.
+  # What each check enforces: test/security/README.md.
+  security:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      id: install
+      run: npm ci
+
+    - name: Secret scan (tracked files)
+      if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      run: node scripts/security/secret-scan.mjs
+
+    - name: Security tests (invariants + area suites)
+      if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      run: npx vitest run test/security
+
+    - name: Dependency audit (runtime dependencies, high/critical)
+      if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      run: node scripts/security/audit-gate.mjs
+
+    - name: Build application
+      id: build
+      if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      run: npm run build
+      env:
+        NODE_OPTIONS: --max-old-space-size=4096
+
+    - name: Check build output (secrets, debug pages, CSP, headers)
+      if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+      run: node scripts/security/check-dist.mjs
+
+  security-weekly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        # Every branch and tag, full history: the scan reads every blob ever pushed.
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      id: install
+      run: npm ci
+
+    # Known leaked-and-revoked keys stay in history forever; once revoked they
+    # are allowlisted by fingerprint in scripts/security/secret-scan-allowlist.json
+    # (RUNBOOK.md). Anything else found here is a new leak: rotate it first.
+    - name: Secret scan (full history, all refs)
+      if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      run: node scripts/security/secret-scan.mjs --history
+
+    - name: Dependency audit (runtime dependencies, high/critical)
+      if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      run: node scripts/security/audit-gate.mjs

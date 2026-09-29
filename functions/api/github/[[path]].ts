@@ -4,7 +4,15 @@
 // stubs). One credential set per Worker environment — see _lib/env.ts.
 //
 // Mounting: this file is automatically invoked by Cloudflare Pages for any
-// request matching /api/github/* (see cloudflare/pages/_routes.json).
+// request matching /api/github/* (see public/_routes.json).
+//
+// Security posture (see documentation/security/):
+// - Every route that acts on a GitHub App installation id goes through
+//   requireInstallOwnership → verifyInstallOwnership (_lib/ownership.ts),
+//   which fails closed (S-01/S-04).
+// - Error bodies carry a status and a short `code`; GitHub's raw responses and
+//   configuration details are logged server-side only (S-09).
+// - Best-effort per-isolate rate limiting (S-08) — the WAF rule is the wall.
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -16,127 +24,284 @@ import {
   extractOAuthToken,
   fetchOAuthUser,
   listInstallationsViaOAuth,
-  verifyInstallationWithOAuth,
-  formatVerificationForResponse,
 } from '../../_lib/github';
+import {
+  verifyInstallOwnership,
+  verificationSummary,
+  type OwnershipDenyCode,
+} from '../../_lib/ownership';
+import {
+  createRateLimiter,
+  isSensitivePath,
+  GLOBAL_RULE,
+  SENSITIVE_RULE,
+} from '../../_lib/rateLimit';
 
 const SERVICE = 'oauth-server'; // SPA may assert on this; keep stable
 const app = new Hono<{ Bindings: Env }>();
+let limiter = createRateLimiter();
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const fail = (c: any, status: number, code: string, error: string, extra: Record<string, unknown> = {}) =>
+  c.json({ error, code, ...extra, service: SERVICE }, status as any);
+
+// Server-side detail for `wrangler pages deployment tail`. Never includes
+// tokens; GitHub bodies are truncated.
+const logDetail = (where: string, info: Record<string, unknown>) => {
+  try { console.error(`[github-fn] ${where}`, JSON.stringify(info).slice(0, 1000)); } catch { /* ignore */ }
+};
+
+const readJson = async (c: any): Promise<any> => {
+  try { return (await c.req.json()) || {}; } catch { return {}; }
+};
+
+const ghHeaders = (authorization: string, extra: Record<string, string> = {}) => ({
+  'Accept': 'application/vnd.github.v3+json',
+  'Authorization': authorization,
+  'User-Agent': USER_AGENT,
+  ...extra,
+});
+
+const isLoopbackHost = (host: string) =>
+  host === 'localhost' || host.endsWith('.localhost') || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+
+const OWNERSHIP_MESSAGES: Record<OwnershipDenyCode, string> = {
+  invalid_installation_id: 'Invalid installation ID',
+  oauth_required: 'OAuth token required',
+  wrong_token_type: 'Wrong token type',
+  app_not_configured: 'GitHub App not configured',
+  oauth_invalid: 'GitHub OAuth token is invalid or expired. Please reconnect OAuth and retry.',
+  installation_not_found: 'Installation not found',
+  app_credentials_mismatch: 'GitHub App credential mismatch',
+  installation_suspended: 'Installation suspended',
+  account_mismatch: 'GitHub App installation not accessible for the connected OAuth account',
+  not_org_member: 'GitHub App installation not accessible for the connected OAuth account',
+  unsupported_target: 'GitHub App installation not accessible for the connected OAuth account',
+  github_app_auth_failed: 'GitHub App authentication failed',
+  github_error: 'GitHub request failed',
+};
+
+// Ownership gate (contract C-9). The SPA passes its OAuth user token in
+// `Authorization: token …`; the Worker proves the caller owns — or is an
+// active member of the org that owns — the installation before acting on it.
+// Returns a Response to short-circuit on refusal, otherwise the verified
+// installation, the caller, and the App JWT to reuse.
+async function requireInstallOwnership(c: any, rawInstallationId: unknown) {
+  const oauthToken = extractOAuthToken(c.req.header('authorization'));
+  if (!oauthToken) {
+    return fail(c, 401, 'oauth_required', OWNERSHIP_MESSAGES.oauth_required);
+  }
+  const appId = c.env.GITHUB_APP_ID;
+  const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
+  if (!appId || !privateKey) {
+    return fail(c, 500, 'app_not_configured', OWNERSHIP_MESSAGES.app_not_configured);
+  }
+  let jwtStr: string;
+  try {
+    jwtStr = await appJwt(appId, privateKey);
+  } catch (e: any) {
+    logDetail('app jwt signing failed', { message: e?.message || String(e) });
+    return fail(c, 500, 'app_not_configured', OWNERSHIP_MESSAGES.app_not_configured);
+  }
+  const result = await verifyInstallOwnership(rawInstallationId, oauthToken, jwtStr, appId);
+  if (!result.ok) {
+    console.warn('[github-fn] installation access denied', { code: result.code });
+    return fail(c, result.status, result.code, OWNERSHIP_MESSAGES[result.code]);
+  }
+  return { ...result, jwtStr };
+}
+
+async function mintInstallationToken(installationId: number, jwtStr: string) {
+  const resp = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
+    method: 'POST',
+    headers: ghHeaders(`Bearer ${jwtStr}`),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    logDetail('installation token mint failed', { status: resp.status, body: text.slice(0, 300) });
+    return { ok: false as const, status: resp.status };
+  }
+  const data: any = await resp.json().catch(() => null);
+  if (!data?.token) return { ok: false as const, status: 502 };
+  return { ok: true as const, data };
+}
+
+function mintFailure(c: any, status: number) {
+  if (status === 404) return fail(c, 404, 'installation_not_found', 'Installation not found');
+  if (status === 401) return fail(c, 502, 'github_app_auth_failed', 'GitHub App authentication failed');
+  if (status === 403) return fail(c, 502, 'installation_forbidden', 'Installation access forbidden');
+  return fail(c, 502, 'token_mint_failed', 'Failed to generate installation token');
+}
+
+async function listInstallationRepositories(installationToken: string): Promise<any[]> {
+  try {
+    const resp = await fetch('https://api.github.com/installation/repositories', {
+      headers: ghHeaders(`token ${installationToken}`),
+    });
+    if (!resp.ok) return [];
+    const data: any = await resp.json();
+    return Array.isArray(data?.repositories) ? data.repositories : [];
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------------------------
+
+// Response hardening for everything this Function returns. public/_headers
+// does not apply to Function responses, so API responses get their own.
+app.use('*', async (c, next) => {
+  await next();
+  const headers: Record<string, string> = {
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  };
+  try {
+    for (const [k, v] of Object.entries(headers)) c.res.headers.set(k, v);
+  } catch {
+    // Immutable headers (e.g. a Response.redirect) — rebuild the response.
+    c.res = new Response(c.res.body, c.res);
+    for (const [k, v] of Object.entries(headers)) c.res.headers.set(k, v);
+  }
+});
 
 // CORS — same-origin (Pages serves SPA + this function) doesn't need it, but
-// Electron and curl tests do. Allow redstring.io + localhost by default.
-// `*.pages.dev` / `*.workers.dev` are attacker-registrable, so that broad
-// preview allowance is opt-in per environment via ALLOW_PREVIEW_ORIGINS=true.
+// cross-origin dev setups do. Allow redstring.io by default. Localhost is NOT
+// allowed in production: only when the Function itself is served from
+// localhost (`wrangler pages dev`) or the environment opts in with
+// ALLOW_LOCALHOST_ORIGINS=true (I-2). `*.pages.dev` / `*.workers.dev` are
+// attacker-registrable, so that broad preview allowance is opt-in per
+// environment via ALLOW_PREVIEW_ORIGINS=true.
 app.use('/api/github/*', cors({
   origin: (origin, c) => {
     if (!origin) return '*';
-    const allowPreview = (c?.env as Env | undefined)?.ALLOW_PREVIEW_ORIGINS === 'true';
+    const env = c?.env as Env | undefined;
+    const allowPreview = env?.ALLOW_PREVIEW_ORIGINS === 'true';
+    let allowLocal = env?.ALLOW_LOCALHOST_ORIGINS === 'true';
     try {
-      const host = new URL(origin).hostname;
-      if (host === 'redstring.io' || host.endsWith('.redstring.io')) return origin;
-      if (host === 'localhost' || host.endsWith('.localhost')) return origin;
-      if (allowPreview && (host.endsWith('.pages.dev') || host.endsWith('.workers.dev'))) return origin;
+      if (!allowLocal && isLoopbackHost(new URL(c.req.url).hostname)) allowLocal = true;
+    } catch { /* ignore */ }
+    try {
+      const u = new URL(origin);
+      const host = u.hostname;
+      if (u.protocol === 'https:' && (host === 'redstring.io' || host.endsWith('.redstring.io'))) return origin;
+      if (allowLocal && (u.protocol === 'http:' || u.protocol === 'https:') && isLoopbackHost(host)) return origin;
+      if (allowPreview && u.protocol === 'https:' && (host.endsWith('.pages.dev') || host.endsWith('.workers.dev'))) return origin;
     } catch { /* ignore */ }
     return null;
   },
   credentials: false,
 }));
 
-// Shared ownership gate for GitHub App endpoints. Requires the SPA to pass its
-// OAuth user token so the Worker can confirm the caller actually owns the
-// installation before minting a token / returning its data — installation IDs
-// are enumerable integers, so acting on an arbitrary one is broken access
-// control. Returns a Response to short-circuit on refusal, otherwise the
-// verification context. NOTE: an `unverified` result (token present but the
-// install can't be enumerated via /user/installations, e.g. org installs when
-// the OAuth token lacks read:org) is allowed through to preserve those flows;
-// fully closing that residual requires read:org scope on the OAuth token.
-async function requireInstallOwnership(c: any, installationId: string | number) {
-  const oauthToken = extractOAuthToken(c.req.header('authorization'));
-  if (!oauthToken) {
-    return c.json({
-      error: 'OAuth token required',
-      hint: `Pass "Authorization: token <oauth_token>" so the Worker can confirm you own installation ${installationId} before acting on it.`,
-      code: 'oauth_required',
-      service: SERVICE,
-    }, 401);
+// Rate limiting (S-08). Keyed on CF-Connecting-IP, which Cloudflare always
+// sets and clients cannot forge; requests without it (local wrangler dev)
+// are not limited.
+app.use('/api/github/*', async (c, next) => {
+  const ip = c.req.header('cf-connecting-ip');
+  if (!ip || c.req.method === 'OPTIONS') return next();
+  const sensitive = isSensitivePath(c.req.path);
+  const rules = sensitive ? [SENSITIVE_RULE, GLOBAL_RULE] : [GLOBAL_RULE];
+  for (const rule of rules) {
+    const d = limiter.check(ip, rule);
+    if (!d.ok) {
+      c.header('Retry-After', String(d.retryAfterSec));
+      return fail(c, 429, 'rate_limited', 'Too many requests');
+    }
   }
-  const oauthUser = await fetchOAuthUser(oauthToken);
-  const verification = await verifyInstallationWithOAuth(installationId, oauthToken, oauthUser);
-  const deniedStatus: Record<string, number> = {
-    missing_installation: 400,
-    account_mismatch: 403,
-    not_found: 403,
-    oauth_invalid: 401,
-  };
-  if (deniedStatus[verification.status]) {
-    return c.json({
-      error: 'Installation access denied',
-      code: verification.status,
-      verification: formatVerificationForResponse(verification),
-      service: SERVICE,
-    }, deniedStatus[verification.status] as any);
+  const binding = (c.env as Env | undefined)?.RATE_LIMITER;
+  if (binding) {
+    try {
+      const r = await binding.limit({ key: `${sensitive ? 's' : 'g'}:${ip}` });
+      if (!r.success) return fail(c, 429, 'rate_limited', 'Too many requests');
+    } catch { /* binding unavailable — in-isolate limit still applied */ }
   }
-  return { oauthToken, oauthUser, verification };
-}
+  return next();
+});
+
+app.onError((err, c) => {
+  logDetail('unhandled error', { path: c.req.path, message: (err as any)?.message || String(err) });
+  return fail(c, 500, 'internal_error', 'Internal error');
+});
 
 // =============================================================================
 // /api/github/oauth/* — user-facing OAuth flow
 // =============================================================================
 
-// Public client ID for the SPA to start the OAuth dance.
+// Public client ID for the SPA to start the OAuth dance. Deliberately says
+// nothing about whether the secret is configured (S-09).
 app.get('/api/github/oauth/client-id', (c) => {
-  const clientId = c.env.GITHUB_CLIENT_ID || null;
-  const configured = !!(clientId && c.env.GITHUB_CLIENT_SECRET);
-  return c.json({
-    clientId: clientId && clientId.trim().length > 0 ? clientId.trim() : null,
-    configured,
-    clientIdValid: !!(clientId && clientId.trim().length > 0),
-    clientSecretValid: !!(c.env.GITHUB_CLIENT_SECRET && c.env.GITHUB_CLIENT_SECRET.trim().length > 0),
-    service: SERVICE,
-  });
+  const clientId = (c.env.GITHUB_CLIENT_ID || '').trim();
+  return c.json({ clientId: clientId || null, service: SERVICE });
 });
+
+// RFC 7636 code_verifier: 43–128 chars of the unreserved set.
+const PKCE_VERIFIER_RE = /^[A-Za-z0-9\-._~]{43,128}$/;
 
 // Exchange OAuth code for access token, validate, fetch user, return.
 app.post('/api/github/oauth/token', async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { body = {}; }
-  const { code, state, redirect_uri } = body || {};
+  const body = await readJson(c);
+  const { code, state, redirect_uri, code_verifier } = body || {};
 
-  if (!code || !state) {
-    return c.json({ error: 'Missing code or state', service: SERVICE, received: { hasCode: !!code, hasState: !!state } }, 400);
+  if (!code || !state || typeof code !== 'string' || typeof state !== 'string') {
+    return fail(c, 400, 'missing_code_or_state', 'Missing code or state');
+  }
+  // PKCE (S-07): forwarded when present. GitHub then requires it to match
+  // the code_challenge sent on the authorize request.
+  if (code_verifier != null && (typeof code_verifier !== 'string' || !PKCE_VERIFIER_RE.test(code_verifier))) {
+    return fail(c, 400, 'invalid_code_verifier', 'Invalid code_verifier');
   }
   const clientId = c.env.GITHUB_CLIENT_ID;
   const clientSecret = c.env.GITHUB_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    return c.json({ error: 'GitHub OAuth not configured', hint: 'Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET as Worker secrets', service: SERVICE }, 500);
+    return fail(c, 500, 'oauth_not_configured', 'GitHub OAuth not configured');
   }
 
   // Step 1: exchange code → token
+  const exchange: Record<string, string> = {
+    client_id: clientId.trim(),
+    client_secret: clientSecret.trim(),
+    code,
+    state,
+  };
+  if (typeof redirect_uri === 'string' && redirect_uri) exchange.redirect_uri = redirect_uri;
+  if (typeof code_verifier === 'string') exchange.code_verifier = code_verifier;
+
   const tokenResp = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'User-Agent': USER_AGENT },
-    body: JSON.stringify({ client_id: clientId.trim(), client_secret: clientSecret.trim(), code, redirect_uri, state }),
+    body: JSON.stringify(exchange),
   });
   if (!tokenResp.ok) {
     const errText = await tokenResp.text().catch(() => '');
-    return c.json({ error: `GitHub API error: ${tokenResp.status}`, details: errText, service: SERVICE }, 500);
+    logDetail('oauth code exchange http error', { status: tokenResp.status, body: errText.slice(0, 300) });
+    return fail(c, 502, 'token_exchange_failed', 'GitHub token exchange failed');
   }
-  const tokenData: any = await tokenResp.json();
-  if (tokenData.error) {
-    return c.json({ error: `GitHub OAuth error: ${tokenData.error_description || tokenData.error}`, service: SERVICE }, 500);
+  const tokenData: any = await tokenResp.json().catch(() => ({}));
+  if (tokenData.error || !tokenData.access_token) {
+    logDetail('oauth code exchange rejected', { error: tokenData.error || 'no_access_token', description: tokenData.error_description });
+    return fail(c, 400, 'token_exchange_rejected', 'GitHub rejected the authorization code');
   }
 
   // Step 2: validate token + check `repo` scope (same as Node server)
   const basic = btoa(`${clientId.trim()}:${clientSecret.trim()}`);
   const validateResp = await fetch(`https://api.github.com/applications/${clientId.trim()}/token`, {
     method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Basic ${basic}`, 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' },
+    headers: { ...ghHeaders(`Basic ${basic}`), 'Content-Type': 'application/json' },
     body: JSON.stringify({ access_token: tokenData.access_token }),
   });
   if (!validateResp.ok) {
     const vtext = await validateResp.text().catch(() => '');
-    return c.json({ error: 'Token validation failed', details: vtext, service: SERVICE }, 400);
+    logDetail('oauth token validation failed', { status: validateResp.status, body: vtext.slice(0, 300) });
+    return fail(c, 400, 'token_validation_failed', 'Token validation failed');
   }
   const vdata: any = await validateResp.json();
   const scopes: string[] = Array.isArray(vdata.scopes)
@@ -145,14 +310,14 @@ app.post('/api/github/oauth/token', async (c) => {
     : typeof vdata.scope === 'string' ? vdata.scope.split(',').map((s: string) => s.trim()).filter(Boolean)
     : [];
   if (!scopes.includes('repo')) {
-    return c.json({ error: 'Insufficient OAuth scope', required: ['repo'], scopes, service: SERVICE }, 400);
+    return fail(c, 400, 'insufficient_scope', 'Insufficient OAuth scope', { required: ['repo'], scopes });
   }
 
   // Step 3: fetch user profile (best-effort)
   let userData: any = null;
   try {
     const userResp = await fetch('https://api.github.com/user', {
-      headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `token ${tokenData.access_token}`, 'User-Agent': USER_AGENT },
+      headers: ghHeaders(`token ${tokenData.access_token}`),
     });
     if (userResp.ok) userData = await userResp.json();
   } catch { /* non-fatal */ }
@@ -181,25 +346,24 @@ app.post('/api/github/oauth/refresh', async (c) => {
 
 // Validate an OAuth access token against the OAuth App API.
 app.post('/api/github/oauth/validate', async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { body = {}; }
-  const { access_token } = body || {};
-  if (!access_token) return c.json({ error: 'Missing access_token', service: SERVICE }, 400);
+  const { access_token } = await readJson(c);
+  if (!access_token || typeof access_token !== 'string') return fail(c, 400, 'missing_access_token', 'Missing access_token');
 
   const clientId = c.env.GITHUB_CLIENT_ID;
   const clientSecret = c.env.GITHUB_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return c.json({ error: 'GitHub OAuth not configured', service: SERVICE }, 500);
+  if (!clientId || !clientSecret) return fail(c, 500, 'oauth_not_configured', 'GitHub OAuth not configured');
 
   const basic = btoa(`${clientId}:${clientSecret}`);
   const resp = await fetch(`https://api.github.com/applications/${clientId}/token`, {
     method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Basic ${basic}`, 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' },
+    headers: { ...ghHeaders(`Basic ${basic}`), 'Content-Type': 'application/json' },
     body: JSON.stringify({ access_token }),
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    const status = resp.status === 404 || resp.status === 401 ? 401 : resp.status;
-    return c.json({ valid: false, error: 'Token invalid or revoked', details: text, service: SERVICE }, status as any);
+    const status = resp.status === 404 || resp.status === 401 ? 401 : 502;
+    if (status !== 401) logDetail('oauth validate failed', { status: resp.status, body: text.slice(0, 300) });
+    return c.json({ valid: false, error: 'Token invalid or revoked', code: status === 401 ? 'token_invalid' : 'github_error', service: SERVICE }, status as any);
   }
   const data: any = await resp.json();
   const scopes: string[] = Array.isArray(data.scopes)
@@ -212,38 +376,48 @@ app.post('/api/github/oauth/validate', async (c) => {
 
 // Revoke an OAuth access token.
 app.delete('/api/github/oauth/revoke', async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { body = {}; }
-  const { access_token } = body || {};
-  if (!access_token) return c.json({ error: 'Missing access_token', service: SERVICE }, 400);
+  const { access_token } = await readJson(c);
+  if (!access_token || typeof access_token !== 'string') return fail(c, 400, 'missing_access_token', 'Missing access_token');
 
   const clientId = c.env.GITHUB_CLIENT_ID;
   const clientSecret = c.env.GITHUB_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return c.json({ error: 'GitHub OAuth not configured', service: SERVICE }, 500);
+  if (!clientId || !clientSecret) return fail(c, 500, 'oauth_not_configured', 'GitHub OAuth not configured');
 
   const basic = btoa(`${clientId}:${clientSecret}`);
   const resp = await fetch(`https://api.github.com/applications/${clientId}/token`, {
     method: 'DELETE',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Basic ${basic}`, 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' },
+    headers: { ...ghHeaders(`Basic ${basic}`), 'Content-Type': 'application/json' },
     body: JSON.stringify({ access_token }),
   });
   if (resp.status === 204) return c.json({ revoked: true, service: SERVICE });
   const text = await resp.text().catch(() => '');
-  const status = resp.status === 404 || resp.status === 401 ? 401 : resp.status;
-  return c.json({ revoked: false, error: 'Failed to revoke token', details: text, service: SERVICE }, status as any);
+  const status = resp.status === 404 || resp.status === 401 ? 401 : 502;
+  if (status !== 401) logDetail('oauth revoke failed', { status: resp.status, body: text.slice(0, 300) });
+  return c.json({ revoked: false, error: 'Failed to revoke token', code: status === 401 ? 'token_invalid' : 'github_error', service: SERVICE }, status as any);
 });
+
+// GitHub's own short explanation for a failed repo create (e.g. "name already
+// exists on this account") — useful to the user whose token made the call.
+const githubMessage = (text: string): string | null => {
+  try {
+    const j = JSON.parse(text);
+    const parts = [j?.message, ...(Array.isArray(j?.errors) ? j.errors.map((e: any) => e?.message) : [])]
+      .filter((s) => typeof s === 'string' && s);
+    return parts.length ? parts.join(': ').slice(0, 200) : null;
+  } catch {
+    return null;
+  }
+};
 
 // Create a repository using the user's OAuth token.
 app.post('/api/github/oauth/create-repository', async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { body = {}; }
-  const { access_token, name, private: isPrivate, description, auto_init } = body || {};
-  if (!access_token || !name) {
-    return c.json({ error: 'Access token and repository name are required', service: SERVICE }, 400);
+  const { access_token, name, private: isPrivate, description, auto_init } = await readJson(c);
+  if (!access_token || !name || typeof access_token !== 'string') {
+    return fail(c, 400, 'missing_fields', 'Access token and repository name are required');
   }
   const resp = await fetch('https://api.github.com/user/repos', {
     method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `token ${access_token}`, 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' },
+    headers: { ...ghHeaders(`token ${access_token}`), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: String(name).trim(),
       private: isPrivate !== false, // default private
@@ -256,9 +430,11 @@ app.post('/api/github/oauth/create-repository', async (c) => {
   });
   if (!resp.ok) {
     const errText = await resp.text().catch(() => '');
-    let errData: any = { message: errText };
-    try { errData = JSON.parse(errText); } catch { /* keep raw */ }
-    return c.json({ error: 'Repository creation failed', details: errData.message || errText, github_error: errText, service: SERVICE }, resp.status as any);
+    const status = resp.status >= 400 && resp.status < 500 ? resp.status : 502;
+    if (resp.status !== 422) logDetail('oauth repo create failed', { status: resp.status, body: errText.slice(0, 300) });
+    return fail(c, status, 'repository_creation_failed', 'Repository creation failed', {
+      details: resp.status === 422 ? githubMessage(errText) : null,
+    });
   }
   const newRepo: any = await resp.json();
   return c.json({
@@ -281,119 +457,34 @@ const appInfo = (c: any) => c.json({
 app.get('/api/github/app/info', appInfo);
 app.get('/api/github/app/client-id', appInfo);
 
-// Mint an installation access token. Verifies the install belongs to the
-// OAuth user IF the SPA supplies its OAuth token via Authorization. Without
-// it, verification is skipped (matches Node server stateless behavior).
+// Mint an installation access token — only for an installation the caller
+// owns (User install) or is an active member of the owning org. Fails closed:
+// any GitHub error or unverifiable state is a refusal, never a mint.
 app.post('/api/github/app/installation-token', async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { body = {}; }
-  const { installation_id } = body || {};
-  if (!installation_id) return c.json({ error: 'Installation ID is required', service: SERVICE }, 400);
-
-  const appId = c.env.GITHUB_APP_ID;
-  const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
-  const expectedSlug = c.env.GITHUB_APP_SLUG || null;
-  if (!appId || !privateKey) {
-    return c.json({ error: 'GitHub App not configured', hint: 'Set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY as Worker secrets', service: SERVICE }, 500);
+  const { installation_id } = await readJson(c);
+  if (installation_id == null || installation_id === '') {
+    return fail(c, 400, 'missing_installation', 'Installation ID is required');
   }
 
-  // Require the SPA's OAuth token so we can confirm the install belongs to this
-  // user before minting. Installation IDs are enumerable integers, so minting
-  // for an arbitrary ID with no caller identity is broken access control.
-  const oauthToken = extractOAuthToken(c.req.header('authorization'));
-  if (!oauthToken) {
-    return c.json({
-      error: 'OAuth token required',
-      hint: `Pass "Authorization: token <oauth_token>" so the Worker can confirm you own installation ${installation_id} before minting a token.`,
-      code: 'oauth_required',
-      service: SERVICE,
-    }, 401);
-  }
-  let verificationResult = null;
-  let verificationForResponse = null;
-  if (oauthToken) {
-    const oauthUser = await fetchOAuthUser(oauthToken);
-    verificationResult = await verifyInstallationWithOAuth(installation_id, oauthToken, oauthUser);
-    verificationForResponse = formatVerificationForResponse(verificationResult);
-    if (verificationResult.status === 'missing_installation') {
-      return c.json({ error: 'Invalid installation ID', code: 'missing_installation', verification: verificationForResponse, service: SERVICE }, 400);
-    }
-    if (verificationResult.status === 'account_mismatch' || verificationResult.status === 'not_found') {
-      return c.json({ error: 'GitHub App installation not accessible for the connected OAuth account', code: verificationResult.status, verification: verificationForResponse, service: SERVICE }, 403);
-    }
-    if (verificationResult.status === 'oauth_invalid') {
-      return c.json({ error: 'GitHub OAuth token is invalid or expired. Please reconnect OAuth and retry.', code: 'oauth_invalid', verification: verificationForResponse, service: SERVICE }, 401);
-    }
-    // status === 'unverified' / 'skipped' / 'error' / 'verified' all fall through to mint
-    // 'unverified' (403 on /user/installations) and 'error' both proceed — the mint
-    // endpoint is the authoritative source. Node server behaved the same way.
+  const gate = await requireInstallOwnership(c, installation_id);
+  if (gate instanceof Response) return gate;
 
-    // App credential mismatch check: if the install belongs to a different App
-    // than this Worker is configured for, surface a clean diagnostic instead of
-    // a confusing GitHub 404 on the mint.
-    const inst = verificationResult.installation;
-    const installAppId = inst?.app_id != null ? Number(inst.app_id) : null;
-    const installAppSlug = inst?.app_slug || null;
-    const configuredAppId = Number(appId);
-    const matchesById = installAppId != null && !Number.isNaN(installAppId) && installAppId === configuredAppId;
-    const matchesBySlug = installAppSlug && expectedSlug && installAppSlug === expectedSlug;
-    if (inst && !matchesById && !matchesBySlug) {
-      return c.json({
-        error: 'GitHub App credential mismatch',
-        code: 'app_credentials_mismatch',
-        hint: `Installation ${installation_id} belongs to app_id=${installAppId}${installAppSlug ? ` (slug=${installAppSlug})` : ''}, but this Worker is configured for app_id=${configuredAppId}${expectedSlug ? ` (slug=${expectedSlug})` : ''}.`,
-        verification: verificationForResponse,
-        service: SERVICE,
-      }, 409);
-    }
-  }
+  // Mint with the id GitHub returned for the verified installation.
+  const mint = await mintInstallationToken(gate.installationId, gate.jwtStr);
+  if (!mint.ok) return mintFailure(c, mint.status);
+  const tokenData = mint.data;
 
-  // Sign JWT and mint installation token.
-  const jwtStr = await appJwt(appId, privateKey);
-  const mintResp = await fetch(`https://api.github.com/app/installations/${installation_id}/access_tokens`, {
-    method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
-  });
-  if (!mintResp.ok) {
-    const errText = await mintResp.text().catch(() => '');
-    const errResponse: Record<string, any> = { error: 'Failed to generate installation token', status: mintResp.status, details: errText, service: SERVICE };
-    if (mintResp.status === 401) { errResponse.error = 'GitHub App authentication failed'; errResponse.hint = 'The GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY may be incorrect.'; }
-    else if (mintResp.status === 404) { errResponse.error = 'Installation not found'; errResponse.hint = `Installation ID ${installation_id} does not exist or the GitHub App does not have access to it.`; }
-    else if (mintResp.status === 403) { errResponse.error = 'Installation access forbidden'; errResponse.hint = 'The GitHub App may have been suspended or uninstalled.'; }
-    return c.json(errResponse, (mintResp.status === 404 ? 404 : 502) as any);
-  }
-  const tokenData: any = await mintResp.json();
+  const repositories = await listInstallationRepositories(tokenData.token);
 
-  // Fetch installation info (account) and repositories — best-effort.
-  let account: any = null;
-  try {
-    const infoResp = await fetch(`https://api.github.com/app/installations/${installation_id}`, {
-      headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
-    });
-    if (infoResp.ok) account = (await infoResp.json() as any)?.account || null;
-  } catch { /* non-fatal */ }
-
-  let repositories: any[] = [];
-  try {
-    const reposResp = await fetch('https://api.github.com/installation/repositories', {
-      headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `token ${tokenData.token}`, 'User-Agent': USER_AGENT },
-    });
-    if (reposResp.ok) {
-      const repoData: any = await reposResp.json();
-      if (Array.isArray(repoData?.repositories)) repositories = repoData.repositories;
-    }
-  } catch { /* non-fatal */ }
-
-  const responsePayload: Record<string, any> = {
+  return c.json({
     token: tokenData.token,
     expires_at: tokenData.expires_at,
     permissions: tokenData.permissions,
-    account,
+    account: gate.installation.account || null,
     repositories,
     service: SERVICE,
-  };
-  if (verificationForResponse) responsePayload.verification = verificationForResponse;
-  return c.json(responsePayload);
+    verification: verificationSummary(gate),
+  });
 });
 
 // List installations accessible to the requesting OAuth user, filtered to
@@ -402,18 +493,10 @@ app.post('/api/github/app/installation-token', async (c) => {
 app.get('/api/github/app/installations', async (c) => {
   const oauthToken = extractOAuthToken(c.req.header('authorization'));
   if (!oauthToken) {
-    return c.json({
-      error: 'OAuth token required',
-      hint: 'Pass "Authorization: token <oauth_token>". Listing installs by App JWT is disabled because it leaks installs from other accounts.',
-      service: SERVICE,
-    }, 401);
+    return fail(c, 401, 'oauth_required', 'OAuth token required');
   }
   if (oauthToken.startsWith('ghs_')) {
-    return c.json({
-      error: 'Wrong token type',
-      hint: 'Pass an OAuth user-to-server token (gho_/ghp_/github_pat_), not an App installation token (ghs_).',
-      service: SERVICE,
-    }, 400);
+    return fail(c, 400, 'wrong_token_type', 'Wrong token type');
   }
 
   const configuredAppId = Number(c.env.GITHUB_APP_ID);
@@ -423,28 +506,27 @@ app.get('/api/github/app/installations', async (c) => {
   const primary = await listInstallationsViaOAuth(oauthToken);
   let installs = primary.ok ? primary.installations : null;
 
-  // Fallback: /user/installations can 403 (SAML SSO, scope tightening, etc.).
-  // Identify the user via /user, then enumerate via App JWT and filter to
-  // installs whose account matches the user. Preserves the privacy guarantee.
+  // Fallback: /user/installations 403s for OAuth-App tokens (the web SPA's
+  // gho_ token), SAML SSO, etc. Identify the user via /user, then enumerate
+  // via App JWT and keep only personal installs whose account id is the
+  // user's id. (Org installs are found via the install callback instead.)
   if (!installs) {
     const oauthUser = await fetchOAuthUser(oauthToken);
-    if (!oauthUser?.login) {
-      return c.json({
-        error: 'Failed to list installations for OAuth user',
-        details: primary.details || 'Could not identify OAuth user via /user fallback',
-        reason: primary.reason || 'fallback_identity_unknown',
-        service: SERVICE,
-      }, (primary.status || 502) as any);
+    const userId = oauthUser?.id;
+    if (typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0) {
+      logDetail('installations: caller identity unknown', { status: primary.status, reason: primary.reason });
+      const status = primary.status === 401 ? 401 : primary.status === 403 ? 403 : 502;
+      return fail(c, status, primary.status === 401 ? 'oauth_invalid' : 'identity_unknown', 'Failed to list installations for OAuth user');
     }
     try {
       const jwtStr = await appJwt(c.env.GITHUB_APP_ID, c.env.GITHUB_APP_PRIVATE_KEY);
       const resp = await fetch('https://api.github.com/app/installations?per_page=100', {
-        headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
+        headers: ghHeaders(`Bearer ${jwtStr}`),
       });
       if (resp.ok) {
         const all = (await resp.json().catch(() => [])) as any[];
-        const loginLc = oauthUser.login.toLowerCase();
-        installs = (Array.isArray(all) ? all : []).filter((inst: any) => (inst?.account?.login || '').toLowerCase() === loginLc);
+        installs = (Array.isArray(all) ? all : []).filter((inst: any) =>
+          inst?.target_type === 'User' && inst?.account?.id === userId && !inst?.suspended_at);
       } else {
         installs = [];
       }
@@ -459,45 +541,21 @@ app.get('/api/github/app/installations', async (c) => {
     const slugMatch = configuredSlug && inst?.app_slug === configuredSlug;
     return appIdMatch || slugMatch;
   });
-  ours.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  ours.sort((a: any, b: any) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime());
   return c.json(ours);
 });
 
 // Get a specific installation's data (installation info + repositories).
 app.get('/api/github/app/installation/:installation_id', async (c) => {
-  const installation_id = c.req.param('installation_id');
-  const gate = await requireInstallOwnership(c, installation_id);
+  const gate = await requireInstallOwnership(c, c.req.param('installation_id'));
   if (gate instanceof Response) return gate;
-  const appId = c.env.GITHUB_APP_ID;
-  const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
-  if (!appId || !privateKey) return c.json({ error: 'GitHub App not configured', service: SERVICE }, 500);
-
-  const jwtStr = await appJwt(appId, privateKey);
-  const infoResp = await fetch(`https://api.github.com/app/installations/${installation_id}`, {
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
-  });
-  if (!infoResp.ok) {
-    return c.json({ error: `GitHub API error: ${infoResp.status}`, service: SERVICE }, 500);
-  }
-  const installationData: any = await infoResp.json();
+  const installationData = gate.installation;
 
   // Repositories require an installation token, not the App JWT.
-  const tokenResp = await fetch(`https://api.github.com/app/installations/${installation_id}/access_tokens`, {
-    method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
-  });
-  if (!tokenResp.ok) {
-    return c.json({ error: `Failed to get installation token: ${tokenResp.status}`, service: SERVICE }, 500);
-  }
-  const { token: installationToken }: any = await tokenResp.json();
-  let repositories: any[] = [];
-  const reposResp = await fetch('https://api.github.com/installation/repositories', {
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `token ${installationToken}`, 'User-Agent': USER_AGENT },
-  });
-  if (reposResp.ok) {
-    const reposData: any = await reposResp.json();
-    repositories = reposData?.repositories || [];
-  }
+  const mint = await mintInstallationToken(gate.installationId, gate.jwtStr);
+  if (!mint.ok) return mintFailure(c, mint.status);
+  const repositories = await listInstallationRepositories(mint.data.token);
+
   return c.json({
     installation: installationData,
     repositories,
@@ -509,45 +567,35 @@ app.get('/api/github/app/installation/:installation_id', async (c) => {
 
 // Create a repository via the GitHub App installation.
 app.post('/api/github/app/create-repository', async (c) => {
-  let body: any;
-  try { body = await c.req.json(); } catch { body = {}; }
-  const { installation_id, name, private: isPrivate, description, auto_init } = body || {};
-  if (!installation_id || !name) {
-    return c.json({ error: 'Installation ID and repository name are required', service: SERVICE }, 400);
+  const { installation_id, name, private: isPrivate, description, auto_init } = await readJson(c);
+  if (installation_id == null || installation_id === '' || !name || typeof name !== 'string') {
+    return fail(c, 400, 'missing_fields', 'Installation ID and repository name are required');
   }
   const gate = await requireInstallOwnership(c, installation_id);
   if (gate instanceof Response) return gate;
-  const appId = c.env.GITHUB_APP_ID;
-  const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
-  if (!appId || !privateKey) return c.json({ error: 'GitHub App not configured', service: SERVICE }, 500);
 
-  const jwtStr = await appJwt(appId, privateKey);
-  const tokenResp = await fetch(`https://api.github.com/app/installations/${installation_id}/access_tokens`, {
-    method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `Bearer ${jwtStr}`, 'User-Agent': USER_AGENT },
-  });
-  if (!tokenResp.ok) {
-    const errText = await tokenResp.text().catch(() => '');
-    return c.json({ error: `Failed to get installation token: ${errText}`, service: SERVICE }, tokenResp.status as any);
-  }
-  const { token: installationToken }: any = await tokenResp.json();
+  const mint = await mintInstallationToken(gate.installationId, gate.jwtStr);
+  if (!mint.ok) return mintFailure(c, mint.status);
 
   const createResp = await fetch('https://api.github.com/user/repos', {
     method: 'POST',
-    headers: { 'Accept': 'application/vnd.github.v3+json', 'Authorization': `token ${installationToken}`, 'User-Agent': USER_AGENT, 'Content-Type': 'application/json' },
+    headers: { ...ghHeaders(`token ${mint.data.token}`), 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, private: !!isPrivate, description: description || 'Redstring knowledge graph repository', auto_init: !!auto_init }),
   });
   if (!createResp.ok) {
     const errText = await createResp.text().catch(() => '');
+    logDetail('app repo create failed', { status: createResp.status, body: errText.slice(0, 300) });
     if (createResp.status === 403) {
-      return c.json({
-        error: 'Repository creation forbidden',
+      return fail(c, 403, 'repository_creation_forbidden', 'Repository creation forbidden', {
         details: 'GitHub App installation does not have permission to create repositories. Please check the app permissions or create the repository manually.',
-        github_error: errText,
-        service: SERVICE,
-      }, 403);
+      });
     }
-    return c.json({ error: `Repository creation failed: ${createResp.status}`, details: errText, service: SERVICE }, createResp.status as any);
+    const status = createResp.status >= 400 && createResp.status < 500 ? createResp.status : 502;
+    // Only a 422 (e.g. "name already exists") is about the caller's input and
+    // worth showing them; anything else stays in the log.
+    return fail(c, status, 'repository_creation_failed', 'Repository creation failed', {
+      details: createResp.status === 422 ? githubMessage(errText) : null,
+    });
   }
   const newRepo: any = await createResp.json();
   return c.json({
@@ -614,51 +662,51 @@ app.delete('/api/github/auth/github-app', (c) => c.json({
 // =============================================================================
 //
 // Registered as the App's Webhook URL, so GitHub POSTs here directly — nothing
-// in the SPA calls it. On Cloud Run this verified the signature and then
-// proxied to oauth-server, which only logged the event; that second hop has no
-// equivalent here and nothing consumes the payload, so this verifies and
+// in the SPA calls it. Nothing consumes the payload, so this verifies and
 // acknowledges.
 //
 // It exists rather than 404ing because GitHub retries failed deliveries and
-// eventually flags the endpoint as failing on the App's settings page. A clean
-// 200 keeps that quiet. If you'd rather not have the endpoint at all, clear the
-// Webhook URL in the App settings and delete this route.
+// eventually flags the endpoint as failing on the App's settings page. If
+// you'd rather not have the endpoint at all, clear the Webhook URL in the App
+// settings and delete this route.
 //
-// Verification mirrors the old behaviour exactly: enforce when the secret is
-// bound, warn and accept when it isn't.
+// Unsigned deliveries are never accepted (S-12): with no
+// GITHUB_APP_WEBHOOK_SECRET bound, every delivery is refused with 503 so the
+// misconfiguration shows up on the App's delivery log.
 app.post('/api/github/app/webhook', async (c) => {
   const event = c.req.header('x-github-event') || 'unknown';
   const signature = c.req.header('x-hub-signature-256') || '';
-  const secret = (c.env as Env & { GITHUB_APP_WEBHOOK_SECRET?: string }).GITHUB_APP_WEBHOOK_SECRET;
+  const secret = (c.env as Env).GITHUB_APP_WEBHOOK_SECRET;
+
+  if (!secret) {
+    console.warn('[Webhook] GITHUB_APP_WEBHOOK_SECRET not set — refusing delivery', { event });
+    return fail(c, 503, 'webhook_not_configured', 'Webhook not configured');
+  }
 
   // Raw bytes, not a re-serialized object — the HMAC covers the exact payload.
   const raw = await c.req.text();
 
-  if (secret) {
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(secret),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-    const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw));
-    const expected = 'sha256=' + [...new Uint8Array(mac)]
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(raw));
+  const expected = 'sha256=' + [...new Uint8Array(mac)]
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 
-    // Constant-time compare: a length check first, then accumulate differences
-    // so the loop can't return early and leak position via timing.
-    let mismatch = expected.length ^ signature.length;
-    for (let i = 0; i < expected.length && i < signature.length; i++) {
-      mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
-    }
-    if (mismatch !== 0) {
-      console.warn('[Webhook] Invalid signature, rejecting', { event });
-      return c.json({ error: 'Invalid webhook signature', service: SERVICE }, 401);
-    }
-  } else {
-    console.warn('[Webhook] GITHUB_APP_WEBHOOK_SECRET not set — accepting unverified', { event });
+  // Constant-time compare: a length check first, then accumulate differences
+  // so the loop can't return early and leak position via timing.
+  let mismatch = expected.length ^ signature.length;
+  for (let i = 0; i < expected.length && i < signature.length; i++) {
+    mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+  if (!signature || mismatch !== 0) {
+    console.warn('[Webhook] Invalid signature, rejecting', { event });
+    return fail(c, 401, 'invalid_signature', 'Invalid webhook signature');
   }
 
   console.log('[Webhook] Acknowledged', { event });
@@ -668,6 +716,12 @@ app.post('/api/github/app/webhook', async (c) => {
 // =============================================================================
 // 404 for anything else under /api/github/
 // =============================================================================
-app.all('/api/github/*', (c) => c.json({ error: 'Not found', path: c.req.path, service: SERVICE }, 404));
+app.all('/api/github/*', (c) => c.json({ error: 'Not found', code: 'not_found', service: SERVICE }, 404));
 
 export const onRequest = handle(app);
+
+// Test hooks. Pages only routes `onRequest*` exports; these are ignored by it.
+export { app };
+export function __resetRateLimitsForTests() {
+  limiter = createRateLimiter();
+}

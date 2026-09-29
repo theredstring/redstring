@@ -14,6 +14,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import assert from 'node:assert/strict';
+import { agentAuthHeaders } from '../../src/headless/agentToken.js';
 
 const PORT = process.env.WIZARD_PORT || '3017';
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -28,10 +29,12 @@ const cleanup = () => {
 process.on('exit', cleanup);
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// The daemon requires its token (C-6), read from REDSTRING_HOME/agent.json.
+const auth = () => agentAuthHeaders({ port: PORT });
 
 async function waitForHealth() {
   for (let i = 0; i < 60; i++) {
-    try { const r = await fetch(`${BASE}/api/bridge/health`); if (r.ok) return await r.json(); } catch {}
+    try { const r = await fetch(`${BASE}/api/bridge/health`, { headers: auth() }); if (r.ok) return await r.json(); } catch {}
     await sleep(200);
   }
   throw new Error('daemon never became healthy');
@@ -69,6 +72,9 @@ function makeRpc(child) {
 
 async function main() {
   tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'rs-mcp-'));
+  // Isolated ~/.redstring: the daemon records its token in agent.json there, and
+  // the MCP server (same env) must find it on its own — that is the C-6 path.
+  process.env.REDSTRING_HOME = path.join(tmpDir, 'home');
   const universe = path.join(tmpDir, 'u.redstring');
 
   console.log('[mcp-e2e] starting daemon on', universe);
@@ -115,12 +121,12 @@ async function main() {
   console.log('[mcp-e2e] PASS list_available_graphs shows "MCP Made Graph"');
 
   // Confirm it hit the daemon's live store over HTTP too.
-  const state = await (await fetch(`${BASE}/api/bridge/state`)).json();
+  const state = await (await fetch(`${BASE}/api/bridge/state`, { headers: auth() })).json();
   assert.ok(state.graphs.some(g => g.id === 'g-mcp'), 'daemon state should contain g-mcp');
   console.log('[mcp-e2e] PASS daemon /api/bridge/state contains g-mcp');
 
   // Persist + verify on disk.
-  await fetch(`${BASE}/api/store/save`, { method: 'POST' });
+  await fetch(`${BASE}/api/store/save`, { method: 'POST', headers: auth() });
   daemon.kill('SIGTERM');
   await sleep(800);
   assert.ok(fs.existsSync(universe), 'universe file should exist');

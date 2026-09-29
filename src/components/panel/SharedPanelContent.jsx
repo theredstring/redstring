@@ -23,6 +23,7 @@ import useGraphStore from "../../store/graphStore.js";
 import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from '../../services/imageCache.js';
 import { linkedWikipediaTitle } from '../../services/conceptEnrichment.js';
 import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.js';
+import { openExternalUrl, safeImageSrc } from '../../utils/safeUrl.js';
 
 // Helper function to determine the correct article ("a" or "an")
 const getArticleFor = (word) => {
@@ -462,11 +463,13 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
       if (data.parse?.text?.['*']) {
         // Extract first paragraph from HTML content
         const htmlContent = data.parse.text['*'];
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = htmlContent;
+        // Parsed into an inert document, never the live one: an innerHTML
+        // assignment on a live element fetches its images and runs its
+        // inline handlers (<img onerror>) before we read a word of it.
+        const parsed = new DOMParser().parseFromString(String(htmlContent), 'text/html');
 
         // Find first paragraph with substantial content
-        const paragraphs = tempDiv.querySelectorAll('p');
+        const paragraphs = parsed.querySelectorAll('p');
         for (const p of paragraphs) {
           const text = p.textContent.trim();
           if (text.length > 100) { // Minimum length for substantial content
@@ -608,7 +611,9 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
     console.log(`[Wikipedia Images] ✅ applyWikipediaData complete`);
   };
 
-  const setWikipediaImageFromUrl = async (imageUrl, precomputedDims = null) => {
+  const setWikipediaImageFromUrl = async (rawImageUrl, precomputedDims = null) => {
+    // Only a web or raster-image URL becomes the node's picture.
+    const imageUrl = safeImageSrc(rawImageUrl);
     if (!imageUrl || !nodeData?.id) return;
     try {
       // Compute aspect ratio. Prefer caller-provided dimensions; otherwise load via
@@ -811,7 +816,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
           <BookOpen size={10} />
           <span>Wikipedia linked</span>
           <button
-            onClick={() => window.open(nodeData.semanticMetadata.wikipediaUrl, '_blank')}
+            onClick={() => openExternalUrl(nodeData.semanticMetadata.wikipediaUrl)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -954,7 +959,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
                 onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
               >
                 <img
-                  src={nodeData.semanticMetadata?.wikipediaThumbnail || nodeData.semanticMetadata?.wikipediaOriginalImage}
+                  src={safeImageSrc(nodeData.semanticMetadata?.wikipediaThumbnail || nodeData.semanticMetadata?.wikipediaOriginalImage) || undefined}
                   alt="Main"
                   style={{
                     width: '60px',
@@ -996,7 +1001,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
                 onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
               >
                 <img
-                  src={img.thumbnail || img.url}
+                  src={safeImageSrc(img.thumbnail || img.url) || undefined}
                   alt={`Image ${index + 1}`}
                   style={{
                     width: '60px',
@@ -1774,13 +1779,17 @@ const SharedPanelContent = ({
         // A resolved blob outranks the inline thumbnail: both may be present
         // mid-migration, and the full-resolution original is what this section
         // is for.
-        const resolvedImageSrc =
-          nodeData.imageSrc ||
-          resolvedRefSrc ||
-          nodeData.semanticMetadata?.wikipediaOriginalImage ||
-          cachedImage?.thumbnailSrc ||
-          nodeData.thumbnailSrc ||
-          nodeData.semanticMetadata?.wikipediaThumbnail;
+        // Each candidate goes through safeImageSrc, so one the browser
+        // shouldn't load (an SVG data URL, a file: path) falls through to the
+        // next rather than blanking the section.
+        const resolvedImageSrc = [
+          nodeData.imageSrc,
+          resolvedRefSrc,
+          nodeData.semanticMetadata?.wikipediaOriginalImage,
+          cachedImage?.thumbnailSrc,
+          nodeData.thumbnailSrc,
+          nodeData.semanticMetadata?.wikipediaThumbnail
+        ].map(safeImageSrc).find(Boolean) || null;
         // Same precedence as the src above: whichever source wins should size
         // the box, or the reserved space is wrong and the panel still jumps.
         const resolvedAspectRatio =

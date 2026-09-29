@@ -10,6 +10,8 @@ import debugConfig from '../../utils/debugConfig.js';
 import { useWizardMode } from '../../hooks/useWizardMode.js';
 import { WIZARD_MODE_OPTIONS } from '../../wizard/wizardMode.js';
 import './AISection.css';
+// Installs the one-time "who receives what" consent in front of every AI request.
+import '../../ai/aiConsentPrompt.js';
 
 /**
  * Read a stored wizard iteration cap, preserving an explicit 0 (= ∞ on the

@@ -7,6 +7,7 @@
 
 import { Octokit } from '@octokit/rest';
 import { getOAuthBaseUrl, oauthUrl } from './bridgeConfig.js';
+import { armAppInstall } from './githubOAuthState.js';
 
 // GitHub App configuration (loaded from environment)
 const GITHUB_APP_CONFIG = {
@@ -81,10 +82,9 @@ export class GitHubAppAuth {
   getInstallationUrl(repositoryIds = null) {
     const slug = this.getAppSlug();
 
-    const baseUrl = `https://github.com/apps/${slug}/installations/new`;
-    const params = new URLSearchParams({
-      state: Math.random().toString(36).substring(7) // Random state for security
-    });
+    const baseUrl = `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`;
+    // Arms the same crypto-random install state the callback checks (S-05).
+    const params = new URLSearchParams({ state: armAppInstall() });
 
     if (repositoryIds && repositoryIds.length > 0) {
       params.set('repository_ids[]', repositoryIds.join(','));

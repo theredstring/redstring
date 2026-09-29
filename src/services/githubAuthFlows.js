@@ -17,6 +17,7 @@ import { persistentAuth } from './persistentAuth.js';
 import { oauthFetch } from './bridgeConfig.js';
 import universeManagerService from './universeManagerService.js';
 import universeBackend from './universeBackend.js';
+import { armOAuthRedirect, buildAuthorizeUrl, armAppInstall } from './githubOAuthState.js';
 import {
   openVerificationUrl,
   getOAuthClientId,
@@ -39,6 +40,15 @@ export const GITHUB_OAUTH_SCOPES = 'repo read:org';
  * however many times it's installed. Native shells find the install with the
  * App's own device-flow token and don't have this dependency.
  */
+const refreshFields = (tokenData) => (tokenData?.refresh_token
+  ? {
+      refreshToken: tokenData.refresh_token,
+      refreshTokenExpiresAt: tokenData.refresh_token_expires_in
+        ? Date.now() + tokenData.refresh_token_expires_in * 1000
+        : null
+    }
+  : {});
+
 export const appDetectionRequiresOAuth = () => !usesDeviceFlowAuth();
 
 export const APP_NEEDS_OAUTH_MESSAGE =
@@ -173,18 +183,18 @@ export async function connectOAuth({ runDeviceFlow } = {}) {
   const { clientId } = await resp.json();
   if (!clientId) throw new Error('GitHub OAuth client ID not configured');
 
-  const stateValue = Math.random().toString(36).slice(2);
   const redirectUri = universeManagerService.getOAuthRedirectUri();
 
-  const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
-    clientId
-  )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(
-    GITHUB_OAUTH_SCOPES
-  )}&state=${encodeURIComponent(stateValue)}`;
-
-  // Browser: store state and redirect (page unloads — caller gets no resolve)
-  sessionStorage.setItem('github_oauth_state', stateValue);
-  sessionStorage.setItem('github_oauth_pending', 'true');
+  // Browser: arm a crypto-random state + PKCE verifier in sessionStorage,
+  // then redirect (page unloads — caller gets no resolve).
+  const { state, codeChallenge } = await armOAuthRedirect();
+  const authUrl = buildAuthorizeUrl({
+    clientId,
+    redirectUri,
+    scope: GITHUB_OAUTH_SCOPES,
+    state,
+    codeChallenge
+  });
   window.location.href = authUrl;
   return { redirecting: true };
 }
@@ -230,8 +240,9 @@ export async function connectApp({ runDeviceFlow } = {}) {
     const appSlug = getAppSlug();
 
     let token = persistentAuth.getAppUserToServerToken?.() || null;
+    let tokenData = null;
     if (!token) {
-      const tokenData = await runDeviceFlow({
+      tokenData = await runDeviceFlow({
         clientId: appClientId,
         title: 'Authorize Redstring App',
         subtitle: 'Authorize the GitHub App to enable live sync.'
@@ -245,6 +256,8 @@ export async function connectApp({ runDeviceFlow } = {}) {
       await persistentAuth.storeAppInstallation({
         installationId: install.id,
         accessToken: token,
+        // Expiring App tokens come with a refresh token; keep it (S-73).
+        ...refreshFields(tokenData),
         repositories: [],
         userData: install.account || {}
       });
@@ -313,9 +326,10 @@ export async function connectApp({ runDeviceFlow } = {}) {
     // ignore
   }
 
-  sessionStorage.setItem('github_app_pending', 'true');
-  const stateValue = Date.now().toString();
-  window.location.href = `https://github.com/apps/${appName}/installations/new?state=${stateValue}`;
+  // The state comes back on the App's Setup URL; the callback only accepts
+  // an installation_id that arrives with it (S-05).
+  const stateValue = armAppInstall();
+  window.location.href = `https://github.com/apps/${encodeURIComponent(appName)}/installations/new?state=${encodeURIComponent(stateValue)}`;
   return { installRedirect: true };
 }
 
@@ -335,6 +349,7 @@ export async function detectAppInstall({ runDeviceFlow } = {}) {
       persistentAuth.githubAppCache?.accessToken
       || persistentAuth.getAppUserToServerToken?.()
       || null;
+    let tokenData = null;
     if (!token) {
       if (typeof runDeviceFlow !== 'function') {
         throw new Error('Device flow runner required for native App detection');
@@ -343,7 +358,7 @@ export async function detectAppInstall({ runDeviceFlow } = {}) {
       if (!appClientId) {
         throw new Error('Missing VITE_GITHUB_APP_CLIENT_ID. Set it at build time before packaging the native app.');
       }
-      const tokenData = await runDeviceFlow({
+      tokenData = await runDeviceFlow({
         clientId: appClientId,
         title: 'Authorize Redstring App',
         subtitle: 'Authorize the GitHub App so Redstring can find your installation.'
@@ -357,6 +372,8 @@ export async function detectAppInstall({ runDeviceFlow } = {}) {
       await persistentAuth.storeAppInstallation({
         installationId: install.id,
         accessToken: token,
+        // Expiring App tokens come with a refresh token; keep it (S-73).
+        ...refreshFields(tokenData),
         repositories: [],
         userData: install.account || {}
       });

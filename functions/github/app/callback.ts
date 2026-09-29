@@ -11,24 +11,32 @@
  * the SPA's index.html here and the install silently dead-ends on a page that
  * never reads the parameters.
  *
- * Behaviour is the Express handler's, unchanged: forward the three parameters
- * the SPA looks for to the app root and let the client take over. No secrets,
- * no GitHub calls — purely a redirect.
+ * Forward the three parameters the SPA looks for to the app root and let the
+ * client take over. No secrets, no GitHub calls — purely a redirect. Values
+ * are shape-checked (numeric id, known setup_action, url-safe state) so
+ * nothing else rides along. This is not the security boundary: the SPA only
+ * accepts the installation_id when it has a pending install whose random
+ * `state` matches (S-05), and the Function re-verifies ownership before it
+ * mints anything (C-9).
  */
 
 interface CallbackEnv {
   [key: string]: unknown;
 }
 
-const FORWARDED = ['installation_id', 'setup_action', 'state'] as const;
+const FORWARDED: Record<string, RegExp> = {
+  installation_id: /^[1-9][0-9]{0,15}$/,
+  setup_action: /^(install|update|request)$/,
+  state: /^[A-Za-z0-9_-]{1,128}$/,
+};
 
 export const onRequestGet: PagesFunction<CallbackEnv> = async (context) => {
   const url = new URL(context.request.url);
 
   const params = new URLSearchParams();
-  for (const key of FORWARDED) {
+  for (const [key, shape] of Object.entries(FORWARDED)) {
     const value = url.searchParams.get(key);
-    if (value) params.set(key, value);
+    if (value && shape.test(value)) params.set(key, value);
   }
 
   const query = params.toString();
@@ -36,5 +44,14 @@ export const onRequestGet: PagesFunction<CallbackEnv> = async (context) => {
 
   // 302 rather than 301: the parameters differ on every install, and a cached
   // permanent redirect would strand a later install on a previous one's ids.
-  return Response.redirect(target.toString(), 302);
+  // Built by hand (not Response.redirect) so the hardening headers can be set.
+  return new Response(null, {
+    status: 302,
+    headers: {
+      'Location': target.toString(),
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 };

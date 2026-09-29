@@ -20,6 +20,28 @@ function nowTs() {
   return Date.now();
 }
 
+// Keys whose values are credentials: apiKey, api_key, api-key, accessToken,
+// refresh_token, authorization, clientSecret, password, ... (any nesting depth).
+const SECRET_KEY_PATTERN = /api[-_]?key|token|secret|authorization|password|credential/i;
+// LLM settings that merely count tokens are not secrets (max_tokens, tokenCount...).
+const TOKEN_COUNT_PATTERN = /^max[-_]?tokens?$|^tokens?[-_]?(count|usage|limit|budget|used)$|^(prompt|completion|total)[-_]?tokens$/i;
+
+export function isSecretKey(key) {
+  return SECRET_KEY_PATTERN.test(key) && !TOKEN_COUNT_PATTERN.test(key);
+}
+
+/** Deep copy of `value` with every credential-looking key removed. */
+export function redactSecrets(value, depth = 0) {
+  if (depth > 64 || value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((v) => redactSecrets(v, depth + 1));
+  const out = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (isSecretKey(key)) continue;
+    out[key] = redactSecrets(v, depth + 1);
+  }
+  return out;
+}
+
 function randomId(prefix = 'q') {
   return `${prefix}-${nowTs()}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -73,7 +95,11 @@ class QueueManager {
 
   _appendJournal(name, record) {
     const journalPath = this._journalPath(name);
-    fs.appendFileSync(journalPath, JSON.stringify(record) + '\n');
+    // The journal is plain text on disk: never let a live request's API key
+    // or token reach it. Items keep their secrets in memory for the current
+    // run only; an item replayed from the journal after a restart has none,
+    // and callers must get keys from a live request again.
+    fs.appendFileSync(journalPath, JSON.stringify(redactSecrets(record)) + '\n');
   }
 
   enqueue(name, item, { partitionKey } = {}) {
@@ -165,6 +191,7 @@ class QueueManager {
   }
 }
 
+export { QueueManager };
 const queueManager = new QueueManager();
 export default queueManager;
 

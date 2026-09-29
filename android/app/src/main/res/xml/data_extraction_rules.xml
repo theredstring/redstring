@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ backup and device-to-device transfer rules.
+
+  Cloud backup is off entirely (allowBackup="false"). Device transfer still
+  happens on Android 12+, so it is narrowed here:
+    - app_webview holds the WebView's localStorage and IndexedDB: universe
+      metadata, and (on older installs) GitHub tokens and API keys encrypted
+      with a key stored beside them. Never transferred.
+    - WSSecureStorageSharedPreferences.xml is the Keystore-encrypted secret
+      store. Its Keystore key never leaves the device, so a copy would be
+      unreadable anyway; excluded so nothing even tries.
+  Universe files (files/Universes) still move to a new phone.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="app_webview/" />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

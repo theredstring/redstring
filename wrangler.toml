@@ -7,6 +7,19 @@
 #   wrangler pages secret put GITHUB_APP_ID --project-name=redstring-staging
 #   wrangler pages secret put GITHUB_APP_PRIVATE_KEY --project-name=redstring-staging
 #   wrangler pages secret put GITHUB_APP_SLUG --project-name=redstring-staging
+#   wrangler pages secret put GITHUB_APP_WEBHOOK_SECRET --project-name=redstring-staging
+#
+# GITHUB_APP_WEBHOOK_SECRET must match the GitHub App's webhook secret; without
+# it the webhook route refuses every delivery (503) instead of accepting
+# unsigned ones. Optional, per environment (plain vars, not secrets):
+#   ALLOW_LOCALHOST_ORIGINS=true  lets a local Vite dev server (VITE_OAUTH_URL
+#                                 pointed at this deployment) through CORS.
+#                                 Never set it on redstring-prod.
+#   ALLOW_PREVIEW_ORIGINS=true    lets *.pages.dev / *.workers.dev through CORS.
+#
+# Rate limiting: the Function carries a best-effort per-isolate limiter; the
+# real limit is a Cloudflare WAF rate-limiting rule on /api/github/* (see
+# documentation/security/RUNBOOK.md).
 #
 # Use the DEV credentials (matching GITHUB_*_DEV in the existing .env) for
 # this Pages project — keeps prod GCP secrets fully isolated until cutover.

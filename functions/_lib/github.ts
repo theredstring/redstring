@@ -1,6 +1,10 @@
-// GitHub API helpers — installation discovery and verification used by the
-// App endpoints. Ported from oauth-server.js (findInstallationViaOAuth,
-// listInstallationsViaOAuth, verifyInstallationWithOAuth).
+// GitHub API helpers — installation discovery used by the App endpoints.
+// Ported from oauth-server.js (listInstallationsViaOAuth).
+//
+// Ownership checks do NOT live here: the old verifyInstallationWithOAuth let
+// 'unverified' / 'error' results fall through to a mint (S-01). Every route
+// that acts on an installation id uses verifyInstallOwnership in
+// ./ownership.ts, which fails closed.
 
 import { USER_AGENT } from './env';
 
@@ -23,14 +27,6 @@ interface PaginatedListResult {
   reason?: string;
   details?: string | null;
   installations: GhInstallation[];
-}
-
-interface SingleLookupResult {
-  ok: boolean;
-  status?: number;
-  reason?: string;
-  details?: string | null;
-  installation?: GhInstallation | null;
 }
 
 const ghHeaders = (token: string) => ({
@@ -71,84 +67,6 @@ export async function listInstallationsViaOAuth(accessToken: string): Promise<Pa
   return { ok: true, installations: all };
 }
 
-// Find one specific install in the OAuth user's accessible list.
-export async function findInstallationViaOAuth(accessToken: string, installationId: number | string): Promise<SingleLookupResult> {
-  const targetId = installationId != null ? Number(installationId) : NaN;
-  if (Number.isNaN(targetId)) {
-    return { ok: false, status: 0, reason: 'invalid_installation_id' };
-  }
-  const list = await listInstallationsViaOAuth(accessToken);
-  if (!list.ok) {
-    return { ok: false, status: list.status, reason: list.reason, details: list.details };
-  }
-  const match = list.installations.find((i) => Number(i?.id) === targetId);
-  return { ok: true, installation: match || null };
-}
-
-export interface VerificationResult {
-  status: 'missing_installation' | 'skipped' | 'verified' | 'not_found' | 'oauth_invalid' | 'unverified' | 'error' | 'account_mismatch';
-  reason: string | null;
-  installation: GhInstallation | null;
-  oauthUser: { id?: number; login?: string } | null;
-  statusCode?: number | null;
-  details?: string | null;
-  checkedInstallationId: number | null;
-}
-
-// Verify that an installation_id is accessible to the supplied OAuth token.
-// Mirrors verifyInstallationWithOAuth in oauth-server.js exactly, including
-// the account-mismatch guard for User installs.
-export async function verifyInstallationWithOAuth(
-  installationId: number | string,
-  oauthToken: string | null,
-  oauthUser: { id?: number; login?: string } | null,
-  opts: { enforceAccountMatch?: boolean } = {}
-): Promise<VerificationResult> {
-  const { enforceAccountMatch = true } = opts;
-  const numericInstallationId = installationId != null ? Number(installationId) : NaN;
-
-  if (Number.isNaN(numericInstallationId)) {
-    return { status: 'missing_installation', reason: 'missing_installation_id', installation: null, oauthUser, checkedInstallationId: null };
-  }
-  if (!oauthToken) {
-    return { status: 'skipped', reason: 'oauth_not_connected', installation: null, oauthUser, checkedInstallationId: numericInstallationId };
-  }
-
-  const lookup = await findInstallationViaOAuth(oauthToken, numericInstallationId);
-
-  if (!lookup.ok) {
-    if (lookup.status === 401) return { status: 'oauth_invalid', reason: 'oauth_token_invalid', installation: null, oauthUser, statusCode: lookup.status, details: lookup.details || null, checkedInstallationId: numericInstallationId };
-    if (lookup.status === 404) return { status: 'not_found', reason: 'installation_not_found', installation: null, oauthUser, statusCode: lookup.status, details: lookup.details || null, checkedInstallationId: numericInstallationId };
-    if (lookup.status === 403) return { status: 'unverified', reason: 'oauth_scope_insufficient', installation: null, oauthUser, statusCode: lookup.status, details: lookup.details || 'OAuth token lacks read:org scope required by /user/installations', checkedInstallationId: numericInstallationId };
-    return { status: 'error', reason: lookup.reason || 'github_request_failed', installation: null, oauthUser, statusCode: lookup.status || null, details: lookup.details || null, checkedInstallationId: numericInstallationId };
-  }
-
-  if (!lookup.installation) {
-    return {
-      status: 'unverified',
-      reason: lookup.reason || 'installation_not_listed',
-      installation: null,
-      oauthUser,
-      statusCode: lookup.status || null,
-      details: lookup.details || 'GitHub did not include this installation in /user/installations for the current OAuth token. Tokens without read:org scope cannot enumerate organization installs.',
-      checkedInstallationId: numericInstallationId,
-    };
-  }
-
-  const installation = lookup.installation;
-  if (
-    enforceAccountMatch &&
-    installation?.target_type === 'User' &&
-    oauthUser?.id &&
-    installation?.account?.id &&
-    installation.account.id !== oauthUser.id
-  ) {
-    return { status: 'account_mismatch', reason: 'installation_account_mismatch', installation, oauthUser, checkedInstallationId: numericInstallationId };
-  }
-
-  return { status: 'verified', reason: null, installation, oauthUser, checkedInstallationId: numericInstallationId };
-}
-
 // Look up the OAuth user behind a token. Used by /installations fallback.
 export async function fetchOAuthUser(accessToken: string): Promise<{ id?: number; login?: string } | null> {
   try {
@@ -156,27 +74,6 @@ export async function fetchOAuthUser(accessToken: string): Promise<{ id?: number
     if (!res.ok) return null;
     return await res.json() as any;
   } catch { return null; }
-}
-
-export function formatVerificationForResponse(record: VerificationResult | null) {
-  if (!record) return null;
-  const out: Record<string, any> = {
-    status: record.status,
-    reason: record.reason,
-    oauthLogin: record.oauthUser?.login ?? null,
-    installationId: record.installation?.id ?? null,
-    checkedInstallationId: record.checkedInstallationId,
-    installationAccount: record.installation?.account?.login ?? null,
-    targetType: record.installation?.target_type ?? null,
-    appId: record.installation?.app_id ?? null,
-    appSlug: record.installation?.app_slug ?? null,
-    statusCode: record.statusCode ?? null,
-    details: record.details ?? null,
-    checkedAt: new Date().toISOString(),
-  };
-  // Strip nulls for cleaner JSON
-  Object.keys(out).forEach((k) => { if (out[k] == null) delete out[k]; });
-  return out;
 }
 
 // Extract OAuth bearer/token from Authorization header. The SPA passes its

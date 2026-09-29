@@ -88,7 +88,9 @@ export async function readPdfAsText(file) {
   ).toString();
 
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  // isEvalSupported: false — the app's CSP has no 'unsafe-eval', and text
+  // extraction never needs pdf.js's compiled glyph paths anyway.
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer, isEvalSupported: false }).promise;
   const pages = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);

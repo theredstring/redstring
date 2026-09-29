@@ -9,8 +9,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { redstringHome, writePrivateFile, tightenFileMode } from './agentToken.js';
 
-export const REDSTRING_HOME = path.join(os.homedir(), '.redstring');
+// REDSTRING_HOME env overrides ~/.redstring (tests, portable installs).
+export const REDSTRING_HOME = redstringHome();
 export const CONFIG_PATH = path.join(REDSTRING_HOME, 'config.json');
 export const DEFAULT_WORKSPACE = path.join(os.homedir(), 'redstring');
 export const DEFAULT_PORT = 3001;
@@ -18,7 +20,11 @@ export const DEFAULT_PORT = 3001;
 /** Read the machine config, tolerating a missing/corrupt file. */
 export function readConfig() {
   try {
-    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) || {};
+    if (fs.existsSync(CONFIG_PATH)) {
+      // It can hold a GitHub token: tighten a file written by an older version.
+      tightenFileMode(CONFIG_PATH);
+      return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) || {};
+    }
   } catch { /* corrupt — treat as empty */ }
   // One-time migration: the old single-file config was ~/.redstring/daemon.json.
   try {
@@ -32,11 +38,13 @@ export function readConfig() {
   return {};
 }
 
-/** Shallow-merge a patch into the machine config and persist it. */
+/**
+ * Shallow-merge a patch into the machine config and persist it. The file can
+ * hold a GitHub token, so it is written 0600 inside a 0700 directory.
+ */
 export function writeConfig(patch) {
   const next = { ...readConfig(), ...patch };
-  fs.mkdirSync(REDSTRING_HOME, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(next, null, 2), 'utf8');
+  writePrivateFile(CONFIG_PATH, JSON.stringify(next, null, 2));
   return next;
 }
 

@@ -303,9 +303,26 @@ export class HeadlessWorkspace {
     fs.writeFileSync(this._manifestPath(), JSON.stringify(this.manifest, null, 2), 'utf8');
   }
 
+  /**
+   * Absolute path of a universe's file. workspace.json is data (a copied or
+   * shared workspace carries its own), so its localFile.path is never trusted:
+   * only its basename is used, it must be a .redstring file, and the result
+   * must resolve directly inside the workspace folder. Otherwise a crafted
+   * manifest could make load/save/delete touch files anywhere on disk.
+   */
   _filePath(slug) {
     const entry = this.manifest.universes[slug];
-    return path.join(this.dir, entry.localFile.path);
+    const raw = entry?.localFile?.path;
+    const name = typeof raw === 'string' ? path.basename(raw.replace(/\\/g, '/')) : '';
+    if (!name || name === '.' || name === '..' || !name.toLowerCase().endsWith('.redstring')) {
+      throw new Error(`Universe "${slug}" has an invalid file path in the workspace manifest`);
+    }
+    const root = path.resolve(this.dir);
+    const full = path.resolve(root, name);
+    if (path.dirname(full) !== root) {
+      throw new Error(`Universe "${slug}" file path escapes the workspace folder`);
+    }
+    return full;
   }
 
   /** Add any `.redstring` FILES on disk that aren't already in the manifest. */

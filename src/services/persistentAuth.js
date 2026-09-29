@@ -7,7 +7,34 @@
 
 import { oauthFetch } from './bridgeConfig.js';
 import { usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
-import { encryptSecret, decryptSecret } from '../utils/secureStore.js';
+import { getSecret, setSecret, deleteSecret } from '../utils/secureStore.js';
+
+/**
+ * Where to revoke Redstring's access on GitHub. Disconnecting only forgets
+ * the token on this device; GitHub keeps honouring it until it is revoked
+ * there (or, for App user tokens, until it expires).
+ */
+export const GITHUB_OAUTH_REVOKE_URL = 'https://github.com/settings/applications';
+export const GITHUB_APP_REVOKE_URL = 'https://github.com/settings/installations';
+export const OAUTH_DISCONNECTED_MESSAGE =
+  `GitHub disconnected on this device. Redstring stays authorized on your GitHub account until you revoke it at ${GITHUB_OAUTH_REVOKE_URL.replace('https://', '')}.`;
+export const APP_DISCONNECTED_MESSAGE =
+  `GitHub App disconnected on this device. It stays installed on your GitHub account until you remove it at ${GITHUB_APP_REVOKE_URL.replace('https://', '')}.`;
+
+/**
+ * Whether this platform mirrors tokens to/from an auth server.
+ *
+ * On the web the hosted OAuth endpoints live on the app's own origin, and the
+ * server-side OAuth completion hands tokens back through /api/github/auth/*.
+ * Native shells (Electron, iOS, Android) authenticate with the device flow and
+ * have no such server: in Electron `oauthUrl()` resolves to
+ * http://localhost:3002, where nothing of ours listens — so the mirror would
+ * POST the user's access and refresh tokens to whatever local process holds
+ * that port, and accept tokens back from it. Never there.
+ */
+function mirrorsAuthToServer() {
+  return !usesDeviceFlowAuth();
+}
 
 // Token refresh buffer - refresh 5 minutes before expiry
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -43,7 +70,12 @@ const LOCAL_STORAGE_KEYS = {
     // Electron device-flow: user-to-server token persisted before any
     // installation is detected. Lets the Detect button re-query
     // /user/installations without re-prompting the user every time.
-    userToServerToken: 'github_app_user_token'
+    userToServerToken: 'github_app_user_token',
+    // Expiring GitHub App user tokens (8h) come with a refresh token (6
+    // months). Kept rather than discarded so the connection can be renewed
+    // without a new device-flow prompt.
+    refreshToken: 'github_app_refresh_token',
+    refreshTokenExpiresAt: 'github_app_refresh_token_expires'
   }
 };
 
@@ -109,6 +141,15 @@ function safeParseJSON(raw) {
   }
 }
 
+/** Epoch ms from a number, numeric string or ISO date; null otherwise. */
+function toEpochMs(value) {
+  if (value == null || value === '') return null;
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber)) return asNumber;
+  const asTime = new Date(value).getTime();
+  return Number.isFinite(asTime) ? asTime : null;
+}
+
 export class PersistentAuth {
   constructor() {
     console.log('[PersistentAuth] Constructor called - UPDATED');
@@ -131,6 +172,8 @@ export class PersistentAuth {
     // Why the last web App discovery came up empty, so the UI can say
     // "reconnect OAuth" instead of "install the App" when that's the cause.
     this.lastAppDiscoveryFailure = null;
+    // Parked App user-to-server token (see saveAppUserToServerToken).
+    this.appUserToServerToken = null;
 
     this.readyPromise = this.ensureAuthStateLoaded().catch(error => {
       console.warn('[PersistentAuth] Initial auth state load failed:', error);
@@ -177,7 +220,9 @@ export class PersistentAuth {
         // OPTIONAL: Sync from server as backup (stateless server doesn't persist)
         // This is only useful for initial server-side OAuth completion
         try {
-          const response = await oauthFetch('/api/github/auth/state?includeTokens=true').catch(() => null);
+          const response = mirrorsAuthToServer()
+            ? await oauthFetch('/api/github/auth/state?includeTokens=true').catch(() => null)
+            : null;
           if (response && response.ok) {
             const state = await response.json();
             // Only apply server state if browser doesn't have tokens
@@ -209,11 +254,12 @@ export class PersistentAuth {
    */
   async loadFromBrowserStorage() {
     try {
-      // Load OAuth credentials. Access/refresh tokens are stored encrypted
-      // (AES-GCM at rest); decryptSecret returns legacy plaintext values as-is,
-      // so pre-encryption users are never locked out.
-      const accessToken = await decryptSecret(getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken));
-      const refreshToken = await decryptSecret(getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken));
+      // Load OAuth credentials. Tokens live in the platform secret store
+      // (Keychain/Keystore/safeStorage, or AES-GCM in localStorage on the
+      // web); getSecret moves a legacy localStorage copy across on first read
+      // and returns legacy plaintext as-is, so nobody is locked out.
+      const accessToken = await getSecret(LOCAL_STORAGE_KEYS.oauth.accessToken);
+      const refreshToken = await getSecret(LOCAL_STORAGE_KEYS.oauth.refreshToken);
       const scope = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.scope);
       const tokenType = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.tokenType);
       const expiry = getLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.expiry);
@@ -235,7 +281,10 @@ export class PersistentAuth {
 
       // Load GitHub App installation
       const installationId = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.installationId);
-      const appAccessToken = await decryptSecret(getLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken));
+      const appAccessToken = await getSecret(LOCAL_STORAGE_KEYS.app.accessToken);
+      const appRefreshToken = await getSecret(LOCAL_STORAGE_KEYS.app.refreshToken);
+      const appRefreshTokenExpiresAt = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.refreshTokenExpiresAt);
+      this.appUserToServerToken = await getSecret(LOCAL_STORAGE_KEYS.app.userToServerToken);
       const repositoriesRaw = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.repositories);
       const userDataRaw = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.userData);
       const permissionsRaw = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions);
@@ -250,6 +299,8 @@ export class PersistentAuth {
           userData: safeParseJSON(userDataRaw) || {},
           permissions: safeParseJSON(permissionsRaw) || null,
           tokenExpiresAt: tokenExpiresAt ? Number(tokenExpiresAt) : null,
+          refreshToken: appRefreshToken || null,
+          refreshTokenExpiresAt: appRefreshTokenExpiresAt ? Number(appRefreshTokenExpiresAt) : null,
           verification: null,
           lastUpdated: lastUpdated ? Number(lastUpdated) : Date.now()
         };
@@ -265,10 +316,11 @@ export class PersistentAuth {
    */
   async saveToBrowserStorage() {
     try {
-      // Save OAuth credentials. Access/refresh tokens are encrypted at rest.
+      // Save OAuth credentials. Access/refresh tokens go to the platform
+      // secret store; the rest is non-secret metadata.
       if (this.oauthCache?.accessToken) {
-        setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken, await encryptSecret(this.oauthCache.accessToken));
-        setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken, this.oauthCache.refreshToken ? await encryptSecret(this.oauthCache.refreshToken) : '');
+        await setSecret(LOCAL_STORAGE_KEYS.oauth.accessToken, this.oauthCache.accessToken);
+        await setSecret(LOCAL_STORAGE_KEYS.oauth.refreshToken, this.oauthCache.refreshToken || null);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.scope, this.oauthCache.scope || '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.tokenType, this.oauthCache.tokenType || 'bearer');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.expiry, this.oauthCache.expiresAt?.toString() || '');
@@ -280,7 +332,9 @@ export class PersistentAuth {
       // Save GitHub App installation
       if (this.githubAppCache?.installationId) {
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.installationId, this.githubAppCache.installationId.toString());
-        setLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken, this.githubAppCache.accessToken ? await encryptSecret(this.githubAppCache.accessToken) : '');
+        await setSecret(LOCAL_STORAGE_KEYS.app.accessToken, this.githubAppCache.accessToken || null);
+        await setSecret(LOCAL_STORAGE_KEYS.app.refreshToken, this.githubAppCache.refreshToken || null);
+        setLocalStorageItem(LOCAL_STORAGE_KEYS.app.refreshTokenExpiresAt, this.githubAppCache.refreshTokenExpiresAt?.toString() || '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.repositories, this.githubAppCache.repositories);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.userData, this.githubAppCache.userData);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions, this.githubAppCache.permissions);
@@ -934,8 +988,25 @@ export class PersistentAuth {
     }
   }
 
+  /**
+   * Best-effort mirror of auth state to the web auth server (stateless; only
+   * used for the server-side OAuth completion handoff). A no-op on
+   * device-flow platforms. Never throws: browser storage is the source of
+   * truth.
+   */
+  async mirrorToServer(path, init) {
+    if (!mirrorsAuthToServer()) return;
+    try {
+      await oauthFetch(path, init).catch(() => {
+        console.log('[PersistentAuth] Server sync skipped (expected for stateless server)');
+      });
+    } catch (error) {
+      console.log('[PersistentAuth] Optional server sync skipped:', error?.message || error);
+    }
+  }
+
   async persistOAuthCache() {
-    if (!this.oauthCache?.accessToken) {
+    if (!this.oauthCache?.accessToken || !mirrorsAuthToServer()) {
       return;
     }
 
@@ -1010,45 +1081,41 @@ export class PersistentAuth {
 
     // OPTIONAL: Send to server for temporary OAuth completion handoff
     // (Server is stateless and won't persist - this is just for the OAuth callback flow)
-    try {
-      const payload = {
+    // Never on device-flow platforms: see mirrorsAuthToServer.
+    await this.mirrorToServer('/api/github/auth/oauth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         access_token,
         refresh_token: refresh_token || null,
         scope: scope || null,
         token_type: token_type || 'bearer',
         expires_at: computedExpiry ? new Date(computedExpiry).toISOString() : null,
         user: userData || null
-      };
-
-      await oauthFetch('/api/github/auth/oauth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      }).catch(() => {
-        // Ignore server errors - browser storage is primary
-        console.log('[PersistentAuth] Server sync skipped (expected for stateless server)');
-      });
-    } catch (error) {
-      // Don't fail if server sync fails - browser is the source of truth
-      console.log('[PersistentAuth] Optional server sync skipped:', error.message);
-    }
+      })
+    });
 
     this.startHealthMonitoring();
 
-    // Update client-side user tracking if available
-    try {
-      const userTracking = await import('./userTracking.js').then(m => m.default).catch(() => null);
-      if (userTracking && userData) {
-        userTracking.updateUser(String(userData.id), userData.login);
-        userTracking.track('oauth_login_success', {
-          provider: 'github',
-          userId: String(userData.id),
-          login: userData.login
-        });
+    // Client-side user tracking is off unless a build opts in with
+    // VITE_ENABLE_ANALYTICS=true. redstring.io has no /api/analytics route,
+    // the native apps declare no data collection, and the tracker sends the
+    // GitHub id and login every 30s once loaded.
+    if (mirrorsAuthToServer() && import.meta.env?.VITE_ENABLE_ANALYTICS === 'true') {
+      try {
+        const userTracking = await import('./userTracking.js').then(m => m.default).catch(() => null);
+        if (userTracking && userData) {
+          userTracking.updateUser(String(userData.id), userData.login);
+          userTracking.track('oauth_login_success', {
+            provider: 'github',
+            userId: String(userData.id),
+            login: userData.login
+          });
+        }
+      } catch (error) {
+        // User tracking is optional, don't fail if it's not available
+        console.debug('[PersistentAuth] User tracking update skipped:', error.message);
       }
-    } catch (error) {
-      // User tracking is optional, don't fail if it's not available
-      console.debug('[PersistentAuth] User tracking update skipped:', error.message);
     }
 
     // Every storeTokens caller has just used this token against /user.
@@ -1335,9 +1402,12 @@ export class PersistentAuth {
    * Clear all stored tokens from browser localStorage
    */
   async clearTokens() {
-    // PRIMARY: Clear from browser localStorage (user data stays local!)
-    removeLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.accessToken);
-    removeLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.refreshToken);
+    // PRIMARY: Clear from the secret store and browser localStorage.
+    await deleteSecret(LOCAL_STORAGE_KEYS.oauth.accessToken);
+    await deleteSecret(LOCAL_STORAGE_KEYS.oauth.refreshToken);
+    // A parked App user-to-server token is a GitHub credential for the same
+    // account; "disconnect" must not leave it behind.
+    await this.clearAppUserToServerToken();
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.scope);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.tokenType);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.expiry);
@@ -1347,11 +1417,7 @@ export class PersistentAuth {
     this.oauthCache = null;
 
     // OPTIONAL: Clear from server (stateless server doesn't persist anyway)
-    try {
-      await oauthFetch('/api/github/auth/oauth', { method: 'DELETE' }).catch(() => {});
-    } catch (error) {
-      console.log('[PersistentAuth] Server clear skipped (expected for stateless server)');
-    }
+    await this.mirrorToServer('/api/github/auth/oauth', { method: 'DELETE' });
 
     try {
       this.stopHealthMonitoring();
@@ -1443,12 +1509,26 @@ export class PersistentAuth {
       permissions = null,
       tokenExpiresAt = null,
       lastUpdated = Date.now(),
-      verification = null
+      verification = null,
+      refreshToken,
+      refreshTokenExpiresAt
     } = installationData;
 
     if (!installationId) {
       throw new Error('installationId is required');
     }
+
+    // Keep the refresh token of an expiring App user token. Callers that
+    // only renew the access token (installation-token mints) don't pass one;
+    // that must not discard the one already held for the same installation.
+    const previous = this.githubAppCache;
+    const sameInstall = previous && String(previous.installationId) === String(installationId);
+    const keptRefreshToken = refreshToken !== undefined
+      ? (refreshToken || null)
+      : (sameInstall ? previous.refreshToken || null : null);
+    const keptRefreshExpiry = refreshTokenExpiresAt !== undefined
+      ? toEpochMs(refreshTokenExpiresAt)
+      : (sameInstall ? previous.refreshTokenExpiresAt || null : null);
 
     // PRIMARY: Set cache and save to browser localStorage (user data stays local!)
     // Accept both numeric timestamps and ISO date strings — callers (e.g.
@@ -1471,6 +1551,8 @@ export class PersistentAuth {
       userData: userData || {},
       permissions,
       tokenExpiresAt: expiresNumeric,
+      refreshToken: keptRefreshToken,
+      refreshTokenExpiresAt: keptRefreshExpiry,
       verification: verification || null,
       lastUpdated: lastUpdated || Date.now()
     };
@@ -1484,29 +1566,23 @@ export class PersistentAuth {
 
     console.log('[PersistentAuth] GitHub App installation stored in browser localStorage');
 
-    // OPTIONAL: Send to server for temporary handoff (server is stateless)
-    try {
-      await oauthFetch('/api/github/auth/github-app', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          installationId,
-          accessToken,
-          repositories,
-          account: userData || null,
-          permissions,
-          tokenExpiresAt: tokenExpiresAt
-            ? new Date(tokenExpiresAt).toISOString()
-            : null,
-          verification: verification || null
-        })
-      }).catch(() => {
-        console.log('[PersistentAuth] Server sync skipped (expected for stateless server)');
-      });
-    } catch (error) {
-      // Don't fail if server sync fails - browser is the source of truth
-      console.log('[PersistentAuth] Optional server sync skipped:', error.message);
-    }
+    // OPTIONAL: Send to server for temporary handoff (server is stateless).
+    // Never on device-flow platforms: see mirrorsAuthToServer.
+    await this.mirrorToServer('/api/github/auth/github-app', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        installationId,
+        accessToken,
+        repositories,
+        account: userData || null,
+        permissions,
+        tokenExpiresAt: tokenExpiresAt
+          ? new Date(tokenExpiresAt).toISOString()
+          : null,
+        verification: verification || null
+      })
+    });
 
     this.emit('appInstallationStored', this.githubAppCache);
     this.dispatchAuthEvent('github-app', {
@@ -1542,26 +1618,38 @@ export class PersistentAuth {
    * we know which installation it maps to. Survives reloads so the Detect
    * button can re-query /user/installations without re-prompting.
    */
+  //
+  // Held in the platform secret store (it is a live GitHub credential; it was
+  // plaintext in localStorage before). Callers use it synchronously, so the
+  // value is cached in memory: loaded with the rest of the auth state,
+  // written through on save. Resolves once the durable write has finished.
   saveAppUserToServerToken(token) {
     if (!token) return false;
-    return setLocalStorageItem(LOCAL_STORAGE_KEYS.app.userToServerToken, token);
+    this.appUserToServerToken = token;
+    return setSecret(LOCAL_STORAGE_KEYS.app.userToServerToken, token);
   }
 
   getAppUserToServerToken() {
-    return getLocalStorageItem(LOCAL_STORAGE_KEYS.app.userToServerToken) || null;
+    return this.appUserToServerToken || null;
   }
 
   clearAppUserToServerToken() {
-    return removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.userToServerToken);
+    this.appUserToServerToken = null;
+    return deleteSecret(LOCAL_STORAGE_KEYS.app.userToServerToken);
   }
 
   /**
    * Clear GitHub App installation data from browser localStorage
    */
   async clearAppInstallation({ sticky = true } = {}) {
-    // PRIMARY: Clear from browser localStorage (user data stays local!)
+    // PRIMARY: Clear from the secret store and browser localStorage.
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.installationId);
-    removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.accessToken);
+    await deleteSecret(LOCAL_STORAGE_KEYS.app.accessToken);
+    await deleteSecret(LOCAL_STORAGE_KEYS.app.refreshToken);
+    removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.refreshTokenExpiresAt);
+    // The parked user-to-server token is the same App's credential; leaving
+    // it behind made "disconnect" keep a working GitHub token on disk.
+    await this.clearAppUserToServerToken();
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.repositories);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.userData);
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions);
@@ -1579,11 +1667,7 @@ export class PersistentAuth {
     this.githubAppCache = null;
 
     // OPTIONAL: Clear from server (stateless server doesn't persist anyway)
-    try {
-      await oauthFetch('/api/github/auth/github-app', { method: 'DELETE' }).catch(() => {});
-    } catch (error) {
-      console.log('[PersistentAuth] Server clear skipped (expected for stateless server)');
-    }
+    await this.mirrorToServer('/api/github/auth/github-app', { method: 'DELETE' });
 
     console.log('[PersistentAuth] GitHub App installation cleared from browser localStorage', { sticky });
     this.emit('appInstallationCleared');

@@ -16,6 +16,14 @@ import { oauthFetch } from './bridgeConfig.js';
 import universeManagerService from './universeManagerService.js';
 import { usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
 import { findAppInstallationDirect } from './githubAuthFlows.js';
+import {
+  OAUTH_PENDING_KEY,
+  APP_PENDING_KEY,
+  checkOAuthState,
+  clearOAuthState,
+  isAppInstallCallbackTrusted,
+  clearAppInstallState
+} from './githubOAuthState.js';
 
 const { log: __nativeLog, warn: __nativeWarn, error: __nativeError } = console;
 const gcLog = (...args) => __nativeLog.call(console, '[GitHubAuthCallbacks]', ...args);
@@ -35,14 +43,6 @@ const safeSessionGet = (key) => {
     return sessionStorage.getItem(key);
   } catch {
     return null;
-  }
-};
-
-const safeSessionRemove = (key) => {
-  try {
-    sessionStorage.removeItem(key);
-  } catch {
-    // ignore
   }
 };
 
@@ -78,16 +78,17 @@ async function processOAuthCallbackInner() {
   const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
   const code = storedResult?.code || urlParams.get('code') || hashParams.get('code');
   const stateValue = storedResult?.state || urlParams.get('state') || hashParams.get('state');
-  const expectedState = safeSessionGet('github_oauth_state');
-  const pending = safeSessionGet('github_oauth_pending') === 'true';
+  const pending = safeSessionGet(OAUTH_PENDING_KEY) === 'true';
 
   if (!code || !stateValue || !pending) {
     return { handled: false };
   }
 
-  if (expectedState && stateValue !== expectedState) {
-    safeSessionRemove('github_oauth_pending');
-    safeSessionRemove('github_oauth_state');
+  // Fail closed (S-06): a callback is only accepted when this tab armed a
+  // state and it matches. A missing expected state is a rejection, not a pass.
+  const { ok: stateOk, codeVerifier } = checkOAuthState(stateValue);
+  if (!stateOk) {
+    clearOAuthState();
     cleanupUrl();
     return { handled: false, error: 'GitHub authentication state mismatch. Please retry.' };
   }
@@ -95,11 +96,14 @@ async function processOAuthCallbackInner() {
   const redirectUri = universeManagerService.getOAuthRedirectUri();
 
   try {
+    const exchange = { code, state: stateValue, redirect_uri: redirectUri };
+    // PKCE (S-07): the verifier matching the challenge on the authorize URL.
+    if (codeVerifier) exchange.code_verifier = codeVerifier;
     const resp = await oauthFetch('/api/github/oauth/token', {
       bypassCooldown: true,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, state: stateValue, redirect_uri: redirectUri })
+      body: JSON.stringify(exchange)
     });
 
     if (!resp.ok) {
@@ -129,8 +133,7 @@ async function processOAuthCallbackInner() {
     gcError('OAuth callback failed:', err);
     return { handled: false, error: `GitHub OAuth failed: ${err.message}` };
   } finally {
-    safeSessionRemove('github_oauth_pending');
-    safeSessionRemove('github_oauth_state');
+    clearOAuthState();
     cleanupUrl();
   }
 }
@@ -145,10 +148,25 @@ async function processAppCallbackInner() {
   const storedResult = readSessionJSON('github_app_result');
   const urlParams = new URLSearchParams(window.location.search);
   const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
-  let installationId =
+  const redirectedId =
     storedResult?.installation_id || urlParams.get('installation_id') || hashParams.get('installation_id');
+  const redirectedState = storedResult?.state || urlParams.get('state') || hashParams.get('state');
 
-  const pending = safeSessionGet('github_app_pending') === 'true';
+  const pending = safeSessionGet(APP_PENDING_KEY) === 'true';
+
+  // S-05: an installation_id handed to us by a redirect is only trusted when
+  // this tab started an install and the random state it armed came back with
+  // it. Anything else (a crafted link, a stale tab, GitHub's "update"
+  // redirect) is ignored; discovery below still finds the user's own install.
+  let installationId = null;
+  if (redirectedId) {
+    if (isAppInstallCallbackTrusted(redirectedState) && /^[1-9][0-9]{0,15}$/.test(String(redirectedId))) {
+      installationId = String(redirectedId);
+    } else {
+      gcWarn('Ignoring installation_id from redirect: no matching pending install in this tab');
+      cleanupUrl();
+    }
+  }
 
   // If no installation_id, try to discover it via the installations API
   if (!installationId && pending) {
@@ -254,7 +272,7 @@ async function processAppCallbackInner() {
     gcError('GitHub App callback failed:', err);
     return { handled: false, error: `GitHub App connection failed: ${err.message}` };
   } finally {
-    if (pending) safeSessionRemove('github_app_pending');
+    if (pending) clearAppInstallState();
   }
 }
 
@@ -331,7 +349,7 @@ export async function recheckAppOnFocus() {
       }
       const app = await processAppCallbackInner();
       if (app.handled || persistentAuth.hasAppInstallation?.()) {
-        safeSessionRemove('github_app_pending');
+        clearAppInstallState();
         return { detected: true };
       }
     } catch (err) {

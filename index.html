@@ -3,6 +3,25 @@
 
 <head>
   <meta charset="UTF-8" />
+  <!-- Content-Security-Policy for every shell: the web (redstring.io), Electron
+       (app://redstring) and Capacitor (capacitor://localhost, https://localhost)
+       all serve this page, and 'self' is each shell's own origin.
+       - script-src: only the app's own bundles. No 'unsafe-inline', no
+         'unsafe-eval': a string from a universe file, a Wikipedia page or a
+         model reply can never become code. 'wasm-unsafe-eval' lets
+         WebAssembly compile (pdf.js), and nothing else.
+       - style-src 'unsafe-inline': React inline styles and the few <style>
+         elements components render. Styles can't run script.
+       - img-src/media-src https: http: data: blob:: node pictures come from
+         anywhere on the web (Wikipedia, linked data), uploads are data URLs,
+         repo images are blob URLs.
+       - connect-src https: plus loopback: GitHub, LLM providers (BYOK),
+         SPARQL endpoints, and the local agent server / local models.
+       - worker-src blob:: HEIC decoding runs in a worker built from a blob.
+       frame-ancestors can't be set from a meta tag; public/_headers sends it.
+       Changing this? Run test/security/renderer/csp.e2e.spec.js. -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' https: http: data: blob:; media-src 'self' https: blob: data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self' https://github.com; frame-src 'none'" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <!-- viewport-fit=cover lets the page paint into the safe areas (Dynamic
        Island / notch, home indicator). <body> then holds those areas as padding

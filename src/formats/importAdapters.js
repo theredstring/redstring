@@ -8,6 +8,8 @@ import jsonld from 'jsonld';
 import { REDSTRING_CONTEXT } from './redstringFormat.js';
 import { applyLens } from './lens.js';
 import { safeJsonParse } from '../utils/safeJson.js';
+import { JSONLD_SAFE_OPTIONS } from './jsonldLoader.js';
+import { sanitizeImportedState } from './sanitizeImported.js';
 
 // Attach provenance to any entity object (P5.3: common provenance path).
 const stamp = (entity, source) => ({
@@ -103,7 +105,8 @@ export const importObsidian = (obsidianData, { sourceName = 'Obsidian Import' } 
     }
   });
   
-  return {
+  // Colours, image sources and links came from someone else's file.
+  return sanitizeImportedState({
     graphs,
     nodes,
     edges,
@@ -111,7 +114,7 @@ export const importObsidian = (obsidianData, { sourceName = 'Obsidian Import' } 
     activeGraphId: mainGraphId,
     expandedGraphIds: [mainGraphId],
     savedNodeIds: new Set()
-  };
+  });
 };
 
 /**
@@ -245,7 +248,8 @@ export const importCytoscape = (cytoscapeData, { sourceName = 'Cytoscape Import'
     }
   });
   
-  return {
+  // Colours, image sources and links came from someone else's file.
+  return sanitizeImportedState({
     graphs,
     nodes,
     edges,
@@ -253,7 +257,7 @@ export const importCytoscape = (cytoscapeData, { sourceName = 'Cytoscape Import'
     activeGraphId: mainGraphId,
     expandedGraphIds: [mainGraphId],
     savedNodeIds: new Set()
-  };
+  });
 };
 
 /**
@@ -350,7 +354,8 @@ export const importGraphML = async (graphMLString, { sourceName = 'GraphML Impor
     if (targetNode) targetNode.edgeIds.push(edgeId);
   });
   
-  return {
+  // Colours, image sources and links came from someone else's file.
+  return sanitizeImportedState({
     graphs,
     nodes,
     edges,
@@ -358,7 +363,7 @@ export const importGraphML = async (graphMLString, { sourceName = 'GraphML Impor
     activeGraphId: mainGraphId,
     expandedGraphIds: [mainGraphId],
     savedNodeIds: new Set()
-  };
+  });
 };
 
 /**
@@ -380,7 +385,8 @@ export const importJSONLD = async (jsonldData, { sourceName = 'JSON-LD Import' }
     definingNodeIds: [],
   });
 
-  const quads = await jsonld.toRDF(jsonldData, { safe: false });
+  // Remote @context URLs resolve only from the vocabulary allowlist (jsonldLoader.js).
+  const quads = await jsonld.toRDF(jsonldData, { safe: false, ...JSONLD_SAFE_OPTIONS });
   const { prototypes, abstractionLinks, compositionLinks, edges: lensEdges, mintedPredicates } = applyLens(quads);
 
   // Nodes from all discovered entities (concepts + minted relation prototypes).
@@ -419,7 +425,7 @@ export const importJSONLD = async (jsonldData, { sourceName = 'JSON-LD Import' }
   for (const { whole, part } of compositionLinks) addEdge(whole, part, 'has part');
   for (const { sourceIri, targetIri } of lensEdges) addEdge(sourceIri, targetIri, 'related');
 
-  return {
+  return sanitizeImportedState({
     graphs,
     nodes,
     edges,
@@ -427,7 +433,7 @@ export const importJSONLD = async (jsonldData, { sourceName = 'JSON-LD Import' }
     activeGraphId: mainGraphId,
     expandedGraphIds: [mainGraphId],
     savedNodeIds: new Set(),
-  };
+  });
 };
 
 // Helper functions

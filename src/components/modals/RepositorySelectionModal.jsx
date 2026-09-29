@@ -25,6 +25,7 @@ import { listUserRepos, createRepository } from '../../services/githubRepoServic
 import { universeManagerService } from '../../services/universeManagerService.js';
 import repoDiscoveryCache from '../../services/repoDiscoveryCache.js';
 import { countLabel } from '../../utils/universeCounts.js';
+import { safeExternalHref } from '../../utils/safeUrl.js';
 
 const repoKeyOf = (repo) => {
   const user = repo?.owner?.login || repo?.owner;
@@ -646,10 +647,10 @@ const RepositorySelectionModal = ({
                   {/* Stays an <a>, so middle-click and open-in-new-tab still
                       work, but wears the same hover as the two buttons beside
                       it — .rs-icon-link in Dialog.css draws it. */}
-                  {repo.html_url && (
+                  {safeExternalHref(repo.html_url) && (
                     <a
                       className="rs-icon-link"
-                      href={repo.html_url}
+                      href={safeExternalHref(repo.html_url)}
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}

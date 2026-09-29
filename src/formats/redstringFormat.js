@@ -14,6 +14,7 @@ import { runMigrations } from './migrations.js';
 import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
 import { hasRedstringMarkers, notARedstringDocument } from './documentShape.js';
 import { partitionLinksByState } from './linkState.js';
+import { sanitizeImportedState, stripSecretFields } from './sanitizeImported.js';
 
 // Current format version.
 //
@@ -1071,7 +1072,8 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:abstractionChains": prototype.abstractionChains || {},
       
       // Agent configuration (if node is an agent)
-      "redstring:agentConfig": prototype.agentConfig || null,
+      // Never with a credential in it: a file is shared, committed and synced.
+      "redstring:agentConfig": prototype.agentConfig ? stripSecretFields(prototype.agentConfig) : null,
 
       // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag, etc.)
       // Critical for image re-fetching on reload and OOM prevention
@@ -2258,7 +2260,11 @@ export const importFromRedstring = (redstringData, storeActions) => {
       }
       storeState.rightPanelTabs = importedTabs;
     }
-    
+
+    // Links, image sources and colours from the file: drop the ones no sink
+    // should ever receive (see sanitizeImported.js). Render sinks check again.
+    sanitizeImportedState(storeState);
+
     return {
       storeState,
       errors: [], // For now, no error handling

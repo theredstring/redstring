@@ -1,10 +1,55 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Set by main through webPreferences.additionalArguments: development builds,
+// and packaged builds started with REDSTRING_ENABLE_DEBUG_DOWNGRADE=1.
+const argv = (typeof process !== 'undefined' && Array.isArray(process.argv)) ? process.argv : [];
+const isDevBuild = argv.includes('--redstring-dev');
+const debugDowngradeEnabled = argv.includes('--redstring-debug-downgrade');
+
+const updater = {
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.on('updater:update-available', (_event, info) => callback(info));
+  },
+  onUpdateNotAvailable: (callback) => {
+    ipcRenderer.on('updater:update-not-available', (_event, info) => callback(info));
+  },
+  onDownloadProgress: (callback) => {
+    ipcRenderer.on('updater:download-progress', (_event, data) => callback(data));
+  },
+  onUpdateReady: (callback) => {
+    ipcRenderer.on('updater:update-ready', (_event, info) => callback(info));
+  },
+  onError: (callback) => {
+    ipcRenderer.on('updater:error', (_event, payload) => callback(payload));
+  },
+  onDiagnosticsUpdated: (callback) => {
+    ipcRenderer.on('updater:diagnostics-updated', (_event, payload) => callback(payload));
+  },
+  onOpenDiagnostics: (callback) => {
+    ipcRenderer.on('updater:open-diagnostics', () => callback());
+  },
+  checkPending: () => ipcRenderer.invoke('updater:check-pending'),
+  installUpdate: () => ipcRenderer.send('updater:install'),
+  openReleases: () => ipcRenderer.invoke('updater:open-releases'),
+  checkNow: () => ipcRenderer.invoke('updater:check-now'),
+  clearCache: () => ipcRenderer.invoke('updater:clear-cache'),
+  getDiagnostics: () => ipcRenderer.invoke('updater:get-diagnostics'),
+  openLog: () => ipcRenderer.invoke('updater:open-log'),
+};
+if (debugDowngradeEnabled) {
+  updater.debugDowngrade = () => ipcRenderer.invoke('updater:debug-downgrade');
+}
+if (isDevBuild) {
+  // Dev-only simulator; main registers its handler only in development.
+  updater.__devSimulate = (kind, payload) => ipcRenderer.invoke('updater:__dev:simulate', kind, payload);
+}
+
 contextBridge.exposeInMainWorld('electron', {
   // Platform check
   isElectron: true,
 
-  // File System Access
+  // File System Access. Paths are reachable only inside the Redstring folders
+  // or after the user picked them in one of these dialogs.
   fileSystem: {
     pickFile: (options) => ipcRenderer.invoke('file:pick', options),
     pickFolder: (options) => ipcRenderer.invoke('file:pickFolder', options),
@@ -32,17 +77,25 @@ contextBridge.exposeInMainWorld('electron', {
     clear: (storeName) => ipcRenderer.invoke('storage:clear', storeName),
   },
 
+  // Secrets at rest (C-7): encrypted by the OS keychain via safeStorage and
+  // kept outside every storage/file location above.
+  secrets: {
+    isAvailable: () => ipcRenderer.invoke('secrets:isAvailable'),
+    get: (key) => ipcRenderer.invoke('secrets:get', key),
+    set: (key, value) => ipcRenderer.invoke('secrets:set', key, value),
+    delete: (key) => ipcRenderer.invoke('secrets:delete', key),
+  },
+
+  // One-time file:// → app://redstring storage handoff (C-5), consumed by
+  // src/main.jsx before the app boots. takeLegacyState() is null once done.
+  migration: {
+    takeLegacyState: () => ipcRenderer.invoke('migration:takeLegacyState'),
+    complete: (result) => ipcRenderer.invoke('migration:complete', result),
+  },
+
   // Clipboard Access
   clipboard: {
     writeText: (text) => ipcRenderer.invoke('clipboard:write', text),
-  },
-
-  // OAuth handling
-  oauth: {
-    start: (authUrl) => ipcRenderer.invoke('oauth:start', authUrl),
-    onCallback: (callback) => {
-      ipcRenderer.on('oauth:callback', (event, data) => callback(data));
-    },
   },
 
   // GitHub Device Flow (no oauth-server, no client_secret).
@@ -62,6 +115,9 @@ contextBridge.exposeInMainWorld('electron', {
   agent: {
     status: () => ipcRenderer.invoke('agent:status'),
     restart: () => ipcRenderer.invoke('agent:restart'),
+    // C-6: { baseUrl, token } — every request to the local agent server
+    // carries `X-Redstring-Token: <token>`.
+    getConnection: () => ipcRenderer.invoke('agent:getConnection'),
   },
 
   // App lifecycle — quit-flush handshake. Main intercepts window close,
@@ -89,39 +145,5 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   // Auto-updater
-  updater: {
-    onUpdateAvailable: (callback) => {
-      ipcRenderer.on('updater:update-available', (_event, info) => callback(info));
-    },
-    onUpdateNotAvailable: (callback) => {
-      ipcRenderer.on('updater:update-not-available', (_event, info) => callback(info));
-    },
-    onDownloadProgress: (callback) => {
-      ipcRenderer.on('updater:download-progress', (_event, data) => callback(data));
-    },
-    onUpdateReady: (callback) => {
-      ipcRenderer.on('updater:update-ready', (_event, info) => callback(info));
-    },
-    onError: (callback) => {
-      ipcRenderer.on('updater:error', (_event, payload) => callback(payload));
-    },
-    onDiagnosticsUpdated: (callback) => {
-      ipcRenderer.on('updater:diagnostics-updated', (_event, payload) => callback(payload));
-    },
-    onOpenDiagnostics: (callback) => {
-      ipcRenderer.on('updater:open-diagnostics', () => callback());
-    },
-    checkPending: () => ipcRenderer.invoke('updater:check-pending'),
-    installUpdate: () => ipcRenderer.send('updater:install'),
-    openReleases: () => ipcRenderer.invoke('updater:open-releases'),
-    checkNow: () => ipcRenderer.invoke('updater:check-now'),
-    clearCache: () => ipcRenderer.invoke('updater:clear-cache'),
-    getDiagnostics: () => ipcRenderer.invoke('updater:get-diagnostics'),
-    openLog: () => ipcRenderer.invoke('updater:open-log'),
-    debugDowngrade: () => ipcRenderer.invoke('updater:debug-downgrade'),
-    // Dev-only simulator. In production the main-side handler is not registered,
-    // so this rejects harmlessly — safe to expose unconditionally.
-    __devSimulate: (kind, payload) => ipcRenderer.invoke('updater:__dev:simulate', kind, payload),
-  }
+  updater
 });
-

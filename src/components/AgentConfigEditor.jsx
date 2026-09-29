@@ -12,14 +12,16 @@ const AgentConfigEditor = ({ config, onChange, onTest, testOutput }) => {
     type: 'executor',
     maxTokens: 8192,
     temperature: 0.7,
-    apiKeyOverride: '',
     events: [],
     routes: {}
   });
 
   React.useEffect(() => {
     if (config) {
-      setLocalConfig(config);
+      // A config saved by an older build may still carry apiKeyOverride; it
+      // isn't shown, and the next save writes the config without it.
+      const { apiKeyOverride: _dropped, ...rest } = config;
+      setLocalConfig(rest);
     }
   }, [config]);
 
@@ -147,16 +149,9 @@ const AgentConfigEditor = ({ config, onChange, onTest, testOutput }) => {
               </div>
             )}
 
-            <div>
-              <label className="block text-sm font-medium mb-1">API Key Override (optional)</label>
-              <input
-                type="password"
-                value={localConfig.apiKeyOverride || ''}
-                onChange={(e) => handleChange('apiKeyOverride', e.target.value)}
-                className="w-full p-2 border rounded text-sm"
-                placeholder="Leave empty to use default API key"
-              />
-            </div>
+            {/* No per-node API key: agentConfig is saved into the universe
+                file, which is shared, committed and synced. Agents use the
+                key from AI settings (secure storage). */}
 
             <div>
               <label className="block text-sm font-medium mb-1">Events (comma-separated)</label>

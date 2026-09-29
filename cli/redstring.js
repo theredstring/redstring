@@ -19,7 +19,7 @@
  *   redstring show <universe>         show a universe's details
  *   redstring rm <universe> [--keep-file]   delete a universe
  *   redstring workspace [link <dir>]  show or set the workspace folder
- *   redstring auth github <token>     save a BYOK GitHub token
+ *   redstring auth github             save a BYOK GitHub token (prompted or piped)
  *   redstring pull <user/repo>[/path] import a universe from a GitHub repo (+ activate)
  *   redstring push [<universe>] [<user/repo>]   publish a universe to a GitHub repo
  *   redstring link|unlink <universe> ...        manage a universe's repo link
@@ -37,6 +37,7 @@ import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { resolveWorkspace, rememberWorkspace, resolveGithubToken, rememberGithubToken, REDSTRING_HOME, DEFAULT_WORKSPACE } from '../src/headless/config.js';
 import { GitHubUniverseSync, parseRepoSpec } from '../src/headless/githubSync.js';
+import { agentAuthHeaders, ensurePrivateDir } from '../src/headless/agentToken.js';
 
 // The store + handlers log via console.log; route ALL library noise to stderr so
 // the CLI's stdout stays clean. Intentional output goes through emit() only.
@@ -81,9 +82,20 @@ const die = (msg, code = 1) => { console.error(`redstring: ${msg}`); process.exi
 const out = (obj) => emit(flags.json ? JSON.stringify(obj) : formatHuman(obj));
 const newId = (prefix) => `${prefix}-${crypto.randomUUID()}`;
 
+// The background Redstring requires its token on every request (C-6); it is
+// in ~/.redstring/agent.json (0600), or REDSTRING_AGENT_TOKEN. Read it per call
+// so a restarted daemon's fresh token is picked up.
+const authHeaders = () => agentAuthHeaders({ port: PORT });
+
 async function probeRunning() {
   try {
-    const r = await fetch(`${BASE}/api/bridge/health`);
+    const r = await fetch(`${BASE}/api/bridge/health`, { headers: authHeaders() });
+    // Something is listening but won't accept our token: don't fall back to the
+    // one-shot backend (it would fight the daemon for the universe lock).
+    if (r.status === 401 || r.status === 403) {
+      die(`a Redstring is running on ${BASE} but rejected this CLI's token (${r.status}). ` +
+        'Restart it with `redstring stop && redstring run`, or set REDSTRING_AGENT_TOKEN.');
+    }
     if (!r.ok) return null;
     const h = await r.json();
     return h.status === 'ok' ? h : null; // accept headless or browser-mode (Electron) instances
@@ -93,19 +105,19 @@ async function probeRunning() {
 // ── backends ────────────────────────────────────────────────────────────────
 function httpBackend() {
   const post = async (p, body) => {
-    const r = await fetch(`${BASE}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const r = await fetch(`${BASE}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(body || {}) });
     const t = await r.text();
     if (!r.ok) throw new Error(`POST ${p} → ${r.status}: ${t.slice(0, 200)}`);
     return t ? JSON.parse(t) : {};
   };
   const del = async (p) => {
-    const r = await fetch(`${BASE}${p}`, { method: 'DELETE' });
+    const r = await fetch(`${BASE}${p}`, { method: 'DELETE', headers: authHeaders() });
     const t = await r.text();
     if (!r.ok) throw new Error(`DELETE ${p} → ${r.status}: ${t.slice(0, 200)}`);
     return t ? JSON.parse(t) : {};
   };
   const get = async (p) => {
-    const r = await fetch(`${BASE}${p}`);
+    const r = await fetch(`${BASE}${p}`, { headers: authHeaders() });
     const t = await r.text();
     if (!r.ok) throw new Error(`GET ${p} → ${r.status}: ${t.slice(0, 200)}`);
     return t ? JSON.parse(t) : {};
@@ -152,7 +164,7 @@ function httpBackend() {
 function githubSyncFor(repoSpec, { branch } = {}) {
   const { user, repo, path: repoPath } = parseRepoSpec(repoSpec);
   const token = resolveGithubToken({ flags, env: process.env });
-  if (!token) die('no GitHub token — run `redstring auth github <token>` or set REDSTRING_GITHUB_TOKEN');
+  if (!token) die('no GitHub token — run `redstring auth github` or set REDSTRING_GITHUB_TOKEN');
   return { sync: new GitHubUniverseSync({ user, repo, token, branch: branch || flags.branch || 'main', log: () => {} }), repoPath };
 }
 
@@ -246,7 +258,7 @@ async function ensureRunning() {
   if (existing) return existing;
   const { dir } = resolveWorkspace({ flags });
   rememberWorkspace(dir); // persist the linked workspace for future invocations
-  fs.mkdirSync(REDSTRING_HOME, { recursive: true });
+  ensurePrivateDir(REDSTRING_HOME);
   const logFd = fs.openSync(LOG_FILE, 'a');
   const child = spawn('node', ['wizard-server.js'], {
     cwd: ROOT, detached: true, stdio: ['ignore', logFd, logFd],
@@ -263,6 +275,26 @@ async function ensureRunning() {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+/**
+ * Read one secret line: from a pipe when stdin isn't a TTY, otherwise from an
+ * interactive prompt (on stderr) that doesn't echo what's typed.
+ */
+async function readSecretFromStdin(prompt) {
+  if (!process.stdin.isTTY) {
+    let data = '';
+    for await (const chunk of process.stdin) data += chunk;
+    return data.split(/\r?\n/)[0].trim();
+  }
+  process.stderr.write(prompt);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: true });
+  // Swallow the echo: readline writes typed characters through _writeToOutput.
+  rl._writeToOutput = () => {};
+  const answer = await new Promise((res) => rl.question('', res));
+  rl.close();
+  process.stderr.write('\n');
+  return String(answer || '').trim();
+}
+
 function resolveGraphId(state, idOrName) {
   const g = state.graphs.find(x => x.id === idOrName) || findGraphByName(state, idOrName);
   return g ? g.id : idOrName;
@@ -437,8 +469,17 @@ async function main() {
 
     // ── GitHub-backed universes ─────────────────────────────────────────────
     case 'auth': {
-      if (sub !== 'github') die('auth github <token>');
-      const token = rest[0]; if (!token) die('auth github <token>');
+      if (sub !== 'github') die('auth github [<token>]  (omit the token to type or pipe it in)');
+      let token = rest[0];
+      if (token) {
+        // Still accepted for scripts, but argv lands in shell history and is
+        // visible to other local users via `ps`.
+        console.error('redstring: warning — a token on the command line is saved in shell history and visible in `ps`. ' +
+          'Prefer `redstring auth github` and paste it at the prompt, or pipe it: `... | redstring auth github`.');
+      } else {
+        token = await readSecretFromStdin('GitHub token: ');
+      }
+      if (!token) die('no token given');
       rememberGithubToken(token);
       return out(flags.json ? { ok: true } : 'GitHub token saved to ~/.redstring/config.json');
     }
@@ -636,7 +677,7 @@ Universes:
   rm <universe> [--keep-file]   delete a universe
 
 GitHub (BYOK token):
-  auth github <token>   save a GitHub token to ~/.redstring/config.json
+  auth github           save a GitHub token to ~/.redstring/config.json (prompts, or reads a pipe)
   pull <user/repo>[/path] [--name <n>] [--no-activate]   import a universe from a repo
   push [<universe>] [<user/repo>] [-m <msg>]             publish a universe to a repo
   link <universe> <user/repo>    record a repo link (without pushing)

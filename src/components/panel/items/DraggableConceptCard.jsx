@@ -5,6 +5,7 @@ import { Search, Bookmark, ArrowRight, Link2 } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
 import { getTextColor, getLightHueText, getDarkHueText } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import { sanitizeColor } from '../../../utils/safeColor.js';
 import useElementWidth from '../../../hooks/useElementWidth.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { findPrototypeForConcept } from '../../../services/semanticPlacement.js';
@@ -146,7 +147,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         alignItems: narrow ? 'stretch' : 'center',
         gap: narrow ? '6px' : '8px',
         padding: narrow ? '10px 10px 6px' : '10px 6px 10px 12px',
-        background: concept.color,
+        background: sanitizeColor(concept.color, '#8B0000'),
         borderRadius: '12px',
         border: `1px solid ${theme.darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
         cursor: 'pointer',

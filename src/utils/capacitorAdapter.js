@@ -9,8 +9,12 @@
  *
  *   iOS      Directory.Documents → visible in the Files app as
  *            On My iPhone → Redstring → Universes, via UIFileSharingEnabled
- *   Android  Directory.External  → /Android/data/com.redstring.app/files,
- *            reachable over USB/MTP and Samsung My Files
+ *   Android  Directory.Data      → the app's internal files dir, private to
+ *            the app. Earlier versions used Directory.External
+ *            (/Android/data/com.redstring.app/files), which other apps could
+ *            read on Android 10 and below and which rides along on USB/MTP;
+ *            existing files are moved once, losslessly (see
+ *            migrateAndroidUniversesToData).
  *
  * File handles on Capacitor are prefixed strings:
  *
@@ -108,13 +112,150 @@ export const capacitorPlatform = () => {
  * fails, so the file handle never persists and the universe lands in
  * needs_reconnect.
  *
- * Android's structural analogue of the iOS container is Directory.External
- * (Context.getExternalFilesDir): app-scoped, requires no permissions, and is
- * still reachable over USB/MTP and Samsung My Files, so a .redstring can be
- * copied off the device.
+ * Android uses Directory.Data (Context.getFilesDir): app-private and
+ * permission-free. The previous choice, Directory.External
+ * (getExternalFilesDir), was readable by any app holding READ_EXTERNAL_STORAGE
+ * on Android 10 and below.
  */
 const defaultManagedDirectory = () =>
-  capacitorPlatform() === 'android' ? 'External' : 'Documents';
+  capacitorPlatform() === 'android' ? 'Data' : 'Documents';
+
+// --- Android: one-time move of universes from External to Data -------------
+//
+// Handles are persisted strings that name their directory
+// (capacitor://External/Universes/x.redstring), in universe metadata and in
+// file-handle persistence. Rewriting every stored copy is how a handle gets
+// missed, so the handles stay as they are: once the move has been verified,
+// an External handle under Universes/ RESOLVES to the same path under Data.
+
+const ANDROID_MOVE_MARKER_KEY = 'redstring_android_universes_moved_to_data_v1';
+
+const androidMoveDone = () => {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem(ANDROID_MOVE_MARKER_KEY) === 'done';
+  } catch {
+    return false;
+  }
+};
+
+const isUniversesPath = (path) =>
+  path === UNIVERSES_FOLDER || String(path || '').startsWith(`${UNIVERSES_FOLDER}/`);
+
+/** Where a handle's directory actually lives now. */
+export const resolveHandleDirectory = (directory, path) => (
+  directory === 'External'
+  && capacitorPlatform() === 'android'
+  && isUniversesPath(path)
+  && androidMoveDone()
+    ? 'Data'
+    : directory
+);
+
+/**
+ * Copy every file in External/Universes to Data/Universes, verify each copy
+ * byte-for-byte (base64 compare), and only then mark the move done and remove
+ * the originals. Any failure leaves the originals untouched and unmarked, so
+ * External handles keep resolving to External and the move retries on the
+ * next launch. A file already in Data with DIFFERENT content stops the move
+ * entirely: nothing is overwritten, nothing is deleted.
+ *
+ * Idempotent: an identical copy already in Data counts as verified.
+ *
+ * @returns {Promise<{ moved: number, status: string }>}
+ */
+export const migrateAndroidUniversesToData = async ({ fsModule } = {}) => {
+  if (capacitorPlatform() !== 'android') return { moved: 0, status: 'not-android' };
+  if (androidMoveDone()) return { moved: 0, status: 'already-done' };
+
+  const { Filesystem, Directory } = fsModule || await fs();
+
+  let entries;
+  try {
+    entries = (await Filesystem.readdir({ path: UNIVERSES_FOLDER, directory: Directory.External })).files || [];
+  } catch (error) {
+    // No External Universes folder (fresh install), or external storage is
+    // unmounted. Nothing readable to move now; stay unmarked so a volume that
+    // mounts later still gets moved.
+    return { moved: 0, status: 'no-source', error };
+  }
+
+  const files = entries.filter((entry) => entry && entry.type !== 'directory' && entry.name);
+  const readBase64 = async (directory, path) =>
+    (await Filesystem.readFile({ path, directory })).data;
+
+  const verified = [];
+  for (const entry of files) {
+    const path = `${UNIVERSES_FOLDER}/${entry.name}`;
+    let source;
+    try {
+      source = await readBase64(Directory.External, path);
+    } catch (error) {
+      return { moved: 0, status: 'source-unreadable', file: entry.name, error };
+    }
+
+    let existing = null;
+    try {
+      existing = await readBase64(Directory.Data, path);
+    } catch { /* absent: the normal case */ }
+
+    if (existing != null) {
+      if (existing !== source) {
+        console.warn(`[CapacitorAdapter] Not moving universes: Data already holds a different ${entry.name}`);
+        return { moved: 0, status: 'conflict', file: entry.name };
+      }
+      verified.push(path);
+      continue;
+    }
+
+    try {
+      await Filesystem.writeFile({ path, directory: Directory.Data, data: source, recursive: true });
+      const copy = await readBase64(Directory.Data, path);
+      if (copy !== source) {
+        return { moved: 0, status: 'verify-failed', file: entry.name };
+      }
+    } catch (error) {
+      return { moved: 0, status: 'copy-failed', file: entry.name, error };
+    }
+    verified.push(path);
+  }
+
+  // Every file is safely in Data. Flip resolution first, then tidy up: a
+  // crash between the two leaves duplicates, never a loss.
+  try {
+    localStorage.setItem(ANDROID_MOVE_MARKER_KEY, 'done');
+  } catch (error) {
+    return { moved: 0, status: 'marker-failed', error };
+  }
+  for (const path of verified) {
+    try {
+      await Filesystem.deleteFile({ path, directory: Directory.External });
+    } catch { /* a leftover copy in External is harmless */ }
+  }
+  console.log(`[CapacitorAdapter] Moved ${verified.length} universe file(s) from External to Data`);
+  return { moved: verified.length, status: 'moved' };
+};
+
+let androidMovePromise = null;
+
+/** Run the Android move once per session before any universe file access. */
+const ensureAndroidMove = () => {
+  if (capacitorPlatform() !== 'android' || androidMoveDone()) return Promise.resolve();
+  if (!androidMovePromise) {
+    androidMovePromise = migrateAndroidUniversesToData().catch((error) => {
+      console.warn('[CapacitorAdapter] Universe move to Data failed; files stay where they are:', error?.message || error);
+    });
+  }
+  return androidMovePromise;
+};
+
+/** parseCapacitorHandle, after the Android move, with its redirect applied. */
+const locate = async (handle) => {
+  await ensureAndroidMove();
+  const { directory, path } = parseCapacitorHandle(handle);
+  return { directory: resolveHandleDirectory(directory, path), path };
+};
+
+export const __resetAndroidMoveForTests = () => { androidMovePromise = null; };
 
 // Set only when ensureUniversesFolder() had to fall back — getExternalFilesDir
 // returns null when external storage is unmounted. Readers never consult this:
@@ -238,6 +379,7 @@ const fs = () => {
 
 /** Create <managed root>/Universes if missing. Idempotent. */
 export const ensureUniversesFolder = async () => {
+  await ensureAndroidMove();
   const { Filesystem, Directory } = await fs();
 
   const mkdirIn = async (dirName) => {
@@ -275,7 +417,7 @@ export const ensureUniversesFolder = async () => {
 
 export const capReadTextFile = async (handle) => {
   const { Filesystem, Directory, Encoding } = await fs();
-  const { directory, path } = parseCapacitorHandle(handle);
+  const { directory, path } = await locate(handle);
   const result = await Filesystem.readFile({
     path,
     directory: Directory[directory],
@@ -292,7 +434,7 @@ export const capReadTextFile = async (handle) => {
  */
 export const capWriteTextFile = async (handle, content) => {
   const { Filesystem, Directory, Encoding } = await fs();
-  const { directory, path } = parseCapacitorHandle(handle);
+  const { directory, path } = await locate(handle);
   const dir = Directory[directory];
   const tmpPath = `${path}.tmp`;
 
@@ -344,7 +486,7 @@ export const capWriteTextFile = async (handle, content) => {
 export const capFileExists = async (handle) => {
   try {
     const { Filesystem, Directory } = await fs();
-    const { directory, path } = parseCapacitorHandle(handle);
+    const { directory, path } = await locate(handle);
     await Filesystem.stat({ path, directory: Directory[directory] });
     return true;
   } catch {
@@ -354,7 +496,7 @@ export const capFileExists = async (handle) => {
 
 export const capDeleteFile = async (handle) => {
   const { Filesystem, Directory } = await fs();
-  const { directory, path } = parseCapacitorHandle(handle);
+  const { directory, path } = await locate(handle);
   await Filesystem.deleteFile({ path, directory: Directory[directory] });
   return true;
 };
@@ -365,7 +507,7 @@ export const capDeleteFile = async (handle) => {
  */
 export const capListFiles = async (folderHandle = universesFolderHandle(), extension = '.redstring') => {
   const { Filesystem, Directory } = await fs();
-  const { directory, path } = parseCapacitorHandle(folderHandle);
+  const { directory, path } = await locate(folderHandle);
   let entries;
   try {
     entries = (await Filesystem.readdir({ path, directory: Directory[directory] })).files || [];

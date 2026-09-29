@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
+import { sanitizeColor } from '../../utils/safeColor.js';
 
 /**
  * Below this list width a connection row drops the triplet for this compact
@@ -42,7 +43,7 @@ const CompactConnectionRow = ({ predicate, direction = 'out', otherName, otherCo
       <span style={{
         alignSelf: 'flex-start',
         maxWidth: '100%',
-        background: otherColor,
+        background: sanitizeColor(otherColor, '#8B0000'),
         color: getTextColor(otherColor, theme.darkMode),
         borderRadius: '10px',
         padding: '5px 10px 4px',

@@ -7,6 +7,7 @@ import { GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { connectionColor, connectionRoutingSettings, CONNECTION_STROKE_BASE } from './utils/canvas/settledConnection.js';
 import { layoutWebPreview, layoutPreviewConnections } from './components/webPreview/webPreviewLayout.js';
 import PreviewConnection from './components/webPreview/PreviewConnection.jsx';
+import { safeImageSrc } from './utils/safeUrl.js';
 
 // Canvas nodes round at NODE_CORNER_RADIUS * 1.4 (see getNodeDimensions)
 const PREVIEW_CORNER_RADIUS = NODE_CORNER_RADIUS * 1.4;
@@ -164,7 +165,8 @@ const GraphPreview = ({ nodes = [], edges = [], groups = null, width, height }) 
           const b = boxes.get(node.id);
           const nodeColor = node.color || '#800000';
 
-          if (node.imageSrc) {
+          const imageSrc = node.imageSrc ? (safeImageSrc(node.imageSrc) || safeImageSrc(node.thumbnailSrc)) : null;
+          if (imageSrc) {
             return (
               <g key={node.id}>
                 <image
@@ -172,7 +174,7 @@ const GraphPreview = ({ nodes = [], edges = [], groups = null, width, height }) 
                   y={b.y}
                   width={b.w}
                   height={b.h}
-                  href={node.imageSrc}
+                  href={imageSrc}
                   preserveAspectRatio="xMidYMid slice"
                   clipPath={`url(#${clipPrefix}-clip-${node.id})`}
                 />

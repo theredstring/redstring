@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen 
 import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./store/graphStore.js"; // Import store selectors
 
 import { useTheme } from './hooks/useTheme.js';
+import { safeImageSrc } from './utils/safeUrl.js';
 import { projectGraphView, viewEdges } from './core/openDefinitions.js';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
@@ -108,7 +109,8 @@ const Node = ({
 
   // Prototype properties
   const nodeName = node.name ?? 'Untitled';
-  const nodeThumbnailSrc = node.thumbnailSrc ?? null;
+  // From the file: only a web, blob or raster data URL is drawn (safeImageSrc).
+  const nodeThumbnailSrc = safeImageSrc(node.thumbnailSrc);
   const definitionGraphIds = node.definitionGraphIds || [];
 
   // --- Inline Editing State ---

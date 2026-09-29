@@ -82,12 +82,13 @@ describe('capacitorAdapter handle codec', () => {
     // Android: Directory.Documents is PUBLIC shared storage
     // (/storage/emulated/0/Documents) gated behind WRITE_EXTERNAL_STORAGE,
     // which is undeclared and dead under scoped storage on API 33+. Every
-    // write there fails, so the managed root must be Directory.External —
-    // app-scoped, permission-free, and still visible over USB/MTP.
+    // write there fails. The managed root is Directory.Data — app-private and
+    // permission-free (Directory.External, used before, was readable by other
+    // apps on Android 10 and below; see migrateAndroidUniversesToData).
     window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android' };
-    expect(universesFolderHandle()).toBe('capacitor://External/Universes/');
+    expect(universesFolderHandle()).toBe('capacitor://Data/Universes/');
     expect(universeFileHandle('my-universe')).toBe(
-      'capacitor://External/Universes/my-universe.redstring'
+      'capacitor://Data/Universes/my-universe.redstring'
     );
   });
 
@@ -99,7 +100,7 @@ describe('capacitorAdapter handle codec', () => {
     window.androidBridge = {};
     expect(capacitorPlatform()).toBe('android');
     expect(isCapacitor()).toBe(true);
-    expect(universesFolderHandle()).toBe('capacitor://External/Universes/');
+    expect(universesFolderHandle()).toBe('capacitor://Data/Universes/');
   });
 
   it('sanitizes names that would break the path', () => {

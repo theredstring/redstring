@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import { universeManagerService } from '../../services/universeManagerService.js';
+import { safeExternalHref } from '../../utils/safeUrl.js';
 
 
 const RepositoryList = ({
@@ -435,9 +436,9 @@ const RepositoryList = ({
                   {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </button>
 
-                {repo.html_url && (
+                {safeExternalHref(repo.html_url) && (
                   <a
-                    href={repo.html_url}
+                    href={safeExternalHref(repo.html_url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{

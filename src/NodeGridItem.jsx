@@ -1,6 +1,7 @@
 import { NODE_CORNER_RADIUS } from './constants';
 import { useTheme } from './hooks/useTheme.js';
 import { getTextColor } from './utils/colorUtils';
+import { cssImageUrl } from './utils/safeUrl.js';
 import React, { useState } from 'react';
 
 const NodeGridItem = ({ 
@@ -57,7 +58,7 @@ const NodeGridItem = ({
       }}
     >
       {/* Node image if available */}
-      {nodePrototype.thumbnailSrc && (
+      {cssImageUrl(nodePrototype.thumbnailSrc) && (
         <div
           style={{
             position: 'absolute',
@@ -65,7 +66,7 @@ const NodeGridItem = ({
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundImage: `url(${nodePrototype.thumbnailSrc})`,
+            backgroundImage: cssImageUrl(nodePrototype.thumbnailSrc),
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             borderRadius: `${NODE_CORNER_RADIUS - 2}px`,

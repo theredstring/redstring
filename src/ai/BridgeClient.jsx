@@ -558,8 +558,13 @@ const BridgeClient = () => {
         //   // ... sync logic disabled for now
         // }
 
-        // Check for pending actions
-        const actionsResponse = await bridgeFetch('/api/bridge/pending-actions');
+        // Check for pending actions. POST: the call leases what it returns, so
+        // the agent server refuses it as a GET.
+        const actionsResponse = await bridgeFetch('/api/bridge/pending-actions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
         if (actionsResponse.ok) {
           const actionsData = await actionsResponse.json();
           if (actionsData.pendingActions && actionsData.pendingActions.length > 0) {

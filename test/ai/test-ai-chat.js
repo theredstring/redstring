@@ -7,8 +7,12 @@
  */
 
 import fetch from 'node-fetch';
+import { readMcpHttpToken } from '../../src/headless/agentToken.js';
 
 const BRIDGE_URL = process.env.BRIDGE_URL || 'http://localhost:3003';
+// The MCP HTTP listener is opt-in (REDSTRING_MCP_HTTP=1) and requires its token,
+// which it records under "mcp" in ~/.redstring/agent.json.
+const MCP_TOKEN = readMcpHttpToken({ port: Number(new URL(BRIDGE_URL).port) || 3003 }) || '';
 
 async function testAIChatMCP() {
   console.log('🤖 Testing AI Chat Panel MCP Client');
@@ -19,7 +23,7 @@ async function testAIChatMCP() {
     console.log('🔧 Test 1: Initialize MCP connection');
     const initResponse = await fetch(`${BRIDGE_URL}/api/mcp/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Redstring-Token': MCP_TOKEN },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -39,7 +43,7 @@ async function testAIChatMCP() {
     console.log('\n🔧 Test 2: List available tools');
     const listResponse = await fetch(`${BRIDGE_URL}/api/mcp/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Redstring-Token': MCP_TOKEN },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 2,
@@ -58,7 +62,7 @@ async function testAIChatMCP() {
     console.log('\n🔧 Test 3: Call verify_state tool');
     const verifyResponse = await fetch(`${BRIDGE_URL}/api/mcp/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Redstring-Token': MCP_TOKEN },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 3,
@@ -77,7 +81,7 @@ async function testAIChatMCP() {
     console.log('\n🔧 Test 4: Call list_available_graphs tool');
     const graphsResponse = await fetch(`${BRIDGE_URL}/api/mcp/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Redstring-Token': MCP_TOKEN },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 4,
@@ -96,7 +100,7 @@ async function testAIChatMCP() {
     console.log('\n🔧 Test 5: Call search_nodes tool');
     const searchResponse = await fetch(`${BRIDGE_URL}/api/mcp/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Redstring-Token': MCP_TOKEN },
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: 5,

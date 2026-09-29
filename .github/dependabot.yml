@@ -1,0 +1,31 @@
+# Dependabot version updates. Security alerts and security updates are
+# switched on separately in the repo settings (documentation/security/RUNBOOK.md).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      # One PR for all minor/patch bumps, so the weekly noise is one review.
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+      # Majors stay separate PRs: each can break something (Electron, Vite,
+      # Capacitor, React) and needs its own smoke test.
+    labels: [dependencies]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: ci

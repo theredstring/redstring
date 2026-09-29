@@ -6,6 +6,7 @@ import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useActiveGraphStructureKey from '../../../hooks/useActiveGraphStructureKey.js';
 import { identifierFromUrl } from '../../../utils/externalIdentifiers.js';
+import { safeExternalHref, safeImageSrc } from '../../../utils/safeUrl.js';
 import useGraphStore from '../../../store/graphStore.js';
 import CollapsibleSection from '../../CollapsibleSection.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
@@ -57,7 +58,7 @@ function useConceptSummary(concept) {
         const ratio = page.thumbnailWidth && page.thumbnailHeight
           ? page.thumbnailWidth / page.thumbnailHeight
           : DEFAULT_IMAGE_RATIO;
-        image = { srcs: [...new Set([wide, page.thumbnail])], ratio };
+        image = { srcs: [...new Set([wide, page.thumbnail].map(safeImageSrc).filter(Boolean))], ratio };
       }
       setSummary({ key, extract: page.description, url: page.url, image });
     })();
@@ -213,7 +214,9 @@ const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, on
   const proto = findPrototypeForConcept(concept, nodePrototypes);
   const inWeb = proto && activeGraphId && structureKey ? instancesOfPrototype(activeGraphId, proto.id)[0] : null;
   const isSaved = !!(proto && savedNodeIds.has(proto.id));
-  const links = concept.semanticMetadata?.externalLinks || [];
+  // Only plain web links: these come from search results and linked data, and
+  // each becomes an <a href>.
+  const links = (concept.semanticMetadata?.externalLinks || []).filter(url => safeExternalHref(url));
   const description = summary?.extract || concept.description;
 
   const addToWeb = () => {
@@ -309,7 +312,7 @@ const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, on
             {links.map((url) => (
               <a
                 key={url}
-                href={url}
+                href={safeExternalHref(url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ ...small, display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}

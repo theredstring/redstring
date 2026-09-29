@@ -151,6 +151,7 @@ const STATEFUL_BRIDGE_ROUTES = [
     ['post', '/api/bridge/layout'],
     ['post', '/api/bridge/register-store'],
     ['get', '/api/bridge/pending-actions'],
+    ['post', '/api/bridge/pending-actions'],
     ['post', '/api/bridge/action-completed'],
     ['post', '/api/bridge/action-feedback'],
     ['post', '/api/bridge/action-started'],
@@ -325,9 +326,13 @@ export function initializeBridgeService(app, options = {}) {
             // CRITICAL: Forward state to bridge-daemon so AI agent has current state
             try {
                 const BRIDGE_INTERNAL_URL = process.env.BRIDGE_INTERNAL_URL || 'http://localhost:3001';
+                // The agent server requires its token (C-6): env, or the
+                // provider app-semantic-server registers (reads ~/.redstring/agent.json).
+                let agentToken = process.env.REDSTRING_AGENT_TOKEN || null;
+                try { agentToken = agentToken || globalThis.__redstringAgentTokenProvider?.() || null; } catch { /* none */ }
                 await fetch(`${BRIDGE_INTERNAL_URL}/api/bridge/state`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...(agentToken ? { 'X-Redstring-Token': agentToken } : {}) },
                     body: JSON.stringify(req.body)
                 });
                 logger.debug('[AI Bridge] State forwarded to bridge-daemon');
@@ -412,7 +417,12 @@ export function initializeBridgeService(app, options = {}) {
         }
     });
 
+    // Leasing changes state, so it is a POST (a GET that mutates can be fired
+    // cross-site or by prefetchers). Same contract as wizard-server.js.
     app.get('/api/bridge/pending-actions', (_req, res) => {
+        res.status(405).set('Allow', 'POST').json({ error: 'Use POST /api/bridge/pending-actions (it leases actions).' });
+    });
+    app.post('/api/bridge/pending-actions', (_req, res) => {
         try {
             logger.debug(`[AI Bridge] Pending actions requested - queue: ${pendingActions.length}, inflight: ${inflightActionIds.size}`);
             const available = pendingActions.filter(a => !inflightActionIds.has(a.id));

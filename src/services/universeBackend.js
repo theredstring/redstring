@@ -19,7 +19,7 @@ import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
-import { checkDestinationBeforeEmptyWrite } from './emptyWriteGuard.js';
+import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { decideSlotConflict } from './slotConflictDecision.js';
 import repoDiscoveryCache from './repoDiscoveryCache.js';
 import {
@@ -123,6 +123,30 @@ function createLocalFileError(code, message) {
   const error = new Error(message);
   error.code = code;
   return error;
+}
+
+/**
+ * Do two gitRepo configs point at the same file in the same repository?
+ * Both repo and file must match; a missing side is never "the same".
+ */
+export function isSameGitTarget(a, b) {
+  const repoKey = (gitRepo) => {
+    const linked = gitRepo?.linkedRepo;
+    if (typeof linked === 'string' && linked.includes('/')) return linked.toLowerCase();
+    if (linked?.user && linked?.repo) return `${linked.user}/${linked.repo}`.toLowerCase();
+    return null;
+  };
+  const fileKey = (gitRepo) => {
+    const folder = String(gitRepo?.universeFolder || '').replace(/^\/+|\/+$/g, '');
+    const file = String(gitRepo?.universeFile || '').replace(/^\/+/, '');
+    if (!file) return null;
+    return `${folder}/${file}`.toLowerCase();
+  };
+  const repoA = repoKey(a);
+  const repoB = repoKey(b);
+  const fileA = fileKey(a);
+  const fileB = fileKey(b);
+  return !!(repoA && repoB && fileA && fileB && repoA === repoB && fileA === fileB);
 }
 
 class UniverseBackend {
@@ -1607,6 +1631,18 @@ class UniverseBackend {
 
       umLog('[UniverseBackend] Backend service initialized successfully');
 
+      // iOS: a .redstring opened from Files / Mail / AirDrop arrives as a URL
+      // (cold launch or while running) and opens as a new universe.
+      if (isCapacitor() && !this.fileOpenRegistered) {
+        this.fileOpenRegistered = true;
+        import('./capacitorFileOpen.js')
+          .then(({ registerCapacitorFileOpen }) => registerCapacitorFileOpen({
+            importText: (text, fileName) => this.importUniverseFromText(text, fileName),
+            notify: (type, message) => this.notifyStatus(type, message)
+          }))
+          .catch((error) => umWarn('[UniverseBackend] Could not register the file-open handler:', error?.message || error));
+      }
+
       // After successful init, attempt to auto-setup sync engine for the active universe (non-blocking)
       // Only do this once, avoid duplicate engine creation
       if (!this.autoSetupScheduled) {
@@ -2890,7 +2926,19 @@ class UniverseBackend {
       umLog(`[UniverseBackend] Linking to discovered universe: ${discoveredUniverse.name}`);
       const universeConfig = createUniverseConfigFromDiscovered(discoveredUniverse, repoConfig);
 
-      const existingEntry = this.resolveUniverseEntry(universeConfig.slug);
+      // A slug is a local name, not an identity. Updating in place is only a
+      // relink when the existing universe already points at this same repo
+      // file. Anything else — a local-only universe, or one linked to another
+      // repo or file — merely shares a name, and overwriting its gitRepo
+      // would aim that universe's saves at someone else's file. It gets its
+      // own slug instead.
+      let existingEntry = this.resolveUniverseEntry(universeConfig.slug);
+      if (existingEntry && !isSameGitTarget(existingEntry.universe?.gitRepo, universeConfig.gitRepo)) {
+        const freshSlug = this.generateUniqueSlug(universeConfig.slug || universeConfig.name);
+        umLog(`[UniverseBackend] Slug "${universeConfig.slug}" belongs to a different universe; linking discovered universe as "${freshSlug}"`);
+        universeConfig.slug = freshSlug;
+        existingEntry = null;
+      }
       if (existingEntry) {
         const { key, universe: existing } = existingEntry;
         const updated = {
@@ -5489,7 +5537,8 @@ class UniverseBackend {
       let confirmedMissingBy = null;
       let lastReadError = null;
       let remoteSha; // SHA of the content we read — seeds the engine's first-contact state
-      const isNotFound = (err) => err?.code === 'FILE_NOT_FOUND' || (typeof err?.message === 'string' && err.message.startsWith('File not found'));
+      // Structured codes only, never message text (see isConfirmedNotFound).
+      const isNotFound = (err) => isConfirmedNotFound(err);
       // Prefer the meta-read so the engine can be told which remote version
       // this session observed; `provider` may be swapped to OAuth below, so
       // resolve it at call time.
@@ -7110,6 +7159,71 @@ class UniverseBackend {
     this.saveToStorage();
     this.notifyStatus('info', `Unlinked local file from ${universe.name || universeSlug}`);
     return { success: true };
+  }
+
+  /**
+   * Open a .redstring document handed to the app from outside (iOS "Open in
+   * Redstring" from Files, Mail, AirDrop) as a NEW universe.
+   *
+   * Never replaces an existing universe: the name comes from the file, the
+   * slug is made unique, and the content goes through the ordinary import
+   * (`validateFormatVersion` + `importFromRedstring`, which sanitizes). An
+   * import that yields nothing the user made is refused rather than saved as
+   * an empty universe.
+   *
+   * @param {string} text - File contents.
+   * @param {string} fileName - Display name, e.g. "Ideas.redstring".
+   * @returns {Promise<{ slug: string, nodeCount: number }>}
+   */
+  async importUniverseFromText(text, fileName) {
+    await this.initialize();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`${fileName} is not a valid .redstring file: ${error.message}`);
+    }
+    const validation = validateFormatVersion(parsed);
+    if (!validation.valid) {
+      throw new Error(validation.tooNew
+        ? `${fileName} was made with a newer version of Redstring (${validation.version}). Update the app to open it.`
+        : (validation.error || `${fileName} is not a format this version can open.`));
+    }
+
+    const importResult = importFromRedstring(parsed);
+    const storeState = importResult?.storeState;
+    if (importResult?.errors?.length) {
+      umWarn(`[UniverseBackend] Import of ${fileName} reported errors:`, importResult.errors);
+    }
+    const nodeCount = storeState?.nodePrototypes instanceof Map
+      ? storeState.nodePrototypes.size
+      : Object.keys(storeState?.nodePrototypes || {}).length;
+    const graphCount = storeState?.graphs instanceof Map
+      ? storeState.graphs.size
+      : Object.keys(storeState?.graphs || {}).length;
+    if (!storeState || (nodeCount === 0 && graphCount === 0)) {
+      throw new Error(`${fileName} contains no things or webs, so nothing was opened.`);
+    }
+    if (!this.storeOperations?.loadUniverseFromFile) {
+      throw new Error('Store operations not initialized');
+    }
+
+    const name = String(fileName || '').replace(/\.redstring$/i, '').trim() || 'Opened universe';
+    const created = await this.createUniverse(name, { enableGit: false, enableLocal: true });
+    const slug = created?.slug;
+    if (!slug) throw new Error('Could not create a universe for the opened file');
+
+    this.storeOperations.loadUniverseFromFile({ ...storeState, _universeSlug: slug });
+    try {
+      await this.forceSave(slug, null, { skipGit: true });
+    } catch (error) {
+      // The universe is open and autosave will retry; say so rather than fail.
+      umWarn(`[UniverseBackend] First save of opened file ${fileName} failed; autosave will retry:`, error);
+    }
+
+    this.notifyStatus('success', `Opened ${fileName} as a new universe`);
+    return { slug, nodeCount };
   }
 
   /**

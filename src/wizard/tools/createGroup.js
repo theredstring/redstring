@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { sanitizeColor } from '../../utils/safeColor.js';
 import { suggestGroupName } from './utils/suggestionCalls.js';
 
 /**
@@ -86,7 +87,7 @@ export async function createGroup(args, graphState, cid, ensureSchedulerStarted)
     action: 'createGroup',
     graphId,
     name: finalName,
-    color: color || '#8B0000',
+    color: sanitizeColor(color, '#8B0000'),
     memberNames,
     memberInstanceIds: resolvedMemberIds,
     nameSuggested,

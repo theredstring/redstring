@@ -17,6 +17,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import PanelSegment from './shared/PanelSegment.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { countLabel } from '../../utils/universeCounts.js';
+import { safeExternalHref, openExternalUrl } from '../../utils/safeUrl.js';
 
 const EXPANDED_STORAGE_KEY = 'redstring-repo-sections-collapsed';
 
@@ -161,11 +162,11 @@ const RepositoriesSection = ({
 
               {/* Action buttons row */}
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                {repo.html_url && (
+                {safeExternalHref(repo.html_url) && (
                   <PanelIconButton
                     icon={ExternalLink}
                     size={20}
-                    onClick={() => window.open(repo.html_url, '_blank')}
+                    onClick={() => openExternalUrl(repo.html_url)}
                     title="View on GitHub"
                   />
                 )}

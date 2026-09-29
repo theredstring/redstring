@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-const { chromium } = createRequire(import.meta.url)('/Users/granteubanks/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
+// Playwright from this repo's node_modules (override with PLAYWRIGHT_MODULE=<path>).
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 const [base, outDir] = process.argv.slice(2);
 fs.mkdirSync(outDir, { recursive: true });

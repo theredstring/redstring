@@ -1,7 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LEGACY — retired; see documentation/security/RUNBOOK.md.
+# Redstring now ships via Cloudflare Pages. This Cloud Build config deploys a
+# public (--allow-unauthenticated) Cloud Run service. Its first step fails
+# unless the build is submitted with --substitutions=_ALLOW_LEGACY_GCP=1.
+# ─────────────────────────────────────────────────────────────────────────────
 # Google Cloud Build Configuration for Redstring GitHub App OAuth Server
 # Builds and deploys OAuth server with GitHub App support to Cloud Run
 
 steps:
+  # Refuse to run unless explicitly opted in (retired infrastructure).
+  - name: 'bash'
+    entrypoint: 'bash'
+    args: ['-c', 'if [ "$_ALLOW_LEGACY_GCP" != "1" ]; then echo "Refusing: retired GCP deployment. See documentation/security/RUNBOOK.md" >&2; exit 1; fi']
+    id: 'legacy-guard'
+
   # Step 1: Build GitHub App OAuth Server Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -54,6 +66,7 @@ steps:
 
 # Substitution variables (set these in Cloud Build trigger)
 substitutions:
+  _ALLOW_LEGACY_GCP: '0'
   _REGION: 'us-central1'
 
 # Build timeout

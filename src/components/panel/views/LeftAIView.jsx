@@ -1,6 +1,6 @@
 import React from 'react';
 import { sanitizeHtml } from '../../../utils/sanitizeHtml.js';
-import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine, Target, ListChecks } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Flag, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine, Target, ListChecks } from 'lucide-react';
 import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -22,7 +22,8 @@ import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
-import { applyToolResultToStore, configureToolResultApplier, setWizardProvenanceContext } from '../../../services/toolResultApplier.js';
+import { applyToolResultToStore, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
+import { useWizardConfirmationStore, pendingForConversation, buildConfirmationQuestion, beginWizardTurn } from '../../../services/wizardConfirmationGate.js';
 import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages, clearStuckStreamingFlags } from './toolCallStatus.js';
 import DruidInstance from '../../../services/DruidInstance.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
@@ -47,6 +48,19 @@ import { buildEnrichmentUpdates, linkedWikipediaTitle } from '../../../services/
 
 // Shared Components
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { openExternalUrl } from '../../../utils/safeUrl.js';
+import { buildAIOutputReportUrl } from '../../../services/aiConsent.js';
+
+/**
+ * services/aiConsent.js refuses to send graph content to a provider the person
+ * hasn't agreed to, with AI_CONSENT_DECLINED. That's their choice, not a
+ * failure, so it reads as a plain note rather than an "Error:".
+ */
+const isConsentDeclined = (error) =>
+  error?.code === 'AI_CONSENT_DECLINED' || /AI_CONSENT_DECLINED/.test(String(error?.message || ''));
+const wizardErrorText = (error, provider) => (isConsentDeclined(error)
+  ? `Nothing was sent. The Wizard needs your OK before sending to ${error?.provider || provider || 'your AI provider'}.`
+  : `Error: ${error?.message}`);
 
 // Per-result ceiling expressed in tokens, for the context meter.
 const MAX_TOOL_RESULT_TOKENS = Math.ceil(MAX_TOOL_RESULT_CHARS / CHARS_PER_TOKEN);
@@ -735,6 +749,14 @@ const LeftAIView = ({ compact = false,
   // read current values instead of their first-render closure.
   const activeConversationIdRef = React.useRef(activeConversationId);
   React.useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
+
+  // Wizard changes held for the person's OK (deleting a web, or a mass
+  // delete/merge in one reply) — see wizardConfirmationGate.js.
+  const heldWizardChanges = useWizardConfirmationStore(state => state.pending);
+  const heldForThisChat = React.useMemo(
+    () => pendingForConversation(heldWizardChanges, activeConversationId),
+    [heldWizardChanges, activeConversationId]
+  );
   const messagesRef = React.useRef(messages);
   React.useEffect(() => { messagesRef.current = messages; }, [messages]);
   // Stable ref for conversations (avoid stale closures in effects/event handlers).
@@ -2483,6 +2505,8 @@ const LeftAIView = ({ compact = false,
     // appended the bubble to a conversation the run then never updated — frozen
     // and empty for the whole run.
     const _preCreatedConvId = activeConversationIdRef.current;
+    // A new ask is a new turn for the delete/merge count (wizardConfirmationGate.js).
+    beginWizardTurn(_preCreatedConvId);
     // _preCreated tracks whether we've added the AI bubble yet (set just before fetch)
     let _preCreated = false;
 
@@ -3191,21 +3215,22 @@ const LeftAIView = ({ compact = false,
         ));
       } else {
         console.error('[AI Collaboration] Autonomous agent failed:', error);
+        const errorText = wizardErrorText(error, apiKeyInfo?.provider);
         // Update the pre-created streaming message with the error
         setMessages(prev => {
           const updated = [...prev];
           const idx = updated.findIndex(m => m.id === streamingMessageId);
-          const errorBlock = { type: 'text', content: `Error: ${error.message}` };
+          const errorBlock = { type: 'text', content: errorText };
           if (idx >= 0) {
             const msg = { ...updated[idx] };
             const blocks = Array.isArray(msg.contentBlocks) ? [...msg.contentBlocks, errorBlock] : [errorBlock];
             msg.contentBlocks = blocks;
-            msg.content = `Error: ${error.message}`;
+            msg.content = errorText;
             msg.isStreaming = false;
             updated[idx] = msg;
             return updated;
           }
-          return [...prev, { id: streamingMessageId, sender: 'ai', content: `Error: ${error.message}`, timestamp: new Date().toISOString(), contentBlocks: [errorBlock], isStreaming: false }];
+          return [...prev, { id: streamingMessageId, sender: 'ai', content: errorText, timestamp: new Date().toISOString(), contentBlocks: [errorBlock], isStreaming: false }];
         });
 
         // The persisted copy needs the same repair. Without this the abort branch
@@ -3261,7 +3286,9 @@ const LeftAIView = ({ compact = false,
       setIsConnected(true);
     } catch (error) {
       console.error('[AI Collaboration] Question handling failed:', error);
-      addMessage('ai', error.message?.includes('API key') ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.', {}, targetConversationId);
+      addMessage('ai', isConsentDeclined(error)
+        ? wizardErrorText(error, apiKeyInfo?.provider)
+        : (error.message?.includes('API key') ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.'), {}, targetConversationId);
     }
   };
 
@@ -3967,6 +3994,19 @@ const LeftAIView = ({ compact = false,
           confirmLabel="Revert"
           variant="danger"
         />
+        {/* Open while anything is held; the scrim doesn't dismiss it, since
+            leaving it undecided would leave the Wizard's changes in limbo. */}
+        <ConfirmDialog
+          isOpen={heldForThisChat.length > 0}
+          onClose={() => {}}
+          onConfirm={() => resolveHeldWizardChanges(heldForThisChat.map(entry => entry.id), true)}
+          onCancel={() => resolveHeldWizardChanges(heldForThisChat.map(entry => entry.id), false)}
+          title="Allow these changes?"
+          message={buildConfirmationQuestion(heldForThisChat)}
+          details="The Wizard asks first when a change deletes a web, or deletes or merges more than ten Things in one reply. Allowed changes can still be undone afterwards."
+          confirmLabel="Allow"
+          cancelLabel="Don't allow"
+        />
         <div className="ai-chat-mode">
           <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
             {/* Not gated on the bridge: the wizard works without one, so the
@@ -4207,6 +4247,32 @@ const LeftAIView = ({ compact = false,
                           title="Copy message"
                         >
                           <Copy size={16} />
+                        </button>
+                      )}
+                      {/* Report offensive or harmful output: opens a pre-filled
+                          email (mailto:) through the one sanctioned opener. */}
+                      {message.sender === 'ai' && (
+                        <button
+                          onClick={() => {
+                            const excerpt = (message.contentBlocks || [])
+                              .filter(block => block.type === 'text' && block.content)
+                              .map(block => block.content)
+                              .join('\n\n') || message.content || '';
+                            openExternalUrl(buildAIOutputReportUrl({
+                              provider: apiKeyInfo?.provider,
+                              model: apiKeyInfo?.model,
+                              excerpt: excerpt.slice(0, 1000)
+                            }));
+                          }}
+                          style={{
+                            background: 'transparent', border: 'none', color: theme.canvas.textPrimary,
+                            padding: '0', cursor: 'pointer', opacity: 0.8, display: 'flex', alignItems: 'center',
+                            marginTop: '-2px'
+                          }}
+                          title="Report this response"
+                          aria-label="Report this response"
+                        >
+                          <Flag size={16} />
                         </button>
                       )}
                     </div>}

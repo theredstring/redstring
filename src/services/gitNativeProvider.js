@@ -47,6 +47,49 @@ const readTruncated = (message) => {
 };
 
 /**
+ * Largest universe file a git read will download, by platform.
+ *
+ * GitHub serves blobs up to 100 MB, and the old code would pull all of them —
+ * base64, then decoded, then parsed, so several copies in memory at once. On a
+ * phone that is an out-of-memory kill of the WebView mid-load. The listing
+ * reports the size before any content moves, so the cap costs nothing.
+ *
+ * Over the cap is an ERROR, never "empty": `FILE_TOO_LARGE` is not a not-found
+ * code, so every guard treats the remote as unreadable and refuses to write
+ * over it.
+ */
+export const GIT_READ_CAP_DESKTOP_BYTES = 50 * 1024 * 1024;
+export const GIT_READ_CAP_NATIVE_BYTES = 25 * 1024 * 1024;
+
+const isNativeShell = () => {
+  try {
+    if (typeof window === 'undefined') return false;
+    const cap = window.Capacitor;
+    if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform() === true) return true;
+    return !!(window.androidBridge || window.webkit?.messageHandlers?.bridge);
+  } catch {
+    return false;
+  }
+};
+
+export const maxGitReadBytes = () => (isNativeShell() ? GIT_READ_CAP_NATIVE_BYTES : GIT_READ_CAP_DESKTOP_BYTES);
+
+/** Throws `FILE_TOO_LARGE` when the listed size is over this platform's cap. */
+export const assertWithinReadCap = (size, label) => {
+  const cap = maxGitReadBytes();
+  if (typeof size === 'number' && size > cap) {
+    const mb = (n) => Math.round(n / (1024 * 1024));
+    const error = new Error(
+      `${label} is ${mb(size)} MB, over the ${mb(cap)} MB this device can safely open from Git. Nothing was changed; open it on a device with a higher limit or split the universe.`
+    );
+    error.code = 'FILE_TOO_LARGE';
+    error.size = size;
+    error.limit = cap;
+    throw error;
+  }
+};
+
+/**
  * Does this parsed object look like a git contents-API response rather than a
  * file's bytes? Both GitHub and Gitea return this shape, and it is never a
  * valid payload for any file this app reads.
@@ -1303,10 +1346,12 @@ This repository was automatically initialized by Redstring UI React. You can now
       console.log(`[GitHubSemanticProvider] File not found: ${safePath}`);
       const err = new Error(`File not found: ${safePath}`);
       err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
       throw err;
     }
 
     const size = typeof info.size === 'number' ? info.size : 0;
+    assertWithinReadCap(size, safePath); // before any content is decoded or fetched
     const truncated = (info.encoding === 'none') || (size > 0 && (!info.content || info.content === ''));
 
     if (!truncated) {
@@ -1423,6 +1468,7 @@ This repository was automatically initialized by Redstring UI React. You can now
     if (response.status === 404) {
       const err = new Error(`File not found: ${safePath}`);
       err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
       throw err;
     }
     if (!response.ok) {
@@ -1465,7 +1511,7 @@ This repository was automatically initialized by Redstring UI React. You can now
       return content;
     } catch (e) {
       // Only log as error if it's not a "file not found" error
-      if (e.message && e.message.includes('File not found')) {
+      if (e?.code === 'FILE_NOT_FOUND') {
         // Re-throw without additional error logging since this is expected
         throw e;
       } else {
@@ -1972,6 +2018,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
       if (!info?.content) {
         const err = new Error(`File not found: ${safePath}`);
         err.code = 'FILE_NOT_FOUND';
+        err.status = 404;
         throw err;
       }
       const binary = atob(info.content.replace(/\s/g, ''));
@@ -1998,10 +2045,12 @@ export class GiteaSemanticProvider extends SemanticProvider {
       console.log(`[GiteaSemanticProvider] File not found: ${safePath}`);
       const err = new Error(`File not found: ${safePath}`);
       err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
       throw err;
     }
 
     const size = typeof info.size === 'number' ? info.size : 0;
+    assertWithinReadCap(size, safePath); // before any content is decoded or fetched
     const truncated = info.encoding === 'none' || (size > 0 && (!info.content || info.content === ''));
 
     if (!truncated) {
@@ -2037,6 +2086,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
     if (response.status === 404) {
       const err = new Error(`File not found: ${safePath}`);
       err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
       throw err;
     }
     if (!response.ok) {
@@ -2075,7 +2125,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
       return content;
     } catch (e) {
       // Only log as error if it's not a "file not found" error
-      if (e?.code === 'FILE_NOT_FOUND' || (e.message && e.message.includes('File not found'))) {
+      if (e?.code === 'FILE_NOT_FOUND') {
         // Re-throw without additional error logging since this is expected
         throw e;
       }

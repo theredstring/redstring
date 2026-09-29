@@ -6,7 +6,7 @@
 import { exportToRedstring } from '../formats/redstringFormat.js';
 import { computeImageRef, isDataUrl, refToBlobPath } from '../formats/imageRefs.js';
 import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
-import { checkDestinationBeforeEmptyWrite } from './emptyWriteGuard.js';
+import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
 
 // Source of truth modes
@@ -895,7 +895,10 @@ class GitSyncEngine {
     try {
       remote = await this.provider.readFileRawWithMeta(path);
     } catch (error) {
-      if (error?.code === 'FILE_NOT_FOUND' || (error?.message || '').includes('File not found')) {
+      // Structured codes only: an error whose MESSAGE mentions "File not
+      // found" or 404 is not a confirmed 404, and treating it as one is what
+      // arms a create over a file this session could not read.
+      if (isConfirmedNotFound(error)) {
         this.lastKnownRemoteSha = null; // confirmed absent — creating is safe
         return;
       }
@@ -1458,7 +1461,7 @@ class GitSyncEngine {
       sha = result.sha;
       console.log('[GitSyncEngine] Loaded main universe file');
     } catch (error) {
-      if (error?.code === 'FILE_NOT_FOUND' || (error?.message || '').includes('File not found')) {
+      if (isConfirmedNotFound(error)) {
         console.log('[GitSyncEngine] Main file not found for slug, starting fresh');
         this.lastKnownRemoteSha = null; // confirmed absent
         return null;

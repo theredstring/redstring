@@ -2,7 +2,7 @@
  * agent-server.js - The Wizard backend service
  * 
  * This is the main entry point for the AI wizard runtime.
- * It runs as a child process of Electron or standalone.
+ * It runs as an Electron utility process or standalone.
  * 
  * Replaces the old 5000+ line bridge-daemon-legacy.js with a clean implementation.
  */
@@ -14,6 +14,11 @@ process.env.AGENT_SERVER_MODE = 'true';
 // server holds the port and breaks the next app launch with EADDRINUSE.
 if (process.send) {
   process.on('disconnect', () => process.exit(0));
+}
+// Electron's utilityProcess talks over parentPort instead; its close means
+// the same thing.
+if (process.parentPort) {
+  process.parentPort.on('close', () => process.exit(0));
 }
 
 // Import and start the clean wizard server

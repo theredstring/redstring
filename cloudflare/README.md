@@ -29,14 +29,30 @@ functions/
   _lib/
     env.ts                                 # Env binding type
     jwt.ts                                 # GitHub App JWT signing (jose, PKCS#1→#8 conversion)
-    github.ts                              # Installation discovery + verification helpers
+    github.ts                              # Installation discovery helpers
+    ownership.ts                           # verifyInstallOwnership — fail-closed install ownership check
+    rateLimit.ts                           # Best-effort per-isolate rate limiter
   api/github/[[path]].ts                   # Hono router, all endpoints
+  github/app/callback.ts                   # GitHub App Callback/Setup URL → SPA redirect
   tsconfig.json
 public/
   oauth/callback.html                      # Static OAuth callback (replaces server HTML)
   _routes.json                             # Route only /api/github/* through Functions
+  _headers                                 # Security headers for static assets
 cloudflare/README.md                       # This file
 ```
+
+## Security model
+
+- **Installation ownership.** Every route that acts on a GitHub App installation id (`/app/installation-token`, `/app/installation/:id`, `/app/create-repository`) requires the SPA's OAuth token in `Authorization: token …` and runs `verifyInstallOwnership` (`functions/_lib/ownership.ts`): `GET /user` with the caller's token, `GET /app/installations/{id}` with the App JWT, then a User install must belong to the caller and an Organization install needs an **active** membership (`GET /user/memberships/orgs/{org}`, which needs the `read:org` scope the SPA requests). Any GitHub error, a suspended install, another App's install or any other target type is a refusal. There is no "couldn't verify, mint anyway" path. Tokens are minted for the id GitHub returned for the verified installation.
+- **Errors** return a status and a short `code`; GitHub's raw responses go to the Function log (`npm run cf:tail:*`), never to the client.
+- **OAuth**: the SPA sends a crypto-random `state` and a PKCE S256 challenge; `/oauth/token` forwards `code_verifier` to GitHub when present.
+- **Webhook** refuses every delivery unless `GITHUB_APP_WEBHOOK_SECRET` is bound.
+- **CORS** allows `https://redstring.io` (+ subdomains). Localhost only when the Function itself runs on localhost or `ALLOW_LOCALHOST_ORIGINS=true`; `*.pages.dev` only with `ALLOW_PREVIEW_ORIGINS=true`.
+- **Rate limiting**: a per-isolate limiter (60/min per IP on token-minting and OAuth routes, 300/min overall). It is a speed bump; the real limit is a Cloudflare WAF rate-limiting rule on `/api/github/*`.
+- **Headers**: `public/_headers` covers static assets (frame-ancestors, HSTS, nosniff, Referrer-Policy, Permissions-Policy, COOP). It does not apply to Function responses, which set `Cache-Control: no-store`, `nosniff` and `Referrer-Policy: no-referrer` themselves. The full CSP is a `<meta>` in `index.html`.
+
+Tests: `npx vitest run test/security/functions test/security/web-auth`.
 
 ## Prerequisites
 
@@ -77,6 +93,7 @@ npx wrangler pages secret put GITHUB_CLIENT_SECRET     --project-name=redstring-
 npx wrangler pages secret put GITHUB_APP_ID            --project-name=redstring-staging
 npx wrangler pages secret put GITHUB_APP_PRIVATE_KEY   --project-name=redstring-staging
 npx wrangler pages secret put GITHUB_APP_SLUG          --project-name=redstring-staging
+npx wrangler pages secret put GITHUB_APP_WEBHOOK_SECRET --project-name=redstring-staging
 ```
 
 For `GITHUB_APP_PRIVATE_KEY`, paste the **entire PEM** including the `-----BEGIN ... PRIVATE KEY-----` and `-----END ... PRIVATE KEY-----` lines. Both PKCS#1 (`BEGIN RSA PRIVATE KEY`) and PKCS#8 (`BEGIN PRIVATE KEY`) formats are accepted — the Function converts PKCS#1 to PKCS#8 automatically since Workers' Web Crypto only accepts PKCS#8.
@@ -143,9 +160,9 @@ After deploying, walk through this end-to-end. None of it touches prod GCP.
 2. **OAuth client-id endpoint works**:
    ```bash
    curl https://redstring-staging.pages.dev/api/github/oauth/client-id
-   # → {"clientId":"...","configured":true,"service":"oauth-server"}
+   # → {"clientId":"...","service":"oauth-server"}
    ```
-3. **OAuth flow end-to-end**: click "Connect GitHub" in the SPA. The popup opens to `github.com/login/oauth/authorize` with the dev client_id. Authorize. GitHub redirects to `/oauth/callback` (the static HTML). Popup posts the code/state to the opener and closes. SPA exchanges the code via `POST /api/github/oauth/token` and stores the resulting access token in browser localStorage.
+3. **OAuth flow end-to-end**: click "Connect GitHub" in the SPA. The tab goes to `github.com/login/oauth/authorize` with the dev client_id, a random `state` and a `code_challenge`. Authorize. GitHub redirects to `/oauth/callback` (the static HTML), which stores code/state in sessionStorage and returns to `/`. The SPA checks the state, exchanges the code (with its PKCE `code_verifier`) via `POST /api/github/oauth/token` and stores the resulting access token in browser localStorage.
 4. **GitHub App install + token mint**: install the dev GitHub App on a test repo. SPA calls `GET /api/github/app/installations` (passes the user's OAuth token in `Authorization`). Worker calls GitHub, filters to your App's installations, returns the list. SPA picks one, calls `POST /api/github/app/installation-token`. Worker mints the JWT via `jose`, exchanges for an installation token, returns it. SPA pushes a universe to the repo.
 5. **BYOK paths bypass the Worker**: open SPA settings, add an Anthropic API key, run the wizard. DevTools → Network: confirm requests go to `api.anthropic.com` directly, **not** through `redstring-staging.pages.dev/api/wizard`. Same for Wikipedia (`en.wikipedia.org/api/rest_v1/...`) and Wikidata (`query.wikidata.org/sparql`).
 6. **Expected 404s** (these are intentional — the proxies are dropped): `/api/wizard`, `/api/ai/*`, `/api/enrich`, `/api/catalog/*`, `/api/bridge/*`, `/api/analytics/*` will all 404. The SPA should handle this gracefully (the bridgeFetch path silently absorbs network failures, and BYOK code paths don't call the proxy at all). If a feature *does* break because it relied on one of these endpoints, file it as a finding — that endpoint either needs to be added to the Worker or the SPA needs to switch to a direct browser call.
@@ -154,7 +171,7 @@ After deploying, walk through this end-to-end. None of it touches prod GCP.
 
 - Does not modify `oauth-server.js`, `bridge-daemon.js`, `app-semantic-server.js`, or any GCP-related file — the Cloud Run stack still stands as a rollback path.
 - Does not delete Cloud Run services, Container Registry images, or Cloud Build triggers.
-- Does not implement rate limiting on the Worker. Now that `redstring.io` points here, the "the URL is obscure" argument no longer holds — add Cloudflare Rate Limiting.
+- Rate limiting in the Function is per isolate only (see [Security model](#security-model)). Add the Cloudflare WAF rate-limiting rule on `/api/github/*` for a real limit.
 
 ## Production cutover (done)
 
@@ -167,6 +184,8 @@ Still open from the original cutover plan: tearing down Cloud Run + Container Re
 **"GITHUB_APP_PRIVATE_KEY is not a recognized PEM"**: paste includes the full BEGIN/END lines? PKCS#1 (`BEGIN RSA PRIVATE KEY`) and PKCS#8 (`BEGIN PRIVATE KEY`) both work; anything else (e.g., SSH key format) doesn't.
 
 **`/api/github/app/installations` returns "OAuth token required"**: the SPA must pass `Authorization: token <user_oauth_token>` to this endpoint. This is intentional — listing installs by App JWT alone would leak installs across accounts. If you're calling it from curl, add the header manually.
+
+**403 "GitHub App installation not accessible" on an org install**: the caller must be an *active* member of the org, checked with `GET /user/memberships/orgs/{org}` using their OAuth token. That needs the `read:org` scope (tokens from before it was requested need a reconnect) and, for orgs that restrict OAuth Apps or enforce SAML SSO, the org must allow / the user must SSO-authorize the Redstring OAuth App.
 
 **"GitHub App credential mismatch" (409)**: the installation belongs to a different App than the one this Worker is configured for (e.g., you installed the prod App but the staging Worker has dev credentials). Install via the dev App's install URL, or set the correct `GITHUB_APP_*` secrets.
 

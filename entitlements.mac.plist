@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+  <!--
+    Hardened-runtime exceptions, kept to what Electron needs: V8's JIT needs
+    allow-jit. The unsigned-executable-memory and library-validation
+    exceptions were dropped: every native module in the bundle is signed with
+    the app's own team ID, so library validation passes without them.
+  -->
   <dict>
     <key>com.apple.security.cs.allow-jit</key>
-    <true/>
-    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
-    <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
   </dict>
 </plist>

@@ -154,18 +154,29 @@ fi
 # Two files decide whether the deploy is a working app or a static 404 factory,
 # and both arrive by being copied out of public/ — so they are exactly the ones
 # that go missing without the build failing.
-for required in dist/index.html dist/_routes.json dist/oauth/callback.html; do
+for required in dist/index.html dist/_routes.json dist/_headers dist/oauth/callback.html; do
   if [ ! -f "$required" ]; then
     echo "${red}✗ Missing ${required}${off}"
     case "$required" in
       *_routes.json)  echo "  Without it, /api/github/* never reaches the Function." ;;
+      *_headers)      echo "  Without it, the site ships without its security headers (frame-ancestors, HSTS, nosniff)." ;;
       *callback.html) echo "  Without it, the GitHub OAuth callback 404s." ;;
       *)              echo "  The build did not produce an SPA entry point." ;;
     esac
     exit 1
   fi
 done
-echo "${green}✓${off} dist/ has index.html, _routes.json, oauth/callback.html"
+echo "${green}✓${off} dist/ has index.html, _routes.json, _headers, oauth/callback.html"
+
+# Debug and test pages must never be published (S-10). Anything like that
+# belongs in dev-preview/, which the build does not copy.
+STRAY="$(find dist -maxdepth 3 -type f \( -iname '*debug*.html' -o -iname '*test*.html' -o -iname '*viewer*.html' -o -name '.env*' -o -name '*.pem' \) 2>/dev/null || true)"
+if [ -n "$STRAY" ]; then
+  echo "${red}✗ dist/ contains files that must not ship:${off}"
+  printf '    %s\n' $STRAY
+  exit 1
+fi
+echo "${green}✓${off} No debug/test pages or key files in dist/"
 echo
 
 # --- Deploy ------------------------------------------------------------------
@@ -248,6 +259,27 @@ else
   else
     echo "${green}✓${off} Function is wearing the ${bold}dev${off} GitHub App (${CLIENT_ID})"
   fi
+fi
+
+
+# The ownership gate must be live: a mint with no caller token is refused.
+# (An older Function without the gate would answer 400/500/502 differently;
+# anything but 401 here means the deploy is not the one you think.)
+MINT_STATUS="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST \
+  -H 'Content-Type: application/json' -d '{"installation_id":1}' \
+  "$CHECK_URL/api/github/app/installation-token" || echo 000)"
+if [ "$MINT_STATUS" = "401" ]; then
+  echo "${green}✓${off} Installation-token mint refuses unauthenticated callers (401)"
+else
+  echo "${red}✗ Unauthenticated installation-token request returned ${MINT_STATUS}, expected 401.${off}"
+  exit 1
+fi
+
+HEADERS="$(curl -s -D - -o /dev/null --max-time 15 "$CHECK_URL/" || echo '')"
+if printf '%s' "$HEADERS" | grep -qi "frame-ancestors 'none'"; then
+  echo "${green}✓${off} Security headers are served (frame-ancestors 'none')"
+else
+  echo "${yellow}!${off} Security headers not seen on ${CHECK_URL}/ — check dist/_headers shipped"
 fi
 
 echo

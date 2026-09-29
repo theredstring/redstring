@@ -15,6 +15,7 @@ import { GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { connectionColor, connectionRoutingSettings, CONNECTION_STROKE_BASE } from './utils/canvas/settledConnection.js';
 import { layoutWebPreview, layoutPreviewConnections } from './components/webPreview/webPreviewLayout.js';
 import PreviewConnection from './components/webPreview/PreviewConnection.jsx';
+import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_GROUP_INTERIOR_TINT } from './components/canvas/groups/groupElements.jsx';
 
 // --- Canvas parity constants ---
@@ -188,7 +189,8 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     // Get original dimensions
     const dimensions = dimsById.get(node.id);
     const titleHeight = dimensions.textAreaHeight || NODE_HEIGHT * NAME_AREA_FACTOR;
-    const hasThumbnail = Boolean(node.thumbnailSrc);
+    const thumbnailSrc = safeImageSrc(node.thumbnailSrc);
+    const hasThumbnail = Boolean(thumbnailSrc);
     const clipId = `${clipPrefix}-inner-node-clip-${node.id}`;
 
     return (
@@ -222,7 +224,7 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
 
         {hasThumbnail && (
           <image
-            href={node.thumbnailSrc}
+            href={thumbnailSrc}
             x={node.x + (dimensions.scaledPadding ?? NODE_PADDING)}
             y={node.y + dimensions.textAreaHeight}
             width={dimensions.imageWidth}

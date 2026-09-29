@@ -26,6 +26,7 @@ import useImageCache from './services/imageCache.js';
 import { useTheme } from './hooks/useTheme.js';
 import { createDetentTrack } from './services/haptics.js';
 import { resolveChain } from './wizard/tools/utils/abstractionSpec.js';
+import { safeImageSrc } from './utils/safeUrl.js';
 import './AbstractionCarousel.css';
 
 
@@ -1582,7 +1583,8 @@ const AbstractionCarousel = ({
                 imageWidth: unscaledImageWidth,
                 calculatedImageHeight: unscaledImageHeight
               } = item.baseDimensions;
-              const hasThumbnail = Boolean(item.thumbnailSrc);
+              const thumbnailSrc = safeImageSrc(item.thumbnailSrc);
+              const hasThumbnail = Boolean(thumbnailSrc);
               // Scaled padding used to center the image (matches getNodeDimensions' imageWidth calc)
               const unscaledImagePadding = item.baseDimensions.scaledPadding ?? NODE_PADDING * 1.4 * nodeScaleGlobal;
 
@@ -1686,7 +1688,7 @@ const AbstractionCarousel = ({
                         y={-unscaledHeight / 2 + unscaledTextAreaHeight}
                         width={unscaledImageWidth}
                         height={unscaledImageHeight}
-                        href={item.thumbnailSrc}
+                        href={thumbnailSrc}
                         preserveAspectRatio="xMidYMid slice"
                         clipPath={`url(#carousel-image-clip-${item.id})`}
                       />

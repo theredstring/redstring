@@ -4,6 +4,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import { sanitizeColor } from '../../../utils/safeColor.js';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -50,7 +51,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
       onClick={onSelect}
       style={{
         padding: '6px',
-        background: concept.color, // Background is node color
+        background: sanitizeColor(concept.color, '#8B0000'), // Background is node color
         borderRadius: '8px',
         border: `1px dashed ${theme.darkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)'}`,
         cursor: 'grab',

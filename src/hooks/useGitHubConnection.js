@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { persistentAuth } from '../services/persistentAuth.js';
+import { persistentAuth, OAUTH_DISCONNECTED_MESSAGE, APP_DISCONNECTED_MESSAGE } from '../services/persistentAuth.js';
 import { runPendingCallbacks, recheckAppOnFocus } from '../services/githubAuthCallbacks.js';
 import {
   connectOAuth,
@@ -241,6 +241,8 @@ export function useGitHubConnection({ active = true, beforeRedirect = null, resp
     try {
       await disconnectOAuth();
       refreshAuthStatus();
+      // Disconnecting forgets the token here; say where to revoke it on GitHub.
+      setAuthNotice({ type: 'info', message: OAUTH_DISCONNECTED_MESSAGE });
     } catch (err) {
       setAuthNotice({ type: 'error', message: `Failed to disconnect: ${err.message}` });
     }
@@ -250,6 +252,7 @@ export function useGitHubConnection({ active = true, beforeRedirect = null, resp
     try {
       await disconnectApp();
       refreshAuthStatus();
+      setAuthNotice({ type: 'info', message: APP_DISCONNECTED_MESSAGE });
     } catch (err) {
       setAuthNotice({ type: 'error', message: `Failed to disconnect App: ${err.message}` });
     }

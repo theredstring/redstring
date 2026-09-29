@@ -78,3 +78,16 @@ deployment/k8s/
 deployment/nginx/
 deployment/gcp/
 docker-compose.yml
+# Local secrets and user data (never upload to Cloud Build)
+github.env*
+WIZARD_KEY.txt
+*.pem
+*.key
+*private-key*
+.dev.vars
+.env.github-app
+data/
+universes/
+backup.redstring
+.claude/
+.wrangler/

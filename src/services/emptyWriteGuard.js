@@ -81,7 +81,7 @@ function statsOfContent(content) {
  *   parsed object). Should THROW when the destination is absent or unreadable;
  *   `isNotFound` separates the two.
  * @param {Function} [params.isNotFound] - `(error) => boolean`. Defaults to
- *   matching the common 404 shapes used across the git providers.
+ *   `isConfirmedNotFound` (structured codes only, never message text).
  * @param {string} [params.label] - Destination description, for logs.
  * @returns {Promise<{safe: boolean, reason: string, destination?: Object, error?: Error}>}
  */
@@ -141,17 +141,39 @@ export async function checkDestinationBeforeEmptyWrite({
   return { safe: false, reason: 'destination-has-data', destination: stats };
 }
 
-/** The 404 shapes the git providers and file adapters actually produce. */
-function defaultIsNotFound(error) {
-  if (!error) return false;
+/**
+ * Is this error a CONFIRMED "nothing is there"?
+ *
+ * Decided on structured fields only, never on message text. The old check
+ * matched any message containing "404" or "File not found", so a 403 or 5xx
+ * whose text happened to mention 404 (a universe called "404", a status line
+ * quoted inside an error body) read as "absent" — and absent is the one
+ * answer that lets an empty write through. Every producer that means
+ * not-found sets a code: the git providers throw `code: 'FILE_NOT_FOUND'`
+ * (with `status: 404`), Node file reads `ENOENT`, the File System Access API
+ * a `NotFoundError`. An error carrying any other HTTP status is never absent,
+ * whatever its code or message claims.
+ *
+ * Unknown shapes answer false. False only ever costs a refused write; true can
+ * cost the user's universe.
+ *
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isConfirmedNotFound(error) {
+  if (!error || typeof error !== 'object') return false;
+  const status = error.status;
+  if (typeof status === 'number' && status !== 404) return false;
   const code = String(error.code || '');
   const name = String(error.name || '');
-  const message = String(error.message || '');
   return code === 'FILE_NOT_FOUND'
     || code === 'ENOENT'
-    || name === 'NotFoundError'
-    || message.includes('File not found')
-    || message.includes('404');
+    || name === 'NotFoundError';
+}
+
+/** The default `isNotFound` for checkDestinationBeforeEmptyWrite. */
+function defaultIsNotFound(error) {
+  return isConfirmedNotFound(error);
 }
 
 export const __testing = { statsOfContent, defaultIsNotFound };

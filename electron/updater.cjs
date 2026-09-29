@@ -4,6 +4,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 const https = require('node:https');
+const crypto = require('node:crypto');
 const { execFileSync, spawn } = require('node:child_process');
 const { ipcMain, shell } = require('electron');
 const {
@@ -13,10 +14,19 @@ const {
 } = require('./updater-helpers.cjs');
 const { verifyStagedBundle } = require('./updater-bundle-verify.cjs');
 const {
-  compareVersions,
+  verifyBundleSignature,
+  buildDesignatedRequirement,
+  DEFAULT_TEAM_ID,
+  DEFAULT_BUNDLE_ID
+} = require('./updaterSignature.cjs');
+const { isSafeExternalUrl } = require('./ipcGuards.cjs');
+const {
   pickPreviousRelease,
   pickAssetForArch,
-  buildSwapAndRelaunchScript,
+  buildSwapAndRelaunchArgs,
+  checkStagedVersion,
+  pickPendingZip,
+  parseLatestMacYmlSha512,
   deriveTargetBundlePath
 } = require('./updater-install-helpers.cjs');
 
@@ -200,15 +210,17 @@ function cleanupOrphanedUpdateDirs(macPaths) {
 // launchd XPC trigger to ShipIt is unreliable)
 // ============================================================
 
+// Paths reach the installer script as argv ($1..$5), never spliced into it.
 function spawnDetachedSwapAndRelaunch({ stagedBundlePath, targetBundlePath, parentPid }) {
   const logPath = path.join(os.tmpdir(), 'redstring-installer.log');
-  const script = buildSwapAndRelaunchScript({
+  const args = buildSwapAndRelaunchArgs({
     stagedBundlePath,
     targetBundlePath,
     parentPid,
-    logPath
+    logPath,
+    requirement: buildDesignatedRequirement(DEFAULT_TEAM_ID, DEFAULT_BUNDLE_ID)
   });
-  const child = spawn('/bin/bash', ['-c', script], {
+  const child = spawn('/bin/bash', args, {
     detached: true,
     stdio: 'ignore'
   });
@@ -220,6 +232,36 @@ function getTargetBundlePath(app) {
   return deriveTargetBundlePath(app.getPath('exe'));
 }
 
+function sha512Base64(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha512');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('base64')));
+    stream.on('error', reject);
+  });
+}
+
+// Everything a staged bundle must pass before the swap: structurally complete,
+// the version we expect, and signed by us (C-4). Returns { ok, version, reason }.
+async function vetStagedBundle(bundlePath, { expectedVersion, currentVersion, allowDowngrade = false }) {
+  const structure = verifyStagedBundle(bundlePath);
+  if (!structure.valid) return { ok: false, reason: 'incomplete bundle: ' + structure.reason };
+  const version = checkStagedVersion({
+    stagedVersion: structure.version,
+    expectedVersion,
+    currentVersion,
+    allowDowngrade
+  });
+  if (!version.ok) return { ok: false, reason: version.reason };
+  const signature = await verifyBundleSignature(bundlePath, {
+    teamId: DEFAULT_TEAM_ID,
+    bundleId: DEFAULT_BUNDLE_ID
+  });
+  if (!signature.ok) return { ok: false, reason: signature.reason };
+  return { ok: true, version: structure.version };
+}
+
 // ============================================================
 // Debug downgrade: download a previous GitHub release and swap it in
 // ============================================================
@@ -227,54 +269,55 @@ function getTargetBundlePath(app) {
 const GITHUB_OWNER = 'theredstring';
 const GITHUB_REPO = 'redstring';
 
-function httpsGetJson(url) {
+// GET over https only, following at most 5 redirects — and only to https.
+function httpsGet(url, { headers = {}, redirectsLeft = 5 } = {}) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      headers: {
-        'User-Agent': 'Redstring-Updater',
-        'Accept': 'application/vnd.github+json'
-      }
-    }, (res) => {
+    let parsed;
+    try { parsed = new URL(url); } catch { reject(new Error('Invalid URL')); return; }
+    if (parsed.protocol !== 'https:') { reject(new Error('Refusing non-https URL')); return; }
+    const req = https.get(parsed, { headers: { 'User-Agent': 'Redstring-Updater', ...headers } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        httpsGetJson(res.headers.location).then(resolve, reject);
+        res.resume();
+        if (redirectsLeft <= 0) { reject(new Error('Too many redirects')); return; }
+        const next = new URL(res.headers.location, parsed).toString();
+        httpsGet(next, { headers, redirectsLeft: redirectsLeft - 1 }).then(resolve, reject);
         return;
       }
       if (res.statusCode !== 200) {
-        reject(new Error('HTTP ' + res.statusCode + ' from ' + url));
+        res.resume();
+        reject(new Error('HTTP ' + res.statusCode + ' from ' + parsed.host));
         return;
       }
-      const chunks = [];
-      res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8'))); }
-        catch (err) { reject(err); }
-      });
+      resolve(res);
     });
     req.on('error', reject);
-    req.setTimeout(15000, () => req.destroy(new Error('timeout')));
+    req.setTimeout(30000, () => req.destroy(new Error('timeout')));
   });
 }
 
-function httpsDownloadToFile(url, destPath) {
+async function httpsGetBuffer(url, headers) {
+  const res = await httpsGet(url, { headers });
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    res.on('data', (c) => chunks.push(c));
+    res.on('end', () => resolve(Buffer.concat(chunks)));
+    res.on('error', reject);
+  });
+}
+
+async function httpsGetJson(url) {
+  const buf = await httpsGetBuffer(url, { 'Accept': 'application/vnd.github+json' });
+  return JSON.parse(buf.toString('utf-8'));
+}
+
+async function httpsDownloadToFile(url, destPath) {
+  const res = await httpsGet(url);
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath);
-    const handleResponse = (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume();
-        https.get(res.headers.location, {
-          headers: { 'User-Agent': 'Redstring-Updater' }
-        }, handleResponse).on('error', reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        reject(new Error('HTTP ' + res.statusCode + ' from ' + url));
-        return;
-      }
-      res.pipe(file);
-      file.on('finish', () => file.close(() => resolve()));
-      file.on('error', reject);
-    };
-    https.get(url, { headers: { 'User-Agent': 'Redstring-Updater' } }, handleResponse).on('error', reject);
+    res.pipe(file);
+    file.on('finish', () => file.close(() => resolve()));
+    file.on('error', reject);
+    res.on('error', reject);
   });
 }
 
@@ -337,7 +380,9 @@ function readShipItStderrTail(macPaths, lineCount) {
 // Main init
 // ============================================================
 
-function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }) {
+// isTrustedSender(event) comes from main (ipcGuards bound to the app origin);
+// without one every updater IPC is refused.
+function initUpdater({ app, getMainWindow, isDev, isTrustedSender = () => false, stopAgentServer, sessionName }) {
   const macPaths = getMacPaths(app);
   const send = (channel, payload) => {
     const win = getMainWindow();
@@ -454,120 +499,158 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
   });
 
   // ----- IPC handlers -----
-  ipcMain.on('updater:install', () => {
-    log('info', 'install requested — manual swap (bypassing Squirrel/ShipIt)');
-    if (process.platform !== 'darwin') {
-      // Other platforms: fall back to the standard flow
-      try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch {}
-      autoUpdater.quitAndInstall(false, true);
-      return;
-    }
+  // Every handler checks its sender: only the app's own top-level page may
+  // drive the updater.
+  const refuse = (channel) => {
+    log('warn', 'Refused ' + channel + ' from untrusted sender');
+    return { ok: false, error: 'untrusted sender' };
+  };
 
-    // macOS: do the swap ourselves. Squirrel.Mac's ShipIt is unreliable on
-    // macOS 26+ (launchd never spawns it), so we read the bundle path it
-    // already staged for us and move it into place from a detached helper.
-    let stagedBundlePath = null;
+  // Find the bundle to install: ShipIt's stage if it is the pending version,
+  // otherwise our own extraction of the zip electron-updater downloaded (chosen
+  // by pending/update-info.json and re-hashed, never by readdir order).
+  async function resolveStagedBundle(expectedVersion) {
     try {
       if (fs.existsSync(macPaths.shipItStateFile)) {
         const json = execFileSync('plutil', ['-convert', 'json', '-o', '-', macPaths.shipItStateFile], {
           timeout: 2000, encoding: 'utf-8'
         });
-        stagedBundlePath = parseShipItStateForBundlePath(json);
+        const shipItPath = parseShipItStateForBundlePath(json);
+        if (shipItPath) {
+          const structure = verifyStagedBundle(shipItPath);
+          if (structure.valid && structure.version === expectedVersion) {
+            return shipItPath;
+          }
+          // A stage left over from an earlier download: never install it.
+          log('warn', 'Ignoring ShipIt stage (version ' + (structure.version || structure.reason) + ', expected ' + expectedVersion + ')');
+        }
       }
     } catch (err) {
       log('warn', 'Could not read ShipItState.plist:', err.message);
     }
-    if (!stagedBundlePath) {
-      // ShipIt didn't stage the bundle (unreliable on macOS 26+). Fall back to
-      // extracting the downloaded ZIP ourselves, mirroring the debug-downgrade path.
-      // Try info.downloadedFile first, then scan the pending cache dir — electron-updater
-      // on macOS Squirrel doesn't always populate downloadedFile.
-      let zipPath = pendingUpdateInfo?.downloadedFile || null;
-      log('info', 'ShipIt has no staged bundle — attempting self-extraction. downloadedFile:', zipPath);
-      if (!zipPath || !fs.existsSync(zipPath)) {
-        const pendingDir = path.join(macPaths.updaterCacheDir, 'pending');
-        try {
-          if (fs.existsSync(pendingDir)) {
-            const zips = fs.readdirSync(pendingDir).filter((f) => f.endsWith('.zip'));
-            if (zips.length > 0) {
-              zipPath = path.join(pendingDir, zips[zips.length - 1]);
-              log('info', 'Found ZIP in pending dir:', zipPath);
-            } else {
-              log('warn', 'No ZIP files found in pending dir:', pendingDir);
-            }
-          } else {
-            log('warn', 'Pending dir does not exist:', pendingDir);
-          }
-        } catch (scanErr) {
-          log('warn', 'Could not scan pending dir:', scanErr.message);
-        }
-      }
-      if (zipPath && fs.existsSync(zipPath)) {
-        const extractDir = path.join(macPaths.updaterCacheDir, 'manual-extract');
-        try {
-          // Use shell rm -rf instead of fs.rmSync — Electron patches fs to treat
-          // .asar files as directories, causing rmSync to throw ENOTDIR on app.asar.
-          execFileSync('rm', ['-rf', extractDir]);
-          fs.mkdirSync(extractDir, { recursive: true });
-          execFileSync('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir], { stdio: 'pipe' });
-          const entries = fs.readdirSync(extractDir);
-          const appDirName = entries.find((n) => n.endsWith('.app'));
-          if (appDirName) {
-            stagedBundlePath = path.join(extractDir, appDirName);
-            log('info', 'Self-extracted bundle at:', stagedBundlePath);
-          } else {
-            log('error', 'No .app found inside extracted ZIP. Contents:', entries.join(', '));
-          }
-        } catch (extractErr) {
-          log('error', 'Failed to self-extract downloaded ZIP:', extractErr.message);
-        }
-      } else {
-        log('error', 'No usable ZIP found for self-extraction. zipPath:', zipPath);
-      }
-    }
-    if (!stagedBundlePath) {
-      log('error', 'No staged bundle path — cannot install');
-      send('updater:error', {
-        phase: 'install',
-        message: 'No staged update found — try clearing the cache and re-downloading'
-      });
-      return;
-    }
-    const verification = verifyStagedBundle(stagedBundlePath);
-    if (!verification.valid) {
-      log('error', 'Staged bundle is invalid:', verification.reason);
-      send('updater:error', {
-        phase: 'install',
-        message: 'Staged update is invalid (' + verification.reason + ') — clear cache and re-download'
-      });
-      return;
-    }
-    const targetBundlePath = getTargetBundlePath(app);
-    log('info', 'Spawning detached installer:');
-    log('info', '  staged: ' + stagedBundlePath);
-    log('info', '  target: ' + targetBundlePath);
+
+    // ShipIt didn't stage the bundle (unreliable on macOS 26+). Extract the
+    // downloaded ZIP ourselves.
+    const pendingDir = path.join(macPaths.updaterCacheDir, 'pending');
+    let updateInfo = null;
     try {
-      const { logPath, childPid } = spawnDetachedSwapAndRelaunch({
-        stagedBundlePath,
-        targetBundlePath,
-        parentPid: process.pid
-      });
-      log('info', 'Installer pid=' + childPid + ' log=' + logPath);
+      updateInfo = JSON.parse(fs.readFileSync(path.join(pendingDir, 'update-info.json'), 'utf-8'));
     } catch (err) {
-      log('error', 'Failed to spawn installer:', err.message);
-      send('updater:error', { phase: 'install', message: 'Could not start installer: ' + err.message });
+      log('warn', 'No readable pending/update-info.json:', err.message);
+    }
+    let zipPath = null;
+    const downloaded = pendingUpdateInfo?.downloadedFile || null;
+    if (downloaded && path.dirname(downloaded) === pendingDir && fs.existsSync(downloaded)) {
+      zipPath = downloaded;
+    } else {
+      let entries = [];
+      try { entries = fs.existsSync(pendingDir) ? fs.readdirSync(pendingDir) : []; } catch { entries = []; }
+      const picked = pickPendingZip({ entries, updateInfo, arch: process.arch });
+      if (picked) zipPath = path.join(pendingDir, picked);
+    }
+    if (!zipPath) {
+      log('error', 'No unambiguous downloaded ZIP in', pendingDir);
+      return null;
+    }
+    if (updateInfo && typeof updateInfo.sha512 === 'string' && path.basename(zipPath) === updateInfo.fileName) {
+      const actual = await sha512Base64(zipPath);
+      if (actual !== updateInfo.sha512) {
+        log('error', 'Downloaded ZIP hash does not match update-info.json — refusing');
+        return null;
+      }
+    }
+    const extractDir = path.join(macPaths.updaterCacheDir, 'manual-extract');
+    try {
+      // Use rm -rf instead of fs.rmSync — Electron patches fs to treat .asar
+      // files as directories, causing rmSync to throw ENOTDIR on app.asar.
+      execFileSync('rm', ['-rf', extractDir]);
+      fs.mkdirSync(extractDir, { recursive: true });
+      execFileSync('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir], { stdio: 'pipe' });
+      const apps = fs.readdirSync(extractDir).filter((n) => n.endsWith('.app'));
+      if (apps.length !== 1) {
+        log('error', 'Expected exactly one .app inside the ZIP, found:', apps.join(', ') || '(none)');
+        return null;
+      }
+      const extracted = path.join(extractDir, apps[0]);
+      log('info', 'Self-extracted bundle at:', extracted);
+      return extracted;
+    } catch (extractErr) {
+      log('error', 'Failed to self-extract downloaded ZIP:', extractErr.message);
+      return null;
+    }
+  }
+
+  let installInProgress = false;
+  ipcMain.on('updater:install', async (event) => {
+    if (!isTrustedSender(event)) { refuse('updater:install'); return; }
+    if (installInProgress) return;
+    log('info', 'install requested — manual swap (bypassing Squirrel/ShipIt)');
+    if (process.platform !== 'darwin') {
+      // Other platforms: the standard flow (NSIS verifies the publisher's
+      // signature via verifyUpdateCodeSignature before running the installer).
+      try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch {}
+      autoUpdater.quitAndInstall(false, true);
       return;
     }
 
-    try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch (err) {
-      log('warn', 'stopAgentServer threw:', err.message);
+    const expectedVersion = pendingUpdateInfo?.version || null;
+    if (!expectedVersion) {
+      send('updater:error', { phase: 'install', message: 'No downloaded update to install' });
+      return;
     }
-    // Give the renderer a tick to handle UI dismissal, then exit.
-    app.removeAllListeners('window-all-closed');
-    setTimeout(() => app.exit(0), 250);
+    installInProgress = true;
+    try {
+      // macOS: do the swap ourselves. Squirrel.Mac's ShipIt is unreliable on
+      // macOS 26+ (launchd never spawns it). But ShipIt is also what would
+      // have checked the new bundle's signature — so we check it here (C-4).
+      const stagedBundlePath = await resolveStagedBundle(expectedVersion);
+      if (!stagedBundlePath) {
+        log('error', 'No staged bundle path — cannot install');
+        send('updater:error', {
+          phase: 'install',
+          message: 'No staged update found — try clearing the cache and re-downloading'
+        });
+        return;
+      }
+      const vetted = await vetStagedBundle(stagedBundlePath, { expectedVersion, currentVersion });
+      if (!vetted.ok) {
+        log('error', 'Staged bundle rejected:', vetted.reason);
+        send('updater:error', {
+          phase: 'install',
+          message: 'Update could not be verified (' + vetted.reason + ') — clear cache and re-download'
+        });
+        return;
+      }
+      const targetBundlePath = getTargetBundlePath(app);
+      log('info', 'Spawning detached installer:');
+      log('info', '  staged: ' + stagedBundlePath);
+      log('info', '  target: ' + targetBundlePath);
+      try {
+        const { logPath, childPid } = spawnDetachedSwapAndRelaunch({
+          stagedBundlePath,
+          targetBundlePath,
+          parentPid: process.pid
+        });
+        log('info', 'Installer pid=' + childPid + ' log=' + logPath);
+      } catch (err) {
+        log('error', 'Failed to spawn installer:', err.message);
+        send('updater:error', { phase: 'install', message: 'Could not start installer: ' + err.message });
+        return;
+      }
+
+      try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch (err) {
+        log('warn', 'stopAgentServer threw:', err.message);
+      }
+      // Give the renderer a tick to handle UI dismissal, then exit.
+      app.removeAllListeners('window-all-closed');
+      setTimeout(() => app.exit(0), 250);
+    } finally {
+      installInProgress = false;
+    }
   });
 
-  ipcMain.handle('updater:check-pending', () => {
+  ipcMain.handle('updater:check-pending', (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:check-pending');
     if (pendingUpdateInfo) {
       const failsForThisVersion = state.failedInstallCount?.[pendingUpdateInfo.version] || 0;
       return {
@@ -582,11 +665,14 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
     return null;
   });
 
-  ipcMain.handle('updater:open-releases', () => {
-    shell.openExternal('https://github.com/theredstring/redstring/releases/latest');
+  ipcMain.handle('updater:open-releases', (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:open-releases');
+    const url = 'https://github.com/theredstring/redstring/releases/latest';
+    if (isSafeExternalUrl(url)) shell.openExternal(url);
   });
 
-  ipcMain.handle('updater:check-now', async () => {
+  ipcMain.handle('updater:check-now', async (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:check-now');
     try {
       if (downloadInProgress) {
         return { ok: false, error: 'download in progress' };
@@ -600,7 +686,8 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
     }
   });
 
-  ipcMain.handle('updater:clear-cache', async () => {
+  ipcMain.handle('updater:clear-cache', async (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:clear-cache');
     if (downloadInProgress) {
       return { ok: false, error: 'download in progress' };
     }
@@ -632,7 +719,8 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
     }
   });
 
-  ipcMain.handle('updater:open-log', async () => {
+  ipcMain.handle('updater:open-log', async (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:open-log');
     try {
       const logPath = electronLog.transports.file.getFile().path;
       const result = await shell.openPath(logPath);
@@ -648,7 +736,14 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
   // Debug downgrade: fetch the previous GitHub release and install it via
   // the same manual-swap path used by updater:install. Lets us reproduce the
   // auto-update flow on a packaged build without shipping anything.
-  ipcMain.handle('updater:debug-downgrade', async () => {
+  //
+  // Registered only in development or when the app is started with
+  // REDSTRING_ENABLE_DEBUG_DOWNGRADE=1 (the preload exposes it under the same
+  // condition). Same gates as a real update: the zip must match the sha512 in
+  // that release's latest-mac.yml and the bundle must carry our signature.
+  const debugDowngradeEnabled = isDev || process.env.REDSTRING_ENABLE_DEBUG_DOWNGRADE === '1';
+  if (debugDowngradeEnabled) ipcMain.handle('updater:debug-downgrade', async (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:debug-downgrade');
     if (process.platform !== 'darwin') {
       return { ok: false, error: 'Downgrade is only supported on macOS' };
     }
@@ -665,32 +760,48 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
         const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
         return { ok: false, error: 'No Redstring-mac-' + arch + '.zip asset on ' + prev.tag };
       }
+      const manifestAsset = prev.assets.find((a) => a && a.name === 'latest-mac.yml');
+      if (!manifestAsset) {
+        return { ok: false, error: 'No latest-mac.yml on ' + prev.tag + ' to verify the download against' };
+      }
+      const expectedSha512 = parseLatestMacYmlSha512(
+        (await httpsGetBuffer(manifestAsset.browser_download_url)).toString('utf-8'),
+        asset.name
+      );
+      if (!expectedSha512) {
+        return { ok: false, error: 'latest-mac.yml on ' + prev.tag + ' has no sha512 for ' + asset.name };
+      }
 
-      const workDir = path.join(macPaths.updaterCacheDir, 'debug-downgrade', prev.tag);
-      fs.rmSync(workDir, { recursive: true, force: true });
+      const workDir = path.join(macPaths.updaterCacheDir, 'debug-downgrade', prev.tag.replace(/[^A-Za-z0-9._-]/g, '_'));
+      execFileSync('rm', ['-rf', workDir]);
       fs.mkdirSync(workDir, { recursive: true });
-      const zipPath = path.join(workDir, asset.name);
+      const zipPath = path.join(workDir, path.basename(asset.name));
 
       log('info', 'Downloading ' + asset.browser_download_url);
       send('updater:diagnostics-updated', null);
       await httpsDownloadToFile(asset.browser_download_url, zipPath);
-      log('info', 'Downloaded, extracting');
+      if ((await sha512Base64(zipPath)) !== expectedSha512) {
+        return { ok: false, error: 'Downloaded zip does not match the sha512 in latest-mac.yml' };
+      }
+      log('info', 'Downloaded and hash-verified, extracting');
 
       // Use ditto to preserve macOS metadata + code signature
       execFileSync('/usr/bin/ditto', ['-x', '-k', zipPath, workDir], { stdio: 'pipe' });
 
-      // Find the .app inside workDir
-      const entries = fs.readdirSync(workDir);
-      const appDirName = entries.find((n) => n.endsWith('.app'));
-      if (!appDirName) {
-        return { ok: false, error: 'No .app found inside downloaded zip' };
+      const apps = fs.readdirSync(workDir).filter((n) => n.endsWith('.app'));
+      if (apps.length !== 1) {
+        return { ok: false, error: 'Expected exactly one .app inside the downloaded zip' };
       }
-      const stagedBundlePath = path.join(workDir, appDirName);
-      const verification = verifyStagedBundle(stagedBundlePath);
-      if (!verification.valid) {
-        return { ok: false, error: 'Downloaded bundle invalid: ' + verification.reason };
+      const stagedBundlePath = path.join(workDir, apps[0]);
+      const vetted = await vetStagedBundle(stagedBundlePath, {
+        expectedVersion: prev.version,
+        currentVersion,
+        allowDowngrade: true
+      });
+      if (!vetted.ok) {
+        return { ok: false, error: 'Downloaded bundle rejected: ' + vetted.reason };
       }
-      log('info', 'Bundle verified as v' + verification.version);
+      log('info', 'Bundle verified as v' + vetted.version);
 
       const targetBundlePath = getTargetBundlePath(app);
       log('info', 'Spawning installer: ' + stagedBundlePath + ' -> ' + targetBundlePath);
@@ -704,7 +815,7 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
       try { if (typeof stopAgentServer === 'function') stopAgentServer(); } catch {}
       app.removeAllListeners('window-all-closed');
       setTimeout(() => app.exit(0), 500);
-      return { ok: true, version: verification.version, tag: prev.tag };
+      return { ok: true, version: vetted.version, tag: prev.tag };
     } catch (err) {
       log('error', 'Debug downgrade failed:', err.message);
       return { ok: false, error: err.message };
@@ -764,7 +875,10 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
     };
   }
 
-  ipcMain.handle('updater:get-diagnostics', () => buildDiagnostics());
+  ipcMain.handle('updater:get-diagnostics', (event) => {
+    if (!isTrustedSender(event)) return refuse('updater:get-diagnostics');
+    return buildDiagnostics();
+  });
 
   // ----- Dev-only simulator -----
   // Lets you exercise every toast/card state from devtools console without
@@ -780,7 +894,8 @@ function initUpdater({ app, getMainWindow, isDev, stopAgentServer, sessionName }
   //   await window.electron.updater.__devSimulate('reset')   // clears in-memory state
   if (isDev) {
     log('info', 'Dev simulator IPC handler registered — use window.electron.updater.__devSimulate(...)');
-    ipcMain.handle('updater:__dev:simulate', (_event, kind, payload) => {
+    ipcMain.handle('updater:__dev:simulate', (event, kind, payload) => {
+      if (!isTrustedSender(event)) return refuse('updater:__dev:simulate');
       const data = payload || {};
       switch (kind) {
         case 'update-available':

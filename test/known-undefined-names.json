@@ -22,34 +22,9 @@
       "count": 2
     },
     {
-      "file": "src/components/panel/PanelContentWrapper.jsx",
-      "name": "edgeId",
-      "count": 1
-    },
-    {
       "file": "src/components/panel/views/LeftAIView.jsx",
       "name": "setShowAPIKeySetup",
       "count": 4
-    },
-    {
-      "file": "src/headless/config.js",
-      "name": "process",
-      "count": 2
-    },
-    {
-      "file": "src/headless/githubSync.js",
-      "name": "Buffer",
-      "count": 2
-    },
-    {
-      "file": "src/headless/HeadlessUniverse.js",
-      "name": "process",
-      "count": 2
-    },
-    {
-      "file": "src/services/ai-bridge-service.js",
-      "name": "process",
-      "count": 2
     },
     {
       "file": "src/services/bridgeConfig.js",

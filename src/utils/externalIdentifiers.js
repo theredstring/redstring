@@ -9,18 +9,17 @@
  * that needs migrating every time this derivation improves.
  */
 import { canonicalizeLink } from '../formats/linkState.js';
+import { safeExternalHref, hostMatches } from './safeUrl.js';
 
 /** A bare DOI, e.g. 10.1038/nature12373 */
 export const DOI_REGEX = /^10\.\d{4,}\/[-._;()\/:a-zA-Z0-9]+$/;
 
-export const isValidURL = (string) => {
-  try {
-    new URL(string);
-    return true;
-  } catch {
-    return false;
-  }
-};
+/**
+ * True for a URL that may be stored and shown as a link: an absolute http(s)
+ * or mailto URL. Anything else (javascript:, data:, file:, custom schemes,
+ * relative paths) is not a link, whatever the URL parser thinks of it.
+ */
+export const isValidURL = (string) => safeExternalHref(string) !== null;
 
 /** Pull a DOI (or a pubmed: id) out of a bare id, a doi.org URL, or a PubMed URL. */
 export const extractDOI = (input) => {
@@ -50,7 +49,9 @@ export const extractDOI = (input) => {
  * a swatch chart, and the black ones vanished on the dark canvas.
  *
  * @param {string} uri
- * @returns {{authority: string, identifier: string, href: string, isEntity: boolean, kind: string}}
+ * @returns {{authority: string, identifier: string, href: string|null, isEntity: boolean, kind: string}}
+ *   `href` is null when the input is not a safe http(s)/mailto link; show the
+ *   identifier as text then.
  */
 export const identifierFromUrl = (uri) => {
   const raw = String(uri ?? '');
@@ -67,62 +68,78 @@ export const identifierFromUrl = (uri) => {
     const id = raw.replace('wd:', '');
     return { authority: 'Wikidata', identifier: id, href: `https://www.wikidata.org/wiki/${id}`, isEntity: true, kind: 'wikidata' };
   }
-  if (raw.includes('wikidata.org')) {
-    return {
-      authority: 'Wikidata',
-      identifier: raw.split('/').filter(Boolean).pop() || 'Entity',
-      href: raw,
-      isEntity: true,
-      kind: 'wikidata'
-    };
+  // Everything else has to be a real http(s)/mailto URL to be a link at all.
+  // An unsafe or unparseable string still shows, as text, with no href:
+  // `javascript:alert(1)//wikidata.org` is not a Wikidata row.
+  if (!safeExternalHref(raw)) {
+    return { authority: 'Link', identifier: raw, href: null, isEntity: false, kind: 'url' };
   }
-  if (raw.includes('wikipedia.org')) {
-    const last = raw.split('/').filter(Boolean).pop();
+  // The href handed out is the string as written (trimmed) rather than the
+  // parser's re-serialisation. It passed the same parse the browser will do
+  // when it follows it, and callers that read an IRI back out of it (DBpedia,
+  // Wikipedia titles) need the characters the file holds, not their
+  // percent-encoding.
+  const href = raw.trim();
+  const u = new URL(href);
+  // Authority is decided on the parsed hostname, on a dot boundary. Substring
+  // matching let `https://evil.example/?wikidata.org` wear Wikidata's label.
+  const on = (domain) => hostMatches(u.hostname, domain);
+  const tailOf = (value) => value.split('/').filter(Boolean).pop();
+
+  if (on('wikidata.org')) {
+    return { authority: 'Wikidata', identifier: tailOf(href) || 'Entity', href, isEntity: true, kind: 'wikidata' };
+  }
+  if (on('wikipedia.org')) {
+    const last = tailOf(href);
     return {
       authority: 'Wikipedia',
-      identifier: last ? decodeURIComponent(last).replace(/_/g, ' ') : 'Article',
-      href: raw,
+      identifier: last ? safeDecode(last).replace(/_/g, ' ') : 'Article',
+      href,
       isEntity: false,
       kind: 'wikipedia'
     };
   }
-  if (raw.includes('dbpedia.org')) {
-    const resource = raw.split('/').filter(Boolean).pop();
+  if (on('dbpedia.org')) {
+    const resource = tailOf(href);
     return {
       authority: 'DBpedia',
-      identifier: resource ? decodeURIComponent(resource).replace(/_/g, ' ') : 'Resource',
-      href: raw,
+      identifier: resource ? safeDecode(resource).replace(/_/g, ' ') : 'Resource',
+      href,
       isEntity: true,
       kind: 'dbpedia'
     };
   }
-  if (raw.includes('arxiv.org')) {
-    return { authority: 'arXiv', identifier: raw.split('/').filter(Boolean).pop() || raw, href: raw, isEntity: false, kind: 'arxiv' };
+  if (on('arxiv.org')) {
+    return { authority: 'arXiv', identifier: tailOf(href) || href, href, isEntity: false, kind: 'arxiv' };
   }
-  if (raw.includes('doi.org')) {
-    const id = extractDOI(raw);
-    return { authority: 'DOI', identifier: id || raw, href: raw, isEntity: false, kind: 'doi' };
+  if (on('doi.org')) {
+    const id = extractDOI(href);
+    return { authority: 'DOI', identifier: id || href, href, isEntity: false, kind: 'doi' };
   }
-  if (raw.includes('orcid.org')) {
-    return { authority: 'ORCID', identifier: raw.split('/').filter(Boolean).pop() || raw, href: raw, isEntity: true, kind: 'orcid' };
+  if (on('orcid.org')) {
+    return { authority: 'ORCID', identifier: tailOf(href) || href, href, isEntity: true, kind: 'orcid' };
   }
-  if (raw.includes('schema.org')) {
-    return { authority: 'Schema.org', identifier: raw.split('/').filter(Boolean).pop() || 'Type', href: raw, isEntity: true, kind: 'schema' };
+  if (on('schema.org')) {
+    return { authority: 'Schema.org', identifier: tailOf(href) || 'Type', href, isEntity: true, kind: 'schema' };
   }
 
   // Anything else: show the host as the authority and the path as the id.
+  const tail = tailOf(u.pathname);
+  return {
+    authority: (u.hostname || 'Link').replace(/^www\./, ''),
+    identifier: tail ? safeDecode(tail).replace(/_/g, ' ') : (u.hostname || href),
+    href,
+    isEntity: false,
+    kind: 'url'
+  };
+};
+
+/** decodeURIComponent that hands back its input on a malformed escape. */
+const safeDecode = (value) => {
   try {
-    const u = new URL(raw);
-    const tail = u.pathname.split('/').filter(Boolean).pop();
-    return {
-      authority: u.hostname.replace(/^www\./, ''),
-      identifier: tail ? decodeURIComponent(tail).replace(/_/g, ' ') : u.hostname,
-      href: raw,
-      isEntity: false,
-      kind: 'url'
-    };
+    return decodeURIComponent(value);
   } catch {
-    return { authority: 'Link', identifier: raw, href: raw, isEntity: false, kind: 'url' };
+    return value;
   }
 };
 

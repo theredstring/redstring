@@ -3,6 +3,7 @@ import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
 import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
+import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants.js';
 import { useTheme } from './hooks/useTheme.js';
 import { measureTextWidth } from './services/textMeasurement.js';
@@ -1132,7 +1133,10 @@ const UniversalNodeRenderer = ({
         {/* Render nodes on top */}
         {scaledNodes.map(node => {
           const isHovered = hoveredNodeId === node.id;
-          const hasImage = Boolean(node.imageSrc);
+          // An image the browser shouldn't load (an SVG data URL, a file:
+          // path) falls back to the raster thumbnail, else to no image.
+          const imageSrc = node.imageSrc ? (safeImageSrc(node.imageSrc) || safeImageSrc(node.thumbnailSrc)) : null;
+          const hasImage = Boolean(imageSrc);
           const safeColor = isValidColor(node.color) ? node.color : NODE_DEFAULT_COLOR;
 
           // Calculate text sizing and padding
@@ -1242,7 +1246,7 @@ const UniversalNodeRenderer = ({
                   y={node.y}
                   width={node.width}
                   height={node.height}
-                  href={node.imageSrc}
+                  href={imageSrc}
                   preserveAspectRatio="xMidYMid slice"
                   clipPath={`url(#node-image-clip-${node.id})`}
                   style={{ pointerEvents: 'none' }}

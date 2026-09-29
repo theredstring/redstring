@@ -14,9 +14,20 @@
   ],
   "asarUnpack": [
     "agent-server.bundle.cjs",
+    "electron/migration/**",
     "dist/assets/save.worker*.js",
     "dist/assets/canvasWorker*.js"
   ],
+  "electronFuses": {
+    "runAsNode": false,
+    "enableCookieEncryption": true,
+    "enableNodeOptionsEnvironmentVariable": false,
+    "enableNodeCliInspectArguments": false,
+    "enableEmbeddedAsarIntegrityValidation": true,
+    "onlyLoadAppFromAsar": true,
+    "grantFileProtocolExtraPrivileges": false,
+    "loadBrowserProcessSpecificV8Snapshot": false
+  },
   "mac": {
     "entitlements": "entitlements.mac.plist",
     "entitlementsInherit": "entitlements.mac.plist",
@@ -38,32 +49,16 @@
           "arm64"
         ]
       }
-    ],
-    "protocols": [
-      {
-        "name": "Redstring Protocol",
-        "schemes": [
-          "redstring"
-        ]
-      }
     ]
   },
   "win": {
     "artifactName": "${productName}-win-${arch}.${ext}",
+    "verifyUpdateCodeSignature": true,
     "target": [
       {
         "target": "nsis",
         "arch": [
-          "x64",
-          "ia32"
-        ]
-      }
-    ],
-    "protocols": [
-      {
-        "name": "Redstring Protocol",
-        "schemes": [
-          "redstring"
+          "x64"
         ]
       }
     ]
@@ -75,14 +70,6 @@
         "target": "AppImage",
         "arch": [
           "x64"
-        ]
-      }
-    ],
-    "protocols": [
-      {
-        "name": "Redstring Protocol",
-        "schemes": [
-          "redstring"
         ]
       }
     ]

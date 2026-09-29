@@ -1,4 +1,7 @@
 PODS:
+  - AparajitaCapacitorSecureStorage (7.1.6):
+    - Capacitor
+    - KeychainSwift (~> 21.0)
   - Capacitor (7.6.8):
     - CapacitorCordova
   - CapacitorApp (7.1.2):
@@ -12,8 +15,10 @@ PODS:
   - CapacitorHaptics (7.0.5):
     - Capacitor
   - IONFilesystemLib (1.1.2)
+  - KeychainSwift (21.0.0)
 
 DEPENDENCIES:
+  - "AparajitaCapacitorSecureStorage (from `../../node_modules/@aparajita/capacitor-secure-storage`)"
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
   - "CapacitorBrowser (from `../../node_modules/@capacitor/browser`)"
@@ -24,8 +29,11 @@ DEPENDENCIES:
 SPEC REPOS:
   trunk:
     - IONFilesystemLib
+    - KeychainSwift
 
 EXTERNAL SOURCES:
+  AparajitaCapacitorSecureStorage:
+    :path: "../../node_modules/@aparajita/capacitor-secure-storage"
   Capacitor:
     :path: "../../node_modules/@capacitor/ios"
   CapacitorApp:
@@ -40,6 +48,7 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/haptics"
 
 SPEC CHECKSUMS:
+  AparajitaCapacitorSecureStorage: 502bff73187cf9d0164459458ccf47ec65d5895a
   Capacitor: ff6bf01336ac353098378828aff465095a89e459
   CapacitorApp: f01a913211780e0718dae9750442c3e23f96e106
   CapacitorBrowser: 6d09f59655e89aede71654ef08b98de55cf032b6
@@ -47,7 +56,8 @@ SPEC CHECKSUMS:
   CapacitorFilesystem: c63fc54df41e5a6761785a7f3c49dc696c22e296
   CapacitorHaptics: 1b145fa83c622e5383a3bac04ea81e2514f0b0f5
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
+  KeychainSwift: 4a71a45c802fd9e73906457c2dcbdbdc06c9419d
 
-PODFILE CHECKSUM: 1e359cbb8ac58533316399a59cba820bd5fe2077
+PODFILE CHECKSUM: 289e01a110a0925fd89a27c7f0ee04cd249feb44
 
 COCOAPODS: 1.17.0

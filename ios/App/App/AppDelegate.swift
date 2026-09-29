@@ -36,7 +36,43 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
         // Called when the app was launched with a url. Feel free to add additional processing here,
         // but if you want the App API to support tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        let forwarded = url.isFileURL ? (copyOpenedDocument(url) ?? url) : url
+        return ApplicationDelegateProxy.shared.application(app, open: forwarded, options: options)
+    }
+
+    /// A .redstring opened from Files, Mail or AirDrop. With
+    /// LSSupportsOpeningDocumentsInPlace the URL points at the document where it
+    /// lives (iCloud Drive, another app's container) and is readable only inside
+    /// a security scope, which the web layer cannot open. Copy it into our own
+    /// tmp folder while the scope is held and hand that copy to Capacitor
+    /// (src/services/capacitorFileOpen.js reads it). Returns nil to fall back to
+    /// the original URL (e.g. an Inbox copy that needs no scope).
+    private func copyOpenedDocument(_ url: URL) -> URL? {
+        guard url.pathExtension.lowercased() == "redstring" else { return nil }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Opened", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let target = folder
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+            let copy = target.appendingPathComponent(url.lastPathComponent)
+            var coordinationError: NSError?
+            var copyError: Error?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinationError) { readableURL in
+                do {
+                    try FileManager.default.copyItem(at: readableURL, to: copy)
+                } catch {
+                    copyError = error
+                }
+            }
+            if coordinationError != nil || copyError != nil { return nil }
+            return copy
+        } catch {
+            return nil
+        }
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {

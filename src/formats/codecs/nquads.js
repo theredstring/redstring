@@ -8,6 +8,7 @@
  */
 
 import jsonld from 'jsonld';
+import { JSONLD_SAFE_OPTIONS } from '../jsonldLoader.js';
 import { exportToRedstring } from '../redstringFormat.js';
 
 /**
@@ -19,5 +20,5 @@ import { exportToRedstring } from '../redstringFormat.js';
  */
 export async function toNQuads(storeState, { emitV4 = false } = {}) {
   const doc = exportToRedstring(storeState, null, { emitV4 });
-  return jsonld.toRDF(doc, { format: 'application/n-quads', safe: false });
+  return jsonld.toRDF(doc, { format: 'application/n-quads', safe: false, ...JSONLD_SAFE_OPTIONS });
 }

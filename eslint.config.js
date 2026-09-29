@@ -9,8 +9,20 @@ export default [
   // Build and release tooling runs in Node, not the browser. Without this these
   // files report `process`/`__dirname` as undefined globals.
   {
-    files: ['scripts/**/*.js'],
+    files: ['scripts/**/*.{js,mjs}'],
     languageOptions: { globals: globals.node },
+  },
+  // The local servers, CLI and headless runtime are Node too.
+  {
+    files: [
+      'src/headless/**/*.js',
+      'src/security/**/*.js',
+      'src/services/ai-bridge-service.js',
+      '*-server.js',
+      'bridge-daemon.js',
+      'cli/**/*.js',
+    ],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {
     files: ['**/*.{js,jsx}'],

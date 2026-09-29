@@ -61,6 +61,8 @@ export function normalizeIdentifier(input) {
   const doi = extractDOI(trimmed);
   if (doi) return doi.startsWith('10.') ? `doi:${doi}` : doi;
 
+  // isValidURL is safeExternalHref: http(s) or mailto only. A model that was
+  // talked into `javascript:` or `data:` by text it read gets nothing stored.
   return isValidURL(trimmed) ? trimmed : null;
 }
 

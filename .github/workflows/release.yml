@@ -8,12 +8,16 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Least privilege: read-only by default; only the release job may write
+# (electron-builder uploads the artifacts to the tag's GitHub release).
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
 
     strategy:
       # One platform's failure shouldn't cancel the other two — a macOS OOM took
@@ -36,8 +40,12 @@ jobs:
     # inspecting the artifact contents, not the flag's intent.
 
     steps:
+      # Every action is pinned to a full commit SHA (tags can be moved); the
+      # comment records which release that SHA is.
       - name: Check out Git repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Verify tag matches package.json version
         shell: bash
@@ -51,8 +59,8 @@ jobs:
             exit 1
           fi
 
-      - name: Install Node.js, NPM and Yarn
-        uses: actions/setup-node@v4
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: 'npm'
@@ -71,26 +79,37 @@ jobs:
         if: runner.os == 'macOS'
         run: node scripts/patch-electron-builder-keychain.mjs
 
-      - name: Bundle agent server
-        run: npm run bundle:agent
-
-      - name: Build and Release
-        uses: samuelmeuli/action-electron-builder@v1
+      # Windows releases must be Authenticode-signed: electron-updater verifies
+      # the publisher of every downloaded update (verifyUpdateCodeSignature),
+      # and an unsigned installer is the easiest thing to substitute. Refuse to
+      # build without the certificate unless the repo variable
+      # ALLOW_UNSIGNED_WINDOWS is explicitly 'true'.
+      - name: Require Windows code-signing certificate
+        if: runner.os == 'Windows'
+        shell: bash
         env:
-          # Vite's sourcemap generation is the memory ceiling on this build: the
-          # main chunk is ~3.2MB and its map ~12.5MB, and producing that lot
-          # peaks around 2.8GB RSS. The macOS arm64 runner has 7GB, so Node 20
-          # sizes its old-space heap at roughly 2GB by default — which v0.10.2
-          # fit under and v0.11.0 does not. Raise it rather than shrink the
-          # build, so releases don't fail on the next few hundred KB either.
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          ALLOW_UNSIGNED_WINDOWS: ${{ vars.ALLOW_UNSIGNED_WINDOWS }}
+        run: |
+          if [ -z "$WIN_CSC_LINK" ]; then
+            if [ "$ALLOW_UNSIGNED_WINDOWS" = "true" ]; then
+              echo "::warning::WIN_CSC_LINK is not set; building an UNSIGNED Windows release (ALLOW_UNSIGNED_WINDOWS=true)."
+            else
+              echo "::error::WIN_CSC_LINK secret is not set. Add the Windows code-signing certificate (base64 .pfx) as WIN_CSC_LINK and its password as WIN_CSC_KEY_PASSWORD, or set the repo variable ALLOW_UNSIGNED_WINDOWS=true to ship unsigned."
+              exit 1
+            fi
+          fi
+
+      # Vite's sourcemap generation is the memory ceiling on this build: the
+      # main chunk is ~3.2MB and its map ~12.5MB, and producing that lot
+      # peaks around 2.8GB RSS. The macOS arm64 runner has 7GB, so Node 20
+      # sizes its old-space heap at roughly 2GB by default — which v0.10.2
+      # fit under and v0.11.0 does not. Raise it rather than shrink the
+      # build, so releases don't fail on the next few hundred KB either.
+      - name: Build renderer
+        run: npm run build
+        env:
           NODE_OPTIONS: --max-old-space-size=4096
-          # Apple Notarization
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Code Signing
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           # GitHub Device Flow client IDs — public values inlined into the
           # Electron renderer at build time so the desktop app can do
           # GitHub OAuth without contacting redstring.io. The desktop App
@@ -99,7 +118,78 @@ jobs:
           VITE_GITHUB_CLIENT_ID: ${{ secrets.VITE_GITHUB_CLIENT_ID }}
           VITE_GITHUB_APP_CLIENT_ID: ${{ secrets.VITE_GITHUB_APP_CLIENT_ID }}
           VITE_GITHUB_APP_SLUG: ${{ secrets.VITE_GITHUB_APP_SLUG }}
-        with:
-          # GitHub token, automatically provided to the action
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          release: true
+
+      - name: Bundle agent server
+        run: npm run bundle:agent
+
+      # electron-builder directly (no third-party wrapper action). Uploads to
+      # the tag's GitHub release, which electron-builder creates as a draft.
+      - name: Build and publish (macOS)
+        if: runner.os == 'macOS'
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Apple Notarization
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Code Signing (Developer ID Application)
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Build and publish (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          EXTRA=()
+          # Pin the publisher electron-updater checks updates against, when
+          # known; otherwise electron-builder takes the certificate's CN.
+          if [ -n "$WIN_PUBLISHER_NAME" ]; then
+            EXTRA+=("-c.win.signtoolOptions.publisherName=$WIN_PUBLISHER_NAME")
+          fi
+          npx electron-builder --win --publish always "${EXTRA[@]}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Windows signing uses its own certificate — never the macOS one.
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          WIN_PUBLISHER_NAME: ${{ vars.WIN_PUBLISHER_NAME }}
+
+      - name: Build and publish (Linux)
+        if: runner.os == 'Linux'
+        run: npx electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The fuses are what make the packaged app refuse ELECTRON_RUN_AS_NODE,
+      # NODE_OPTIONS, --inspect and a swapped app.asar. Check the binaries that
+      # were actually built. (Artifacts go up as a draft release: a red job here
+      # means do not publish that draft.)
+      - name: Assert Electron fuses are flipped
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            macOS)   APPS=$(find dist-electron -maxdepth 2 -name 'Redstring.app' -type d) ;;
+            Windows) APPS=$(find dist-electron -maxdepth 2 -path '*win-unpacked*' -name 'Redstring.exe') ;;
+            Linux)   APPS=$(find dist-electron/linux-unpacked -maxdepth 1 -type f -perm -u+x -name 'redstring*' ! -name '*.so*') ;;
+          esac
+          if [ -z "$APPS" ]; then echo "::error::No packaged app found to check fuses on"; exit 1; fi
+          while IFS= read -r APP; do
+            echo "Checking fuses in $APP"
+            OUT=$(npx @electron/fuses read --app "$APP")
+            echo "$OUT"
+            for EXPECT in \
+              "RunAsNode is Disabled" \
+              "EnableCookieEncryption is Enabled" \
+              "EnableNodeOptionsEnvironmentVariable is Disabled" \
+              "EnableNodeCliInspectArguments is Disabled" \
+              "EnableEmbeddedAsarIntegrityValidation is Enabled" \
+              "OnlyLoadAppFromAsar is Enabled" \
+              "GrantFileProtocolExtraPrivileges is Disabled"; do
+              if ! grep -qF "$EXPECT" <<<"$OUT"; then
+                echo "::error::$APP: expected '$EXPECT'"
+                exit 1
+              fi
+            done
+          done <<<"$APPS"

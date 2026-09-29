@@ -41,4 +41,6 @@ echo "✅ AI Bridge daemon started successfully (PID: $BRIDGE_PID)"
 # This includes basic bridge endpoints but delegates AI agent to bridge-daemon
 MAIN_PORT=${PORT:-4000}
 echo "🌐 Starting main server (UI + Semantic Web + Basic Bridge) on port $MAIN_PORT..."
-PORT=$MAIN_PORT node deployment/app-semantic-server.js
+# Explicit cloud entrypoint: the main server must accept traffic from the Cloud
+# Run front end, so it binds all interfaces here (it defaults to loopback).
+HOST=${HOST:-0.0.0.0} PORT=$MAIN_PORT node deployment/app-semantic-server.js

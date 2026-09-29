@@ -96,8 +96,10 @@ export function getBridgeBaseUrl() {
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname, port } = window.location;
 
-    // Electron production loads via file:// — bridge runs on localhost:3001
-    if (protocol === 'file:') {
+    // Electron production loads via app://redstring (formerly file://) — the
+    // agent server runs on localhost:3001. (resolveAgentConnection() prefers
+    // the exact URL + token from the preload when it is available.)
+    if (protocol === 'file:' || protocol === 'app:') {
       return 'http://localhost:3001';
     }
 
@@ -149,8 +151,8 @@ export function getOAuthBaseUrl() {
   if (typeof window !== 'undefined' && window.location) {
     const { protocol, hostname, port } = window.location;
 
-    // Electron production loads via file:// — OAuth runs on localhost:3002
-    if (protocol === 'file:') {
+    // Electron production loads via app:// (formerly file://) — OAuth runs on localhost:3002
+    if (protocol === 'file:' || protocol === 'app:') {
       return 'http://localhost:3002';
     }
 
@@ -226,21 +228,140 @@ function isLikelyNetworkRefusal(err) {
   } catch { return false; }
 }
 
-export function bridgeFetch(path, options) {
-  // Resolve the URL inside the promise chain so a missing endpoint surfaces as
-  // a rejection like any other failure, rather than a synchronous throw that
-  // callers using .catch() would miss.
-  let url;
+// ─────────────────────────────────────────────────────────────
+// Agent server connection + auth (C-6)
+//
+// The local agent server (wizard-server.js) requires `X-Redstring-Token` on
+// every request. Where the renderer gets the URL and token:
+//   - Electron: window.electron.agent.getConnection() → { baseUrl, token }
+//     (older preloads without it fall back to the URL below, with no token)
+//   - web dev (vite dev server on localhost): same-origin requests under
+//     DEV_AGENT_PROXY_PREFIX; the vite proxy adds the token server-side from
+//     ~/.redstring/agent.json, so the page never holds it
+//   - Node (Committer / role runners inside the agent server, legacy servers):
+//     REDSTRING_AGENT_TOKEN, or a provider registered on globalThis
+//   - production web / Capacitor: no local agent; no token is ever attached
+// ─────────────────────────────────────────────────────────────
+export const AGENT_TOKEN_HEADER = 'X-Redstring-Token';
+export const DEV_AGENT_PROXY_PREFIX = '/__redstring_agent';
+
+let __agentConnection = null;        // { baseUrl, token } once resolved
+let __agentConnectionPromise = null;
+
+function isLoopbackHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
+function isViteDevServer() {
   try {
-    url = bridgeUrl(path);
-  } catch (err) {
-    return Promise.reject(err);
+    return typeof import.meta !== 'undefined' && !!import.meta.env && import.meta.env.DEV === true && import.meta.env.MODE !== 'test';
+  } catch {
+    return false;
   }
-  // Cooldown removed to prevent development friction
-  return fetch(url, options)
+}
+
+function hasBridgeUrlOverride() {
+  return !!readEnvValue('VITE_BRIDGE_URL', 'BRIDGE_PUBLIC_URL', 'PUBLIC_BRIDGE_URL', 'PUBLIC_BASE_URL', 'PUBLIC_ORIGIN', 'APP_PUBLIC_URL');
+}
+
+function nodeAgentToken() {
+  if (typeof window !== 'undefined') return null; // never in a browser
+  try {
+    const fromEnv = globalThis.process?.env?.REDSTRING_AGENT_TOKEN;
+    if (typeof fromEnv === 'string' && fromEnv.trim()) return fromEnv.trim();
+  } catch { /* no process */ }
+  try {
+    const provider = globalThis.__redstringAgentTokenProvider;
+    const t = typeof provider === 'function' ? provider() : null;
+    if (typeof t === 'string' && t) return t;
+  } catch { /* provider failed */ }
+  return null;
+}
+
+async function computeAgentConnection() {
+  const agentApi = typeof window !== 'undefined' ? window.electron?.agent : null;
+  if (agentApi && typeof agentApi.getConnection === 'function') {
+    try {
+      const conn = await agentApi.getConnection();
+      if (conn && typeof conn.baseUrl === 'string' && conn.baseUrl) {
+        return {
+          baseUrl: conn.baseUrl.replace(/\/+$/, ''),
+          token: typeof conn.token === 'string' && conn.token ? conn.token : null
+        };
+      }
+    } catch { /* fall through to the URL heuristics */ }
+  }
+
+  if (typeof window !== 'undefined' && window.location && !hasBridgeUrlOverride() && isViteDevServer()) {
+    const { protocol, hostname, origin } = window.location;
+    if (protocol === 'http:' && isLoopbackHostname(hostname)) {
+      return { baseUrl: `${origin}${DEV_AGENT_PROXY_PREFIX}`, token: null };
+    }
+  }
+
+  return { baseUrl: getBridgeBaseUrl(), token: nodeAgentToken() };
+}
+
+/** Resolve (and cache) where the agent server is and which token it wants. */
+export function resolveAgentConnection() {
+  if (__agentConnection) return Promise.resolve(__agentConnection);
+  if (!__agentConnectionPromise) {
+    __agentConnectionPromise = computeAgentConnection()
+      .then((conn) => { __agentConnection = conn; return conn; })
+      .finally(() => { __agentConnectionPromise = null; });
+  }
+  return __agentConnectionPromise;
+}
+
+/** Forget the cached connection (after a 401, or in tests). */
+export function resetAgentConnection() {
+  __agentConnection = null;
+  __agentConnectionPromise = null;
+}
+
+function joinUrl(base, path) {
+  const normalized = String(path || '');
+  return normalized.startsWith('/') ? `${base}${normalized}` : `${base}/${normalized}`;
+}
+
+function withAgentToken(options, token) {
+  if (!token) return options;
+  const init = { ...(options || {}) };
+  if (typeof Headers !== 'undefined' && init.headers instanceof Headers) {
+    const headers = new Headers(init.headers);
+    headers.set(AGENT_TOKEN_HEADER, token);
+    init.headers = headers;
+  } else {
+    init.headers = { ...(init.headers || {}), [AGENT_TOKEN_HEADER]: token };
+  }
+  return init;
+}
+
+// Electron: start the (async) preload lookup now, so the first event stream
+// usually opens directly rather than through the deferred stand-in below.
+try {
+  if (typeof window !== 'undefined' && window.electron?.agent?.getConnection) {
+    resolveAgentConnection().catch(() => {});
+  }
+} catch { /* ignore */ }
+
+export function bridgeFetch(path, options) {
+  // Resolve inside the promise chain so a missing endpoint surfaces as a
+  // rejection like any other failure, rather than a synchronous throw that
+  // callers using .catch() would miss.
+  let conn = null;
+  return resolveAgentConnection()
+    .then((resolved) => {
+      conn = resolved;
+      if (!conn.baseUrl) throw new NoRemoteOriginError('The AI wizard');
+      // Cooldown removed to prevent development friction
+      return fetch(joinUrl(conn.baseUrl, path), withAgentToken(options, conn.token));
+    })
     .then((res) => {
       // Any response means the listener exists; reset failures
       __bridgeHealth.consecutiveFailures = 0;
+      // A 401 means our token is stale (agent restarted): look it up afresh next time.
+      if (res && res.status === 401) resetAgentConnection();
       return res;
     })
     .catch((err) => {
@@ -251,26 +372,77 @@ export function bridgeFetch(path, options) {
     });
 }
 
-export function bridgeEventSource(path) {
-  // Consumers should pass a path like '/events/stream'
-  const eventSource = new EventSource(bridgeUrl(path));
-  
+function openAgentEventSource(conn, path) {
+  if (!conn || !conn.baseUrl) throw new NoRemoteOriginError('The AI wizard');
+  let url = joinUrl(conn.baseUrl, path);
+  // EventSource cannot send headers; the agent accepts the token as a query
+  // parameter on its event stream only (loopback, never logged).
+  if (conn.token) url += `${url.includes('?') ? '&' : '?'}rs_token=${encodeURIComponent(conn.token)}`;
+  const eventSource = new EventSource(url);
+
   // Add error handler to suppress console errors when server is not available
-  eventSource.addEventListener('error', (event) => {
+  eventSource.addEventListener('error', () => {
     // Silently handle connection errors - don't log to console
     // The error event will still fire, but we prevent console spam
     if (eventSource.readyState === EventSource.CLOSED) {
       // Connection closed - server likely not available
-      // Silently close and don't log
-      try {
-        eventSource.close();
-      } catch (e) {
-        // Ignore errors during close
-      }
+      try { eventSource.close(); } catch { /* ignore */ }
     }
   }, { once: false });
-  
+
   return eventSource;
+}
+
+/**
+ * Stand-in returned while the agent connection is still being looked up
+ * (Electron's preload call is async; EventSource construction is not). It
+ * mirrors the subset of the EventSource API callers use and forwards to the
+ * real stream once it opens.
+ */
+class DeferredEventSource {
+  constructor(openReal) {
+    this.readyState = 0; // CONNECTING
+    this.onopen = null;
+    this.onmessage = null;
+    this.onerror = null;
+    this._listeners = [];
+    this._closed = false;
+    this._es = null;
+    openReal().then((es) => {
+      if (this._closed) { try { es.close(); } catch { /* ignore */ } return; }
+      this._es = es;
+      es.onopen = (e) => { this.readyState = es.readyState; if (typeof this.onopen === 'function') this.onopen(e); };
+      es.onmessage = (e) => { if (typeof this.onmessage === 'function') this.onmessage(e); };
+      es.onerror = (e) => { this.readyState = es.readyState; if (typeof this.onerror === 'function') this.onerror(e); };
+      for (const [type, fn, opts] of this._listeners) es.addEventListener(type, fn, opts);
+    }).catch(() => {
+      this._closed = true;
+      this.readyState = 2; // CLOSED
+      try { if (typeof this.onerror === 'function') this.onerror({ type: 'error' }); } catch { /* ignore */ }
+    });
+  }
+
+  addEventListener(type, fn, opts) {
+    this._listeners.push([type, fn, opts]);
+    if (this._es) this._es.addEventListener(type, fn, opts);
+  }
+
+  removeEventListener(type, fn, opts) {
+    this._listeners = this._listeners.filter(([t, f]) => !(t === type && f === fn));
+    if (this._es) this._es.removeEventListener(type, fn, opts);
+  }
+
+  close() {
+    this._closed = true;
+    this.readyState = 2;
+    if (this._es) { try { this._es.close(); } catch { /* ignore */ } }
+  }
+}
+
+export function bridgeEventSource(path) {
+  // Consumers should pass a path like '/events/stream'
+  if (__agentConnection) return openAgentEventSource(__agentConnection, path);
+  return new DeferredEventSource(() => resolveAgentConnection().then((conn) => openAgentEventSource(conn, path)));
 }
 
 // OAuth server availability cache

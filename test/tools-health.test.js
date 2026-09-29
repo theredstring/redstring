@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
+import { agentAuthHeaders } from '../src/headless/agentToken.js';
 
 // Same port resolution as wizard-server.js, so a second wizard can be pointed at.
 const BASE = `http://localhost:${process.env.WIZARD_PORT || process.env.BRIDGE_PORT || '3001'}`;
+// The wizard requires its token (C-6): REDSTRING_AGENT_TOKEN or ~/.redstring/agent.json.
+const auth = () => agentAuthHeaders({ port: Number(process.env.WIZARD_PORT || process.env.BRIDGE_PORT || 3001) });
 
 async function post(path, body) {
   const r = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...auth() },
     body: JSON.stringify(body || {})
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
@@ -14,7 +17,7 @@ async function post(path, body) {
 }
 
 async function get(path) {
-  const r = await fetch(`${BASE}${path}`);
+  const r = await fetch(`${BASE}${path}`, { headers: auth() });
   if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
   return r.json();
 }

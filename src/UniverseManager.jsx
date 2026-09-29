@@ -24,7 +24,6 @@ import {
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
 import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
 import { isCapacitor, usesPathHandles, usesDeviceFlowAuth } from './utils/capacitorAdapter.js';
-import { startOAuthFlow } from './utils/oauthAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.js';
 import { getStorageKey } from './utils/storageUtils.js';
@@ -35,7 +34,7 @@ const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = con
 const umLog = (...args) => __umNativeLog.call(console, '[UniverseManager]', ...args);
 const umWarn = (...args) => __umNativeWarn.call(console, '[UniverseManager]', ...args);
 const umError = (...args) => __umNativeError.call(console, '[UniverseManager]', ...args);
-import { persistentAuth } from './services/persistentAuth.js';
+import { persistentAuth, OAUTH_DISCONNECTED_MESSAGE, APP_DISCONNECTED_MESSAGE } from './services/persistentAuth.js';
 import { oauthFetch, isOAuthUnreachableError } from './services/bridgeConfig.js';
 import { getStatusColors } from './utils/statusColors.js';
 import StatusBanner from './components/StatusBanner.jsx';
@@ -3793,7 +3792,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       await ghDisconnectOAuth();
       const auth = await universeManagerService.refreshAuth();
       setServiceState((prev) => ({ ...prev, ...auth }));
-      setSyncStatus({ type: 'success', message: 'GitHub OAuth disconnected' });
+      setSyncStatus({ type: 'success', message: OAUTH_DISCONNECTED_MESSAGE });
     } catch (err) {
       umError('[UniverseManager] OAuth disconnect failed:', err);
       setError(`Failed to disconnect: ${err.message}`);
@@ -3836,7 +3835,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       await ghDisconnectApp();
       const auth = await universeManagerService.refreshAuth();
       setServiceState((prev) => ({ ...prev, ...auth }));
-      setSyncStatus({ type: 'success', message: 'GitHub App disconnected. Re-install to reconnect.' });
+      setSyncStatus({ type: 'success', message: APP_DISCONNECTED_MESSAGE });
     } catch (err) {
       umError('[UniverseManager] App disconnect failed:', err);
       setError(`Failed to disconnect App: ${err.message}`);

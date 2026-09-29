@@ -32,3 +32,27 @@ github.env.local
 *.log
 .cache
 .tmp
+
+# Local secrets and user data that live in the checkout but must never be
+# baked into an image (deployment/docker/Dockerfile does `COPY . .`).
+WIZARD_KEY.txt
+github.env*
+.env*
+!.env.example
+*.pem
+*.key
+*private-key*
+.dev.vars
+.env.github-app
+data/
+universes/
+events/
+backup.redstring
+universe.redstring
+cognitive-space*.nq
+dist-electron/
+dist-profile/
+agent-server.bundle.cjs
+.claude/
+.wrangler/
+test/fixtures/canvas/local/

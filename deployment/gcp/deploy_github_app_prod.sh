@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LEGACY — retired; see documentation/security/RUNBOOK.md.
+# Redstring now ships via Cloudflare Pages. The Cloud Run services these
+# scripts deploy held the GitHub App key and were public
+# (--allow-unauthenticated). Refuses to run unless explicitly opted in.
+# ─────────────────────────────────────────────────────────────────────────────
+if [ "${REDSTRING_ALLOW_LEGACY_GCP:-}" != "1" ]; then
+  echo "Refusing to run: this is a retired GCP deployment script." >&2
+  echo "See documentation/security/RUNBOOK.md. Set REDSTRING_ALLOW_LEGACY_GCP=1 to override." >&2
+  exit 1
+fi
+
 # GitHub App Production Deployment Script
 # Deploys OAuth server with GitHub App support
 
@@ -98,7 +110,7 @@ gcloud run deploy $SERVICE_NAME \
     --cpu 0.5 \
     --concurrency 50 \
     --max-instances 10 \
-    --set-env-vars "NODE_ENV=production,OAUTH_PORT=3002" \
+    --set-env-vars "NODE_ENV=production,OAUTH_PORT=3002,OAUTH_BIND_HOST=0.0.0.0" \
     --set-secrets "GITHUB_CLIENT_ID=github-client-id:latest,GITHUB_CLIENT_SECRET=github-client-secret:latest,GITHUB_APP_ID=github-app-id:latest,GITHUB_APP_CLIENT_ID=github-app-client-id:latest,GITHUB_APP_CLIENT_SECRET=github-app-client-secret:latest,GITHUB_APP_PRIVATE_KEY=github-app-private-key:latest,GITHUB_APP_WEBHOOK_SECRET=github-app-webhook-secret:latest"
 
 # Get service URL

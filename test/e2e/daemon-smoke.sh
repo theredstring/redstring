@@ -11,6 +11,12 @@ UNIVERSE="${TMP}/universe.redstring"
 PIDFILE="${TMP}/daemon.pid"
 FAIL=0
 
+# The daemon requires a token (C-6). Fix one for this run and keep its
+# ~/.redstring (agent.json) inside the temp dir.
+export REDSTRING_HOME="${TMP}/home"
+export REDSTRING_AGENT_TOKEN="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')"
+rcurl() { curl -H "X-Redstring-Token: ${REDSTRING_AGENT_TOKEN}" "$@"; }
+
 log()  { printf '  %s\n' "$*"; }
 pass() { printf '\033[32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '\033[31mFAIL\033[0m %s\n' "$*"; FAIL=1; }
@@ -26,7 +32,7 @@ start_daemon() {
   echo $! > "$PIDFILE"
   # wait for health
   for _ in $(seq 1 50); do
-    if curl -sf "${BASE}/api/bridge/health" >/dev/null 2>&1; then return 0; fi
+    if rcurl -sf "${BASE}/api/bridge/health" >/dev/null 2>&1; then return 0; fi
     sleep 0.2
   done
   fail "daemon did not become healthy"; cat "${TMP}/daemon.log"; exit 1
@@ -43,7 +49,7 @@ stop_daemon() {
 await_action() {
   local aid="$1"
   for _ in $(seq 1 50); do
-    local status; status="$(curl -sf "${BASE}/api/bridge/action-status/${aid}" | jq -r '.status')"
+    local status; status="$(rcurl -sf "${BASE}/api/bridge/action-status/${aid}" | jq -r '.status')"
     [ "$status" = "completed" ] && return 0
     [ "$status" = "unknown" ] && return 1
     sleep 0.1
@@ -52,7 +58,7 @@ await_action() {
 }
 
 enqueue() { # $1 = json actions array
-  curl -sf -X POST "${BASE}/api/bridge/pending-actions/enqueue" \
+  rcurl -sf -X POST "${BASE}/api/bridge/pending-actions/enqueue" \
     -H 'Content-Type: application/json' -d "$1"
 }
 
@@ -61,7 +67,7 @@ log "universe: $UNIVERSE"
 
 echo "-- boot --"
 start_daemon
-HEALTH="$(curl -sf "${BASE}/api/bridge/health")"
+HEALTH="$(rcurl -sf "${BASE}/api/bridge/health")"
 [ "$(echo "$HEALTH" | jq -r '.headless')" = "true" ] && pass "health reports headless" || fail "health not headless: $HEALTH"
 [ "$(echo "$HEALTH" | jq -r '.storeMode')" = "runtime" ] && pass "storeMode=runtime" || fail "storeMode wrong"
 
@@ -77,24 +83,24 @@ AID="$(echo "$RESP" | jq -r '.actionIds[-1]')"
 await_action "$AID" && pass "applyMutations completed" || fail "applyMutations did not complete ($RESP)"
 
 echo "-- read bridge state --"
-STATE="$(curl -sf "${BASE}/api/bridge/state")"
+STATE="$(rcurl -sf "${BASE}/api/bridge/state")"
 [ "$(echo "$STATE" | jq -r '.storeMode')" = "runtime" ] && pass "state storeMode=runtime" || fail "state storeMode wrong"
 echo "$STATE" | jq -e '.graphs[] | select(.id=="g-e2e")' >/dev/null && pass "graph g-e2e in state" || fail "graph missing from state"
 echo "$STATE" | jq -e '.nodePrototypes[] | select(.id=="p-e2e")' >/dev/null && pass "prototype p-e2e in state" || fail "prototype missing"
 
 echo "-- store export + save --"
-curl -sf "${BASE}/api/store/export" | jq -e '.' >/dev/null && pass "/api/store/export returns JSON" || fail "export failed"
-curl -sf -X POST "${BASE}/api/store/save" | jq -e '.ok==true' >/dev/null && pass "/api/store/save ok" || fail "save failed"
+rcurl -sf "${BASE}/api/store/export" | jq -e '.' >/dev/null && pass "/api/store/export returns JSON" || fail "export failed"
+rcurl -sf -X POST "${BASE}/api/store/save" | jq -e '.ok==true' >/dev/null && pass "/api/store/save ok" || fail "save failed"
 
 echo "-- store import (Phase 6 coexistence) --"
-VER="$(curl -sf "${BASE}/api/bridge/health" | jq -r '.stateVersion')"
-EXPORT_JSON="$(curl -sf "${BASE}/api/store/export")"
+VER="$(rcurl -sf "${BASE}/api/bridge/health" | jq -r '.stateVersion')"
+EXPORT_JSON="$(rcurl -sf "${BASE}/api/store/export")"
 # accept: correct baseVersion
-IMP="$(curl -sf -X POST "${BASE}/api/store/import" -H 'Content-Type: application/json' \
+IMP="$(rcurl -sf -X POST "${BASE}/api/store/import" -H 'Content-Type: application/json' \
   -d "$(jq -n --argjson v "$VER" --argjson r "$EXPORT_JSON" '{baseVersion:$v, redstring:$r}')")"
 [ "$(echo "$IMP" | jq -r '.ok')" = "true" ] && pass "import accepted with correct baseVersion" || fail "import rejected ($IMP)"
 # reject: stale baseVersion → 409
-CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${BASE}/api/store/import" -H 'Content-Type: application/json' \
+CODE="$(rcurl -s -o /dev/null -w '%{http_code}' -X POST "${BASE}/api/store/import" -H 'Content-Type: application/json' \
   -d "$(jq -n --argjson r "$EXPORT_JSON" '{baseVersion:999999, redstring:$r}')")"
 [ "$CODE" = "409" ] && pass "import rejects stale baseVersion (409)" || fail "expected 409 for stale version, got $CODE"
 
@@ -108,7 +114,7 @@ fi
 
 echo "-- restart + persistence --"
 start_daemon
-STATE="$(curl -sf "${BASE}/api/bridge/state")"
+STATE="$(rcurl -sf "${BASE}/api/bridge/state")"
 echo "$STATE" | jq -e '.graphs[] | select(.id=="g-e2e")' >/dev/null && pass "graph persisted across restart" || fail "graph lost on restart"
 echo "$STATE" | jq -e '.nodePrototypes[] | select(.id=="p-e2e")' >/dev/null && pass "prototype persisted across restart" || fail "prototype lost on restart"
 stop_daemon
