@@ -1572,6 +1572,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 setFocusedConcept(null);
               }
             }}
+            // Straight back to the list, however deep the trail of followed
+            // connections has gone.
+            onBackToResults={() => {
+              setFocusedConcept(null);
+              setNavigationStack([]);
+            }}
             // Following a connection: the other end is already a full concept
             // (its URI, its description), so it opens as itself, not a stub.
             onOpenConcept={(next) => openConceptPage(next, { follow: true })}

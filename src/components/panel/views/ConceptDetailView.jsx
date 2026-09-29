@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { ArrowLeft, ExternalLink, Plus, Bookmark, Search, LocateFixed } from 'lucide-react';
+import { ArrowLeft, ChevronsLeft, ExternalLink, Plus, Bookmark, Search, LocateFixed } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useActiveGraphStructureKey from '../../../hooks/useActiveGraphStructureKey.js';
@@ -195,7 +195,7 @@ const ConceptTitle = ({ concept, onDropped }) => {
  * it is one. Title, what it is, where it comes from, and its connections on
  * the semantic web, each of which can be followed or brought into the open Web.
  */
-const ConceptDetailView = ({ concept, onBack, onOpenConcept, onSearch, canGoBack = false, bottomClearance = 24 }) => {
+const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, onSearch, canGoBack = false, bottomClearance = 24 }) => {
   const theme = useTheme();
   const summary = useConceptSummary(concept);
   const [expanded, setExpanded] = useState(false);
@@ -271,8 +271,10 @@ const ConceptDetailView = ({ concept, onBack, onOpenConcept, onSearch, canGoBack
         margin: `0 -${HOVER_ROOM}px`,
         padding: `${HOVER_ROOM}px ${HOVER_ROOM}px ${bottomClearance}px`
       }}>
-        {/* Back, to the list or to the concept this one was reached from. */}
-        <div style={{ marginBottom: '14px' }}>
+        {/* Back, to the list or to the concept this one was reached from.
+            Once a connection has been followed, Results also skips the whole
+            trail; the row wraps so it drops below Back when the panel is narrow. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '14px' }}>
           <PanelIconButton
             icon={ArrowLeft}
             size={14}
@@ -282,6 +284,17 @@ const ConceptDetailView = ({ concept, onBack, onOpenConcept, onSearch, canGoBack
             onClick={onBack}
             title={canGoBack ? 'Back to the previous concept' : 'Back to the results'}
           />
+          {canGoBack && onBackToResults && (
+            <PanelIconButton
+              icon={ChevronsLeft}
+              size={14}
+              label="Results"
+              labelFontSize={12}
+              variant="outline"
+              onClick={onBackToResults}
+              title="Back to the results"
+            />
+          )}
         </div>
 
         {/* Header: the concept as a node, its actions in a row beneath it. */}
