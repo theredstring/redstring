@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search, Bookmark, ArrowRight, Link2 } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
-import { getTextColor } from '../../../utils/colorUtils';
+import { getTextColor, getLightHueText, getDarkHueText } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useElementWidth from '../../../hooks/useElementWidth.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -77,6 +77,11 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
   };
 
   const ink = getTextColor(concept.color, theme.darkMode);
+  // The hover ring: the card's own hue, lighter on a dark panel and darker on
+  // a light one, so it stands off the background either way.
+  const ring = theme.darkMode ? getLightHueText(concept.color) : getDarkHueText(concept.color);
+  const [hovered, setHovered] = useState(false);
+  const lifted = hovered && !isDragging;
   const narrow = width > 0 && width < NARROW_CARD;
   const predicate = concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate;
   const originalEntity = concept.semanticMetadata?.connectionInfo?.originalEntity;
@@ -144,14 +149,24 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
         background: concept.color,
         borderRadius: '12px',
         border: `1px solid ${theme.darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-        cursor: 'grab',
+        cursor: 'pointer',
         opacity: isDragging ? 0.5 : 1,
-        transition: 'opacity 0.2s ease, box-shadow 0.2s ease',
-        boxShadow: isDragging ? '0 4px 12px rgba(0,0,0,0.3)' : '0 2px 4px rgba(0,0,0,0.15)',
+        // Hover: a ring in the card's own hue and a slight grow,
+        // easing back out when the pointer leaves. `scale` rather than
+        // `transform`, which the entrance animation holds.
+        scale: lifted ? '1.02' : '1',
+        transition: 'opacity 0.2s ease, box-shadow 0.15s ease, scale 0.15s ease',
+        boxShadow: isDragging
+          ? '0 4px 12px rgba(0,0,0,0.3)'
+          : lifted
+            ? `0 0 0 3px ${ring}, 0 4px 10px rgba(0,0,0,0.2)`
+            : '0 2px 4px rgba(0,0,0,0.15)',
         userSelect: 'none',
         animation: `conceptSlideIn 0.3s ease ${index * 50}ms both`
       }}
       title="Click to see its page, drag onto the canvas"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       onClick={() => {
         if (!isDragging && onFocus) onFocus(concept);
       }}

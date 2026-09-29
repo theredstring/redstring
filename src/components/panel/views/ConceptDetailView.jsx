@@ -10,6 +10,7 @@ import useGraphStore from '../../../store/graphStore.js';
 import CollapsibleSection from '../../CollapsibleSection.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { PanelImageShimmer } from '../../shared/PanelImage.jsx';
 import SemanticConnectionList from '../../connections/SemanticConnectionList.jsx';
 import { wikipediaTitleFromLinks } from '../../../services/conceptEnrichment.js';
 import { fetchWikipediaPage } from '../../../wizard/services/wikipediaEnrichment.js';
@@ -22,10 +23,17 @@ const SPAWNABLE_NODE = 'spawnable_node';
 // Room for a PanelIconButton's hover (3px ring + scale) inside a clipping box.
 const HOVER_ROOM = 6;
 
+// Held back in height so a tall picture doesn't push the page away.
+const IMAGE_MAX_HEIGHT = 380;
+// The picture's shape before the article says what it is: most lead images
+// are landscape, so the held space rarely has to change much.
+const DEFAULT_IMAGE_RATIO = 4 / 3;
+
 /**
  * The article behind a concept — its fuller extract and its picture — fetched
  * from the link the concept already carries, never by searching its name.
- * The picture is decoded before it's handed over, so it arrives whole.
+ * Null while it's on its way; the picture's shape comes with the article, so
+ * its space can be held before the bytes arrive.
  */
 function useConceptSummary(concept) {
   const [summary, setSummary] = useState(null);
@@ -36,35 +44,97 @@ function useConceptSummary(concept) {
     let live = true;
     (async () => {
       const title = await wikipediaTitleFromLinks([...conceptUris(concept)]).catch(() => null);
-      if (!title || !live) return;
-      const result = await fetchWikipediaPage(title).catch(() => null);
       // A found article comes back as 'direct' (or 'page'); a disambiguation has none.
-      const page = result?.page || null;
-      if (!page || !live) return;
+      const page = title ? (await fetchWikipediaPage(title).catch(() => null))?.page || null : null;
+      if (!live) return;
+      if (!page) { setSummary({ key, extract: null, url: null, image: null }); return; }
       let image = null;
       if (page.thumbnail) {
         // The summary's thumbnail is ~330px; a wider rendition of the same
         // file fills the panel without going soft. Wikimedia won't scale a
         // picture past its original, so a small one falls back to the thumbnail.
         const wide = page.thumbnail.replace(/\/(\d+)px-/, (m, w) => (Number(w) < 800 ? '/800px-' : m));
-        for (const src of [...new Set([wide, page.thumbnail])]) {
-          try {
-            const img = new Image();
-            img.src = src;
-            await img.decode();
-            image = { src, ratio: img.naturalWidth / Math.max(1, img.naturalHeight) };
-            break;
-          } catch { /* try the next; no picture is fine */ }
-        }
+        const ratio = page.thumbnailWidth && page.thumbnailHeight
+          ? page.thumbnailWidth / page.thumbnailHeight
+          : DEFAULT_IMAGE_RATIO;
+        image = { srcs: [...new Set([wide, page.thumbnail])], ratio };
       }
-      if (live) setSummary({ extract: page.description, url: page.url, image });
+      setSummary({ key, extract: page.description, url: page.url, image });
     })();
     return () => { live = false; };
     // Keyed on which concept this is, not on the object's identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return summary;
+  // The render between a new concept and the effect's reset still holds the
+  // last one's article; it must never paint the new page.
+  return summary?.key === key ? summary : null;
 }
+
+/**
+ * The concept's picture, in the right panel's loading box: grey and
+ * shimmering at the picture's own shape until it has decoded, then faded in —
+ * so the page doesn't jump when it lands. With `image` unset it's the box
+ * alone, held while the article is still on its way.
+ */
+const ConceptImage = ({ image, alt }) => {
+  const ratio = image?.ratio || DEFAULT_IMAGE_RATIO;
+  const [attempt, setAttempt] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const src = image?.srcs[attempt];
+
+  const reveal = (img) => {
+    // Decoded first, so it fades in whole rather than painting in mid-fade.
+    (img.decode ? img.decode() : Promise.resolve()).catch(() => {}).then(() => setLoaded(true));
+  };
+  // Already in the browser cache: complete before React attaches onLoad.
+  const measureRef = (node) => {
+    if (node?.complete && node.naturalWidth > 0 && !loaded) reveal(node);
+  };
+  const next = () => {
+    if (attempt + 1 < (image?.srcs.length || 0)) setAttempt(attempt + 1);
+    else setFailed(true);
+  };
+
+  // Nothing to show after all: no box, rather than an empty grey one.
+  if (failed) return null;
+
+  return (
+    <div style={{
+      // At its own shape, from the column's left edge: whole (these are
+      // often diagrams), as wide as the column allows up to the height cap.
+      position: 'relative',
+      width: `min(100%, ${Math.round(IMAGE_MAX_HEIGHT * ratio)}px)`,
+      aspectRatio: `${ratio}`,
+      borderRadius: '10px',
+      overflow: 'hidden',
+      marginBottom: '12px',
+      background: loaded ? 'transparent' : '#cfcfcf',
+      transition: 'background-color 0.18s ease'
+    }}>
+      {src && (
+        <img
+          key={src}
+          ref={measureRef}
+          src={src}
+          alt={alt}
+          decoding="async"
+          onLoad={(e) => reveal(e.currentTarget)}
+          onError={next}
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            opacity: loaded ? 1 : 0,
+            transition: 'opacity 0.18s ease'
+          }}
+        />
+      )}
+      {!loaded && <PanelImageShimmer />}
+    </div>
+  );
+};
 
 /** The concept's name as a node: the same pill the right panel titles a Thing with, and draggable onto the canvas the same way. */
 const ConceptTitle = ({ concept, onDropped }) => {
@@ -238,26 +308,13 @@ const ConceptDetailView = ({ concept, onBack, onOpenConcept, onSearch, canGoBack
           </div>
         )}
 
-        {summary?.image && (
-          <img
-            src={summary.image.src}
-            alt={concept.name}
-            style={{
-              // At its own shape, from the column's left edge: whole (these are
-              // often diagrams), as wide as the column allows, and only held
-              // back in height so a tall picture doesn't push the page away.
-              display: 'block',
-              width: 'auto',
-              height: 'auto',
-              maxWidth: '100%',
-              maxHeight: '380px',
-              borderRadius: '10px',
-              marginBottom: '12px',
-              animation: 'conceptImageIn 0.25s ease both'
-            }}
-          />
+        {/* The picture's space is held from the start (the right panel's
+            loading box), so it doesn't shove the description down on arrival. */}
+        {!summary ? (
+          <ConceptImage key={concept.id} alt={concept.name} />
+        ) : summary.image && (
+          <ConceptImage key={concept.id} image={summary.image} alt={concept.name} />
         )}
-        <style>{'@keyframes conceptImageIn { from { opacity: 0 } to { opacity: 1 } }'}</style>
 
         {description ? (
           <>

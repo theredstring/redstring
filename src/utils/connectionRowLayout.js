@@ -42,8 +42,10 @@ export const PANEL_RENDERER_PADDING = 10;
 // Lines a node name may take in the panel lists before it's truncated.
 export const PANEL_NAME_LINES = 3;
 // Arrowheads in the panel lists, relative to what their stroke would give.
-// Pass the same to the renderer's `arrowSizeScale`.
-export const PANEL_ARROW_SCALE = 0.75;
+// Pass the same to the renderer's `arrowSizeScale`. Kept at full size on
+// purpose: a big head overlaps the box it points at, which is what makes the
+// direction read at a glance.
+export const PANEL_ARROW_SCALE = 1;
 
 // How far an arrowhead reaches into the gap, in on-screen px. The renderer
 // draws it as a polygon 26·arrowScale long past the node edge, where arrowScale

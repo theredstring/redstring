@@ -1703,9 +1703,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
 
 
-            {/* Concept Results - Regular Search */}
+            {/* Concept Results - Regular Search. The cards' hover (a 3px ring
+                and a slight grow) reaches past their edges, and this scroll box
+                clips at its own: 8px of room, pulled back out so the cards stay
+                lined up. */}
             {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
-              <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto', paddingBottom: resultsBottomClearance }}>
+              <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto', margin: '0 -8px', padding: `4px 8px ${resultsBottomClearance}px` }}>
                 <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                   Discovered Concepts ({discoveredConcepts.length})
                 </div>
