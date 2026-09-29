@@ -5973,9 +5973,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         edges.forEach((edge, idx) => {
           console.log(`[applyBulkGraphUpdates] Edge ${idx}: source="${edge.source}", target="${edge.target}", type="${edge.type}"`);
 
+          // An id only counts if it is in this graph. The wizard sends the
+          // predictive instance ids it tracked for nodes made earlier in the same
+          // ask, and those never match the ids the store gave them — trusting one
+          // skipped the name lookup and dropped the edge silently.
+          const inGraph = (id) => (id && graph.instances.has(id) ? id : null);
+
           // Try exact match first, then normalized match
-          let sourceId = edge.sourceId || nodeIdMap.get(edge.source) || nodeIdMapNormalized.get(normalizeName(edge.source));
-          let destId = edge.destinationId || edge.targetId || nodeIdMap.get(edge.target) || nodeIdMapNormalized.get(normalizeName(edge.target));
+          let sourceId = inGraph(edge.sourceId) || nodeIdMap.get(edge.source) || nodeIdMapNormalized.get(normalizeName(edge.source));
+          let destId = inGraph(edge.destinationId) || inGraph(edge.targetId) || nodeIdMap.get(edge.target) || nodeIdMapNormalized.get(normalizeName(edge.target));
 
           console.log(`[applyBulkGraphUpdates] Edge ${idx}: sourceId=${sourceId ? 'FOUND' : 'NOT_FOUND'}, destId=${destId ? 'FOUND' : 'NOT_FOUND'}`);
 

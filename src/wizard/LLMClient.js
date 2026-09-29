@@ -936,8 +936,10 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
               };
             }
 
-            // Text content
-            if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text') {
+            // Text content. Anthropic types these deltas 'text_delta'; matching
+            // 'text' dropped every reply, and the loop then re-asked the model
+            // twice as if it had answered with nothing.
+            if (chunk.type === 'content_block_delta' && chunk.delta?.type === 'text_delta') {
               yield { type: 'text', content: chunk.delta.text };
             }
 

@@ -174,8 +174,8 @@ describe('LLMClient', () => {
   describe('streamLLM - Anthropic', () => {
     it('yields text chunks from Anthropic stream', async () => {
       global.fetch.mockResolvedValue(createMockFetchResponse([
-        'data: {"type":"content_block_delta","delta":{"type":"text","text":"Hello"}}',
-        'data: {"type":"content_block_delta","delta":{"type":"text","text":" world"}}',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}',
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":" world"}}',
         'data: {"type":"message_stop"}'
       ]));
 
