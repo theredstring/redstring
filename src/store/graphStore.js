@@ -6946,8 +6946,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     /**
      * Closes several open webs as ONE undoable action — the Open Webs list and
-     * header strip context menus ("Close", "Close all others", "Close all
-     * below/to the right").
+     * header strip context menus ("Close", "Close All Others", "Close All
+     * Below/to the Right").
      *
      * Unlike `closeGraph` (navigation, unrecorded), this is recorded. That forces
      * the orphan sweep INTO the same transaction instead of leaving it on a timer:

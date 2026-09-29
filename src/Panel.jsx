@@ -2030,18 +2030,18 @@ const Panel = memo(
       const hasRight = idx > 0 && idx < rightPanelTabs.length - 1;
       return [
         {
-          label: 'Close tab',
+          label: 'Close Tab',
           icon: <X size={14} />,
           action: () => closeRightPanelTab?.(nodeId)
         },
         {
-          label: 'Close all others',
+          label: 'Close All Others',
           icon: <XCircle size={14} />,
           disabled: !hasOthers,
           action: () => closeOtherRightPanelTabs?.(nodeId)
         },
         {
-          label: 'Close all to the right',
+          label: 'Close All to the Right',
           icon: <ArrowRightToLine size={14} />,
           disabled: !hasRight,
           action: () => closeRightPanelTabsToRight?.(nodeId)

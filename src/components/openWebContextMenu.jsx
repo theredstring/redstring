@@ -26,21 +26,22 @@ export const getOpenWebContextMenuOptions = (graphId, direction = 'below') => {
   const others = openGraphIds.filter(id => id !== graphId);
   const after = openGraphIds.slice(index + 1);
   const afterLabel = direction === 'right' ? 'to the right' : 'below';
+  const afterMenuLabel = direction === 'right' ? 'to the Right' : 'Below';
 
   return [
     {
-      label: 'Close web',
+      label: 'Close Web',
       icon: <X size={14} />,
       action: () => closeGraphs([graphId], { label: `Close "${name}"` })
     },
     {
-      label: 'Close all others',
+      label: 'Close All Others',
       icon: <XCircle size={14} />,
       disabled: others.length === 0,
       action: () => closeGraphs(others, { label: `Close webs other than "${name}"`, activateId: graphId })
     },
     {
-      label: `Close all ${afterLabel}`,
+      label: `Close All ${afterMenuLabel}`,
       icon: direction === 'right' ? <ArrowRightToLine size={14} /> : <ArrowDownToLine size={14} />,
       disabled: after.length === 0,
       action: () => closeGraphs(after, { label: `Close webs ${afterLabel} "${name}"`, activateId: graphId })
