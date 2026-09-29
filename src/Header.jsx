@@ -22,6 +22,7 @@ import logo4 from './assets/redstring_button/header_logo_4.svg';
 import logo5 from './assets/redstring_button/header_logo_5.svg';
 import logo6 from './assets/redstring_button/header_logo_6.svg';
 import logo7 from './assets/redstring_button/header_logo_7.svg';
+import { requestRefresh } from './components/canvas/dialogs/refresh.js';
 
 // The one drag type in the app. A header tab's drag is the SAME gesture that
 // spawns a Thing on the canvas — the tab carries a prototype, and where you let
@@ -1682,9 +1683,10 @@ const Header = ({
             // whole surface a phone otherwise cannot reach. NodeCanvas opens it
             // at the centre of the viewport, as though the click landed there.
             { key: 'canvas-menu', Icon: MousePointerClick, iconSize: 20, strokeWidth: 2.5, title: 'Canvas Menu', onClick: () => window.dispatchEvent(new CustomEvent('redstring:open-canvas-context-menu')) },
-            // A plain reload, the old File → Refresh. Down here with the canvas
-            // menu because both are ways out rather than things you came to do.
-            { key: 'refresh', Icon: RefreshCw, iconSize: 20, strokeWidth: 2.5, title: 'Refresh', onClick: () => window.location.reload() },
+            // A reload, the old File → Refresh (it asks first; see
+            // canvas/dialogs/refresh.js). Down here with the canvas menu because
+            // both are ways out rather than things you came to do.
+            { key: 'refresh', Icon: RefreshCw, iconSize: 20, strokeWidth: 2.5, title: 'Refresh', onClick: () => requestRefresh() },
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
           ].map((action, idx, arr) => {
             const delay = isHamburgerOpen ? `${idx * 25}ms` : `${(arr.length - 1 - idx) * 25}ms`;

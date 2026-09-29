@@ -13,6 +13,7 @@ import useGraphStore from '../../../store/graphStore.js';
 import { webFacts } from '../../../wizard/prompts/facts.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
+import { requestRefresh } from '../dialogs/refresh.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -80,7 +81,8 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
         setForceSimModalVisible(true);
       }
     },
-    // Last, and the only one here that is not about the web: a plain reload.
+    // Last, and the only one here that is not about the web: a reload (it
+    // asks first; see ../dialogs/refresh.js).
     // It was the Redstring menu's File → Refresh, and below the width where
     // that menu stands down there is otherwise no way to ask for one without
     // a keyboard.
@@ -88,7 +90,7 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
       label: 'Refresh',
       icon: <RefreshCw size={14} />,
       action: () => {
-        window.location.reload();
+        requestRefresh();
       }
     }
   ];

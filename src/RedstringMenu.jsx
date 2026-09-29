@@ -7,6 +7,7 @@ import * as fileStorage from './store/fileStorage.js';
 import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
 import useGraphStore from './store/graphStore.js';
+import { requestRefresh } from './components/canvas/dialogs/refresh.js';
 
 // Undo/Redo take Cmd or Ctrl on every platform (see useCanvasKeyboard), but the
 // menu only has room to name one. Name the one the platform's users reach for.
@@ -319,7 +320,7 @@ const RedstringMenu = ({
                           className="submenu-item"
                           onMouseEnter={handleRegularSubmenuItemHover}
                           onClick={() => {
-                            window.location.reload();
+                            requestRefresh();
                           }}
                           style={{ cursor: 'pointer' }}
                         >

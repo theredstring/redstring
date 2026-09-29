@@ -19,6 +19,7 @@ import {
 } from '../carousel/carouselActions.js';
 import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
 import DeleteDefinitionDialog from '../dialogs/DeleteDefinitionDialog.jsx';
+import RefreshDialog from '../dialogs/RefreshDialog.jsx';
 import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import { queueEdgeTrace } from '../edges/edgeTransitions.js';
@@ -157,6 +158,9 @@ export default function CanvasOverlaysHost({ ctx }) {
       {/* Delete-definition confirmation: the decompose pie, the bottom panel and the
           right panel's Web Definitions all ask through requestDeleteDefinition. */}
       <DeleteDefinitionDialog />
+
+      {/* "Refresh Redstring?": every Refresh button asks through requestRefresh. */}
+      <RefreshDialog />
 
     </Profiler>
   );
