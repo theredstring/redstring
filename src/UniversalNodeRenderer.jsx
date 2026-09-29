@@ -220,7 +220,14 @@ const UniversalNodeRenderer = ({
 
   // When true, ignore the user's global connection-width slider so previews render
   // connections at a fixed "standard" stroke regardless of that setting.
-  ignoreGlobalScale = false
+  ignoreGlobalScale = false,
+  // Names wrap only between words — no hyphenation, no breaking inside a word.
+  // For callers that have already laid the name out that way (the panel
+  // connection lists, via connectionPreview's whole-word fitting).
+  keepWordsWhole = false,
+  // Arrowheads at this multiple of the size the stroke would give them. The
+  // panel lists draw them a touch smaller than the canvas does.
+  arrowSizeScale = 1
 }) => {
   const theme = useTheme();
   const [hoveredNodeId, setHoveredNodeId] = useState(null);
@@ -753,7 +760,7 @@ const UniversalNodeRenderer = ({
           // otherwise the round line cap (which grows with strokeWidth) pokes past
           // the size-capped arrowhead silhouette on thick connections. Pull the line
           // endpoints back to roughly the arrowhead base on sides that have an arrow.
-          const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+          const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1) * arrowSizeScale;
           const arrowLineInset = 15 * arrowScale;
           const lineSourcePoint = conn.hasSourceArrow ? {
             x: adjustedSourcePoint.x + unitX * arrowLineInset,
@@ -880,7 +887,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1) * arrowSizeScale;
 
                 return (
                   <g
@@ -930,7 +937,7 @@ const UniversalNodeRenderer = ({
                 // Calculate arrow scale based on stroke width (maintains proportions).
                 // Trim arrowheads in the compact decomposition preview so they read at
                 // node scale instead of dominating the small inner nodes.
-                const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1);
+                const arrowScale = Math.min(4.0, Math.max(0.5, conn.strokeWidth / 6)) * (renderContext === 'decomposition' ? 0.8 : 1) * arrowSizeScale;
 
                 return (
                   <g
@@ -1308,14 +1315,14 @@ const UniversalNodeRenderer = ({
                         whiteSpace: node.isGroup ? 'normal' : (renderContext === 'decomposition' ? 'nowrap' : 'normal'),
                         textOverflow: 'ellipsis',
                         overflow: (node.isGroup || renderContext === 'decomposition') ? 'hidden' : undefined,
-                        overflowWrap: 'break-word',
-                        wordBreak: 'break-word',
+                        overflowWrap: keepWordsWhole ? 'normal' : 'break-word',
+                        wordBreak: keepWordsWhole ? 'normal' : 'break-word',
                         textAlign: 'center',
                         minWidth: 0,
                         display: 'inline-block',
                         width: '100%',
                         fontFamily: 'EmOne, sans-serif',
-                        hyphens: renderContext === 'decomposition' ? 'none' : 'auto', // Disable hyphenation in tiny view
+                        hyphens: (renderContext === 'decomposition' || keepWordsWhole) ? 'none' : 'auto', // Disable hyphenation in tiny view
                         // Better text rendering for small sizes
                         textRendering: renderContext === 'decomposition' ? 'optimizeLegibility' : 'auto',
                         WebkitTextStroke: undefined,

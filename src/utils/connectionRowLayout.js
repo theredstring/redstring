@@ -39,6 +39,11 @@ import { measureTextWidth } from '../services/textMeasurement.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 
 export const PANEL_RENDERER_PADDING = 10;
+// Lines a node name may take in the panel lists before it's truncated.
+export const PANEL_NAME_LINES = 3;
+// Arrowheads in the panel lists, relative to what their stroke would give.
+// Pass the same to the renderer's `arrowSizeScale`.
+export const PANEL_ARROW_SCALE = 0.75;
 
 // How far an arrowhead reaches into the gap, in on-screen px. The renderer
 // draws it as a polygon 26·arrowScale long past the node edge, where arrowScale
@@ -48,13 +53,13 @@ export const PANEL_RENDERER_PADDING = 10;
 // the arrow. Plus a little air on each side of the label.
 const ARROWHEAD_REACH_PER_SCALE = 26;
 const LABEL_END_CLEARANCE = 6;
-const arrowheadReach = (boxes, connectionStrokeScale) => {
+const arrowheadReach = (boxes, connectionStrokeScale, arrowSizeScale = 1) => {
   if (!boxes.length) return 0;
   const avgNodeSize = boxes.reduce((sum, b) => sum + (b.width + b.height) / 2, 0) / boxes.length;
   const strokeMultiplier = Math.max(0.02, Math.min(0.08, avgNodeSize / 1000));
   const strokeScale = connectionStrokeScale * CONNECTION_WIDTH_BASE_SCALE;
   const strokeWidth = Math.max(1.5, avgNodeSize * strokeMultiplier * strokeScale);
-  const arrowScale = Math.min(4, Math.max(0.5, strokeWidth / 6));
+  const arrowScale = Math.min(4, Math.max(0.5, strokeWidth / 6)) * arrowSizeScale;
   return ARROWHEAD_REACH_PER_SCALE * arrowScale;
 };
 // The label's span — the part of the gap between the arrowheads — in multiples
@@ -160,6 +165,9 @@ const waterFillCap = (widths, budget) => {
  * @param {boolean} [params.hasArrows] - whether either end draws an arrowhead
  * @param {number} [params.connectionStrokeScale] - the renderer prop of the same
  *   name the caller will pass; the arrowhead size follows it
+ * @param {number} [params.nameLines] - lines a capped name may run to before
+ *   it's cut (default 2); above 2 the box grows taller to hold them
+ * @param {number} [params.arrowSizeScale] - the renderer prop of the same name
  * @returns {{
  *   nodes: Array<object>, labels: string[], spacing: number, scale: number,
  *   labelFontScale: number, containerWidth: number, containerHeight: number
@@ -177,7 +185,9 @@ export function layoutConnectionRow({
   floors = PREVIEW_FLOOR,
   duplicateNodeIds = [],
   hasArrows = true,
-  connectionStrokeScale = RENDERER_PRESETS.CONNECTION_PANEL.connectionStrokeScale
+  connectionStrokeScale = RENDERER_PRESETS.CONNECTION_PANEL.connectionStrokeScale,
+  nameLines,
+  arrowSizeScale = 1
 }) {
   const boxCount = Math.max(1, sourceNodes.length + duplicateNodeIds.length);
   const gaps = Math.max(0, boxCount - 1);
@@ -202,7 +212,7 @@ export function layoutConnectionRow({
   // How far the arrowheads reach into the gap for these boxes, plus the air
   // the label keeps from them. Depends on the boxes because the stroke does.
   const tipFor = (list, scale) =>
-    (hasArrows ? arrowheadReach(boxesOnScreen(list, scale), connectionStrokeScale) : 0) + LABEL_END_CLEARANCE;
+    (hasArrows ? arrowheadReach(boxesOnScreen(list, scale), connectionStrokeScale, arrowSizeScale) : 0) + LABEL_END_CLEARANCE;
 
   // Step 5 first, because it decides the scale everything else is measured at:
   // if even floor-width boxes with floor gaps overrun the row, the target
@@ -250,12 +260,12 @@ export function layoutConnectionRow({
     if (floorBoxes + gaps * gapKeep <= available) {
       const cap = waterFillCap(naturalWidths, available - gaps * Math.ceil(gapKeep));
       return {
-        nodes: buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: cap / scale }),
+        nodes: buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: cap / scale, maxLines: nameLines }),
         spacing: Math.ceil(gapKeep),
         capped: true
       };
     }
-    const atFloor = buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: floors.width });
+    const atFloor = buildConnectionPreviewNodes(sourceNodes, floors, { maxWidth: floors.width, maxLines: nameLines });
     const boxesWidth = sum(boxesOnScreen(atFloor, scale).map(b => b.width));
     return {
       nodes: atFloor,
@@ -324,7 +334,11 @@ export function layoutPanelConnection({ nodes, predicate, containerWidth, hasArr
     maxWidth: containerWidth,
     text,
     padding: PANEL_RENDERER_PADDING,
-    hasArrows
+    hasArrows,
+    // Panel lists are read, not glanced at: a squeezed name grows taller
+    // rather than losing its tail.
+    nameLines: PANEL_NAME_LINES,
+    arrowSizeScale: PANEL_ARROW_SCALE
   });
   return {
     nodes: row.nodes,

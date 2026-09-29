@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2, ArrowLeft, ArrowRight } from 'lucide-react';
-import { getTextColor } from '../../utils/colorUtils';
+import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2 } from 'lucide-react';
 import useGraphStore from '../../store/graphStore.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -9,12 +8,12 @@ import useSemanticConnections from '../../hooks/useSemanticConnections.js';
 import useActiveGraphStructureKey from '../../hooks/useActiveGraphStructureKey.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import TripletPreview from './TripletPreview.jsx';
+import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './CompactConnectionRow.jsx';
 import { conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, revealInstances, existingInstanceFor } from '../../services/semanticPlacement.js';
 import { haptic } from '../../services/haptics.js';
 
 const PAGE = 20;
 const ACTION_COLUMN = 40;
-const COMPACT_BELOW = 300;
 const lower = (s) => (typeof s === 'string' ? s.trim().toLowerCase() : '');
 
 const SOURCE_NAMES = { wikidata: 'Wikidata', dbpedia: 'DBpedia' };
@@ -138,7 +137,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const tripletWidth = Math.max(160, width - ACTION_COLUMN - 8);
   const canAdd = !!anchor;
   // Below this a triplet's names truncate to a few letters; rows go compact.
-  const compact = width > 0 && width < COMPACT_BELOW;
+  const compact = width > 0 && width < COMPACT_CONNECTIONS_BELOW;
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
@@ -221,31 +220,12 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                 }}
               >
                 {compact ? (
-                  // Too narrow for a readable triplet: the Thing this list is
-                  // about is implied, so the row is the connection and the
-                  // other end, whole.
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
-                    <span style={{ ...small, fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      {!isOut && <ArrowLeft size={11} style={{ flexShrink: 0 }} />}
-                      {c.predicate}
-                      {isOut && <ArrowRight size={11} style={{ flexShrink: 0 }} />}
-                    </span>
-                    <span style={{
-                      alignSelf: 'flex-start',
-                      maxWidth: '100%',
-                      background: otherColor,
-                      color: getTextColor(otherColor, theme.darkMode),
-                      borderRadius: '10px',
-                      padding: '5px 10px 4px',
-                      fontSize: '13px',
-                      fontWeight: 'bold',
-                      fontFamily: "'EmOne', sans-serif",
-                      lineHeight: 1.2,
-                      overflowWrap: 'anywhere'
-                    }}>
-                      {c.other.name}
-                    </span>
-                  </div>
+                  <CompactConnectionRow
+                    predicate={c.predicate}
+                    direction={c.direction}
+                    otherName={c.other.name}
+                    otherColor={otherColor}
+                  />
                 ) : (
                   <TripletPreview
                     subject={c.subject}

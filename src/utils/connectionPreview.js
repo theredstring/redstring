@@ -56,6 +56,11 @@ const PREVIEW_NODE_AVG_CHAR_WIDTH = 16;
 // truncated — the floor box's 84 holds two 28px lines with the renderer's
 // padding, and two lines of a name beat four letters of it.
 const PREVIEW_NAME_MAX_LINES = 2;
+// The renderer's 'full' text model, in natural units: the name's line height
+// and the padding above and below it (UniversalNodeRenderer baseLineHeight /
+// baseVerticalPadding). A box taller than the floor is sized from these.
+const PREVIEW_NAME_LINE_HEIGHT = 28;
+const PREVIEW_NAME_VERTICAL_PADDING = 10;
 // Air between a measured name and the padding, so a glyph-advance difference
 // between the measurer and the browser never turns into a wrapped tail.
 const PREVIEW_NAME_SLACK = 4;
@@ -83,6 +88,18 @@ export const PREVIEW_TEXT = {
 
 /** The panel/list targets for the current platform. */
 export const previewTextFor = (isMobile) => (isMobile ? PREVIEW_TEXT.mobile : PREVIEW_TEXT.desktop);
+
+/**
+ * The right panel's connection lists (a Thing's own, and what the semantic web
+ * says about it) set names a step smaller than the control panel does: they're
+ * lists read row by row, where more of each name matters more than matching
+ * the controls beside them. Labels stay the size they are everywhere else.
+ */
+export const PANEL_LIST_TEXT = {
+  desktop: { nodeFontPx: 16, labelFontPx: 15 },
+  mobile: { nodeFontPx: 14.5, labelFontPx: 14 }
+};
+export const panelListTextFor = (isMobile) => (isMobile ? PANEL_LIST_TEXT.mobile : PANEL_LIST_TEXT.desktop);
 
 /** Renderer scale that draws node names at `text.nodeFontPx`. */
 export const previewScaleFor = (text) => text.nodeFontPx / PREVIEW_NODE_BASE_FONT_PX;
@@ -200,6 +217,93 @@ function truncateNameToWidth(name, maxWidth) {
 }
 
 /**
+ * How many lines a name takes in a box `width` wide, breaking only between
+ * words (or after a hyphen already in the name, as in "Light-Dependent") —
+ * never inside a word. Null when a word is wider than a whole line, or the box
+ * has no room.
+ */
+function wholeWordLines(name, width) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const charsPerLine = Math.max(1, Math.floor((width - 2 * PREVIEW_NODE_SIDE_PADDING) / PREVIEW_NODE_AVG_CHAR_WIDTH));
+  const multiword = words.length > 1 && name.length > charsPerLine;
+  const room = width - 2 * (multiword ? PREVIEW_NODE_MULTILINE_SIDE_PADDING : PREVIEW_NODE_SIDE_PADDING) - PREVIEW_NAME_SLACK;
+  if (room <= 0) return null;
+  const fits = (text) => measureTextWidth(text, previewNameFont) <= room;
+
+  // Break points: spaces, and just after a hyphen inside a word.
+  const units = [];
+  words.forEach((word, i) => {
+    word.split(/(?<=-)/).forEach((part, j) => units.push({ text: part, space: i > 0 && j === 0 }));
+  });
+  let lines = 0;
+  let line = '';
+  for (const unit of units) {
+    if (!fits(unit.text)) return null;
+    const joined = line ? `${line}${unit.space ? ' ' : ''}${unit.text}` : unit.text;
+    if (fits(joined)) { line = joined; continue; }
+    lines += 1;
+    line = unit.text;
+  }
+  return line ? lines + 1 : lines;
+}
+
+/** The room a single word has on one line of a box `width` wide. */
+const singleWordRoom = (width) => width - 2 * PREVIEW_NODE_SIDE_PADDING - PREVIEW_NAME_SLACK;
+
+/** `word` cut at its end, with an ellipsis, to fit `room`. */
+function clipWord(word, room) {
+  let lo = 0;
+  let hi = word.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (measureTextWidth(`${word.slice(0, mid)}…`, previewNameFont) <= room) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? `${word.slice(0, lo)}…` : '…';
+}
+
+/** Natural box height for a name set on `lineCount` lines, never under the floor. */
+const heightForLines = (lineCount, floors) =>
+  Math.max(floors.height, lineCount * PREVIEW_NAME_LINE_HEIGHT + 2 * PREVIEW_NAME_VERTICAL_PADDING);
+
+/**
+ * A name in a box `width` wide that may run to `maxLines` lines, words kept
+ * whole. In order of what's given up:
+ *  - the whole name, wrapped between words;
+ *  - a word too wide for any line is cut at its end ("Photosynt…");
+ *  - words from the middle go, the start and the end kept ("Plato's … Regimes");
+ *  - then the end goes too ("Plato's Five…").
+ * Returns the name to draw and the height its lines need.
+ */
+function fitNameInLines(name, width, maxLines, floors) {
+  const room = singleWordRoom(width);
+  const words = name.trim().split(/\s+/).filter(Boolean)
+    .map((w) => (measureTextWidth(w, previewNameFont) <= room ? w : clipWord(w, room)));
+  const tryName = (text) => {
+    const lines = wholeWordLines(text, width);
+    return lines != null && lines <= maxLines ? { name: text, height: heightForLines(lines, floors) } : null;
+  };
+
+  const whole = tryName(words.join(' '));
+  if (whole) return whole;
+
+  // Drop from the middle: keep as many leading words as fit, plus the last.
+  if (words.length > 2) {
+    const last = words[words.length - 1];
+    for (let keep = words.length - 2; keep >= 1; keep -= 1) {
+      const fitted = tryName(`${words.slice(0, keep).join(' ').replace(/…$/, '')} … ${last}`);
+      if (fitted) return fitted;
+    }
+  }
+  // Then from the end — one ellipsis, even when the last word kept was already cut.
+  for (let keep = words.length - 1; keep >= 1; keep -= 1) {
+    const fitted = tryName(`${words.slice(0, keep).join(' ').replace(/…$/, '')}…`);
+    if (fitted) return fitted;
+  }
+  return { name: clipWord(words[0] || name, room), height: heightForLines(1, floors) };
+}
+
+/**
  * Size a set of preview nodes the way the canvas sizes them: measure the name at
  * the canvas font via getNodeDimensions, divide out the 1.4× inflation, then
  * floor.
@@ -211,13 +315,15 @@ function truncateNameToWidth(name, maxWidth) {
  *
  * @param {Array<object>} nodes - node-ish objects ({ id, name, color, ... })
  * @param {{width:number,height:number}} [floors] - defaults to PREVIEW_FLOOR
- * @param {{maxWidth?:number}} [options] - maxWidth (natural units) truncates
- *   names whose box would exceed it. A truncated name gets the widest box the
+ * @param {{maxWidth?:number, maxLines?:number}} [options] - maxWidth (natural
+ *   units) truncates names whose box would exceed it. maxLines above 2 lets a
+ *   capped name run that many lines instead, words kept whole, the box growing
+ *   taller to hold them; draw those with the renderer's `keepWordsWhole`. A truncated name gets the widest box the
  *   cap allows, measured the way the renderer will draw it — a name the canvas
  *   recipe would pad wider than the cap can still fit the cap's box whole.
  * @returns {Array<object>} nodes with x/y/width/height set
  */
-export function buildConnectionPreviewNodes(nodes, floors = PREVIEW_FLOOR, { maxWidth } = {}) {
+export function buildConnectionPreviewNodes(nodes, floors = PREVIEW_FLOOR, { maxWidth, maxLines } = {}) {
   // The floor is the narrowest box the recipe can produce, so a cap below it is
   // unsatisfiable — clamp rather than truncate a name down to nothing.
   const cap = maxWidth != null ? Math.max(maxWidth, floors.width) : Infinity;
@@ -225,6 +331,12 @@ export function buildConnectionPreviewNodes(nodes, floors = PREVIEW_FLOOR, { max
     const natural = previewBox(node, node.name, floors);
     if (natural.width <= cap) {
       return { ...node, x: 0, y: 0, ...natural };
+    }
+    // Taller names: the box keeps its capped width and grows downward, words
+    // kept whole, before any of the name is cut.
+    if (maxLines > PREVIEW_NAME_MAX_LINES) {
+      const fitted = fitNameInLines(node.name, cap, maxLines, floors);
+      return { ...node, name: fitted.name, x: 0, y: 0, width: cap, height: fitted.height };
     }
     const name = nameFitsBox(node.name, cap) ? node.name : truncateNameToWidth(node.name, cap);
     return { ...node, name, x: 0, y: 0, width: cap, height: floors.height };

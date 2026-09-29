@@ -1,8 +1,8 @@
 import React from 'react';
 import UniversalNodeRenderer from '../../UniversalNodeRenderer';
 import { RENDERER_PRESETS } from '../../UniversalNodeRenderer.presets';
-import { connectionPreviewRendererProps, previewTextFor } from '../../utils/connectionPreview.js';
-import { PANEL_RENDERER_PADDING, layoutPanelConnection } from '../../utils/connectionRowLayout.js';
+import { connectionPreviewRendererProps, panelListTextFor } from '../../utils/connectionPreview.js';
+import { PANEL_RENDERER_PADDING, PANEL_ARROW_SCALE, layoutPanelConnection } from '../../utils/connectionRowLayout.js';
 import useMobileDetection from '../../hooks/useMobileDetection';
 
 const DEFAULT_COLOR = '#8B0000';
@@ -49,7 +49,7 @@ const TripletPreview = ({
       predicate: str(predicate),
       containerWidth,
       hasArrows: arrowsToward.size > 0,
-      text: previewTextFor(isMobile)
+      text: panelListTextFor(isMobile)
     });
 
   const connections = [{
@@ -75,6 +75,10 @@ const TripletPreview = ({
       maxNodeScale={scale}
       horizontalSpacing={span}
       connectionFontScale={labelFontScale}
+      // The layout wrapped each name between words; the renderer must not
+      // re-break them inside a word.
+      keepWordsWhole
+      arrowSizeScale={PANEL_ARROW_SCALE}
     />
   );
 };

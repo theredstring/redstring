@@ -4,13 +4,14 @@ import useGraphStore from '../store/graphStore.js';
 import Dropdown from './Dropdown.jsx';
 import TripletPreview from './connections/TripletPreview.jsx';
 import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
+import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './connections/CompactConnectionRow.jsx';
 import './ConnectionBrowser.css';
 
 /**
  * One of this Thing's own connections, drawn with the shared triplet preview.
  * Arrowheads follow the edge's own directionality.
  */
-const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth }) => {
+const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth, compact = false, note }) => {
   const arrowsToward = new Set();
   const dir = connection?.directionality;
   if (typeof dir === 'string') {
@@ -21,6 +22,25 @@ const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth }
     if (dir.arrowsToward.has(connection.destinationInstanceId)) arrowsToward.add('object');
   } else {
     arrowsToward.add('object');
+  }
+
+  if (compact) {
+    // Which way it points, from this Thing's side.
+    const thisEnd = connection.isSource ? 'subject' : 'object';
+    const otherEnd = connection.isSource ? 'object' : 'subject';
+    const leads = arrowsToward.has(otherEnd);
+    const points = arrowsToward.has(thisEnd);
+    return (
+      <div className="connection-triplet" title={`${connection.subject} → ${connection.predicate} → ${connection.object}`}>
+        <CompactConnectionRow
+          predicate={connection.predicate}
+          direction={leads && points ? 'both' : leads ? 'out' : points ? 'in' : 'none'}
+          otherName={connection.connectedNodeName}
+          otherColor={connection.isSource ? objectColor : subjectColor}
+          note={note}
+        />
+      </div>
+    );
   }
 
   return (
@@ -302,6 +322,8 @@ const ConnectionBrowser = ({ nodeData }) => {
               objectColor={getNodeColor(connection.object)}
               // minus the triplet's own 8px padding + 1px border per side
               containerWidth={Math.max(160, containerWidth - 18)}
+              compact={containerWidth > 0 && containerWidth < COMPACT_CONNECTIONS_BELOW}
+              note={connectionScope === 'universe' && !connection.inCurrentGraph ? `in ${connection.graphName || 'another web'}` : undefined}
             />
           ))
         )}
