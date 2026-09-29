@@ -125,7 +125,7 @@ Names are fixed: fixes and invariant tests depend on them. `test/security/invari
 | S-82 | `.redstring` document type declared on iOS with no handler. | fixed | area tests |
 | S-83 | LGPL `heic-to` in store builds; third-party notices with an LGPL source offer for web/desktop. | fixed | `mobile/no-lgpl-in-store-builds`, `scripts/security/third-party-notices.mjs` |
 | S-84 | `FileProvider` exposed all external storage. | fixed | area tests |
-| S-85 | OAuth App `repo` scope / device-flow phishing. | deferred | owner decision |
+| S-85 | OAuth App `repo` scope / device-flow phishing. | won't fix | accepted for 1.0; reason in THREAT_MODEL.md (adding a repo would need GitHub's settings page) |
 
 ### A6: Tests, CI, documentation
 

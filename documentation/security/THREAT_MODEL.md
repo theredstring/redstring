@@ -111,7 +111,7 @@ Outside the unit tests: `scripts/security/secret-scan.mjs` (tracked files on eve
 
 ## Accepted and residual risks
 
-- **OAuth `repo` scope and device-flow phishing (S-85)**: the OAuth App token can reach all of a user's repositories. Narrowing it is an owner decision, deferred.
+- **OAuth `repo` scope and device-flow phishing (S-85)**: the OAuth App token can reach all of a user's repositories. Accepted for 1.0 (decided 2026-09-29). Narrowing to GitHub-App-only access would make adding a repo a trip to GitHub's installation settings page: the preselected-repo install link (`installations/new/permissions?target_id=…&repository_ids[]=…`) lands on the general settings page when the App is already installed, not on a one-button confirmation, and that friction isn't worth it. Mitigated by the CSP, link sanitising and the fail-closed installation check. Residual: any active member of an org can mint that org installation's token, which can reach repos they can't push to themselves. Revisit if GitHub adds a one-step "add this repository" flow for installed Apps.
 - **Web BYOK keys** are encrypted in browser storage with a key held in the same browser (IndexedDB). This defends against casual disclosure (exports, screenshots of devtools, backups), not against script running in the page; the CSP and sanitizers are the defence there.
 - **History is permanent.** Keys that were committed are revoked (RUNBOOK) and fingerprint-allowlisted; they remain readable in git history by design of git.
 - **Images from graph data** (`https:`/`http:` in `img-src`) can reveal the user's IP to the image host when a universe is opened. Accepted: remote thumbnails are a core feature.
