@@ -13,7 +13,7 @@ function getDefaultConfig() {
   return {
     provider: 'openrouter',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    model: 'anthropic/claude-3.5-sonnet',
+    model: 'anthropic/claude-sonnet-5.5',
     temperature: 0.7,
     maxTokens: 8192
   };
@@ -335,10 +335,65 @@ function normalizeUserContent(content, provider) {
   return combinedText || '';
 }
 
+/**
+ * Each hosted service's own endpoint, and the hosts that belong to it. A key is
+ * only ever sent to its own service: a missing endpoint used to fall back to
+ * OpenRouter's URL for every provider, so an Anthropic or OpenAI key could be
+ * posted to openrouter.ai.
+ */
+const PROVIDER_ENDPOINTS = {
+  openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  anthropic: 'https://api.anthropic.com/v1/messages',
+  openai: 'https://api.openai.com/v1/chat/completions',
+  // The settings' own default for a local server (Ollama)
+  local: 'http://localhost:11434/v1/chat/completions'
+};
+const PROVIDER_HOSTS = {
+  'openrouter.ai': 'openrouter',
+  'api.anthropic.com': 'anthropic',
+  'api.openai.com': 'openai',
+  'generativelanguage.googleapis.com': 'google'
+};
+
+/**
+ * The endpoint to call for this provider. A configured endpoint is honored
+ * (proxies, gateways, local servers) unless it is another known service's host —
+ * the case LeftAIView's key-prefix auto-switch produces when it moves a profile
+ * to 'anthropic' but leaves the OpenRouter URL behind.
+ */
+export function resolveEndpoint(provider, endpoint) {
+  const own = PROVIDER_ENDPOINTS[provider];
+  if (!endpoint) return own;
+  let host = '';
+  try { host = new URL(endpoint).hostname; } catch { return own || endpoint; }
+  const owner = PROVIDER_HOSTS[host];
+  if (owner && owner !== provider) return own;
+  return endpoint;
+}
+
+function safeHost(url) {
+  try { return new URL(url).hostname; } catch { return ''; }
+}
+
+/** Error from the provider mid-stream: must escape the per-chunk JSON guard. */
+function providerStreamError(label, message) {
+  const err = new Error(`${label} API error (stream): ${message}`);
+  err.providerStreamError = true;
+  return err;
+}
+
+/** Every provider reports a mid-stream failure as a chunk with an `error` object. */
+function throwIfStreamError(chunk, label) {
+  if (chunk?.error) {
+    const e = chunk.error;
+    throw providerStreamError(label, typeof e === 'string' ? e : `${e.type || e.code || e.status || 'error'}: ${e.message || JSON.stringify(e)}`);
+  }
+}
+
 export async function* streamLLM(messages, tools = [], config = {}, signal = null) {
   const defaults = getDefaultConfig();
   const provider = config.provider || defaults.provider;
-  const endpoint = config.endpoint || defaults.endpoint;
+  const endpoint = resolveEndpoint(provider, config.endpoint);
   const model = config.model || defaults.model;
   const apiKey = config.apiKey || '';
   const maxTokens = config.maxTokens ?? defaults.maxTokens;
@@ -372,13 +427,20 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
   if (provider === 'openrouter') {
     yield* streamOpenRouter(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
   } else if (provider === 'anthropic') {
-    yield* streamAnthropic(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
-  } else if (provider === 'openai' || provider === 'local') {
-    yield* streamOpenAI(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens }, signal);
+    // maxTokens goes through raw: Anthropic's models think by default and the
+    // thinking counts against max_tokens, so its own floor applies when unset.
+    yield* streamAnthropic(normalizedMessages, normalizedTools, { endpoint, model: config.model, apiKey, maxTokens: config.maxTokens }, signal);
   } else if (provider === 'google') {
-    yield* streamGemini(normalizedMessages, normalizedTools, { model, apiKey, temperature, maxTokens }, signal);
+    yield* streamGemini(normalizedMessages, normalizedTools, { model: config.model, apiKey, temperature, maxTokens }, signal);
+  } else if (provider === 'cohere') {
+    throw new Error('Cohere isn\'t supported by the Wizard. Use OpenRouter to reach Cohere models, or pick another provider.');
   } else {
-    throw new Error(`Unsupported provider: ${provider}`);
+    // 'openai', 'local', and anything else — the settings save a custom provider
+    // under the name the user typed — speak the OpenAI chat-completions protocol.
+    if (!endpoint) {
+      throw new Error(`No endpoint is set for "${provider}". Add the server's URL in AI settings.`);
+    }
+    yield* streamOpenAI(normalizedMessages, normalizedTools, { endpoint, model, apiKey, temperature, maxTokens, officialOpenAI: /(^|\.)api\.openai\.com$/.test(safeHost(endpoint)) }, signal);
   }
 }
 
@@ -511,6 +573,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
 
           try {
             const chunk = JSON.parse(data);
+            throwIfStreamError(chunk, 'OpenRouter');
 
             // Token accounting — the include_usage final chunk carries usage with
             // choices: [], so read it before the `!choice` guard would skip it.
@@ -621,6 +684,7 @@ async function* streamOpenRouter(messages, tools, { endpoint, model, apiKey, tem
               currentToolCall = null;
             }
           } catch (e) {
+            if (e?.providerStreamError) throw e;
             console.error('[LLMClient:OpenRouter] Malformed JSON chunk skipped:', e.message);
             continue;
           }
@@ -727,7 +791,36 @@ function stripCacheMeta(msg) {
 /**
  * Stream from Anthropic API
  */
-async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
+const ANTHROPIC_DEFAULT_MODEL = 'claude-sonnet-5-5';
+
+/** Retired Claude ids 404; each maps to Anthropic's documented replacement. */
+const RETIRED_CLAUDE_MODELS = {
+  'claude-3-7-sonnet-20250219': 'claude-sonnet-5-5',
+  'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
+  'claude-3-5-haiku-latest': 'claude-haiku-4-5',
+  'claude-3-opus-20240229': 'claude-opus-4-8',
+  'claude-3-5-sonnet-20241022': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet-20240620': 'claude-sonnet-5-5',
+  'claude-3-5-sonnet-latest': 'claude-sonnet-5-5',
+  'claude-3-sonnet-20240229': 'claude-sonnet-5-5',
+  'claude-3-haiku-20240307': 'claude-haiku-4-5'
+};
+
+/**
+ * The model id to send to Anthropic. A profile that was switched to Anthropic
+ * by its key prefix still carries its OpenRouter slug ("anthropic/claude-sonnet-5.5");
+ * Anthropic's own id for that is "claude-sonnet-5-5".
+ */
+export function resolveAnthropicModel(model) {
+  let id = String(model || '').trim();
+  if (id.includes('/')) {
+    id = id.startsWith('anthropic/') ? id.slice('anthropic/'.length).replace(/\./g, '-') : '';
+  }
+  if (!id) return ANTHROPIC_DEFAULT_MODEL;
+  return RETIRED_CLAUDE_MODELS[id] || id;
+}
+
+async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, maxTokens }, signal = null) {
   // Anthropic uses a different message format
   const systemMessage = messages.find(m => m.role === 'system');
   
@@ -828,27 +921,37 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
     systemField = systemContent;
   }
 
-  // A breakpoint on the LAST tool caches the entire tools block before it.
+  // Tools arrive in the OpenAI shape normalizeTools produces; the Messages API
+  // takes { name, description, input_schema } and rejects anything else with a
+  // 400. A breakpoint on the LAST tool caches the entire tools block before it.
   let cachedTools = tools;
   if (Array.isArray(tools) && tools.length > 0) {
-    cachedTools = tools.map((t, i) =>
-      i === tools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t
-    );
+    cachedTools = tools.map((t, i) => {
+      const tool = {
+        name: t.function?.name || t.name,
+        description: t.function?.description || t.description || '',
+        input_schema: t.function?.parameters || t.input_schema || t.parameters || { type: 'object', properties: {} }
+      };
+      return i === tools.length - 1 ? { ...tool, cache_control: { type: 'ephemeral' } } : tool;
+    });
   }
 
   const finalMessages = applyHistoryCacheBreakpoints(mergedMessages);
 
+  // No temperature: current Claude models reject sampling parameters outright
+  // (Opus 4.7+, Sonnet 5) or any non-default value (Sonnet 5.5), and the older
+  // ones that accept it do fine at their default. max_tokens has to leave room
+  // for thinking, which counts against it on the models that think by default.
   const payload = {
-    model: model || 'claude-3-5-sonnet-20241022',
-    max_tokens: maxTokens || 8192,
+    model: resolveAnthropicModel(model),
+    max_tokens: maxTokens || 32000,
     system: systemField,
     messages: finalMessages,
     ...(cachedTools && cachedTools.length > 0 ? { tools: cachedTools } : {}),
-    temperature: temperature ?? 0.7,
     stream: true
   };
 
-  const response = await fetch(endpoint || 'https://api.anthropic.com/v1/messages', {
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -908,6 +1011,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 
           try {
             const chunk = JSON.parse(data);
+            throwIfStreamError(chunk, 'Anthropic');
 
             // Token accounting. input_tokens arrive on message_start; a cumulative
             // output_tokens arrives on each message_delta — emit the running total.
@@ -915,6 +1019,11 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
               anthropicInputTokens = chunk.message.usage.input_tokens || 0;
               anthropicCacheReadTokens = chunk.message.usage.cache_read_input_tokens || 0;
               anthropicCacheCreationTokens = chunk.message.usage.cache_creation_input_tokens || 0;
+            }
+            // A safety decline ends the stream with no content. Say so, rather
+            // than let the loop treat it as an empty reply and re-ask.
+            if (chunk.type === 'message_delta' && chunk.delta?.stop_reason === 'refusal') {
+              throw providerStreamError('Anthropic', 'Claude declined this request (stop_reason: refusal). Try rephrasing it.');
             }
             if (chunk.type === 'message_delta' && chunk.usage) {
               const completionTokens = chunk.usage.output_tokens || 0;
@@ -988,6 +1097,7 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
               toolArgsBuffer = '';
             }
           } catch (e) {
+            if (e?.providerStreamError) throw e;
             console.error('[LLMClient:Anthropic] Malformed JSON chunk skipped:', e.message);
             continue;
           }
@@ -1026,13 +1136,18 @@ async function* streamAnthropic(messages, tools, { endpoint, model, apiKey, temp
 /**
  * Stream from OpenAI-compatible API (OpenAI, Ollama, etc.)
  */
-async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, temperature, maxTokens }, signal = null) {
+async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, temperature, maxTokens, officialOpenAI = false }, signal = null) {
+  // OpenAI's own API takes max_completion_tokens (its reasoning models reject
+  // max_tokens), and its reasoning models (GPT-5 family, o-series) accept only
+  // the default temperature. Local and third-party servers keep the classic
+  // fields, which is what they implement.
+  const reasoningModel = officialOpenAI && /^(gpt-5|o\d)/i.test(String(model || ''));
   const payload = {
     model,
     messages: stripInternalFields(messages),
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-    max_tokens: maxTokens,
-    temperature,
+    ...(officialOpenAI ? { max_completion_tokens: maxTokens } : { max_tokens: maxTokens }),
+    ...(reasoningModel ? {} : { temperature }),
     stream: true,
     // Request token usage in the final stream chunk. Servers that don't support
     // it (some local backends) simply ignore the field.
@@ -1057,7 +1172,8 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
   if (!response.ok) {
     const errorText = await response.text();
     if (endpoint?.includes('localhost') || endpoint?.includes('127.0.0.1')) {
-      throw new Error(`Local LLM server error: ${errorText}. Is the server running?`);
+      // It answered, so it is running: report what it said.
+      throw new Error(`Local LLM server error (${response.status}): ${errorText}`);
     }
     throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
   }
@@ -1093,6 +1209,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
 
           try {
             const chunk = JSON.parse(data);
+            throwIfStreamError(chunk, 'OpenAI');
 
             // Token accounting — include_usage final chunk has choices: [].
             const oaUsage = normalizeOpenAIUsage(chunk.usage);
@@ -1232,6 +1349,7 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
               currentToolCall = null;
             }
           } catch (e) {
+            if (e?.providerStreamError) throw e;
             console.error('[LLMClient:OpenAI] Malformed JSON chunk skipped:', e.message);
             continue;
           }
@@ -1277,7 +1395,6 @@ async function* streamOpenAI(messages, tools, { endpoint, model, apiKey, tempera
  * Gemini has its own message/tool format — not OpenAI-compatible.
  */
 async function* streamGemini(messages, tools, { model, apiKey, temperature, maxTokens }, signal = null) {
-  console.log('🔴🔴🔴 GEMINI STREAM STARTED 🔴🔴🔴');
   console.error('🔴🔴🔴 GEMINI STREAM STARTED 🔴🔴🔴');
 
   // Convert OpenAI-style messages to Gemini contents format
@@ -1315,11 +1432,18 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
       // OpenAI-style tool result -> Gemini user functionResponse
       let resultObj = {};
       try { resultObj = JSON.parse(msg.content || '{}'); } catch { resultObj = { result: msg.content }; }
+      // `response` must be an object; a bare array or scalar is rejected.
+      if (!resultObj || typeof resultObj !== 'object' || Array.isArray(resultObj)) resultObj = { result: resultObj };
       const fnName = toolCallIdToName.get(msg.tool_call_id) || msg.tool_call_id || 'unknown';
-      contents.push({
-        role: 'user',
-        parts: [{ functionResponse: { name: fnName, response: resultObj } }]
-      });
+      const part = { functionResponse: { name: fnName, response: resultObj } };
+      // Every response to one model turn goes back in a single content: Gemini
+      // requires as many functionResponse parts as the turn had functionCalls.
+      const prev = contents[contents.length - 1];
+      if (prev?.role === 'user' && prev.parts.length > 0 && prev.parts.every(p => p.functionResponse)) {
+        prev.parts.push(part);
+      } else {
+        contents.push({ role: 'user', parts: [part] });
+      }
 
     } else {
       // User message (plain string or array with text/image blocks)
@@ -1361,7 +1485,9 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
   console.error('[LLMClient:Gemini] Function calling mode:', functionCallingMode, '(hasToolResults:', hasToolResults, ')');
 
   const effectiveModel = model || 'gemini-2.5-flash';
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${effectiveModel}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  // The key rides in a header, not the query string, where it would land in
+  // network logs and any proxy's access log.
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(effectiveModel)}:streamGenerateContent?alt=sse`;
 
   const payload = {
     contents,
@@ -1391,7 +1517,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
 
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify(payload),
     signal
   });
@@ -1433,6 +1559,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
 
         try {
           const chunk = JSON.parse(data);
+          throwIfStreamError(chunk, 'Gemini');
 
           // Token accounting. Gemini streams usageMetadata (cumulative for this
           // call) as a top-level sibling of `candidates`, typically on the final
@@ -1494,7 +1621,9 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
               pendingThoughtSignature = part.thoughtSignature;
               console.error('[LLMClient:Gemini] ✓ Buffered thoughtSignature (len=' + part.thoughtSignature.length + ')');
             }
-            if (part.text) {
+            if (part.thought) {
+              // A thought summary, not the reply.
+            } else if (part.text) {
               yield { type: 'text', content: part.text };
             } else if (part.functionCall) {
               console.error('[LLMClient:Gemini] Received functionCall:', part.functionCall.name, 'with args keys:', Object.keys(part.functionCall.args || {}));
@@ -1559,6 +1688,7 @@ async function* streamGemini(messages, tools, { model, apiKey, temperature, maxT
             }
           }
         } catch (e) {
+          if (e?.providerStreamError) throw e;
           console.error('[LLMClient:Gemini] Malformed JSON chunk skipped:', e.message, '| Data:', (data || '').substring(0, 300));
           continue;
         }

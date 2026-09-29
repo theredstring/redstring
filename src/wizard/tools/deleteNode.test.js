@@ -70,7 +70,8 @@ describe('deleteNode', () => {
     expect(result.instanceId).toBeNull();
     expect(result.prototypeId).toBeNull();
     expect(result.name).toBe('Nonexistent');
-    expect(result.deleted).toBe(true);
+    expect(result.deleted).toBe(false);
+    expect(result.notFound).toBe(true);
   });
 
   it('throws error when no active graph', async () => {

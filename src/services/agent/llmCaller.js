@@ -1,20 +1,39 @@
 /**
- * LLM Caller - Reusable function for calling LLM APIs
- * Supports OpenRouter, Anthropic, and local OpenAI-compatible APIs (Ollama, LM Studio, etc.)
+ * LLM Caller - one prompt in, the reply text out.
+ *
+ * A thin wrapper over the Wizard's streamLLM, so every provider (OpenRouter,
+ * Anthropic, OpenAI, Gemini, local and custom OpenAI-compatible servers) is
+ * spoken to the one way the Wizard speaks to it. This used to be a second,
+ * hand-rolled client that drifted: it sent temperature to Claude models that
+ * reject it, omitted the header Anthropic needs from a browser, read the reply
+ * from content[0] (a thinking block on current Claude models), posted OpenAI
+ * keys to localhost when no endpoint was set, and had no Gemini path.
+ *
+ * Imported (via oneShot.js) by redstring-mcp-server.js: console.error only.
  */
+
+import { streamLLM } from '../../wizard/LLMClient.js';
+
+/**
+ * Floor for max_tokens. Current Claude, OpenAI and Gemini models think before
+ * answering and the thinking counts against the limit, so a tiny budget (the
+ * one-shot classifiers ask for 32) can be spent entirely on thinking and return
+ * nothing. Only generated tokens are billed, so the floor costs nothing extra.
+ */
+const MIN_MAX_TOKENS = 2048;
 
 /**
  * Call an LLM with a prompt
  * @param {Object} options
  * @param {string} options.apiKey - API key (optional for local providers)
- * @param {string} options.provider - 'openrouter' | 'anthropic' | 'openai' | 'local'
+ * @param {string} options.provider - 'openrouter' | 'anthropic' | 'openai' | 'google' | 'local' | custom
  * @param {string} options.endpoint - API endpoint URL
  * @param {string} options.model - Model identifier
  * @param {string} options.systemPrompt - System prompt
  * @param {string} options.userPrompt - User prompt
  * @param {Array} options.messages - Conversation history (optional)
  * @param {number} options.maxTokens - Max tokens
- * @param {number} options.temperature - Temperature
+ * @param {number} options.temperature - Temperature (ignored where the model rejects it)
  * @returns {Promise<string>} LLM response text
  */
 export async function callLLM({
@@ -33,112 +52,22 @@ export async function callLLM({
     throw new Error('API key is required');
   }
 
-  if (provider === 'openrouter') {
-    const openRouterEndpoint = endpoint || 'https://openrouter.ai/api/v1/chat/completions';
-    const openRouterModel = model || 'anthropic/claude-3.5-sonnet';
+  const conversation = [
+    ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+    ...messages,
+    { role: 'user', content: userPrompt }
+  ];
 
-    const payload = {
-      model: openRouterModel,
-      messages: [
-        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-        ...messages,
-        { role: 'user', content: userPrompt }
-      ],
-      max_tokens: maxTokens,
-      temperature
-    };
-
-    const response = await fetch(openRouterEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenRouter API error (${response.status}): ${errorText}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
-  } else if (provider === 'anthropic') {
-    const anthropicEndpoint = endpoint || 'https://api.anthropic.com/v1/messages';
-    const anthropicModel = model || 'claude-3-5-sonnet-20241022';
-
-    const payload = {
-      model: anthropicModel,
-      max_tokens: maxTokens,
-      system: systemPrompt || '',
-      messages: [
-        ...messages,
-        { role: 'user', content: userPrompt }
-      ],
-      temperature
-    };
-
-    const response = await fetch(anthropicEndpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
-    }
-
-    const data = await response.json();
-    return data.content?.[0]?.text || '';
-  } else if (provider === 'openai' || provider === 'local') {
-    // OpenAI-compatible endpoint (works with OpenAI, Ollama, LM Studio, LocalAI, vLLM, etc.)
-    const openaiEndpoint = endpoint || 'http://localhost:11434/v1/chat/completions';
-    const openaiModel = model || 'llama2';
-
-    const payload = {
-      model: openaiModel,
-      messages: [
-        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-        ...messages,
-        { role: 'user', content: userPrompt }
-      ],
-      max_tokens: maxTokens,
-      temperature
-    };
-
-    // Local LLM servers may not require API keys, but some do
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(apiKey && apiKey !== 'local' && apiKey.trim() !== '' ? { 'Authorization': `Bearer ${apiKey}` } : {})
-    };
-
-    const response = await fetch(openaiEndpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
-
-    // Enhanced error handling for local connection issues
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (endpoint?.includes('localhost') || endpoint?.includes('127.0.0.1')) {
-        throw new Error(`Local LLM server error: ${errorText}. Is the server running?`);
-      }
-      throw new Error(`OpenAI API error (${response.status}): ${errorText}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
-  } else {
-    throw new Error(`Unsupported provider: ${provider}`);
+  let text = '';
+  for await (const chunk of streamLLM(conversation, [], {
+    apiKey,
+    provider,
+    endpoint,
+    model,
+    temperature,
+    maxTokens: Math.max(maxTokens || 0, MIN_MAX_TOKENS)
+  })) {
+    if (chunk.type === 'text') text += chunk.content || '';
   }
+  return text;
 }
-
-
-

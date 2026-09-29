@@ -99,7 +99,8 @@ const ADAPTERS = {
   google: {
     needsKey: true,
     request: (key) => ({
-      url: `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`
+      url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+      headers: { 'x-goog-api-key': key }
     }),
     normalize: (data) => (data?.models || [])
       .filter((m) => Array.isArray(m.supportedGenerationMethods) &&
@@ -151,13 +152,15 @@ const ADAPTERS = {
 /** Static lists, used only when the live fetch fails (offline, bad key, CORS). */
 const FALLBACKS = {
   openrouter: [
-    { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
+    { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5' },
+    { id: 'anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5' },
     { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
     { id: 'openai/gpt-4o', name: 'GPT-4o' }
   ],
   anthropic: [
-    { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
-    { id: 'claude-3-5-haiku-latest', name: 'Claude 3.5 Haiku' }
+    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
+    { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
   ],
   openai: [
     { id: 'gpt-4o', name: 'GPT-4o' },

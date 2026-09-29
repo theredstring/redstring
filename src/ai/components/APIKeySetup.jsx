@@ -388,10 +388,10 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 <em>⚠️ Legacy configuration - consider updating to set custom endpoint/model</em>
               </div>
             )}
-            {existingKeyInfo.provider === 'openrouter' && existingKeyInfo.model === 'anthropic/claude-3-sonnet-20240229' && (
+            {existingKeyInfo.provider === 'openrouter' && /^anthropic\/claude-3/.test(existingKeyInfo.model || '') && (
               <div className="model-warning">
                 <br />
-                <em>⚠️ Model "anthropic/claude-3-sonnet-20240229" not found on OpenRouter. Please update to a valid model ID like "anthropic/claude-3-sonnet".</em>
+                <em>⚠️ Model "{existingKeyInfo.model}" has been retired. Update to a current model like "anthropic/claude-sonnet-5.5".</em>
               </div>
             )}
           </div>
@@ -661,7 +661,7 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
                 )}
                 {provider === 'openrouter' && (
                   <small className="field-help">
-                    Enter the model ID from OpenRouter. Examples: anthropic/claude-3-sonnet, openai/gpt-4o
+                    Enter the model ID from OpenRouter. Examples: anthropic/claude-sonnet-5.5, openai/gpt-5.5
                   </small>
                 )}
               </div>

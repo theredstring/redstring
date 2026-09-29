@@ -1012,6 +1012,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }
     if (!realProtoId) {
       console.error('[Wizard] updateNode: Could not find prototype for name:', lookupName);
+      dispatchWizardToolFailed('updateNode', `No node named "${result.originalName}" exists, so nothing was updated.`, result);
       return;
     }
     store.updateNodePrototype(realProtoId, (prototype) => {
@@ -1105,6 +1106,7 @@ export function applyToolResultToStore(toolName, result, toolCallId, conversatio
     }
     if (!realInstanceId) {
       console.error('[Wizard] deleteNode: Could not find instance for name:', lookupName);
+      dispatchWizardToolFailed('deleteNode', `No node named "${result.name}" is in this graph, so nothing was deleted.`, result);
       return;
     }
     store.removeNodeInstance(graphId, realInstanceId);

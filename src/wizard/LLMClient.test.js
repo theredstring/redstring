@@ -165,7 +165,7 @@ describe('LLMClient', () => {
 
       const fetchCall = global.fetch.mock.calls[0];
       const payload = JSON.parse(fetchCall[1].body);
-      expect(payload.model).toBe('anthropic/claude-3.5-sonnet');
+      expect(payload.model).toBe('anthropic/claude-sonnet-5.5');
       expect(payload.temperature).toBe(0.7);
       expect(payload.max_tokens).toBe(8192);
     });
@@ -279,13 +279,13 @@ describe('LLMClient', () => {
       expect(headers['Authorization']).toBeUndefined();
     });
 
-    it('throws error for unsupported provider', async () => {
+    it('asks for an endpoint when a custom provider has none', async () => {
       const messages = [{ role: 'user', content: 'Hello' }];
-      const generator = streamLLM(messages, [], { provider: 'unsupported' });
+      const generator = streamLLM(messages, [], { provider: 'together' });
 
       await expect(async () => {
         for await (const _ of generator) { }
-      }).rejects.toThrow('Unsupported provider');
+      }).rejects.toThrow('No endpoint is set');
     });
   });
 

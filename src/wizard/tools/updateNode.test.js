@@ -87,7 +87,8 @@ describe('updateNode', () => {
     expect(result.instanceId).toBeNull();
     expect(result.originalName).toBe('Nonexistent Node');
     expect(result.updates).toEqual({ name: 'New Name' });
-    expect(result.updated).toBe(true);
+    expect(result.updated).toBe(false);
+    expect(result.notFound).toBe(true);
   });
 
   it('throws error when no active graph', async () => {

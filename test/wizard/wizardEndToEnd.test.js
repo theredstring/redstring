@@ -63,8 +63,23 @@ function graphStateFromStore() {
 }
 
 /** One ask, applied to the store as the panel applies it. */
+/**
+ * Each provider as a user would configure it. `local` and `custom` carry their
+ * own server URL; the hosted services are reached with no endpoint set, which is
+ * what exercises the per-service default.
+ */
+const PROVIDERS = {
+  openrouter: { provider: 'openrouter' },
+  anthropic: { provider: 'anthropic' },
+  openai: { provider: 'openai' },
+  google: { provider: 'google' },
+  local: { provider: 'local', endpoint: 'http://localhost:11434/v1/chat/completions' },
+  custom: { provider: 'together', endpoint: 'https://llm.example.test/v1/chat/completions' }
+};
+const WIRE = { openrouter: 'openai', anthropic: 'anthropic', openai: 'openai', google: 'google', local: 'openai', custom: 'openai' };
+
 async function ask(format, message, script, { apiConfig = {}, signal, onEvent } = {}) {
-  provider = installFakeProvider(format, script);
+  provider = installFakeProvider(WIRE[format], script);
   const events = [];
   let thrown = null;
   try {
@@ -72,7 +87,7 @@ async function ask(format, message, script, { apiConfig = {}, signal, onEvent } 
       message,
       graphState: graphStateFromStore(),
       apiKey: 'sk-test-not-a-key',
-      apiConfig: { provider: format, model: 'scripted', modelTier: 'large', ...apiConfig },
+      apiConfig: { ...PROVIDERS[format], model: 'scripted', modelTier: 'large', ...apiConfig },
       signal
     })) {
       events.push(e);
@@ -88,7 +103,7 @@ async function ask(format, message, script, { apiConfig = {}, signal, onEvent } 
     requests: provider.model,
     reply: events.filter(e => e.type === 'response').map(e => e.content).join('').trim(),
     end: events.find(e => e.type === 'done' && e.reason)?.reason,
-    problems: provider.model.flatMap((r, i) => transcriptProblems(format, r.body).map(p => `request ${i}: ${p}`))
+    problems: provider.model.flatMap((r, i) => transcriptProblems(WIRE[format], r.body).map(p => `request ${i}: ${p}`))
   };
 }
 
@@ -112,7 +127,7 @@ const buildPlanets = (graphName) => [
   { text: `Built ${graphName}: the Sun and the four rocky planets, each orbiting it.` }
 ];
 
-describe.each(['openrouter', 'anthropic'])('Wizard end to end over %s', (format) => {
+describe.each(Object.keys(PROVIDERS))('Wizard end to end over %s', (format) => {
   it('answers a plain question with text, in one request', async () => {
     const r = await ask(format, 'What can you do?', [{ text: 'I can build and edit graphs.' }]);
     expect(r.reply).toBe('I can build and edit graphs.');
@@ -194,5 +209,54 @@ describe.each(['openrouter', 'anthropic'])('Wizard end to end over %s', (format)
     const r = await ask(format, 'search forever', script, { apiConfig: { settings: { maxAskTokens: 100000 } } });
     expect(r.end).toBe('token_budget');
     expect(r.requests.length).toBeLessThanOrEqual(6);
+  });
+});
+
+describe('Wizard respects what is already there', () => {
+  it('re-mentioning an existing node fills blanks but never overwrites it', async () => {
+    await ask('openrouter', 'Build a small graph', [
+      { tools: [{ id: 'tu_g', name: 'createPopulatedGraph', args: {
+        name: 'Respect Test', description: 'x',
+        nodes: [{ name: 'Earth', description: 'Third planet from the Sun.', color: '#123456' }, { name: 'Luna', description: '' }]
+      } }] },
+      { text: 'Done.' }
+    ]);
+    const graph = findGraph('Respect Test');
+    useGraphStore.getState().setActiveGraph?.(graph.id);
+
+    const r = await ask('openrouter', 'Add Earth and Luna', [
+      { tools: [
+        { id: 'tu_e', name: 'createNode', args: { name: 'Earth', description: 'A duplicate-trap description.', color: '#E2BBE9' } },
+        { id: 'tu_l', name: 'createNode', args: { name: 'Luna', description: "Earth's moon." } }
+      ] },
+      { text: 'Done.' }
+    ]);
+    expect(r.problems).toEqual([]);
+
+    const st = useGraphStore.getState();
+    const after = findGraph('Respect Test');
+    expect(namesIn(after).filter(n => n === 'Earth')).toHaveLength(1);
+    const protoOf = (name) => [...st.nodePrototypes.values()].filter(p => p.name === name).pop();
+    expect(protoOf('Earth').description).toBe('Third planet from the Sun.');
+    expect(protoOf('Earth').color).toBe('#123456');
+    // A blank description is filled.
+    expect(protoOf('Luna').description).toBe("Earth's moon.");
+  });
+
+  it('editing or deleting a node that is not there says so instead of claiming success', async () => {
+    const before = useGraphStore.getState().nodePrototypes.size;
+    const r = await ask('openrouter', 'Recolor Pluto, then delete Pluto', [
+      { tools: [
+        { id: 'tu_u', name: 'updateNode', args: { nodeName: 'Pluto', color: '#000000' } },
+        { id: 'tu_d', name: 'deleteNode', args: { nodeName: 'Pluto' } }
+      ] },
+      { text: 'There is no Pluto here.' }
+    ]);
+    const results = Object.fromEntries(r.events.filter(e => e.type === 'tool_result').map(e => [e.name, e.result]));
+    expect(results.updateNode).toMatchObject({ updated: false, notFound: true });
+    expect(results.deleteNode).toMatchObject({ deleted: false, notFound: true });
+    expect(useGraphStore.getState().nodePrototypes.size).toBe(before);
+    // What the model read carries the honest result.
+    expect(JSON.stringify(r.requests[1].body)).toContain('nothing was updated');
   });
 });

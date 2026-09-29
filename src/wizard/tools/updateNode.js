@@ -76,6 +76,13 @@ export async function updateNode(args, graphState, cid, ensureSchedulerStarted) 
     instanceId: resolved?.instanceId || null,
     originalName: resolved?.name || lookupName,
     updates,
-    updated: true
+    // Not in this workspace: the action still goes out, since the app resolves
+    // by name against the live store (a type-only node is not in the snapshot),
+    // but the result must not claim an edit that most likely did not happen.
+    updated: !!resolved,
+    ...(resolved ? {} : {
+      notFound: true,
+      note: `No node named "${lookupName}" is in this workspace, so nothing was updated. Check the name with readGraph.`
+    })
   };
 }

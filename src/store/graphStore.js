@@ -5884,11 +5884,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             const existingInst = graph.instances.get(existingInstanceId);
             const existingProto = draft.nodePrototypes.get(existingInst.prototypeId);
             if (existingProto) {
-              // Update description/color if new values are provided
-              if (node.description && node.description.trim()) {
+              // Fill blanks only. Naming a node that already exists is a
+              // reference to it, not an edit: overwriting here replaced a
+              // user's own description (and, since createNode always sends a
+              // color, reset their color to the default) without a word.
+              // Deliberate edits go through updateNodePrototype.
+              if (node.description && node.description.trim() && !(existingProto.description || '').trim()) {
                 existingProto.description = node.description;
               }
-              if (node.color) {
+              if (node.color && (!existingProto.color || existingProto.color === NODE_DEFAULT_COLOR)) {
                 existingProto.color = node.color;
               }
             }

@@ -61,6 +61,26 @@ export function openaiStream({ text, tools = [], promptTokens = 1000 }) {
   return streamOf(out);
 }
 
+/** Gemini streamGenerateContent (alt=sse): each chunk is a candidate with parts. */
+export function geminiStream({ text, tools = [], promptTokens = 1000 }) {
+  let out = '';
+  const d = (obj) => { out += `data: ${JSON.stringify(obj)}\r\n\r\n`; };
+  if (text) for (const part of pieces(text, 12)) d({ candidates: [{ content: { role: 'model', parts: [{ text: part }] }, index: 0 }] });
+  if (tools.length) {
+    d({ candidates: [{ content: { role: 'model', parts: tools.map(t => ({ functionCall: { name: t.name, args: t.args } })) }, index: 0 }] });
+  }
+  d({ candidates: [{ content: { role: 'model', parts: [] }, finishReason: 'STOP', index: 0 }], usageMetadata: { promptTokenCount: promptTokens, candidatesTokenCount: 50, totalTokenCount: promptTokens + 50 } });
+  return streamOf(out);
+}
+
+/** Which wire format a request URL speaks, or null for a non-model request. */
+export function formatForUrl(u) {
+  if (/api\.anthropic\.com/.test(u)) return 'anthropic';
+  if (/generativelanguage\.googleapis\.com/.test(u)) return 'google';
+  if (/openrouter\.ai|api\.openai\.com|localhost:11434|llm\.example\.test/.test(u)) return 'openai';
+  return null;
+}
+
 /**
  * Replace global fetch. `script(i, body)` returns the i-th model turn:
  * `{ text?, tools?: [{ id, name, args }], promptTokens? }`, or `{ status, errorBody }`
@@ -72,12 +92,14 @@ export function installFakeProvider(format, script) {
   const original = globalThis.fetch;
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
-    if (/anthropic\.com|openrouter\.ai/.test(u)) {
+    const wire = formatForUrl(u);
+    if (wire) {
       const body = JSON.parse(opts.body);
-      log.model.push({ url: u, headers: opts.headers, body });
+      log.model.push({ url: u, headers: opts.headers, body, wire });
       const turn = typeof script === 'function' ? script(log.model.length - 1, body) : script[Math.min(log.model.length - 1, script.length - 1)];
       if (turn.status) return new Response(turn.errorBody || 'error', { status: turn.status });
-      return format === 'anthropic' ? anthropicStream(turn) : openaiStream(turn);
+      if (turn.raw) return streamOf(turn.raw);
+      return wire === 'anthropic' ? anthropicStream(turn) : wire === 'google' ? geminiStream(turn) : openaiStream(turn);
     }
     log.other.push(u);
     throw new TypeError(`fetch refused in test: ${u}`);
@@ -94,6 +116,22 @@ export function installFakeProvider(format, script) {
 export function transcriptProblems(format, body) {
   const problems = [];
   const msgs = body.messages || [];
+  if (format === 'google') {
+    const contents = body.contents || [];
+    if (contents[0]?.role !== 'user') problems.push('first content is not from the user');
+    contents.forEach((c, i) => {
+      if (!['user', 'model'].includes(c.role)) problems.push(`bad role ${c.role} at ${i}`);
+      const calls = (c.parts || []).filter(p => p.functionCall).length;
+      if (c.role === 'model' && calls) {
+        const answered = (contents[i + 1]?.parts || []).filter(p => p.functionResponse).length;
+        if (answered !== calls) problems.push(`${calls} functionCall parts at ${i} but ${answered} functionResponse parts in the next content`);
+      }
+      for (const p of c.parts || []) {
+        if (p.functionResponse && (typeof p.functionResponse.response !== 'object' || Array.isArray(p.functionResponse.response))) problems.push(`functionResponse.response is not an object at ${i}`);
+      }
+    });
+    return problems;
+  }
   if (format === 'anthropic') {
     const blocks = (m) => (Array.isArray(m?.content) ? m.content : []);
     if (msgs[0]?.role !== 'user') problems.push('first message is not from the user');

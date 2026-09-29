@@ -93,7 +93,13 @@ export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) 
     instanceId: resolved?.instanceId || null,
     prototypeId: resolved?.prototypeId || null,
     name: resolved?.name || lookupName,
-    deleted: true
+    // See updateNode: delegate to the app, but never report a delete that
+    // most likely did not happen.
+    deleted: !!resolved,
+    ...(resolved ? {} : {
+      notFound: true,
+      note: `No node named "${lookupName}" is in this workspace, so nothing was deleted. Check the name with readGraph.`
+    })
   };
 
   // Destructive op: never delete on a fuzzy/model-resolved guess silently.

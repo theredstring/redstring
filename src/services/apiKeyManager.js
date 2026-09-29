@@ -476,15 +476,15 @@ class APIKeyManager {
    */
   getDefaultModel(provider) {
     const models = {
-      'anthropic': 'claude-3-5-sonnet-20241022',
+      'anthropic': 'claude-sonnet-5-5',
       'openai': 'gpt-4o',
-      'openrouter': 'anthropic/claude-3-sonnet', // Fixed: Use the correct model name
+      'openrouter': 'anthropic/claude-sonnet-5.5',
       'local': 'llama2', // Ollama default
       'google': 'gemini-3.5-flash',
       'cohere': 'command-r',
       'custom': ''
     };
-    return models[provider] || 'claude-3-5-sonnet-20241022';
+    return models[provider] || 'anthropic/claude-sonnet-5.5';
   }
 
   /**
@@ -493,17 +493,14 @@ class APIKeyManager {
    */
   getOpenRouterModels() {
     return [
-      { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet', provider: 'Anthropic' },
-      { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku', provider: 'Anthropic' },
-      { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic' },
+      { id: 'anthropic/claude-sonnet-5.5', name: 'Claude Sonnet 5.5', provider: 'Anthropic' },
+      { id: 'anthropic/claude-opus-5.5', name: 'Claude Opus 5.5', provider: 'Anthropic' },
+      { id: 'anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5', provider: 'Anthropic' },
+      { id: 'openai/gpt-5.5', name: 'GPT-5.5', provider: 'OpenAI' },
+      { id: 'openai/gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI' },
       { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI' },
-      { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI' },
-      { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'OpenAI' },
-      { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo', provider: 'OpenAI' },
-      { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B', provider: 'Meta' },
-      { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5', provider: 'Google' },
-      { id: 'perplexity/llama-3.1-sonar-large-128k-online', name: 'Perplexity Sonar Large (Online)', provider: 'Perplexity' },
-      { id: 'mistralai/mixtral-8x7b-instruct', name: 'Mixtral 8x7B', provider: 'Mistral AI' }
+      { id: 'google/gemini-3.5-flash', name: 'Gemini 3.5 Flash', provider: 'Google' },
+      { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'Google' }
     ];
   }
 
@@ -651,9 +648,9 @@ class APIKeyManager {
    */
   getAnthropicModels() {
     return [
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
-      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
+      { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5' },
+      { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
+      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5' }
     ];
   }
 
@@ -680,8 +677,9 @@ class APIKeyManager {
       { id: 'anthropic', name: 'Anthropic Claude' },
       { id: 'openai', name: 'OpenAI GPT' },
       { id: 'google', name: 'Google Gemini' },
-      { id: 'cohere', name: 'Cohere' },
-      { id: 'custom', name: 'Custom Provider' }
+      // Cohere is not listed: its native chat API isn't one the Wizard speaks.
+      // Its models are reachable through OpenRouter.
+      { id: 'custom', name: 'Custom Provider (OpenAI-compatible)' }
     ];
   }
 }
