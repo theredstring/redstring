@@ -512,6 +512,7 @@ const Node = ({
       />
 
       <foreignObject
+        data-node-title
         x={nodeX}
         y={nodeY} // Use absolute nodeY
         width={currentWidth}
@@ -726,6 +727,7 @@ const Node = ({
               Visual rounding is done via rx/ry on the background rect only. */}
           <g>
             <rect
+              data-preview-canvas
               x={nodeX + effPadding}
               y={contentAreaY}
               width={innerNetworkWidth}
@@ -741,7 +743,9 @@ const Node = ({
               // WebKit when the parent SVG canvas has a scale transform. InnerNetwork is
               // a plain <g> that renders directly into the existing SVG coordinate space,
               // so it works on all platforms without any foreignObject workarounds.
-              <g transform={`translate(${nodeX + effPadding}, ${contentAreaY})`} pointerEvents="none">
+              // data-preview-network: the box morph (groups/boxMorph.js) carries this
+              // drawing into the thing group when the node opens in place.
+              <g data-preview-network transform={`translate(${nodeX + effPadding}, ${contentAreaY})`} pointerEvents="none">
                 <InnerNetwork
                   nodes={currentGraphNodes}
                   edges={currentGraphEdges}

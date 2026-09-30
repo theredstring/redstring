@@ -27,6 +27,7 @@ import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { expandNodeInPlace } from '../actions/expandInPlace.js';
+import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import {
   onCarouselClose,
@@ -310,8 +311,10 @@ export default function ControlPanelsHost({ ctx }) {
     }
 
     // Collapsing saves the group into its definition first, so a definition can be
-    // built in place and folded away without a separate save.
-    const newInstanceId = storeActions.collapseNodeGroupIntoDefinition(activeGraphId, selectedGroup.id);
+    // built in place and folded away without a separate save. The box folds into
+    // its node as it goes (groups/boxMorph.js).
+    const newInstanceId = withBoxCloseMorph({ viewGraphId: activeGraphId, groupId: selectedGroup.id },
+      () => storeActions.collapseNodeGroupIntoDefinition(activeGraphId, selectedGroup.id));
 
     setGroupControlPanelVisible(false);
     setSelectedGroup(null);

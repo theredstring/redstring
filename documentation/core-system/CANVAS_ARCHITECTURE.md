@@ -97,7 +97,7 @@ NodeCanvas's JSX is a list of layers. From the bottom:
 5. `ConnectionDrawOverlay`: the connection being drawn
 6. `NodeLayer part="rest"`: memoized; subscribes to selection, preview, pie target and carousel itself
 7. Group titles
-8. `DeletionGhostLayer`
+8. `DeletionGhostLayer`, with `BoxMorphLayer` (a Thing opening into its box and folding back) mounted inside it
 9. `PieMenusLayer`: the node pie (`NodePieMenuLayer`, memoized, reads its data from canvasUIStore) and the edge pie (memoized)
 10. `OrbitDimRect`
 11. `NodeLayer part="top"`: the active node (with the orbit overlay while orbiting), then the dragged node
@@ -141,7 +141,7 @@ Use a command, not a new window event or a callback prop threaded through NodeCa
 | `colorPickers/`, `dialogs/`, `wizard/` | Feature stores and their hosts |
 | `data/` | Canvas nodes and dimensions, culling, active-graph data upkeep, back-to-civilization visibility, the store action bag |
 | `edges/` | Whole-graph edge geometry, label budgets, the create/delete animations (`edgeTransitions.js`, mounted by `EdgeTransitionLayer` at the end of EdgeLayer) |
-| `groups/` | Group layouts as data, group elements, group input, the anchor flush |
+| `groups/` | Group layouts as data, group elements, group input, the anchor flush, the box morph (`boxMorph.js`) |
 | `input/` | Pointer handlers, connection drawing, edge input, controller targets |
 | `layers/`, `hosts/` | As above |
 | `menus/` | Context-menu builders |
@@ -179,6 +179,7 @@ Decompose opens a Thing onto its definition itself (`src/core/openDefinitions.js
 - **Connections across a box's edge** live in the outer web, with `sourceVia` / `destinationVia` naming the boxes the end is reached through. With the box closed they are drawn to the Thing's node (`openView.edges`); nothing is rewritten.
 - **One opening per view.** A definition opens once per web and never inside itself, so every drawn instance id is unique.
 - **The setting.** Settings › Panels › "Decompose Into The Definition" (`openDefinitionsInPlace`, default on). Off, Decompose copies into a node-group as before (`actions/expandInPlace.js` chooses).
+- **The morph.** Opening and combining animate (`groups/boxMorph.js`), in the DOM like the connection transitions: the store writes at once, and a stand-in carries the node's card, interior, title and content to the box's band, interior, tab and 1:1 nodes (or back) while the real elements wait hidden. A preview's drawing is carried as one matrix, which works because the preview is the canvas under a `scale()`. Both ends are read from the DOM, so the morph never duplicates layout. Call `withBoxOpenMorph` / `withBoxCloseMorph` around the store write (`expandNodeInPlace` and the group panel's Combine do); F41 covers it.
 - **Old copy-style boxes** keep working. Closing one saves only what changed, keeps both definitions if the definition changed elsewhere meanwhile (`definitionFingerprint`), and carries its outside connections into the definition instead of collapsing them onto the node.
 
 ## Patterns
