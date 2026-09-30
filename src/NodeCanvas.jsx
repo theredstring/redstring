@@ -2212,8 +2212,8 @@ function NodeCanvas() {
     prevRecomposeNodeIdRef.current = previewingNodeId;
     if (!was || previewingNodeId) return; // recompose = node -> null only
     if (abstractionCarouselVisible || isTransitioningPieMenu || draggingNodeInfoRef.current) return;
-    focusNodeInView(was);
-  }, [previewingNodeId, abstractionCarouselVisible, isTransitioningPieMenu, focusNodeInView]);
+    focusNodeInView(was, { recompose: true, focusOnSelectEnabled }); // into its box: frames the box (framing.js)
+  }, [previewingNodeId, abstractionCarouselVisible, isTransitioningPieMenu, focusNodeInView, focusOnSelectEnabled]);
 
   // The node the carousel returns to is framed by the pie machine's `frame
   // returnFocus` command (handlePieCommand), not an effect (P5.02b step 4).

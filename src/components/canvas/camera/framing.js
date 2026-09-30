@@ -166,8 +166,71 @@ export function focusEdgePieMenuInViewWith(ctx, anchor, buttonCount, labelRect =
   });
 }
 
-/** Bring a node (and room for its pie menu) into view. */
-export function focusNodeInViewWith(ctx, nodeId) {
+// Room left around a box opened in place when it is brought into view, in screen px.
+const BOX_VIEW_PADDING = 48;
+
+/**
+ * Bring a box that has just opened (a Thing decomposed into its thing group) into
+ * view: its whole shell, as drawn. Only moves when some of it is out of view, and
+ * never zooms in past where the view already is, so it reads as making room for
+ * what opened rather than as a focus: a box that fits at this zoom is nudged just
+ * far enough to be wholly in view, and one that doesn't is zoomed out to and
+ * centred.
+ */
+function frameBoxInViewWith(ctx, groupId) {
+  const {
+    runFramingAfterCommit, getFramingRegion, MIN_ZOOM, canvasSize, viewportSize, zoomLevelRef, panOffsetRef,
+    animateCanvasView,
+  } = ctx;
+  runFramingAfterCommit(() => {
+    const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(groupId) : groupId;
+    const band = document.querySelector(`svg.canvas .node-group-bg[data-group-id="${id}"] > rect`);
+    if (!band) return;
+    const num = (name) => parseFloat(band.getAttribute(name)) || 0;
+    const box = { x: num('x'), y: num('y'), w: num('width'), h: num('height') };
+    if (box.w <= 0 || box.h <= 0) return;
+
+    const vb = getFramingRegion({ reserveBottomPanel: true });
+    const room = {
+      x: vb.x + BOX_VIEW_PADDING, y: vb.y + BOX_VIEW_PADDING,
+      w: vb.width - 2 * BOX_VIEW_PADDING, h: vb.height - 2 * BOX_VIEW_PADDING,
+    };
+    if (room.w <= 0 || room.h <= 0) return;
+    const curZoom = zoomLevelRef.current;
+    const curPan = panOffsetRef.current;
+
+    let tz = curZoom;
+    let targetPan;
+    if (box.w * curZoom <= room.w && box.h * curZoom <= room.h) {
+      // Fits at this zoom: shift by just what brings each side into view.
+      const left = curPan.x + (box.x - canvasSize.offsetX) * curZoom;
+      const top = curPan.y + (box.y - canvasSize.offsetY) * curZoom;
+      const nudge = (start, size, from, span) => (
+        start < from ? from - start : (start + size > from + span ? from + span - (start + size) : 0)
+      );
+      const dx = nudge(left, box.w * curZoom, room.x, room.w);
+      const dy = nudge(top, box.h * curZoom, room.y, room.h);
+      if (dx === 0 && dy === 0) return;
+      targetPan = { x: curPan.x + dx, y: curPan.y + dy };
+    } else {
+      tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, curZoom, room.w / box.w, room.h / box.h));
+      targetPan = {
+        x: room.x + room.w / 2 - (box.x + box.w / 2 - canvasSize.offsetX) * tz,
+        y: room.y + room.h / 2 - (box.y + box.h / 2 - canvasSize.offsetY) * tz,
+      };
+    }
+    animateCanvasView(clampPan(targetPan, tz, viewportSize, canvasSize), tz);
+  });
+}
+
+/**
+ * Bring a node (and room for its pie menu) into view.
+ *
+ * `recompose`: the node has just stopped showing its preview. If that is because
+ * it opened into its box, the box is brought into view instead; otherwise this
+ * is a focus like any other, so it waits on focus-on-select being on.
+ */
+export function focusNodeInViewWith(ctx, nodeId, { recompose = false, focusOnSelectEnabled = true } = {}) {
   const {
     nodes, runFramingAfterCommit, getFramingRegion, textSettings, focusOnSelectZoomAmount, MIN_ZOOM,
     canvasSize, viewportSize, zoomLevelRef, panOffsetRef, animateCanvasView,
@@ -175,6 +238,11 @@ export function focusNodeInViewWith(ctx, nodeId) {
   if (!FOCUS_ON_SELECT_ENABLED || !nodeId) return;
   const node = nodes.find(n => n.id === nodeId);
   if (!node) return;
+  if (recompose && node.isGroupAnchor && node.anchorForGroupId) {
+    frameBoxInViewWith(ctx, node.anchorForGroupId);
+    return;
+  }
+  if (recompose && !focusOnSelectEnabled) return;
   runFramingAfterCommit(() => {
   const dims = getNodeDimensions(node, false, null);
   const centerX = node.x + dims.currentWidth / 2;

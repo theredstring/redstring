@@ -31,7 +31,7 @@ const morphState = (page) => page.evaluate((zeta) => {
   return {
     standIn: !!standIn,
     // The stand-in's content group: the copy it carries (the preview's drawing, or the box's inside).
-    carries: standIn ? [...standIn.children].some(child => child.tagName === 'g' && child.childElementCount > 0) : false,
+    carries: (standIn?.querySelector('[data-morph-part="content"]')?.childElementCount ?? 0) > 0,
     hideRules: document.querySelectorAll('style[data-box-morph]').length,
     zeta: zetaNode ? getComputedStyle(zetaNode).visibility : 'absent',
   };
@@ -97,4 +97,133 @@ test('F41 with reduced motion, nothing morphs', async ({ page }) => {
   await pieButton(page, 'package-open').click();
   await expect.poll(() => morphState(page)).toEqual({ ...settled, zeta: 'visible' });
   expect(await page.evaluate(() => window.__standInsSeen)).toBe(0);
+});
+
+// Connections crossing the box's edge: two to Cluster itself (one with an arrow,
+// one without), one from Beta to Zeta, inside Cluster's definition, and one from
+// a node far off screen, which the canvas culls and so never draws.
+const CROSSING = ['e-f41-to-thing', 'e-f41-from-thing', 'e-f41-to-zeta', 'e-f41-far'];
+
+async function addCrossingConnections(page) {
+  await storeEval(page, (st, [w, c, z]) => {
+    const plain = (id, sourceId, destinationId, arrowsToward) => st.addEdge(w, {
+      id, sourceId, destinationId, typeNodeId: 'base-connection-prototype', directionality: { arrowsToward: new Set(arrowsToward) },
+    });
+    const gamma = st.graphs.get(w).instances.get('i-gamma');
+    st.addNodeInstance(w, gamma.prototypeId, { x: gamma.x - 9000, y: gamma.y + 6000 }, 'i-f41-far');
+    plain('e-f41-far', 'i-f41-far', c, [c]);
+    plain('e-f41-to-thing', 'i-gamma', c, [c]);
+    plain('e-f41-from-thing', c, 'i-epsilon', []);
+    // Made with the box open, as drawing it would be: it lives on web A, reaching Zeta through Cluster.
+    st.openDefinitionInPlace(w, c, 0);
+    plain('e-f41-to-zeta', 'i-beta', z, [z]);
+    st.closeDefinitionInPlace(w, c);
+  }, [WEB, CLUSTER, ZETA]);
+  await nextFrames(page, 5);
+}
+
+const crossingState = (page) => page.evaluate((ids) => {
+  const edgesLayer = document.querySelector('[data-box-morphs] [data-morph-part="connections"]');
+  const labelsLayer = document.querySelector('[data-box-morphs] [data-morph-part="labels"]');
+  return {
+    // The stand-in's connections, each drawn with a stroke.
+    drawn: edgesLayer ? [...edgesLayer.children].filter(g => g.querySelector('line, path')).length : 0,
+    // Their labels travel with them (the node's and the box's, crossfading).
+    labels: (labelsLayer?.childElementCount ?? 0) > 0,
+    real: ids.map(id => {
+      const el = document.querySelector(`svg.canvas [data-edge-id="${id}"]`);
+      return el ? getComputedStyle(el).visibility : 'absent';
+    }),
+  };
+}, CROSSING);
+
+test('F41 connections crossing the box stay attached while it opens and folds', async ({ page }) => {
+  await slowableClock(page);
+  await openFixture(page, 'small');
+  await storeEval(page, (st, [w, g]) => st.collapseNodeGroupIntoDefinition(w, g), [WEB, OLD_COPY_GROUP]);
+  await addCrossingConnections(page);
+  await waitForCameraSettled(page);
+  await openPieMenu(page, CLUSTER);
+  await pieButton(page, 'package-open').click();
+  await nextFrames(page, 30);
+  await waitForCameraSettled(page);
+
+  // Opening: the stand-in draws all three while the real ones wait hidden…
+  await page.evaluate(() => window.__setClockSlowdown(20));
+  await pieButton(page, 'package-open').click();
+  await expect.poll(() => crossingState(page)).toEqual({ drawn: 4, labels: true, real: ['hidden', 'hidden', 'hidden', 'hidden'] });
+  // …then hands them back.
+  await page.evaluate(() => window.__setClockSlowdown(1));
+  await expect.poll(() => morphState(page)).toEqual({ ...settled, zeta: 'visible' });
+  expect(await crossingState(page)).toEqual({ drawn: 0, labels: false, real: ['visible', 'visible', 'visible', 'visible'] });
+  await waitForCameraSettled(page);
+
+  // Folding: the same, onto Cluster.
+  await page.evaluate(() => window.__setClockSlowdown(20));
+  await page.locator('[title="Combine Into Thing"]').first().click();
+  await expect.poll(() => crossingState(page)).toEqual({ drawn: 4, labels: true, real: ['hidden', 'hidden', 'hidden', 'hidden'] });
+  await page.evaluate(() => window.__setClockSlowdown(1));
+  await expect.poll(() => morphState(page)).toEqual({ ...settled, zeta: 'absent' });
+  expect(await crossingState(page)).toEqual({ drawn: 0, labels: false, real: ['visible', 'visible', 'visible', 'visible'] });
+});
+
+// ─── The camera ───────────────────────────────────────────────────────────────
+
+const DEF = '00000000-0000-4000-8100-000000000004';
+const ETA = '00000000-0000-4000-8100-00000000000a';
+
+/** The opened box's shell on screen, and whether it sits wholly inside the canvas. */
+const boxOnScreen = (page) => page.evaluate((cluster) => {
+  const band = document.querySelector(`svg.canvas .node-group-bg[data-group-id="open:${cluster}"] > rect`);
+  const r = band?.getBoundingClientRect();
+  const canvas = document.querySelector('svg.canvas').getBoundingClientRect();
+  return r ? { inside: r.left >= canvas.left && r.top >= canvas.top && r.right <= canvas.right && r.bottom <= canvas.bottom } : null;
+}, CLUSTER);
+
+async function decomposeFurther(page) {
+  await pieButton(page, 'package-open').click();
+  await expect.poll(() => morphState(page)).toEqual({ ...settled, zeta: 'visible' });
+  return waitForCameraSettled(page);
+}
+
+test('F41 a box that fits at the current zoom keeps the zoom and is only nudged into view', async ({ page }) => {
+  await openClusterPreview(page);
+  const before = await waitForCameraSettled(page);
+  const after = await decomposeFurther(page);
+  expect(after.zoom).toBeCloseTo(before.zoom, 5);
+  expect(Math.hypot(after.pan.x - before.pan.x, after.pan.y - before.pan.y)).toBeLessThan(120);
+  expect(await boxOnScreen(page)).toEqual({ inside: true });
+});
+
+test('F41 a box too big for the view zooms out until it fits, never in', async ({ page }) => {
+  await openFixture(page, 'small');
+  await storeEval(page, (st, [w, g]) => st.collapseNodeGroupIntoDefinition(w, g), [WEB, OLD_COPY_GROUP]);
+  // Spread Cluster's definition wide, so its box outgrows the view.
+  await storeEval(page, (st, [d, eta]) => st.updateNodeInstance(d, eta, (inst) => { inst.x += 4000; inst.y += 1500; }), [DEF, ETA]);
+  await waitForCameraSettled(page);
+  await openPieMenu(page, CLUSTER);
+  await pieButton(page, 'package-open').click();
+  await nextFrames(page, 30);
+  const before = await waitForCameraSettled(page);
+  const after = await decomposeFurther(page);
+  expect(after.zoom).toBeLessThan(before.zoom);
+  expect(await boxOnScreen(page)).toEqual({ inside: true });
+});
+
+test('F41 with focus-on-select off, Compose leaves the camera where it is', async ({ page }) => {
+  await openFixture(page, 'small');
+  await storeEval(page, (st, [w, g]) => st.collapseNodeGroupIntoDefinition(w, g), [WEB, OLD_COPY_GROUP]);
+  await openPieMenu(page, CLUSTER);
+  await pieButton(page, 'package-open').click();
+  await nextFrames(page, 30);
+  await storeEval(page, (st) => { if (st.focusOnSelectEnabled !== false) st.toggleFocusOnSelectEnabled(); });
+  const before = await waitForCameraSettled(page);
+  await pieButton(page, 'package').click(); // Compose
+  await expect.poll(() => page.evaluate(async () => {
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    return ui.getState().previewingNodeId;
+  })).toBe(null);
+  const after = await waitForCameraSettled(page);
+  expect(after.zoom).toBeCloseTo(before.zoom, 5);
+  expect(after.pan.x).toBeCloseTo(before.pan.x, 1);
 });
