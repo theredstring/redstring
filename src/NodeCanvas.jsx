@@ -3433,7 +3433,7 @@ function NodeCanvas() {
     gamepadPieFocusedIndex, currentPieMenuNodeId, semanticOrbitActive, isTransitioningPieMenu,
     abstractionPrompt, carouselAnimationState, draggingNodeInfo, handlePieMenuHoverChange,
     handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
-    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered,
+    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef,
   };
 
   // The pointer handlers' context (P4.04a), assigned during render for the same

@@ -1180,6 +1180,7 @@ export async function runExecutorOnce() {
       const graphName = validation.sanitized.graph_name;
       const graphSpec = validation.sanitized.graph_spec || {};
       const layoutAlgorithm = validation.sanitized.layout_algorithm || 'force';
+      const layoutMode = validation.sanitized.layout_mode || 'auto';
 
       // This will be resolved by the committer after the graph is created
       // For now, use a placeholder that the committer will replace

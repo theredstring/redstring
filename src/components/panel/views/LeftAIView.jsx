@@ -2394,7 +2394,7 @@ const LeftAIView = ({ compact = false,
     try {
       if (!hasAPIKey) {
         addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
-        setShowAPIKeySetup(true);
+        window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }));
         setIsProcessing(false);
         return;
       }
@@ -2515,12 +2515,12 @@ const LeftAIView = ({ compact = false,
       const apiKey = await apiKeyManager.getAPIKey();
       if (!apiKey) {
         addMessage('system', 'No API key configured. Please set up your OpenRouter or Anthropic API key below to use the Wizard.');
-        setShowAPIKeySetup(true);
+        window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }));
         return;
       }
       if (!apiConfig) {
         addMessage('system', 'API configuration not found. Please set up your API key below.');
-        setShowAPIKeySetup(true);
+        window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }));
         return;
       }
       // Pre-create the AI message so telemetry tool_call events (which fire after the
@@ -3797,7 +3797,7 @@ const LeftAIView = ({ compact = false,
               className="ai-flat-button"
               style={{ fontSize: '11px', padding: '4px 8px' }}
               onClick={() => {
-                setShowAPIKeySetup(true);
+                window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }));
                 setShowAdvanced(false);
               }}
             >

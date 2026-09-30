@@ -21,6 +21,7 @@
  *    directly rather than injected.
  */
 import useGraphStore from '../store/graphStore.js';
+import { clearTabularData } from './tabularDataStore.js';
 import { resolveGraphId } from '../wizard/tools/resolveGraphId.js';
 import {
   DEFAULT_ABSTRACTION_DIMENSION,
@@ -1655,7 +1656,7 @@ export function applyToolResultToStore(toolName, rawResult, toolCallId, conversa
     } else {
       store.createGroup(graphId, {
         name: result.name,
-        color: result.color || theme.accent.primary,
+        color: result.color || '#8B0000',
         memberInstanceIds
       });
       console.log('[Wizard] Successfully created group:', result.name, '| members:', memberInstanceIds.length);

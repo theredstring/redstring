@@ -3161,7 +3161,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         : '';
       setSyncStatus({
         type: 'success',
-        message: `Linked ${displayPath || file.name}${nodeCountLabel}`
+        message: `Linked ${displayPath || fileName}${nodeCountLabel}`
       });
     } catch (error) {
       umError('[UniverseManager] Failed to finalize local file link:', error);

@@ -5,7 +5,18 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist'] },
+  {
+    ignores: [
+      'dist',
+      'dist-*',
+      '.claude/**',
+      'ios/**',
+      'android/**',
+      'node_modules',
+      '**/*.bundle.cjs',
+      '**/.vite-cache/**',
+    ],
+  },
   // Build and release tooling runs in Node, not the browser. Without this these
   // files report `process`/`__dirname` as undefined globals.
   {
@@ -23,6 +34,22 @@ export default [
       'cli/**/*.js',
     ],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
+  },
+  // Tests, configs, electron and the root servers run in Node (tests also use
+  // vitest globals).
+  {
+    files: [
+      'test/**/*.{js,jsx,mjs}',
+      'src/**/*.test.{js,jsx}',
+      'electron/**/*.{js,cjs}',
+      'functions/**/*.js',
+      'cloudflare/**/*.js',
+      '*.config.js',
+      '*.js',
+    ],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser, ...globals.jest },
+    },
   },
   {
     files: ['**/*.{js,jsx}'],
@@ -47,6 +74,8 @@ export default [
       ...react.configs['jsx-runtime'].rules,
       ...reactHooks.configs.recommended.rules,
       'react/jsx-no-target-blank': 'off',
+      // The codebase doesn't use PropTypes.
+      'react/prop-types': 'off',
       'react-refresh/only-export-components': [
         'warn',
         { allowConstantExport: true },

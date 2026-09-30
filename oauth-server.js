@@ -867,7 +867,7 @@ app.get('/oauth/callback', (req, res) => {
 // Refresh OAuth access token
 app.post('/api/github/oauth/refresh', oauthSensitiveLimiter, async (req, res) => {
   try {
-    const { refresh_token } = req.body;
+    const { refresh_token, redirect_uri } = req.body;
     
     logger.debug('[OAuth] Refresh token request:', {
       hasRefreshToken: !!refresh_token,

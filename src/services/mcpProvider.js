@@ -634,6 +634,7 @@ class RedstringMCPServer {
   async identifyPatterns(args) {
     const { pattern_type, min_occurrences, graph_id, abstraction_level } = args;
     const store = useGraphStore.getState();
+    const minOccurrences = min_occurrences;
     
     const patterns = [];
 

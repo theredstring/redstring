@@ -2,7 +2,7 @@
  * The node pie and the edge pie, drawn under the active node (moved verbatim
  * from NodeCanvas). Both menus are memoized (P5.03).
  */
-import { Profiler, memo, useCallback } from 'react';
+import { Profiler, memo, useCallback, useRef } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import NodePieMenuLayer from './NodePieMenuLayer.jsx';
 import PieMenu from '../../../PieMenu.jsx';
@@ -18,8 +18,10 @@ export default function PieMenusLayer({ ctx }) {
     gamepadPieFocusedIndex, currentPieMenuNodeId, semanticOrbitActive, isTransitioningPieMenu,
     abstractionPrompt, carouselAnimationState, draggingNodeInfo, handlePieMenuHoverChange,
     handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
-    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered,
+    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef,
   } = ctx;
+
+  const placedAnchorRef = useRef(null);
 
   // Stable, so the memoized edge menu isn't re-rendered for a new closure; the
   // refs and the setter it touches never change.
@@ -74,7 +76,26 @@ export default function PieMenusLayer({ ctx }) {
         // straight to another. The glide to the new midpoint is a CSS transition on
         // the bubbles (see PieMenu's line mode), so it plays either way; this only
         // decides whether it starts now or whenever something else happens to render.
-        const anchor = selectedEdgeMidpoint || edgePieMenuAnchorRef.current;
+        const liveAnchor = selectedEdgeMidpoint || edgePieMenuAnchorRef.current;
+        // The label the connection actually drew wins over the geometric middle:
+        // routed labels slide along the route to dodge nodes and each other (and
+        // sit clear of group outlines), so the plain midpoint can land beside the
+        // label rather than on it. The edge layer registers the drawn position
+        // before this layer renders; connections that don't register one keep the
+        // computed anchor.
+        const placedPos = liveAnchor?.edgeId ? placedLabelsRef?.current?.get(liveAnchor.edgeId)?.position : null;
+        let anchor = liveAnchor;
+        if (placedPos && Number.isFinite(placedPos.x) && Number.isFinite(placedPos.y)) {
+          let deg = (((placedPos.angle || 0) % 180) + 180) % 180;
+          if (deg > 90) deg -= 180;
+          const next = { ...liveAnchor, x: placedPos.x, y: placedPos.y, angle: deg * (Math.PI / 180) };
+          // Same values, same object: EdgePieMenu is memoized on the anchor's identity.
+          const prev = placedAnchorRef.current;
+          const same = prev && prev.edgeId === next.edgeId && prev.x === next.x && prev.y === next.y
+            && prev.angle === next.angle && prev.sourceId === next.sourceId && prev.destinationId === next.destinationId;
+          if (!same) placedAnchorRef.current = next;
+          anchor = placedAnchorRef.current;
+        }
         // Live buttons win whenever there are any; the frozen ref only stands in once
         // the list empties out, which is exactly the case it exists for — the edge is
         // deselected while the menu is still animating away, and the bubbles have to

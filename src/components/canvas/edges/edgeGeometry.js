@@ -91,6 +91,7 @@ export function computeSelectedEdgeMidpoint(ctx) {
     angle: normalized * (Math.PI / 180), // PieMenu's anchorAngle is radians
     sourceId: edge.sourceId,
     destinationId: destId,
+    edgeId,
   };
 }
 

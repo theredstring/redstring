@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check, History } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check, History, Info } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';

@@ -1608,10 +1608,6 @@ export async function comprehensiveDBpediaSearch(entityName, options = {}) {
     const relatedEntities = await findRelatedThroughDBpediaProperties(sanitizedEntityName, { timeout, limit: 30 });
     results.relatedEntities = relatedEntities;
     
-    // 5. Find entities in the same categories
-    const categoryEntities = await findEntitiesInSameCategories(sanitizedEntityName, results.categories, { timeout, limit: 20 });
-    results.relatedEntities.push(...categoryEntities);
-    
     return results;
     
   } catch (error) {

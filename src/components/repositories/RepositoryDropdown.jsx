@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
+import RepositoryManager from './RepositoryManager.jsx';
 import { ChevronDown, Settings,
   Trash2
 } from 'lucide-react';

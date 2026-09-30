@@ -239,7 +239,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       '[FileHandles] Failed to store file handle metadata:',
       {
         universeSlug,
-        fileName: fileName ?? additionalMetadata.fileName,
+        fileName: additionalMetadata.fileName,
         isElectron: isElectron(),
         error: error.message,
         stack: error.stack
