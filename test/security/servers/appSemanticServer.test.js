@@ -15,11 +15,16 @@ import { freePort, rawRequest, waitFor, spawnNode, killChild, ROOT } from './hel
 
 let fake; let fakePort; const seen = [];
 const servers = [];
+const scratchDirs = [];
 
 async function startApp(env) {
   const port = await freePort();
-  const child = spawnNode('deployment/app-semantic-server.js', {
-    cwd: undefined,
+  // The server writes universes under <cwd>/universes/, so run it from a
+  // scratch folder: a write that gets through must never land in the repo.
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-app-semantic-'));
+  scratchDirs.push(cwd);
+  const child = spawnNode(path.join(ROOT, 'deployment/app-semantic-server.js'), {
+    cwd,
     env: { PORT: String(port), OAUTH_HOST: `http://127.0.0.1:${fakePort}`, NODE_ENV: 'test', LOG_LEVEL: 'error', HOST: '', ...env },
   });
   servers.push(child);
@@ -40,6 +45,7 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const c of servers) await killChild(c);
   await new Promise((r) => fake.close(r));
+  for (const dir of scratchDirs) fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe('app-semantic-server without secrets configured', () => {
