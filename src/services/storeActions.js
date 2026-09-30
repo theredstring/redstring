@@ -27,6 +27,7 @@
  */
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { applyOffscreenLayout } from './offscreenLayout.js';
+import { vlog } from '../utils/verboseLog.js';
 
 // Coerce a raw id (string or wrapping object) to a string id. Pure — safe in
 // any host. Exported so BridgeClient's pending-action loop can reuse it.
@@ -77,7 +78,7 @@ export function createStoreActions({
             ensureGraph: async (rawId, initialData) => {
               markActive();
               const graphId = normalizeId(rawId, 'graphId');
-              console.log('MCPBridge: Calling ensureGraph', graphId, initialData);
+              vlog('MCPBridge: Calling ensureGraph', graphId, initialData);
               const st = useGraphStore.getState();
               if (!st.graphs.has(graphId)) {
                 st.createGraphWithId(graphId, initialData || {});
@@ -87,7 +88,7 @@ export function createStoreActions({
             addNodePrototype: async (arg1, arg2) => {
               const data = (arg2 || (arg1 && typeof arg1 === 'object' ? arg1 : {}));
               const prototypeId = normalizeId(arg1, 'id') || data.id || data.prototypeId;
-              console.log('MCPBridge: Calling addNodePrototype', prototypeId, data);
+              vlog('MCPBridge: Calling addNodePrototype', prototypeId, data);
 
               const dataWithId = { ...data, id: prototypeId };
               useGraphStore.getState().addNodePrototype(dataWithId);
@@ -104,7 +105,7 @@ export function createStoreActions({
               const position = arg3 || (arg1 && typeof arg1 === 'object' ? arg1.position : undefined);
               const instanceId = normalizeId(arg4 || arg1, 'instanceId');
 
-              console.log('MCPBridge: Calling addNodeInstance', { graphId, prototypeId, position, instanceId });
+              vlog('MCPBridge: Calling addNodeInstance', { graphId, prototypeId, position, instanceId });
               useGraphStore.getState().addNodeInstance(graphId, prototypeId, position, instanceId);
               return { success: true, instanceId };
             },
@@ -112,14 +113,14 @@ export function createStoreActions({
               const graphId = normalizeId(arg1, 'graphId');
               const instanceId = normalizeId(arg2 || arg1, 'instanceId');
 
-              console.log('MCPBridge: Calling removeNodeInstance', graphId, instanceId);
+              vlog('MCPBridge: Calling removeNodeInstance', graphId, instanceId);
               useGraphStore.getState().removeNodeInstance(graphId, instanceId);
               return { success: true, instanceId };
             },
             updateNodePrototype: async (arg1, arg2) => {
               const prototypeId = normalizeId(arg1, 'id');
               const updates = arg2 || (arg1 && typeof arg1 === 'object' ? arg1.updates || arg1 : {});
-              console.log('MCPBridge: Calling updateNodePrototype', prototypeId, updates);
+              vlog('MCPBridge: Calling updateNodePrototype', prototypeId, updates);
               useGraphStore.getState().updateNodePrototype(prototypeId, (prototype) => {
                 Object.assign(prototype, updates);
               });
@@ -127,7 +128,7 @@ export function createStoreActions({
             },
             setActiveGraph: async (rawId) => {
               const graphId = normalizeId(rawId, 'graphId');
-              console.log('MCPBridge: Calling setActiveGraph', graphId);
+              vlog('MCPBridge: Calling setActiveGraph', graphId);
               useGraphStore.getState().setActiveGraph(graphId);
               try {
                 const s = useGraphStore.getState();
@@ -141,7 +142,7 @@ export function createStoreActions({
             },
             openGraph: async (rawId) => {
               const graphId = normalizeId(rawId, 'graphId');
-              console.log('MCPBridge: Calling openGraphTab', graphId);
+              vlog('MCPBridge: Calling openGraphTab', graphId);
               useGraphStore.getState().openGraphTab(graphId);
               try {
                 const s = useGraphStore.getState();
@@ -159,7 +160,7 @@ export function createStoreActions({
               return { success: true, graphId };
             },
             createNewGraph: async (initialData) => {
-              console.log('MCPBridge: Calling createNewGraph', initialData);
+              vlog('MCPBridge: Calling createNewGraph', initialData);
               const beforeId = useGraphStore.getState().activeGraphId;
               useGraphStore.getState().createNewGraph(initialData || {});
               const afterId = useGraphStore.getState().activeGraphId;
@@ -181,24 +182,24 @@ export function createStoreActions({
               return { success: true, graphId: afterId || beforeId };
             },
             createAndAssignGraphDefinition: async (prototypeId) => {
-              console.log('MCPBridge: Calling createAndAssignGraphDefinition', prototypeId);
+              vlog('MCPBridge: Calling createAndAssignGraphDefinition', prototypeId);
               const graphId = useGraphStore.getState().createAndAssignGraphDefinition(prototypeId);
               return { success: true, graphId, prototypeId };
             },
             openRightPanelNodeTab: async (nodeId) => {
-              console.log('MCPBridge: Calling openRightPanelNodeTab', nodeId);
+              vlog('MCPBridge: Calling openRightPanelNodeTab', nodeId);
               useGraphStore.getState().openRightPanelNodeTab(nodeId);
               return { success: true, nodeId };
             },
             addEdge: async (arg1, arg2) => {
               const graphId = normalizeId(arg1, 'graphId');
               const edgeData = arg2 || (arg1 && typeof arg1 === 'object' ? arg1.edgeData : undefined);
-              console.log('MCPBridge: Calling addEdge', graphId, edgeData);
+              vlog('MCPBridge: Calling addEdge', graphId, edgeData);
               useGraphStore.getState().addEdge(graphId, edgeData);
               return { success: true, edgeId: edgeData?.id };
             },
             updateEdgeDirectionality: async (edgeId, arrowsToward) => {
-              console.log('MCPBridge: Calling updateEdgeDirectionality', edgeId, arrowsToward);
+              vlog('MCPBridge: Calling updateEdgeDirectionality', edgeId, arrowsToward);
               useGraphStore.getState().updateEdge(edgeId, (edge) => {
                 edge.directionality = {
                   arrowsToward: new Set(Array.isArray(arrowsToward) ? arrowsToward : [])
@@ -207,17 +208,17 @@ export function createStoreActions({
               return { success: true, edgeId };
             },
             addToAbstractionChain: async (nodeId, dimension, direction, newNodeId, insertRelativeToNodeId) => {
-              console.log('MCPBridge: Calling addToAbstractionChain', { nodeId, dimension, direction, newNodeId, insertRelativeToNodeId });
+              vlog('MCPBridge: Calling addToAbstractionChain', { nodeId, dimension, direction, newNodeId, insertRelativeToNodeId });
               useGraphStore.getState().addToAbstractionChain(nodeId, dimension, direction, newNodeId, insertRelativeToNodeId);
               return { success: true };
             },
             removeFromAbstractionChain: async (nodeId, dimension, nodeToRemove) => {
-              console.log('MCPBridge: Calling removeFromAbstractionChain', { nodeId, dimension, nodeToRemove });
+              vlog('MCPBridge: Calling removeFromAbstractionChain', { nodeId, dimension, nodeToRemove });
               useGraphStore.getState().removeFromAbstractionChain(nodeId, dimension, nodeToRemove);
               return { success: true };
             },
             swapNodeInChain: async (currentNodeId, newNodeId) => {
-              console.log('MCPBridge: Calling swapNodeInChain', currentNodeId, newNodeId);
+              vlog('MCPBridge: Calling swapNodeInChain', currentNodeId, newNodeId);
               useGraphStore.getState().swapNodeInChain(currentNodeId, newNodeId);
               return { success: true };
             },
@@ -247,16 +248,16 @@ export function createStoreActions({
                 });
 
                 tId = newProtoId;
-                console.log('MCPBridge: Auto-created type node (prototype only):', autoCreate.name, '→', newProtoId);
+                vlog('MCPBridge: Auto-created type node (prototype only):', autoCreate.name, '→', newProtoId);
               }
 
-              console.log('MCPBridge: Calling setNodeType', nId, '→', tId);
+              vlog('MCPBridge: Calling setNodeType', nId, '→', tId);
               st.setNodeType(nId, tId);
               return { success: true, nodeId: nId, typeNodeId: tId, ...(msg ? { message: msg } : {}) };
             },
             closeGraphTab: async (rawId) => {
               const graphId = normalizeId(rawId, 'graphId');
-              console.log('MCPBridge: Calling closeGraphTab', graphId);
+              vlog('MCPBridge: Calling closeGraphTab', graphId);
               useGraphStore.getState().closeGraphTab(graphId);
               return { success: true };
             },
@@ -308,7 +309,7 @@ export function createStoreActions({
             },
             chat: async (message, context) => {
               markActive();
-              console.log('MCPBridge: Forwarding chat message to AI model', { message, context });
+              vlog('MCPBridge: Forwarding chat message to AI model', { message, context });
               // The actual chat handling happens in the MCP server
               return { success: true, message, context };
             },
@@ -339,7 +340,7 @@ export function createStoreActions({
                       typeNodeId: p.typeNodeId || null,
                       definitionGraphIds: p.definitionGraphIds || []
                     });
-                    console.log('MCPBridge: ensurePrototype added missing prototype', p.name, prototypeId);
+                    vlog('MCPBridge: ensurePrototype added missing prototype', p.name, prototypeId);
                     return true;
                   }
                 } catch { }
@@ -351,7 +352,7 @@ export function createStoreActions({
                     case 'addNodePrototype': {
                       const st = useGraphStore.getState();
                       if (st.nodePrototypes.has(op.prototypeData?.id)) {
-                        console.log('MCPBridge: Prototype already exists, skipping', op.prototypeData?.id);
+                        vlog('MCPBridge: Prototype already exists, skipping', op.prototypeData?.id);
                         results.push({ type: op.type, ok: true, id: op.prototypeData?.id, skipped: true });
                         break;
                       }
@@ -363,7 +364,7 @@ export function createStoreActions({
                         typeNodeId: op.prototypeData.typeNodeId || null,
                         definitionGraphIds: op.prototypeData.definitionGraphIds || []
                       });
-                      console.log('MCPBridge: addNodePrototype created', op.prototypeData.name, op.prototypeData.id);
+                      vlog('MCPBridge: addNodePrototype created', op.prototypeData.name, op.prototypeData.id);
                       results.push({ type: op.type, ok: true, id: op.prototypeData.id });
                       break;
                     }
@@ -388,7 +389,7 @@ export function createStoreActions({
                         const friendly = `Added "${proto?.name || 'Concept'}" to "${g?.name || 'Graph'}" at (${Math.round(op.position?.x ?? 0)}, ${Math.round(op.position?.y ?? 0)})`;
                         emitEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
                         const afterCount = (g?.instances?.size) || 0;
-                        console.log('MCPBridge: addNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCountBefore: beforeCount, instanceCountAfter: afterCount });
+                        vlog('MCPBridge: addNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCountBefore: beforeCount, instanceCountAfter: afterCount });
                       } catch { }
                       results.push({ type: op.type, ok: true, id: op.instanceId });
                       break;
@@ -450,7 +451,7 @@ export function createStoreActions({
                         const proto = inst2 ? s2.nodePrototypes.get(inst2.prototypeId) : null;
                         const friendly = `Moved "${proto?.name || 'Concept'}" to (${Math.round(op.position?.x ?? 0)}, ${Math.round(op.position?.y ?? 0)})`;
                         emitEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'info', name: 'applyMutations', message: friendly }] }));
-                        console.log('MCPBridge: moveNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCount: g2?.instances?.size });
+                        vlog('MCPBridge: moveNodeInstance applied', { graphId: op.graphId, instanceId: op.instanceId, position: op.position, instanceCount: g2?.instances?.size });
                       } catch { }
                       results.push({ type: op.type, ok: true, id: op.instanceId });
                       break;
@@ -738,7 +739,7 @@ export function createStoreActions({
                 const s = useGraphStore.getState();
                 const a = s.activeGraphId;
                 const g = a ? s.graphs.get(a) : null;
-                console.log('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
+                vlog('MCPBridge: applyMutations summary', { activeGraphId: a, activeInstanceCount: g?.instances?.size, totalGraphs: s.graphs.size });
 
                 // Detect structural changes and collect affected graph IDs
                 const structuralTypes = new Set([
@@ -753,7 +754,7 @@ export function createStoreActions({
                 });
 
                 if (affectedGraphIds.size > 0) {
-                  console.log(`MCPBridge: Triggering auto-layout for ${affectedGraphIds.size} affected graph(s):`, [...affectedGraphIds]);
+                  vlog(`MCPBridge: Triggering auto-layout for ${affectedGraphIds.size} affected graph(s):`, [...affectedGraphIds]);
                   for (const gid of affectedGraphIds) {
                     try { applyOffscreenLayout(gid); } catch (e) { console.error('[BridgeClient] Offscreen layout failed for graph', gid, ':', e); }
                     if (typeof window !== 'undefined') {

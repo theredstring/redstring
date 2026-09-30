@@ -13,6 +13,7 @@
 
 import { isElectron, fileExists } from '../utils/fileAccessAdapter.js';
 import { isCapacitor, isCapacitorHandle, capFileExists } from '../utils/capacitorAdapter.js';
+import { vlog } from '../utils/verboseLog.js';
 
 const platformTag = () => (isElectron() ? 'electron' : isCapacitor() ? 'capacitor' : 'browser');
 
@@ -110,7 +111,7 @@ const openDB = () => {
           break;
         case 1:
           // v1 -> v2: no schema change; indices already match.
-          console.log('[FileHandles] IndexedDB migrated v1 -> v2 (no-op)');
+          vlog('[FileHandles] IndexedDB migrated v1 -> v2 (no-op)');
           break;
         default:
           // oldVersion >= DB_VERSION: nothing to do.
@@ -181,13 +182,13 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
         }
         resolvedHandle = null; // needs reconnect — not a usable location
       } else {
-        console.log(`[FileHandles] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
+        vlog(`[FileHandles] ✓ Electron absolute path for ${universeSlug}:`, resolvedHandle);
       }
     } else if (fileHandle?.name) {
       fileName = fileHandle.name;
       // Detect if this is a workspace file (has no parent, just a name)
       isWorkspaceFile = fileHandle.kind === 'file' && !additionalMetadata.displayPath?.includes('/');
-      console.log(`[FileHandles] Browser file detected for ${universeSlug}:`, {
+      vlog(`[FileHandles] Browser file detected for ${universeSlug}:`, {
         fileName,
         fileHandleKind: fileHandle.kind,
         displayPath: additionalMetadata.displayPath,
@@ -215,7 +216,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
     if (isElectron()) {
       await electronSet(universeSlug, record);
       const pathType = (record.displayPath?.includes('/') || record.displayPath?.includes('\\')) ? 'absolute' : 'relative';
-      console.log(`[FileHandles] ✓ Stored metadata for ${universeSlug} (${pathType} path): ${record.fileName || 'unnamed'}`);
+      vlog(`[FileHandles] ✓ Stored metadata for ${universeSlug} (${pathType} path): ${record.fileName || 'unnamed'}`);
       return record;
     }
     
@@ -226,7 +227,7 @@ export const storeFileHandleMetadata = async (universeSlug, fileHandle = null, a
       const request = store.put(record);
       
       request.onsuccess = () => {
-        console.log(`[FileHandles] Stored metadata for ${universeSlug}: ${record.fileName || 'unnamed'}`);
+        vlog(`[FileHandles] Stored metadata for ${universeSlug}: ${record.fileName || 'unnamed'}`);
         resolve(record);
       };
       request.onerror = () => reject(request.error);
@@ -313,7 +314,7 @@ export const removeFileHandleMetadata = async (universeSlug) => {
     // Use Electron storage or IndexedDB
     if (isElectron()) {
       await electronRemove(universeSlug);
-      console.log(`[FileHandles] Removed metadata for ${universeSlug} (Electron)`);
+      vlog(`[FileHandles] Removed metadata for ${universeSlug} (Electron)`);
       return;
     }
     
@@ -325,7 +326,7 @@ export const removeFileHandleMetadata = async (universeSlug) => {
       const request = store.delete(universeSlug);
       
       request.onsuccess = () => {
-        console.log(`[FileHandles] Removed metadata for ${universeSlug}`);
+        vlog(`[FileHandles] Removed metadata for ${universeSlug}`);
         resolve();
       };
       request.onerror = () => reject(request.error);
@@ -547,7 +548,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       };
     }
 
-    console.log(`[FileHandles] Metadata retrieved for ${universeSlug}:`, {
+    vlog(`[FileHandles] Metadata retrieved for ${universeSlug}:`, {
       fileName: metadata.fileName,
       isWorkspaceFile: metadata.isWorkspaceFile,
       displayPath: metadata.displayPath,
@@ -556,12 +557,12 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
 
     // Browser: Check if this is a workspace file first
     if (!isElectron() && !isCapacitor() && metadata.isWorkspaceFile && metadata.fileName) {
-      console.log(`[FileHandles] Attempting workspace restoration for ${universeSlug}: ${metadata.fileName}`);
+      vlog(`[FileHandles] Attempting workspace restoration for ${universeSlug}: ${metadata.fileName}`);
       try {
         const { getFileFromWorkspace } = await import('./workspaceFolderService.js');
         const workspaceHandle = await getFileFromWorkspace(metadata.fileName);
         if (workspaceHandle) {
-          console.log(`[FileHandles] Successfully restored workspace file for ${universeSlug}: ${metadata.fileName}`);
+          vlog(`[FileHandles] Successfully restored workspace file for ${universeSlug}: ${metadata.fileName}`);
           return {
             success: true,
             handle: workspaceHandle,
@@ -571,7 +572,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
             permission: 'granted'
           };
         } else {
-          console.log(`[FileHandles] Workspace file not found for ${universeSlug}: ${metadata.fileName}`);
+          vlog(`[FileHandles] Workspace file not found for ${universeSlug}: ${metadata.fileName}`);
         }
       } catch (error) {
         console.warn(`[FileHandles] Failed to restore workspace file for ${universeSlug}:`, error);
@@ -589,7 +590,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       const { universeFileHandle } = await import('../utils/capacitorAdapter.js');
       const rebuilt = universeFileHandle(metadata.fileName || universeSlug);
       if (await capFileExists(rebuilt)) {
-        console.log(`[FileHandles] Capacitor: rebuilt handle for ${universeSlug}:`, rebuilt);
+        vlog(`[FileHandles] Capacitor: rebuilt handle for ${universeSlug}:`, rebuilt);
         handle = rebuilt;
       }
     }
@@ -599,7 +600,7 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
       if (typeof handle !== 'string') {
         // Try to recover path from displayPath or other fields
         handle = metadata.displayPath || metadata.path || metadata.lastFilePath;
-        console.log(`[FileHandles] Electron: recovered handle from metadata:`, handle);
+        vlog(`[FileHandles] Electron: recovered handle from metadata:`, handle);
       }
       if (typeof handle !== 'string') {
         console.warn(`[FileHandles] Electron: no valid path found in metadata for ${universeSlug}`, metadata);
@@ -610,12 +611,12 @@ export const attemptRestoreFileHandle = async (universeSlug, sessionHandle = nul
           message: 'File path not found in saved metadata. Please reconnect the file.'
         };
       }
-      console.log(`[FileHandles] Electron: verifying handle for ${universeSlug}:`, handle);
+      vlog(`[FileHandles] Electron: verifying handle for ${universeSlug}:`, handle);
     }
 
     if (handle) {
       const access = await verifyFileHandleAccess(handle);
-      console.log(`[FileHandles] Handle access verification for ${universeSlug}:`, access);
+      vlog(`[FileHandles] Handle access verification for ${universeSlug}:`, access);
       if (access?.isValid) {
         await storeFileHandleMetadata(universeSlug, handle, {
           lastAccessed: Date.now()
@@ -701,7 +702,7 @@ export const clearAllFileHandleMetadata = async () => {
     // Use Electron storage or IndexedDB
     if (isElectron()) {
       await electronClear();
-      console.log('[FileHandles] Cleared all file handle metadata (Electron)');
+      vlog('[FileHandles] Cleared all file handle metadata (Electron)');
       return;
     }
     
@@ -713,7 +714,7 @@ export const clearAllFileHandleMetadata = async () => {
       const request = store.clear();
       
       request.onsuccess = () => {
-        console.log('[FileHandles] Cleared all file handle metadata');
+        vlog('[FileHandles] Cleared all file handle metadata');
         resolve();
       };
       request.onerror = () => reject(request.error);
@@ -731,9 +732,9 @@ export const clearAllFileHandleMetadata = async () => {
  */
 export const debugFileHandles = async () => {
   const all = await getAllFileHandleMetadata();
-  console.log('[FileHandles] All stored file handles:');
+  vlog('[FileHandles] All stored file handles:');
   all.forEach(item => {
-    console.log(`  ${item.universeSlug}:`, {
+    vlog(`  ${item.universeSlug}:`, {
       handle: item.handle,
       handleType: typeof item.handle,
       displayPath: item.displayPath,

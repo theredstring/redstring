@@ -1,3 +1,4 @@
+import { vlog } from '../utils/verboseLog.js';
 /**
  * Git Autosave Policy - Implementation of intelligent auto-commit policy
  *
@@ -62,7 +63,7 @@ class GitAutosavePolicy {
     this.saveCoordinator = null;
     this.statusHandlers = new Set();
 
-    console.log('[GitAutosavePolicy] Initialized with policy constraints');
+    vlog('[GitAutosavePolicy] Initialized with policy constraints');
   }
 
   /**
@@ -73,7 +74,7 @@ class GitAutosavePolicy {
     this.saveCoordinator = saveCoordinator;
     this.isEnabled = true;
 
-    console.log('[GitAutosavePolicy] Initialized with dependencies', {
+    vlog('[GitAutosavePolicy] Initialized with dependencies', {
       hasCommitTarget: this.hasCommitTarget()
     });
     this.notifyStatus('info', this.hasCommitTarget()
@@ -170,7 +171,7 @@ class GitAutosavePolicy {
       }, maxTimeout);
     }
 
-    console.log(`[GitAutosavePolicy] Edit activity detected, batch size: ${this.currentBatch.length}`);
+    vlog(`[GitAutosavePolicy] Edit activity detected, batch size: ${this.currentBatch.length}`);
   }
 
   /**
@@ -219,7 +220,7 @@ class GitAutosavePolicy {
     // rather than falling into the error/backoff retry loop over a target
     // that no longer exists.
     if (!this.hasCommitTarget()) {
-      console.log(`[GitAutosavePolicy] Dropping batch (${reason}): no Git engine attached`);
+      vlog(`[GitAutosavePolicy] Dropping batch (${reason}): no Git engine attached`);
       this.clearPending();
       return;
     }
@@ -236,7 +237,7 @@ class GitAutosavePolicy {
 
     // Check rate limiting (≤60 commits/hour)
     if (!this.checkRateLimit()) {
-      console.log('[GitAutosavePolicy] Rate limit exceeded, deferring commit');
+      vlog('[GitAutosavePolicy] Rate limit exceeded, deferring commit');
       this.scheduleRetryAfterRateLimit();
       return;
     }
@@ -244,14 +245,14 @@ class GitAutosavePolicy {
     // Serialize API calls (≥1s gap)
     if (!this.checkApiGap()) {
       const waitTime = this.MIN_API_GAP - (Date.now() - this.lastApiCallTime);
-      console.log(`[GitAutosavePolicy] API gap enforcement, waiting ${waitTime}ms`);
+      vlog(`[GitAutosavePolicy] API gap enforcement, waiting ${waitTime}ms`);
       setTimeout(() => this.executeBatchCommit(reason), waitTime);
       return;
     }
 
     // Check if commit is already in progress
     if (this.isCommitInProgress) {
-      console.log('[GitAutosavePolicy] Commit in progress, deferring');
+      vlog('[GitAutosavePolicy] Commit in progress, deferring');
       setTimeout(() => this.executeBatchCommit(reason), 1000);
       return;
     }
@@ -260,7 +261,7 @@ class GitAutosavePolicy {
       this.isCommitInProgress = true;
       const batchSize = this.currentBatch.length;
 
-      console.log(`[GitAutosavePolicy] Executing batch commit (${reason}), ${batchSize} edits`);
+      vlog(`[GitAutosavePolicy] Executing batch commit (${reason}), ${batchSize} edits`);
       this.notifyStatus('info', `Committing batch of ${batchSize} changes (${reason})`);
 
       // Get current state and check file size
@@ -574,7 +575,7 @@ class GitAutosavePolicy {
     this.isEnabled = enabled;
 
     if (enabled && !wasEnabled) {
-      console.log('[GitAutosavePolicy] Enabled');
+      vlog('[GitAutosavePolicy] Enabled');
       this.notifyStatus('info', 'Git autosave policy enabled');
     } else if (!enabled && wasEnabled) {
       // Clean up timers
@@ -587,7 +588,7 @@ class GitAutosavePolicy {
         this.maxTimeout = null;
       }
 
-      console.log('[GitAutosavePolicy] Disabled');
+      vlog('[GitAutosavePolicy] Disabled');
       this.notifyStatus('info', 'Git autosave policy disabled');
     }
   }
@@ -600,7 +601,7 @@ class GitAutosavePolicy {
     this.statusHandlers.clear();
     this.commitHistory = [];
     this.currentBatch = [];
-    console.log('[GitAutosavePolicy] Destroyed');
+    vlog('[GitAutosavePolicy] Destroyed');
   }
 }
 

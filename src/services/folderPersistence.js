@@ -10,6 +10,7 @@ import { isElectron, validateFolderAccess } from '../utils/fileAccessAdapter.js'
 import { isCapacitor } from '../utils/capacitorAdapter.js';
 import { getWorkspaceHandle } from './workspaceFolderService.js';
 import { getStorageKey } from '../utils/storageUtils.js';
+import { vlog } from '../utils/verboseLog.js';
 
 
 
@@ -49,7 +50,7 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
       throw new Error('Electron requires folder path as string');
     }
     localStorage.setItem(LOCALSTORAGE_FOLDER_KEY(), folderHandleOrPath);
-    console.log('[FolderPersistence] Stored folder path in localStorage:', folderHandleOrPath);
+    vlog('[FolderPersistence] Stored folder path in localStorage:', folderHandleOrPath);
   } else {
     // Web: Store DirectoryHandle in IndexedDB
     try {
@@ -69,7 +70,7 @@ export const storeFolderHandle = async (folderHandleOrPath) => {
       });
 
       db.close();
-      console.log('[FolderPersistence] Stored folder handle in IndexedDB');
+      vlog('[FolderPersistence] Stored folder handle in IndexedDB');
     } catch (error) {
       console.error('[FolderPersistence] Failed to store folder handle:', error);
       throw error;
@@ -95,7 +96,7 @@ export const getFolderHandle = async () => {
     // Electron: Retrieve path from localStorage
     const folderPath = localStorage.getItem(LOCALSTORAGE_FOLDER_KEY());
     if (folderPath) {
-      console.log('[FolderPersistence] Retrieved folder path from localStorage:', folderPath);
+      vlog('[FolderPersistence] Retrieved folder path from localStorage:', folderPath);
       return folderPath;
     }
     return null;
@@ -115,7 +116,7 @@ export const getFolderHandle = async () => {
       db.close();
 
       if (result && result.handle) {
-        console.log('[FolderPersistence] Retrieved folder handle from IndexedDB');
+        vlog('[FolderPersistence] Retrieved folder handle from IndexedDB');
         return result.handle;
       }
 
@@ -135,7 +136,7 @@ export const clearFolderHandle = async () => {
   if (isElectron()) {
     // Electron: Clear from localStorage
     localStorage.removeItem(LOCALSTORAGE_FOLDER_KEY());
-    console.log('[FolderPersistence] Cleared folder path from localStorage');
+    vlog('[FolderPersistence] Cleared folder path from localStorage');
   } else {
     // Web: Clear from IndexedDB
     try {
@@ -151,7 +152,7 @@ export const clearFolderHandle = async () => {
       });
 
       db.close();
-      console.log('[FolderPersistence] Cleared folder handle from IndexedDB');
+      vlog('[FolderPersistence] Cleared folder handle from IndexedDB');
     } catch (error) {
       console.error('[FolderPersistence] Failed to clear folder handle:', error);
       throw error;
@@ -174,7 +175,7 @@ export const validateStoredFolder = async () => {
     const isAccessible = await validateFolderAccess(folderHandle);
 
     if (isAccessible) {
-      console.log('[FolderPersistence] Stored folder is valid and accessible');
+      vlog('[FolderPersistence] Stored folder is valid and accessible');
       return { valid: true, folderHandle };
     } else {
       console.warn('[FolderPersistence] Stored folder exists but is not accessible (permission issue)');

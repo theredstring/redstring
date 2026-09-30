@@ -1,3 +1,4 @@
+import { vlog, setVerbose } from './verboseLog.js';
 /**
  * Debug Configuration for Redstring
  * Provides debugging options to disable features for testing purposes
@@ -111,7 +112,7 @@ class DebugConfig {
       this.isInitialized = true;
       this.notifyListeners();
 
-      console.log('[DebugConfig] Initialized:', this.config);
+      vlog('[DebugConfig] Initialized:', this.config);
     } catch (error) {
       console.error('[DebugConfig] Failed to initialize:', error);
       // Use safe defaults
@@ -412,11 +413,12 @@ class DebugConfig {
         enableWizard: (enabled = true) => this.setWizardEnabled(enabled),
         setLogLevel: (level) => this.setLogLevel(level),
         reset: () => this.reset(),
+        verbose: (on = true) => setVerbose(on),
         help: () => this.logToConsole()
       };
 
-      console.log('🐛 Redstring debugging available at window.RedstringDebug');
-      console.log('Type RedstringDebug.help() for available commands');
+      vlog('🐛 Redstring debugging available at window.RedstringDebug');
+      vlog('Type RedstringDebug.help() for available commands');
     }
   }
 }

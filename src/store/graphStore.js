@@ -68,6 +68,7 @@ import {
   seededChainFor,
   isSeededChain,
 } from '../wizard/tools/utils/abstractionSpec.js';
+import { vlog } from '../utils/verboseLog.js';
 
 /**
  * Default coast length for the trackpad two-finger pan glide, on the same 0..1
@@ -8725,7 +8726,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           delete storeState.edgePrototypes; // fall back to keeping current
         }
 
-        console.log("[graphStore] Loading universe with", {
+        vlog("[graphStore] Loading universe with", {
           nodes: storeState.nodePrototypes?.size || 0,
           graphs: storeState.graphs?.size || 0,
           edges: storeState.edges?.size || 0
@@ -9306,7 +9307,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Also deletes all edges belonging to each orphaned graph.
      */
     cleanupOrphanedGraphs: () => ctxSet('orphan_cleanup', produce((draft) => {
-      console.log('[Store cleanupOrphanedGraphs] Starting cleanup...');
+      vlog('[Store cleanupOrphanedGraphs] Starting cleanup...');
 
       const orphanedGraphs = [];
       draft.graphs.forEach((graph, graphId) => {
@@ -9317,7 +9318,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           if (hasOrphanedReferences) {
             orphanedGraphs.push(graphId);
-            console.log(`[Store cleanupOrphanedGraphs] Found orphaned graph: ${graphId}`);
+            vlog(`[Store cleanupOrphanedGraphs] Found orphaned graph: ${graphId}`);
           }
         }
       });
@@ -9351,11 +9352,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           // Delete the graph
           draft.graphs.delete(graphId);
-          console.log(`[Store cleanupOrphanedGraphs] Deleted orphaned graph: ${graphId}`);
+          vlog(`[Store cleanupOrphanedGraphs] Deleted orphaned graph: ${graphId}`);
         }
       });
 
-      console.log(`[Store cleanupOrphanedGraphs] Cleanup complete. Deleted ${orphanedGraphs.length} orphaned graphs.`);
+      vlog(`[Store cleanupOrphanedGraphs] Cleanup complete. Deleted ${orphanedGraphs.length} orphaned graphs.`);
     })),
 
     // ─── HISTORY & UNDO/REDO ─────────────────────────────────────────────────────

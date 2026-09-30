@@ -31,6 +31,7 @@
  */
 
 import { describeHaptics } from '../services/haptics.js';
+import { vlog } from './verboseLog.js';
 
 export const CAP_HANDLE_PREFIX = 'capacitor://';
 export const UNIVERSES_FOLDER = 'Universes';
@@ -280,7 +281,7 @@ export const logPlatformDiagnostics = () => {
   __loggedPlatformOnce = true;
   try {
     const cap = window.Capacitor;
-    console.log('[Platform] isCapacitor=' + isCapacitor(), JSON.stringify({
+    vlog('[Platform] isCapacitor=' + isCapacitor(), JSON.stringify({
       hasCapacitorGlobal: !!cap,
       isNativePlatformType: typeof cap?.isNativePlatform,
       isNativePlatformValue: typeof cap?.isNativePlatform === 'function'
@@ -298,7 +299,7 @@ export const logPlatformDiagnostics = () => {
       haptics: describeHaptics()
     }));
   } catch (err) {
-    console.log('[Platform] diagnostics failed:', err?.message || err);
+    vlog('[Platform] diagnostics failed:', err?.message || err);
   }
 };
 

@@ -1,3 +1,4 @@
+import { vlog } from '../utils/verboseLog.js';
 /**
  * Universe Backend Bridge Utility
  *
@@ -31,7 +32,7 @@ class UniverseBackendBridge {
 
     // Check if backend is ALREADY ready (for components that load late)
     if (window._universeBackendReady === true) {
-      console.log('[UniverseBackendBridge] Backend was already ready (late initialization)');
+      vlog('[UniverseBackendBridge] Backend was already ready (late initialization)');
       this.isBackendReady = true;
       // Process any commands that were queued during constructor
       if (this.commandQueue.length > 0) {
@@ -42,7 +43,7 @@ class UniverseBackendBridge {
 
     // Listen for backend initialization completion
     window.addEventListener('universe-backend-ready', (event) => {
-      console.log('[UniverseBackendBridge] Backend ready signal received');
+      vlog('[UniverseBackendBridge] Backend ready signal received');
       if (event.detail?.error) {
         console.error('[UniverseBackendBridge] Backend ready event reported error:', event.detail.error);
         this.flushQueuedCommandsWithError(new Error(event.detail.error));
@@ -237,7 +238,7 @@ class UniverseBackendBridge {
 
       // If backend is not ready, queue the command
       if (!this.isBackendReady && !(typeof window !== 'undefined' && window._universeBackendReady === true)) {
-        console.log(`[UniverseBackendBridge] Backend not ready, queueing command: ${command}`);
+        vlog(`[UniverseBackendBridge] Backend not ready, queueing command: ${command}`);
         this.commandQueue.push(commandData);
 
         // Wait for backend to be ready
@@ -247,7 +248,7 @@ class UniverseBackendBridge {
           // Check if backend actually became ready during the wait
           // (race condition: persistent listener might have set the flag)
           if (this.isBackendReady) {
-            console.log(`[UniverseBackendBridge] Backend became ready during wait for ${command}, command should have been processed`);
+            vlog(`[UniverseBackendBridge] Backend became ready during wait for ${command}, command should have been processed`);
             // The command was likely already processed by processQueuedCommands()
             // Don't reject - just return and let that resolution stand
             return;

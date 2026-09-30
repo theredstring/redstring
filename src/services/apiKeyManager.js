@@ -27,6 +27,7 @@ const MIRROR_SECRET_NAME = `${PROFILE_SECRET_PREFIX}_mirror`;
 const profileSecretName = (profileId) =>
   `${PROFILE_SECRET_PREFIX}${String(profileId || 'default').replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 96)}`;
 import { getFallbackModels } from './modelCatalog.js';
+import { vlog } from '../utils/verboseLog.js';
 
 class APIKeyManager {
   constructor() {
@@ -97,7 +98,7 @@ class APIKeyManager {
         name: (config.profileName || provider)
       };
 
-      console.log('[API Key Manager] Saving keyData to profile:', {
+      vlog('[API Key Manager] Saving keyData to profile:', {
         provider: keyData.provider,
         model: keyData.model,
         endpoint: keyData.endpoint
@@ -108,7 +109,7 @@ class APIKeyManager {
       localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
       localStorage.setItem(this.ACTIVE_PROFILE, id);
 
-      console.log('[API Key Manager] API profile stored successfully');
+      vlog('[API Key Manager] API profile stored successfully');
       // Maintain legacy single-key for backward compat
       localStorage.setItem(this.STORAGE_KEY, JSON.stringify(keyData));
 
@@ -138,7 +139,7 @@ class APIKeyManager {
       if (!keyData) return null;
       const plainKey = await this._decodeStoredKey(keyData.key);
 
-      console.log('[API Key Manager] API key retrieved successfully');
+      vlog('[API Key Manager] API key retrieved successfully');
       return plainKey;
     } catch (error) {
       console.error('[API Key Manager] Failed to retrieve API key:', error);
@@ -229,7 +230,7 @@ class APIKeyManager {
       }
       localStorage.removeItem(this.ACTIVE_PROFILE);
       // Keep legacy key for safety
-      console.log('[API Key Manager] API key removed successfully');
+      vlog('[API Key Manager] API key removed successfully');
       return { success: true };
     } catch (error) {
       console.error('[API Key Manager] Failed to remove API key:', error);

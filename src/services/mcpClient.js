@@ -7,6 +7,7 @@
 
 import apiKeyManager from './apiKeyManager.js';
 import { bridgeFetch } from './bridgeConfig.js';
+import { vlog } from '../utils/verboseLog.js';
 
 class MCPClient {
   constructor() {
@@ -32,7 +33,7 @@ class MCPClient {
     }
 
     try {
-      console.log('[MCP Client] Connecting to Redstring MCP server...');
+      vlog('[MCP Client] Connecting to Redstring MCP server...');
       
       // Ensure the HTTP bridge is up
       await this.startMCPServer();
@@ -111,7 +112,7 @@ class MCPClient {
         
         // Check if we have any registered store actions (indicates MCP server is connected)
         if (state.summary && state.summary.lastUpdate) {
-          console.log('[MCP Client] MCP server is running and connected to bridge');
+          vlog('[MCP Client] MCP server is running and connected to bridge');
           resolve();
         } else {
           // Wait a bit and retry once

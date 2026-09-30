@@ -20,6 +20,7 @@ import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFor
 import { userDataCounts } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
+import { vlog } from '../utils/verboseLog.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce.
 // With the 500ms worker debounce, an edit reaches the file about 1.5s later. It
@@ -221,7 +222,7 @@ class SaveCoordinator {
       // window a slow mobile Git fetch lives in. `dataBaseline`/`lastSaveHash`
       // are still restored: those only ratchet protection upward.
       this.activeUniverseSlugForGuard = slug;
-      console.log('[SaveCoordinator] Restored persisted guard state for', slug, this.dataBaseline);
+      vlog('[SaveCoordinator] Restored persisted guard state for', slug, this.dataBaseline);
       return true;
     } catch (e) {
       return false;
@@ -250,7 +251,7 @@ class SaveCoordinator {
   _syncGuardUniverse(slug) {
     if (!slug || slug === this.activeUniverseSlugForGuard) return;
     if (this.activeUniverseSlugForGuard) {
-      console.log(`[SaveCoordinator] Guard follows the universe switch: ${this.activeUniverseSlugForGuard} → ${slug}`);
+      vlog(`[SaveCoordinator] Guard follows the universe switch: ${this.activeUniverseSlugForGuard} → ${slug}`);
       this.dataBaseline = { nodes: 0, graphs: 0 };
       this.retryAttempt = 0;
       this.lastBlockReason = null;
@@ -283,7 +284,7 @@ class SaveCoordinator {
    */
   beginSwap(label = 'sot-swap') {
     this.swapInProgress = true;
-    console.log(`[SaveCoordinator] Swap pause active: ${label}`);
+    vlog(`[SaveCoordinator] Swap pause active: ${label}`);
   }
 
   /**
@@ -297,7 +298,7 @@ class SaveCoordinator {
   endSwap(label = 'sot-swap') {
     if (!this.swapInProgress) return;
     this.swapInProgress = false;
-    console.log(`[SaveCoordinator] Swap pause released: ${label}`);
+    vlog(`[SaveCoordinator] Swap pause released: ${label}`);
     if (this.nextStateToProcess || this.isDirty) {
       this.scheduleSave();
     }
@@ -323,7 +324,7 @@ class SaveCoordinator {
     const timer = setTimeout(() => this._forceReleaseLoadGate(token), LOAD_GATE_CHECK_MS);
     this._loadGateTokens.set(token, { label, startedAt: Date.now(), timer });
     this.loadInFlight = this._loadGateTokens.size;
-    console.log(`[SaveCoordinator] Load gate armed (${label}), in flight: ${this.loadInFlight}`);
+    vlog(`[SaveCoordinator] Load gate armed (${label}), in flight: ${this.loadInFlight}`);
     return token;
   }
 
@@ -340,7 +341,7 @@ class SaveCoordinator {
     clearTimeout(entry.timer);
     this._loadGateTokens.delete(token);
     this.loadInFlight = this._loadGateTokens.size;
-    console.log(`[SaveCoordinator] Load gate released (${entry.label}, ${Date.now() - entry.startedAt}ms), in flight: ${this.loadInFlight}`);
+    vlog(`[SaveCoordinator] Load gate released (${entry.label}, ${Date.now() - entry.startedAt}ms), in flight: ${this.loadInFlight}`);
     if (this.loadInFlight === 0 && (this.nextStateToProcess || this.isDirty)) {
       this.scheduleSave();
     }
@@ -934,7 +935,7 @@ class SaveCoordinator {
           this.dataBaseline = this._adoptBaseline(this._countDataItems(newState), newState, 'adopt');
         } catch { /* non-fatal */ }
         if (this._loggedLoadGuard) this._loggedLoadGuard = false;
-        console.log('[SaveCoordinator] Adopting current non-empty state as load baseline (no explicit load context fired).');
+        vlog('[SaveCoordinator] Adopting current non-empty state as load baseline (no explicit load context fired).');
       }
 
       // Update global interaction state based on context
@@ -1115,13 +1116,13 @@ class SaveCoordinator {
     // and-forget dual write would otherwise commit potentially-empty state to
     // both local and Git mid-handoff.
     if (this.swapInProgress) {
-      console.log('[SaveCoordinator] executeSave deferred: swap in progress');
+      vlog('[SaveCoordinator] executeSave deferred: swap in progress');
       return;
     }
     // Defense-in-depth: a save timer armed just before a load started must not
     // fire into the load window. endLoad() reschedules whatever is queued.
     if (this.loadInFlight > 0) {
-      console.log('[SaveCoordinator] executeSave deferred: universe load in flight');
+      vlog('[SaveCoordinator] executeSave deferred: universe load in flight');
       return;
     }
     if (this.isSaving) {
@@ -1492,7 +1493,7 @@ class SaveCoordinator {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
-    console.log(`[SaveCoordinator] Flushing unsaved changes (${reason})`);
+    vlog(`[SaveCoordinator] Flushing unsaved changes (${reason})`);
     this.isSaving = true;
     try {
       this.lastState = state;
@@ -1836,7 +1837,7 @@ class SaveCoordinator {
   setEnabled(enabled) {
     if (enabled && !this.isEnabled) {
       this.isEnabled = true;
-      console.log('[SaveCoordinator] Enabled');
+      vlog('[SaveCoordinator] Enabled');
       this.notifyStatus('info', 'Save coordination enabled');
     } else if (!enabled && this.isEnabled) {
       this.isEnabled = false;
@@ -1847,7 +1848,7 @@ class SaveCoordinator {
         this.saveTimer = null;
       }
       
-      console.log('[SaveCoordinator] Disabled');
+      vlog('[SaveCoordinator] Disabled');
       this.notifyStatus('info', 'Save coordination disabled');
     }
   }
@@ -1980,7 +1981,7 @@ class SaveCoordinator {
   destroy() {
     this.setEnabled(false);
     this.statusHandlers.clear();
-    console.log('[SaveCoordinator] Destroyed');
+    vlog('[SaveCoordinator] Destroyed');
   }
 }
 
@@ -2004,7 +2005,7 @@ if (typeof import.meta !== 'undefined' && import.meta.hot) {
       saveCoordinator.hasLoadedFromFile = !!cached.hasLoadedFromFile;
       saveCoordinator.dataBaseline = cached.dataBaseline || { nodes: 0, graphs: 0 };
       saveCoordinator.lastSaveHash = cached.lastSaveHash || null;
-      console.log('[SaveCoordinator HMR] Restored guard state across hot reload', {
+      vlog('[SaveCoordinator HMR] Restored guard state across hot reload', {
         hasLoadedFromFile: saveCoordinator.hasLoadedFromFile,
         dataBaseline: saveCoordinator.dataBaseline
       });

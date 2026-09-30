@@ -2,8 +2,9 @@ import universeBackendBridge from './universeBackendBridge.js';
 import { persistentAuth } from './persistentAuth.js';
 import { oauthUrl } from './bridgeConfig.js';
 import { formatUniverseNameFromRepo, buildUniqueUniverseName } from '../utils/universeNaming.js';
+import { isVerbose, vlog } from '../utils/verboseLog.js';
 const { log: __umNativeLog, warn: __umNativeWarn } = console;
-const umLog = (...args) => __umNativeLog.call(console, '[universeManagerService]', ...args);
+const umLog = (...args) => { if (isVerbose()) __umNativeLog.call(console, '[universeManagerService]', ...args); };
 const umWarn = (...args) => __umNativeWarn.call(console, '[universeManagerService]', ...args);
 
 const STORAGE_TYPES = {
@@ -134,7 +135,7 @@ function buildSlotsFromUniverse(universe, syncStatus = null, syncInfo = null) {
       if (shouldLog) {
         __lastSlotLogAt = now;
         __lastSlotLogBySlug.set(universe.slug, { fingerprint, at: now });
-        console.log(`[universeManagerService] Building Git slot for ${universe.slug}:`, {
+        vlog(`[universeManagerService] Building Git slot for ${universe.slug}:`, {
           'syncInfo?.label': syncInfo?.label,
           'syncInfo?.tone': syncInfo?.tone,
           'syncInfo?.description': syncInfo?.description,

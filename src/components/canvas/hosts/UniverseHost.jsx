@@ -10,6 +10,7 @@ import { runPendingCallbacks, RECONNECT_RESUME_KEY } from '../../../services/git
 import { persistentAuth } from '../../../services/persistentAuth.js';
 import { getStorageKey } from '../../../utils/storageUtils.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
+import { vlog } from '../../../utils/verboseLog.js';
 
 // Ask the left panel to show a view (P2.05).
 const openLeftPanelView = (view) => useCanvasUIStore.getState().openLeftPanelView(view);
@@ -168,11 +169,11 @@ function UniverseHost() {
         const result = await workspaceService.initialize();
         if (!isMounted) return;
 
-        console.log('[NodeCanvas] Workspace initialization result:', result);
+        vlog('[NodeCanvas] Workspace initialization result:', result);
 
         if (result.status === 'READY') {
           // 4a. If valid config exists, set state directly (loading happens via store action if needed)
-          console.log('[NodeCanvas] Workspace ready. Active universe:', result.activeUniverse);
+          vlog('[NodeCanvas] Workspace ready. Active universe:', result.activeUniverse);
           storeActions.setStorageMode('folder');
           // Load UI settings from workspace config
           await storeActions.loadUISettingsFromWorkspace?.(workspaceService);

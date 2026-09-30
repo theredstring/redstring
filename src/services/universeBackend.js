@@ -59,6 +59,7 @@ import {
   getFileIdentifier,
   getFileName
 } from '../utils/fileAccessAdapter.js';
+import { isVerbose } from '../utils/verboseLog.js';
 import {
   isCapacitor,
   isCapacitorHandle,
@@ -69,7 +70,10 @@ import {
 } from '../utils/capacitorAdapter.js';
 
 const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = console;
-const umLog = (...args) => __umNativeLog.call(console, '[UniverseBackend]', ...args);
+// Routine lifecycle chatter is gated (see utils/verboseLog.js); the load-timing
+// line, warnings and errors always print.
+const umLog = (...args) => { if (isVerbose()) __umNativeLog.call(console, '[UniverseBackend]', ...args); };
+const umInfo = (...args) => __umNativeLog.call(console, '[UniverseBackend]', ...args);
 const umWarn = (...args) => __umNativeWarn.call(console, '[UniverseBackend]', ...args);
 const umError = (...args) => __umNativeError.call(console, '[UniverseBackend]', ...args);
 
@@ -94,7 +98,7 @@ const createLoadTiming = (label) => {
     },
     done(outcome) {
       const total = Math.round(nowMs() - start);
-      umLog(`[LoadTiming] ${label}: ${steps.join(', ') || 'no steps'} — total ${total}ms${outcome ? ` (${outcome})` : ''}`);
+      umInfo(`[LoadTiming] ${label}: ${steps.join(', ') || 'no steps'} — total ${total}ms${outcome ? ` (${outcome})` : ''}`);
     }
   };
 };

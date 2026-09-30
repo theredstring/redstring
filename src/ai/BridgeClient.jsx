@@ -11,6 +11,7 @@ import { createStoreActions, normalizeId, priority } from '../services/storeActi
 import { createDaemonCoexistence } from '../services/daemonCoexistence.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
 import { exportToRedstring } from '../formats/redstringFormat.js';
+import { vlog } from '../utils/verboseLog.js';
 
 /**
  * Bridge Client Component (formerly MCPBridge)
@@ -338,10 +339,10 @@ const BridgeClient = () => {
           });
         }
 
-        console.log('MCPBridge: Created action metadata with keys:', Object.keys(actionMetadata));
+        vlog('MCPBridge: Created action metadata with keys:', Object.keys(actionMetadata));
 
         // Register action metadata with bridge server
-        console.log('MCPBridge: About to register action metadata:', Object.keys(actionMetadata));
+        vlog('MCPBridge: About to register action metadata:', Object.keys(actionMetadata));
 
         const response = await bridgeFetch('/api/bridge/register-store', {
           method: 'POST',

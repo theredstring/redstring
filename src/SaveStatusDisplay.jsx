@@ -6,6 +6,7 @@ import { resolveSaveStatus } from './utils/saveStatus.js';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
 import { persistentAuth } from './services/persistentAuth.js';
+import { vlog } from './utils/verboseLog.js';
 
 // How long changes may sit un-written before the indicator says so even with
 // no reason reported. The normal pipeline writes ~1.5s after an edit (500ms
@@ -226,7 +227,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
     // Listen for universe creation events to refresh immediately
     // Listen for universe creation/update events to refresh immediately
     const handleUniverseChange = () => {
-      console.log('[SaveStatusDisplay] Universe changed, updating status...');
+      vlog('[SaveStatusDisplay] Universe changed, updating status...');
       poll();
     };
     window.addEventListener('redstring:universe-created', handleUniverseChange);

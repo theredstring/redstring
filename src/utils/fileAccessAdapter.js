@@ -29,6 +29,7 @@ import {
   capListFiles,
   UNIVERSES_FOLDER
 } from './capacitorAdapter.js';
+import { vlog } from './verboseLog.js';
 
 export { isCapacitor, isCapacitorHandle, usesPathHandles } from './capacitorAdapter.js';
 
@@ -49,7 +50,7 @@ export const isElectron = () => {
 
 // Log once on load to confirm Electron detection
 if (typeof window !== 'undefined') {
-  console.log('[FileAccessAdapter] Electron detection on load:', {
+  vlog('[FileAccessAdapter] Electron detection on load:', {
     isElectron: window.electron?.isElectron === true,
     hasElectronAPI: !!window.electron,
     electronAPIs: window.electron ? Object.keys(window.electron) : []
@@ -239,7 +240,7 @@ export const fileExists = async (fileHandleOrPath) => {
   if (isElectron() && typeof fileHandleOrPath === 'string') {
     try {
       const result = await window.electron.fileSystem.fileExists(fileHandleOrPath);
-      console.log(`[fileAccessAdapter] fileExists check for "${fileHandleOrPath}":`, result);
+      vlog(`[fileAccessAdapter] fileExists check for "${fileHandleOrPath}":`, result);
       return result;
     } catch (error) {
       console.error(`[fileAccessAdapter] fileExists error for "${fileHandleOrPath}":`, error);

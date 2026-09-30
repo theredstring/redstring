@@ -15,6 +15,7 @@ import { safeJsonParse, stripDangerousKeys } from '../utils/safeJson.js';
 import { hasRedstringMarkers, notARedstringDocument } from './documentShape.js';
 import { partitionLinksByState } from './linkState.js';
 import { sanitizeImportedState, stripSecretFields } from './sanitizeImported.js';
+import { vlog } from '../utils/verboseLog.js';
 
 // Current format version.
 //
@@ -1509,7 +1510,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // Step 1: Validate format version
     const validation = validateFormatVersion(redstringData);
     
-    console.log('[Import] Format validation:', validation);
+    vlog('[Import] Format validation:', validation);
     
     if (!validation.valid) {
       const error = new Error(validation.error);
@@ -1527,7 +1528,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // for current-version files.
     const { data: processedData, applied } = runMigrations(redstringData, { now: new Date().toISOString() });
     if (applied.length > 0) {
-      console.log('[Import] Migrations applied:', applied);
+      vlog('[Import] Migrations applied:', applied);
     }
 
     // Step 3: Single canonical shape — sections are guaranteed by the ledger.

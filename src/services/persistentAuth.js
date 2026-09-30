@@ -8,6 +8,7 @@
 import { oauthFetch } from './bridgeConfig.js';
 import { usesDeviceFlowAuth } from '../utils/capacitorAdapter.js';
 import { getSecret, setSecret, deleteSecret } from '../utils/secureStore.js';
+import { vlog } from '../utils/verboseLog.js';
 
 /**
  * Where to revoke Redstring's access on GitHub. Disconnecting only forgets
@@ -152,7 +153,7 @@ function toEpochMs(value) {
 
 export class PersistentAuth {
   constructor() {
-    console.log('[PersistentAuth] Constructor called - UPDATED');
+    vlog('[PersistentAuth] Constructor called - UPDATED');
     this.isRefreshing = false;
     this.refreshPromise = null;
     this.healthCheckInterval = null;
@@ -180,20 +181,20 @@ export class PersistentAuth {
     }).then(() => {
       const hasOAuthTokens = this.hasValidTokens();
       const hasAppInstallation = this.hasAppInstallation();
-      console.log('[PersistentAuth] Constructor auth check:', { hasOAuthTokens, hasAppInstallation });
+      vlog('[PersistentAuth] Constructor auth check:', { hasOAuthTokens, hasAppInstallation });
 
       if (hasOAuthTokens) {
-        console.log('[PersistentAuth] Constructor: Valid OAuth tokens found, starting health monitoring');
+        vlog('[PersistentAuth] Constructor: Valid OAuth tokens found, starting health monitoring');
         this.startHealthMonitoring();
       } else {
-        console.log('[PersistentAuth] Constructor: No valid OAuth tokens found');
+        vlog('[PersistentAuth] Constructor: No valid OAuth tokens found');
       }
 
       if (hasOAuthTokens || hasAppInstallation) {
-        console.log('[PersistentAuth] Constructor: Stored auth data found, will attempt auto-connect');
+        vlog('[PersistentAuth] Constructor: Stored auth data found, will attempt auto-connect');
         setTimeout(() => {
           if (!this.initializeCalled) {
-            console.log('[PersistentAuth] Constructor: Auto-triggering initialize() because it wasn\'t called');
+            vlog('[PersistentAuth] Constructor: Auto-triggering initialize() because it wasn\'t called');
             this.initialize().catch(error => {
               console.error('[PersistentAuth] Constructor auto-initialize failed:', error);
             });
@@ -214,7 +215,7 @@ export class PersistentAuth {
     this.authStateLoadingPromise = (async () => {
       try {
         // PRIMARY: Load from browser localStorage (user data stays local!)
-        console.log('[PersistentAuth] Loading tokens from browser localStorage...');
+        vlog('[PersistentAuth] Loading tokens from browser localStorage...');
         await this.loadFromBrowserStorage();
 
         // OPTIONAL: Sync from server as backup (stateless server doesn't persist)
@@ -227,7 +228,7 @@ export class PersistentAuth {
             const state = await response.json();
             // Only apply server state if browser doesn't have tokens
             if (!this.oauthCache?.accessToken && state?.oauth?.accessToken) {
-              console.log('[PersistentAuth] Found tokens from server OAuth completion, saving to browser...');
+              vlog('[PersistentAuth] Found tokens from server OAuth completion, saving to browser...');
               this.applyAuthStateFromServer(state);
               this.saveToBrowserStorage(); // Save server tokens to browser
             }
@@ -276,7 +277,7 @@ export class PersistentAuth {
           user: safeParseJSON(userRaw),
           storedAt: storedAt ? Number(storedAt) : Date.now()
         };
-        console.log('[PersistentAuth] OAuth tokens loaded from browser localStorage');
+        vlog('[PersistentAuth] OAuth tokens loaded from browser localStorage');
       }
 
       // Load GitHub App installation
@@ -304,7 +305,7 @@ export class PersistentAuth {
           verification: null,
           lastUpdated: lastUpdated ? Number(lastUpdated) : Date.now()
         };
-        console.log('[PersistentAuth] GitHub App installation loaded from browser localStorage');
+        vlog('[PersistentAuth] GitHub App installation loaded from browser localStorage');
       }
     } catch (error) {
       console.warn('[PersistentAuth] Failed to load from browser storage:', error);
@@ -326,7 +327,7 @@ export class PersistentAuth {
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.expiry, this.oauthCache.expiresAt?.toString() || '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.user, this.oauthCache.user);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.oauth.storedAt, this.oauthCache.storedAt?.toString() || Date.now().toString());
-        console.log('[PersistentAuth] OAuth tokens saved to browser localStorage');
+        vlog('[PersistentAuth] OAuth tokens saved to browser localStorage');
       }
 
       // Save GitHub App installation
@@ -340,7 +341,7 @@ export class PersistentAuth {
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.permissions, this.githubAppCache.permissions);
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.tokenExpiresAt, this.githubAppCache.tokenExpiresAt?.toString() || '');
         setLocalStorageItem(LOCAL_STORAGE_KEYS.app.lastUpdated, this.githubAppCache.lastUpdated?.toString() || Date.now().toString());
-        console.log('[PersistentAuth] GitHub App installation saved to browser localStorage');
+        vlog('[PersistentAuth] GitHub App installation saved to browser localStorage');
       }
     } catch (error) {
       console.warn('[PersistentAuth] Failed to save to browser storage:', error);
@@ -426,7 +427,7 @@ export class PersistentAuth {
    * This is called by universeManager during backend initialization
    */
   async initialize() {
-    console.log('[PersistentAuth] ===== INITIALIZE CALLED =====');
+    vlog('[PersistentAuth] ===== INITIALIZE CALLED =====');
     this.initializeCalled = true;
 
     await this.ensureAuthStateLoaded().catch(error => {
@@ -436,24 +437,24 @@ export class PersistentAuth {
     // Check what auth data we have
     const hasOAuthTokens = this.hasValidTokens();
     const hasAppInstallation = this.hasAppInstallation();
-    console.log('[PersistentAuth] Auth data check:', { hasOAuthTokens, hasAppInstallation });
+    vlog('[PersistentAuth] Auth data check:', { hasOAuthTokens, hasAppInstallation });
 
     // Start health monitoring if we have tokens
     if (hasOAuthTokens) {
-      console.log('[PersistentAuth] Valid OAuth tokens found, starting health monitoring');
+      vlog('[PersistentAuth] Valid OAuth tokens found, starting health monitoring');
       this.startHealthMonitoring();
     } else {
-      console.log('[PersistentAuth] No valid OAuth tokens found');
+      vlog('[PersistentAuth] No valid OAuth tokens found');
     }
 
     // CRITICAL FIX: Don't block initialization on auto-connect (network calls can hang)
     // Trigger auto-connect in background instead
-    console.log('[PersistentAuth] Triggering auto-connect in background (non-blocking)');
+    vlog('[PersistentAuth] Triggering auto-connect in background (non-blocking)');
     this.attemptAutoConnect().catch(error => {
       console.warn('[PersistentAuth] Background auto-connect failed:', error);
     });
 
-    console.log('[PersistentAuth] ===== AUTHENTICATION SERVICE INITIALIZED =====');
+    vlog('[PersistentAuth] ===== AUTHENTICATION SERVICE INITIALIZED =====');
   }
 
   /**
@@ -462,7 +463,7 @@ export class PersistentAuth {
   async attemptAutoConnect() {
     await this.ensureAuthStateLoaded().catch(() => {});
 
-    console.log('[PersistentAuth] Debug: Auth cache snapshot:', {
+    vlog('[PersistentAuth] Debug: Auth cache snapshot:', {
       oauthToken: this.oauthCache?.accessToken ? 'present' : 'missing',
       oauthUser: this.oauthCache?.user?.login || null,
       githubAppInstallation: this.githubAppCache?.installationId || null,
@@ -471,23 +472,23 @@ export class PersistentAuth {
 
     // Only attempt auto-connect once per instance to be respectful to GitHub API
     if (this.autoConnectAttempted) {
-      console.log('[PersistentAuth] Auto-connect already attempted for this instance, skipping to avoid API spam');
+      vlog('[PersistentAuth] Auto-connect already attempted for this instance, skipping to avoid API spam');
       return;
     }
 
     this.autoConnectAttempted = true;
-    console.log('[PersistentAuth] Attempting auto-connect (once per page load, GitHub API friendly)');
+    vlog('[PersistentAuth] Attempting auto-connect (once per page load, GitHub API friendly)');
 
     // Check user preference for auto-connect
     const allowAutoConnect = this.getAllowAutoConnect();
-    console.log('[PersistentAuth] Allow auto-connect:', allowAutoConnect);
+    vlog('[PersistentAuth] Allow auto-connect:', allowAutoConnect);
 
-    console.log('[PersistentAuth] Attempting auto-connection...');
+    vlog('[PersistentAuth] Attempting auto-connection...');
     this.markAutoConnectAttempted();
 
     try {
       // First, try GitHub App auto-connect
-      console.log('[PersistentAuth] Trying GitHub App auto-connect...');
+      vlog('[PersistentAuth] Trying GitHub App auto-connect...');
       const appConnected = await this.attemptAppAutoConnect();
       if (appConnected) {
         // The App working says nothing about the OAuth token. Without this,
@@ -496,31 +497,31 @@ export class PersistentAuth {
         if (this.oauthCache?.accessToken) {
           this.verifyOAuth({ maxAgeMs: 0 }).catch(() => {});
         }
-        console.log('[PersistentAuth] ===== Successfully auto-connected via GitHub App =====');
-        console.log('[PersistentAuth] Emitting autoConnected event...');
+        vlog('[PersistentAuth] ===== Successfully auto-connected via GitHub App =====');
+        vlog('[PersistentAuth] Emitting autoConnected event...');
         this.emit('autoConnected', { method: 'github-app' });
-        console.log('[PersistentAuth] Dispatching auth event...');
+        vlog('[PersistentAuth] Dispatching auth event...');
         this.dispatchAuthEvent('github-app', { autoConnected: true });
-        console.log('[PersistentAuth] Events dispatched, UI should update now');
+        vlog('[PersistentAuth] Events dispatched, UI should update now');
         return;
       }
 
       if (!allowAutoConnect) {
-        console.log('[PersistentAuth] OAuth auto-connect disabled by user preference');
+        vlog('[PersistentAuth] OAuth auto-connect disabled by user preference');
         return;
       }
 
       // Then, try OAuth auto-connect
-      console.log('[PersistentAuth] Trying OAuth auto-connect...');
+      vlog('[PersistentAuth] Trying OAuth auto-connect...');
       const oauthConnected = await this.attemptOAuthAutoConnect();
       if (oauthConnected) {
-        console.log('[PersistentAuth] ===== Successfully auto-connected via OAuth =====');
+        vlog('[PersistentAuth] ===== Successfully auto-connected via OAuth =====');
         this.emit('autoConnected', { method: 'oauth' });
         this.dispatchAuthEvent('oauth', { autoConnected: true });
         return;
       }
 
-      console.log('[PersistentAuth] No stored auth data available for auto-connect');
+      vlog('[PersistentAuth] No stored auth data available for auto-connect');
 
     } catch (error) {
       console.error('[PersistentAuth] Auto-connect failed:', error);
@@ -586,10 +587,10 @@ export class PersistentAuth {
       // and re-install a potentially dead/wrong install from the server.
       const disconnectedAt = getLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt);
       if (disconnectedAt) {
-        console.log('[PersistentAuth] GitHub App auto-connect skipped — user disconnected at', new Date(Number(disconnectedAt)).toISOString());
+        vlog('[PersistentAuth] GitHub App auto-connect skipped — user disconnected at', new Date(Number(disconnectedAt)).toISOString());
         return false;
       }
-      console.log('[PersistentAuth] No stored GitHub App installation found; attempting discovery...');
+      vlog('[PersistentAuth] No stored GitHub App installation found; attempting discovery...');
       try {
         // CRITICAL: pass the OAuth token so the server can scope the install
         // list to THIS user's accounts. Without it the endpoint refuses, and
@@ -598,7 +599,7 @@ export class PersistentAuth {
         // could end up bound to this client.
         const userOauthToken = this.oauthCache?.accessToken || null;
         if (!userOauthToken) {
-          console.log('[PersistentAuth] App auto-connect skipped — no OAuth token available to scope install discovery');
+          vlog('[PersistentAuth] App auto-connect skipped — no OAuth token available to scope install discovery');
           this.lastAppDiscoveryFailure = { reason: 'oauth_missing', at: Date.now() };
           return false;
         }
@@ -701,7 +702,7 @@ export class PersistentAuth {
                 installations.map((i) => ({ id: i.id, account: i.account?.login, type: i.account?.type }))
               );
             } else {
-              console.log('[PersistentAuth] Selected install matching OAuth user', oauthLogin, '→ id', selected.id);
+              vlog('[PersistentAuth] Selected install matching OAuth user', oauthLogin, '→ id', selected.id);
             }
             const installationId = selected?.id || selected?.installation?.id;
             if (installationId) {
@@ -737,7 +738,7 @@ export class PersistentAuth {
                 });
 
                 appInstallation = this.getAppInstallation();
-                console.log('[PersistentAuth] Discovered and stored GitHub App installation:', installationId);
+                vlog('[PersistentAuth] Discovered and stored GitHub App installation:', installationId);
               }
             }
           }
@@ -752,14 +753,14 @@ export class PersistentAuth {
       }
     }
 
-    console.log('[PersistentAuth] Found stored GitHub App installation:', {
+    vlog('[PersistentAuth] Found stored GitHub App installation:', {
       installationId: appInstallation.installationId,
       hasAccessToken: !!appInstallation.accessToken,
       repositoryCount: appInstallation.repositories?.length || 0,
       lastUpdated: appInstallation.lastUpdated
     });
 
-    console.log('[PersistentAuth] Attempting to refresh GitHub App token...');
+    vlog('[PersistentAuth] Attempting to refresh GitHub App token...');
 
     try {
       // Use oauthFetch directly since it's already imported at the top
@@ -791,12 +792,12 @@ export class PersistentAuth {
       };
 
       await this.storeAppInstallation(updatedInstallation);
-      console.log('[PersistentAuth] GitHub App token refreshed successfully');
+      vlog('[PersistentAuth] GitHub App token refreshed successfully');
 
       // Verify the token works by making a test request
       const isValid = await this.testGitHubAppToken(freshAccessToken);
       if (isValid) {
-        console.log('[PersistentAuth] GitHub App token validated successfully');
+        vlog('[PersistentAuth] GitHub App token validated successfully');
         return true;
       } else {
         throw new Error('GitHub App token validation failed');
@@ -815,26 +816,26 @@ export class PersistentAuth {
    */
   async attemptOAuthAutoConnect() {
     if (!this.hasValidTokens()) {
-      console.log('[PersistentAuth] No valid OAuth tokens found');
+      vlog('[PersistentAuth] No valid OAuth tokens found');
       return false;
     }
 
     const accessToken = await this.getAccessToken();
     const userData = this.getUserData();
-    console.log('[PersistentAuth] Found stored OAuth tokens:', {
+    vlog('[PersistentAuth] Found stored OAuth tokens:', {
       hasAccessToken: !!accessToken,
       tokenLength: accessToken ? accessToken.length : 0,
       hasUserData: !!userData,
       username: userData?.login || 'unknown'
     });
 
-    console.log('[PersistentAuth] Validating OAuth tokens...');
+    vlog('[PersistentAuth] Validating OAuth tokens...');
 
     // Only a definite rejection clears the token. This used to clear on any
     // failed check, so a network blip at boot signed the user out.
     const state = await this.verifyOAuth({ maxAgeMs: 0 });
     if (state === 'valid') {
-      console.log('[PersistentAuth] OAuth tokens validated successfully');
+      vlog('[PersistentAuth] OAuth tokens validated successfully');
       return true;
     }
     if (state === 'invalid') {
@@ -998,10 +999,10 @@ export class PersistentAuth {
     if (!mirrorsAuthToServer()) return;
     try {
       await oauthFetch(path, init).catch(() => {
-        console.log('[PersistentAuth] Server sync skipped (expected for stateless server)');
+        vlog('[PersistentAuth] Server sync skipped (expected for stateless server)');
       });
     } catch (error) {
-      console.log('[PersistentAuth] Optional server sync skipped:', error?.message || error);
+      vlog('[PersistentAuth] Optional server sync skipped:', error?.message || error);
     }
   }
 
@@ -1071,7 +1072,7 @@ export class PersistentAuth {
     // Save to browser localStorage - this is the PRIMARY storage
     this.saveToBrowserStorage();
 
-    console.log('[PersistentAuth] Tokens stored in browser localStorage', {
+    vlog('[PersistentAuth] Tokens stored in browser localStorage', {
       hasAccessToken: true,
       hasRefreshToken: !!refresh_token,
       expiresIn: expires_in,
@@ -1137,7 +1138,7 @@ export class PersistentAuth {
     setTimeout(() => {
       this.attemptAppAutoConnect()
         .then((ok) => {
-          if (ok) console.log('[PersistentAuth] Post-OAuth App discovery succeeded');
+          if (ok) vlog('[PersistentAuth] Post-OAuth App discovery succeeded');
         })
         .catch((err) => {
           console.warn('[PersistentAuth] Post-OAuth App discovery failed:', err?.message || err);
@@ -1158,7 +1159,7 @@ export class PersistentAuth {
         return null;
       }
       if (this.shouldRefreshToken()) {
-        console.log('[PersistentAuth] Token needs validation/refresh');
+        vlog('[PersistentAuth] Token needs validation/refresh');
         await this.refreshAccessToken();
       }
       return this.oauthCache?.accessToken || null;
@@ -1229,11 +1230,11 @@ export class PersistentAuth {
       await this.ensureAuthStateLoaded().catch(() => {});
       const accessToken = this.oauthCache?.accessToken || null;
       if (!accessToken || accessToken.trim().length === 0) {
-        console.log('[PersistentAuth] No token to validate, skipping validation');
+        vlog('[PersistentAuth] No token to validate, skipping validation');
         throw new Error('No token available for validation');
       }
       
-      console.log('[PersistentAuth] Validating current token...');
+      vlog('[PersistentAuth] Validating current token...');
       
       const isValid = await this.testTokenValidity();
       
@@ -1252,7 +1253,7 @@ export class PersistentAuth {
           console.warn('[PersistentAuth] Failed to persist refreshed token metadata:', persistError);
         }
         
-        console.log('[PersistentAuth] Token validation successful, extended expiry');
+        vlog('[PersistentAuth] Token validation successful, extended expiry');
         this.emit('tokenValidated', { 
           newExpiryTime: new Date(newExpiryTime).toISOString() 
         });
@@ -1281,11 +1282,11 @@ export class PersistentAuth {
     const accessToken = this.oauthCache?.accessToken || null;
 
     if (!accessToken) {
-      console.log('[PersistentAuth] No access token available for validation');
+      vlog('[PersistentAuth] No access token available for validation');
       return false;
     }
 
-    console.log('[PersistentAuth] Testing token validity, token length:', accessToken.length);
+    vlog('[PersistentAuth] Testing token validity, token length:', accessToken.length);
 
     // Native shells have no oauth-server to introspect against — go straight
     // to api.github.com. The "server-side introspection" path below would
@@ -1310,18 +1311,18 @@ export class PersistentAuth {
 
     try {
       // Prefer server-side introspection to avoid mixed token types and browser CORS issues
-      console.log('[PersistentAuth] Attempting server-side validation...');
+      vlog('[PersistentAuth] Attempting server-side validation...');
       const validateResp = await oauthFetch('/api/github/oauth/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ access_token: accessToken })
       });
 
-      console.log('[PersistentAuth] Server validation response:', validateResp.status, validateResp.statusText);
+      vlog('[PersistentAuth] Server validation response:', validateResp.status, validateResp.statusText);
 
       if (validateResp.ok) {
         const data = await validateResp.json();
-        console.log('[PersistentAuth] Server validation result:', data);
+        vlog('[PersistentAuth] Server validation result:', data);
         return !!data.valid;
       } else {
         const errorText = await validateResp.text();
@@ -1329,7 +1330,7 @@ export class PersistentAuth {
       }
 
       // Fallback to direct GitHub call if server validation unavailable
-      console.log('[PersistentAuth] Falling back to direct GitHub validation...');
+      vlog('[PersistentAuth] Falling back to direct GitHub validation...');
       try {
         const response = await fetch('https://api.github.com/user', {
           headers: {
@@ -1337,7 +1338,7 @@ export class PersistentAuth {
             'Accept': 'application/vnd.github.v3+json'
           }
         });
-        console.log('[PersistentAuth] Direct GitHub validation response:', response.status, response.statusText);
+        vlog('[PersistentAuth] Direct GitHub validation response:', response.status, response.statusText);
         if (!response.ok) {
           console.warn('[PersistentAuth] Token validation failed:', response.status);
           if (response.status === 401) return false;
@@ -1361,7 +1362,7 @@ export class PersistentAuth {
       return; // Already monitoring
     }
     
-    console.log('[PersistentAuth] Starting health monitoring');
+    vlog('[PersistentAuth] Starting health monitoring');
     
     this.healthCheckInterval = setInterval(async () => {
       try {
@@ -1394,7 +1395,7 @@ export class PersistentAuth {
     if (this.healthCheckInterval) {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
-      console.log('[PersistentAuth] Health monitoring stopped');
+      vlog('[PersistentAuth] Health monitoring stopped');
     }
   }
 
@@ -1425,7 +1426,7 @@ export class PersistentAuth {
       console.warn('[PersistentAuth] Failed to stop health monitoring:', error);
     }
 
-    console.log('[PersistentAuth] Tokens cleared from browser localStorage');
+    vlog('[PersistentAuth] Tokens cleared from browser localStorage');
     this.emit('tokensCleared');
     this.dispatchAuthEvent('oauth', { hasTokens: false });
     return true;
@@ -1564,7 +1565,7 @@ export class PersistentAuth {
     // disconnect — clear the flag so future auto-connects work normally.
     removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt);
 
-    console.log('[PersistentAuth] GitHub App installation stored in browser localStorage');
+    vlog('[PersistentAuth] GitHub App installation stored in browser localStorage');
 
     // OPTIONAL: Send to server for temporary handoff (server is stateless).
     // Never on device-flow platforms: see mirrorsAuthToServer.
@@ -1669,7 +1670,7 @@ export class PersistentAuth {
     // OPTIONAL: Clear from server (stateless server doesn't persist anyway)
     await this.mirrorToServer('/api/github/auth/github-app', { method: 'DELETE' });
 
-    console.log('[PersistentAuth] GitHub App installation cleared from browser localStorage', { sticky });
+    vlog('[PersistentAuth] GitHub App installation cleared from browser localStorage', { sticky });
     this.emit('appInstallationCleared');
     this.dispatchAuthEvent('github-app', { hasInstallation: false });
   }
@@ -1694,7 +1695,7 @@ export class PersistentAuth {
    * Force re-attempt auto-connect (for debugging/testing)
    */
   async forceAutoConnect() {
-    console.log('[PersistentAuth] Force auto-connect triggered - resetting attempt flag');
+    vlog('[PersistentAuth] Force auto-connect triggered - resetting attempt flag');
     this.autoConnectAttempted = false;
     return this.attemptAutoConnect();
   }
@@ -1707,7 +1708,7 @@ export class PersistentAuth {
    * sticky-disconnect flag so a user-initiated reconnect always wins.
    */
   async forceAppDiscovery() {
-    console.log('[PersistentAuth] Force App discovery triggered');
+    vlog('[PersistentAuth] Force App discovery triggered');
     // User-initiated → clear sticky disconnect so we don't no-op.
     try { removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt); } catch { /* best effort */ }
     return this.attemptAppAutoConnect();
@@ -1719,7 +1720,7 @@ export class PersistentAuth {
   destroy() {
     this.stopHealthMonitoring();
     this.eventListeners.clear();
-    console.log('[PersistentAuth] Service destroyed');
+    vlog('[PersistentAuth] Service destroyed');
   }
 }
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SlotConflictDialog from './shared/SlotConflictDialog.jsx';
 import RestoreVersionDialog from './shared/RestoreVersionDialog.jsx';
+import { vlog } from '../utils/verboseLog.js';
 
 /**
  * Universe Backend Bootstrap - COMPLETELY DECOUPLED
@@ -35,7 +36,7 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
 
     initRef.current = true;
 
-    console.log('[UniverseManagerBootstrap] Setting up event bridge...');
+    vlog('[UniverseManagerBootstrap] Setting up event bridge...');
 
     const ensureBackendReady = async () => {
       if (backendRef.current) {
@@ -44,16 +45,16 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
 
       if (!backendInitPromiseRef.current) {
         backendInitPromiseRef.current = (async () => {
-          console.log('[UniverseManagerBootstrap] First command received, loading backend...');
+          vlog('[UniverseManagerBootstrap] First command received, loading backend...');
 
           try {
             await new Promise(resolve => setTimeout(resolve, 0));
-            console.log('[UniverseManagerBootstrap] Importing universeBackend...');
+            vlog('[UniverseManagerBootstrap] Importing universeBackend...');
 
             const module = await import('../services/universeBackend.js');
             const backend = module.default || module.universeBackend;
 
-            console.log('[UniverseManagerBootstrap] Backend imported, wiring bridge and starting initialization...');
+            vlog('[UniverseManagerBootstrap] Backend imported, wiring bridge and starting initialization...');
 
             // Wire status relay immediately
             if (!backendStatusUnsubscribeRef.current) {
@@ -70,7 +71,7 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
             window.dispatchEvent(new CustomEvent('universe-backend-ready'));
             // Safety: Re-dispatch after a tick to catch listeners mounting in same cycle
             setTimeout(() => window.dispatchEvent(new CustomEvent('universe-backend-ready')), 100);
-            console.log('[UniverseManagerBootstrap] Backend ready for commands (initialization continuing in background)');
+            vlog('[UniverseManagerBootstrap] Backend ready for commands (initialization continuing in background)');
 
             // Start initialization in background with a warning if it takes too long
             const initializationTimeoutMs = 6000;
@@ -89,7 +90,7 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
 
             backend.initialize()
               .then(() => {
-                console.log('[UniverseManagerBootstrap] Backend initialization completed');
+                vlog('[UniverseManagerBootstrap] Backend initialization completed');
               })
               .catch((initError) => {
                 console.error('[UniverseManagerBootstrap] Backend initialization failed:', initError);
@@ -276,11 +277,11 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
     document.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('focus', handleFocus);
 
-    console.log('[UniverseManagerBootstrap] Event bridge ready (backend will load on first command)');
+    vlog('[UniverseManagerBootstrap] Event bridge ready (backend will load on first command)');
 
     // If eager init is enabled, start loading the backend immediately
     if (enableEagerInit) {
-      console.log('[UniverseManagerBootstrap] Eager initialization enabled, starting backend load...');
+      vlog('[UniverseManagerBootstrap] Eager initialization enabled, starting backend load...');
       ensureBackendReady().catch(error => {
         console.error('[UniverseManagerBootstrap] Eager initialization failed:', error);
       });

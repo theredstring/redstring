@@ -8,6 +8,7 @@ import { computeImageRef, isDataUrl, refToBlobPath } from '../formats/imageRefs.
 import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
+import { vlog } from '../utils/verboseLog.js';
 
 // Source of truth modes
 const SOURCE_OF_TRUTH = {
@@ -123,14 +124,14 @@ class GitSyncEngine {
     // has had a chance to record its real floor from a successful commit.
     this._restorePersistedFloor();
 
-    console.log('[GitSyncEngine] Initialized with provider:', provider.name);
-    console.log('[GitSyncEngine] Authentication method:', this.isGitHubApp ? 'GitHub App' : 'OAuth');
-    console.log('[GitSyncEngine] Auto-save optimized:', this.autoSaveEnabled);
-    console.log('[GitSyncEngine] Commit interval:', this.commitInterval + 'ms');
-    console.log('[GitSyncEngine] Source of truth:', this.sourceOfTruth);
-    console.log('[GitSyncEngine] Universe slug:', this.universeSlug);
-    console.log('[GitSyncEngine] Sanitized file base name:', this.fileBaseName);
-    console.log('[GitSyncEngine] Restored commit floor:', this.lastCommittedNodeCount);
+    vlog('[GitSyncEngine] Initialized with provider:', provider.name);
+    vlog('[GitSyncEngine] Authentication method:', this.isGitHubApp ? 'GitHub App' : 'OAuth');
+    vlog('[GitSyncEngine] Auto-save optimized:', this.autoSaveEnabled);
+    vlog('[GitSyncEngine] Commit interval:', this.commitInterval + 'ms');
+    vlog('[GitSyncEngine] Source of truth:', this.sourceOfTruth);
+    vlog('[GitSyncEngine] Universe slug:', this.universeSlug);
+    vlog('[GitSyncEngine] Sanitized file base name:', this.fileBaseName);
+    vlog('[GitSyncEngine] Restored commit floor:', this.lastCommittedNodeCount);
   }
 
   _getFloorStorageKey() {
@@ -308,7 +309,7 @@ class GitSyncEngine {
     }
 
     if (externalized > 0) {
-      console.log(`[GitSyncEngine] Externalized ${externalized} image(s) to content-addressed blobs`);
+      vlog(`[GitSyncEngine] Externalized ${externalized} image(s) to content-addressed blobs`);
     }
     if (failed > 0) {
       console.warn(`[GitSyncEngine] ${failed} image(s) stayed inline this commit; will retry next commit`);
@@ -347,10 +348,10 @@ class GitSyncEngine {
     const oldMode = this.sourceOfTruth;
     this.sourceOfTruth = mode;
 
-    console.log(`[GitSyncEngine] Source of truth changed from '${oldMode}' to '${mode}'`);
+    vlog(`[GitSyncEngine] Source of truth changed from '${oldMode}' to '${mode}'`);
 
     if (mode === SOURCE_OF_TRUTH.GIT) {
-      console.log('[GitSyncEngine] Git mode enabled - Git repository is source of truth');
+      vlog('[GitSyncEngine] Git mode enabled - Git repository is source of truth');
     }
   }
 
@@ -366,10 +367,10 @@ class GitSyncEngine {
    * Behavior depends on source of truth setting
    */
   mergeWithLocalContent(gitData, localState) {
-    console.log(`[GitSyncEngine] Evaluating Git data against local Redstring content (source: ${this.sourceOfTruth})...`);
+    vlog(`[GitSyncEngine] Evaluating Git data against local Redstring content (source: ${this.sourceOfTruth})...`);
 
     // Debug: log the actual gitData structure
-    console.log('[GitSyncEngine] DEBUG: gitData structure:', gitData ? {
+    vlog('[GitSyncEngine] DEBUG: gitData structure:', gitData ? {
       // Top level keys
       topLevelKeys: Object.keys(gitData),
 
@@ -417,7 +418,7 @@ class GitSyncEngine {
       (gitData.edges && Object.keys(gitData.edges).length > 0)
     );
 
-    console.log('[GitSyncEngine] DEBUG: gitHasContent =', gitHasContent);
+    vlog('[GitSyncEngine] DEBUG: gitHasContent =', gitHasContent);
 
     const localHasContent = localState && (
       localState.graphs.size > 0 ||
@@ -428,42 +429,42 @@ class GitSyncEngine {
     // LOCAL MODE: Redstring file is source of truth (default, safe)
     if (this.sourceOfTruth === SOURCE_OF_TRUTH.LOCAL) {
       if (!gitHasContent && localHasContent) {
-        console.log('[GitSyncEngine] LOCAL MODE: Git has no content, preserving local Redstring content');
+        vlog('[GitSyncEngine] LOCAL MODE: Git has no content, preserving local Redstring content');
         return null; // Keep local content, sync to Git
       }
 
       if (gitHasContent && !localHasContent) {
-        console.log('[GitSyncEngine] LOCAL MODE: Local has no content, using Git data as backup');
+        vlog('[GitSyncEngine] LOCAL MODE: Local has no content, using Git data as backup');
         return gitData; // Use Git data only if local is empty
       }
 
       if (gitHasContent && localHasContent) {
-        console.log('[GitSyncEngine] LOCAL MODE: Both have content - Redstring is source of truth, preserving local content');
+        vlog('[GitSyncEngine] LOCAL MODE: Both have content - Redstring is source of truth, preserving local content');
         return null; // Keep local content, sync to Git
       }
 
-      console.log('[GitSyncEngine] LOCAL MODE: Neither has content, starting fresh');
+      vlog('[GitSyncEngine] LOCAL MODE: Neither has content, starting fresh');
       return null; // Start fresh
     }
 
     // GIT MODE: Git repository is source of truth (default)
     if (this.sourceOfTruth === SOURCE_OF_TRUTH.GIT) {
       if (!gitHasContent && localHasContent) {
-        console.log('[GitSyncEngine] GIT MODE: Git has no content, preserving local content and syncing to Git');
+        vlog('[GitSyncEngine] GIT MODE: Git has no content, preserving local content and syncing to Git');
         return null; // Keep local content, sync to Git
       }
 
       if (gitHasContent && !localHasContent) {
-        console.log('[GitSyncEngine] GIT MODE: Local has no content, using Git data as source');
+        vlog('[GitSyncEngine] GIT MODE: Local has no content, using Git data as source');
         return gitData; // Use Git data
       }
 
       if (gitHasContent && localHasContent) {
-        console.log('[GitSyncEngine] GIT MODE: Both have content - Git is source of truth, using Git data');
+        vlog('[GitSyncEngine] GIT MODE: Both have content - Git is source of truth, using Git data');
         return gitData; // Use Git data as source of truth
       }
 
-      console.log('[GitSyncEngine] GIT MODE: Neither has content, starting fresh');
+      vlog('[GitSyncEngine] GIT MODE: Neither has content, starting fresh');
       return null; // Start fresh
     }
   }
@@ -473,12 +474,12 @@ class GitSyncEngine {
    */
   start() {
     if (this.isRunning) {
-      console.log('[GitSyncEngine] Already running');
+      vlog('[GitSyncEngine] Already running');
       return;
     }
 
     this.isRunning = true;
-    console.log('[GitSyncEngine] Starting commit loop (every', this.commitInterval, 'ms)');
+    vlog('[GitSyncEngine] Starting commit loop (every', this.commitInterval, 'ms)');
 
     // Let the panel resolve this universe's content-addressed image blobs.
     // Registered on start rather than in the constructor so the LAST engine to
@@ -486,14 +487,14 @@ class GitSyncEngine {
     registerBlobSource(this.provider, this.universeFolder);
 
     // Auto-commit loop with aggressive conflict prevention
-    console.log('[GitSyncEngine] Auto-commit enabled with conflict prevention - every', this.commitInterval, 'ms');
+    vlog('[GitSyncEngine] Auto-commit enabled with conflict prevention - every', this.commitInterval, 'ms');
 
     this.commitLoop = setInterval(async () => {
       // Only auto-commit if no manual commit is in progress
       if (!this.isCommitInProgress) {
         await this.processPendingCommits();
       } else {
-        console.log('[GitSyncEngine] Skipping auto-commit - manual commit in progress');
+        vlog('[GitSyncEngine] Skipping auto-commit - manual commit in progress');
       }
     }, this.commitInterval);
   }
@@ -518,14 +519,14 @@ class GitSyncEngine {
       this.debounceTimeout = null;
     }
 
-    console.log('[GitSyncEngine] Stopped commit loop');
+    vlog('[GitSyncEngine] Stopped commit loop');
   }
 
   /**
    * Restart the sync engine (recovery mechanism)
    */
   restart() {
-    console.log('[GitSyncEngine] Restarting sync engine...');
+    vlog('[GitSyncEngine] Restarting sync engine...');
     this.stop();
 
     // Reset error state
@@ -544,7 +545,7 @@ class GitSyncEngine {
    */
   pause() {
     this.isPaused = true;
-    console.log('[GitSyncEngine] Operations paused');
+    vlog('[GitSyncEngine] Operations paused');
   }
 
   /**
@@ -552,7 +553,7 @@ class GitSyncEngine {
    */
   resume() {
     this.isPaused = false;
-    console.log('[GitSyncEngine] Operations resumed');
+    vlog('[GitSyncEngine] Operations resumed');
   }
 
   /**
@@ -567,7 +568,7 @@ class GitSyncEngine {
 
       // After 30 seconds of being in error state, attempt recovery
       if (timeSinceLastError > 30000) {
-        console.log('[GitSyncEngine] Attempting self-recovery after 30s error backoff');
+        vlog('[GitSyncEngine] Attempting self-recovery after 30s error backoff');
         this.consecutiveErrors = 0;
         this.isInErrorBackoff = false;
         this.lastErrorTime = 0;
@@ -691,7 +692,7 @@ class GitSyncEngine {
     // flush on the normal interval.
     const MAX_DRAG_DEBOUNCE_MS = 5000;
     if (this.isDragging && this.dragStartTime && (now - this.dragStartTime) > MAX_DRAG_DEBOUNCE_MS) {
-      console.log('[GitSyncEngine] Drag debounce capped at 5s, flushing pending commits');
+      vlog('[GitSyncEngine] Drag debounce capped at 5s, flushing pending commits');
       this.isDragging = false;
       this.dragStartTime = 0;
     }
@@ -700,7 +701,7 @@ class GitSyncEngine {
     if (timeSinceLastUpdate < 100) {
       this.isDragging = true;
       this.dragStartTime = this.dragStartTime || now;
-      console.log('[GitSyncEngine] Detected rapid updates (likely dragging), debouncing...');
+      vlog('[GitSyncEngine] Detected rapid updates (likely dragging), debouncing...');
     }
 
     // Clear any existing debounce timeout
@@ -722,14 +723,14 @@ class GitSyncEngine {
     // If we're dragging, use debounced commit
     if (this.isDragging) {
       this.debounceTimeout = setTimeout(() => {
-        console.log('[GitSyncEngine] Dragging finished, committing final state');
+        vlog('[GitSyncEngine] Dragging finished, committing final state');
         this.isDragging = false;
         this.dragStartTime = 0;
         this.processPendingCommits();
       }, this.debounceDelay);
     } else {
       // Normal update, log but don't spam
-      console.log('[GitSyncEngine] Content updated, pending commits:', this.pendingCommits.length);
+      vlog('[GitSyncEngine] Content updated, pending commits:', this.pendingCommits.length);
     }
   }
 
@@ -1041,7 +1042,7 @@ class GitSyncEngine {
     // Check if circuit breaker should be closed
     if (this.circuitBreakerOpen) {
       if (now - this.circuitBreakerOpenTime > this.circuitBreakerTimeout) {
-        console.log('[GitSyncEngine] Circuit breaker closing - resuming operations');
+        vlog('[GitSyncEngine] Circuit breaker closing - resuming operations');
         this.circuitBreakerOpen = false;
         this.consecutiveErrors = 0; // Reset error count
       } else {
@@ -1075,13 +1076,13 @@ class GitSyncEngine {
 
     // Check circuit breaker first
     if (!this.checkCircuitBreaker()) {
-      console.log('[GitSyncEngine] Circuit breaker open, skipping commit to prevent API spam');
+      vlog('[GitSyncEngine] Circuit breaker open, skipping commit to prevent API spam');
       return;
     }
 
     // Check if operations are paused
     if (this.isPaused) {
-      console.log('[GitSyncEngine] Operations paused, skipping commit');
+      vlog('[GitSyncEngine] Operations paused, skipping commit');
       return;
     }
 
@@ -1102,38 +1103,38 @@ class GitSyncEngine {
 
     // Check if we're in error backoff mode
     if (this.isInErrorBackoff && timeSinceLastError < this.errorBackoffDelay) {
-      console.log('[GitSyncEngine] In error backoff mode, waiting...');
+      vlog('[GitSyncEngine] In error backoff mode, waiting...');
       return;
     }
 
     // Reset error backoff if enough time has passed
     if (this.isInErrorBackoff && timeSinceLastError >= this.errorBackoffDelay) {
-      console.log('[GitSyncEngine] Error backoff period ended, resuming commits');
+      vlog('[GitSyncEngine] Error backoff period ended, resuming commits');
       this.isInErrorBackoff = false;
       this.consecutiveErrors = 0;
     }
 
     // Rate limiting: enforce minimum interval between commits
     if (timeSinceLastCommit < this.minCommitInterval) {
-      console.log('[GitSyncEngine] Rate limited: too soon since last commit');
+      vlog('[GitSyncEngine] Rate limited: too soon since last commit');
       this.notifyStatus('info', 'Rate limited: waiting before next commit');
       return;
     }
 
     // Check if there are actual changes to commit
     if (!this.hasChanges) {
-      console.log('[GitSyncEngine] No changes detected, skipping commit');
+      vlog('[GitSyncEngine] No changes detected, skipping commit');
       return;
     }
 
     // If we're currently dragging, don't commit yet (let debounce handle it)
     if (this.isDragging) {
-      console.log('[GitSyncEngine] Currently dragging, waiting for drag to finish');
+      vlog('[GitSyncEngine] Currently dragging, waiting for drag to finish');
       return;
     }
 
     if (this.isCommitInProgress) {
-      console.log('[GitSyncEngine] Commit already in progress, skipping this cycle');
+      vlog('[GitSyncEngine] Commit already in progress, skipping this cycle');
       return;
     }
     this.isCommitInProgress = true;
@@ -1141,7 +1142,7 @@ class GitSyncEngine {
       const commitCount = this.pendingCommits.length;
       const isFromDragging = this.pendingCommits.some(commit => commit.isDragging);
 
-      console.log(`[GitSyncEngine] Processing ${commitCount} pending commits${isFromDragging ? ' (from dragging)' : ''}...`);
+      vlog(`[GitSyncEngine] Processing ${commitCount} pending commits${isFromDragging ? ' (from dragging)' : ''}...`);
       this.notifyStatus('info', `Committing ${commitCount} update${commitCount === 1 ? '' : 's'}...`);
 
       // Get the most recent state (always use the latest, discard intermediate states)
@@ -1200,7 +1201,7 @@ class GitSyncEngine {
             writeError.message?.includes('NETWORK_CHANGED');
 
           if (isNetworkError && attempt < 3) {
-            console.log(`[GitSyncEngine] Network error on commit attempt ${attempt}, retrying...`);
+            vlog(`[GitSyncEngine] Network error on commit attempt ${attempt}, retrying...`);
             // Wait with exponential backoff: 1s, 2s
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
             continue;
@@ -1226,7 +1227,7 @@ class GitSyncEngine {
       this.lastCommitTime = now;
       this._persistFloor();
 
-      console.log(`[GitSyncEngine] Successfully committed changes to Git repository (${commitCount} updates batched)`);
+      vlog(`[GitSyncEngine] Successfully committed changes to Git repository (${commitCount} updates batched)`);
       this.notifyStatus('success', `Committed ${commitCount} update${commitCount === 1 ? '' : 's'} to Git`);
 
       // Reset error tracking on successful commit
@@ -1260,7 +1261,7 @@ class GitSyncEngine {
 
         // Check if it's a 409 conflict (file modified since last read)
         if (error.message && error.message.includes('409')) {
-          console.log('[GitSyncEngine] 409 conflict detected, will retry on next cycle');
+          vlog('[GitSyncEngine] 409 conflict detected, will retry on next cycle');
           // Keep the commits for retry, but add a delay to avoid rapid retries
           this.lastCommitTime = Date.now() - (this.minCommitInterval - 2000); // Allow retry in 2 seconds
         } else {
@@ -1342,7 +1343,7 @@ class GitSyncEngine {
       const minInterval = 2000; // Minimum 2 seconds between commits - responsive but prevents spam
 
       if (timeSinceLastCommit < minInterval) {
-        console.log(`[GitSyncEngine] Rate limited: ${timeSinceLastCommit}ms since last commit, minimum ${minInterval}ms required`);
+        vlog(`[GitSyncEngine] Rate limited: ${timeSinceLastCommit}ms since last commit, minimum ${minInterval}ms required`);
         this.notifyStatus('info', `Rate limited: waiting ${Math.ceil((minInterval - timeSinceLastCommit) / 1000)}s`);
         return false;
       }
@@ -1352,7 +1353,7 @@ class GitSyncEngine {
       const currentHash = this.generateStateHash(storeState);
 
       if (this.lastCommittedHash === currentHash) {
-        console.log('[GitSyncEngine] Redundant commit prevented - content unchanged');
+        vlog('[GitSyncEngine] Redundant commit prevented - content unchanged');
         // A resolution save whose chosen content already matches the last
         // commit still resolves the conflict — clear the block so autosave
         // resumes instead of staying wedged for the session.
@@ -1433,7 +1434,7 @@ class GitSyncEngine {
       this.consecutiveErrors = 0;
       this.isInErrorBackoff = false;
 
-      console.log('[GitSyncEngine] forceCommit successful');
+      vlog('[GitSyncEngine] forceCommit successful');
       this.notifyStatus('success', 'Commit successful');
       return true;
 
@@ -1451,7 +1452,7 @@ class GitSyncEngine {
    * browser-cache data load instead and later overwrite a newer remote.
    */
   async loadFromGit() {
-    console.log('[GitSyncEngine] Loading from Git repository...');
+    vlog('[GitSyncEngine] Loading from Git repository...');
 
     let content;
     let sha = null;
@@ -1459,10 +1460,10 @@ class GitSyncEngine {
       const result = await this.provider.readFileRawWithMeta(this.getLatestPath());
       content = result.content;
       sha = result.sha;
-      console.log('[GitSyncEngine] Loaded main universe file');
+      vlog('[GitSyncEngine] Loaded main universe file');
     } catch (error) {
       if (isConfirmedNotFound(error)) {
-        console.log('[GitSyncEngine] Main file not found for slug, starting fresh');
+        vlog('[GitSyncEngine] Main file not found for slug, starting fresh');
         this.lastKnownRemoteSha = null; // confirmed absent
         return null;
       }
@@ -1475,14 +1476,14 @@ class GitSyncEngine {
 
     // Check if content is empty or whitespace
     if (!content || content.trim() === '') {
-      console.log('[GitSyncEngine] File is empty, starting fresh');
+      vlog('[GitSyncEngine] File is empty, starting fresh');
       return null;
     }
 
     // Try to parse the content
     try {
       const redstringData = JSON.parse(content);
-      console.log('[GitSyncEngine] Successfully parsed Redstring data');
+      vlog('[GitSyncEngine] Successfully parsed Redstring data');
       // A clean read clears any earlier "could not read the remote" latch.
       this.remoteUnrecognized = false;
       // Arm the shrink-to-zero floor from what the remote actually holds.
@@ -1508,7 +1509,7 @@ class GitSyncEngine {
    */
   endDragging() {
     if (this.isDragging) {
-      console.log('[GitSyncEngine] Manually ending dragging state');
+      vlog('[GitSyncEngine] Manually ending dragging state');
       this.isDragging = false;
       this.dragStartTime = 0;
 

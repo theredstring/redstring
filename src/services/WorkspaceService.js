@@ -10,6 +10,7 @@
 import { isElectron, validateFolderAccess, getFileInFolder, readFile, writeFile } from '../utils/fileAccessAdapter.js';
 import { getStorageKey } from '../utils/storageUtils.js';
 import * as folderPersistence from './folderPersistence.js';
+import { vlog } from '../utils/verboseLog.js';
 
 const CONFIG_FILENAME = 'redstring.config.json';
 const WELCOME_SEEN_KEY = getStorageKey('redstring-welcome-seen');
@@ -25,13 +26,13 @@ class WorkspaceService {
      * @returns {Promise<{ status: 'READY'|'NEEDS_ONBOARDING'|'SELECT_UNIVERSE', activeUniverse?: string }>}
      */
     async initialize() {
-        console.log('[WorkspaceService] Initializing...');
+        vlog('[WorkspaceService] Initializing...');
 
         // 1. Check if we have a stored folder handle
         const validation = await folderPersistence.validateStoredFolder();
 
         if (!validation.valid || !validation.folderHandle) {
-            console.log('[WorkspaceService] No valid folder found. Setup required.');
+            vlog('[WorkspaceService] No valid folder found. Setup required.');
             return { status: 'NEEDS_ONBOARDING' };
         }
 
@@ -42,10 +43,10 @@ class WorkspaceService {
             await this.loadConfig();
 
             if (this.config && this.config.activeUniverse) {
-                console.log('[WorkspaceService] Active universe found in config:', this.config.activeUniverse);
+                vlog('[WorkspaceService] Active universe found in config:', this.config.activeUniverse);
                 return { status: 'READY', activeUniverse: this.config.activeUniverse };
             } else {
-                console.log('[WorkspaceService] Config loaded but no active universe set.');
+                vlog('[WorkspaceService] Config loaded but no active universe set.');
                 return { status: 'SELECT_UNIVERSE' };
             }
 
@@ -72,10 +73,10 @@ class WorkspaceService {
             const fileHandle = await getFileInFolder(this.folderHandle, CONFIG_FILENAME, false);
             const content = await readFile(fileHandle.handle || fileHandle); // adapter returns object or handle depending on env
             this.config = JSON.parse(content);
-            console.log('[WorkspaceService] Config loaded:', this.config);
+            vlog('[WorkspaceService] Config loaded:', this.config);
         } catch (error) {
             // Config doesn't exist or verify permissions failed on file specifically
-            console.log('[WorkspaceService] No config file found (or read failed). Starting fresh config.');
+            vlog('[WorkspaceService] No config file found (or read failed). Starting fresh config.');
             this.config = {};
         }
     }
@@ -89,7 +90,7 @@ class WorkspaceService {
         try {
             const fileHandle = await getFileInFolder(this.folderHandle, CONFIG_FILENAME, true);
             await writeFile(fileHandle.handle || fileHandle, JSON.stringify(this.config, null, 2));
-            console.log('[WorkspaceService] Config saved.');
+            vlog('[WorkspaceService] Config saved.');
         } catch (error) {
             console.error('[WorkspaceService] Failed to save config:', error);
             throw error;
@@ -101,7 +102,7 @@ class WorkspaceService {
      * @param {string|DirectoryHandle} handle 
      */
     async linkFolder(handle) {
-        console.log('[WorkspaceService] Linking folder...');
+        vlog('[WorkspaceService] Linking folder...');
         await folderPersistence.storeFolderHandle(handle);
         this.folderHandle = handle;
 
@@ -123,7 +124,7 @@ class WorkspaceService {
         if (!this.folderHandle) throw new Error('No folder handle set');
 
         const filename = name.endsWith('.redstring') ? name : `${name}.redstring`;
-        console.log('[WorkspaceService] Creating universe:', filename);
+        vlog('[WorkspaceService] Creating universe:', filename);
 
         try {
             const fileHandle = await getFileInFolder(this.folderHandle, filename, true);
