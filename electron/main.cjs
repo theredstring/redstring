@@ -34,6 +34,18 @@ app.setName('Redstring');
 // inherited NODE_ENV=development must not switch a packaged build into dev
 // behaviour (dev-server origin trusted, DevTools, update simulator).
 const isDev = !app.isPackaged;
+
+// Development runs as the generic Electron binary, so it must not share the
+// installed app's Keychain item ("Redstring Safe Storage"): whichever build
+// creates that item is the only one macOS trusts with it, and the other then
+// prompts on every launch. Dev gets its own item ("Redstring Dev Safe
+// Storage", named after the app) and its own secrets folder, and keeps the
+// shared data folder so linked universes stay linked.
+if (isDev) {
+  const sharedUserData = app.getPath('userData');
+  app.setName('Redstring Dev');
+  app.setPath('userData', sharedUserData);
+}
 const DEV_SERVER_URL = 'http://localhost:4001';
 const DEV_ORIGINS = isDev ? [DEV_SERVER_URL, 'http://127.0.0.1:4001'] : [];
 const APP_ENTRY_URL = `${APP_ORIGIN}/index.html`;
@@ -220,7 +232,10 @@ const getMainOwnedPath = () => {
 
 // safeStorage-encrypted secrets (C-7). Reachable only through secrets:*.
 const getSecretsPath = () => {
-  const folderName = sessionName ? `secrets_${sessionName}` : 'secrets';
+  // Dev encrypts with its own Keychain item (see isDev above), so its secrets
+  // live apart from the installed app's.
+  const base = isDev ? 'secrets-dev' : 'secrets';
+  const folderName = sessionName ? `${base}_${sessionName}` : base;
   return path.join(app.getPath('userData'), folderName);
 };
 
@@ -1274,6 +1289,11 @@ app.whenReady().then(async () => {
   await ensureDirectories();
   initApprovals();
   secretsStore = createSecretsStore({ dir: getSecretsPath(), safeStorage });
+  // Settle Keychain access now, before anything is on a clock. On macOS the
+  // first use of the encryption key can show a Keychain prompt, and the
+  // storage migration below would otherwise wait on it until it timed out.
+  // This call blocks until the prompt (if any) is answered.
+  secretsStore.unlock();
 
   hardenSession(getAppSession());
 

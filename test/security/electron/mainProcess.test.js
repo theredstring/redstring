@@ -246,13 +246,15 @@ describe('electron/main.cjs', () => {
       expect(conn).toEqual({ baseUrl: `http://127.0.0.1:${options.env.REDSTRING_AGENT_PORT}`, token: options.env.REDSTRING_AGENT_TOKEN });
     });
 
-    it('secrets round-trip through safeStorage into <userData>/secrets, never in plaintext', async () => {
+    it('secrets round-trip through safeStorage into <userData>/secrets-dev (dev build), never in plaintext', async () => {
       const ev = ipcEvent(APP);
       expect(await ctx.invoke('secrets:isAvailable', ev)).toBe(true);
       await ctx.invoke('secrets:set', ev, 'github_access_token', 'gho_example');
       expect(await ctx.invoke('secrets:get', ev, 'github_access_token')).toBe('gho_example');
       expect(await ctx.invoke('secrets:get', ev, 'missing')).toBe(null);
-      const dir = path.join(ctx.userData, 'secrets');
+      // This suite loads main.cjs unpackaged, and dev keeps its secrets apart
+      // from the installed app's (own Keychain item, own folder).
+      const dir = path.join(ctx.userData, 'secrets-dev');
       const files = fs.readdirSync(dir);
       expect(files).toHaveLength(1);
       expect(files[0]).not.toContain('github');

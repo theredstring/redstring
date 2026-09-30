@@ -183,4 +183,33 @@ describe('secrets store (C-7)', () => {
     expect(() => off.set('k', 'v')).toThrow();
     expect(createSecretsStore({ dir, safeStorage: fakeSafe(true, 'basic_text') }).isAvailable()).toBe(false);
   });
+
+  it('unlock touches the key once, and never throws when the keychain refuses', () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-secrets-'));
+    const calls = [];
+    const safe = { ...fakeSafe(), encryptString: (v) => { calls.push(v); return Buffer.from('E'); } };
+    expect(createSecretsStore({ dir, safeStorage: safe }).unlock()).toBe(true);
+    expect(calls).toEqual(['keychain-probe']);
+    const refused = { ...fakeSafe(), encryptString: () => { throw new Error('User canceled'); } };
+    expect(createSecretsStore({ dir, safeStorage: refused }).unlock()).toBe(false);
+    expect(createSecretsStore({ dir, safeStorage: fakeSafe(false) }).unlock()).toBe(false);
+  });
+});
+
+// A Keychain prompt must be answered before the storage migration starts its
+// clock, and development must never use the installed app's Keychain item.
+describe('startup keychain handling', () => {
+  const main = fs.readFileSync(path.join(__dirname, '../../../electron/main.cjs'), 'utf8');
+
+  it('unlocks the keychain before the origin migration runs', () => {
+    const unlockAt = main.indexOf('secretsStore.unlock()');
+    const migrateAt = main.indexOf('await runOriginMigration()');
+    expect(unlockAt).toBeGreaterThan(-1);
+    expect(migrateAt).toBeGreaterThan(unlockAt);
+  });
+
+  it('gives development its own keychain item and secrets folder', () => {
+    expect(main).toMatch(/if \(isDev\) \{[\s\S]{0,200}app\.setName\('Redstring Dev'\)[\s\S]{0,80}app\.setPath\('userData', sharedUserData\)/);
+    expect(main).toMatch(/isDev \? 'secrets-dev' : 'secrets'/);
+  });
 });

@@ -25,6 +25,7 @@ function createFakeElectron({ userData, documents, isPackaged = false, dialogRes
     isPackaged,
     name: 'Redstring',
     setName: () => {},
+    setPath: (which, value) => { if (which === 'userData') userData = value; },
     getPath: (which) => {
       if (which === 'userData') return userData;
       if (which === 'documents') return documents;

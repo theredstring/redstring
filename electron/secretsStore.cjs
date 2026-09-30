@@ -46,6 +46,20 @@ function createSecretsStore({ dir, safeStorage, fs = nodeFs } = {}) {
     }
   }
 
+  // Touch the encryption key once so the OS keyring is unlocked up front. On
+  // macOS the first use can show a Keychain prompt; this blocks until it is
+  // answered. Returns whether encryption works. Never throws.
+  function unlock() {
+    if (!isAvailable()) return false;
+    try {
+      safeStorage.encryptString('keychain-probe');
+      return true;
+    } catch (err) {
+      console.warn('[Secrets] Keychain access was refused:', err && err.message);
+      return false;
+    }
+  }
+
   // Never throws: a missing, unreadable or undecryptable secret reads as null
   // (the renderer treats that as "not connected" and can re-ask the user).
   function get(key) {
@@ -86,7 +100,7 @@ function createSecretsStore({ dir, safeStorage, fs = nodeFs } = {}) {
     }
   }
 
-  return { isAvailable, get, set, delete: remove };
+  return { isAvailable, unlock, get, set, delete: remove };
 }
 
 module.exports = { createSecretsStore, isValidSecretKey };
