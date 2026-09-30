@@ -8,7 +8,7 @@ npx vitest run test/security/invariants      # only the repo-wide invariants
 npx vitest run test/security/invariants/electron.test.js   # one file
 ```
 
-The threat model these tests defend is in [`documentation/security/THREAT_MODEL.md`](../../documentation/security/THREAT_MODEL.md); the findings they came from are in [`documentation/security/HARDENING_PLAN.md`](../../documentation/security/HARDENING_PLAN.md).
+The threat model these tests defend is in [`documentation/security/THREAT_MODEL.md`](../../documentation/security/THREAT_MODEL.md).
 
 ## How it is organised
 
@@ -31,7 +31,7 @@ Every rule has an id (e.g. `renderer/window-open`) defined once in `invariants/_
 SECURITY INVARIANT BROKEN [renderer/window-open] window.open() is only called inside src/utils/safeUrl.js
   Why it matters: URLs in universe files are attacker-controlled; javascript:, file: and custom schemes must be filtered before opening.
   How to fix:     Call openExternalUrl(url) from src/utils/safeUrl.js instead of window.open(...).
-  Audit refs:     S-40, C-1 (documentation/security/HARDENING_PLAN.md)
+  Audit refs:     S-40, C-1
   1 violation(s):
     src/components/panel/AboutSection.jsx:446  window.open(href, '_blank')
 ```

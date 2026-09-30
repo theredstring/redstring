@@ -61,8 +61,7 @@ jobs:
       env:
         NODE_OPTIONS: --max-old-space-size=4096
 
-  # The security gate. Make this a required status check on main (see
-  # documentation/security/RUNBOOK.md). Every check runs even if an earlier one
+  # The security gate. Make this a required status check on main. Every check runs even if an earlier one
   # fails, so one red run shows everything that is wrong.
   # What each check enforces: test/security/README.md.
   security:
@@ -130,7 +129,7 @@ jobs:
 
     # Known leaked-and-revoked keys stay in history forever; once revoked they
     # are allowlisted by fingerprint in scripts/security/secret-scan-allowlist.json
-    # (RUNBOOK.md). Anything else found here is a new leak: rotate it first.
+    # Anything else found here is a new leak: rotate it first.
     - name: Secret scan (full history, all refs)
       if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       run: node scripts/security/secret-scan.mjs --history

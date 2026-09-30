@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# LEGACY — retired; see documentation/security/RUNBOOK.md.
+# LEGACY — retired; see the maintainer runbook.
 # Redstring now ships via Cloudflare Pages. This Cloud Build config deploys a
 # public (--allow-unauthenticated) Cloud Run service. Its first step fails
 # unless the build is submitted with --substitutions=_ALLOW_LEGACY_GCP=1.
@@ -11,7 +11,7 @@ steps:
   # Refuse to run unless explicitly opted in (retired infrastructure).
   - name: 'bash'
     entrypoint: 'bash'
-    args: ['-c', 'if [ "$_ALLOW_LEGACY_GCP" != "1" ]; then echo "Refusing: retired GCP deployment. See documentation/security/RUNBOOK.md" >&2; exit 1; fi']
+    args: ['-c', 'if [ "$_ALLOW_LEGACY_GCP" != "1" ]; then echo "Refusing: retired GCP deployment. See the maintainer runbook" >&2; exit 1; fi']
     id: 'legacy-guard'
 
   # Step 1: Install dependencies

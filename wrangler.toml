@@ -18,8 +18,7 @@
 #   ALLOW_PREVIEW_ORIGINS=true    lets *.pages.dev / *.workers.dev through CORS.
 #
 # Rate limiting: the Function carries a best-effort per-isolate limiter; the
-# real limit is a Cloudflare WAF rate-limiting rule on /api/github/* (see
-# documentation/security/RUNBOOK.md).
+# real limit is a Cloudflare WAF rate-limiting rule on /api/github/*.
 #
 # Use the DEV credentials (matching GITHUB_*_DEV in the existing .env) for
 # this Pages project — keeps prod GCP secrets fully isolated until cutover.

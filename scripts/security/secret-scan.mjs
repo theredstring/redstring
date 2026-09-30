@@ -173,7 +173,7 @@ export async function main(argv = process.argv.slice(2)) {
       console.log([
         '',
         'What to do:',
-        '  1. Treat each key as leaked: revoke/rotate it at the provider first (documentation/security/RUNBOOK.md).',
+        '  1. Treat each key as leaked: revoke/rotate it at the provider first.',
         mode === 'history'
           ? '  2. History cannot be un-published. After revoking, add { "fingerprint": "<fp>", "reason": "revoked YYYY-MM-DD" }\n     to scripts/security/secret-scan-allowlist.json so the weekly scan goes green.'
           : '  2. Remove it from the file (use an env var or the OS keychain) and re-run this scan.',

@@ -1,7 +1,7 @@
 # Redstring threat model
 
 Status: current (2026-09-29, written with the pre-1.0 security hardening sweep). Owner: Grant.
-Related: [HARDENING_PLAN.md](HARDENING_PLAN.md) (findings and their status), [RUNBOOK.md](RUNBOOK.md) (manual actions), [`test/security/README.md`](../../test/security/README.md) (how the rules below are tested), [`SECURITY.md`](../../SECURITY.md) (reporting).
+Related: [`test/security/README.md`](../../test/security/README.md) (how the rules below are tested), [`SECURITY.md`](../../SECURITY.md) (reporting).
 
 Redstring is local-first: there is no Redstring database and no Redstring user account. What an attacker can reach is the user's own device, the user's GitHub account through the tokens Redstring holds, and the user's AI provider key. The repository is public.
 
@@ -54,6 +54,22 @@ All migrations are verify-then-delete: read the old value, write the new one, re
 Repository reads during sync are capped (50 MB web/desktop, 25 MB native) using the listing size before download; a too-large file is "unreadable", never "absent". The empty-write guard decides "absent" only from structured fields (`code`, `name`, and `status` when present), never from message text (`isConfirmedNotFound` in `src/services/emptyWriteGuard.js`).
 
 AI consent: before the first request that sends graph content to a provider, `src/services/aiConsent.js` (logic, UI-free) and `src/ai/aiConsentPrompt.js` (dialog) ask once per provider and host; `localhost` providers never ask. Declining throws `AI_CONSENT_DECLINED` before any network request. The gate is installed with `setLLMRequestGate` in `src/wizard/LLMClient.js`.
+
+## Security contracts
+
+Shared modules and interfaces the fixes and the invariant tests depend on. The names are fixed; `test/security/invariants/contracts.test.js` checks each one exists and behaves as described.
+
+| ID | Contract |
+|---|---|
+| C-1 | `src/utils/safeUrl.js`: `safeExternalHref(url)` → normalised URL for `https:`/`http:`/`mailto:` only, else `null` (rejects `javascript:`, `data:`, `file:`, `vbscript:`, `blob:`, custom schemes, whitespace/control-character tricks). `safeImageSrc(url)` allows `https:`, `http:`, `blob:`, raster `data:image/(png\|jpeg\|jpg\|gif\|webp\|avif)` only (no SVG data URLs). `openExternalUrl(url)` is the only sanctioned `window.open` in `src/`. |
+| C-2 | `src/utils/safeColor.js`: `sanitizeColor(value, fallback = null)` accepts hex, `rgb/rgba/hsl/hsla` with numeric args, CSS named colours; rejects `url(`, `;`, braces, other functions, `expression`, `var(`, backslashes, quotes. Pure. |
+| C-3 | `electron/ipcGuards.cjs`: `isValidStoreName`, `createPathApprovals({ persistPath })` (approve only from main-side dialog results), `isSafeExternalUrl`, `isTrustedSender(event)`. |
+| C-4 | `electron/updaterSignature.cjs`: `verifyBundleSignature(bundlePath, { teamId, bundleId, exec })` → `{ ok, reason }` via `codesign --verify --deep --strict`, designated requirement (team `24MPFEY5BE`, bundle `io.redstring.app`) and `spctl --assess`. |
+| C-5 | Electron origin becomes `app://redstring` (privileged scheme + `protocol.handle`), with a lossless one-time migration of `file://`-origin storage. |
+| C-6 | Local agent server auth: per-launch 32-byte token (`REDSTRING_AGENT_TOKEN`), preload `window.electron.agent.getConnection()`, header `X-Redstring-Token`, shared middleware `src/security/localServerGuard.js` → `createLocalServerGuard({ token, port, allowedOrigins })` (Host, token, Origin never `null`, JSON only). CLI token in `~/.redstring/agent.json` (0600). |
+| C-7 | Secrets at rest: `window.electron.secrets = { isAvailable, get, set, delete }` via `safeStorage`; Keychain/Keystore on mobile; `src/utils/secureStore.js` picks the backend, same API. |
+| C-8 | CSP `<meta>` in `index.html` for web, Electron and Capacitor. No `'unsafe-eval'`, no `'unsafe-inline'` in `script-src`; header-only directives in `public/_headers`. |
+| C-9 | `functions/_lib/ownership.ts`: `verifyInstallOwnership(rawId, oauthToken, appJwt, configuredAppId)`, fail closed (user installs: account id matches; org installs: active membership; wrong app, suspended or any GitHub error → deny). Mint uses the verified installation id. |
 
 ## Invariants and the test that enforces each
 
@@ -113,6 +129,6 @@ Outside the unit tests: `scripts/security/secret-scan.mjs` (tracked files on eve
 
 - **OAuth `repo` scope and device-flow phishing (S-85)**: the OAuth App token can reach all of a user's repositories. Accepted for 1.0 (decided 2026-09-29). Narrowing to GitHub-App-only access would make adding a repo a trip to GitHub's installation settings page: the preselected-repo install link (`installations/new/permissions?target_id=…&repository_ids[]=…`) lands on the general settings page when the App is already installed, not on a one-button confirmation, and that friction isn't worth it. Mitigated by the CSP, link sanitising and the fail-closed installation check. Residual: any active member of an org can mint that org installation's token, which can reach repos they can't push to themselves. Revisit if GitHub adds a one-step "add this repository" flow for installed Apps.
 - **Web BYOK keys** are encrypted in browser storage with a key held in the same browser (IndexedDB). This defends against casual disclosure (exports, screenshots of devtools, backups), not against script running in the page; the CSP and sanitizers are the defence there.
-- **History is permanent.** Keys that were committed are revoked (RUNBOOK) and fingerprint-allowlisted; they remain readable in git history by design of git.
+- **History is permanent.** Keys that were committed are revoked and fingerprint-allowlisted; they remain readable in git history by design of git.
 - **Images from graph data** (`https:`/`http:` in `img-src`) can reveal the user's IP to the image host when a universe is opened. Accepted: remote thumbnails are a core feature.
 - **Local malware running as the user** can read anything the user can. Out of scope beyond the fuses and keychain use.

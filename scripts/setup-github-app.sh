@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LEGACY — retired; see documentation/security/RUNBOOK.md.
+# LEGACY — retired; see the maintainer runbook.
 # Redstring now ships via Cloudflare Pages. The Cloud Run services these
 # scripts deploy held the GitHub App key and were public
 # (--allow-unauthenticated). Refuses to run unless explicitly opted in.
 # ─────────────────────────────────────────────────────────────────────────────
 if [ "${REDSTRING_ALLOW_LEGACY_GCP:-}" != "1" ]; then
   echo "Refusing to run: this is a retired GCP deployment script." >&2
-  echo "See documentation/security/RUNBOOK.md. Set REDSTRING_ALLOW_LEGACY_GCP=1 to override." >&2
+  echo "See the maintainer runbook. Set REDSTRING_ALLOW_LEGACY_GCP=1 to override." >&2
   exit 1
 fi
 

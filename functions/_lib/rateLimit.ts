@@ -4,7 +4,7 @@
 // fixed-window counter held in module scope — i.e. per Worker isolate. An
 // attacker spread across many colos/isolates gets more than `limit`, so this
 // is a speed bump, not a wall: the real limit is the Cloudflare WAF rate-limit
-// rule on /api/github/* described in documentation/security/RUNBOOK.md.
+// rule on /api/github/*.
 //
 // If the project ever gains a Workers Rate Limiting binding named
 // RATE_LIMITER (`{ limit({ key }) => { success } }`), it is consulted too.

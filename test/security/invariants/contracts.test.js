@@ -1,5 +1,5 @@
 // @vitest-environment node
-// The shared security contracts (C-1 … C-9 in documentation/security/HARDENING_PLAN.md),
+// The shared security contracts (C-1 … C-9 in documentation/security/THREAT_MODEL.md),
 // imported from their contract paths and checked against the specified
 // behaviour. The area test suites go deeper; these are the independent,
 // minimum guarantees every other invariant relies on. A missing module fails
@@ -18,7 +18,7 @@ const require = createRequire(import.meta.url);
 async function load(rel, contract) {
   if (!exists(rel)) {
     throw new Error(`[contracts/present] ${contract}: ${rel} does not exist. It is created by the area that owns ${contract} `
-      + '(see "Shared contracts" in documentation/security/HARDENING_PLAN.md); every related invariant depends on it.');
+      + '(see "Security contracts" in documentation/security/THREAT_MODEL.md); every related invariant depends on it.');
   }
   return rel.endsWith('.cjs') ? require(path.join(ROOT, rel)) : import(pathToFileURL(path.join(ROOT, rel)).href);
 }

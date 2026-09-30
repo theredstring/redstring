@@ -344,7 +344,7 @@ export function formatFailure(ruleId, violations, { extra } = {}) {
     `SECURITY INVARIANT BROKEN [${r.id}] ${r.title}`,
     `  Why it matters: ${r.why}`,
     `  How to fix:     ${r.fix}`,
-    r.findings.length ? `  Audit refs:     ${r.findings.join(', ')} (documentation/security/HARDENING_PLAN.md)` : null,
+    r.findings.length ? `  Audit refs:     ${r.findings.join(', ')}` : null,
     extra ? `  Note:           ${extra}` : null,
     `  ${violations.length} violation(s):`,
     ...violations.slice(0, 60).map((v) => `    ${v.file}${v.line ? `:${v.line}` : ''}  ${v.text}`),

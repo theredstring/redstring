@@ -50,7 +50,7 @@ Find your task below and read only the listed files — in order. This is the fa
 | **Set up the save / sync system** | `documentation/core-system/SAVE_COORDINATOR_README.md`, `documentation/core-system/GIT_FEDERATION.md` |
 | **Understand the v4.0.0 format roadmap** | `documentation/data-format/FORMAT_REFACTOR_PLAN.md` (future-intent — SKOS/PROV/RDF-star alignment; **no code exists yet**) |
 | **Run or write tests** | `documentation/dev-ops/TESTING_ONBOARDING.md`, `documentation/ai-agent-mcp/AI_TESTING_GUIDE.md`, `documentation/ai-agent-mcp/WIZARD_TESTING_GUIDE.md` |
-| **Security work: fix a vulnerability, touch auth / IPC / servers / CI, or add a security test** | `documentation/security/THREAT_MODEL.md` (current — assets, attackers, trust boundaries, and which invariant test enforces what), `test/security/README.md` (current — how the security suite works and how to add an invariant), `documentation/security/HARDENING_PLAN.md` (current — the 2026-09 findings, shared contracts C-1…C-9 and their status). For owner-only dashboard steps: `documentation/security/RUNBOOK.md` |
+| **Security work: fix a vulnerability, touch auth / IPC / servers / CI, or add a security test** | `documentation/security/THREAT_MODEL.md` (current — assets, attackers, trust boundaries, and which invariant test enforces what), `test/security/README.md` (current — how the security suite works and how to add an invariant). Shared contracts C-1…C-9 are in the threat model's "Security contracts" section |
 | **Understand project philosophy / conceptual vocabulary** | `aiinstructions.txt` (plain text, not .md — read via `cat aiinstructions.txt`) |
 
 ---
@@ -92,8 +92,6 @@ Indexed here directly (there is no `.compendium/security.index.md`). Added 2026-
 |------|--------|---------|-----------|
 | [`SECURITY.md`](SECURITY.md) | `current` | Public policy: supported versions, private vulnerability reporting, what's in scope, BYOK statement | Handling a vulnerability report; changing supported versions |
 | [`documentation/security/THREAT_MODEL.md`](documentation/security/THREAT_MODEL.md) | `current` | Assets, attackers, per-platform trust boundaries (web, Electron, Capacitor, local servers, CI), every security invariant and the test that enforces it, accepted risks | Before changing anything that handles untrusted data, tokens, IPC, local servers or the release pipeline |
-| [`documentation/security/HARDENING_PLAN.md`](documentation/security/HARDENING_PLAN.md) | `current` | The 2026-09 audit findings (S-01…S-85) by area, the shared security contracts C-1…C-9 (module names other code depends on), and a status column | Fixing or re-checking a finding; using `safeUrl`/`safeColor`/`ipcGuards`/`localServerGuard`/`ownership` |
-| [`documentation/security/RUNBOOK.md`](documentation/security/RUNBOOK.md) | `current` | The owner's manual steps (key rotation, Cloudflare/GitHub/GCP settings, store checks), each with how to verify it's done | The owner asks what's left to do outside the code; a key leaks again |
 | [`test/security/README.md`](test/security/README.md) | `current` | How `test/security/` is organised, how invariants report failures, the allowlist, how to add a rule, the `scripts/security/` tools | A security test fails; adding a new invariant |
 
 ---

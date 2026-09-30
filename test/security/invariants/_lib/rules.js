@@ -2,7 +2,7 @@
 // up here, so the failure message always says the same three things:
 // what rule was broken, why it matters, and how to fix it.
 //
-// `findings` point at the audit IDs in documentation/security/HARDENING_PLAN.md.
+// `findings` are the audit IDs each rule came from.
 // `test` is the file that enforces the rule (documentation/security/THREAT_MODEL.md
 // links each threat to these).
 
@@ -206,7 +206,7 @@ export const RULES = {
   'functions/attacker-scenarios': {
     title: 'Cross-account installation-token and unsigned webhook requests are refused',
     why: 'These are the two concrete attacks from the audit (S-01, S-12), replayed against the real handler.',
-    fix: 'See S-01 and S-12 in documentation/security/HARDENING_PLAN.md.',
+    fix: 'Mint only through requireInstallOwnership/verifyInstallOwnership (fail closed), and refuse webhooks without a valid signature.',
     findings: ['S-01', 'S-12'],
     test: 'functions.test.js',
   },
@@ -324,7 +324,7 @@ export const RULES = {
   'contracts/present': {
     title: 'The shared security modules exist at their contract paths and behave as specified',
     why: 'Every fix and every invariant above relies on these helpers; a missing or weakened helper silently disables them.',
-    fix: 'Create or fix the module named in the failure as specified under "Shared contracts" in documentation/security/HARDENING_PLAN.md.',
+    fix: 'Create or fix the module named in the failure as specified under "Security contracts" in documentation/security/THREAT_MODEL.md.',
     findings: ['C-1', 'C-2', 'C-3', 'C-4', 'C-6', 'C-7', 'C-9'],
     test: 'contracts.test.js',
   },

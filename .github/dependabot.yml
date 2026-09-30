@@ -1,5 +1,5 @@
 # Dependabot version updates. Security alerts and security updates are
-# switched on separately in the repo settings (documentation/security/RUNBOOK.md).
+# switched on separately in the repo settings.
 version: 2
 updates:
   - package-ecosystem: npm

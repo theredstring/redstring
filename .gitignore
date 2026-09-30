@@ -83,3 +83,6 @@ test/fixtures/canvas/local/
 github.env*
 data/analytics/
 agent.json
+
+# Maintainer-only notes (security runbook, audit findings). Never committed.
+.private/
