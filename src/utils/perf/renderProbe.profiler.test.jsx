@@ -42,7 +42,7 @@ afterEach(() => {
   renderProbe.disable();
 });
 
-// eslint-disable-next-line react/prop-types
+ 
 function Counter({ n }) {
   return <span>{n}</span>;
 }

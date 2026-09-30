@@ -1,4 +1,3 @@
-/* global process */
 // Playwright config for the CSP check (S-41): the PRODUCTION build under
 // `vite preview`, so the policy is tested exactly as it ships (the dev server
 // adds its own header and inline preamble, which the build doesn't have).

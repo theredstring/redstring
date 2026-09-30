@@ -1,4 +1,3 @@
-/* global process, Buffer */
 /**
  * S-41 — the Content-Security-Policy in index.html, exercised in a real
  * browser against the production build.

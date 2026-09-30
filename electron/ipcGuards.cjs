@@ -132,7 +132,7 @@ function isSafeExternalUrl(url) {
   if (typeof url !== 'string' || !url || url.length > 8192) return false;
   // Control characters and whitespace have no business in a URL we hand to the
   // OS; WHATWG parsing strips some of them, which is how `java\tscript:` works.
-  // eslint-disable-next-line no-control-regex
+   
   if (/[\u0000- \u007f-\u009f]/.test(url)) return false;
   let parsed;
   try {

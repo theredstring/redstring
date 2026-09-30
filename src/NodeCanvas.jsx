@@ -1704,7 +1704,7 @@ function NodeCanvas() {
   const selectedEdgeMidpoint = useMemo(() => computeSelectedEdgeMidpoint({
     selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, edgeCurveInfo, enableAutoRouting,
     routingStyle, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, lombardiTangents,
-    lombardiCurvature, selectedInstanceIds, lombardiLaneSpacing, connectionWidth, lombardiMinBow, curveSpacing,
+    lombardiCurvature, selectedInstanceIds, lombardiLaneSpacing, connectionWidth, lombardiMinBow, curveSpacing, anchorPositionUpdatesRef,
   }), [selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, selectedInstanceIds, enableAutoRouting, routingStyle, manhattanBends, cleanLaneOffsets, cleanLaneSpacing, lombardiTangents, lombardiCurvature, edgeCurveInfo, curveSpacing, orthogonalLaneSpacing, lombardiLaneSpacing, connectionWidth]);
 
   // Reverse-index: instanceId → Set<edgeId> for O(1) lookup of edges connected to a node.

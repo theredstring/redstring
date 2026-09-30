@@ -179,6 +179,8 @@ export const labelSpanOf = (edge, fontSize) => estimateEdgeLabelWidth(edge?.name
 //   - leading/trailing/double spaces: xml:space collapses them in the rendered
 //     text but not in our advances array, which is the same desync one step
 //     removed.
+// Combining marks and joiners are the point of this class.
+ 
 const GLYPH_SPLIT_HAZARD = new RegExp(
   '[' +
   '\\u0300-\\u036F' +   // combining diacritical marks

@@ -99,7 +99,7 @@ export function sortEntries(entries) {
 
 /** `Vitest caught N unhandled error(s)` — these fail a run but aren't in the JSON report. */
 export function countUnhandledErrors(output) {
-  // eslint-disable-next-line no-control-regex
+   
   const plain = String(output).replace(/\u001b\[[0-9;]*m/g, '');
   const m = plain.match(/Vitest caught (\d+) unhandled error/);
   return m ? Number(m[1]) : 0;

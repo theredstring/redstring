@@ -940,7 +940,7 @@ function nearbyScales(scale) {
  * bucket takes to bake, so it has to count as live against eviction — dropping
  * one mid-substitution is the flash to <text> this whole path exists to avoid.
  */
-function useSprite(key) {
+function touchSprite(key) {
   const hit = cache.get(key);
   if (hit === undefined) return null;
   cache.delete(key);
@@ -952,7 +952,7 @@ function useSprite(key) {
 export function peekNearbyLabelSprite(spec) {
   if (!spec?.text || !(spec.fontSize > 0) || !(spec.scale > 0)) return null;
   for (const scale of nearbyScales(spec.scale)) {
-    const hit = useSprite(labelKey({ ...spec, scale }));
+    const hit = touchSprite(labelKey({ ...spec, scale }));
     if (hit) return hit;
   }
   return null;
@@ -964,7 +964,7 @@ export function peekNearbyGlyphSprite(spec) {
   const paint = glyphLayerPaint(spec);
   if (!paint) return null;
   for (const scale of nearbyScales(spec.scale)) {
-    const hit = useSprite(glyphKey({ ...spec, scale }, paint));
+    const hit = touchSprite(glyphKey({ ...spec, scale }, paint));
     if (hit) return hit;
   }
   return null;

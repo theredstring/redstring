@@ -1,4 +1,3 @@
-/* global __dirname */
 /**
  * S-40 / S-42 / S-46 / S-47 — a .redstring file carrying every payload:
  * after importFromRedstring, the store holds none of them, and the legitimate

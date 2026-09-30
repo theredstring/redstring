@@ -81,7 +81,7 @@ class QueueManager {
             }
           }
         } catch (e) {
-          // eslint-disable-next-line no-console
+           
           console.warn(`[Queue] Failed to load journal for ${name}:`, e.message);
         }
       }

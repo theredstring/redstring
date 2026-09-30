@@ -24,12 +24,12 @@ async function get(path) {
 
 async function waitFor(fn, { timeoutMs = 6000, intervalMs = 120 } = {}) {
   const start = Date.now();
-  // eslint-disable-next-line no-constant-condition
+   
   while (true) {
     const ok = await fn().catch(() => false);
     if (ok) return true;
     if (Date.now() - start > timeoutMs) return false;
-    // eslint-disable-next-line no-await-in-loop
+     
     await new Promise(r => setTimeout(r, intervalMs));
   }
 }

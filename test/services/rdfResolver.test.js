@@ -2,7 +2,7 @@
  * Tests for RDF Resolver Service
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RDFResolver, rdfResolver } from '../../src/services/rdfResolver.js';
 
 // Mock fetch for testing

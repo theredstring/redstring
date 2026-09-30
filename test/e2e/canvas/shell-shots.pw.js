@@ -12,7 +12,7 @@ test.skip(!DIR, 'set SHELL_SHOTS_DIR to take shell screenshots');
 
 const setUI = (page, fn, arg) => page.evaluate(async ([source, a]) => {
   const { default: ui } = await import('/src/store/canvasUIStore.js');
-  // eslint-disable-next-line no-new-func
+   
   new Function(`return (${source})`)()(ui.getState(), window.useGraphStore.getState(), a);
 }, [fn.toString(), arg]);
 

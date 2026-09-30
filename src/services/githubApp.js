@@ -61,6 +61,7 @@ export class GitHubAppAuth {
 
     try {
       // This would work in Node.js environment
+       
       const jwt = require('jsonwebtoken');
       
       const payload = {

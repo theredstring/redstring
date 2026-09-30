@@ -1,4 +1,3 @@
-/* global __dirname */
 /**
  * S-40 / S-42 / S-46 — rendered components never put an unsafe URL in an
  * href or a window.open, and never an unsafe colour in a style.

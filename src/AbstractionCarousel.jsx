@@ -1338,12 +1338,6 @@ const AbstractionCarousel = ({
     }
   }, [isVisible, onClose]);
 
-  if (!isVisible || !selectedNode) return null;
-
-  const carouselPosition = getCarouselPosition();
-  const stackOffset = getStackOffset();
-  const zoom = getLiveZoom(); // live canvas zoom for this render's geometry
-
   // Compute hint placement levels and positions
   const reachableChainLevels = useMemo(() => {
     return abstractionChainWithDims
@@ -1359,6 +1353,13 @@ const AbstractionCarousel = ({
     const levelOffset = levelOffsets[level] ?? (level * (NODE_HEIGHT * 1.4 * nodeScaleGlobal + LEVEL_SPACING));
     return window.innerHeight * 2 + (levelOffset * getLiveZoom());
   }, [levelOffsets, getLiveZoom]);
+
+  if (!isVisible || !selectedNode) return null;
+
+  const carouselPosition = getCarouselPosition();
+  const stackOffset = getStackOffset();
+  const zoom = getLiveZoom(); // live canvas zoom for this render's geometry
+
 
   let topHintPos = null;
   let bottomHintPos = null;

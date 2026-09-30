@@ -99,7 +99,7 @@ export async function nextFrames(page, n = 1) {
 export function storeEval(page, fn, arg) {
   return page.evaluate(
     ([source, a]) => {
-      // eslint-disable-next-line no-new-func
+       
       const f = new Function(`return (${source})`)();
       return f(window.useGraphStore.getState(), a);
     },

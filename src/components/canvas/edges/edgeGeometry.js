@@ -20,7 +20,7 @@ export function computeSelectedEdgeMidpoint(ctx) {
     selectedEdgeId, selectedEdgeIds, edgesMap, nodeById, baseDimsById, edgeCurveInfo, enableAutoRouting,
     routingStyle, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing,
     lombardiTangents, lombardiCurvature, selectedInstanceIds, lombardiLaneSpacing, connectionWidth,
-    lombardiMinBow, curveSpacing,
+    lombardiMinBow, curveSpacing, anchorPositionUpdatesRef,
   } = ctx;
   const edgeId = selectedEdgeId || (selectedEdgeIds.size === 1 ? [...selectedEdgeIds][0] : null);
   if (!edgeId) return null;
@@ -32,6 +32,17 @@ export function computeSelectedEdgeMidpoint(ctx) {
   if (!srcNode || !dstNode) return null;
   const sDims = baseDimsById.get(edge.sourceId) || { currentWidth: 120, currentHeight: 40 };
   const dDims = baseDimsById.get(destId) || { currentWidth: 120, currentHeight: 40 };
+
+  // A thing-group endpoint is clipped against its whole outer box and sits at
+  // its live anchor position, exactly as the render does.
+  const sInfo0 = srcNode.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(srcNode.id) : null;
+  const dInfo0 = dstNode.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(dstNode.id) : null;
+  const sNode = sInfo0 ? { ...srcNode, x: sInfo0.x, y: sInfo0.y } : srcNode;
+  const dNode = dInfo0 ? { ...dstNode, x: dInfo0.x, y: dInfo0.y } : dstNode;
+  const sD = sInfo0 ? { currentWidth: sInfo0.width, currentHeight: sInfo0.height } : sDims;
+  const dD = dInfo0 ? { currentWidth: dInfo0.width, currentHeight: dInfo0.height } : dDims;
+  const sInfo = anchorInfoFacing(sInfo0, dNode, dD);
+  const dInfo = anchorInfoFacing(dInfo0, sNode, sD);
 
   let x, y, angleDeg;
 
@@ -46,12 +57,12 @@ export function computeSelectedEdgeMidpoint(ctx) {
     angleDeg = 0;
   } else if (enableAutoRouting && (routingStyle === 'manhattan' || routingStyle === 'clean' || routingStyle === 'lombardi')) {
     const routing = routingStyle === 'manhattan'
-      ? computeManhattanRouting(srcNode, dstNode, sDims, dDims, manhattanBends, {
+      ? computeManhattanRouting(sNode, dNode, sD, dD, manhattanBends, {
         curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: orthogonalLaneSpacing,
       })
       : routingStyle === 'clean'
-        ? computeCleanRouting(edge, srcNode, dstNode, sDims, dDims, cleanLaneOffsets, cleanLaneSpacing)
-        : computeLombardiRouting(edge, srcNode, dstNode, sDims, dDims, lombardiTangents, {
+        ? computeCleanRouting(edge, sNode, dNode, sD, dD, cleanLaneOffsets, cleanLaneSpacing)
+        : computeLombardiRouting(edge, sNode, dNode, sD, dD, lombardiTangents, {
           curvature: lombardiCurvature, selectedInstanceIds,
           curveInfo: edgeCurveInfo.get(edgeId), laneSpacing: lombardiLaneSpacing,
           connectionWidth,
@@ -66,10 +77,10 @@ export function computeSelectedEdgeMidpoint(ctx) {
     // segment through calculateParallelEdgePath, whose apex is the label point
     // and bows with the curve on parallel edges.
     const visible = getVisualConnectionEndpoints(
-      srcNode, dstNode, sDims, dDims,
+      sNode, dNode, sD, dD,
       selectedInstanceIds.has(edge.sourceId),
       selectedInstanceIds.has(destId),
-      true, null, null
+      true, sInfo?.outerBounds || null, dInfo?.outerBounds || null
     );
     const path = calculateParallelEdgePath(
       visible.x1, visible.y1, visible.x2, visible.y2,

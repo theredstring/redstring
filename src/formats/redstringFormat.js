@@ -463,8 +463,6 @@ export const REDSTRING_CONTEXT = {
   "typeNodeId": { "@id": "redstring:typeNodeId", "@type": "@id" },
   
   // Temporal & Versioning
-  "created": "http://purl.org/dc/terms/created",
-  "modified": "http://purl.org/dc/terms/modified",
   "version": "http://purl.org/dc/terms/hasVersion",
   
   // Solid Pod Federation

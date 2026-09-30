@@ -1,4 +1,3 @@
-/* global __dirname */
 /**
  * S-41 — the CSP meta tag in index.html: present, first in <head> after the
  * charset (so it governs everything the page loads), and strict on scripts.

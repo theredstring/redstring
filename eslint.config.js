@@ -29,6 +29,10 @@ export default [
       'src/headless/**/*.js',
       'src/security/**/*.js',
       'src/services/ai-bridge-service.js',
+      'src/services/server/**/*.js',
+      'src/services/{bridgeConfig,githubApp,GitAutosavePolicy}.js',
+      'src/utils/debugLogger.js',
+      'deployment/**/*.js',
       '*-server.js',
       'bridge-daemon.js',
       'cli/**/*.js',
@@ -81,5 +85,10 @@ export default [
         { allowConstantExport: true },
       ],
     },
+  },
+  // Playwright fixtures and mocks name a callback `use`; that isn't a hook.
+  {
+    files: ['test/**/*.{js,jsx,mjs}'],
+    rules: { 'react-hooks/rules-of-hooks': 'off' },
   },
 ]

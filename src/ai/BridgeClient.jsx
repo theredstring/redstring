@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import useGraphStore from '../store/graphStore.js';
-import { bridgeEventSource, bridgeFetch } from '../services/bridgeConfig.js';
+import { bridgeEventSource, bridgeFetch, resetBridgeBackoff } from '../services/bridgeConfig.js';
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 import {
   buildBridgeState,
@@ -502,10 +502,7 @@ const BridgeClient = () => {
           }
         } catch { }
         try {
-          const mod = require('../services/bridgeConfig.js');
-          if (mod && typeof mod.resetBridgeBackoff === 'function') {
-            mod.resetBridgeBackoff();
-          }
+          resetBridgeBackoff();
         } catch { }
         const st = connectionStateRef.current;
         st.reconnectAttempts = 0;

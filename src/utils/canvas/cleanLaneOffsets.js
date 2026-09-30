@@ -86,8 +86,8 @@ export function computeCleanLaneOffsets(ctx) {
       // reported a 40px corner while actually drawing a ~112px one, and its
       // ports landed inside the rounded corner where the connection visibly
       // detaches from the node outline.
-      const sCornerRadius = sDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
-      const dCornerRadius = dDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0)) ?? 8;
+      const sCornerRadius = sDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0));
+      const dCornerRadius = dDims.scaledCornerRadius ?? (NODE_CORNER_RADIUS * 1.4 * (textSettings?.nodeScale ?? 1.0));
 
       // Claim a slot on each side; the fan gets sized in pass two.
       const sourceUsage = nodePortUsage.get(s.id)[sourceSide];

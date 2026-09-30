@@ -529,6 +529,7 @@ export const generateProgressiveColor = (baseColor, level) => {
  */
 export function getCurrentTheme() {
   // Import dynamically to avoid circular dependencies
+  /* eslint-disable no-undef */
   const { getTheme } = require('./themeColors.js');
   const useGraphStore = require('../store/graphStore.js').default;
 
@@ -539,6 +540,7 @@ export function getCurrentTheme() {
     // Fallback to light theme if store not available
     const { LIGHT_THEME } = require('./themeColors.js');
     return LIGHT_THEME;
+    /* eslint-enable no-undef */
   }
 }
 

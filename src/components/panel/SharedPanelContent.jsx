@@ -1461,6 +1461,9 @@ const SharedPanelContent = ({
     }
   };
 
+  const savedNodeIds = useGraphStore((state) => state.savedNodeIds);
+  const toggleSavedNode = useGraphStore((state) => state.toggleSavedNode);
+
   if (!nodeData) {
     return (
       <div style={{ padding: '10px', color: theme.canvas.textSecondary, fontFamily: "'EmOne', sans-serif" }}>
@@ -1500,8 +1503,6 @@ const SharedPanelContent = ({
   );
 
   // Secondary row: Save toggle + Text Search to open Semantic Discovery
-  const savedNodeIds = useGraphStore((state) => state.savedNodeIds);
-  const toggleSavedNode = useGraphStore((state) => state.toggleSavedNode);
   const isSaved = !!(savedNodeIds && nodeData?.id && savedNodeIds.has(nodeData.id));
 
   const handleSemanticDiscoverySearch = () => {

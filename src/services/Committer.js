@@ -46,7 +46,7 @@ async function emitApplyMutations(ops) {
     if (!r.ok) throw new Error(await r.text());
     console.log(`[Committer] Successfully queued ${ops.length} operations for UI`);
   } catch (e) {
-    // eslint-disable-next-line no-console
+     
     console.warn('[Committer] Failed to enqueue applyMutations:', e.message);
   }
 }
