@@ -160,6 +160,18 @@ const MAX_CONCURRENT = 6; // Parallel fetches
  */
 const _epochs = new Map();
 
+/**
+ * The fetch currently owed to each prototype: { thumbUrl, promise }, from queue
+ * until it settles.
+ *
+ * Enrichment queues a thumbnail when it writes the Wikipedia metadata, and that
+ * same write wakes the canvas's re-population effect, which queues it again.
+ * Without this the second request bumped the epoch and the first fetch — the
+ * one enrichment was waiting on — threw its image away, so every picture was
+ * downloaded twice and enrichment never learned any of them had landed.
+ */
+const _pending = new Map();
+
 function _bumpEpoch(protoId) {
   const next = (_epochs.get(protoId) || 0) + 1;
   _epochs.set(protoId, next);
@@ -182,16 +194,17 @@ const RETRY_BASE_MS = 800; // 800ms, 1.6s
  */
 const _isRetryable = (status) => status == null || status >= 500 || status === 429;
 
+/** Resolves true only when this job put an image in the cache. */
 async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName, epoch) {
   // Skip if already cached
-  if (useImageCache.getState().getImage(protoId)) return;
+  if (useImageCache.getState().getImage(protoId)) return false;
 
   const url = resizeWikipediaThumbUrl(thumbUrl, 500);
   let lastStatus = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     // Superseded between attempts — the node no longer wants this image.
-    if (_epochs.get(protoId) !== epoch) return;
+    if (_epochs.get(protoId) !== epoch) return false;
 
     try {
       const resp = await fetch(url);
@@ -205,7 +218,7 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
       }
 
       const blob = await resp.blob();
-      if (_epochs.get(protoId) !== epoch) return;
+      if (_epochs.get(protoId) !== epoch) return false;
 
       const blobUrl = URL.createObjectURL(blob);
       // Decode before publishing. The node grows to fit the image the moment this
@@ -219,11 +232,11 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
       } catch { /* undecodable here — let the <image> try; it shows the failure */ }
       if (_epochs.get(protoId) !== epoch) {
         URL.revokeObjectURL(blobUrl);
-        return;
+        return false;
       }
       useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
       console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
-      return;
+      return true;
     } catch (err) {
       if (attempt === MAX_ATTEMPTS) {
         console.warn(`[ImageCache] Failed "${nodeName}" after ${attempt} attempts:`, err?.message || err);
@@ -240,6 +253,16 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
   if (_epochs.get(protoId) === epoch) {
     useImageCache.getState().setFailed(protoId);
   }
+  return false;
+}
+
+// A job dropped from the queue before it ran still owes its caller an answer.
+function _dropQueued(protoId) {
+  _queue = _queue.filter((job) => {
+    if (job.protoId !== protoId) return true;
+    job.settle(false);
+    return false;
+  });
 }
 
 async function _processQueue() {
@@ -249,6 +272,7 @@ async function _processQueue() {
 
     _activeCount++;
     _processSingleImage(job.protoId, job.thumbUrl, job.imageAspectRatio, job.nodeName, job.epoch)
+      .then(job.settle, () => job.settle(false))
       .finally(() => {
         _activeCount--;
         _processQueue(); // Process next job when one completes
@@ -264,15 +288,31 @@ async function _processQueue() {
  * @param {string} thumbUrl - Wikipedia thumbnail URL (any size — will be resized to 500px)
  * @param {number} imageAspectRatio - height/width ratio (default 1)
  * @param {string} nodeName - For logging
+ * @returns {Promise<boolean>} true once this fetch has put the image in the
+ *   cache; false if it was already there, failed, or was superseded. The node
+ *   changes size only in the true case, which is what a caller waiting to lay
+ *   the graph out needs to know.
  */
 export function queueThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nodeName = '') {
-  if (!thumbUrl) return;
-  if (useImageCache.getState().getImage(protoId)) return;
+  if (!thumbUrl) return Promise.resolve(false);
+  if (useImageCache.getState().getImage(protoId)) return Promise.resolve(false);
+  // The same image already on its way: join that fetch rather than superseding it.
+  const pending = _pending.get(protoId);
+  if (pending && pending.thumbUrl === thumbUrl) return pending.promise;
   // A queued fetch supersedes a previous verdict — otherwise a node that failed
   // once keeps rendering its missing-image state through an explicit retry.
   useImageCache.getState().clearFailed(protoId);
-  _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId) });
+  const entry = { thumbUrl, promise: null };
+  entry.promise = new Promise((resolve) => {
+    const settle = (landed) => {
+      if (_pending.get(protoId) === entry) _pending.delete(protoId);
+      resolve(landed);
+    };
+    _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId), settle });
+  });
+  _pending.set(protoId, entry);
   _processQueue();
+  return entry.promise;
 }
 
 /**
@@ -288,8 +328,9 @@ export function retryThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nod
   if (!thumbUrl) return;
   useImageCache.getState().clearFailed(protoId);
   useImageCache.getState().clearImage(protoId);
-  _queue = _queue.filter((job) => job.protoId !== protoId);
-  _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId) });
+  _pending.delete(protoId);
+  _dropQueued(protoId);
+  _queue.push({ protoId, thumbUrl, imageAspectRatio, nodeName, epoch: _bumpEpoch(protoId), settle: () => {} });
   _processQueue();
 }
 
@@ -304,7 +345,8 @@ export function retryThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nod
  */
 export function cancelThumbnailFetch(protoId) {
   _bumpEpoch(protoId);
-  _queue = _queue.filter(job => job.protoId !== protoId);
+  _pending.delete(protoId);
+  _dropQueued(protoId);
   useImageCache.getState().clearImage(protoId);
   // The graph no longer expects an image here, so there is nothing left to
   // report as missing.

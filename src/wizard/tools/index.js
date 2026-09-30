@@ -58,6 +58,7 @@ import { analyzeTabularData } from './analyzeTabularData.js';
 import { importTabularAsGraph } from './importTabularAsGraph.js';
 import { listTools } from './listTools.js';
 import { getToolDefinitions } from './schemas.js';
+import { decodeArgEntities } from './utils/decodeEntities.js';
 
 const TOOLS = {
   createNode,
@@ -124,6 +125,7 @@ export async function executeTool(name, args, graphState, cid, ensureSchedulerSt
   if (!tool) {
     throw new Error(`Unknown tool: ${name}`);
   }
+  args = decodeArgEntities(args);
 
   // Validate required args against schema before execution
   const schema = getToolDefinitions().find(t => t.name === name);

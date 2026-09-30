@@ -352,6 +352,59 @@ function mirrorLayersIntoState(graphState, targetGraph, layers) {
   return count;
 }
 
+// --- Edge mirroring --------------------------------------------------------
+// graphState.edges holds { id, sourceId, destinationId, type, definitionNodeIds },
+// listed per graph by graph.edgeIds. Pairs match in either direction, as the
+// applier's do.
+
+function findGraphInState(graphState, graphId) {
+  const id = graphId || graphState.activeGraphId;
+  return (graphState.graphs || []).find(g => g.id === id) || null;
+}
+
+function instanceIdByName(graphState, graph, name) {
+  const lookup = String(name || '').toLowerCase().trim();
+  if (!lookup) return null;
+  const instances = Array.isArray(graph.instances) ? graph.instances : Object.values(graph.instances || {});
+  let match = null;
+  for (const inst of instances) {
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === inst.prototypeId);
+    // LAST match, as the tools resolve it.
+    if ((inst.name || proto?.name || '').toLowerCase().trim() === lookup) match = inst.id;
+  }
+  return match;
+}
+
+function findEdgeInState(graphState, graph, a, b) {
+  if (!a || !b) return null;
+  const ids = new Set(graph.edgeIds || []);
+  return (graphState.edges || []).find(e => ids.has(e.id)
+    && ((e.sourceId === a && e.destinationId === b) || (e.sourceId === b && e.destinationId === a))) || null;
+}
+
+function setEdgeTypeInState(graphState, edge, type) {
+  if (!type) return;
+  const lookup = String(type).toLowerCase().trim();
+  const proto = (graphState.nodePrototypes || []).find(p => (p.name || '').toLowerCase().trim() === lookup);
+  edge.type = type;
+  edge.definitionNodeIds = proto ? [proto.id] : [];
+}
+
+function addEdgeToState(graphState, graph, sourceId, destinationId, type) {
+  const edge = {
+    id: `edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    sourceId,
+    destinationId,
+    type: type || 'relates to',
+    definitionNodeIds: []
+  };
+  setEdgeTypeInState(graphState, edge, type);
+  graph.edgeIds = graph.edgeIds || [];
+  graph.edgeIds.push(edge.id);
+  graphState.edges = graphState.edges || [];
+  graphState.edges.push(edge);
+}
+
 /**
  * Keep graphState in sync after mutating tool calls so subsequent
  * tools within the same agent loop see up-to-date state.
@@ -502,20 +555,52 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       console.error('[updateGraphState] expandGraph: added', counts.nodesAdded, 'nodes +', counts.edgesAdded, 'edges to', targetGraphId);
     }
   } else if (result.action === 'createEdge') {
-    const targetGraphId = result.graphId || graphState.activeGraphId;
-    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
+    const targetGraph = findGraphInState(graphState, result.graphId);
     if (targetGraph) {
-      targetGraph.edgeIds = targetGraph.edgeIds || [];
-      targetGraph.edgeIds.push(`edge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+      addEdgeToState(graphState, targetGraph,
+        result.sourceInstanceId || instanceIdByName(graphState, targetGraph, result.sourceName),
+        result.targetInstanceId || instanceIdByName(graphState, targetGraph, result.targetName),
+        result.type);
     }
   } else if (result.action === 'updateEdge' && result.updates) {
-    // Predictive state for updateEdge could update the edge in local state, but we only store edgeIds here
-    // So nothing to deeply change structurally unless we want to maintain an edges map in AgentLoop
+    // Mirrors the applier: retype the pair's edge, or create it when there is none.
+    const targetGraph = findGraphInState(graphState, result.graphId);
+    if (targetGraph) {
+      const src = result.sourceInstanceId || instanceIdByName(graphState, targetGraph, result.sourceName);
+      const dst = result.targetInstanceId || instanceIdByName(graphState, targetGraph, result.targetName);
+      const edge = findEdgeInState(graphState, targetGraph, src, dst);
+      if (edge) {
+        if (result.updates.type) setEdgeTypeInState(graphState, edge, result.updates.type);
+      } else {
+        addEdgeToState(graphState, targetGraph, src, dst, result.updates.type);
+      }
+    }
+  } else if (result.action === 'replaceEdges' && Array.isArray(result.replacements)) {
+    const targetGraph = findGraphInState(graphState, result.graphId);
+    if (targetGraph) {
+      for (const r of result.replacements) {
+        const src = instanceIdByName(graphState, targetGraph, r.source);
+        const dst = instanceIdByName(graphState, targetGraph, r.target);
+        const edge = findEdgeInState(graphState, targetGraph, src, dst);
+        if (edge) setEdgeTypeInState(graphState, edge, r.type);
+        else addEdgeToState(graphState, targetGraph, src, dst, r.type);
+      }
+    }
   } else if (result.action === 'deleteEdge') {
-    const targetGraphId = result.graphId || graphState.activeGraphId;
-    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
-    if (targetGraph && result.edgeId) {
-      targetGraph.edgeIds = (targetGraph.edgeIds || []).filter(id => id !== result.edgeId);
+    // Deleting by names is the usual path, and it used to leave the edge in the
+    // agent's picture: a later updateEdge on the same pair then "succeeded" here
+    // and failed at the store.
+    const targetGraph = findGraphInState(graphState, result.graphId);
+    if (targetGraph) {
+      const edge = (result.edgeId && (graphState.edges || []).find(e => e.id === result.edgeId))
+        || findEdgeInState(graphState, targetGraph,
+          instanceIdByName(graphState, targetGraph, result.sourceName),
+          instanceIdByName(graphState, targetGraph, result.targetName));
+      const removeId = edge?.id || result.edgeId;
+      if (removeId) {
+        targetGraph.edgeIds = (targetGraph.edgeIds || []).filter(id => id !== removeId);
+        graphState.edges = (graphState.edges || []).filter(e => e.id !== removeId);
+      }
     }
   } else if (result.action === 'createGroup') {
     const targetGraphId = result.graphId || graphState.activeGraphId;

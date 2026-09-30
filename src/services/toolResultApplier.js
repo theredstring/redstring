@@ -161,6 +161,12 @@ export function scheduleGraphLayout(graphId, delay = LAYOUT_DISPATCH_DELAY_MS) {
  * one recursive build used to fire a 1000ms enrichment timer per level, each
  * cloning the whole prototype Map. Names accumulate across the burst so the graph
  * is enriched once with everything that landed in it.
+ *
+ * Every caller has already asked for a layout, and that layout runs long before
+ * the Wikipedia pictures arrive (lookup, then thumbnail fetch), so it sized the
+ * nodes as imageless. Each picture then grows its node in place, into its
+ * neighbours. Once the batch's pictures have landed the graph is laid out again
+ * against the real sizes.
  */
 const ENRICH_DELAY_MS = 1000;
 const __pendingEnrich = new Map(); // graphId -> { timer, names:Set, overwriteDescription }
@@ -182,6 +188,9 @@ export function scheduleEnrichment(names, graphId, { overwriteDescription = fals
   entry.timer = setTimeout(() => {
     __pendingEnrich.delete(graphId);
     _enrichMultiple([...entry.names], graphId, { overwriteDescription: entry.overwriteDescription })
+      .then((results) => {
+        if ((results || []).some(r => r?.value?.imageLoaded)) scheduleGraphLayout(graphId);
+      })
       .catch(err => console.warn('[Auto-Enrich] Enrichment failed:', err));
   }, ENRICH_DELAY_MS);
 }
@@ -826,7 +835,7 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
       + 'The concepts are defined but not spread open.';
     warnings.push(msg);
     console.error(`[Wizard] ${msg}`, warnings);
-    dispatchWizardToolFailed(label, 'layers-not-decomposed', { layerCount: expected, decomposedCount });
+    dispatchWizardToolFailed(label, `only ${decomposedCount} of ${expected} layers opened into groups; the rest are defined but still closed.`, null);
   }
 
   if (warnings.length > 0) console.warn(`[Wizard] ${label} layer warnings:`, warnings);
@@ -871,10 +880,36 @@ function generateConnectionColor(name) {
   return `hsl(${hue}, 60%, 45%)`;
 }
 
-// Surface a wizard tool failure to the UI. Listeners in LeftAIView render an
-// inline warning in the active conversation so the user can see when a tool
-// call silently no-op'd (e.g., hallucinated edge id, missing source/target).
+// Failures raised while collectApplyFailures is running are handed back to its
+// caller, which marks the tool call's own card instead of posting a message.
+let _failureCollector = null;
+
+/**
+ * Run `fn` (an applyToolResultToStore call) and return the failures it raised
+ * synchronously, as [{ tool, reason }]. Failures raised later still go out as
+ * rs-wizard-tool-failed events.
+ */
+export function collectApplyFailures(fn) {
+  const prev = _failureCollector;
+  const failures = [];
+  _failureCollector = failures;
+  try {
+    fn();
+  } finally {
+    _failureCollector = prev;
+  }
+  return failures;
+}
+
+// Surface a wizard tool failure to the UI: onto the tool call's card when
+// collectApplyFailures is listening, otherwise as an rs-wizard-tool-failed
+// event that LeftAIView posts in the conversation. Either way the user sees when
+// a tool call silently no-op'd (e.g., hallucinated edge id, missing source/target).
 function dispatchWizardToolFailed(tool, reason, result) {
+  if (_failureCollector) {
+    _failureCollector.push({ tool, reason });
+    return;
+  }
   if (typeof window === 'undefined') return;
   try {
     window.dispatchEvent(new CustomEvent('rs-wizard-tool-failed', {
@@ -1071,7 +1106,10 @@ export function applyToolResultToStore(toolName, rawResult, toolCallId, conversa
 
     // Launch Wikipedia enrichment asynchronously (if enrich is not explicitly false)
     if (result.enrich !== false && (!result.description || result.description.trim() === '')) {
-      _enrich(result.name, graphId, { overwriteDescription: result.overwriteDescription || false }).catch(err => {
+      // The layout above ran before the picture arrived; redo it once it has.
+      _enrich(result.name, graphId, { overwriteDescription: result.overwriteDescription || false }).then(enriched => {
+        if (enriched?.imageLoaded) scheduleGraphLayout(graphId);
+      }).catch(err => {
         console.warn('[Auto-Enrich] Wikipedia enrichment failed:', err);
       });
     }
@@ -1296,13 +1334,25 @@ export function applyToolResultToStore(toolName, rawResult, toolCallId, conversa
       }
     }
 
+    // No connection to update: create it, as replaceEdges does. The model's picture
+    // of the graph can lag the store (it may have deleted this very edge earlier in
+    // the turn), and it has already told the user the connection reads this way.
     if (!realEdgeId) {
-      console.error('[Wizard] FAILED: updateEdge: Edge not found between instances:', sourceInstId, targetInstId);
-      dispatchWizardToolFailed(
-        'updateEdge',
-        `No connection exists between "${result.sourceName || sourceInstId}" and "${result.targetName || targetInstId}". Create one first or pick a different pair of nodes.`,
-        result
-      );
+      const type = result.updates.type || 'relates to';
+      console.log('[Wizard] updateEdge: No edge between instances, creating one:', sourceInstId, targetInstId);
+      store.applyBulkGraphUpdates(graphId, {
+        nodes: [],
+        edges: [{
+          sourceId: sourceInstId,
+          targetId: targetInstId,
+          source: result.sourceName,
+          target: result.targetName,
+          type,
+          directionality: result.updates.directionality || 'unidirectional',
+          definitionNode: result.updates.type ? { name: type, color: generateConnectionColor(type) } : null
+        }]
+      });
+      scheduleGraphLayout(graphId);
       return;
     }
 
@@ -1879,7 +1929,7 @@ export function applyToolResultToStore(toolName, rawResult, toolCallId, conversa
     const graphId = result.graphId || store.activeGraphId;
     if (!graphId || !store.graphs.has(graphId)) {
       console.error('[Wizard] buildComposition: target graph not found:', graphId);
-      dispatchWizardToolFailed('buildComposition', 'target-graph-not-found', result);
+      dispatchWizardToolFailed('buildComposition', 'the web it was building into no longer exists.', result);
       return;
     }
     const options = {

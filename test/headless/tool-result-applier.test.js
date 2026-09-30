@@ -13,6 +13,7 @@ import { createHeadlessStore, __resetHeadlessStoreCache } from '../../src/headle
 
 let useGraphStore;
 let applyToolResultToStore;
+let collectApplyFailures;
 
 beforeAll(async () => {
   __resetHeadlessStoreCache();
@@ -20,7 +21,7 @@ beforeAll(async () => {
   // store. toolResultApplier statically imports graphStore, so it must be
   // dynamic-imported AFTER the shim is in place (ordering is load-bearing).
   ({ useGraphStore } = await createHeadlessStore());
-  ({ applyToolResultToStore } = await import('../../src/services/toolResultApplier.js'));
+  ({ applyToolResultToStore, collectApplyFailures } = await import('../../src/services/toolResultApplier.js'));
 });
 
 describe('toolResultApplier in Node (headless)', () => {
@@ -82,5 +83,44 @@ describe('toolResultApplier in Node (headless)', () => {
     const before = useGraphStore.getState().graphs.size;
     expect(() => applyToolResultToStore('createGraph', { error: 'boom' })).not.toThrow();
     expect(useGraphStore.getState().graphs.size).toBe(before);
+  });
+
+  it('updateEdge creates the connection when the pair has none (as replaceEdges does)', () => {
+    for (const name of ['Worker Turnover & Job Vacancies', 'Overall Low-Wage Employment']) {
+      applyToolResultToStore('createNode', { action: 'createNode', graphId: 'g-applier', name, enrich: false });
+    }
+    const edgesIn = () => {
+      const st = useGraphStore.getState();
+      return (st.graphs.get('g-applier').edgeIds || []).map(id => st.edges.get(id)).filter(Boolean);
+    };
+    const before = edgesIn().length;
+
+    const failures = collectApplyFailures(() => applyToolResultToStore('updateEdge', {
+      action: 'updateEdge',
+      graphId: 'g-applier',
+      sourceName: 'Worker Turnover & Job Vacancies',
+      targetName: 'Overall Low-Wage Employment',
+      updates: { type: 'Moderates Losses In' }
+    }));
+
+    expect(failures).toEqual([]);
+    const edges = edgesIn();
+    expect(edges.length).toBe(before + 1);
+    const st = useGraphStore.getState();
+    const typeName = st.nodePrototypes.get(edges.at(-1).definitionNodeIds?.[0])?.name;
+    expect(typeName).toBe('Moderates Losses In');
+  });
+
+  it('collectApplyFailures hands back a failure instead of posting it', () => {
+    const failures = collectApplyFailures(() => applyToolResultToStore('updateEdge', {
+      action: 'updateEdge',
+      graphId: 'g-applier',
+      sourceName: 'Nobody',
+      targetName: 'Nothing',
+      updates: { type: 'Relates' }
+    }));
+    expect(failures).toHaveLength(1);
+    expect(failures[0].tool).toBe('updateEdge');
+    expect(failures[0].reason).toMatch(/Could not find nodes "Nobody" and "Nothing"/);
   });
 });

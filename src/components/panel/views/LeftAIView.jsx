@@ -22,7 +22,7 @@ import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
-import { applyToolResultToStore, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
+import { applyToolResultToStore, collectApplyFailures, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
 import { useWizardConfirmationStore, pendingForConversation, buildConfirmationQuestion, beginWizardTurn } from '../../../services/wizardConfirmationGate.js';
 import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages, clearStuckStreamingFlags } from './toolCallStatus.js';
 import DruidInstance from '../../../services/DruidInstance.js';
@@ -174,20 +174,22 @@ async function enrichNodeWithWikipedia(nodeName, _graphId, options = {}) {
     });
     console.log(`[Auto-Enrich] Applied metadata to prototype ${targetNodeProtoId}`);
 
-    // Queue thumbnail fetch — creates blob URL for SVG <image> rendering
+    // Queue thumbnail fetch — creates blob URL for SVG <image> rendering.
+    // Awaited so the caller learns whether the node grew (see imageLoaded).
     const thumbUrl = searchResult.page.thumbnail;
+    let imageLoaded = false;
     if (thumbUrl) {
       const tw = searchResult.page.thumbnailWidth;
       const th = searchResult.page.thumbnailHeight;
       const ratio = (tw && th) ? (th / tw) : 1;
       console.log(`[Auto-Enrich] Queueing thumbnail for "${nodeName}": ${thumbUrl.substring(0, 80)}... (ratio=${ratio.toFixed(2)})`);
-      queueThumbnailFetch(targetNodeProtoId, thumbUrl, ratio, nodeName);
+      imageLoaded = await queueThumbnailFetch(targetNodeProtoId, thumbUrl, ratio, nodeName);
     } else {
       console.log(`[Auto-Enrich] No thumbnail available for "${nodeName}"`);
     }
 
     console.log(`[Auto-Enrich] Successfully enriched "${nodeName}"`);
-    return { success: true, nodeName, confidence, wikipediaUrl: searchResult.page.url };
+    return { success: true, nodeName, confidence, wikipediaUrl: searchResult.page.url, imageLoaded };
 
   } catch (error) {
     console.warn(`[Auto-Enrich] Failed to enrich "${nodeName}":`, error);
@@ -320,15 +322,23 @@ async function runEnrichment(nodeNames, { overwriteDescription = false } = {}) {
     console.log(`[Auto-Enrich] ✅ "${nodeName}" metadata applied`);
   }
 
-  // ── Phase 3: Queue thumbnail fetches (blob URLs for SVG rendering) ──
-  console.log(`[Auto-Enrich] 🖼️ Queuing ${imageJobs.length} thumbnail fetches`);
-  for (const job of imageJobs) {
+  // ── Phase 3: Fetch thumbnails (blob URLs for SVG rendering) ──
+  // Images still appear one by one as each lands; waiting for the whole set is
+  // only so the caller can tell which nodes grew. A graph laid out before its
+  // pictures arrived was sized for imageless nodes, and the wizard re-runs the
+  // layout on that signal (scheduleEnrichment in toolResultApplier).
+  console.log(`[Auto-Enrich] 🖼️ Fetching ${imageJobs.length} thumbnails`);
+  const landed = await Promise.all(imageJobs.map((job) => {
     const ratio = (job.thumbWidth && job.thumbHeight) ? (job.thumbHeight / job.thumbWidth) : 1;
-    queueThumbnailFetch(job.protoId, job.thumbUrl, ratio, job.nodeName);
-  }
+    return queueThumbnailFetch(job.protoId, job.thumbUrl, ratio, job.nodeName);
+  }));
+  const grewIds = new Set(imageJobs.filter((_, i) => landed[i]).map(job => job.protoId));
 
-  console.log(`[Auto-Enrich] ✅ Enrichment complete — thumbnails loading in background`);
-  return pendingUpdates.map(u => ({ status: 'fulfilled', value: { success: true, nodeName: u.nodeName } }));
+  console.log(`[Auto-Enrich] ✅ Enrichment complete — ${grewIds.size}/${imageJobs.length} thumbnails loaded`);
+  return pendingUpdates.map(u => ({
+    status: 'fulfilled',
+    value: { success: true, nodeName: u.nodeName, imageLoaded: grewIds.has(u.protoId) }
+  }));
 }
 
 // Wire the extracted tool-result applier (src/services/toolResultApplier.js)
@@ -1495,13 +1505,11 @@ const LeftAIView = ({ compact = false,
 
     const handleToolFailed = (e) => {
       const detail = e?.detail || {};
-      const tool = detail.tool || 'tool';
-      const reason = detail.reason || 'no further detail';
-      const parts = [`⚠️ The "${tool}" call did not apply: ${reason}`];
-      if (detail.sourceName || detail.targetName) {
-        parts.push(`(source: ${detail.sourceName || '?'}, target: ${detail.targetName || '?'})`);
-      }
-      const content = parts.join(' ');
+      // Failures raised while a result is applied land on that call's card
+      // (collectApplyFailures); this is only for ones that come later, like a
+      // held change the person declined. A plain line in the thread, no alarm.
+      const reason = detail.reason || 'no further detail.';
+      const content = `Not applied: ${reason}`;
       setMessages(prev => ([
         ...prev,
         {
@@ -2866,6 +2874,7 @@ const LeftAIView = ({ compact = false,
 
             // Apply tool results to store OUTSIDE the state updater
             let applyError = null;
+            let applyFailure = null; // the store refused it; shown on the call's own card
             if (event.type === 'tool_result' && !event.result?.cancelled) {
               // Stamp wizard-authored entities with PROV provenance (P2.6)
               setWizardProvenanceContext({
@@ -2873,7 +2882,9 @@ const LeftAIView = ({ compact = false,
                 conversationId: targetConversationId
               });
               try {
-                applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId);
+                const failures = collectApplyFailures(() =>
+                  applyToolResultToStore(event.name, event.result, event.id || event.toolCallId, targetConversationId));
+                if (failures.length > 0) applyFailure = failures.map(f => f.reason).join(' ');
               } catch (applyErr) {
                 // A throw here used to escape into the SSE catch below, which only
                 // logs a parse warning — so the block's status update never ran and
@@ -2990,13 +3001,16 @@ const LeftAIView = ({ compact = false,
                   // budget, stop, error) — that is not the tool failing, so it reads
                   // as "Stopped" rather than "Failed".
                   const newStatus = event.result?.cancelled ? 'cancelled'
-                    : (event.result?.error || applyError) ? 'failed'
+                    : (event.result?.error || applyError || applyFailure) ? 'failed'
                     : 'completed';
                   blocks[toolIndex] = {
                     ...blocks[toolIndex],
                     status: newStatus,
                     result: event.result,
-                    error: event.result?.error || (applyError ? `Could not apply to the graph: ${applyError.message}` : undefined)
+                    error: event.result?.error
+                      || (applyError ? `Could not apply to the graph: ${applyError.message}` : undefined)
+                      || applyFailure
+                      || undefined
                   };
                 }
                 // Apply pre-computed plan card decision (computed outside updateMsgInArray)

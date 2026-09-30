@@ -6036,7 +6036,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                     draft.nodePrototypes.set(defProtoId, {
                       id: defProtoId,
                       name: connectionTypeName,
-                      description: connectionDescription || `Defines the "${connectionTypeName}" relationship`,
+                      description: connectionDescription || '',
                       color: connectionColor || generateConnectionColor(connectionTypeName),
                       typeNodeId: null,
                       definitionGraphIds: [],
@@ -6103,7 +6103,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                     draft.nodePrototypes.set(defProtoId, {
                       id: defProtoId,
                       name: connectionTypeName,
-                      description: connectionDescription || `Defines the "${connectionTypeName}" relationship`,
+                      description: connectionDescription || '',
                       color: connectionColor || generateConnectionColor(connectionTypeName),
                       typeNodeId: null,
                       definitionGraphIds: [],

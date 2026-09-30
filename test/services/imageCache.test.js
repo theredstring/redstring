@@ -188,3 +188,46 @@ describe('imageCache no-op guards (P1.09)', () => {
     });
   });
 });
+
+// Enrichment queues a thumbnail as it writes the metadata, and that write wakes
+// the canvas effect that queues it again. The second request used to supersede
+// the first, whose image was then discarded — so enrichment, waiting on the
+// first, was told nothing landed and never re-laid the graph out.
+describe('queueThumbnailFetch — a repeat request joins the fetch in flight', () => {
+  let realFetch, realImage, realCreate;
+
+  beforeEach(() => {
+    reset();
+    realFetch = globalThis.fetch;
+    realImage = globalThis.Image;
+    realCreate = URL.createObjectURL;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, blob: async () => new Blob(['x']) }));
+    globalThis.Image = class { decode() { return Promise.resolve(); } };
+    URL.createObjectURL = vi.fn(() => 'blob:joined');
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    globalThis.Image = realImage;
+    URL.createObjectURL = realCreate;
+  });
+
+  it('fetches once and tells both callers the image landed', async () => {
+    const { queueThumbnailFetch } = await import('../../src/services/imageCache.js');
+    const url = 'https://upload.wikimedia.org/thumb/a/ab/X.jpg/320px-X.jpg';
+    const first = queueThumbnailFetch('p-join', url, 0.5, 'X');
+    const second = queueThumbnailFetch('p-join', url, 0.5, 'X');
+
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(useImageCache.getState().getImage('p-join')).toEqual({ thumbnailSrc: 'blob:joined', imageAspectRatio: 0.5 });
+  });
+
+  it('resolves false once the image is already cached', async () => {
+    const { queueThumbnailFetch } = await import('../../src/services/imageCache.js');
+    useImageCache.setState({ images: { 'p-have': { thumbnailSrc: 'blob:have', imageAspectRatio: 1 } } });
+    await expect(queueThumbnailFetch('p-have', 'https://x/1px-a.jpg')).resolves.toBe(false);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});

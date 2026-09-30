@@ -152,7 +152,7 @@ export function ensurePredicatePrototype(label, color = '#666666') {
   st.addNodePrototype({
     id,
     name: label,
-    description: `Defines the "${label}" relationship`,
+    description: '',
     color,
     typeNodeId: null,
     definitionGraphIds: []

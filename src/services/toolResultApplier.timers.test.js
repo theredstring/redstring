@@ -153,5 +153,29 @@ describe('wizard follow-up timers', () => {
       vi.advanceTimersByTime(2000);
       expect(enrichMultiple).not.toHaveBeenCalled();
     });
+
+    // The build's own layout runs before any Wikipedia picture arrives, so it
+    // sizes every node as imageless. A picture that lands grows its node into
+    // its neighbours; the graph has to be laid out again against the real size.
+    it('lays the graph out again once a picture has landed', async () => {
+      enrichMultiple.mockResolvedValue([
+        { status: 'fulfilled', value: { success: true, nodeName: 'Alpha', imageLoaded: true } },
+        { status: 'fulfilled', value: { success: true, nodeName: 'Beta', imageLoaded: false } },
+      ]);
+      scheduleEnrichment(['Alpha', 'Beta'], 'graph-a');
+      await vi.advanceTimersByTimeAsync(1000); // enrichment runs and resolves
+      expect(dispatched).toEqual([]);
+      await vi.advanceTimersByTimeAsync(600); // the relayout request
+      expect(dispatched).toEqual(['graph-a']);
+    });
+
+    it('leaves the layout alone when no picture landed', async () => {
+      enrichMultiple.mockResolvedValue([
+        { status: 'fulfilled', value: { success: true, nodeName: 'Alpha', imageLoaded: false } },
+      ]);
+      scheduleEnrichment(['Alpha'], 'graph-a');
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(dispatched).toEqual([]);
+    });
   });
 });
