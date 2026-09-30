@@ -14,6 +14,7 @@ import { edgeZSlotFor } from '../../../services/groupLayout.js';
 import { renderConnectionEdge } from '../renderConnectionEdge.jsx';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import EdgeTransitionLayer from '../edges/EdgeTransitionLayer.jsx';
+import BoxMorphLayer from './BoxMorphLayer.jsx';
 
 /**
  * @param {object} p
@@ -116,6 +117,9 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
         ))}
         {/* Create/delete animations: masks, and the ghosts of deleted connections. */}
         <EdgeTransitionLayer />
+        {/* A Thing opening into its box and folding back: over every shell and
+            connection, under the nodes, as the box it stands in for is drawn. */}
+        <BoxMorphLayer />
       </>
     </Profiler>
   );

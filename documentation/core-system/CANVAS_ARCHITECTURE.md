@@ -93,11 +93,11 @@ NodeCanvas's JSX is a list of layers. From the bottom:
 1. `ClusterHullsLayer`, `GridLayer`
 2. The regular group shells (`groups/groupElements.jsx`, memoized elements)
 3. `HitboxDebugLayer`
-4. `EdgeLayer`: every visible connection, interleaved by z-slot with the node-group shells. It subscribes to hover itself. On a hover-only render, just the two edges whose hover changed re-render.
+4. `EdgeLayer`: every visible connection, interleaved by z-slot with the node-group shells. It subscribes to hover itself. On a hover-only render, just the two edges whose hover changed re-render. Last in it, `EdgeTransitionLayer` (connection create/delete) and `BoxMorphLayer` (a Thing opening into its box and folding back), so both paint over shells and connections and under the nodes.
 5. `ConnectionDrawOverlay`: the connection being drawn
 6. `NodeLayer part="rest"`: memoized; subscribes to selection, preview, pie target and carousel itself
 7. Group titles
-8. `DeletionGhostLayer`, with `BoxMorphLayer` (a Thing opening into its box and folding back) mounted inside it
+8. `DeletionGhostLayer`
 9. `PieMenusLayer`: the node pie (`NodePieMenuLayer`, memoized, reads its data from canvasUIStore) and the edge pie (memoized)
 10. `OrbitDimRect`
 11. `NodeLayer part="top"`: the active node (with the orbit overlay while orbiting), then the dragged node

@@ -16,6 +16,13 @@
  *     onto that node as the box finishes opening (and back out as it starts to
  *     fold), which is where it is drawn when the box is open and closed.
  *
+ * They paint where the canvas paints them (EdgeLayer's z-slots): under the
+ * stand-in's frame while they end on the Thing, as a connection to a thing
+ * group's anchor paints under its shell and one to a node under that node; over
+ * it once they reach inside, as a connection to a member paints over the shell.
+ * A connection changes layer only while it ends exactly on the outline, where
+ * the two look the same.
+ *
  * At either end of the morph these are the geometries the canvas draws, so the
  * real connections take over without a jump. Their labels travel with them:
  * each label as drawn before and after is carried along its connection's
@@ -185,7 +192,7 @@ function cameraZoom(from) {
  * @param {Map} boxLabels - edge id → its label as drawn with the box open.
  */
 export function prepareConnections({
-  root, host, layer, labelLayer, viewGraphId, crossing, innerRects, contentPose, tag, nodeLabels, boxLabels,
+  root, host, layers, viewGraphId, crossing, innerRects, contentPose, tag, nodeLabels, boxLabels,
 }) {
   const items = [];
   const dropped = [];
@@ -199,12 +206,12 @@ export function prepareConnections({
     if (!outer) { dropped.push(c.id); return; }
     const world = innerRects.get(c.innerId);
     const g = svg('g');
-    layer.appendChild(g);
+    layers.under.edges.appendChild(g);
     const mount = (label) => {
       if (!label) return null;
       const holder = svg('g', { opacity: 0 });
       holder.appendChild(label);
-      labelLayer.appendChild(holder);
+      layers.under.labels.appendChild(holder);
       return holder;
     };
     items.push({
@@ -212,9 +219,10 @@ export function prepareConnections({
       innerRect: world && contentPose ? unposed(contentPose, world) : null,
       nodeLabel: mount(nodeLabels?.get(c.id)),
       boxLabel: mount(boxLabels?.get(c.id)),
+      over: false,
     });
   });
-  return { items, dropped, settings: connectionRoutingSettings(useGraphStore.getState()), zoom: cameraZoom(host) };
+  return { items, dropped, layers, settings: connectionRoutingSettings(useGraphStore.getState()), zoom: cameraZoom(host) };
 }
 
 /**
@@ -278,6 +286,7 @@ export function drawConnections(conn, { thingPill, thingOuter, pose, t }) {
     const movingKey = `m:${item.innerId}`;
     put(outerKey, item.outer);
     let moving = { kind: 'anchor', pill: thingPill, outer: thingOuter };
+    setLayer(conn, item, !item.onThing && !!item.innerRect && !!pose && w > 0);
     if (!item.onThing && item.innerRect && pose) {
       const inner = posed(pose, item.innerRect);
       moving = w >= 1
@@ -321,6 +330,16 @@ export function drawConnections(conn, { thingPill, thingOuter, pose, t }) {
     item.mid = strokeMiddle(item.g) || item.mid;
     if (conn.labelsPlaced) placeLabels(item, t);
   }
+}
+
+/** Moves a connection, and its labels, under the stand-in's frame or over it. */
+function setLayer(conn, item, over) {
+  if (item.over === over) return;
+  item.over = over;
+  const layer = over ? conn.layers.over : conn.layers.under;
+  layer.edges.appendChild(item.g);
+  if (item.nodeLabel) layer.labels.appendChild(item.nodeLabel);
+  if (item.boxLabel) layer.labels.appendChild(item.boxLabel);
 }
 
 /** The middle of a painted connection's stroke, and the stroke's direction there (degrees). */

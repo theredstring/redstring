@@ -123,13 +123,14 @@ async function addCrossingConnections(page) {
 }
 
 const crossingState = (page) => page.evaluate((ids) => {
-  const edgesLayer = document.querySelector('[data-box-morphs] [data-morph-part="connections"]');
-  const labelsLayer = document.querySelector('[data-box-morphs] [data-morph-part="labels"]');
+  // Under the stand-in's frame and over it: the stand-in's connections, each drawn with a stroke…
+  const drawn = [...document.querySelectorAll('[data-box-morphs] [data-morph-part="connections"] > g')]
+    .filter(g => g.querySelector('line, path')).length;
+  // …and their labels, which travel with them (the node's and the box's, crossfading).
+  const labels = document.querySelectorAll('[data-box-morphs] [data-morph-part="labels"] > g').length > 0;
   return {
-    // The stand-in's connections, each drawn with a stroke.
-    drawn: edgesLayer ? [...edgesLayer.children].filter(g => g.querySelector('line, path')).length : 0,
-    // Their labels travel with them (the node's and the box's, crossfading).
-    labels: (labelsLayer?.childElementCount ?? 0) > 0,
+    drawn,
+    labels,
     real: ids.map(id => {
       const el = document.querySelector(`svg.canvas [data-edge-id="${id}"]`);
       return el ? getComputedStyle(el).visibility : 'absent';

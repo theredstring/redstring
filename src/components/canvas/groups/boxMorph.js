@@ -344,18 +344,21 @@ function setRect(el, r) {
 const lerpRect = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), w: lerp(a.w, b.w, t), h: lerp(a.h, b.h, t), r: lerp(a.r, b.r, t) });
 
 /**
- * Builds the stand-in's parts, bottom to top: band, interior, grid, crossing
- * connections and their labels, content, title. Connections paint over
- * the band, as they do over a thing group's shell; nodes paint over them.
+ * Builds the stand-in's parts, bottom to top: the crossing connections that end
+ * on the Thing (and their labels), band, interior, grid, the connections that
+ * reach inside it (and theirs), content, title. The canvas layers them the same
+ * way: a connection to a thing group's anchor under its shell, one to a member
+ * over it, and nodes over both.
  */
 function buildStandIn(morph) {
   const root = svg('g', { 'pointer-events': 'none' });
   const band = svg('rect');
   const interior = svg('rect');
-  const edges = svg('g', { 'data-morph-part': 'connections' });
-  const labels = svg('g', { 'data-morph-part': 'labels' });
-  root.append(band, interior, edges, labels);
-  morph.parts = { root, band, interior, edges, labels, grid: null, content: null, title: null };
+  const layer = () => ({ edges: svg('g', { 'data-morph-part': 'connections' }), labels: svg('g', { 'data-morph-part': 'labels' }) });
+  const under = layer();
+  const over = layer();
+  root.append(under.edges, under.labels, band, interior, over.edges, over.labels);
+  morph.parts = { root, band, interior, edgeLayers: { under, over }, grid: null, content: null, title: null };
   if (morph.content) setContent(morph, morph.content);
   host.appendChild(root);
 }
@@ -374,7 +377,7 @@ function finishStandIn(morph) {
   parts.finished = true;
   if (box.gridFill && box.gridFill !== 'none') {
     parts.grid = svg('rect', { fill: box.gridFill });
-    parts.root.insertBefore(parts.grid, parts.edges);
+    parts.root.insertBefore(parts.grid, parts.edgeLayers.over.edges);
   }
   if (box.titleNode) {
     box.titleNode.removeAttribute('transform');
@@ -451,11 +454,19 @@ function paint(parts, a, b, t, pa, pb, nodeTitle = 0) {
 
 const poseAt = (pa, pb, t) => ({ x: lerp(pa.x, pb.x, t), y: lerp(pa.y, pb.y, t), s: lerp(pa.s, pb.s, t) });
 
-/** Where the crossing connections' moving ends are, `t` of the way from node to box. */
-function connectionFrame(morph, t) {
-  const { thingRect, box, pose } = morph;
+/**
+ * Where the crossing connections' moving ends are, `t` of the way from node to
+ * box and `q` of the way through the morph's time. A connection to the Thing
+ * ends on its outline: on the node's own box at the start (which a preview's
+ * card covers), then, within the first part of an opening, on the frame's edge
+ * as drawn, so its arrowhead isn't buried under the growing frame.
+ */
+function connectionFrame(morph, t, q) {
+  const { thingRect, node, box, pose } = morph;
+  const onFrame = morph.direction === 'open' ? easeInOutCubic(Math.max(0, Math.min(1, q / TITLE_REWRAP))) : 1;
+  const frame = lerpRect(node.outer, box.band, t);
   return {
-    thingOuter: lerpRect(thingRect, box.band, t),
+    thingOuter: lerpRect(lerpRect(thingRect, box.band, t), frame, onFrame),
     thingPill: lerpRect(thingRect, box.tab || box.band, t),
     pose: pose.node && pose.box ? poseAt(pose.node, pose.box, t) : null,
     t,
@@ -465,7 +476,7 @@ function connectionFrame(morph, t) {
 /** Draws a morph `t` of the way from its node (0) to its box (1), `q` of the way through its time. */
 function draw(morph, t, q) {
   paint(morph.parts, morph.node, morph.box, t, morph.pose.node, morph.pose.box, nodeTitleShare(morph, q));
-  if (morph.connections) drawConnections(morph.connections, connectionFrame(morph, t));
+  if (morph.connections) drawConnections(morph.connections, connectionFrame(morph, t, q));
 }
 
 // ─── Running ──────────────────────────────────────────────────────────────────
@@ -543,14 +554,15 @@ function tryStart(morph, lastChance) {
   // moves under the box's title once open). A folded node is drawn as just that.
   morph.thingRect = morph.thingRect || morph.node.outer;
   morph.connections = prepareConnections({
-    root: scene(), host, layer: morph.parts.edges, labelLayer: morph.parts.labels,
+    root: scene(), host, layers: morph.parts.edgeLayers,
     viewGraphId: morph.viewGraphId, crossing: morph.crossing || [],
     innerRects: morph.innerRects || readInnerRects(scene(), morph.crossing || []),
     contentPose: morph.pose.box, tag: morph.tag,
     nodeLabels: morph.direction === 'open' ? morph.departedLabels : arrivedLabels,
     boxLabels: morph.direction === 'open' ? arrivedLabels : morph.departedLabels,
   });
-  measureLabelAnchors(morph.connections, t => connectionFrame(morph, t));
+  // At the node the connections end where the canvas drew them, at the box on its shell.
+  measureLabelAnchors(morph.connections, t => connectionFrame(morph, t, morph.direction === 'open' ? t : 1 - t));
   const drawnIds = morph.connections.items.map(item => item.id);
   hideOnly(morph, [...morph.hideBase, ...selectorsFor({ edgeIds: drawnIds })]);
   morph.playing = true;
