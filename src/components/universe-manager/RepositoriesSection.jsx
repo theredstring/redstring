@@ -249,9 +249,11 @@ const RepositoriesSection = ({
                         title={discoveryState.error}
                       >
                         <AlertCircle size={12} style={{ flexShrink: 0 }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {discoveredItems.length > 0 ? 'Showing last known' : discoveryState.error}
-                        </span>
+                        {discoveredItems.length === 0 && (
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {discoveryState.error}
+                          </span>
+                        )}
                       </span>
                     )}
                   </div>
