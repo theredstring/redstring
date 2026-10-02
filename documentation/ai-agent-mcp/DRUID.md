@@ -15,7 +15,7 @@ It has two memories, and they work differently on purpose:
 | Lifetime | Persists (a real `.redstring` file) | Until the Druid rewrites it |
 | How it is read | Recall (involuntary) + search/read tools (deliberate) | Always in context |
 
-Between rewrites the context also holds the verbatim cycles of the current **epoch**. When the context fills, the Druid is asked to write the note that replaces it, so the model does its own compaction. It can also rewrite the note whenever it chooses. That is the "phonological loop": a small rehearsal buffer the mind maintains itself, in front of a large store it has to retrieve from.
+Between rewrites the context also holds the verbatim cycles of the current **epoch**. When the context fills, the Druid is asked to write the note that replaces it, so the model does its own compaction. It can also update the note whenever it likes. That is the "phonological loop": a small rehearsal buffer the mind maintains itself, in front of a large store it has to retrieve from.
 
 ### What it is not
 
@@ -30,13 +30,15 @@ One finding from the first run belongs here. Given an empty graph and no seed, a
 1. **Recall.** The graph is indexed and the working memory + last thought are used as a cue. Things the cue names are *in mind*: they send activation but are not handed back. What surfaces is adjacent to them, one step along the graph's own structure (connections, and the part–whole link between a Thing and the web inside it). Things surfaced in the last three cycles are damped. See `src/druid/recall.js`.
 2. **Think.** One real wizard turn (`runWizardInProcess` → `AgentLoop` → tools) runs with the note as the system prompt, the epoch's earlier cycles as history, and the cycle message (last thought, what surfaced, how full the context is) as the user turn. Tool results are applied to the store as they arrive.
 3. **Feed back.** The final text becomes the next cycle's "last thought".
-4. **Compact.** A `<working_memory>…</working_memory>` block in the reply becomes the new note; the history is cleared and a new epoch begins. Past `--compact-at` of the window, or 16 verbatim history messages, the next cycle asks for one.
+4. **Compact.** A `<working_memory>…</working_memory>` block in the reply becomes the new note. If the loop asked for it, or the epoch has already run 2 cycles, the history is also cleared and a new epoch begins. Earlier than that, the note is updated in place. Past `--compact-at` of the window, or 16 verbatim history messages, the next cycle asks for one.
 
 ### Guards, each from a failure it prevents
 
 - **No note when asked:** asked once more, then a mechanical note is written for it: the old note whole, plus the epoch's last thoughts under a heading that says they weren't consolidated. Memory is never lost to a malformed reply.
 - **Note too long** (over a quarter of the window): sent back once, then clipped, with a notice.
 - **Note rewritten unchanged:** ignored, and the context is kept. On the first real run, once a 4B model had compacted, it did nothing but re-emit the same note for three cycles. Each one wiped the context it would have needed to get out.
+- **Placeholder note** (fewer than three content words, e.g. a copied `...`): ignored, the old note is kept. On the second run a 4B model copied the prompt's `...` template and erased its memory with it. The prompts no longer show a template.
+- **Note volunteered early:** updates the note but does not clear the context. On the second run, a 4B model told it could rewrite "whenever it chose" wrote a note every cycle: nine epochs in ten cycles, and the history was never used.
 - **Idling** (no successful tool calls, or repeating the last thought) for 3 cycles: one memory drifts up at random from anywhere in the graph. This is the only outside perturbation a loop with no person can get.
 - **Model errors:** the cycle is retried with backoff and doesn't count; 5 in a row stops the run.
 
@@ -72,6 +74,8 @@ npm run druid -- --endpoint http://localhost:1234/v1/chat/completions --model qw
 npm run druid -- --model gemma4 --context 16384 --seed "What is a river?"
 ```
 
+**Use a 16K window or more.** At 8K the fixed cost (tools ~2.6K, prompt, graph header) is already ~55% of the window before any history, and on the second run a single cycle with several `readGraph` calls reached 100% mid-cycle. Compaction only runs between cycles; within one, every tool result stays in context until the cycle ends, which is why `--steps` defaults to 6.
+
 `--context` **must match the server.** If the server's window is smaller, it drops the front of the prompt, which is the system prompt and with it the working memory, and the Druid never finds out.
 
 Files, beside the universe (default `~/.redstring/druid/druid.redstring`):
@@ -95,6 +99,16 @@ Give the Druid its own universe file. The headless writer takes a lock, and Reds
 | `src/druid/graphStateFromStore.js` | the agent's view of the store, shaped as the panel builds it |
 | `scripts/druid.mjs` | CLI: headless store + universe file + local server |
 | `test/druid/` | unit tests, the loop against a scripted turn, and an end-to-end run through the real agent loop, tools and store |
+
+## What the first runs showed
+
+Three runs of qwen3-4b (LM Studio, 8K window), 6–12 cycles each:
+
+- It builds. With no seed it made a universe for itself (Universe → Web → Thing, a Rock opened into Quartz and Feldspar), then followed a question it raised itself ("how do systems emerge from networks of interacting patterns?") into an Ecosystem web with its own inside, and connected Biodiversity to Climate with a relation it named itself ("enhances stability").
+- Its priors bring their own categories. Its first act on the first run was Mind → Perception, Memory, Decision.
+- The wizard's norms leak in through tool results. After `populateDefinitionGraph` it worried that its Ecosystem web "falls short of the minimum threshold of 5 nodes". That threshold is the Wizard's build-quality guidance for a person's graph, and it reached the Druid through the tool's result text. Worth a `druid` variant of those messages if it keeps happening.
+- Small models fumble ids and graphs: creating a Thing in a web other than the one they meant, retrying a failing call. One of these turned out to be a real tool bug (`createEdge` couldn't take the ids `readGraph` hands out), now fixed for everyone.
+- The guards above each came from a run, and the note semantics changed twice in response.
 
 ## Open directions
 

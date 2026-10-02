@@ -5,7 +5,9 @@ import {
   compactionDue,
   noteOverBudget,
   clipNote,
-  fallbackWorkingMemory
+  fallbackWorkingMemory,
+  isMeaningfulNote,
+  cleanThought
 } from '../../src/druid/workingMemory.js';
 
 describe('extractWorkingMemory', () => {
@@ -74,5 +76,26 @@ describe('fallbackWorkingMemory', () => {
 
   it('is empty-safe', () => {
     expect(fallbackWorkingMemory('', [], '')).toBe('');
+  });
+});
+
+describe('isMeaningfulNote', () => {
+  it('rejects a copied template or filler, accepts a real note', () => {
+    expect(isMeaningfulNote('...')).toBe(false);
+    expect(isMeaningfulNote('\n...\n')).toBe(false);
+    expect(isMeaningfulNote('ok then')).toBe(false);
+    expect(isMeaningfulNote('Rivers web exists. Next: deltas.')).toBe(true);
+  });
+});
+
+describe('cleanThought', () => {
+  it('removes a recited tool list and stray tool-call markup, keeping the thought', () => {
+    const recited = 'I will start with Time and Space.\n\n<tools>\n{"type": "function", "function": {"name": "createNode"}}\n</tools>\n<tool_call>{"name": "createNode"}</tool_call>';
+    expect(cleanThought(recited)).toBe('I will start with Time and Space.');
+  });
+
+  it('removes an unclosed recital and bare schema lines', () => {
+    expect(cleanThought('Next: rivers.\n<tools>\n{"type": "function", "function": {"name": "x"')).toBe('Next: rivers.');
+    expect(cleanThought('ok\n{"type": "function", "function": {}}\nthen')).toBe('ok\nthen');
   });
 });

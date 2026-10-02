@@ -14,8 +14,8 @@
  *     ...
  *     </working_memory>
  *
- * It may write one whenever it likes (choosing to clear its own head), and is
- * asked for one when the context crosses the threshold. A local model that
+ * It may update the note whenever it likes, and is asked to rewrite it when
+ * the context crosses the threshold; the rewrite clears everything else. A local model that
  * fails to answer gets one more try, then a mechanical fallback, so a run never
  * loses its memory to a malformed reply.
  *
@@ -23,6 +23,7 @@
  */
 
 import { estimateTokens } from '../wizard/tokenEstimate.js';
+import { tokenize } from './recall.js';
 
 export const WM_OPEN = '<working_memory>';
 export const WM_CLOSE = '</working_memory>';
@@ -37,6 +38,12 @@ export const DEFAULT_COMPACT_AT = 0.7;
  * what to carry.
  */
 export const DEFAULT_HISTORY_CAP = 16;
+
+/**
+ * Cycles an epoch runs before a note the Druid volunteers also clears the
+ * context. Earlier than that the note is updated in place.
+ */
+export const MIN_EPOCH_CYCLES = 2;
 
 /**
  * The note's share of the window. Past this it is asking the next epoch to
@@ -67,6 +74,34 @@ export function extractWorkingMemory(text) {
   const thought = `${s.slice(0, open)}${tail}`.trim();
 
   return { memory: body || null, thought, truncated: close < 0 };
+}
+
+/**
+ * Whether a note says anything. A copied "..." template, or a line of filler,
+ * is not a memory, and taking it as one erases the real note.
+ */
+export function isMeaningfulNote(memory) {
+  return tokenize(memory).length >= 3;
+}
+
+/**
+ * A thought fit to be fed back.
+ *
+ * Some chat templates (Qwen's among them) put the tool list in the system turn
+ * inside <tools>…</tools>, and a small model at a warm temperature will
+ * sometimes go on reciting it. Fed back as "your last thought", one such reply
+ * poisons the next cycle, so recited schemas and unparsed tool-call markup are
+ * removed before a thought is kept.
+ */
+export function cleanThought(text) {
+  return String(text || '')
+    .replace(/<tools>[\s\S]*?(<\/tools>|$)/g, '')
+    .replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '')
+    .split('\n')
+    .filter(line => !/^\s*\{\s*"type"\s*:\s*"function"/.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**

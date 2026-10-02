@@ -27,16 +27,12 @@ You have two memories.
 
 THE GRAPH IS YOUR LONG-TERM MEMORY. It persists; nothing else does. Anything you want to know later must be written into it — Things with clear names and descriptions, connected to what they relate to, in webs that make sense to you. Organize it however serves your thinking. Nobody has chosen its categories for you, and you can reshape it when the old shape stops helping: merge what is the same, delete what was wrong, redescribe what you understand better now. You recall from it two ways — some memories surface on their own each cycle, and you can search and read it deliberately with your tools.
 
-YOUR WORKING MEMORY IS THE NOTE BELOW. You wrote it. Your context is small and is cleared often; when it is, the note is all that survives. To rewrite it, end a reply with:
-${WM_OPEN}
-...
-${WM_CLOSE}
-That clears your context and starts a fresh stretch of thought with the new note as your only short-term memory. Do it whenever you choose, not only when asked. Keep it short. Point into the graph by name instead of copying what is already there — the graph holds the details so the note does not have to.
+YOUR WORKING MEMORY IS THE NOTE BELOW. You wrote it. Your context is small. When it fills, you will be asked to rewrite the note, and then everything else in your context is cleared: the note is all that survives. You can also update the note at any point by writing a new one between the tags ${WM_OPEN} and ${WM_CLOSE}; it replaces the old one. Keep it short. Point into the graph by name instead of copying what is already there — the graph holds the details so the note does not have to.
 
-Each cycle: think in plain words, use tools to read or write your graph one step at a time, then end with the thought you want to pick up next. That last thought is what comes back to you.
+## Your working memory
+${note ? note : 'You have not written a note yet.'}
 
-## Working memory
-${note || '(empty — you have not written one yet)'}`;
+Each cycle: think in plain words, use tools to read or write your graph one step at a time, then end with the thought you want to pick up next. That last thought is what comes back to you. Only a tool call changes your graph; saying you did something does not do it.`;
 }
 
 const formatSurfaced = (surfaced) => surfaced
@@ -92,11 +88,7 @@ export function composeCompactionMessage({ cycle, epoch, reason, contextFill, at
       ? 'You have carried many cycles verbatim.'
       : `Your context is ${Math.round(contextFill * 100)}% full.`;
   const retry = attempt > 1 ? ' Your last reply did not include one, so this is the last chance before a note is written for you mechanically.' : '';
-  return `[cycle ${cycle} · epoch ${epoch}] ${why} Your context is about to be cleared. Write your new working memory now: what you need to carry forward that is not already in your graph. If something matters and is not in the graph yet, write it there first.${retry}
-
-${WM_OPEN}
-...
-${WM_CLOSE}`;
+  return `[cycle ${cycle} · epoch ${epoch}] ${why} Your context is about to be cleared. Write your new working memory now, between the tags ${WM_OPEN} and ${WM_CLOSE}: what you need to carry forward that is not already in your graph. If something matters and is not in the graph yet, write it there first.${retry}`;
 }
 
 /**

@@ -59,9 +59,11 @@ describe('the Druid over a local OpenAI-compatible server', () => {
       ] };
       if (i === 2) return { tools: [{ id: 'e1', name: 'createEdge', args: { sourceId: 'River', targetId: 'Valley', type: 'carves' } }] };
       if (i === 3) return { text: 'Rivers carve valleys. I wonder what else moving water shapes.' };
-      // Cycle 2: decide to clear its own head.
-      if (i === 4) return { text: 'Clearing my head.\n<working_memory>\nThinking about the River. Next: deltas.\n</working_memory>' };
-      // Cycle 3: a fresh epoch.
+      // Cycle 2: a thought, no tools.
+      if (i === 4) return { text: 'Maybe the valley shapes the river back.' };
+      // Cycle 3: decide to clear its own head.
+      if (i === 5) return { text: 'Clearing my head.\n<working_memory>\nThinking about the River. Next: deltas.\n</working_memory>' };
+      // Cycle 4: a fresh epoch.
       return { text: 'Deltas, then.' };
     });
 
@@ -80,12 +82,12 @@ describe('the Druid over a local OpenAI-compatible server', () => {
       }),
       getState: () => useGraphStore.getState(),
       applyToolResult: (name, result, id) => applyToolResultToStore(name, result, id, 'druid', { confirmed: true })
-    }, { maxCycles: 3, contextWindow: 32768, seed: 'water', sleep: async () => {} })) {
+    }, { maxCycles: 4, contextWindow: 32768, seed: 'water', sleep: async () => {} })) {
       records.push(r);
     }
 
     const cycles = records.filter(r => r.type === 'cycle');
-    expect(cycles).toHaveLength(3);
+    expect(cycles).toHaveLength(4);
     expect(records.at(-1)).toEqual({ type: 'stopped', reason: 'max_cycles' });
 
     // Every request is a transcript a real server would accept.
@@ -111,12 +113,13 @@ describe('the Druid over a local OpenAI-compatible server', () => {
 
     // Compaction: the note it wrote is the system prompt of the next epoch,
     // and the conversation behind it is gone.
-    expect(cycles[1].compaction).toMatchObject({ reason: 'chosen', memory: 'Thinking about the River. Next: deltas.' });
-    expect(systemText(seen[5])).toMatch(/## Working memory\nThinking about the River\. Next: deltas\./);
-    expect(seen[5].messages.filter(m => m.role === 'assistant' && /Rivers carve valleys/.test(String(m.content)))).toHaveLength(0);
+    expect(seen[5].messages.some(m => m.role === 'assistant' && /Rivers carve valleys/.test(String(m.content)))).toBe(true);
+    expect(cycles[2].compaction).toMatchObject({ reason: 'chosen', memory: 'Thinking about the River. Next: deltas.' });
+    expect(systemText(seen[6])).toMatch(/## Your working memory\nThinking about the River\. Next: deltas\./);
+    expect(seen[6].messages.filter(m => m.role === 'assistant' && /Rivers carve valleys/.test(String(m.content)))).toHaveLength(0);
 
     // Recall: the note names the River, so what is connected to it surfaces.
-    expect(lastUserText(seen[5])).toMatch(/Surfacing from memory:\n- Valley — Low land a river cuts\. \(carves — via River\)/i);
-    expect(lastUserText(seen[5])).toMatch(/\(context just cleared\)/);
+    expect(lastUserText(seen[6])).toMatch(/Surfacing from memory:\n- Valley — Low land a river cuts\. \(carves — via River\)/i);
+    expect(lastUserText(seen[6])).toMatch(/\(context just cleared\)/);
   });
 });

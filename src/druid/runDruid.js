@@ -13,24 +13,28 @@
  *   3. FEED BACK. The final text becomes the next cycle's input. That is the
  *      whole feedback loop: output is input, and the graph is the only thing
  *      that accumulates.
- *   4. COMPACT. If the reply carries a <working_memory> note — asked for or
- *      not — it becomes the new system prompt and the history is cleared: a new
- *      epoch. If the context passed its threshold, the next cycle asks for one.
+ *   4. COMPACT. A <working_memory> note in the reply becomes the new system
+ *      prompt. If the loop asked for it, or the epoch has run a few cycles, the
+ *      history is cleared too: a new epoch. If the context passed its
+ *      threshold, the next cycle asks for one.
  *
  * Dependencies are injected so the loop can run against a scripted model in a
  * test and against the headless store + a local server in scripts/druid.mjs.
  */
 
 import { estimateTokens } from '../wizard/tokenEstimate.js';
-import { buildMemoryIndex, recall, wander, tokenize } from './recall.js';
+import { buildMemoryIndex, recall, wander, tokenize, ungroundedNames } from './recall.js';
 import {
   extractWorkingMemory,
+  isMeaningfulNote,
+  cleanThought,
   compactionDue,
   noteOverBudget,
   clipNote,
   fallbackWorkingMemory,
   DEFAULT_COMPACT_AT,
-  DEFAULT_HISTORY_CAP
+  DEFAULT_HISTORY_CAP,
+  MIN_EPOCH_CYCLES
 } from './workingMemory.js';
 import {
   buildDruidSystemPrompt,
@@ -38,6 +42,9 @@ import {
   composeCompactionMessage,
   echoForHistory
 } from './druidPrompt.js';
+
+/** Words with which a thought claims to have written to the graph. */
+const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|stored|defined)\b/i;
 
 /** Cycles a surfaced memory stays damped, so recall does not hand back the same few every time. */
 const HABITUATION_CYCLES = 3;
@@ -76,6 +83,7 @@ const defaultSleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
  * @param {number}   [opts.contextWindow]  the local server's window, in tokens
  * @param {number}   [opts.compactAt]
  * @param {number}   [opts.historyCap]
+ * @param {number}   [opts.minEpochCycles] cycles before a voluntary note also clears the context
  * @param {number}   [opts.overheadTokens] tool schemas + graph header, for when the server reports no usage
  * @param {number}   [opts.maxCycles]
  * @param {number}   [opts.stagnationCycles]
@@ -94,6 +102,7 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
   contextWindow = 8192,
   compactAt = DEFAULT_COMPACT_AT,
   historyCap = DEFAULT_HISTORY_CAP,
+  minEpochCycles = MIN_EPOCH_CYCLES,
   overheadTokens = 3000,
   maxCycles = Infinity,
   stagnationCycles = 3,
@@ -190,39 +199,62 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
     contextFill = measuredFill;
 
     // ── 3 & 4. Feed back, compact ──────────────────────────────────────────
-    const { memory: written, thought, truncated } = extractWorkingMemory(text);
-    // Rewriting the note without changing it is not a decision to clear its
-    // head, it is a groove: on its first real run a 4B model, once it had
-    // compacted, did nothing but re-emit the same note for three cycles, each
-    // one wiping the context it would have needed to get out. So a voluntary
-    // rewrite that says what the note already says keeps the context.
-    const unchangedNote = !!written && !pending && !!workingMemory && thoughtSimilarity(written, workingMemory) >= 0.9;
-    const memory = unchangedNote ? null : written;
-    if (unchangedNote) {
-      notice = 'You rewrote your note without changing it, so your context was kept. Rewrite it when what you need to carry has changed.';
-    }
+    const { memory: written, thought: rawThought, truncated } = extractWorkingMemory(text);
+    const thought = cleanThought(rawThought);
+
+    // Three kinds of note are not taken as a new working memory:
+    //   - a placeholder: a 4B model copied the prompt's "..." template and
+    //     wiped its own memory with it;
+    //   - an unchanged one: once it had compacted, a 4B model did nothing but
+    //     re-emit the same note for three cycles, each one clearing the context
+    //     it would have needed to get out of the groove;
+    //   - (see below) an early one does replace the note, but does not clear
+    //     the context.
+    const placeholder = !!written && !isMeaningfulNote(written);
+    const unchangedNote = !!written && !placeholder && !pending && !!workingMemory
+      && thoughtSimilarity(written, workingMemory) >= 0.9;
+    const memory = placeholder || unchangedNote ? null : written;
+    if (placeholder) notice = 'Your last note was empty or a placeholder, so your previous note was kept.';
+    else if (unchangedNote) notice = 'You rewrote your note without changing it. Update it when what you need to carry has changed.';
+
     let compaction = null;
+    let noteUpdated = false;
+    let ungrounded = [];
 
     if (memory) {
-      const reason = pending || 'chosen';
+      // A note written early updates working memory in place; the context is
+      // cleared only when the loop asked for the note or the epoch has run a
+      // few cycles. A 4B model told it could rewrite "whenever it chose" wrote
+      // a note every single cycle — nine epochs in ten cycles — so the context
+      // never held more than one cycle and the history was never used.
+      const clears = !!pending || history.length / 2 >= minEpochCycles;
       let note = memory;
       let clipped = false;
-      if (noteOverBudget(note, contextWindow)) {
-        if (pending === 'oversized') { note = clipNote(note, contextWindow); clipped = true; }
+      if (pending === 'oversized' && noteOverBudget(note, contextWindow)) {
+        note = clipNote(note, contextWindow);
+        clipped = true;
       }
       workingMemory = note;
-      history = [];
-      epoch++;
-      compaction = { reason, memory: note, truncated, clipped };
+      if (clears) {
+        compaction = { reason: pending || 'chosen', memory: note, truncated, clipped };
+        history = [];
+        epoch++;
+        contextFill = null;
+      } else {
+        noteUpdated = true;
+      }
+      attempts = 0;
       if (!clipped && noteOverBudget(note, contextWindow)) {
         pending = 'oversized';
-        attempts = 0;
       } else {
         pending = null;
-        attempts = 0;
         if (clipped) notice = 'Your last note was clipped to fit its budget; the end of it was lost.';
       }
-      contextFill = null;
+      const missing = ungroundedNames(buildMemoryIndex(getState()), note);
+      if (missing.length > 0) {
+        ungrounded = missing;
+        notice = [notice, `Your note names ${missing.join(', ')}, but your graph holds no Thing by ${missing.length === 1 ? 'that name' : 'those names'}. If ${missing.length === 1 ? 'it matters' : 'they matter'}, write ${missing.length === 1 ? 'it' : 'them'} in; the note alone will not keep ${missing.length === 1 ? 'it' : 'them'}.`].filter(Boolean).join('\n');
+      }
     } else if (pending) {
       attempts++;
       if (attempts >= 2) {
@@ -237,14 +269,29 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
     }
 
     if (!compaction && !pending) {
+      const said = thought
+        || (noteUpdated ? '(updated the note)' : unchangedNote ? '(rewrote the note, unchanged)' : '(acted without words)');
       history.push(
         { role: 'user', content: echoForHistory({ cycle, surfaced }) },
-        { role: 'assistant', content: `${thought || (unchangedNote ? '(rewrote the note, unchanged)' : '(acted without words)')}${ranDigest(toolCalls)}` }
+        { role: 'assistant', content: `${said}${ranDigest(toolCalls)}` }
       );
     }
 
     const repeating = unchangedNote || thoughtSimilarity(thought, lastThought) > 0.8;
     const acted = toolCalls.some(t => t.ok);
+
+    // Saying is not doing. On its third run a 4B model spent five cycles
+    // reporting "I have successfully created the Time node", then Space, then
+    // Matter, with no tool call in any of them; its graph held one Thing. A
+    // claim of having written something, in a cycle where nothing was written,
+    // is checked against the graph and the gap is reported back.
+    let unbacked = [];
+    if (!acted && CLAIM.test(thought)) {
+      unbacked = ungroundedNames(buildMemoryIndex(getState()), thought);
+      if (unbacked.length > 0) {
+        notice = [notice, `You said you made or changed ${unbacked.join(', ')}, but no tool ran last cycle and your graph holds no Thing by ${unbacked.length === 1 ? 'that name' : 'those names'}. Only a tool call writes to your graph.`].filter(Boolean).join('\n');
+      }
+    }
     idle = (!acted || repeating) ? idle + 1 : 0;
     if (thought) lastThought = thought;
 
@@ -266,7 +313,11 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
       endReason,
       error,
       compaction,
+      noteUpdated,
       unchangedNote,
+      placeholderNote: placeholder,
+      ungrounded,
+      unbacked,
       compactionDue: pending,
       snapshot: { cycle, epoch, workingMemory, lastThought, history }
     };

@@ -39,10 +39,10 @@ const { values: args } = parseArgs({
     context: { type: 'string', default: process.env.DRUID_CONTEXT || '8192' },
     'compact-at': { type: 'string', default: '0.7' },
     tier: { type: 'string', default: 'small' },
-    steps: { type: 'string', default: '8' },
+    steps: { type: 'string', default: '6' },
     cycles: { type: 'string', default: '' },
     pause: { type: 'string', default: '0' },
-    temperature: { type: 'string', default: '0.8' },
+    temperature: { type: 'string', default: '0.7' },
     'max-output': { type: 'string', default: '2048' },
     seed: { type: 'string', default: '' },
     fresh: { type: 'boolean', default: false },
@@ -62,10 +62,10 @@ if (args.help || !args.model) {
   --universe <file>     the Druid's .redstring file [${args.universe}]
   --seed <text>         something on its mind when a fresh Druid wakes
   --cycles <n>          stop after n cycles (default: run until Ctrl-C)
-  --steps <n>           tool steps allowed per cycle [8]
+  --steps <n>           tool steps allowed per cycle; each one's results stay in context until the cycle ends [6]
   --pause <ms>          wait between cycles [0]
   --tier small|large    model tier passed to the agent loop [small]
-  --temperature <t>     [0.8]
+  --temperature <t>     [0.7]
   --max-output <tokens> longest single reply; leaves the rest of the window for the prompt [2048]
   --fresh               ignore saved working memory (the graph is kept)
   --thinking            print the model's reasoning stream

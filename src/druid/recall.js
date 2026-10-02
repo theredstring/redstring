@@ -195,3 +195,38 @@ export function wander(index, rng = Math.random, habituated = new Set()) {
   const web = [...n.webs][0];
   return { id: n.id, name: n.name, description: clip(n.description, 160), via: web ? `drifted up from ${web}` : 'drifted up', score: 0 };
 }
+
+const NOT_NAMES = new Set(['next', 'redstring', 'thing', 'things', 'web', 'webs', 'graph', 'graphs', 'note', 'notes',
+  'working', 'memory', 'context', 'current', 'final', 'action', 'step', 'result', 'added', 'created', 'node', 'nodes',
+  'edge', 'edges', 'connection', 'connections', 'definition', 'this', 'that', 'these', 'those', 'then', 'also']);
+
+/**
+ * Names a note leans on that the graph does not hold.
+ *
+ * A note is written from memory of the epoch, and on its second real run a
+ * 4B model's note said a Rock was "composed of Quartz, Feldspar" — neither was
+ * ever written to the graph. The working memory had confabulated what the
+ * long-term memory never received. The graph is ground truth, so this checks
+ * the note against it: a capitalized word (not opening a sentence or line)
+ * that no Thing's name contains is reported back.
+ *
+ * @param {{ nodes: Map }} index
+ * @param {string} note
+ * @returns {string[]} up to five missing names, in note order
+ */
+export function ungroundedNames(index, note) {
+  const known = [...index.nodes.values()].map(n => n.name.toLowerCase());
+  const found = [];
+  const seen = new Set();
+  const re = /(^|[^.!?:\n\s]\s+|\(\s*|\*\*)([A-Z][a-zA-Z\u00c0-\u024f-]{2,})/g;
+  let m;
+  while ((m = re.exec(String(note || ''))) && found.length < 5) {
+    const word = m[2];
+    const lower = word.toLowerCase();
+    if (m[1] === '' || seen.has(lower) || NOT_NAMES.has(lower) || STOP.has(lower)) continue;
+    seen.add(lower);
+    const stem = lower.replace(/s$/, '');
+    if (!known.some(name => name.includes(lower) || name.includes(stem))) found.push(word);
+  }
+  return found;
+}

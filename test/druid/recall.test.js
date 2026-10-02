@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { buildMemoryIndex, recall, wander, tokenize } from '../../src/druid/recall.js';
+import { buildMemoryIndex, recall, wander, tokenize, ungroundedNames } from '../../src/druid/recall.js';
 
 /**
  * A small universe in the store's own shape (Maps, instances keyed by id,
@@ -94,5 +94,17 @@ describe('wander', () => {
 
   it('returns null for an empty graph', () => {
     expect(wander(buildMemoryIndex({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map() }))).toBeNull();
+  });
+});
+
+describe('ungroundedNames', () => {
+  it('reports what a note names that the graph never received', () => {
+    // From a real run: the note said this, the graph held only River's web and Valley.
+    const note = 'I have mapped water:\n- The **River** carves the Valley.\n- The Delta is made of **Silt** and Clay. Next: tides.';
+    expect(ungroundedNames(buildMemoryIndex(universe()), note)).toEqual(['Silt', 'Clay']);
+  });
+
+  it('accepts plurals and parts of multi-word names, and ignores sentence openers', () => {
+    expect(ungroundedNames(buildMemoryIndex(universe()), 'Rivers and Valleys. Lighthouses too.')).toEqual([]);
   });
 });

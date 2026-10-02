@@ -65,7 +65,7 @@ describe('runDruid — the feedback loop', () => {
 
   it('carries the note in the system prompt and grows the history only at the end between rewrites', async () => {
     const { calls } = await run(() => ({ text: 'hm', promptTokens: 1000 }), { maxCycles: 3, resume: { workingMemory: 'Studying rivers.' } });
-    for (const c of calls) expect(c.systemPrompt).toMatch(/## Working memory\nStudying rivers\./);
+    for (const c of calls) expect(c.systemPrompt).toMatch(/## Your working memory\nStudying rivers\./);
     expect(calls[0].systemPrompt).toBe(calls[2].systemPrompt);
     expect(calls[1].history).toHaveLength(2);
     expect(calls[2].history.slice(0, 2)).toEqual(calls[1].history);
@@ -73,15 +73,67 @@ describe('runDruid — the feedback loop', () => {
 });
 
 describe('runDruid — self-authored compaction', () => {
-  it('rewrites working memory whenever the model chooses to, clearing the context', async () => {
-    const { calls, cycles } = await run(i => i === 1
+  it('updates the note in place when the model volunteers one early', async () => {
+    const { calls, cycles } = await run(i => i === 0
+      ? { text: 'Noted.\n<working_memory>Rivers: started. Next, deltas.</working_memory>', promptTokens: 1000 }
+      : { text: `t${i}`, promptTokens: 1000 }, { maxCycles: 2 });
+    expect(cycles[0].compaction).toBeNull();
+    expect(cycles[0].noteUpdated).toBe(true);
+    expect(calls[1].systemPrompt).toMatch(/Rivers: started\. Next, deltas\./);
+    expect(calls[1].history.at(-1).content).toBe('Noted.');
+    expect(cycles[1].epoch).toBe(0);
+  });
+
+  it('clears the context when the model volunteers a note after a few cycles', async () => {
+    const { calls, cycles } = await run(i => i === 2
       ? { text: 'Enough for now.\n<working_memory>Rivers: done. Next, deltas.</working_memory>', promptTokens: 1000 }
-      : { text: `t${i}`, promptTokens: 1000 }, { maxCycles: 3 });
-    expect(cycles[1].compaction).toMatchObject({ reason: 'chosen', memory: 'Rivers: done. Next, deltas.' });
-    expect(cycles[1].thought).toBe('Enough for now.');
-    expect(calls[2].history).toEqual([]);
-    expect(calls[2].systemPrompt).toMatch(/Rivers: done\. Next, deltas\./);
-    expect(cycles[2].epoch).toBe(1);
+      : { text: `distinct thought ${'abcdef'[i]}`, promptTokens: 1000 }, { maxCycles: 4 });
+    expect(cycles[2].compaction).toMatchObject({ reason: 'chosen', memory: 'Rivers: done. Next, deltas.' });
+    expect(cycles[2].thought).toBe('Enough for now.');
+    expect(calls[3].history).toEqual([]);
+    expect(calls[3].systemPrompt).toMatch(/Rivers: done\. Next, deltas\./);
+    expect(calls[3].message).toMatch(/\(context just cleared\)/);
+    expect(cycles[3].epoch).toBe(1);
+  });
+
+  it('tells the Druid when its note names Things its graph does not hold', async () => {
+    const p = (id, name) => [id, { id, name, description: '' }];
+    const getState = () => ({
+      nodePrototypes: new Map([p('a', 'Rock')]),
+      graphs: new Map([['g', { id: 'g', name: 'Stones', instances: new Map([['ia', { id: 'ia', prototypeId: 'a' }]]), edgeIds: [] }]]),
+      edges: new Map()
+    });
+    const { calls, cycles } = await run(i => i === 0
+      ? { text: '<working_memory>The Rock is made of **Quartz** and **Feldspar**.</working_memory>', promptTokens: 1000 }
+      : { text: 'next', promptTokens: 1000 }, { maxCycles: 2 }, { getState });
+    expect(cycles[0].ungrounded).toEqual(['Quartz', 'Feldspar']);
+    expect(calls[1].message).toMatch(/Your note names Quartz, Feldspar, but your graph holds no Thing by those names/);
+  });
+
+  it('reports a claim of having written something when nothing was written', async () => {
+    const { calls, cycles } = await run(i => i === 0
+      ? { text: 'I have successfully created the Time node and connected it.', promptTokens: 1000 }
+      : { text: 'next', promptTokens: 1000 }, { maxCycles: 2 });
+    expect(cycles[0].unbacked).toEqual(['Time']);
+    expect(calls[1].message).toMatch(/You said you made or changed Time, but no tool ran last cycle/);
+  });
+
+  it('does not feed a recited tool list back as a thought', async () => {
+    const { calls } = await run(i => i === 0
+      ? { text: 'Start with rivers.\n<tools>\n{"type": "function", "function": {"name": "createNode"}}\n</tools>', promptTokens: 1000 }
+      : { text: 'next', promptTokens: 1000 }, { maxCycles: 2 });
+    expect(calls[1].message).toMatch(/Your last thought:\nStart with rivers\.\n\n/);
+    expect(calls[1].message).not.toMatch(/"type": "function"/);
+  });
+
+  it('never takes a placeholder as a note', async () => {
+    const { calls, cycles } = await run(i => i === 0
+      ? { text: 'Hm.\n<working_memory>\n...\n</working_memory>', promptTokens: 1000 }
+      : { text: 'next', promptTokens: 1000 }, { maxCycles: 2, resume: { workingMemory: 'The real note about rivers and deltas.' } });
+    expect(cycles[0].placeholderNote).toBe(true);
+    expect(cycles[0].noteUpdated).toBe(false);
+    expect(calls[1].systemPrompt).toMatch(/The real note about rivers and deltas\./);
+    expect(calls[1].message).toMatch(/placeholder, so your previous note was kept/);
   });
 
   it('keeps the context when the model rewrites its note without changing it', async () => {
@@ -89,7 +141,7 @@ describe('runDruid — self-authored compaction', () => {
     const { calls, cycles } = await run(() => ({ text: `<working_memory>${note}</working_memory>`, promptTokens: 1000 }), { maxCycles: 3, resume: { workingMemory: note } });
     expect(cycles.every(c => !c.compaction && c.unchangedNote)).toBe(true);
     expect(cycles.at(-1).epoch).toBe(0);
-    expect(calls[1].message).toMatch(/without changing it, so your context was kept/);
+    expect(calls[1].message).toMatch(/You rewrote your note without changing it/);
     expect(calls[2].history.map(m => m.content)).toContain('(rewrote the note, unchanged)');
     // A groove is idling: after enough of it, something drifts up.
     expect(cycles.every(c => c.compactionDue === null)).toBe(true);
@@ -103,7 +155,7 @@ describe('runDruid — self-authored compaction', () => {
     }, { maxCycles: 3, contextWindow: 8192, compactAt: 0.7 });
     expect(cycles[0].compactionDue).toBe('context');
     expect(calls[1].message).toMatch(/Your context is 73% full/);
-    expect(calls[1].message).toMatch(/<working_memory>/);
+    expect(calls[1].message).toMatch(/between the tags <working_memory> and <\/working_memory>/);
     expect(cycles[1].compaction).toMatchObject({ reason: 'context', memory: 'kept: the delta idea' });
     expect(calls[2].systemPrompt).toMatch(/kept: the delta idea/);
     expect(calls[2].history).toEqual([]);
