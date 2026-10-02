@@ -64,6 +64,13 @@ describe('createEdge', () => {
     });
   });
 
+  it('accepts the instance or prototype ids readGraph hands out, not only names', async () => {
+    const byInstance = await createEdge({ sourceId: 'inst-1', targetId: 'inst-2', type: 'connects' }, makeGraphState(), mockCid, mockEnsureSchedulerStarted);
+    expect(byInstance).toMatchObject({ sourceName: 'Node A', targetName: 'Node B', sourceInstanceId: 'inst-1', targetInstanceId: 'inst-2' });
+    const byPrototype = await createEdge({ sourceId: 'proto-2', targetId: 'Node A', type: 'connects' }, makeGraphState(), mockCid, mockEnsureSchedulerStarted);
+    expect(byPrototype).toMatchObject({ sourceInstanceId: 'inst-2', targetInstanceId: 'inst-1' });
+  });
+
   it('handles missing type (empty string)', async () => {
     const result = await createEdge(
       { sourceId: 'Node A', targetId: 'Node B' },

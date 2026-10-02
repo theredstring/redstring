@@ -88,3 +88,55 @@ planTask({
     expect(parseTextToolCalls(null, AVAILABLE)).toEqual({ calls: [], remainingText: '' });
   });
 });
+
+describe('parseTextToolCalls — bare JSON objects', () => {
+  const SMALL_TIER = ['expandGraph', 'buildComposition', 'populateDefinitionGraph', 'sketchGraph', 'readGraph'];
+
+  // Verbatim shape of what qwen3-4b wrote instead of calling buildComposition.
+  const LAYERS_REPLY = '{ "layers": [ { "name": "Mesoamerican Deities", "color": "orange", "display": "decomposed", '
+    + '"definition": { "nodes": [ { "name": "Quetzalcoatl" }, { "name": "Tlaloc" } ], '
+    + '"edges": [ { "source": "Quetzalcoatl", "target": "Tlaloc", "type": "Shared Domain" } ] } } ] }\n'
+    + 'The Mesoamerican Deities web is now complete with nested structure and meaningful connections.';
+
+  it('recovers a bare buildComposition args object and keeps the prose', () => {
+    const { calls, remainingText } = parseTextToolCalls(LAYERS_REPLY, SMALL_TIER);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('buildComposition');
+    expect(calls[0].arguments.layers[0].definition.nodes).toHaveLength(2);
+    expect(remainingText).toBe('The Mesoamerican Deities web is now complete with nested structure and meaningful connections.');
+  });
+
+  it('tells populateDefinitionGraph from expandGraph by nodeName', () => {
+    const def = parseTextToolCalls('{"nodeName": "Earth", "nodes": [{"name": "Core"}], "edges": []}', SMALL_TIER);
+    expect(def.calls[0].name).toBe('populateDefinitionGraph');
+    const flat = parseTextToolCalls('{"nodes": [{"name": "Mars"}], "groups": []}', SMALL_TIER);
+    expect(flat.calls[0].name).toBe('expandGraph');
+  });
+
+  it('recovers the native {name, arguments} form inside <tool_call> tags', () => {
+    const { calls, remainingText } = parseTextToolCalls(
+      '<tool_call>\n{"name": "readGraph", "arguments": {}}\n</tool_call>', SMALL_TIER);
+    expect(calls).toEqual([{ name: 'readGraph', arguments: {} }]);
+    expect(remainingText).toBe('');
+  });
+
+  it('strips a ```json fence around a salvaged object', () => {
+    const { calls, remainingText } = parseTextToolCalls('Here:\n```json\n{"nodes": [{"name": "Mars"}]}\n```', SMALL_TIER);
+    expect(calls[0].name).toBe('expandGraph');
+    expect(remainingText).toBe('Here:');
+  });
+
+  it('only infers tools offered this turn', () => {
+    expect(parseTextToolCalls(LAYERS_REPLY, ['expandGraph']).calls).toEqual([]);
+    expect(parseTextToolCalls('{"name": "deleteNode", "arguments": {"name": "X"}}', SMALL_TIER).calls).toEqual([]);
+  });
+
+  it('ignores objects that match no tool shape', () => {
+    expect(parseTextToolCalls('The answer is {"count": 3}.', SMALL_TIER).calls).toEqual([]);
+  });
+
+  it('prefers the call form when both appear', () => {
+    const { calls } = parseTextToolCalls('readGraph({}) and {"nodes": [{"name": "A"}]}', SMALL_TIER);
+    expect(calls.map(c => c.name)).toEqual(['readGraph']);
+  });
+});

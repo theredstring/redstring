@@ -61,6 +61,61 @@ function forgivingParse(raw) {
 }
 
 /**
+ * Which tool a bare argument object belongs to, judged by its keys. First match
+ * that was offered this turn wins, so the order runs from the most specific
+ * shape to the most general.
+ */
+const BARE_SHAPES = [
+  { name: 'populateDefinitionGraph', test: (o) => typeof o.nodeName === 'string' && Array.isArray(o.nodes) },
+  { name: 'buildComposition', test: (o) => Array.isArray(o.layers) && o.layers.length > 0 },
+  { name: 'createPopulatedGraph', test: (o) => typeof o.name === 'string' && typeof o.description === 'string' && Array.isArray(o.nodes) },
+  { name: 'expandGraph', test: (o) => Array.isArray(o.nodes) && o.nodes.length > 0 }
+];
+
+/** Widen a span over a ```json fence or <tool_call> tag wrapped around it. */
+function widenSpan(text, start, end) {
+  const before = text.slice(0, start).match(/(?:```(?:json)?|<tool_call>)\s*$/);
+  const after = text.slice(end).match(/^\s*(?:```|<\/tool_call>)/);
+  return [before ? start - before[0].length : start, after ? end + after[0].length : end];
+}
+
+/**
+ * Salvage tool calls written as a bare JSON object, with no name in front.
+ *
+ * Two shapes, both seen from qwen3-4b:
+ *   - its native call format leaking into the text instead of being parsed
+ *     by the server: {"name": "expandGraph", "arguments": {...}}, often
+ *     inside <tool_call> tags
+ *   - just the arguments, copied from the format examples in the small-model
+ *     prompt: {"layers": [...]}. It wrote one, said "the web is now complete",
+ *     and nothing had run. The keys say which tool it meant (BARE_SHAPES).
+ * Only top-level objects are considered, and only tools offered this turn.
+ */
+function salvageBareObjects(text, whitelist, calls, spans) {
+  for (let i = text.indexOf('{'); i >= 0 && i < text.length; i = text.indexOf('{', i)) {
+    const end = findObjectEnd(text, i);
+    if (end < 0) return;
+    const parsed = forgivingParse(text.slice(i, end + 1));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const wrappedArgs = parsed.arguments ?? parsed.parameters;
+      let call = null;
+      if (typeof parsed.name === 'string' && whitelist.has(parsed.name)
+        && wrappedArgs && typeof wrappedArgs === 'object' && !Array.isArray(wrappedArgs)) {
+        call = { name: parsed.name, arguments: wrappedArgs };
+      } else {
+        const shape = BARE_SHAPES.find(sh => whitelist.has(sh.name) && sh.test(parsed));
+        if (shape) call = { name: shape.name, arguments: parsed };
+      }
+      if (call) {
+        calls.push(call);
+        spans.push(widenSpan(text, i, end + 1));
+      }
+    }
+    i = end + 1;
+  }
+}
+
+/**
  * Find text-register tool calls in `text`.
  *
  * @param {string} text - Raw model response text.
@@ -115,6 +170,9 @@ export function parseTextToolCalls(text, availableToolNames = []) {
     // Resume scanning after this call (handles multiple calls in one response).
     idRe.lastIndex = callEnd;
   }
+
+  // Nothing in call form: try bare objects (see salvageBareObjects).
+  if (calls.length === 0) salvageBareObjects(text, whitelist, calls, spans);
 
   let remainingText = text;
   if (spans.length > 0) {

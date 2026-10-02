@@ -208,6 +208,7 @@ Use expandGraph to add the components of X. You are building what X is made of.
 - ONE short sentence maximum. Just confirm what you did. Nothing else.
 - ONE tool call per response. Never call multiple tools at once.
 - Do NOT plan in text. Just call the next action tool that makes progress.
+- NEVER write JSON in your reply. The formats below are tool ARGUMENTS: pass them in a tool call. Writing them as text builds nothing.
 - Each tool call: 2-3 nodes maximum.
 
 ## Workflow

@@ -34,6 +34,9 @@ const MIN_MAX_TOKENS = 2048;
  * @param {Array} options.messages - Conversation history (optional)
  * @param {number} options.maxTokens - Max tokens
  * @param {number} options.temperature - Temperature (ignored where the model rejects it)
+ * @param {AbortSignal} [options.signal] - Aborts the request. Without it a caller
+ *   that gives up (a timeout) leaves the request running: a local server keeps
+ *   generating into a slot the Wizard's own next request is queued behind.
  * @returns {Promise<string>} LLM response text
  */
 export async function callLLM({
@@ -45,7 +48,8 @@ export async function callLLM({
   userPrompt,
   messages = [],
   maxTokens = 8192,
-  temperature = 0.7
+  temperature = 0.7,
+  signal = null
 }) {
   // Local providers may not require API keys
   if (!apiKey && provider !== 'local' && provider !== 'openai') {
@@ -66,7 +70,7 @@ export async function callLLM({
     model,
     temperature,
     maxTokens: Math.max(maxTokens || 0, MIN_MAX_TOKENS)
-  })) {
+  }, signal)) {
     if (chunk.type === 'text') text += chunk.content || '';
   }
   return text;

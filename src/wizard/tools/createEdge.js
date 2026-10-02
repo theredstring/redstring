@@ -49,10 +49,19 @@ function buildCandidates(nodePrototypes, graphs, graphId) {
 }
 
 /**
- * Resolve a node by name via the shared smart resolver (exact → model → substring).
+ * Resolve a node reference: an exact instance or prototype id first, then a
+ * name via the shared smart resolver (exact → model → substring).
+ *
+ * The arguments are called sourceId/targetId and readGraph hands out instance
+ * ids, so a model that takes the parameter names at their word passes an id.
+ * Name-only resolution failed every such call with "not found in graph" while
+ * listing the very node it was given — a small local model retried that five
+ * times in a row before giving up.
  */
-async function resolveNodeByName(name, candidates) {
-  const { match } = await resolveNodeSmart(name, candidates, { callSite: 'createEdge' });
+async function resolveNodeRef(ref, candidates) {
+  const byId = candidates.find(c => c.instanceId === ref) || candidates.find(c => c.prototypeId === ref);
+  if (byId) return byId;
+  const { match } = await resolveNodeSmart(ref, candidates, { callSite: 'createEdge' });
   return match;
 }
 
@@ -77,10 +86,10 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  // Resolve source and target by name (exact → model → substring)
+  // Resolve source and target by id, else by name (exact → model → substring)
   const candidates = buildCandidates(nodePrototypes, graphs, graphId);
-  const resolvedSource = await resolveNodeByName(sourceId, candidates);
-  const resolvedTarget = await resolveNodeByName(targetId, candidates);
+  const resolvedSource = await resolveNodeRef(sourceId, candidates);
+  const resolvedTarget = await resolveNodeRef(targetId, candidates);
 
   if (!resolvedSource) {
     const available = candidates.map(c => c.name).filter(Boolean).slice(0, 8).join(', ');

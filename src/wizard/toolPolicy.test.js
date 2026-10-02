@@ -134,3 +134,33 @@ describe('isToolAllowed / toolRefusalResult', () => {
     expect(result.message).toContain('askMultipleChoice');
   });
 });
+
+describe('the Druid policy', () => {
+  const tools = () => buildPolicyToolList(getToolDefinitions(), resolveToolPolicy(TOOL_POLICIES.DRUID));
+
+  it('offers recall and writing, and nothing that waits on a person or a plan', () => {
+    const names = tools().map(t => t.name);
+    expect(names).toEqual(expect.arrayContaining(['search', 'getNodeContext', 'createNode', 'createEdge', 'mergeNodes', 'deleteNode']));
+    for (const absent of ['askMultipleChoice', 'planTask', 'declareGoal', 'listTools', 'expandGraph']) {
+      expect(names).not.toContain(absent);
+    }
+  });
+
+  it('slims populateDefinitionGraph to a part list, keeping what the tool requires', () => {
+    const pdg = tools().find(t => t.name === 'populateDefinitionGraph');
+    expect(Object.keys(pdg.parameters.properties)).toEqual(['nodeName', 'nodes', 'edges']);
+    expect(pdg.parameters.required).toEqual(['nodeName', 'nodes', 'edges']);
+    expect(Object.keys(pdg.parameters.properties.nodes.items.properties)).toEqual(['name', 'description']);
+    expect(pdg.parameters.properties.edges.items.required).toEqual(['source', 'target']);
+    // The shared catalog is not touched.
+    expect(Object.keys(getToolDefinitions().find(t => t.name === 'populateDefinitionGraph').parameters.properties)).toContain('layers');
+  });
+
+  it('fits a small local window', () => {
+    expect(JSON.stringify(tools()).length / 4).toBeLessThan(3000);
+  });
+
+  it('names its tools when refusing one', () => {
+    expect(toolRefusalResult('askMultipleChoice', resolveToolPolicy(TOOL_POLICIES.DRUID)).message).toContain('createNode');
+  });
+});

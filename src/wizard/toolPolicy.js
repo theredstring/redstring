@@ -90,7 +90,6 @@ export const DRUID_TOOLS = new Set([
   'switchToGraph',
   'createGraph',
   'createNode',
-  'expandGraph',
   'createEdge',
   'updateNode',
   'populateDefinitionGraph',
@@ -98,6 +97,58 @@ export const DRUID_TOOLS = new Set([
   'deleteNode',
   'deleteEdge'
 ]);
+
+/**
+ * Schemas the Druid is offered in a lighter form.
+ *
+ * A local model's window is small and the tool block rides on every request:
+ * the full Druid set came to ~6,600 tokens, most of a typical 8K window, and
+ * two bulk builders were 4,200 of it. expandGraph is left out entirely —
+ * createNode does the same one Thing at a time. populateDefinitionGraph stays,
+ * because going inside a Thing is how the graph nests, but only with what a
+ * part list needs: names, descriptions and how the parts connect. The styling
+ * guidance (sizes, palettes, layers, is-a ladders) is for composing a web for
+ * a person to look at. Every dropped field is optional in the full schema, so
+ * the tool runs unchanged.
+ */
+const DRUID_SLIM_SCHEMAS = {
+  populateDefinitionGraph: {
+    description: 'Open up a Thing: create the web inside it that says what it is made of, with its parts and how they connect.',
+    keep: { nodeName: null, nodes: ['name', 'description'], edges: ['source', 'target', 'type'] }
+  }
+};
+
+function slimSchema(tool, spec) {
+  const props = tool.parameters?.properties || {};
+  const properties = {};
+  for (const [key, itemKeys] of Object.entries(spec.keep)) {
+    const prop = props[key];
+    if (!prop) continue;
+    if (!itemKeys || !prop.items?.properties) {
+      properties[key] = prop;
+      continue;
+    }
+    const itemProps = {};
+    for (const k of itemKeys) if (prop.items.properties[k]) itemProps[k] = prop.items.properties[k];
+    properties[key] = {
+      type: prop.type,
+      items: {
+        ...prop.items,
+        properties: itemProps,
+        required: (prop.items.required || []).filter(k => itemKeys.includes(k))
+      }
+    };
+  }
+  return {
+    ...tool,
+    description: spec.description,
+    parameters: {
+      ...tool.parameters,
+      properties,
+      required: (tool.parameters?.required || []).filter(k => k in properties)
+    }
+  };
+}
 
 /**
  * Schema overrides for tools whose read branch is safe but whose write branches
@@ -138,7 +189,7 @@ export function resolveToolPolicy(policy) {
     return { id: TOOL_POLICIES.QUERY_FIRST, allow: QUERY_FIRST_TOOLS };
   }
   if (policy === TOOL_POLICIES.DRUID) {
-    return { id: TOOL_POLICIES.DRUID, allow: DRUID_TOOLS };
+    return { id: TOOL_POLICIES.DRUID, allow: DRUID_TOOLS, slim: DRUID_SLIM_SCHEMAS };
   }
   return null;
 }
@@ -165,6 +216,7 @@ export function buildPolicyToolList(allTools, resolved) {
   return allTools
     .filter((tool) => resolved.allow.has(tool.name))
     .map((tool) => {
+      if (resolved.slim?.[tool.name]) return slimSchema(tool, resolved.slim[tool.name]);
       const narrowing = NARROWED_TOOLS[tool.name];
       if (!narrowing) return tool;
       const actionProp = tool.parameters?.properties?.action;

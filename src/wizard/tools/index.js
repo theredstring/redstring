@@ -28,6 +28,7 @@ import { deleteGroup } from './deleteGroup.js';
 import { thingGroup } from './thingGroup.js';
 import { updateEdge } from './updateEdge.js';
 import { replaceEdges } from './replaceEdges.js';
+import { coerceArgsToSchema } from './utils/coerceArgsToSchema.js';
 import { manageDefinitions } from './manageDefinitions.js';
 import { switchToGraph } from './switchToGraph.js';
 import { condenseToNode } from './condenseToNode.js';
@@ -129,6 +130,8 @@ export async function executeTool(name, args, graphState, cid, ensureSchedulerSt
 
   // Validate required args against schema before execution
   const schema = getToolDefinitions().find(t => t.name === name);
+  // Before the required check: a wrapped one-item array satisfies it.
+  if (schema?.parameters) args = coerceArgsToSchema(args, schema.parameters);
   if (schema?.parameters?.required?.length > 0) {
     const missing = schema.parameters.required.filter(key =>
       args[key] === undefined || args[key] === null || args[key] === ''

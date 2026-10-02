@@ -43,6 +43,7 @@ const { values: args } = parseArgs({
     cycles: { type: 'string', default: '' },
     pause: { type: 'string', default: '0' },
     temperature: { type: 'string', default: '0.8' },
+    'max-output': { type: 'string', default: '2048' },
     seed: { type: 'string', default: '' },
     fresh: { type: 'boolean', default: false },
     thinking: { type: 'boolean', default: false },
@@ -65,6 +66,7 @@ if (args.help || !args.model) {
   --pause <ms>          wait between cycles [0]
   --tier small|large    model tier passed to the agent loop [small]
   --temperature <t>     [0.8]
+  --max-output <tokens> longest single reply; leaves the rest of the window for the prompt [2048]
   --fresh               ignore saved working memory (the graph is kept)
   --thinking            print the model's reasoning stream
   --verbose             keep the agent loop's own logging
@@ -98,7 +100,7 @@ const { openHeadlessUniverse } = await import('../src/headless/HeadlessUniverse.
 const { applyToolResultToStore, configureToolResultApplier } = await import('../src/services/toolResultApplier.js');
 const { runWizardInProcess } = await import('../src/wizard/runWizardInProcess.js');
 const { getToolDefinitions } = await import('../src/wizard/tools/schemas.js');
-const { DRUID_TOOLS } = await import('../src/wizard/toolPolicy.js');
+const { buildPolicyToolList, resolveToolPolicy } = await import('../src/wizard/toolPolicy.js');
 const { estimateObjectTokens } = await import('../src/wizard/tokenEstimate.js');
 const { runDruid } = await import('../src/druid/runDruid.js');
 const { graphStateFromStore } = await import('../src/druid/graphStateFromStore.js');
@@ -118,6 +120,9 @@ const apiConfig = {
   modelTier: args.tier === 'large' ? 'large' : 'small',
   settings: {
     temperature: Number(args.temperature),
+    // LLMClient's default for a local server is 8192 — the whole of a typical
+    // local window, which a server either rejects or silently shortens.
+    max_tokens: Math.min(Number(args['max-output']), Math.floor(contextWindow / 2)),
     maxIterationsLocal: Number(args.steps),
     maxIterationsCloud: Number(args.steps)
   }
@@ -125,7 +130,8 @@ const apiConfig = {
 
 // What the server reports as prompt tokens includes the tool schemas and the
 // graph header; when it reports nothing, the loop estimates from these.
-const overheadTokens = estimateObjectTokens(getToolDefinitions().filter(t => DRUID_TOOLS.has(t.name))) + 800;
+const toolTokens = estimateObjectTokens(buildPolicyToolList(getToolDefinitions(), resolveToolPolicy('druid')));
+const overheadTokens = toolTokens + 800;
 
 const controller = new AbortController();
 let stopping = false;
@@ -138,7 +144,7 @@ process.on('SIGINT', () => {
 
 const st0 = useGraphStore.getState();
 out(`${accent('The Druid')} ${dim(`· ${args.model} · ${contextWindow.toLocaleString()} token window · ${universePath}`)}\n`);
-out(dim(`  ${st0.nodePrototypes.size} prototypes, ${st0.graphs.size} webs in memory${resume.cycle ? ` · resuming at cycle ${resume.cycle + 1}, epoch ${resume.epoch}` : ' · fresh'}\n`));
+out(dim(`  ${st0.nodePrototypes.size} prototypes, ${st0.graphs.size} webs in memory · tools ~${toolTokens.toLocaleString()} tokens of the window${resume.cycle ? ` · resuming at cycle ${resume.cycle + 1}, epoch ${resume.epoch}` : ' · fresh'}\n`));
 out(dim('  (the server\'s context length must be at least --context, or it will silently drop the working memory)\n'));
 
 let streamedText = false;
@@ -210,6 +216,8 @@ try {
       if (fs.existsSync(universePath)) {
         await fsp.copyFile(universePath, path.join(epochsDir, `epoch-${String(r.epoch).padStart(4, '0')}.redstring`));
       }
+    } else if (r.unchangedNote) {
+      out(dim('\n(note rewritten unchanged — context kept)\n'));
     } else if (r.compactionDue) {
       out(dim(`\n(context ${Math.round(r.contextFill * 100)}% — asking for a new note next cycle: ${r.compactionDue})\n`));
     }

@@ -112,7 +112,7 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
 
   let pending = null;          // why a rewrite is due, if it is
   let attempts = 0;            // asks for the current rewrite
-  let contextFill = 0;
+  let contextFill = history.length === 0 && workingMemory ? null : 0;
   let idle = 0;
   let errors = 0;
   let notice = '';
@@ -186,10 +186,21 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
       promptTokens = overheadTokens + estimateTokens(systemPrompt) + estimateTokens(message)
         + history.reduce((sum, m) => sum + estimateTokens(m.content), 0);
     }
-    contextFill = contextWindow > 0 ? promptTokens / contextWindow : 0;
+    const measuredFill = contextWindow > 0 ? promptTokens / contextWindow : 0;
+    contextFill = measuredFill;
 
     // ── 3 & 4. Feed back, compact ──────────────────────────────────────────
-    const { memory, thought, truncated } = extractWorkingMemory(text);
+    const { memory: written, thought, truncated } = extractWorkingMemory(text);
+    // Rewriting the note without changing it is not a decision to clear its
+    // head, it is a groove: on its first real run a 4B model, once it had
+    // compacted, did nothing but re-emit the same note for three cycles, each
+    // one wiping the context it would have needed to get out. So a voluntary
+    // rewrite that says what the note already says keeps the context.
+    const unchangedNote = !!written && !pending && !!workingMemory && thoughtSimilarity(written, workingMemory) >= 0.9;
+    const memory = unchangedNote ? null : written;
+    if (unchangedNote) {
+      notice = 'You rewrote your note without changing it, so your context was kept. Rewrite it when what you need to carry has changed.';
+    }
     let compaction = null;
 
     if (memory) {
@@ -211,7 +222,7 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
         attempts = 0;
         if (clipped) notice = 'Your last note was clipped to fit its budget; the end of it was lost.';
       }
-      contextFill = 0;
+      contextFill = null;
     } else if (pending) {
       attempts++;
       if (attempts >= 2) {
@@ -221,18 +232,18 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
         compaction = { reason: pending, memory: workingMemory, fallback: true };
         pending = null;
         attempts = 0;
-        contextFill = 0;
+        contextFill = null;
       }
     }
 
     if (!compaction && !pending) {
       history.push(
         { role: 'user', content: echoForHistory({ cycle, surfaced }) },
-        { role: 'assistant', content: `${thought || '(acted without words)'}${ranDigest(toolCalls)}` }
+        { role: 'assistant', content: `${thought || (unchangedNote ? '(rewrote the note, unchanged)' : '(acted without words)')}${ranDigest(toolCalls)}` }
       );
     }
 
-    const repeating = thoughtSimilarity(thought, lastThought) > 0.8;
+    const repeating = unchangedNote || thoughtSimilarity(thought, lastThought) > 0.8;
     const acted = toolCalls.some(t => t.ok);
     idle = (!acted || repeating) ? idle + 1 : 0;
     if (thought) lastThought = thought;
@@ -251,10 +262,11 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
       drifted,
       toolCalls: toolCalls.map(({ name, target, ok }) => ({ name, target, ok })),
       promptTokens,
-      contextFill,
+      contextFill: measuredFill,
       endReason,
       error,
       compaction,
+      unchangedNote,
       compactionDue: pending,
       snapshot: { cycle, epoch, workingMemory, lastThought, history }
     };

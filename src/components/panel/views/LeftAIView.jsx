@@ -707,6 +707,14 @@ const LeftAIView = ({ compact = false,
   // current run finishes. isProcessingRef mirrors isProcessing for a race-free guard.
   const isProcessingRef = React.useRef(false);
   React.useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
+  // Which send owns the run state above. Stop releases the UI at once, but the
+  // aborted run unwinds on its own time — seconds, when a local model is mid-tool
+  // — and its finally blocks used to clear isProcessing and the controller of
+  // whatever run had started since. Each send takes a token; only the holder
+  // may release.
+  const activeRunRef = React.useRef(null);
+  const currentAgentRequestRef = React.useRef(null);
+  React.useEffect(() => { currentAgentRequestRef.current = currentAgentRequest; }, [currentAgentRequest]);
   const wizardSendQueueRef = React.useRef([]); // [{ message, opts, conversationId }]
   const pendingDrainRef = React.useRef(null);   // ask waiting for its tab to become active
   const [queuedSendCount, setQueuedSendCount] = React.useState(0);
@@ -1441,14 +1449,13 @@ const LeftAIView = ({ compact = false,
     };
   }, []);
 
-  // Defensive cleanup: abort active agent request if component ever unmounts
-  React.useEffect(() => {
-    return () => {
-      if (currentAgentRequest) {
-        currentAgentRequest.abort();
-      }
-    };
-  }, [currentAgentRequest]);
+  // Defensive cleanup: abort active agent request if component ever unmounts.
+  // Read from a ref with empty deps: keyed on currentAgentRequest, the cleanup ran
+  // on every change and aborted the outgoing controller — which, when a stopped
+  // run's late cleanup nulled it, was the NEXT run's.
+  React.useEffect(() => () => {
+    currentAgentRequestRef.current?.abort();
+  }, []);
 
   // Set up event listeners for direct UI control (e.g., from MCP server or Bridge)
   React.useEffect(() => {
@@ -2381,6 +2388,16 @@ const LeftAIView = ({ compact = false,
     // mirror keeps it in sync for the many other setIsProcessing call sites.
     isProcessingRef.current = true;
     setIsProcessing(true);
+    const runToken = {};
+    activeRunRef.current = runToken;
+    // A run that was stopped (or superseded) must not release the state of the
+    // run that replaced it.
+    const releaseRun = () => {
+      if (activeRunRef.current !== runToken) return;
+      activeRunRef.current = null;
+      setIsProcessing(false);
+      setCurrentAgentRequest(null);
+    };
 
     // Druid Mode (Placeholder for full switch)
     if (viewMode === 'druid') {
@@ -2393,7 +2410,7 @@ const LeftAIView = ({ compact = false,
         addMessage('system', `Druid error: ${error.message}`);
         recordAskFailure();
       } finally {
-        setIsProcessing(false);
+        releaseRun();
       }
       return;
     }
@@ -2423,8 +2440,7 @@ const LeftAIView = ({ compact = false,
       addMessage('system', `Error: ${error.message}`);
       recordAskFailure();
     } finally {
-      setIsProcessing(false);
-      setCurrentAgentRequest(null);
+      releaseRun();
     }
   };
 
@@ -2439,6 +2455,9 @@ const LeftAIView = ({ compact = false,
     consecutiveAskErrorsRef.current = 0;
     if (currentAgentRequest) currentAgentRequest.abort();
     setCurrentAgentRequest(null);
+    // The stopped run no longer owns the UI; its late finally must not release
+    // whatever run starts next.
+    activeRunRef.current = null;
     // Always release the UI, even on the paths that set isProcessing without an
     // abort controller (handleQuestion, a run whose controller was already
     // cleared). Gating this on the controller left the input disabled with a
@@ -2517,6 +2536,8 @@ const LeftAIView = ({ compact = false,
     beginWizardTurn(_preCreatedConvId);
     // _preCreated tracks whether we've added the AI bubble yet (set just before fetch)
     let _preCreated = false;
+    // Hoisted so the finally can tell this run's controller from a newer one.
+    let abortController = null;
 
     try {
       const apiConfig = await apiKeyManager.getAPIKeyInfo();
@@ -2580,7 +2601,7 @@ const LeftAIView = ({ compact = false,
       ));
       _preCreated = true;
       liveStreamingMessageIdRef.current = streamingMessageId;
-      const abortController = new AbortController();
+      abortController = new AbortController();
       setCurrentAgentRequest(abortController);
 
       // Send recent conversation history for context memory
@@ -2858,6 +2879,10 @@ const LeftAIView = ({ compact = false,
       const targetConversationId = _preCreatedConvId;
       try {
         for await (const event of agentEvents) {
+          // Stopped: drop whatever the run still emits. A tool already in flight
+          // finishes on its own time, and its result used to land in the store
+          // and the bubble after the user had pressed Stop.
+          if (abortController.signal.aborted) break;
           try {
             // Generate unique event ID for deduplication
             const eventId = `${event.type}-${event.id || eventCounter++}-${event.content?.length || 0}`;
@@ -3260,9 +3285,11 @@ const LeftAIView = ({ compact = false,
       }
     } finally {
       // The run is over however it ended — the bubble is no longer exempt from
-      // the stale-streaming sweep.
-      liveStreamingMessageIdRef.current = null;
-      setCurrentAgentRequest(null);
+      // the stale-streaming sweep. Both only if a newer run hasn't taken them.
+      if (liveStreamingMessageIdRef.current === streamingMessageId) {
+        liveStreamingMessageIdRef.current = null;
+      }
+      setCurrentAgentRequest(prev => (prev === abortController ? null : prev));
     }
   };
 
@@ -3378,6 +3405,12 @@ const LeftAIView = ({ compact = false,
 
     // 3. Switch the ID
     setActiveConversationId(id);
+    // The refs normally trail state by a commit. A run event landing in that gap
+    // passed the routing guard (the ref still named the run's tab) while `prev`
+    // was already the new tab's array, and its bubble got "repaired" into the
+    // wrong tab. Same synchronous update as handleNewConversation.
+    activeConversationIdRef.current = id;
+    messagesRef.current = targetConv.messages || [];
   };
 
   const handleNewConversation = () => {

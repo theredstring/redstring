@@ -84,6 +84,17 @@ describe('runDruid — self-authored compaction', () => {
     expect(cycles[2].epoch).toBe(1);
   });
 
+  it('keeps the context when the model rewrites its note without changing it', async () => {
+    const note = 'The Mind holds Perception, Memory and Decision. Next: refine their descriptions.';
+    const { calls, cycles } = await run(() => ({ text: `<working_memory>${note}</working_memory>`, promptTokens: 1000 }), { maxCycles: 3, resume: { workingMemory: note } });
+    expect(cycles.every(c => !c.compaction && c.unchangedNote)).toBe(true);
+    expect(cycles.at(-1).epoch).toBe(0);
+    expect(calls[1].message).toMatch(/without changing it, so your context was kept/);
+    expect(calls[2].history.map(m => m.content)).toContain('(rewrote the note, unchanged)');
+    // A groove is idling: after enough of it, something drifts up.
+    expect(cycles.every(c => c.compactionDue === null)).toBe(true);
+  });
+
   it('asks for a note when the context crosses its threshold, and starts a new epoch from it', async () => {
     const { calls, cycles } = await run(i => {
       if (i === 0) return { text: 'filling up', promptTokens: 6000 };

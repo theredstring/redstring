@@ -116,6 +116,7 @@ describe('the Druid over a local OpenAI-compatible server', () => {
     expect(seen[5].messages.filter(m => m.role === 'assistant' && /Rivers carve valleys/.test(String(m.content)))).toHaveLength(0);
 
     // Recall: the note names the River, so what is connected to it surfaces.
-    expect(lastUserText(seen[5])).toMatch(/Surfacing from memory:\n- Valley — Low land a river cuts\. \(carves — via River\)/);
+    expect(lastUserText(seen[5])).toMatch(/Surfacing from memory:\n- Valley — Low land a river cuts\. \(carves — via River\)/i);
+    expect(lastUserText(seen[5])).toMatch(/\(context just cleared\)/);
   });
 });

@@ -252,10 +252,13 @@ export async function rawModelCall(prompt, opts = {}) {
   return raw;
 }
 
-function withTimeout(promise, ms) {
+function withTimeout(promise, ms, onTimeout) {
   if (!ms || ms <= 0) return promise;
   return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`oneShot timeout after ${ms}ms`)), ms);
+    const t = setTimeout(() => {
+      onTimeout?.();
+      reject(new Error(`oneShot timeout after ${ms}ms`));
+    }, ms);
     promise.then(
       (v) => { clearTimeout(t); resolve(v); },
       (e) => { clearTimeout(t); reject(e); }
@@ -278,6 +281,10 @@ async function rawOneShot({ callSite, prompt, timeoutMs, maxTokens, temperature 
 
   const start = Date.now();
   let raw = null;
+  // A timeout has to cancel the request, not just stop waiting for it. Racing
+  // alone left it streaming: a local server kept generating up to the max_tokens
+  // floor, and those abandoned requests overlapped the Wizard's next turn.
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   try {
     const call = callLLM({
       apiKey: cfg.apiKey,
@@ -287,9 +294,10 @@ async function rawOneShot({ callSite, prompt, timeoutMs, maxTokens, temperature 
       systemPrompt: SYSTEM_PROMPT,
       userPrompt: prompt,
       maxTokens: maxTokens ?? 32,
-      temperature: temperature ?? 0
+      temperature: temperature ?? 0,
+      signal: controller?.signal
     });
-    const result = await withTimeout(call, timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const result = await withTimeout(call, timeoutMs ?? DEFAULT_TIMEOUT_MS, () => controller?.abort());
     raw = typeof result === 'string' ? result : null;
   } catch (e) {
     console.error(`[oneShot:${callSite}] call failed:`, e?.message || e);
