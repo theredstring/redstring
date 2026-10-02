@@ -61,6 +61,7 @@
     "test:ci": "node scripts/check-known-failures.mjs",
     "lint:undef": "node scripts/check-undefined-names.mjs",
     "test:headless": "vitest run test/headless/",
+    "druid": "node scripts/druid.mjs",
     "bench:layout": "LAYOUT_BENCH=1 vitest run test/layout-bench",
     "test:e2e": "bash test/e2e/daemon-smoke.sh && bash test/e2e/cli-roundtrip.sh && node test/e2e/mcp-daemon-smoke.mjs",
     "test:canvas": "playwright test",

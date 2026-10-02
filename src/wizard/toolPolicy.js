@@ -73,6 +73,33 @@ export const READ_ONLY_TOOLS = new Set([
 export const QUERY_FIRST_TOOLS = new Set([...READ_ONLY_TOOLS, 'selectNode']);
 
 /**
+ * The Druid's hands (src/druid/). Nobody is there to answer a question, so
+ * askMultipleChoice is out — it would end the cycle waiting for a person — and
+ * so are planTask and declareGoal, whose contracts steer a turn toward finishing
+ * a user's build. What is left is recall (search, read, follow a Thing's
+ * neighbourhood, move attention to another web) and writing: adding, connecting,
+ * redescribing, consolidating and forgetting. Fixed rather than selected per
+ * turn so the tool block is byte-identical every cycle, which is what lets a
+ * local server reuse its prompt cache across a long run.
+ */
+export const DRUID_TOOLS = new Set([
+  'search',
+  'readGraph',
+  'getNodeContext',
+  'inspectWorkspace',
+  'switchToGraph',
+  'createGraph',
+  'createNode',
+  'expandGraph',
+  'createEdge',
+  'updateNode',
+  'populateDefinitionGraph',
+  'mergeNodes',
+  'deleteNode',
+  'deleteEdge'
+]);
+
+/**
  * Schema overrides for tools whose read branch is safe but whose write branches
  * are not. The clone is applied at selection time; the originals are shared
  * literals returned by getToolDefinitions() and must never be mutated in place.
@@ -93,7 +120,8 @@ const NARROWED_TOOLS = {
 /** Policy identifiers a caller may request. `null`/unknown means unrestricted. */
 export const TOOL_POLICIES = {
   READ_ONLY: 'readonly',
-  QUERY_FIRST: 'query'
+  QUERY_FIRST: 'query',
+  DRUID: 'druid'
 };
 
 /**
@@ -108,6 +136,9 @@ export function resolveToolPolicy(policy) {
   }
   if (policy === TOOL_POLICIES.QUERY_FIRST) {
     return { id: TOOL_POLICIES.QUERY_FIRST, allow: QUERY_FIRST_TOOLS };
+  }
+  if (policy === TOOL_POLICIES.DRUID) {
+    return { id: TOOL_POLICIES.DRUID, allow: DRUID_TOOLS };
   }
   return null;
 }
@@ -177,7 +208,9 @@ export function isToolAllowed(name, resolved) {
 export function toolRefusalResult(name, resolved) {
   const detail = resolved?.id === TOOL_POLICIES.QUERY_FIRST
     ? 'This ask is a question, not an instruction. Report what you found — including finding nothing, which is a complete answer — or propose the change with askMultipleChoice and let the user accept it.'
-    : 'This ask is read-only. Answer in prose; do not try to change anything.';
+    : resolved?.id === TOOL_POLICIES.DRUID
+      ? `Your tools are: ${[...DRUID_TOOLS].join(', ')}.`
+      : 'This ask is read-only. Answer in prose; do not try to change anything.';
   return {
     locked: true,
     message: `"${name}" is not available for this ask. ${detail}`
