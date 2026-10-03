@@ -31,7 +31,7 @@ async function run(script, opts = {}, deps = {}) {
   for await (const r of runDruid({
     runTurn: t.runTurn,
     getState: deps.getState || emptyState,
-    applyToolResult: (name, result) => applied.push({ name, result })
+    applyToolResult: (name, result) => { applied.push({ name, result }); deps.applyToolResult?.(name, result); }
   }, { sleep: async () => {}, rng: () => 0, ...opts })) {
     records.push(r);
   }
@@ -48,19 +48,42 @@ describe('runDruid — the feedback loop', () => {
     expect(cycles.map(c => c.thought)).toEqual(['thought number 1', 'thought number 2', 'thought number 3']);
   });
 
+  /** A store with one web whose applier really adds Things — unless told to drop them. */
+  const liveStore = ({ drop = false } = {}) => {
+    const state = { graphs: new Map([['g', { id: 'g', name: 'Water', instances: new Map(), edgeIds: [] }]]), nodePrototypes: new Map(), edges: new Map() };
+    return {
+      getState: () => state,
+      applyToolResult: (name, result) => {
+        if (drop || name !== 'createNode') return;
+        const id = `p-${result.name}`;
+        state.nodePrototypes.set(id, { id, name: result.name });
+        state.graphs.get(result.graphId).instances.set(`i-${result.name}`, { id: `i-${result.name}`, prototypeId: id });
+      }
+    };
+  };
+  const writeRiver = (i) => i === 0 ? {
+    text: 'Wrote it down.',
+    promptTokens: 1000,
+    events: [
+      { type: 'tool_call', id: 't1', name: 'createNode', args: { name: 'River' } },
+      { type: 'tool_result', id: 't1', name: 'createNode', result: { action: 'createNode', graphId: 'g', name: 'River' } },
+      { type: 'tool_call', id: 't2', name: 'search', args: { query: 'nothing' } },
+      { type: 'tool_result', id: 't2', name: 'search', result: { error: 'no match' } }
+    ]
+  } : { text: 'next', promptTokens: 1000 };
+
   it('applies tool results to the store as they arrive, and remembers what it ran', async () => {
-    const { applied, calls } = await run(i => i === 0 ? {
-      text: 'Wrote it down.',
-      promptTokens: 1000,
-      events: [
-        { type: 'tool_call', id: 't1', name: 'createNode', args: { name: 'River' } },
-        { type: 'tool_result', id: 't1', name: 'createNode', result: { action: 'createNode', name: 'River' } },
-        { type: 'tool_call', id: 't2', name: 'search', args: { query: 'nothing' } },
-        { type: 'tool_result', id: 't2', name: 'search', result: { error: 'no match' } }
-      ]
-    } : { text: 'next', promptTokens: 1000 }, { maxCycles: 2 });
-    expect(applied).toEqual([{ name: 'createNode', result: { action: 'createNode', name: 'River' } }]);
+    const { applied, calls, cycles } = await run(writeRiver, { maxCycles: 2 }, liveStore());
+    expect(applied).toEqual([{ name: 'createNode', result: { action: 'createNode', graphId: 'g', name: 'River' } }]);
     expect(calls[1].history.at(-1).content).toBe('Wrote it down.\n[ran: createNode(River), search(nothing) FAILED]');
+    expect(cycles[0].toolCalls[0]).toEqual({ name: 'createNode', target: 'River', ok: true });
+  });
+
+  it('treats a write the store never received as a failure, and says so', async () => {
+    const { calls, cycles } = await run(writeRiver, { maxCycles: 2 }, liveStore({ drop: true }));
+    expect(cycles[0].toolCalls[0]).toEqual({ name: 'createNode', target: 'River', ok: false, unlanded: true });
+    expect(calls[1].history.at(-1).content).toMatch(/createNode\(River\) FAILED/);
+    expect(calls[1].message).toMatch(/createNode\(River\) reported success, but nothing changed in your graph: that write did not happen/);
   });
 
   it('carries the note in the system prompt and grows the history only at the end between rewrites', async () => {

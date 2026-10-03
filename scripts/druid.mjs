@@ -106,7 +106,15 @@ const { runDruid } = await import('../src/druid/runDruid.js');
 const { graphStateFromStore } = await import('../src/druid/graphStateFromStore.js');
 
 configureToolResultApplier({}); // no network enrichment; the Druid's memories are its own
-const universe = await openHeadlessUniverse({ filePath: universePath, useGraphStore, log: args.verbose ? process.stderr.write.bind(process.stderr) : () => {} });
+// A save that fails must never be quiet. On the fourth run the file stopped
+// being written forty seconds in, every epoch snapshot was a copy of that stale
+// file, and nothing said so because this log was silenced with the rest.
+const universeLog = (msg) => {
+  const line = String(msg);
+  if (/fail|refus|guard|error/i.test(line)) process.stderr.write(`${red(line)}\n`);
+  else if (args.verbose) process.stderr.write(`${line}\n`);
+};
+const universe = await openHeadlessUniverse({ filePath: universePath, useGraphStore, log: universeLog });
 
 let resume = {};
 if (!args.fresh && fs.existsSync(statePath)) {

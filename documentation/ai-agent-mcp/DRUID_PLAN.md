@@ -1,6 +1,6 @@
 # The Druid — implementation plan (v2)
 
-> Status: **plan, not started** (2026-10-03). Branch `druid`. Builds on what is already there, described in [`DRUID.md`](DRUID.md).
+> Status: **M1 done, M2 next** (2026-10-03). Branch `druid`. Builds on what is already there, described in [`DRUID.md`](DRUID.md).
 >
 > The goal: a **persistent entity** that runs on a tiny on-device model (Apple's Foundation Models, ~3B parameters, 4,096-token window, on a Mac or an iPhone 15 Pro and later), with a Redstring universe as its memory. It keeps that universe in shape faster than a person could, because code does nearly all the work. The model makes judgments; it never builds structure.
 
@@ -108,11 +108,12 @@ Everything Druid-specific sits under `semanticMetadata.druid` on the entity it d
 
 Each ends in something runnable with tests. Most of the system can be tested **without a model**. Only `mind/` and the lab need one.
 
-### M1 — Fix the "Soul" bug
-`createNode` reported success five times in run 4 and nothing landed. It happened in a web that sits inside a Thing of the same name ("Redstring Universe" inside "Redstring Universe").
-- Reproduce in `test/druid/` with the headless store; find where the write drops (applier graph targeting vs. the agent's active graph).
-- Fix it in the wizard path (it likely affects the Wizard too). Add a regression test there.
-- **Done when:** a scripted run creating a Thing in a self-named web lands in the store, and a failing write reports failure.
+### M1 — Fix the "Soul" bug — **done 2026-10-03**
+`createNode` reported success five times in run 4 and nothing landed.
+- **Found and fixed:** `createNode` passed a web *name* in `targetGraphId` through unresolved (`graphId: "Redstring Universe"`), so the applier found no such web and dropped the write while the tool reported success. It now resolves names like `createEdge` does, and fails with the list of available webs when nothing matches. This affected the Wizard too. Tests in `createNode.test.js`.
+- **Systemic fix:** the loop now checks the store after every `createNode`/`createEdge`/`createGraph` (`src/druid/verifyWrite.js`). A write that left no trace is a failed call, and the Druid is told so next cycle. Edges are checked by name, because in-turn results carry the agent loop's predicted ids.
+- **Visibility:** the CLI always prints save failures, and every journal line records the store's size.
+- **Not reproduced:** qwen's first four Soul calls had no web name. Replayed with their exact arguments against run 4's file, they land with today's code. What looked like saving stopping early was not: the store simply stopped changing once Soul was being dropped. Run 5 (8 cycles) wrote Soul and three connections, all verified, and the file matched the store throughout. If it recurs, verification will flag it in the journal.
 
 ### M2 — Cycle v2 skeleton and the lab
 - `attention/` (locus, path, view), `mind/` with the OpenAI-compatible backend (LM Studio structured output), `cycle/`.

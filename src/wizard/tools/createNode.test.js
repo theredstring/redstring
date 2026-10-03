@@ -38,6 +38,28 @@ describe('createNode', () => {
     expect(result.description).toBe('A test node');
   });
 
+  it('resolves a web named in targetGraphId to its id', async () => {
+    const graphState = {
+      activeGraphId: 'graph-1',
+      graphs: [{ id: 'graph-1', name: 'Test Graph' }, { id: 'graph-2', name: 'Redstring Universe' }],
+      nodePrototypes: []
+    };
+    const result = await createNode({ name: 'Soul', targetGraphId: 'Redstring Universe' }, graphState, mockCid, null);
+    expect(result.graphId).toBe('graph-2');
+    const byId = await createNode({ name: 'Soul', targetGraphId: 'graph-2' }, graphState, mockCid, null);
+    expect(byId.graphId).toBe('graph-2');
+  });
+
+  it('fails instead of reporting success when targetGraphId matches no web', async () => {
+    const graphState = {
+      activeGraphId: 'graph-1',
+      graphs: [{ id: 'graph-1', name: 'Test Graph' }],
+      nodePrototypes: []
+    };
+    await expect(createNode({ name: 'Soul', targetGraphId: 'Nowhere' }, graphState, mockCid, null))
+      .rejects.toThrow(/No web named or with id "Nowhere".*Test Graph/);
+  });
+
   it('uses default color when not provided', async () => {
     const graphState = {
       activeGraphId: 'graph-1',

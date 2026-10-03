@@ -1,0 +1,198 @@
+/**
+ * Roles — goals, beliefs and plans, as furniture with behavior.
+ *
+ * The earlier Druid made six empty folders (Goals, Beliefs, Plans…) with no
+ * behavior; the name was the whole implementation. Here a role is a TYPE: a
+ * Thing in the Druid's Home web marked `druid.roleType`. Anything whose is-a
+ * chain reaches it has that role, wherever it lives. So:
+ *
+ *   - the Druid can rename a role type, specialize it (a "Hunch" as a kind of
+ *     Belief), move it, or delete it — behavior follows the marker, not the name,
+ *     and deleting the type simply turns the behavior off;
+ *   - a goal can sit in any web, inside whatever it belongs to.
+ *
+ * Behavior, all deterministic:
+ *
+ *   Goal    open until resolved or abandoned. Open goals feed activation every
+ *           cycle (top-down attention) and survive waking. Subgoals are its inside.
+ *   Plan    a Thing whose inside holds its steps, chained by "then". A cursor
+ *           (druid.cursor) marks the next step, and the loop shows it, so the
+ *           model never has to remember where it was. A failed step stays next.
+ *   Belief  a claim with evidence (druid.evidence). Confidence is COMPUTED from
+ *           the evidence — log-odds, latest judgment per source, the Druid's own
+ *           inferences weighted at half an observation — never stored.
+ */
+
+export const ROLE_TYPES = {
+  goal: { name: 'Goal', description: 'Something the Druid is working toward. Open until resolved or abandoned.' },
+  belief: { name: 'Belief', description: 'Something the Druid holds to be true, as strongly as its evidence allows.' },
+  plan: { name: 'Plan', description: 'Steps toward a goal, in order. Its inside holds the steps.' },
+  episode: { name: 'Episode', description: 'Something that happened.' }
+};
+
+const HOME_MARK = 'home';
+
+/** The Home web: an ordinary web (the Druid can visit and reshape it), marked once. */
+export async function ensureHome(world) {
+  for (const p of world.state().nodePrototypes.values()) {
+    if (p.semanticMetadata?.druid?.homeOf === HOME_MARK) {
+      const g = (p.definitionGraphIds || []).find(id => world.graph(id));
+      if (g) return g;
+    }
+  }
+  const r = await world.act('createGraph', { name: 'Home', description: 'The Druid\'s own place: its goals, its kinds of thought, whatever it keeps here.' });
+  if (!r.ok) return null;
+  const web = [...world.state().graphs.values()].filter(g => g.name === 'Home').pop()?.id;
+  const owner = world.ownerOf(web);
+  if (owner) world.setDruid(owner, { homeOf: HOME_MARK });
+  return web;
+}
+
+/** The role type for a role, if it still exists (found by marker, not name). */
+export function roleType(world, role) {
+  for (const p of world.state().nodePrototypes.values()) {
+    if (p.semanticMetadata?.druid?.roleType === role) return p.id;
+  }
+  return null;
+}
+
+/** Seed the role types into Home, once. Returns { home, types }. */
+export async function seedRoles(world) {
+  const home = await ensureHome(world);
+  const types = {};
+  for (const [role, spec] of Object.entries(ROLE_TYPES)) {
+    let id = roleType(world, role);
+    if (!id && !world.druidOf(world.ownerOf(home) || '').seeded?.includes(role)) {
+      const r = await world.createThing(home, spec.name, { description: spec.description });
+      if (r.ok) {
+        id = r.id;
+        world.setDruid(id, { roleType: role });
+      }
+    }
+    types[role] = id;
+  }
+  // Remember what was seeded, so a role type the Druid deletes stays deleted.
+  const owner = world.ownerOf(home);
+  if (owner) world.setDruid(owner, (d) => ({ ...d, seeded: [...new Set([...(d.seeded || []), ...Object.keys(types).filter(k => types[k])])] }));
+  return { home, types };
+}
+
+/** The role of a Thing, from its is-a chain. */
+export function roleOf(world, id) {
+  const own = world.druidOf(id).roleType;
+  if (own) return null; // the type itself has no role
+  for (const t of world.typeChain(id)) {
+    const role = world.druidOf(t).roleType;
+    if (role) return role;
+  }
+  return null;
+}
+
+export const isRole = (world, id, role) => roleOf(world, id) === role;
+
+// ── Goals ────────────────────────────────────────────────────────────────
+
+export function openGoals(world) {
+  return world.allThings().filter(id => isRole(world, id, 'goal') && (world.druidOf(id).status || 'open') === 'open');
+}
+
+export function setGoalStatus(world, id, status, tick) {
+  world.setDruid(id, { status, statusAt: tick });
+}
+
+// ── Beliefs ──────────────────────────────────────────────────────────────
+
+/** Log-odds steps per judgment. */
+export const JUDGMENT_LOG_ODDS = { 'strong-support': 2, support: 1, unrelated: 0, weaken: -1, 'strong-weaken': -2 };
+export const JUDGMENT_SCALE = [
+  { key: 'strong-support', label: 'strongly supports it' },
+  { key: 'support', label: 'supports it' },
+  { key: 'unrelated', label: 'has nothing to do with it' },
+  { key: 'weaken', label: 'weakens it' },
+  { key: 'strong-weaken', label: 'strongly weakens it' }
+];
+const KIND_WEIGHT = { observation: 1, inference: 0.5 };
+
+/**
+ * Add evidence to a belief. One source counts once: a new judgment from the
+ * same source replaces its old one (this is what stops a belief being
+ * confirmed by rereading itself).
+ */
+export function addEvidence(world, beliefId, { source, judgment, kind = 'inference', tick }) {
+  if (!(judgment in JUDGMENT_LOG_ODDS)) return false;
+  world.setDruid(beliefId, (d) => {
+    const rest = (d.evidence || []).filter(e => e.source !== source);
+    return { ...d, evidence: [...rest, { source, judgment, kind, tick }] };
+  });
+  return true;
+}
+
+/** Confidence in a belief, 0..1, computed from its evidence. */
+export function confidence(world, beliefId) {
+  const evidence = world.druidOf(beliefId).evidence || [];
+  let logOdds = 0;
+  for (const e of evidence) {
+    if (e.source === beliefId) continue; // a belief is not evidence for itself
+    logOdds += (JUDGMENT_LOG_ODDS[e.judgment] || 0) * (KIND_WEIGHT[e.kind] ?? 0.5);
+  }
+  return 1 / (1 + Math.exp(-logOdds));
+}
+
+export function confidenceWords(c) {
+  if (c >= 0.9) return 'you are sure of it';
+  if (c >= 0.7) return 'you are fairly sure';
+  if (c > 0.55) return 'you lean toward it';
+  if (c >= 0.45) return 'undecided';
+  if (c >= 0.3) return 'you doubt it';
+  return 'you think it is false';
+}
+
+/** Whether a source is something observed (made by someone else) or the Druid's own inference. */
+export function sourceKind(world, sourceId) {
+  return world.druidOf(sourceId).madeBy === 'druid' ? 'inference' : 'observation';
+}
+
+export function beliefsIn(world, webId) {
+  return world.thingsIn(webId).filter(id => isRole(world, id, 'belief'));
+}
+
+// ── Plans ────────────────────────────────────────────────────────────────
+
+/** Steps of a plan, in order: follows "then" links from the step nothing points to. */
+export function planSteps(world, planId) {
+  const inside = world.insideOf(planId);
+  if (!inside) return [];
+  const things = world.thingsIn(inside);
+  const thens = world.linksIn(inside).filter(l => /^then$/i.test(l.relation));
+  const next = new Map(thens.map(l => [l.a, l.b]));
+  const pointed = new Set(thens.map(l => l.b));
+  let cur = things.find(id => !pointed.has(id)) || things[0];
+  const out = [];
+  const seen = new Set();
+  while (cur && !seen.has(cur)) { out.push(cur); seen.add(cur); cur = next.get(cur); }
+  for (const id of things) if (!seen.has(id)) out.push(id);
+  return out;
+}
+
+export function activePlans(world) {
+  return world.allThings().filter(id => isRole(world, id, 'plan') && (world.druidOf(id).status || 'open') === 'open');
+}
+
+/** The next step of a plan, or null when it is finished. */
+export function nextStep(world, planId) {
+  const steps = planSteps(world, planId);
+  const cursor = world.druidOf(planId).cursor || 0;
+  return steps[cursor] || null;
+}
+
+/** Rendered for the prompt: open goals, plan cursors. */
+export function renderRoles(world) {
+  const lines = [];
+  const goals = openGoals(world);
+  if (goals.length) lines.push(`Your open goals: ${goals.slice(0, 4).map(id => world.nameOf(id)).join('; ')}`);
+  for (const p of activePlans(world).slice(0, 2)) {
+    const step = nextStep(world, p);
+    if (step) lines.push(`Your plan "${world.nameOf(p)}" — next step: ${world.nameOf(step)}`);
+  }
+  return lines.join('\n');
+}

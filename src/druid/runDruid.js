@@ -24,6 +24,7 @@
 
 import { estimateTokens } from '../wizard/tokenEstimate.js';
 import { buildMemoryIndex, recall, wander, tokenize, ungroundedNames } from './recall.js';
+import { writeLanded } from './verifyWrite.js';
 import {
   extractWorkingMemory,
   isMeaningfulNote,
@@ -172,7 +173,14 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
           const ok = !!e.result && !e.result.error && !e.result.locked;
           const call = toolCalls.find(t => t.id === e.id) || (toolCalls.push({ id: e.id, name: e.name, target: '', ok }), toolCalls[toolCalls.length - 1]);
           call.ok = ok;
-          if (ok && !e.result.cancelled) applyToolResult(e.name, e.result, e.id);
+          if (ok && !e.result.cancelled) {
+            applyToolResult(e.name, e.result, e.id);
+            // The store, not the tool's word, says whether it happened.
+            if (writeLanded(e.name, e.result, getState()) === false) {
+              call.ok = false;
+              call.unlanded = true;
+            }
+          }
         } else if (e.type === 'error') error = e.message;
         else if (e.type === 'done' && e.reason) endReason = e.reason;
       }
@@ -285,6 +293,11 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
     // Matter, with no tool call in any of them; its graph held one Thing. A
     // claim of having written something, in a cycle where nothing was written,
     // is checked against the graph and the gap is reported back.
+    const unlanded = toolCalls.filter(t => t.unlanded).map(t => `${t.name}${t.target ? `(${t.target})` : ''}`);
+    if (unlanded.length > 0) {
+      notice = [notice, `${unlanded.join(', ')} reported success, but nothing changed in your graph: ${unlanded.length === 1 ? 'that write' : 'those writes'} did not happen.`].filter(Boolean).join('\n');
+    }
+
     let unbacked = [];
     if (!acted && CLAIM.test(thought)) {
       unbacked = ungroundedNames(buildMemoryIndex(getState()), thought);
@@ -307,7 +320,10 @@ export async function* runDruid({ runTurn, getState, applyToolResult, onEvent },
       thought,
       surfaced,
       drifted,
-      toolCalls: toolCalls.map(({ name, target, ok }) => ({ name, target, ok })),
+      toolCalls: toolCalls.map(({ name, target, ok, unlanded: dropped }) => ({ name, target, ok, ...(dropped ? { unlanded: true } : {}) })),
+      // What the store holds after this cycle — compared against the saved
+      // file, it shows whether persistence kept up.
+      memorySize: sizeOf(buildMemoryIndex(getState())),
       promptTokens,
       contextFill: measuredFill,
       endReason,

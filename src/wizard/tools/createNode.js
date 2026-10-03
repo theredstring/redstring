@@ -5,6 +5,7 @@
 import { resolvePaletteColor } from '../../ai/palettes.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
+import { resolveGraphId } from './resolveGraphId.js';
 
 /**
  * Create a node
@@ -20,11 +21,23 @@ export async function createNode(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('name is required');
   }
 
-  const { activeGraphId, nodePrototypes = [] } = graphState;
-  const graphId = targetGraphId || activeGraphId;
+  const { activeGraphId, nodePrototypes = [], graphs = [], openGraphIds } = graphState;
+  // targetGraphId may be a web's name as easily as its id — small models pass
+  // the name they can see. It used to go through unresolved, so the result
+  // carried graphId: "Redstring Universe", the applier found no web with that
+  // id, and dropped the write while the tool reported success. A local model
+  // retried that five times, each time told it had worked.
+  const graphId = targetGraphId
+    ? resolveGraphId(targetGraphId, graphs, { activeGraphId, openGraphIds })
+    : activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');
+  }
+  const graphList = Array.isArray(graphs) ? graphs : Array.from(graphs?.values?.() || []);
+  if (targetGraphId && graphList.length > 0 && !graphList.some(g => g.id === graphId)) {
+    const available = graphList.map(g => g.name).filter(Boolean).slice(0, 8).join(', ');
+    throw new Error(`No web named or with id "${targetGraphId}". Available webs: ${available || '(none)'}. Omit targetGraphId to use the active web.`);
   }
 
   const result = {
