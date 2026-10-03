@@ -1,6 +1,6 @@
 # The Druid — implementation plan (v2)
 
-> Status: **M1 done, M2 next** (2026-10-03). Branch `druid`. Builds on what is already there, described in [`DRUID.md`](DRUID.md).
+> Status: **M1–M7 built and tested; M8 (in the app) not started** (2026-10-03). Run it: `npm run druid -- --mind afm` (Apple's on-device model) or `npm run druid` (LM Studio). Results are under [What the runs showed](#what-the-runs-showed). Branch `druid`. Builds on what is already there, described in [`DRUID.md`](DRUID.md).
 >
 > The goal: a **persistent entity** that runs on a tiny on-device model (Apple's Foundation Models, ~3B parameters, 4,096-token window, on a Mac or an iPhone 15 Pro and later), with a Redstring universe as its memory. It keeps that universe in shape faster than a person could, because code does nearly all the work. The model makes judgments; it never builds structure.
 
@@ -115,45 +115,60 @@ Each ends in something runnable with tests. Most of the system can be tested **w
 - **Visibility:** the CLI always prints save failures, and every journal line records the store's size.
 - **Not reproduced:** qwen's first four Soul calls had no web name. Replayed with their exact arguments against run 4's file, they land with today's code. What looked like saving stopping early was not: the store simply stopped changing once Soul was being dropped. Run 5 (8 cycles) wrote Soul and three connections, all verified, and the file matched the store throughout. If it recurs, verification will flag it in the journal.
 
-### M2 — Cycle v2 skeleton and the lab
-- `attention/` (locus, path, view), `mind/` with the OpenAI-compatible backend (LM Studio structured output), `cycle/`.
-- Six moves: **open**, **close**, **follow**, **make a Thing here** (blank: name), **connect** (pick target, blank: relation), **let go**.
-- The prompt space as a stub file holding these moves' wording.
-- **The usability lab:** `test/druid/lab/` scenarios (a universe state + focus + the picks a person would call sensible) and `scripts/druid-lab.mjs`. It runs N trials per scenario per backend and reports valid-pick rate, sensible-pick rate, latency and tokens per call. It supports A/B label wording.
-- **Done when:** qwen3-4b capped at 4K runs 50 cycles with zero invalid outputs, and the lab gives a baseline sensible-pick rate.
+### M2 — Cycle v2 and the lab — **done**
+`src/druid/life.js` (the loop), `attention.js` (locus, bounded view), `mind/` (`createMind`: choose / fill / judge with string-enum schemas and a hard 4K budget; `backends.js`: OpenAI-compatible with `response_format: json_schema`), `moves/basic.js` (new web, make, connect, follow, look, open, close, describe, go to web, let go, note, keep a thought, **remember**), `moves/menu.js` (ranked menu, 4 ranked + 2 exploration slots, "something else" escape hatch with missing-move reports), `world.js` (the store adapter: tools + apply + verify), `promptSpace.js`. The lab is `scripts/druid-lab.mjs` with `src/druid/lab/scenarios.js`.
 
-### M3 — Working memory, activation, episodes
-- `activation/` (base-level + spread; recall.js folded in), the working-memory web (slots, fading, rehearsal, scratch, let go, inhibit, promote), episodes written by the loop.
-- Restart = a fading event (waking).
-- **Done when:** deterministic tests show items fading and staying through use, and scratch items either promote or disappear. In a live run, working memory stays at or under its budget for 100 cycles.
+### M3 — Working memory, activation, episodes — **done**
+`activation.js` (ACT-R base level from use ticks, spread with fan, Hebbian associations that fade), `heldInMind.js` (the Working Memory web: 4 slots, fading, rehearsal, scratch thoughts deleted unless promoted, letting go and inhibition, waking), `episodes.js` (per-day episode webs written by the loop).
 
-### M4 — Apple bridge
-- `native/afm-bridge`: a Swift package, executable, HTTP on `127.0.0.1` only (consistent with the security audit). Endpoints: `/health` (model availability), `/choose`, `/fill`, `/judge`. Output shapes are locked with runtime-defined schemas. *(Confirm the exact FoundationModels API for runtime schemas at the start of M4.)* A stateless session per call; prewarm on start.
-- `mind/` backend for it. The CLI gets `--mind afm`.
-- **Done when:** the M2 lab runs on Apple's model, with a side-by-side report against qwen.
-- Later (not this milestone): the same Swift core as a Capacitor plugin for iPhone.
+### M4 — Apple bridge — **done**
+`native/afm-bridge` (Swift package): **stdio JSON lines instead of an HTTP port.** No listener at all, so nothing but the spawning process can reach it. Locked answers through `DynamicGenerationSchema` (string `anyOf`); `/health` reports availability and `contextSize` (4096 on this Mac); token counts on macOS 26.4+. `src/druid/mind/afmBackend.js` spawns it. Build: `swift build -c release --package-path native/afm-bridge`.
+- **Found:** the on-device model sometimes refuses a prompt as `unsupportedLanguageOrLocale` (26 of 73 calls in one long run, deterministic per prompt; a Druid's view is dense with capitalized names). A leading "This is written in English." fixed every captured case; the backend adds it, and retries once with a second English cue.
 
-### M5 — Goals, beliefs, plans with behavior
-- Seed role types into a home web at birth. The prompt says plainly that it's furniture.
-- Goals act as constant sources of activation. Plans advance by cursor, and a failed step reopens the plan. Beliefs get evidence and computed confidence, `judge()` on a five-step scale, source deduplication, and the Druid's own inferences weighted below observations.
-- Moves: commit to, resolve, abandon, break down (goal); believe, doubt (belief); plan, next step (plan).
-- **Done when:** tests cover the log-odds math, deduplication, and plan cursor behavior. In a live run, a goal stays active across a restart.
+### M5 — Goals, beliefs, plans — **done**
+`roles.js`, `moves/roles.js`. Role types live in an ordinary **Home** web and are found by a marker (`druid.roleType`), not by name. Renaming or specializing a type keeps its behavior; deleting it turns the behavior off, and it stays deleted. Open goals feed activation and survive waking. Plans are a Thing whose inside holds steps chained by "then", with a cursor. Beliefs keep `druid.evidence` **on the belief** (not as Episode→Belief connections: connections cannot cross webs). Confidence is log-odds over the latest judgment per source, with the Druid's own inferences (Things it made, `druid.madeBy`) weighted at half. A seed becomes the first open goal at birth.
 
-### M6 — The bigger cognitive moves
-**variant**, **specialize**, **chunk**, **contrast**, **generalize**, **analogy** (structure match proposed by code, judged by the model), **wonder** (code-ranked gaps), and Hebbian association updates on co-activation.
-- **Done when:** each move has deterministic tests of its chain, and a lab scenario.
+### M6 — Cognitive moves — **done**
+`moves/cognitive.js`: variant (shares parts by reference), specialize (is-a, inherits parts), chunk (from strong associations, via `condenseToNode`), contrast (code lists the differences; kept as a belief), generalize, analogy (same shape of relations elsewhere; judged), wonder (code-ranked gaps). Comparisons are boosted when the two Things' descriptions share a word. Structural moves skip goals, plans, episodes and the role types (`isBookkeeping`).
 
-### M7 — Sleep: schema reconstruction
-- Misfit detectors: exceptions piling up, a category splitting into clusters, overlapping categories, a part always reached through the wrong whole, clustered contradictions, missing-move reports.
-- Proposals scored by **compression** (description length before vs. after). Hysteresis: misfit must build up, and there's a cooldown per category.
-- Accepted restructures become new webs over the same Things. The old schema stays, with provenance.
-- **Done when:** a seeded universe with a planted misfit (e.g. "Bird" with a non-flying cluster) is proposed for a split and scores better after it. Reverting restores the old web exactly.
+### M7 — Sleep — **done**
+`sleep.js`: duplicates by normalized name (English plurals included), judged then merged. Splits: features (webs, relations, parts), two-means by Jaccard, description length with a kind costing one. Proposed only on the **second** sighting, with a cooldown per kind. The kinds are named by the model; a name that already exists is **reused and not deleted on revert**. Revisions are Things in a "Revisions" system web carrying `druid.revision` (the before-map, what was created, what was reused, both scores); `revert` restores exactly. A web per revision was simpler as a record than as a new web over the same Things, and reverts just as exactly.
 
 ### M8 — In the app
 - The prompt space opened read-only behind a debug setting.
 - A read-only **follow** mode: reload the Druid's universe as it changes, so you can watch it think on the canvas.
 - Associations rendered per D1. Its working memory visible.
 - Follows the canvas architecture rules (layers and hosts, nothing in `NodeCanvas.jsx`).
+
+## What the runs showed
+
+**Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):
+
+| | valid | sensible | "best" | writes landed | ms per call (choose / fill) |
+|---|---|---|---|---|---|
+| qwen3-4b (LM Studio), round 1 | 100% | 91% | 49% | 100% | 348 / 2173 |
+| qwen3-4b, round 2 | 100% | 98% | 58% | 100% | 348 / 2216 |
+| Apple on-device, round 2 | 100% | 88% | 52% | 100% | 490 / 531 |
+
+What round 1 taught, and the fixes before round 2:
+- Name blanks answered with lists ("quartz, feldspar, mica"): split. A name list in "open up" makes each part.
+- "Go to the web Engine" beside "go inside Engine": inner webs are no longer offered as places to go.
+- Items with no target scored as half-active: "note a thought" sat on every menu.
+- About 30 moves for 6 slots: added exploration slots, and an aptness boost for comparisons.
+
+The models have different temperaments. qwen loves "open up X". Apple's model connects and describes more, and is four times faster at filling a blank.
+
+**Long lives** (fresh universes, sleeping every 10–12 cycles):
+- **No material, no seed:** it thinks about its own medium ("Web of ideas", "Creative network"). With nothing to perceive, the only thing in its context is the description of webs. A seed now becomes its first open goal.
+- **Seeded, before "keep a thought":** its *thoughts* were right ("rivers carve valleys by eroding hills and depositing sediments") but its graph held one Thing. Nothing carried a thought into memory. The `remember` move is that bridge.
+- **Seeded, Apple's model, after:** 30 cycles, 29 ok, 25 writes, 1 invalid in 95 calls, 0.65 s per call. The result is a web of River, Channel erosion, Sediment deposition, Erosion and Flow with 15 connections, plus a chunk. **qwen, same seed:** 28 ok, 17 writes, 2.6 s per call, with an odder graph ("Granite drips through Valley floor").
+- **Tending** (a kitchen-garden universe with planted flaws, Apple's model, 36 cycles): 36 ok, 19 writes, 1 invalid in 103 calls. **Sleep split "Plant" into "Herbs" and "Fruit Tree" on its second sighting**, with a recorded revision. It merged the relation names "Grows" and "Grow" (vocabulary tidying, a side effect of duplicates including relation types). Two bugs surfaced and are fixed: a split reusing an existing Thing would have deleted it on revert, and "Tomatoes" did not match "Tomato".
+- **Restart:** it wakes with working memory faded and its open goal still pulling (cycle 31 resumed by working toward it).
+
+Problems still open:
+- Small-model judgment errors ("Seed Packets and Thyme are both kinds of Herbs"). They are cheap to undo, but nothing yet notices them.
+- It follows connections a lot (15 of 36 tending cycles).
+- Undescribed Things are only described when they come into focus.
 
 ## Risks
 

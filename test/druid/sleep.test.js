@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, beforeAll } from 'vitest';
 import { freshWorld, buildUniverse, quiet } from './helpers/headlessWorld.js';
-import { sleep, splitCandidate, descriptionLength, duplicateGroups, revert } from '../../src/druid/sleep.js';
+import { sleep, splitCandidate, descriptionLength, duplicateGroups, revert, normalizeName } from '../../src/druid/sleep.js';
 
 beforeAll(() => quiet());
 
@@ -89,5 +89,33 @@ describe('sleep: schema reconstruction', () => {
     const feats = new Map([['a', new Set(['x', 'y'])], ['b', new Set(['x', 'y'])], ['c', new Set(['z'])]]);
     expect(descriptionLength([['a', 'b']], feats)).toBe(1);
     expect(descriptionLength([['a', 'b', 'c']], feats)).toBe(1 + 1 + 2);
+  });
+});
+
+describe('name normalization for duplicates', () => {
+  it('treats English plurals as the same name', () => {
+    expect(normalizeName('Processes')).toBe(normalizeName('Process'));
+    expect(normalizeName('Berries')).toBe(normalizeName('berry'));
+    expect(normalizeName('The Rivers')).toBe(normalizeName('river'));
+    expect(normalizeName('Glass')).toBe('glass');
+    expect(normalizeName('Boxes')).toBe('box');
+    expect(normalizeName('Tomatoes')).toBe(normalizeName('Tomato'));
+  });
+});
+
+describe('a split that names an existing Thing as one of its kinds', () => {
+  it('uses it, and reverting gives it back its old kind without deleting it', async () => {
+    const { world, ids, webs, flyers } = await birds();
+    const songbird = await world.createThing(webs.Birds, 'Songbird', { description: 'Kept from an earlier thought.' });
+    await sleep(scriptedCtx(world, 12));
+    const r = await sleep(scriptedCtx(world, 24, { names: ['Songbird', 'Seabird'] }));
+    expect(r.split[0].into).toEqual(['Songbird', 'Seabird']);
+    expect(world.proto(ids[flyers[0]]).typeNodeId).toBe(songbird.id);
+    expect(world.proto(songbird.id).typeNodeId).toBe(ids.Bird);
+    revert(world, r.split[0].revision);
+    expect(world.proto(songbird.id)).toBeTruthy();
+    expect(world.proto(songbird.id).typeNodeId).not.toBe(ids.Bird);
+    expect(world.proto(ids[flyers[0]]).typeNodeId).toBe(ids.Bird);
+    expect(world.findThing('Seabird')).toBeNull();
   });
 });

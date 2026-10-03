@@ -130,6 +130,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 
     const ctx = {
       world, tick, locus: st.locus, view, activation, index, held: heldNow, ask, pick, judge,
+      lastThought: st.loop[st.loop.length - 1] || '',
       release: (id) => letGo(world, id, tick, 6),
       scratch: (text) => scratchThought(world, text, tick),
       promote: (id, web) => promote(world, id, web),
@@ -204,7 +205,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // verbatim, a repeated thought becomes an attractor. On its first v2 run a
     // 4B model spent ten cycles restating one image of "breath stitching
     // silence", each version seeding the next.
-    const repeating = thought && st.loop.length > 0 && thoughtSimilarity(thought, st.loop[st.loop.length - 1]) > 0.6;
+    const repeating = thought && st.loop.some(prev => thoughtSimilarity(thought, prev) > 0.6);
     if (thought && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
     if (repeating) st.notice = [st.notice, 'You keep coming back to the same thought. Look at something else, or do something with it.'].filter(Boolean).join('\n');
 

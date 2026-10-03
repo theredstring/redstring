@@ -57,6 +57,13 @@ export function readText(content, maxWords) {
   return words.length > maxWords ? words.slice(0, maxWords).join(' ').replace(/[,;:]$/, '') : s;
 }
 
+/** Words in a reply's text field (or the reply itself). */
+function wordCount(content) {
+  const obj = parseJson(content);
+  const s = obj && typeof obj === 'object' ? (obj.text ?? obj.answer ?? '') : String(content || '');
+  return String(s).trim().split(/\s+/).filter(Boolean).length;
+}
+
 /** A scale key from a reply. */
 export function readKey(content, keys) {
   const obj = parseJson(content);
@@ -138,8 +145,16 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
 
   /** @returns {Promise<{ ok, text, ... }>} */
   async function fill({ system, view, wm, loop, notice, question, maxWords = 6 }) {
-    const r = await call('fill', { system, view, wm, loop, notice, question: `${question}\n(Answer in at most ${maxWords} words.)` },
-      schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), (c) => readText(c, maxWords));
+    const sections = { system, view, wm, loop, notice, question: `${question}\n(Answer in at most ${maxWords} words.)` };
+    const isName = maxWords <= 5;
+    // A name asked for and a sentence given: clipped, it becomes a fragment
+    // ("Moment when a"). Ask once more, firmly; a second sentence is no name.
+    const readName = (c) => (wordCount(c) > maxWords ? null : readText(c, maxWords));
+    let r = await call('fill', sections, schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), isName ? readName : (c) => readText(c, maxWords));
+    if (isName && !r.ok && !r.error && wordCount(r.content) > maxWords) {
+      r = await call('fill', { ...sections, question: `${question}\nAt most ${maxWords} words: a name, not a sentence.` },
+        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), readName);
+    }
     return { ...r, text: r.value };
   }
 

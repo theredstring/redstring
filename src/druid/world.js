@@ -146,7 +146,20 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   const isSystemWeb = (graphId) => !!druidOf(ownerOf(graphId) || '').system;
 
   /** Create a Thing in a web via the wizard tool; returns its prototype id. */
-  const createThing = async (graphId, name, { description = '', typeNodeId = null } = {}) => {
+  const createThing = async (graphId, name, { description = '', typeNodeId = null, fresh = false } = {}) => {
+    // `fresh`: the caller means a NEW Thing. Same name in the same web would
+    // silently reuse the old one ("made Creative network" — again).
+    if (fresh) {
+      const here = valuesOf(graph(graphId)?.instances).map(i => i.prototypeId).find(pid => lower(nameOf(pid)) === lower(name));
+      if (here) return { ok: false, error: `${nameOf(here)} is already here; name the new one differently` };
+    }
+    // In Redstring the same name is the same Thing, so a new Thing named like
+    // one of the Druid's kinds of thought would BE that kind: "open up
+    // Connection: Episode" put the Episode role type inside Connection.
+    const clash = findThing(name);
+    if (clash && (druidOf(clash).roleType || druidOf(clash).system)) {
+      return { ok: false, error: `"${name}" is the name of one of your own kinds of thought; choose another name` };
+    }
     focusWeb(graphId);
     const r = await act('createNode', { name, description, ...(graphId ? { targetGraphId: graphId } : {}), ...(typeNodeId ? { typeNodeId } : {}) });
     if (!r.ok) return { ok: false, error: r.error };

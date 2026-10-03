@@ -1,5 +1,7 @@
 # The Druid
 
+> **v2 is in [`DRUID_PLAN.md`](DRUID_PLAN.md)** (`npm run druid`): a menu of moves instead of a free-form agent turn, built to run on Apple's on-device model. This page describes v1, the free-form agent loop, which is still runnable as `npm run druid:agent` for comparison.
+>
 > Status: **experimental, `druid` branch.** A headless loop: a local model thinking to itself, with a Redstring universe as its long-term memory. No person in the loop and no UI. Watch it by opening its `.redstring` file in Redstring.
 
 ## The idea

@@ -141,3 +141,40 @@ describe('runLife over the real store', () => {
     expect(world.proto(world.findThing('A')).description).toBe('The first letter.');
   });
 });
+
+describe('createDruid at birth', () => {
+  it('turns what is on its mind into its first open goal', async () => {
+    const { createDruid } = await import('../../src/druid/druid.js');
+    const { openGoals } = await import('../../src/druid/roles.js');
+    const { world } = await freshWorld();
+    const { mind } = planMind([{ choose: /^work toward your goal/ }]);
+    for await (const r of createDruid({ world, mind }, { maxCycles: 1, seed: 'How do rivers shape the land?' })) void r;
+    expect(openGoals(world).map(world.nameOf)).toEqual(['How do rivers shape the land']);
+  });
+
+  it('will not make a "new" Thing that is already here under that name', async () => {
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { W: { things: { Creative: 'c' } } } });
+    expect((await world.createThing(webs.W, 'creative', { fresh: true })).ok).toBe(false);
+    expect((await world.createThing(webs.W, 'creative')).ok).toBe(true); // reuse is fine when meant
+  });
+});
+
+describe('keeping a thought (phonological loop → long-term memory)', () => {
+  it('offers back what a thought named that the universe lacks, and keeps it in the content web, not Home', async () => {
+    const { createDruid } = await import('../../src/druid/druid.js');
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { Water: { things: { River: 'Water flowing in a channel.' } } } });
+    const { mind } = planMind([
+      { choose: /^look at River/ },
+      { choose: /^keep what you just thought/ }, { fill: 'Valley, Erosion, Sediment' },
+      { fill: 'Low land a river cuts.' }, { fill: 'The wearing away of rock.' }, { fill: 'Grains carried by water.' }
+    ], ['Rivers carve valleys by erosion and carry sediment downstream.']);
+    const out = [];
+    for await (const r of createDruid({ world, mind }, { maxCycles: 2, resume: { tick: 0, locus: { web: webs.Water, focus: null, path: [] } } })) out.push(r);
+    const second = out.filter(r => r.type === 'cycle')[1];
+    expect(second.move).toBe('remember');
+    expect(world.thingsIn(webs.Water).map(world.nameOf).sort()).toEqual(['Erosion', 'River', 'Sediment', 'Valley']);
+    expect(world.proto(world.findThing('Erosion')).description).toBe('The wearing away of rock.');
+  });
+});

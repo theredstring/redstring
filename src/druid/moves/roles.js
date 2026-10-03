@@ -8,6 +8,7 @@
 
 import { recall, buildMemoryIndex } from '../recall.js';
 import {
+  isBookkeeping,
   openGoals, setGoalStatus, activePlans, nextStep, planSteps,
   addEvidence, confidence, confidenceWords, sourceKind, beliefsIn, JUDGMENT_SCALE
 } from '../roles.js';
@@ -42,8 +43,10 @@ export const pursueGoal = {
   async run(ctx, data) {
     const { world } = ctx;
     // Go where the goal's words point; if nothing matches yet, say so.
-    const hits = recall(buildMemoryIndex(world.state()), world.nameOf(data.goal), { k: 6 })
-      .filter(h => !world.druidOf(h.id).roleType && h.id !== data.goal);
+    // Content only: a goal's own plan repeats its words, and pursuing a goal
+    // by visiting its plan is going in a circle.
+    const hits = recall(buildMemoryIndex(world.state()), world.nameOf(data.goal), { k: 8 })
+      .filter(h => h.id !== data.goal && !isBookkeeping(world, h.id));
     for (const h of hits) {
       const web = world.websOf(h.id).find(w => !world.isSystemWeb(w));
       if (web) {
@@ -169,11 +172,12 @@ export const believe = {
   prior: 0.5,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f || !ctx.roles?.types.belief || !ctx.locus.web) return [];
-    return [{ label: `say something you believe about ${f.name}: ___`, blank: { question: `One thing you believe about ${f.name}, as a short plain statement.`, maxWords: 12 }, data: { about: f.id }, target: f.id }];
+    if (!f || !ctx.roles?.types.belief || !ctx.locus.web || isBookkeeping(ctx.world, f.id)) return [];
+    return [{ label: `say something you believe about ${f.name}: ___`, blank: { question: `One thing you believe about ${f.name}, as one short plain sentence.`, maxWords: 18 }, data: { about: f.id }, target: f.id }];
   },
   async run(ctx, data, text) {
-    const claim = titleish(text);
+    // One sentence: a claim cut off mid-phrase ("…shaping the") is no claim.
+    const claim = titleish(String(text || '').split(/(?<=[.!?])\s/)[0]);
     if (!claim) return fail('no claim');
     const { world } = ctx;
     const r = await world.createThing(ctx.locus.web, claim, { description: `A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief });

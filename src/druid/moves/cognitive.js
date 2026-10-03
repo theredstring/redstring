@@ -27,6 +27,13 @@ export function sharedWords(world, a, b) {
 }
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
+
+/**
+ * Goals, beliefs, plans and episodes are thoughts about Things, not Things to
+ * restructure: "say what Creative network and <a belief> are both kinds of"
+ * is not a question. Structural moves skip them, and the furniture.
+ */
+const isContent = (world, id) => !!id && !world.druidOf(id).roleType && !world.typeChain(id).some(t => world.druidOf(t).roleType);
 const titleish = (s) => String(s || '').trim().replace(/^(a|an|the)\s+/i, '').replace(/[.!?]+$/, '').replace(/^\w/, c => c.toUpperCase());
 
 /** Copy a Thing's inside into another's by reference: the same Things, placed again, connected the same way. */
@@ -45,7 +52,7 @@ export const variant = {
   prior: 0.4,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f || !ctx.locus.web) return [];
+    if (!f || !ctx.locus.web || !isContent(ctx.world, f.id)) return [];
     return [{ label: `imagine a variant of ${f.name}, named ___`, blank: { question: `Name a variant of ${f.name} (a version that differs in one way).`, maxWords: 4 }, data: { of: f.id }, target: f.id }];
   },
   async run(ctx, data, text) {
@@ -53,7 +60,7 @@ export const variant = {
     if (!name) return fail('no name');
     const { world } = ctx;
     const how = await ctx.ask(`How is ${name} different from ${world.nameOf(data.of)}? One short sentence.`, 16);
-    const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.` });
+    const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true });
     if (!r.ok) return fail(r.error);
     const shared = await shareInside(world, data.of, r.id);
     await world.connect(ctx.locus.web, r.id, data.of, 'is a variant of');
@@ -66,14 +73,14 @@ export const specialize = {
   prior: 0.5,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f || !ctx.locus.web || ctx.world.druidOf(f.id).roleType) return [];
+    if (!f || !ctx.locus.web || !isContent(ctx.world, f.id)) return [];
     return [{ label: `name a kind of ${f.name}: ___`, blank: { question: `Name one kind of ${f.name}.`, maxWords: 4 }, data: { of: f.id }, target: f.id }];
   },
   async run(ctx, data, text) {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
-    const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of });
+    const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true });
     if (!r.ok) return fail(r.error);
     if (world.proto(r.id)?.typeNodeId !== data.of) world.state().setNodeType(r.id, data.of);
     const what = await ctx.ask(`What makes ${name} a particular kind of ${world.nameOf(data.of)}? One short sentence.`, 16);
@@ -89,11 +96,11 @@ export const chunk = {
   offer(ctx) {
     const { world, locus, tick } = ctx;
     const f = ctx.view.focus;
-    if (!f || !locus.web) return [];
+    if (!f || !locus.web || !isContent(world, f.id)) return [];
     const here = new Set(world.thingsIn(locus.web));
     const partners = Object.entries(world.druidOf(f.id).assoc || {})
       .map(([id, e]) => ({ id, s: assocStrength(e, tick) }))
-      .filter(x => here.has(x.id) && x.s >= 0.35 && !world.druidOf(x.id).roleType)
+      .filter(x => here.has(x.id) && x.s >= 0.35 && isContent(world, x.id))
       .sort((a, b) => b.s - a.s)
       .slice(0, 3);
     if (partners.length < 2) return [];
@@ -104,6 +111,7 @@ export const chunk = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    if (world.findThing(name)) return fail(`${name} already exists; the gathered Thing needs a name of its own`);
     const r = await world.act('condenseToNode', { memberNames: data.members.map(id => world.nameOf(id)), nodeName: name, collapse: false });
     if (!r.ok) return fail(r.error);
     const id = world.findThing(name);
@@ -131,8 +139,9 @@ export const contrast = {
   prior: 0.4,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f || !ctx.roles?.types.belief) return [];
+    if (!f || !ctx.roles?.types.belief || !isContent(ctx.world, f.id)) return [];
     return ctx.view.peers
+      .filter(p => isContent(ctx.world, p.id))
       .map(p => ({ p, shared: sharedWords(ctx.world, f.id, p.id) }))
       .sort((x, y) => y.shared.length - x.shared.length)
       .slice(0, 1)
@@ -159,12 +168,12 @@ export const generalize = {
   offer(ctx) {
     const { world } = ctx;
     const f = ctx.view.focus;
-    if (!f || world.druidOf(f.id).roleType) return [];
+    if (!f || !isContent(world, f.id)) return [];
     const mine = new Set(world.typeChain(f.id));
     // Peers with no kind in common with the focus yet — and not its own parent
     // or child, which would ask what a Thing and its kind are "both kinds of".
     return ctx.view.peers
-      .filter(p => !world.druidOf(p.id).roleType && !mine.has(p.id) && !world.typeChain(p.id).includes(f.id)
+      .filter(p => isContent(world, p.id) && !mine.has(p.id) && !world.typeChain(p.id).includes(f.id)
         && !world.typeChain(p.id).some(t => mine.has(t) && world.nameOf(t) !== 'Thing'))
       .map(p => ({ p, shared: sharedWords(world, f.id, p.id) }))
       .sort((x, y) => y.shared.length - x.shared.length)
@@ -217,8 +226,8 @@ export const analogy = {
   prior: 0.5,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f) return [];
-    return analogues(ctx.world, f.id, 1).map(a => ({ label: `consider whether ${f.name} is like ${ctx.world.nameOf(a.id)} (both: ${a.shared.join(', ')})`, data: { a: f.id, b: a.id, shared: a.shared }, target: a.id }));
+    if (!f || !isContent(ctx.world, f.id)) return [];
+    return analogues(ctx.world, f.id, 1).filter(a => isContent(ctx.world, a.id)).map(a => ({ label: `consider whether ${f.name} is like ${ctx.world.nameOf(a.id)} (both: ${a.shared.join(', ')})`, data: { a: f.id, b: a.id, shared: a.shared }, target: a.id }));
   },
   async run(ctx, data) {
     const { world } = ctx;

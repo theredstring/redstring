@@ -114,3 +114,13 @@ describe('cognitive moves over the real store', () => {
     expect(r.locus.focus).toBe(ids.Blank);
   });
 });
+
+describe('structural moves leave thoughts alone', () => {
+  it('does not offer to generalize, contrast or chunk a belief', async () => {
+    const { world, ids, ctx, roles } = await setup({ webs: { W: { things: { Net: 'A creative network of ideas.' } } } }, 'Net');
+    const belief = await world.createThing(Object.values(world.state().graphs).length ? world.websOf(ids.Net)[0] : null, 'Nets hold ideas', { typeNodeId: roles.types.belief });
+    expect(belief.ok).toBe(true);
+    expect(generalize.offer(ctx()).map(i => i.data.b)).not.toContain(belief.id);
+    expect(contrast.offer(ctx()).map(i => i.data.b)).not.toContain(belief.id);
+  });
+});

@@ -45,6 +45,17 @@ export function userWebs(world) {
   return [...world.state().graphs.values()].map(g => g.id).filter(id => !world.isSystemWeb(id));
 }
 
+/** Top-level webs: not the inside of a Thing that is itself placed in a web. */
+export function topLevelWebs(world) {
+  return userWebs(world).filter(id => {
+    const owner = world.ownerOf(id);
+    return !owner || world.websOf(owner).filter(w => !world.isSystemWeb(w)).length === 0;
+  });
+}
+
+/** Whether a web is the Druid's Home. */
+export const isHome = (world, webId) => !!world.druidOf(world.ownerOf(webId) || '').homeOf;
+
 /**
  * @returns {Object} the view, as data
  */
@@ -62,8 +73,13 @@ export function buildView(world, locus, activation, { tick = 0, insideK = 6, nei
   const owner = world.ownerOf(locus.web);
   if (owner) view.container = { id: owner, name: world.nameOf(owner) };
 
-  const here = world.thingsIn(locus.web);
-  const links = world.linksIn(locus.web);
+  // Role types (Goal, Belief, Plan, Episode) are the Druid's furniture: their
+  // behavior works through the role moves, but they are not content to look
+  // at or connect. Shown as ordinary Things, a fresh Druid spent its first
+  // dozen cycles connecting a "Dream" to its own Belief, Goal and Episode.
+  const isFurniture = (id) => !!world.druidOf(id).roleType;
+  const here = world.thingsIn(locus.web).filter(id => !isFurniture(id));
+  const links = world.linksIn(locus.web).filter(l => !isFurniture(l.a) && !isFurniture(l.b));
 
   if (locus.focus) {
     const f = world.proto(locus.focus);

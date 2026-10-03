@@ -196,3 +196,17 @@ export function renderRoles(world) {
   }
   return lines.join('\n');
 }
+
+/**
+ * A Druid's own thinking apparatus — a role type, or a goal, plan or episode —
+ * as opposed to the Things it thinks about. Beliefs are about Things and sit
+ * among them, so they are content; the rest is bookkeeping. Moves that build
+ * knowledge leave bookkeeping alone: given goals and plans as ordinary Things,
+ * a Druid spent a long run connecting its plan to its goal.
+ */
+export function isBookkeeping(world, id) {
+  if (!id) return true;
+  if (world.druidOf(id).roleType || world.druidOf(id).system) return true;
+  const role = roleOf(world, id);
+  return role === 'goal' || role === 'plan' || role === 'episode';
+}

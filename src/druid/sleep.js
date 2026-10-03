@@ -31,9 +31,18 @@ const MIN_GAIN = 2;
 const SIGHTINGS = 2;
 const COOLDOWN = 36;
 
-const norm = (s) => String(s || '').toLowerCase().replace(/^(a|an|the)\s+/, '').replace(/[^a-z0-9 ]/g, '').replace(/(ies)$/, 'y').replace(/s$/, '').trim();
+/** The singular of a final English word, roughly: processes → process, berries → berry, rivers → river. */
+const singular = (w) => (/(ss|x|z|ch|sh|o)es$/.test(w) ? w.slice(0, -2) : /ies$/.test(w) ? `${w.slice(0, -3)}y` : /[^s]s$/.test(w) ? w.slice(0, -1) : w);
+
+const norm = (s) => {
+  const words = String(s || '').toLowerCase().replace(/^(a|an|the)\s+/, '').replace(/[^a-z0-9 ]/g, '').trim().split(/\s+/);
+  if (words.length) words[words.length - 1] = singular(words[words.length - 1]);
+  return words.join(' ');
+};
 
 /** Things that look like the same Thing twice, by name. */
+export { norm as normalizeName };
+
 export function duplicateGroups(world) {
   const groups = new Map();
   for (const id of world.allThings()) {
@@ -209,18 +218,33 @@ export async function sleep(ctx) {
       continue;
     }
     const before = {};
-    const created = [];
+    const created = [];   // kinds this split made — revert deletes these
+    const reused = [];    // Things that already existed and became the kinds — revert keeps these
+    const kinds = [];
     const home = world.websOf(typeId).find(w => !world.isSystemWeb(w)) || world.websOf(cand.groups[0][0])[0];
     for (const g of cand.groups) {
       const label = await ctx.ask(`Name the kind of ${T} that ${names(g)} are.`, 4);
       const kindName = String(label || '').trim().replace(/^\w/, c => c.toUpperCase());
       if (!kindName) break;
-      const r = await world.createThing(home, kindName, { description: `A kind of ${T}.`, typeNodeId: typeId });
-      if (!r.ok) break;
-      created.push(r.id);
-      for (const m of g) { before[m] = world.proto(m)?.typeNodeId || typeId; world.state().setNodeType(m, r.id); }
+      // A Thing by that name may already exist ("Herbs", kept from an earlier
+      // thought). It becomes the kind — but it is not the split's to delete.
+      const existing = world.findThing(kindName);
+      if (existing && (existing === typeId || g.includes(existing))) break;
+      let kindId = existing;
+      if (existing) {
+        reused.push(existing);
+        before[existing] = world.proto(existing)?.typeNodeId ?? null;
+        world.state().setNodeType(existing, typeId);
+      } else {
+        const r = await world.createThing(home, kindName, { description: `A kind of ${T}.`, typeNodeId: typeId });
+        if (!r.ok) break;
+        kindId = r.id;
+        created.push(r.id);
+      }
+      kinds.push(kindId);
+      for (const m of g) { before[m] = world.proto(m)?.typeNodeId || typeId; world.state().setNodeType(m, kindId); }
     }
-    if (created.length !== 2) {
+    if (kinds.length !== 2) {
       // Half a split is no split: put it back.
       for (const [m, t] of Object.entries(before)) world.state().setNodeType(m, t);
       for (const id of created) world.state().deleteNodePrototype(id);
@@ -228,11 +252,11 @@ export async function sleep(ctx) {
       continue;
     }
     const revisionId = await recordRevision(world, `Split ${T}`, {
-      kind: 'split', type: typeId, before, created, dl: { before: cand.before, after: cand.after }, tick,
-      why: `${T} was really two kinds: ${created.map(id => world.nameOf(id)).join(' and ')}. Described more compactly that way (${cand.before} → ${cand.after}).`
+      kind: 'split', type: typeId, before, created, reused, dl: { before: cand.before, after: cand.after }, tick,
+      why: `${T} was really two kinds: ${kinds.map(id => world.nameOf(id)).join(' and ')}. Described more compactly that way (${cand.before} → ${cand.after}).`
     });
     world.setDruid(typeId, { misfit: null, restructuredAt: tick });
-    report.split.push({ kind: T, into: created.map(id => world.nameOf(id)), revision: revisionId, gain: cand.gain });
+    report.split.push({ kind: T, into: kinds.map(id => world.nameOf(id)), revision: revisionId, gain: cand.gain });
   }
 
   return report;

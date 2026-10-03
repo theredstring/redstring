@@ -36,7 +36,18 @@ function extrasFor(world, locus) {
  */
 export async function* createDruid(deps, { roles = true, sleeps = true, ...opts } = {}) {
   const { world } = deps;
-  if (roles) await seedRoles(world);
+  if (roles) {
+    const { home, types } = await seedRoles(world);
+    // Something on its mind at birth becomes its first open goal, so attention
+    // has somewhere to go. With nothing, a Druid thinks about its own medium:
+    // a first long run produced "Web of ideas", "Web of connections",
+    // "Creative network" and asked itself what connections to build.
+    if (opts.seed && types.goal && openGoals(world).length === 0 && !(opts.resume?.tick > 0)) {
+      const name = String(opts.seed).trim().replace(/[.!?]+$/, '').slice(0, 120);
+      const g = await world.createThing(home, name, { description: 'What was on its mind when it first woke.', typeNodeId: types.goal });
+      if (g.ok) world.setDruid(g.id, { status: 'open', seeded: true });
+    }
+  }
   yield* runLife(deps, {
     moves: druidMoves(),
     sources: (w) => openGoals(w).map(id => ({ id, weight: 0.6 })),

@@ -66,10 +66,21 @@ describe('createMind', () => {
     expect(mind.stats).toMatchObject({ calls: 2, invalid: 1 });
   });
 
-  it('fills a blank within its word limit', async () => {
-    const mind = createMind({ backend: scripted(() => ({ text: 'a stone made of quartz grains' })) });
-    const r = await mind.fill({ question: 'Name it.', maxWords: 3 });
-    expect(r.text).toBe('a stone made');
+  it('asks again when a name comes back as a sentence, and never clips a name into a fragment', async () => {
+    const twice = createMind({ backend: scripted(() => ({ text: 'a stone made of quartz grains' })) });
+    expect((await twice.fill({ question: 'Name it.', maxWords: 3 })).text).toBeNull();
+    expect(twice.stats.calls).toBe(2);
+
+    const answers = [{ text: 'a stone made of quartz grains' }, { text: 'Quartzite' }];
+    const seen = [];
+    const second = createMind({ backend: scripted((req) => { seen.push(req.user); return answers.shift(); }) });
+    expect((await second.fill({ question: 'Name it.', maxWords: 3 })).text).toBe('Quartzite');
+    expect(seen[1]).toMatch(/a name, not a sentence/);
+  });
+
+  it('clips a longer fill (a description) to its word limit', async () => {
+    const mind = createMind({ backend: scripted(() => ({ text: 'one two three four five six seven eight nine ten' })) });
+    expect((await mind.fill({ question: 'Describe it.', maxWords: 8 })).text).toBe('one two three four five six seven eight');
   });
 
   it('judges on a fixed scale', async () => {

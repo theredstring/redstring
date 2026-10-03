@@ -13,6 +13,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import readline from 'node:readline';
 
+const ENGLISH = 'This is written in English.';
+
 /**
  * @param {Object} opts
  * @param {string} opts.executable   path to the built afm-bridge
@@ -58,7 +60,16 @@ export async function afmBackend({ executable }) {
     id: 'afm:apple-on-device',
     contextSize: health.contextSize,
     async complete({ system, user, schema, maxTokens, temperature }) {
-      const r = await send({ op: 'complete', system, user, schema, maxTokens, temperature });
+      // The on-device model checks the prompt's language first and refuses
+      // what it cannot place. A Druid's view — many capitalized names, the
+      // same few repeated — sometimes reads as no language at all:
+      // "unsupportedLanguageOrLocale" on 26 of 73 calls in one long run, every
+      // time for a given prompt. One plain sentence saying what language it is
+      // fixed every captured case; a retry with a second one covers the rest.
+      let r = await send({ op: 'complete', system, user: `${ENGLISH}\n\n${user}`, schema, maxTokens, temperature });
+      if (!r.ok && /unsupportedLanguage/i.test(r.error || '')) {
+        r = await send({ op: 'complete', system: `${system}\n\nAlways read and answer in English.`, user: `${ENGLISH} Plain English words follow.\n\n${user}`, schema, maxTokens, temperature });
+      }
       if (!r.ok) throw new Error(`afm: ${r.error}`);
       return { content: r.content, usage: { prompt: r.usage?.prompt || 0, completion: r.usage?.completion || 0 } };
     },

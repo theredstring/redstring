@@ -30,6 +30,10 @@ export const namesIn = (s) => {
   return text.split(separators).map(titleish).filter(n => n && n.split(/\s+/).length <= 5);
 };
 
+import { topLevelWebs, isHome } from '../attention.js';
+import { isBookkeeping } from '../roles.js';
+import { tokenize } from '../recall.js';
+
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 
 export const newWeb = {
@@ -40,7 +44,9 @@ export const newWeb = {
     // A new web is offered once this one has something in it. Offered from an
     // empty web, a 4B model started three webs in four cycles and filled none.
     if (!empty && ctx.world.thingsIn(ctx.locus.web).length < 3) return [];
-    return [{ label: empty ? 'start your first web, named ___' : 'start a new web, named ___', blank: { question: 'Name the new web.', maxWords: 4 }, prior: empty ? 3 : 0.2 }];
+    // A Druid whose only web is its Home has nowhere of its own to think yet.
+    const onlyHome = topLevelWebs(ctx.world).every(id => isHome(ctx.world, id));
+    return [{ label: empty || onlyHome ? 'start your first web, named ___' : 'start a new web, named ___', blank: { question: 'Name the new web: what it will be about.', maxWords: 4 }, prior: empty ? 3 : onlyHome ? 1.3 : 0.2 }];
   },
   async run(ctx, _data, text) {
     const name = titleish(text);
@@ -58,14 +64,15 @@ export const make = {
   prior: 1,
   offer(ctx) {
     if (!ctx.locus.web) return [];
-    const near = ctx.view.focus ? `, connected to ${ctx.view.focus.name}` : '';
-    return [{ label: `make a new Thing here${near}, named ___`, blank: { question: 'Name the new Thing.', maxWords: 4 }, data: { connectTo: ctx.view.focus?.id || null } }];
+    const f = ctx.view.focus && !isBookkeeping(ctx.world, ctx.view.focus.id) ? ctx.view.focus : null;
+    const near = f ? `, connected to ${f.name}` : '';
+    return [{ label: `make a new Thing here${near}, named ___`, blank: { question: 'Name the new Thing.', maxWords: 4 }, data: { connectTo: f?.id || null }, prior: isHome(ctx.world, ctx.locus.web) ? 0.5 : 1 }];
   },
   async run(ctx, data, text) {
     const name = namesIn(text)[0];
     if (!name) return fail('no name');
     const { world, locus } = ctx;
-    const r = await world.createThing(locus.web, name);
+    const r = await world.createThing(locus.web, name, { fresh: true });
     if (!r.ok) return fail(r.error);
     const touched = [r.id];
     let summary = `made ${name}`;
@@ -87,9 +94,9 @@ export const connect = {
   prior: 0.9,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f) return [];
+    if (!f || isBookkeeping(ctx.world, f.id)) return [];
     const linked = new Set(ctx.view.links.map(l => l.id));
-    return ctx.view.peers.filter(p => !linked.has(p.id)).slice(0, 4).map(p => ({
+    return ctx.view.peers.filter(p => !linked.has(p.id) && !isBookkeeping(ctx.world, p.id)).slice(0, 4).map(p => ({
       label: `connect ${f.name} to ${p.name}`,
       blank: { question: `${f.name} ___ ${p.name}. What is the relation? (a verb or short phrase)`, maxWords: 3 },
       data: { a: f.id, b: p.id },
@@ -218,8 +225,8 @@ export const goWeb = {
     // are reached by going inside. Offering "go to the web Engine" beside "go
     // inside Engine" gave the same place two names.
     const { world } = ctx;
-    const topLevel = (id) => { const owner = world.ownerOf(id); return !owner || world.websOf(owner).filter(w => !world.isSystemWeb(w)).length === 0; };
-    return (ctx.view.webs || []).filter(w => topLevel(w.id)).slice(0, 3).map(w => ({ label: `go to the web ${w.name}`, data: { web: w.id }, target: world.ownerOf(w.id) }));
+    const top = new Set(topLevelWebs(world));
+    return (ctx.view.webs || []).filter(w => top.has(w.id)).slice(0, 3).map(w => ({ label: `go to the web ${w.name}`, data: { web: w.id }, target: world.ownerOf(w.id) }));
   },
   async run(ctx, data) {
     ctx.world.focusWeb(data.web);
@@ -267,4 +274,61 @@ export const promoteMove = {
   }
 };
 
-export const BASIC_MOVES = [newWeb, make, connect, follow, look, open, close, describe, goWeb, letGoMove, note, promoteMove];
+/** Content words in a thought that no Thing in the universe is named by. */
+export function unkeptWords(world, thought) {
+  const names = world.allThings().map(id => world.nameOf(id).toLowerCase());
+  return [...new Set(tokenize(thought))].filter(w => w.length > 3 && !names.some(n => n.includes(w) || w.includes(n.replace(/s$/, ''))));
+}
+
+/** The web new knowledge should go to: this one, unless this is Home — then the last content web visited. */
+function contentWebFor(ctx) {
+  const { world, locus } = ctx;
+  if (locus.web && !isHome(world, locus.web)) return locus.web;
+  return topLevelWebs(world).filter(id => !isHome(world, id)).pop() || null;
+}
+
+/**
+ * Keep what you just thought — the bridge from the phonological loop to
+ * long-term memory. On a seeded run Apple's on-device model thought, cycle
+ * after cycle, "rivers carve valleys by eroding hills and depositing
+ * sediments" — and its graph held one Thing. Thoughts that name what the
+ * universe does not hold are offered back as Things to keep.
+ */
+export const remember = {
+  id: 'remember',
+  prior: 0.8,
+  offer(ctx) {
+    const web = contentWebFor(ctx);
+    const thought = ctx.lastThought || '';
+    if (!web || !thought) return [];
+    const unkept = unkeptWords(ctx.world, thought);
+    if (unkept.length < 2) return [];
+    return [{
+      label: `keep what you just thought: name the Things in it worth remembering, ___`,
+      blank: { question: `You just thought: "${thought}". Name up to three Things in that thought worth keeping, separated by commas.`, maxWords: 12 },
+      data: { web },
+      prior: unkept.length >= 4 ? 1.2 : 0.8
+    }];
+  },
+  async run(ctx, data, text) {
+    const { world } = ctx;
+    const names = namesIn(text).slice(0, 3);
+    if (names.length === 0) return fail('nothing named');
+    const made = [];
+    for (const name of names) {
+      const r = await world.createThing(data.web, name);
+      if (r.ok) made.push(r.id);
+    }
+    if (made.length === 0) return fail('could not keep them');
+    for (const id of made) {
+      if ((world.proto(id)?.description || '').length < 12) {
+        const d = await ctx.ask(`Describe ${world.nameOf(id)} in one short sentence, as you understand it.`, 16);
+        if (d) await world.act('updateNode', { nodeName: world.nameOf(id), description: d, targetGraphId: data.web });
+      }
+    }
+    world.focusWeb(data.web);
+    return { ok: true, summary: `kept ${made.map(id => world.nameOf(id)).join(', ')} from that thought`, touched: made, locus: { web: data.web, focus: made[0], path: [] }, wrote: true };
+  }
+};
+
+export const BASIC_MOVES = [newWeb, make, connect, follow, look, open, close, describe, goWeb, letGoMove, note, promoteMove, remember];
