@@ -33,9 +33,12 @@ const readSettings = () => {
   }
 };
 
-let session = null;
-// Why the Druid was stopped for memory, kept for the panel once the session ends.
-let memoryStop = null;
+// The running Druid, kept where a hot reload cannot lose it. Re-run in dev,
+// this module made a new store that said "Wake" while the old session went on
+// writing, out of reach (and Wake started a second one beside it). The session
+// reports to whichever store is current (`live.store`), and a new store takes
+// over the old one's state while a session lives.
+const live = (globalThis.__redstringDruid ||= { session: null, store: null, memoryStop: null });
 
 const clip = (t, n) => { const x = String(t ?? '').replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n - 1)}…` : x; };
 
@@ -107,6 +110,14 @@ export function heapNow() {
   return { usedMB: Math.round(m.usedJSHeapSize / 1048576), limitMB: Math.round(m.jsHeapSizeLimit / 1048576) };
 }
 
+// While a session lives, a re-run module picks up where the last store was.
+const carried = live.session && live.store
+  ? (({ status, error, stream, stats, held, throughLine }) => ({ status, error, stream, stats, held, throughLine }))(live.store.getState())
+  : {};
+
+/** The store the running session reports to: the current one, after any hot reload. */
+const now = () => live.store || useDruidStore;
+
 export const useDruidStore = create((set, get) => ({
   status: 'idle', // idle | starting | living | stopping
   error: null,
@@ -116,6 +127,7 @@ export const useDruidStore = create((set, get) => ({
   held: [],
   throughLine: '',
   settings: readSettings(),
+  ...carried,
 
   setSetting: (key, value) => {
     const settings = { ...get().settings, [key]: value };
@@ -127,13 +139,13 @@ export const useDruidStore = create((set, get) => ({
   say: (text) => {
     const t = String(text || '').trim();
     if (!t) return;
-    const pending = !session;
+    const pending = !live.session;
     set(s => ({ stream: keep([...s.stream, { kind: 'you', text: t, pending }]) }));
-    if (session) session.say(t);
+    if (live.session) live.session.say(t);
   },
 
   start: async () => {
-    if (session || get().status !== 'idle') return;
+    if (live.session || get().status !== 'idle') return;
     set({ status: 'starting', error: null });
     try {
       const [{ startDruid, backendFor }, { executeTool }, { applyToolResultToStore }, { default: useGraphStore }, { promptSpaceFrom }, shipped] = await Promise.all([
@@ -148,7 +160,7 @@ export const useDruidStore = create((set, get) => ({
       const backend = await backendFor(settings);
       let promptJson = null;
       try { promptJson = JSON.parse(shipped.default); } catch { promptJson = null; }
-      session = startDruid({
+      live.session = startDruid({
         store: useGraphStore,
         executeTool,
         applyToolResult: (name, result, id, cid) => applyToolResultToStore(name, result, id, cid, { confirmed: true }),
@@ -163,7 +175,7 @@ export const useDruidStore = create((set, get) => ({
           moment.asked = (r.calls || []).map(compactCall);
           const heap = heapNow();
           if (heap) moment.heapMB = heap.usedMB;
-          set(s => ({
+          now().setState(s => ({
             stream: keep([
               ...s.stream.map(e => (e.kind === 'you' && e.pending && r.heard?.length ? { ...e, pending: false } : e)),
               { kind: 'moment', ...moment },
@@ -173,34 +185,34 @@ export const useDruidStore = create((set, get) => ({
             held: r.held || [],
             throughLine: r.throughLine || s.throughLine
           }));
-          if (heap && heap.usedMB > heap.limitMB * HEAP_STOP_SHARE && session) {
-            memoryStop = `Stopped to keep the app from running out of memory (${heap.usedMB} of ${heap.limitMB} MB). Copy the transcript and send it to Claude.`;
-            session.stop();
+          if (heap && heap.usedMB > heap.limitMB * HEAP_STOP_SHARE && live.session) {
+            live.memoryStop = `Stopped to keep the app from running out of memory (${heap.usedMB} of ${heap.limitMB} MB). Copy the transcript and send it to Claude.`;
+            live.session.stop();
           }
-          if (get().settings.follow && r.locus?.focus) {
+          if (now().getState().settings.follow && r.locus?.focus) {
             // After the canvas has drawn what this cycle wrote.
             setTimeout(() => runCanvasCommand('navigateToPrototypeInstances', r.locus.focus), 150);
           }
         },
         onStop: ({ reason, error }) => {
-          session = null;
-          set({ status: 'idle', error: memoryStop || (reason === 'error' ? error : null) });
-          memoryStop = null;
+          live.session = null;
+          now().setState({ status: 'idle', error: live.memoryStop || (reason === 'error' ? error : null) });
+          live.memoryStop = null;
         }
       });
       // What was said while it slept is heard as it wakes.
-      for (const e of stream) if (e.kind === 'you' && e.pending) session.say(e.text);
+      for (const e of stream) if (e.kind === 'you' && e.pending) live.session.say(e.text);
       set({ status: 'living' });
     } catch (err) {
-      session = null;
+      live.session = null;
       set({ status: 'idle', error: err?.message || String(err) });
     }
   },
 
   stop: () => {
-    if (!session) return;
+    if (!live.session) return;
     set({ status: 'stopping' });
-    session.stop();
+    live.session.stop();
   },
 
   /** The whole run as plain text, with the universe as found from Home (transcriptOf). */
@@ -212,7 +224,7 @@ export const useDruidStore = create((set, get) => ({
         import('../../../druid/lab/outline.js'),
         import('../../../store/graphStore.js')
       ]);
-      text = outline(session?.world || createWorld({ store: useGraphStore }));
+      text = outline(live.session?.world || createWorld({ store: useGraphStore }));
     } catch (err) {
       text = `(could not outline the universe: ${err?.message || err})`;
     }
@@ -221,5 +233,7 @@ export const useDruidStore = create((set, get) => ({
 
   clear: () => set({ stream: [], throughLine: '', held: [], error: null })
 }));
+
+live.store = useDruidStore;
 
 export default useDruidStore;
