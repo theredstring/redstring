@@ -42,8 +42,13 @@ export function useAutoEnrichIdentifiers(nodeData, onNodeUpdate) {
     // returns confident nonsense.
     if (!trimmed || trimmed.toLowerCase() === 'new thing' || trimmed.length < 3) return;
 
-    // Already grounded — don't re-query on every rename.
     const sm = nodeData?.semanticMetadata;
+    // The Druid's own Things (src/druid/) are named for what it means by them,
+    // not looked up: a Wikipedia match pulls them toward the article.
+    const druid = sm?.druid;
+    if (druid && (druid.madeBy === 'druid' || druid.system || druid.roleType || druid.homeOf || druid.topic)) return;
+
+    // Already grounded — don't re-query on every rename.
     const known = [
       ...(nodeData?.externalLinks || []),
       ...(Array.isArray(sm?.externalLinks) ? sm.externalLinks : []),

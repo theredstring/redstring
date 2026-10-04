@@ -112,3 +112,49 @@ describe('backends in the app', () => {
     await expect(backendFor({ mind: 'afm' }, {})).rejects.toThrow(/desktop app/);
   });
 });
+
+describe('in the app', () => {
+  it('never fetches Wikipedia for what it makes', async () => {
+    const { configureToolResultApplier } = await import('../../src/services/toolResultApplier.js');
+    const asked = [];
+    configureToolResultApplier({ enrich: async (name) => { asked.push(name); return {}; }, enrichMultiple: async (names) => { asked.push(...names); return []; } });
+    try {
+      const { world } = await freshWorld();
+      const { buildUniverse } = await import('./helpers/headlessWorld.js');
+      const { webs } = await buildUniverse(world, { webs: { Rivers: { things: { River: 'moving water' } } } });
+      asked.length = 0;
+      const made = await world.createThing(webs.Rivers, 'Delta');
+      expect(made.ok).toBe(true);
+      await new Promise(r => setTimeout(r, 0));
+      expect(asked).toEqual([]);
+    } finally {
+      configureToolResultApplier({ enrich: async () => ({ success: false }), enrichMultiple: async () => [] });
+    }
+  });
+
+  it('copies what it thought and said as plain text', async () => {
+    const { transcriptOf } = await import('../../src/components/canvas/druid/druidStore.js');
+    const text = transcriptOf({
+      throughLine: 'Working out how rivers make deltas.',
+      held: ['Delta'],
+      stream: [
+        { kind: 'you', text: 'think about deltas' },
+        { kind: 'moment', tick: 3, locus: { webName: 'Rivers', focusName: 'Delta' }, thought: 'A delta is where a river slows.', chose: 'connect Delta to River', text: 'River slows into Delta', result: { ok: true, summary: 'connected Delta to River' } },
+        { kind: 'reply', text: 'I will look at deltas.' }
+      ]
+    });
+    expect(text).toBe([
+      'Lately: Working out how rivers make deltas.',
+      'Holding in mind: Delta',
+      '',
+      'You: think about deltas',
+      '',
+      '[3] Rivers › Delta',
+      '  A delta is where a river slows.',
+      '  connect Delta to River → River slows into Delta',
+      '  connected Delta to River',
+      '',
+      'The Druid: I will look at deltas.'
+    ].join('\n'));
+  });
+});

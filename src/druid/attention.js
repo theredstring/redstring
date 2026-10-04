@@ -46,11 +46,15 @@ export function userWebs(world) {
   return [...world.state().graphs.values()].map(g => g.id).filter(id => !world.isSystemWeb(id));
 }
 
-/** Top-level webs: not the inside of a Thing that is itself placed in a web. */
+/**
+ * Top-level webs: not the inside of a Thing placed in another web. Home is the
+ * root, not a container: a web whose Thing sits only in Home (where the webs
+ * the Druid starts are shelved) is still top-level.
+ */
 export function topLevelWebs(world) {
   return userWebs(world).filter(id => {
     const owner = world.ownerOf(id);
-    return !owner || world.websOf(owner).filter(w => !world.isSystemWeb(w)).length === 0;
+    return !owner || world.websOf(owner).filter(w => !world.isSystemWeb(w) && !isHome(world, w)).length === 0;
   });
 }
 
@@ -78,7 +82,9 @@ export function buildView(world, locus, activation, { tick = 0, insideK = 6, nei
   // behavior works through the role moves, but they are not content to look
   // at or connect. Shown as ordinary Things, a fresh Druid spent its first
   // dozen cycles connecting a "Dream" to its own Belief, Goal and Episode.
-  const isFurniture = (id) => !!world.druidOf(id).roleType;
+  // Its own webs (Working Memory, the Diary, Revisions) sit in Home for a
+  // person to open; the Druid reaches them through its loop, not by looking.
+  const isFurniture = (id) => !!(world.druidOf(id).roleType || world.druidOf(id).system);
   const here = world.thingsIn(locus.web).filter(id => !isFurniture(id));
   const links = world.linksIn(locus.web).filter(l => !isFurniture(l.a) && !isFurniture(l.b));
 

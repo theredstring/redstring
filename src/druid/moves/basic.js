@@ -58,7 +58,9 @@ export const newWeb = {
     // A web started as a topic is not the inside of a Thing that happens to
     // share its name: no part checks there (world.js, tidy.js).
     const owner = ctx.world.ownerOf(web);
-    if (owner) ctx.world.setDruid(owner, { topic: true });
+    if (owner) ctx.world.setDruid(owner, { topic: true, madeBy: 'druid' });
+    // Its Thing goes in Home, so the web is found by opening Home.
+    ctx.world.shelve?.(web);
     ctx.world.focusWeb(web);
     return { ok: true, summary: `started the web ${name}`, touched: [ctx.world.ownerOf(web)].filter(Boolean), locus: { web, focus: null, path: [] }, wrote: true };
   }
@@ -279,7 +281,8 @@ export const goWeb = {
     // inside Engine" gave the same place two names.
     const { world } = ctx;
     const top = new Set(topLevelWebs(world));
-    return (ctx.view.webs || []).filter(w => top.has(w.id)).slice(0, 3).map(w => ({ label: `go to the web ${w.name}`, data: { web: w.id }, target: world.ownerOf(w.id) }));
+    const here = new Set(ctx.locus.web ? world.thingsIn(ctx.locus.web) : []);
+    return (ctx.view.webs || []).filter(w => top.has(w.id) && !here.has(world.ownerOf(w.id))).slice(0, 3).map(w => ({ label: `go to the web ${w.name}`, data: { web: w.id }, target: world.ownerOf(w.id) }));
   },
   async run(ctx, data) {
     ctx.world.focusWeb(data.web);

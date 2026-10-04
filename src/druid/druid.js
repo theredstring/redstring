@@ -54,6 +54,9 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
   }
   if (roles) {
     const { home, types } = await seedRoles(world);
+    // Every web it keeps or started hangs off Home, so none is lost (world.js
+    // shelve); a universe from before that is tidied as it wakes.
+    world.shelveAll?.();
     // Something on its mind at birth becomes its first open goal, so attention
     // has somewhere to go. With nothing, a Druid thinks about its own medium:
     // a first long run produced "Web of ideas", "Web of connections",

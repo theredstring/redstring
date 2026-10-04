@@ -24,7 +24,8 @@ import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import { applyToolResultToStore, collectApplyFailures, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
 import { useWizardConfirmationStore, pendingForConversation, buildConfirmationQuestion, beginWizardTurn } from '../../../services/wizardConfirmationGate.js';
 import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages, clearStuckStreamingFlags } from './toolCallStatus.js';
-import DruidView from '../../canvas/druid/DruidView.jsx';
+import DruidView, { DruidHeaderActions } from '../../canvas/druid/DruidView.jsx';
+import useDruidStore from '../../canvas/druid/druidStore.js';
 import debugConfig from '../../../utils/debugConfig.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
@@ -637,6 +638,7 @@ const LeftAIView = ({ compact = false,
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
   const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
+  const druidStatus = useDruidStore(s => s.status);
   // 'plan' | 'goal' — which contract ends a Wizard turn. Shared with AI settings.
   const [wizardMode, setWizardMode] = useWizardMode();
   // Kept only so the trigger's chevron can point at an open menu — the menu
@@ -3578,12 +3580,15 @@ const LeftAIView = ({ compact = false,
   // bridge daemon, so it sat red on web and iOS — where there is no bridge and
   // never will be — announcing the wizard as offline while it worked fine.
   // Bridge reachability still has an indicator of its own: the refresh button.
-  const wizardReady = hasAPIKey;
-  const wizardStatusTitle = wizardReady
-    ? 'Wizard ready — the agent runs in-app'
-    : 'No API key configured — set one to use the Wizard';
+  const wizardReady = viewMode === 'druid' ? druidStatus === 'living' : hasAPIKey;
+  const wizardStatusTitle = viewMode === 'druid'
+    ? (druidStatus === 'living' ? 'The Druid is awake' : 'The Druid is asleep')
+    : wizardReady
+      ? 'Wizard ready — the agent runs in-app'
+      : 'No API key configured — set one to use the Wizard';
 
-  const headerActionsEl = (
+  // The Druid has no conversations, key or bridge: just copy and clear.
+  const headerActionsEl = viewMode === 'druid' ? <DruidHeaderActions /> : (
     <div className="ai-header-actions">
       <PanelIconButton
         icon={Plus}
@@ -3809,8 +3814,8 @@ const LeftAIView = ({ compact = false,
       )}
 
 
-      {/* Tabs Bar */}
-      <div className="ai-tabs-bar">
+      {/* Tabs Bar: the Wizard's and Chat's conversations; the Druid has none */}
+      {viewMode !== 'druid' && <div className="ai-tabs-bar">
         <div
           className="ai-tabs-scroll"
           onWheel={(e) => {
@@ -3858,7 +3863,7 @@ const LeftAIView = ({ compact = false,
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
       {selectedTestTool && (
         <div className="ai-tool-tester-modal" style={{

@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Copy, Check, Eraser } from 'lucide-react';
 import { useTheme } from '../../../hooks/useTheme.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import useDruidStore from './druidStore.js';
@@ -54,6 +54,29 @@ function Said({ e, tokens }) {
         {e.text}
         {mine && e.pending && <div style={{ fontSize: 10, color: tokens.muted, marginTop: 2 }}>it will hear this when it wakes</div>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The Druid's buttons in the panel header, in place of the Wizard's (new
+ * conversation, API key, bridge): copy everything shown, and clear it.
+ */
+export function DruidHeaderActions() {
+  const empty = useDruidStore(s => s.stream.length === 0 && !s.throughLine);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return undefined;
+    const t = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(t);
+  }, [copied]);
+  const copy = () => {
+    navigator.clipboard?.writeText(useDruidStore.getState().transcript()).then(() => setCopied(true), () => {});
+  };
+  return (
+    <div className="ai-header-actions">
+      <PanelIconButton icon={copied ? Check : Copy} size={18} onClick={copy} disabled={empty} title={copied ? 'Copied' : 'Copy what it thought and said'} />
+      <PanelIconButton icon={Eraser} size={18} onClick={() => useDruidStore.getState().clear()} disabled={empty} title="Clear what is shown (the universe keeps everything)" />
     </div>
   );
 }

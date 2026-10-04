@@ -34,6 +34,30 @@ const readSettings = () => {
 
 let session = null;
 
+/**
+ * Everything the view shows, as plain text: the through line, then each moment
+ * (where it was, what it thought, what it chose and what came of it) and what
+ * was said either way. For pasting into a bug report or a conversation.
+ */
+export function transcriptOf({ stream = [], throughLine = '', held = [], error = null } = {}) {
+  const lines = [];
+  if (throughLine) lines.push(`Lately: ${throughLine}`);
+  if (held.length) lines.push(`Holding in mind: ${held.join(', ')}`);
+  if (lines.length) lines.push('');
+  for (const e of stream) {
+    if (e.kind === 'you') { lines.push(`You: ${e.text}${e.pending ? ' (not heard yet)' : ''}`, ''); continue; }
+    if (e.kind === 'reply') { lines.push(`The Druid: ${e.text}`, ''); continue; }
+    const where = [e.locus?.webName, e.locus?.focusName].filter(Boolean).join(' › ');
+    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}`);
+    if (e.thought) lines.push(`  ${e.thought}`);
+    lines.push(`  ${e.chose || 'did not choose'}${e.text ? ` → ${e.text}` : ''}${e.result?.ok === false ? ' (failed)' : ''}`);
+    if (e.result?.summary || e.slept) lines.push(`  ${e.result?.summary || ''}${e.slept ? ' · slept' : ''}`.trimEnd());
+    lines.push('');
+  }
+  if (error) lines.push(`Error: ${error}`);
+  return lines.join('\n').trim();
+}
+
 const keep = (stream) => stream.slice(-KEEP);
 
 export const useDruidStore = create((set, get) => ({
@@ -123,7 +147,10 @@ export const useDruidStore = create((set, get) => ({
     session.stop();
   },
 
-  clear: () => set({ stream: [] })
+  /** The stream as plain text (transcriptOf). */
+  transcript: () => transcriptOf(get()),
+
+  clear: () => set({ stream: [], throughLine: '', held: [], error: null })
 }));
 
 export default useDruidStore;

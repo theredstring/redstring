@@ -87,7 +87,10 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       return { ok: false, error: err?.message || String(err) };
     }
     if (!result || result.error) return { ok: false, error: result?.error || 'no result', result };
-    applyToolResult(toolName, result, `druid-${Date.now()}`, cid);
+    // Never enriched from Wikipedia: the Wizard's apply path fills a Thing that
+    // has no description yet with an article's text and picture, which landed
+    // before the Druid wrote its own and pulled names off toward the article.
+    applyToolResult(toolName, { ...result, enrich: false }, `druid-${Date.now()}`, cid);
     if (writeLanded(toolName, result, state()) === false) {
       return { ok: false, error: `${toolName} reported success but nothing changed in the graph`, result };
     }
@@ -133,7 +136,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     for (const p of state().nodePrototypes.values()) {
       if (p.semanticMetadata?.druid?.system === key) {
         const g = (p.definitionGraphIds || []).find(id => graph(id));
-        if (g) return g;
+        if (g) { shelve(g); return g; }
       }
     }
     const before = state().activeGraphId;
@@ -145,7 +148,52 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     if (before && graph(before)) state().setActiveGraph(before);
     // Keep the person's tabs as they were.
     if (state().closeGraphTab && !before2.includes(graphId)) state().closeGraphTab(graphId);
+    shelve(graphId);
     return graphId;
+  };
+
+  /** The Druid's Home web, found by its marker (roles.js makes it). */
+  const homeWeb = () => {
+    for (const p of state().nodePrototypes.values()) {
+      if (p.semanticMetadata?.druid?.homeOf) {
+        const g = (p.definitionGraphIds || []).find(id => graph(id));
+        if (g) return g;
+      }
+    }
+    return null;
+  };
+
+  /**
+   * Where a web the Druid keeps hangs, so it can be found by opening Home: a
+   * day's episodes in the Diary, the Diary and its other own webs in Home, and
+   * the webs it starts in Home too. A web whose Thing sits in no web can only
+   * be found through a tab; in a person's DruidTest universe 9 of 15 webs could
+   * not be reached from Home, Working Memory and the episodes among them.
+   */
+  const shelfFor = (graphId) => {
+    const d = druidOf(ownerOf(graphId) || '');
+    if (d.homeOf) return null;
+    if (String(d.system || '').startsWith('episodes-')) return systemWeb('diary', 'Diary', 'Each day the Druid has lived, and what happened in it.');
+    return homeWeb();
+  };
+
+  /** Put a web's Thing on its shelf if it sits nowhere yet. Returns whether it moved. */
+  const shelve = (graphId) => {
+    const owner = ownerOf(graphId);
+    if (!owner || websOf(owner).length) return false;
+    const shelf = shelfFor(graphId);
+    if (!shelf || shelf === graphId) return false;
+    return !!place(shelf, owner);
+  };
+
+  /** Shelve every web the Druid keeps or started that sits nowhere. Returns how many moved. */
+  const shelveAll = () => {
+    let n = 0;
+    for (const g of valuesOf(state().graphs)) {
+      const d = druidOf(ownerOf(g.id) || '');
+      if ((d.system || d.topic || d.madeBy === 'druid') && shelve(g.id)) n++;
+    }
+    return n;
   };
 
   /** A web marked as one of the Druid's own (not long-term memory content). */
@@ -368,7 +416,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     sameRelationAs: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
+    act, focusWeb, place, unplace, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
   };
   return api;
 }
