@@ -135,7 +135,8 @@ const life = createDruid({ world, mind, promptSpace }, {
   maxCycles: args.cycles ? Number(args.cycles) : Infinity,
   sleepEvery: Number(args['sleep-every']),
   signal: controller.signal,
-  speak: args.speak
+  speak: args.speak,
+  resumeFromHome: !args.fresh
 });
 
 try {

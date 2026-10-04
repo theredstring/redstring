@@ -171,6 +171,20 @@ What changed:
 - **Commands** (`commands/commands.js`, `--speak commands`): the Druid writes one plain line, a verb from a fixed list plus words ("connect Floor to Wood as made of", "make Bone inside Feet", "move White Oak out", "merge Flooring into Floor"). An executor parses it, resolves names, runs the same moves (checks included) and reports in plain words. What it can't parse is rewritten once by a helper. The menu's offers become suggested commands. Rename, move, merge and delete are new: tidying the Druid can choose. It can delete only what it made.
 - **Health** (`lab/health.js`, `scripts/druid-health.mjs`): these numbers for any universe, so runs can be compared.
 
+**Menu vs. commands, first lab (Apple's model, 10 scenarios × 5):**
+
+| | valid | sensible | best | landed | ms per decision |
+|---|---|---|---|---|---|
+| menu (with the checks) | 98% | 94% | 54% | 88% | 544 |
+| commands | 100% | 66% | 10% | 52% | 1013 |
+
+Writing a command made a 3B model do the composing, and it did it badly. It reached for the verb it knew best: "make Rock: a solid substance" was 15 of the 26 failed commands, a description written as a new Thing. Choosing lets code do the hard part. Menu mode's own misses were the connection check refusing "River flows Delta" (the relation came back as one word); a refused connection is now asked again once, as words that make a sentence.
+
+So the menu stays primary, and plain commands come in where they help:
+- **"Something else, as a command: ___"** runs the line through the executor, so every verb is reachable (merge, move, rename, delete) without composing every cycle. Text that is not a command is still recorded as something it wanted.
+- **Tidy moves** (`moves/tidy.js`) are offered when code sees a need. "Move X out of Y" comes from sleep's audit of insides ("is X a part of Y?", a few each sleep, flagged in `druid.misplaced`); "merge X into Y" comes from names that normalize the same. Sleep notices; waking decides.
+- Command mode stays available (`--speak commands`, the panel's switch), with its executor fixes: making what already exists means describing it, and `go`/`open` fall back to a web of that name.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

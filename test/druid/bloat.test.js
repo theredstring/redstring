@@ -14,6 +14,7 @@ import { seedRoles, activePlans, nextStep, roleType, openGoals } from '../../src
 import { makePlan, addStep, stepDone, pursueStep } from '../../src/druid/moves/roles.js';
 import { lapseStalledPlans, condenseEpisodes, pruneDead, PLAN_PATIENCE, EPISODE_KEEP, PRUNE_AFTER } from '../../src/druid/sleep.js';
 import { writeEpisode } from '../../src/druid/episodes.js';
+import { auditInsides, moveOut, mergeSame } from '../../src/druid/moves/tidy.js';
 
 beforeAll(() => quiet());
 
@@ -207,5 +208,33 @@ describe('pruning', () => {
     expect(world.proto(linkedOne.id)).toBeTruthy();
     expect(world.proto(held.id)).toBeTruthy();
     expect(stranded(world)).toEqual([]);
+  });
+});
+
+describe('tidying what is already there', () => {
+  it('sleep flags Things inside another that are not parts of it; the Druid is offered to move them out', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Body: { things: { Feet: 'feet' }, insides: { Feet: { Toe: 'a digit', 'White Oak': 'a tree' } } } } });
+    world.check = async (s) => !/White Oak is a part/.test(s);
+    const inside = world.insideOf(ids.Feet);
+    expect(await auditInsides(world)).toEqual(['White Oak in Feet']);
+    expect(await auditInsides(world)).toEqual([]); // asked once
+    const ctx = { world, locus: { web: inside, focus: null, path: [ids.Feet] } };
+    const items = moveOut.offer(ctx);
+    expect(items.map(i => i.label)).toEqual(['move White Oak out of Feet (it is not a part of it)']);
+    expect((await moveOut.run(ctx, items[0].data)).ok).toBe(true);
+    expect(world.thingsIn(inside).map(world.nameOf)).toEqual(['Toe']);
+    expect(world.thingsIn(webs.Body)).toContain(ids['White Oak']);
+    expect(moveOut.offer(ctx)).toEqual([]);
+  });
+
+  it('offers to merge a Thing written twice', async () => {
+    const { world } = await freshWorld();
+    const { ids } = await buildUniverse(world, { webs: { A: { things: { Tomato: 'red' } }, B: { things: { Tomatoes: 'red fruits' } } } });
+    const ctx = { world, view: { focus: { id: ids.Tomato, name: 'Tomato' } } };
+    const items = mergeSame.offer(ctx);
+    expect(items[0].label).toBe('merge Tomatoes into Tomato (the same Thing, written twice)');
+    expect((await mergeSame.run(ctx, items[0].data)).ok).toBe(true);
+    expect(world.proto(ids.Tomatoes)).toBeFalsy();
   });
 });

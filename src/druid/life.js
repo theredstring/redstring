@@ -187,7 +187,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         otherText = text;
         // A plain command, carried out by the executor (commands/commands.js):
         // the menu for choosing, plain words for what it does not offer.
-        const said = await saidAsCommand(text, mind);
+        const said = saidAsCommand(text);
         const mapped = said ? null : matchOther(text, menu);
         if (said) {
           result = await runCommand(ctx, said.verb, said.rest, {});
@@ -310,8 +310,8 @@ async function rewriteCommand(mind, line) {
 
 const VAGUE = /^(another|a|an|some|the|new|one more)?\s*(thing|one|something|it|stuff)s?$/i;
 
-/** Something-else text as a command: its first word a verb, or rewritten into one by a helper. */
-async function saidAsCommand(text, mind) {
+/** Something-else text as a command, when its first word is one of the verbs. */
+function saidAsCommand(text) {
   const t = String(text || '').trim().replace(/^["']|["']$/g, '');
   if (!t) return null;
   const [first, ...rest] = t.split(/\s+/);
@@ -319,5 +319,7 @@ async function saidAsCommand(text, mind) {
   if (VAGUE.test(rest.join(' '))) return null;
   const cmd = commandByVerb(first);
   if (cmd && cmd.parse(rest.join(' '))) return { verb: cmd.verb, rest: rest.join(' ') };
-  return mind.helper ? rewriteCommand(mind, t).catch(() => null) : null;
+  // Not rewritten: something it has no command for ("compose a song about
+  // it") is a want to record, not a command to force.
+  return null;
 }

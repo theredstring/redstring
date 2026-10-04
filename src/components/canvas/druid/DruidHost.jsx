@@ -15,8 +15,8 @@ import useDruidStore from './druidStore.js';
 const FONT = "'EmOne', sans-serif";
 
 const SPEAK = [
-  { value: 'commands', label: 'writes commands' },
-  { value: 'menu', label: 'picks from a menu' }
+  { value: 'menu', label: 'picks from a menu' },
+  { value: 'commands', label: 'writes commands' }
 ];
 
 const MINDS = [
@@ -121,7 +121,7 @@ function DruidPanel() {
                     label={m.label}
                     labelFontSize={11}
                     variant="outline"
-                    active={(settings.speak || 'commands') === m.value}
+                    active={(settings.speak || 'menu') === m.value}
                     onClick={() => setSetting('speak', m.value)}
                     style={{ padding: '4px 10px' }}
                   />

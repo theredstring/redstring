@@ -16,8 +16,10 @@ export const DEFAULT_DRUID_SETTINGS = {
   model: 'qwen/qwen3-4b-2507',
   seed: '',
   follow: true,
-  // 'menu': it chooses from moves offered; 'commands': it writes a plain command.
-  speak: 'commands'
+  // 'menu': it chooses from moves offered (and can write a command as "something
+  // else"); 'commands': it writes a plain command every time. The menu won the
+  // lab on Apple's model (sensible 94% vs 66%, 2026-10-04).
+  speak: 'menu'
 };
 
 const readSettings = () => {

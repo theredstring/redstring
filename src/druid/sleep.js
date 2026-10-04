@@ -28,6 +28,7 @@
 
 import { normalizeName as norm } from './names.js';
 import { activePlans, roleType, roleOf } from './roles.js';
+import { auditInsides } from './moves/tidy.js';
 
 const MIN_MEMBERS = 6;
 const MIN_GAIN = 2;
@@ -258,6 +259,8 @@ export async function sleep(ctx) {
   report.condensed = await condenseEpisodes(world, tick);
   const keep = new Set([ctx.locus?.focus, ...(ctx.held || []).map(h => h.id)].filter(Boolean));
   report.pruned = pruneDead(world, tick, keep);
+  // Insides holding what is not a part of them, flagged for the Druid to move out.
+  report.misplaced = await auditInsides(world);
 
   return report;
 }

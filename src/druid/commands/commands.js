@@ -515,6 +515,8 @@ export function asCommand(item, ctx) {
     case 'generalize': return `both ${n(d.a)} and ${n(d.b)} are kinds of NAME`;
     case 'chunk': return `group ${(d.members || []).map(n).join(', ')} as NAME`;
     case 'contrast': return `contrast ${n(d.a)} with ${n(d.b)}`;
+    case 'moveOut': return `move ${n(d.id)} out`;
+    case 'mergeSame': return `merge ${n(d.from)} into ${n(d.into)}`;
     default: return null;
   }
 }

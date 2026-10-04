@@ -11,12 +11,13 @@ import { runLife } from './life.js';
 import { BASIC_MOVES } from './moves/basic.js';
 import { ROLE_MOVES } from './moves/roles.js';
 import { COGNITIVE_MOVES } from './moves/cognitive.js';
+import { TIDY_MOVES } from './moves/tidy.js';
 import { seedRoles, roleType, openGoals, renderRoles, isRole, confidence, confidenceWords } from './roles.js';
 import { sleep as sleepCycle } from './sleep.js';
 import { nameGate, plausible, sameRelation } from './mind/helpers.js';
 
 export function druidMoves() {
-  return [...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES];
+  return [...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
 }
 
 /** What the Druid is shown about its goals, plans and the belief in focus. */
@@ -35,8 +36,15 @@ function extrasFor(world, locus) {
  * @param {boolean} [opts.roles=true]   seed and use goals, beliefs and plans
  * @param {boolean} [opts.sleeps=true]  consolidate every `sleepEvery` cycles
  */
-export async function* createDruid(deps, { roles = true, sleeps = true, ...opts } = {}) {
+export async function* createDruid(deps, { roles = true, sleeps = true, resumeFromHome = false, ...opts } = {}) {
   const { world, mind } = deps;
+  // A universe carries its Druid's loop state on its Home Thing (the app keeps
+  // it there), so whatever opens the universe can wake it where it left off.
+  if (resumeFromHome && !(opts.resume?.tick > 0)) {
+    const home = world.allThingsIncludingSystem().find(id => world.druidOf(id).homeOf);
+    const life = home && world.druidOf(home).life;
+    if (life?.tick > 0) opts = { ...opts, resume: JSON.parse(JSON.stringify(life)) };
+  }
   // Language judgments at the edges, each one contextless question (mind/helpers.js).
   if (mind?.helper) {
     world.nameGate ||= nameGate(mind);
