@@ -34,6 +34,8 @@ const readSettings = () => {
 };
 
 let session = null;
+// Why the Druid was stopped for memory, kept for the panel once the session ends.
+let memoryStop = null;
 
 const clip = (t, n) => { const x = String(t ?? '').replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n - 1)}…` : x; };
 
@@ -74,7 +76,7 @@ export function transcriptOf({ stream = [], throughLine = '', held = [], error =
     if (e.kind === 'you') { lines.push(`You: ${e.text}${e.pending ? ' (not heard yet)' : ''}`, ''); continue; }
     if (e.kind === 'reply') { lines.push(`The Druid: ${e.text}`, ''); continue; }
     const where = [e.locus?.webName, e.locus?.focusName].filter(Boolean).join(' › ');
-    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}${e.size ? `  (${e.size.webs} webs, ${e.size.things} Things)` : ''}`);
+    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}${e.size ? `  (${e.size.webs} webs, ${e.size.things} Things)` : ''}${e.heapMB ? `  heap ${e.heapMB} MB` : ''}`);
     if (e.thought) lines.push(`  thought: ${e.thought}`);
     if (e.menu?.length) lines.push(`  offered: ${e.menu.map((m, i) => `${m === e.chose ? '*' : ''}${i + 1} ${m}`).join(' | ')}`);
     for (const err of e.offerErrors || []) lines.push(`  offer broke: ${typeof err === 'string' ? err : JSON.stringify(err)}`);
@@ -91,6 +93,19 @@ export function transcriptOf({ stream = [], throughLine = '', held = [], error =
 }
 
 const keep = (stream) => stream.slice(-KEEP);
+
+/**
+ * The page's memory, where the browser reports it (Chromium, so Electron).
+ * A long run in the app once ran the renderer out of memory and left a white
+ * window; each moment now records the heap, and the Druid stops itself well
+ * before the limit, so the universe and the transcript survive.
+ */
+export const HEAP_STOP_SHARE = 0.75;
+export function heapNow() {
+  const m = globalThis.performance?.memory;
+  if (!m?.usedJSHeapSize) return null;
+  return { usedMB: Math.round(m.usedJSHeapSize / 1048576), limitMB: Math.round(m.jsHeapSizeLimit / 1048576) };
+}
 
 export const useDruidStore = create((set, get) => ({
   status: 'idle', // idle | starting | living | stopping
@@ -146,6 +161,8 @@ export const useDruidStore = create((set, get) => ({
           const moment = Object.fromEntries(Object.entries(r).filter(([k]) => !['state', 'calls', 'stats', 'reply', 'heard'].includes(k)));
           // What it was asked and answered, small, for Copy.
           moment.asked = (r.calls || []).map(compactCall);
+          const heap = heapNow();
+          if (heap) moment.heapMB = heap.usedMB;
           set(s => ({
             stream: keep([
               ...s.stream.map(e => (e.kind === 'you' && e.pending && r.heard?.length ? { ...e, pending: false } : e)),
@@ -156,6 +173,10 @@ export const useDruidStore = create((set, get) => ({
             held: r.held || [],
             throughLine: r.throughLine || s.throughLine
           }));
+          if (heap && heap.usedMB > heap.limitMB * HEAP_STOP_SHARE && session) {
+            memoryStop = `Stopped to keep the app from running out of memory (${heap.usedMB} of ${heap.limitMB} MB). Copy the transcript and send it to Claude.`;
+            session.stop();
+          }
           if (get().settings.follow && r.locus?.focus) {
             // After the canvas has drawn what this cycle wrote.
             setTimeout(() => runCanvasCommand('navigateToPrototypeInstances', r.locus.focus), 150);
@@ -163,7 +184,8 @@ export const useDruidStore = create((set, get) => ({
         },
         onStop: ({ reason, error }) => {
           session = null;
-          set({ status: 'idle', error: reason === 'error' ? error : null });
+          set({ status: 'idle', error: memoryStop || (reason === 'error' ? error : null) });
+          memoryStop = null;
         }
       });
       // What was said while it slept is heard as it wakes.

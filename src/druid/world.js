@@ -72,7 +72,10 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       const current = sm.druid && typeof sm.druid === 'object' ? sm.druid : {};
       const next = typeof patch === 'function' ? patch(current) : { ...current, ...patch };
       draft.semanticMetadata = { ...sm, druid: next };
-    });
+    // Its own memory, not an edit: recorded for undo, every moment's dozens
+    // of these held a copy of each Thing's metadata, and a long run in the app
+    // ran the renderer out of memory (historyPolicy.js).
+    }, { type: 'druid_memory' });
     return true;
   };
 

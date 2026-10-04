@@ -163,7 +163,12 @@ function DruidView({ active = true }) {
           </div>
         )}
         {stream.length > SHOWN && <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', padding: '8px 0' }}>{stream.length - SHOWN} earlier, in Copy</div>}
-        {stream.slice(-SHOWN).map((e, i) => (e.kind === 'moment' ? <Moment key={`m${e.tick}-${i}`} c={e} tokens={tokens} /> : <Said key={`s${i}`} e={e} tokens={tokens} />))}
+        {/* Keyed by where each sits in the whole stream: keyed by its place in
+            the last 150, every moment remounted each time a new one arrived. */}
+        {stream.slice(-SHOWN).map((e, i) => {
+          const at = Math.max(0, stream.length - SHOWN) + i;
+          return e.kind === 'moment' ? <Moment key={`m${e.tick}-${at}`} c={e} tokens={tokens} /> : <Said key={`s${at}`} e={e} tokens={tokens} />;
+        })}
         <div ref={bottomRef} />
       </div>
 

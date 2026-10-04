@@ -622,3 +622,22 @@ describe('where structures meet', () => {
     expect(webs.Earth).toBeTruthy();
   });
 });
+
+describe('its memory is not an edit', () => {
+  it('rewriting a Thing\'s Druid memory adds nothing to undo history; making the Thing does', async () => {
+    const { default: useHistoryStore } = await import('../../src/store/historyStore.js');
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { W: { things: {} } } });
+    world.actor = 'druid';
+    await new Promise(r => setTimeout(r, 80));
+    const before = useHistoryStore.getState().history.length;
+    const made = await world.createThing(webs.W, 'Granite');
+    await new Promise(r => setTimeout(r, 80));
+    const afterMake = useHistoryStore.getState().history.length;
+    expect(afterMake).toBeGreaterThan(before);
+    for (let i = 0; i < 20; i++) world.setDruid(made.id, (d) => ({ ...d, uses: (d.uses || 0) + 1 }));
+    await new Promise(r => setTimeout(r, 80));
+    expect(useHistoryStore.getState().history.length).toBe(afterMake);
+    expect(world.druidOf(made.id).uses).toBe(20);
+  });
+});
