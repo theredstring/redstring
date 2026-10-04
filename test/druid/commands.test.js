@@ -167,7 +167,7 @@ describe('a life in commands', () => {
     const mind = createMind({ backend: scripted((req) => {
       seen.push(req);
       if (req.schema.name === 'command') return lines.shift() || { verb: 'note', rest: 'resting' };
-      if (/what are you thinking now\?/.test(req.user)) return { text: 'Dough rises because of yeast.' };
+      if (/what are you thinking now\?|what have you been doing lately/.test(req.user)) return { text: 'Dough rises because of yeast.' };
       return { text: 'A plain description.' };
     }) });
     const out = [];

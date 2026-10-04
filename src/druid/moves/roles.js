@@ -130,7 +130,9 @@ export const makePlan = {
     if (!ctx.roles?.types.plan || activePlans(ctx.world).length > 0) return [];
     return topGoals(ctx, 1).map(g => ({
       label: `plan how to reach "${ctx.world.nameOf(g)}" — the first step: ___`,
-      blank: { question: `The first step toward "${ctx.world.nameOf(g)}", as a short to-do, like "mix the dough".`, maxWords: 5 },
+      // What to find out, not a chore: a step written as a to-do ("Find
+      // tutorial") turned a run about wooden floors into one about tutorials.
+      blank: { question: `The first thing to find out on the way to "${ctx.world.nameOf(g)}", in a few words.`, maxWords: 5 },
       data: { goal: g }, target: g
     }));
   },
@@ -154,7 +156,7 @@ export const addStep = {
   offer(ctx) {
     return activePlans(ctx.world).slice(0, 1).map(p => ({
       label: `add the next step to "${ctx.world.nameOf(p)}": ___`,
-      blank: { question: `The step after "${ctx.world.nameOf(planSteps(ctx.world, p).at(-1) || '')}", as a short to-do.`, maxWords: 5 },
+      blank: { question: `The next thing to find out, after "${ctx.world.nameOf(planSteps(ctx.world, p).at(-1) || '')}", in a few words.`, maxWords: 5 },
       data: { plan: p }, target: p
     }));
   },

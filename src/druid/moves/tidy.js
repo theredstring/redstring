@@ -29,7 +29,7 @@ export const moveOut = {
     flagged.sort((a, b) => (near.has(b.web) ? 1 : 0) - (near.has(a.web) ? 1 : 0));
     return flagged.slice(0, 2).map(({ id, web }) => ({
       label: `move ${world.nameOf(id)} out of ${world.nameOf(world.ownerOf(web))} (it is not a part of it)`,
-      data: { id, web }, target: id, prior: near.has(web) ? 0.9 : 0.6
+      data: { id, web }, target: id, prior: near.has(web) ? 0.9 : 0.8
     }));
   },
   async run(ctx, data) {
@@ -37,10 +37,10 @@ export const moveOut = {
     const owner = world.ownerOf(data.web);
     const outer = owner && world.websOf(owner).find(w => w !== data.web && !world.isSystemWeb(w));
     if (!outer) return fail(`${world.nameOf(owner)} sits in no web to move it out to`);
-    world.place(outer, data.id);
-    world.unplace(data.web, data.id);
+    const { kept, dropped } = await world.move(data.web, outer, data.id);
     world.setDruid(data.id, (d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'misplaced')));
-    return { ok: true, summary: `moved ${world.nameOf(data.id)} out of ${world.nameOf(owner)}, to ${world.graph(outer)?.name}`, touched: [data.id, owner], wrote: true };
+    const links = kept || dropped ? ` (${kept} connection${kept === 1 ? '' : 's'} kept${dropped ? `, ${dropped} left behind` : ''})` : '';
+    return { ok: true, summary: `moved ${world.nameOf(data.id)} out of ${world.nameOf(owner)}, to ${world.graph(outer)?.name}${links}`, touched: [data.id, owner], wrote: true };
   }
 };
 
@@ -81,7 +81,7 @@ export async function auditInsides(world, { limit = 6 } = {}) {
   let asked = 0;
   for (const g of world.state().graphs.values()) {
     const owner = world.ownerOf(g.id);
-    if (!owner || world.isSystemWeb(g.id) || !isObject(world, owner)) continue;
+    if (!owner || world.isSystemWeb(g.id) || !isObject(world, owner) || world.druidOf(owner).topic) continue;
     if (!world.websOf(owner).some(w => w !== g.id && !world.isSystemWeb(w))) continue; // a top-level web, not an inside
     for (const id of world.thingsIn(g.id)) {
       if (asked >= limit) return flagged;

@@ -32,6 +32,7 @@ export const namesIn = (s) => {
 
 import { topLevelWebs, isHome } from '../attention.js';
 import { isObject } from '../roles.js';
+import { relationFromSentence } from '../relations.js';
 import { tokenize } from '../recall.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
@@ -54,6 +55,10 @@ export const newWeb = {
     const r = await ctx.world.act('createGraph', { name });
     if (!r.ok) return fail(r.error);
     const web = [...ctx.world.state().graphs.values()].filter(g => g.name === name).pop()?.id;
+    // A web started as a topic is not the inside of a Thing that happens to
+    // share its name: no part checks there (world.js, tidy.js).
+    const owner = ctx.world.ownerOf(web);
+    if (owner) ctx.world.setDruid(owner, { topic: true });
     ctx.world.focusWeb(web);
     return { ok: true, summary: `started the web ${name}`, touched: [ctx.world.ownerOf(web)].filter(Boolean), locus: { web, focus: null, path: [] }, wrote: true };
   }
@@ -78,7 +83,7 @@ export const make = {
     // Not a part of what this web is the inside of: it went one level out.
     let summary = r.movedOut ? `made ${name} — not a part of ${world.nameOf(world.ownerOf(locus.web))}, so it went to ${world.graph(r.web)?.name}` : `made ${name}`;
     if (data?.connectTo && data.connectTo !== r.id && !r.movedOut) {
-      const rel = await ctx.ask(`${world.nameOf(data.connectTo)} ___ ${name}. What is the relation? (a verb or short phrase)`, 3);
+      const rel = await ctx.ask(`How do ${world.nameOf(data.connectTo)} and ${name} relate? Say it as one short plain sentence that names both.`, 12);
       if (rel) {
         const c = await connectSaying(ctx, data.connectTo, r.id, rel);
         if (c.ok) { summary += `: ${world.nameOf(data.connectTo)} ${c.relation} ${name}`; touched.push(data.connectTo); }
@@ -96,11 +101,26 @@ export const make = {
  * words that do. "River flows Delta" was refused (it is not a sentence) where
  * "River flows into Delta" was meant; "Dog is Cat" was refused and should be.
  */
-export async function connectSaying(ctx, a, b, relation) {
+export async function connectSaying(ctx, a, b, said) {
   const { world } = ctx;
-  let c = await world.connect(ctx.locus.web, a, b, relation);
+  // A sentence ("Bones support the feet") gives the relation by what lies
+  // between the names; a fragment is taken as the relation itself.
+  const fromSentence = relationFromSentence(said, world.nameOf(a), world.nameOf(b));
+  // Said the other way round ("Screwdrivers drive screws into Boards"): connect it that way.
+  const backward = !fromSentence && relationFromSentence(said, world.nameOf(b), world.nameOf(a));
+  if (backward) {
+    const c = await world.connect(ctx.locus.web, b, a, backward, { fromSentence: true });
+    return c.ok ? { ...c, relation: c.relation || backward, reversed: true } : c;
+  }
+  // A sentence that is not one relation between them is not a relation either.
+  if (!fromSentence && String(said || '').trim().split(/\s+/).length > 4) {
+    return { ok: false, error: `could not tell from "${String(said).trim()}" how ${world.nameOf(a)} relates to ${world.nameOf(b)}` };
+  }
+  const relation = fromSentence || String(said || '').trim();
+  let c = await world.connect(ctx.locus.web, a, b, relation, { fromSentence: !!fromSentence });
   if (!c.ok && /does not make sense/.test(c.error || '')) {
-    const again = await ctx.ask(`"${world.nameOf(a)} ${relation} ${world.nameOf(b)}" does not read as a true plain sentence. Give the relation as words that do (like "flows into"), or "none" if they are not related.`, 4);
+    // No example in the question: a small model copies it ("flows into", for tutorials).
+    const again = await ctx.ask(`"${world.nameOf(a)} ${relation} ${world.nameOf(b)}" does not read as a true plain sentence. Give the relation as the words that make "${world.nameOf(a)} ___ ${world.nameOf(b)}" a true plain sentence, or "none" if they are not related.`, 4);
     if (again && !/^none\b/i.test(again)) c = await world.connect(ctx.locus.web, a, b, again);
   }
   return c.ok ? { ...c, relation: c.relation || relation } : c;
@@ -124,7 +144,9 @@ export const connect = {
     return ctx.view.peers.filter(p => !linked.has(p.id) && isObject(ctx.world, p.id)).slice(0, 4).map(p => ({
       label: `connect ${f.name} to ${p.name}`,
       prior: 0.9 / (1 + degree / 2),
-      blank: { question: `${f.name} ___ ${p.name}. What is the relation? (a verb or short phrase)${reuse}`, maxWords: 3 },
+      // Either order: told to begin with the focus, it wrote "Wood is a type
+      // of Wooden planks" — the order forced the fact backwards.
+      blank: { question: `How do ${f.name} and ${p.name} relate? Say it as one short plain sentence that names both.${reuse}`, maxWords: 12 },
       data: { a: f.id, b: p.id },
       target: p.id
     }));

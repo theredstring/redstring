@@ -34,6 +34,8 @@ import { ungroundedNames, buildMemoryIndex } from './recall.js';
 import { DEFAULT_PROMPT_SPACE } from './promptSpace.js';
 import { thoughtSimilarity } from './runDruid.js';
 import { VERBS, renderCommands, asCommand, runCommand, commandByVerb } from './commands/commands.js';
+import { throughLineDue, keepThroughLine, stillSaid, renderDialogue, saidSources } from './dialogue.js';
+import { extendTrail, renderTrail } from './recency.js';
 
 const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|defined)\b/i;
 const LOOP_SIZE = 3;
@@ -58,6 +60,8 @@ const RECENT_SIZE = 6;
  * @param {string}   [opts.seed]
  * @param {AbortSignal} [opts.signal]
  * @param {'menu'|'commands'} [opts.speak]  choose from a menu of moves, or write a plain command (commands/commands.js)
+ * @param {Function} [opts.hear]      () → [{ text }]: what a person has said since the last moment (dialogue.js)
+ * @param {Function} [opts.onHeard]   async (world, text, tick) → a line for the notice, if what was said changed something (e.g. became a goal)
  */
 export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE }, {
   resume = {},
@@ -72,7 +76,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
   maxCycles = Infinity,
   seed = '',
   signal = null,
-  speak = 'menu'
+  speak = 'menu',
+  hear = () => [],
+  onHeard = null
 } = {}) {
   const st = {
     tick: resume.tick || 0,
@@ -84,6 +90,10 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     writes: Array.isArray(resume.writes) ? [...resume.writes] : [],
     refused: resume.refused && typeof resume.refused === 'object' ? { ...resume.refused } : {},
     idle: resume.idle || 0,
+    throughLine: resume.throughLine || '',
+    throughLineAt: resume.throughLineAt || 0,
+    said: Array.isArray(resume.said) ? [...resume.said] : [],
+    trail: Array.isArray(resume.trail) ? [...resume.trail] : [],
     notice: ''
   };
   if (st.tick > 0) wake(world, isOpenGoal);
@@ -96,12 +106,23 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const tick = st.tick;
     if (tick > 1) fade(world);
 
+    // ── HEAR ──────────────────────────────────────────────────────────────
+    // What a person said since the last moment: kept for a while, shown with
+    // every choice, and steering attention (dialogue.js).
+    const heard = (hear() || []).map(h => String(h?.text ?? h).trim()).filter(Boolean);
+    for (const text of heard) {
+      st.said = [...st.said, { text, tick }].slice(-6);
+      const changed = onHeard ? await onHeard(world, text, tick).catch(() => null) : null;
+      if (changed) st.notice = [st.notice, changed].filter(Boolean).join('\n');
+    }
+
     // ── ATTEND ────────────────────────────────────────────────────────────
     const heldNow = held(world);
     const baseSources = [
       ...(st.locus.focus ? [{ id: st.locus.focus, weight: 1 }] : []),
       ...heldNow.map(h => ({ id: h.id, weight: h.a })),
-      ...sources(world, tick)
+      ...sources(world, tick),
+      ...saidSources(world, st.said, tick)
     ];
     let { activation, index } = computeActivation(world, { tick, sources: baseSources });
     st.locus = settleLocus(world, st.locus, activation);
@@ -111,8 +132,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const extra = extras(world, st.locus);
     const sections = () => ({
       system: promptSpace.system,
-      wm: [renderHeld(world), extra].filter(Boolean).join('\n'),
-      view: renderView(view),
+      wm: [renderDialogue(st, tick), renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
+      view: renderView(view, { world, tick, writes: st.writes, trail: st.trail }),
       loop: st.loop.length ? `What you were just thinking:\n${st.loop.map(t => `- ${t}`).join('\n')}` : (seed && tick === 1 ? `On your mind as you wake: ${seed}` : ''),
       notice: st.notice
     });
@@ -225,6 +246,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // Moving about without doing anything, cycle after cycle, is said out loud.
     st.idle = result.ok && !result.wrote && NAVIGATION.has(result.as?.move || item?.move.id) ? st.idle + 1 : 0;
     if (st.idle >= 2) st.notice = [st.notice, 'You have been moving around without doing anything. Do something where you are: make, connect, describe or tidy.'].filter(Boolean).join('\n');
+    const before = st.locus;
     if (result.locus) st.locus = { ...st.locus, ...result.locus };
 
     // ── REMEMBER ──────────────────────────────────────────────────────────
@@ -232,6 +254,11 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     for (const id of touched) { recordUse(world, id, tick); hold(world, id, tick); }
     if (st.locus.focus && world.proto(st.locus.focus)) { recordUse(world, st.locus.focus, tick); hold(world, st.locus.focus, tick); }
     associate(world, [...touched, ...held(world).slice(0, 3).map(h => h.id)], tick);
+    // The recency trail: where it went and what it did, built from what happened.
+    st.trail = extendTrail(st.trail, {
+      tick, before, after: st.locus, webName: world.graph(st.locus.web)?.name, focusName: world.nameOf(st.locus.focus),
+      wrote: result.ok && result.wrote, summary: result.summary
+    });
     let episode = null;
     if (result.ok && result.wrote) {
       st.writes = [...st.writes, { tick, move: commandLine ? commandLine.split(' ')[0] : (item?.move.id || null), touched }].slice(-RECENT_SIZE);
@@ -241,9 +268,12 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // ── THINK ─────────────────────────────────────────────────────────────
     ({ activation } = computeActivation(world, { tick, sources: baseSources }));
     const thinkView = buildView(world, settleLocus(world, st.locus, activation), activation, { tick });
+    // The through line is shown when choosing, not when thinking: shown here,
+    // it became the thought, ten moments running.
     const thoughtCall = await mind.fill({
       ...sections(),
-      view: renderView(thinkView),
+      wm: [renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
+      view: renderView(thinkView, { world, tick, writes: st.writes, trail: st.trail }),
       notice: `You just ${result.ok ? result.summary : `tried, but ${result.summary}`}.`,
       question: promptSpace.questions.thought,
       maxWords: 30
@@ -253,9 +283,31 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // verbatim, a repeated thought becomes an attractor. On its first v2 run a
     // 4B model spent ten cycles restating one image of "breath stitching
     // silence", each version seeding the next.
-    const repeating = thought && st.loop.some(prev => thoughtSimilarity(thought, prev) > 0.6);
+    const repeating = thought && [...st.loop, st.throughLine].filter(Boolean).some(prev => thoughtSimilarity(thought, prev) > 0.6);
     if (thought && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
     if (repeating) st.notice = [st.notice, 'You keep coming back to the same thought. Look at something else, or do something with it.'].filter(Boolean).join('\n');
+
+    // ── ANSWER, and keep the through line ─────────────────────────────────
+    let reply = null;
+    if (heard.length) {
+      const r = await mind.fill({
+        ...sections(),
+        notice: `You just ${result.ok ? result.summary : `tried, but ${result.summary}`}.`,
+        question: `A person just said to you: "${heard[heard.length - 1]}". Answer them in one or two plain sentences, as yourself: what you think, or what you will do.`,
+        maxWords: 40
+      });
+      reply = r.text;
+    }
+    if (throughLineDue(st, tick)) {
+      const r = await mind.fill({
+        ...sections(),
+        question: `${renderTrail(st.trail, tick) || 'You have not done much yet.'}\nFrom that, in one plain sentence: what have you been doing lately, and what are you after? Name the Things you mean.`,
+        maxWords: 30
+      });
+      const kept = keepThroughLine(world, st.throughLine, r.text);
+      if (kept) st.throughLine = kept;
+      st.throughLineAt = tick;
+    }
 
     // ── CHECK ─────────────────────────────────────────────────────────────
     let unbacked = [];
@@ -278,6 +330,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       locus: { ...st.locus, webName: world.graph(st.locus.web)?.name || null, focusName: world.nameOf(st.locus.focus) || null },
       menu: menu.map(m => m.label),
       offerErrors: ctx.offerErrors || [],
+      heard,
+      reply,
+      throughLine: st.throughLine,
       chose: commandLine || (item ? item.label : null),
       move: commandLine ? (result.as?.move || `cmd:${commandLine.split(' ')[0]}`) : (item?.move.id || null),
       text,
@@ -298,11 +353,14 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 }
 
 function snapshot(st) {
-  return { tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle };
+  return {
+    tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
+    throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail
+  };
 }
 
 /** Failures that are a check saying no, as opposed to a slip. */
-const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself/i;
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here/i;
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

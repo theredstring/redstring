@@ -2,19 +2,20 @@ import { create } from 'zustand';
 import { runCanvasCommand } from '../../../utils/canvas/canvasCommands.js';
 
 /**
- * The Druid panel's state: whether it is living, what it has done lately, and
- * the choices for the next start (model, seed, follow). The Druid itself is in
- * src/druid/; this only starts it, stops it, and keeps what the panel shows.
+ * The Druid's state in the app: whether it is living, what it has thought and
+ * done lately, what you have said to it and what it said back, and the choices
+ * for the next waking (model, way of choosing, follow). The Druid itself is in
+ * src/druid/; this starts it, stops it, passes on what you say, and keeps what
+ * the Wizard's Druid view shows.
  */
 
 const SETTINGS_KEY = 'redstring_druid_settings';
-const KEEP = 60;
+const KEEP = 120;
 
 export const DEFAULT_DRUID_SETTINGS = {
   mind: 'afm',
   endpoint: 'http://localhost:1234/v1/chat/completions',
   model: 'qwen/qwen3-4b-2507',
-  seed: '',
   follow: true,
   // 'menu': it chooses from moves offered (and can write a command as "something
   // else"); 'commands': it writes a plain command every time. The menu won the
@@ -33,17 +34,31 @@ const readSettings = () => {
 
 let session = null;
 
+const keep = (stream) => stream.slice(-KEEP);
+
 export const useDruidStore = create((set, get) => ({
   status: 'idle', // idle | starting | living | stopping
   error: null,
-  cycles: [],
+  /** What the view shows, oldest first: { kind: 'moment', ...cycle } | { kind: 'you' | 'reply', text } */
+  stream: [],
   stats: null,
+  held: [],
+  throughLine: '',
   settings: readSettings(),
 
   setSetting: (key, value) => {
     const settings = { ...get().settings, [key]: value };
     set({ settings });
     try { globalThis.localStorage?.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* per-device convenience only */ }
+  },
+
+  /** Say something to it: heard on its next moment, or when it next wakes. */
+  say: (text) => {
+    const t = String(text || '').trim();
+    if (!t) return;
+    const pending = !session;
+    set(s => ({ stream: keep([...s.stream, { kind: 'you', text: t, pending }]) }));
+    if (session) session.say(t);
   },
 
   start: async () => {
@@ -58,7 +73,7 @@ export const useDruidStore = create((set, get) => ({
         import('../../../druid/promptSpace.js'),
         import('../../../druid/prompt-space.redstring?raw')
       ]);
-      const { settings } = get();
+      const { settings, stream } = get();
       const backend = await backendFor(settings);
       let promptJson = null;
       try { promptJson = JSON.parse(shipped.default); } catch { promptJson = null; }
@@ -69,12 +84,20 @@ export const useDruidStore = create((set, get) => ({
         promptSpace: promptSpaceFrom(promptJson, 'shipped'),
         backend
       }, {
-        seed: settings.seed,
         speak: settings.speak,
         onCycle: (r) => {
-          // The panel shows the moment, not the loop's internals.
-          const shown = Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'state' && k !== 'calls' && k !== 'stats'));
-          set(s => ({ cycles: [shown, ...s.cycles].slice(0, KEEP), stats: r.stats }));
+          // The view shows the moment, not the loop's internals.
+          const moment = Object.fromEntries(Object.entries(r).filter(([k]) => !['state', 'calls', 'stats', 'reply', 'heard'].includes(k)));
+          set(s => ({
+            stream: keep([
+              ...s.stream.map(e => (e.kind === 'you' && e.pending && r.heard?.length ? { ...e, pending: false } : e)),
+              { kind: 'moment', ...moment },
+              ...(r.reply ? [{ kind: 'reply', text: r.reply, tick: r.tick }] : [])
+            ]),
+            stats: r.stats,
+            held: r.held || [],
+            throughLine: r.throughLine || s.throughLine
+          }));
           if (get().settings.follow && r.locus?.focus) {
             // After the canvas has drawn what this cycle wrote.
             setTimeout(() => runCanvasCommand('navigateToPrototypeInstances', r.locus.focus), 150);
@@ -85,6 +108,8 @@ export const useDruidStore = create((set, get) => ({
           set({ status: 'idle', error: reason === 'error' ? error : null });
         }
       });
+      // What was said while it slept is heard as it wakes.
+      for (const e of stream) if (e.kind === 'you' && e.pending) session.say(e.text);
       set({ status: 'living' });
     } catch (err) {
       session = null;
@@ -98,7 +123,7 @@ export const useDruidStore = create((set, get) => ({
     session.stop();
   },
 
-  clear: () => set({ cycles: [] })
+  clear: () => set({ stream: [] })
 }));
 
 export default useDruidStore;

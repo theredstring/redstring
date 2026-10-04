@@ -40,6 +40,7 @@ const { values: args } = parseArgs({
     fresh: { type: 'boolean', default: false },
     verbose: { type: 'boolean', default: false },
     speak: { type: 'string', default: process.env.DRUID_SPEAK || 'menu' },
+    say: { type: 'string', multiple: true, default: [] },
     help: { type: 'boolean', short: 'h', default: false }
   }
 });
@@ -59,6 +60,7 @@ if (args.help) {
   --sleep-every <n>      cycles between sleeps [12]
   --fresh                ignore saved state (the universe is kept)
   --speak menu|commands  choose from a menu of moves, or write plain commands [menu]
+  --say "N:text"         say something to it at its N-th cycle of this run (repeatable)
   --verbose              keep the store's and tools' own logging
 `);
   process.exit(0);
@@ -129,7 +131,13 @@ process.on('SIGINT', () => {
 out(`${accent('The Druid')} ${dim(`· ${backend.id} · ${args.window}-token calls · ${universePath}`)}\n`);
 out(dim(`  ${world.allThings().length} Things · prompt space: ${promptSpace.source}${resume.tick ? ` · waking at cycle ${resume.tick + 1}` : ' · first waking'}\n`));
 
+// Things to say, by cycle of this run: --say "5:think about bridges".
+const toSay = (args.say || []).map(x => /^(\d+):(.*)$/.exec(x)).filter(Boolean).map(m => ({ at: Number(m[1]), text: m[2].trim() }));
+let cyclesRun = 0;
+const hear = () => toSay.filter(x => x.at === cyclesRun + 1).map(x => ({ text: x.text }));
+
 const life = createDruid({ world, mind, promptSpace }, {
+  hear,
   resume,
   seed: args.seed,
   maxCycles: args.cycles ? Number(args.cycles) : Infinity,
@@ -152,6 +160,10 @@ try {
     out(`  ${dim(r.result.summary)}\n`);
     if (r.thought) out(`  ${r.thought}\n`);
     if (r.unbacked?.length) out(`  ${red(`(claimed ${r.unbacked.join(', ')} — not in the universe)`)}\n`);
+    cyclesRun++;
+    for (const h of r.heard || []) out(`  ${accent('you:')} ${h}\n`);
+    if (r.reply) out(`  ${accent('it:')} ${r.reply}\n`);
+    if (r.throughLine) out(dim(`  lately: ${r.throughLine}\n`));
     if (r.slept) out(`  ${accent('☾ slept')} ${dim(JSON.stringify(r.slept).slice(0, 300))}\n`);
     out(dim(`  held: ${r.held.join(', ') || '—'} · ${r.size.things} Things, ${r.size.webs} webs · calls ${mind.stats.calls}, invalid ${mind.stats.invalid}\n`));
 

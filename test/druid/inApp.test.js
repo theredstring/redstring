@@ -20,7 +20,8 @@ beforeAll(async () => {
   ({ ensureHome } = await import('../../src/druid/roles.js'));
 });
 
-const THOUGHT_Q = /what are you thinking now\?/;
+// The thought, and the through line now and then (dialogue.js): answered without consuming a step.
+const THOUGHT_Q = /what are you thinking now\?|what have you been doing lately/;
 
 /** Picks the first option, names things in turn, thinks a fixed thought. */
 const simpleMind = () => {

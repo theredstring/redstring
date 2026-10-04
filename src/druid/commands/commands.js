@@ -264,9 +264,9 @@ export const COMMANDS = [
         to = owner ? world.websOf(owner).find(w => w !== locus.web && !world.isSystemWeb(w)) : null;
         if (!to) return fail('this web is not inside anything, so there is no "out"');
       }
-      world.place(to, id);
-      world.unplace(locus.web, id);
-      return { ok: true, summary: `moved ${world.nameOf(id)} ${a.into ? `inside ${a.into}` : `out to ${world.graph(to)?.name}`}`, touched: [id], locus: { ...locus, focus: null }, wrote: true };
+      const { kept, dropped } = await world.move(locus.web, to, id);
+      const links = kept || dropped ? ` (${kept} connection${kept === 1 ? '' : 's'} kept${dropped ? `, ${dropped} left behind` : ''})` : '';
+      return { ok: true, summary: `moved ${world.nameOf(id)} ${a.into ? `inside ${a.into}` : `out to ${world.graph(to)?.name}`}${links}`, touched: [id], locus: { ...locus, focus: null }, wrote: true };
     }
   },
   {

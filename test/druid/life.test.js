@@ -17,6 +17,8 @@ import { itemKey } from '../../src/druid/moves/menu.js';
 beforeAll(() => quiet());
 
 const THOUGHT_Q = /what are you thinking now\?/;
+// The through line, asked now and then (dialogue.js): answered without consuming a step or a thought.
+const THROUGH_Q = /what have you been doing lately/;
 
 /**
  * steps: [{ choose: /label/ } | { fill: 'text' }] consumed in order.
@@ -28,6 +30,7 @@ function planMind(steps, thoughts = []) {
   const seen = [];
   const backend = scripted((req) => {
     seen.push(req);
+    if (req.schema.name === 'fill' && THROUGH_Q.test(req.user)) return { text: 'I have been working on what is in front of me.' };
     if (req.schema.name === 'fill' && THOUGHT_Q.test(req.user)) return { text: thoughts.shift() || 'I keep going.' };
     const step = queue.shift();
     if (!step) return req.schema.name === 'choice' ? { choice: '1' } : { text: 'nothing more' };
@@ -66,7 +69,9 @@ describe('runLife over the real store', () => {
 
     // What it sees: its view, what it holds, and its own last thoughts.
     const lastChoice = seen.filter(r => r.schema.name === 'choice').at(-1);
-    expect(lastChoice.user).toMatch(/In focus: River — Water moving in a channel\./);
+    expect(lastChoice.user).toMatch(/In focus: River \(just now\) — Water moving in a channel\./);
+    // The recency trail: what it did lately, newest first, built by the loop.
+    expect(lastChoice.user).toMatch(/What you did lately, newest first:\n- just now: made River\n- 2 moments ago: started the web Rivers/);
     expect(lastChoice.user).toMatch(/Held in mind:\n- River/);
     expect(lastChoice.user).toMatch(/What you were just thinking:\n- A web for rivers\.\n- A river\./);
     expect(cycles[2].locus.focusName).toBe('Valley');

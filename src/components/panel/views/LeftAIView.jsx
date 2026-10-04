@@ -19,13 +19,13 @@ import ToolCallCard from '../../ToolCallCard.jsx';
 import WizardActionChip from '../../wizard/WizardActionChip.jsx';
 import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
-import { DRUID_SYSTEM_PROMPT } from '../../../services/agent/DruidPrompt.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import { applyToolResultToStore, collectApplyFailures, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
 import { useWizardConfirmationStore, pendingForConversation, buildConfirmationQuestion, beginWizardTurn } from '../../../services/wizardConfirmationGate.js';
 import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages, clearStuckStreamingFlags } from './toolCallStatus.js';
-import DruidInstance from '../../../services/DruidInstance.js';
+import DruidView from '../../canvas/druid/DruidView.jsx';
+import debugConfig from '../../../utils/debugConfig.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { queueThumbnailFetch } from '../../../services/imageCache.js';
@@ -36,7 +36,7 @@ import { estimateTokens, estimateObjectTokens, MAX_TOOL_RESULT_CHARS, CHARS_PER_
 import { compactConversation } from '../../../wizard/compactConversation.js';
 import { WIZARD_SYSTEM_PROMPT } from '../../../services/agent/WizardPrompt.js';
 import { useWizardMode } from '../../../hooks/useWizardMode.js';
-import { readWizardMode, wizardModeLabel, WIZARD_MODE_GOAL, WIZARD_MODE_PLAN, WIZARD_MODE_OPTIONS } from '../../../wizard/wizardMode.js';
+import { readWizardMode, wizardModeLabel, WIZARD_MODE_GOAL, WIZARD_MODE_OPTIONS } from '../../../wizard/wizardMode.js';
 import { renderGoalText } from '../../../wizard/tools/declareGoal.js';
 // The agent loop, its tools, the LLM client and Wikipedia enrichment all run in
 // this process now. None of these reach a server.
@@ -646,6 +646,9 @@ const LeftAIView = ({ compact = false,
     setShowModeMenu(true);
     showContextMenuForElement(e.currentTarget, [
       { value: 'wizard', label: 'The Wizard' },
+      // The Druid, a small local model living in the open universe; shown
+      // while Settings › Debug › The Druid is on (src/druid/).
+      ...(debugConfig.isDruidEnabled() ? [{ value: 'druid', label: 'The Druid' }] : []),
       { value: 'chat', label: 'Chat' },
     ].map((opt) => ({
       label: opt.label,
@@ -724,7 +727,6 @@ const LeftAIView = ({ compact = false,
   const consecutiveAskErrorsRef = React.useRef(0);
   const queuePausedRef = React.useRef(false);
   const [wizardStage, setWizardStage] = React.useState(null); // Track current wizard stage
-  const [druidInstance, setDruidInstance] = React.useState(null); // Druid cognitive state manager
   // Synchronously hydrate conversations from localStorage to avoid async race conditions.
   // On web, localStorage is the only persistence layer so this gives us the full picture immediately.
   // On Electron, this provides a fast initial load; the mount effect below may override with workspace data.
@@ -1703,21 +1705,6 @@ const LeftAIView = ({ compact = false,
     } catch (error) { console.error('Failed to check API key:', error); }
   };
 
-  // Initialize DruidInstance when switching to Druid mode
-  React.useEffect(() => {
-    if (viewMode === 'druid' && !druidInstance) {
-      console.log('[Druid] Initializing DruidInstance...');
-      const instance = new DruidInstance(useGraphStore);
-
-      // Ensure workspace is ready
-      instance.ensureWorkspace().then(() => {
-        console.log('[Druid] Workspace initialized');
-        setDruidInstance(instance);
-      }).catch(err => {
-        console.error('[Druid] Failed to initialize workspace:', err);
-      });
-    }
-  }, [viewMode, druidInstance]);
 
   // Target the ref, not the closure: a send that lands right after a new tab
   // opens (every Ask The Wizard prompt without "add to current") runs in a
@@ -2399,22 +2386,6 @@ const LeftAIView = ({ compact = false,
       setCurrentAgentRequest(null);
     };
 
-    // Druid Mode (Placeholder for full switch)
-    if (viewMode === 'druid') {
-      try {
-        // Reuse the autonomous agent handler but with Druid prompt
-        await handleAutonomousAgent(messagePayload, 'druid', { toolPolicy, history: historySnapshot });
-        consecutiveAskErrorsRef.current = 0; // a completed ask resets the breaker
-      } catch (error) {
-        console.error('Druid error:', error);
-        addMessage('system', `Druid error: ${error.message}`);
-        recordAskFailure();
-      } finally {
-        releaseRun();
-      }
-      return;
-    }
-
     // Wizard / Chat Mode
     try {
       if (!hasAPIKey) {
@@ -2638,10 +2609,7 @@ const LeftAIView = ({ compact = false,
       }
 
       // Build rich context with actual graph data (not just ID)
-      let effectiveActiveGraphId = activeGraphId;
-      if (persona === 'druid' && druidInstance?.workspaceGraphId) {
-        effectiveActiveGraphId = druidInstance.workspaceGraphId;
-      }
+      const effectiveActiveGraphId = activeGraphId;
 
       const activeGraphData = effectiveActiveGraphId && graphsMap && graphsMap.has(effectiveActiveGraphId)
         ? graphsMap.get(effectiveActiveGraphId)
@@ -2840,9 +2808,8 @@ const LeftAIView = ({ compact = false,
           maxIterationsLocal: readWizardIterations('rs.wizard.maxIterationsLocal', 177),
           maxIterationsCloud: readWizardIterations('rs.wizard.maxIterationsCloud', 77),
           // Read fresh rather than from the hook: this handler is a closure and
-          // the user may have flipped the mode since it was created. The Druid
-          // persona has its own prompt and no goal contract.
-          wizardMode: persona === 'druid' ? WIZARD_MODE_PLAN : readWizardMode(),
+          // the user may have flipped the mode since it was created.
+          wizardMode: readWizardMode(),
         },
         modelTier: apiConfig.modelTier || 'large'
       } : null;
@@ -2856,7 +2823,6 @@ const LeftAIView = ({ compact = false,
         apiKey,
         apiConfig: wizardApiConfig,
         cid: `wizard-${Date.now()}`,
-        systemPrompt: persona === 'druid' ? DRUID_SYSTEM_PROMPT : undefined,
         toolPolicy: askToolPolicy,
         signal: abortController.signal
       });
@@ -2870,9 +2836,6 @@ const LeftAIView = ({ compact = false,
       // Track top-level step statuses to detect step-level vs substep-level changes
       let lastTopLevelStepStatuses = null;
       let planCardCounter = 0;
-      // Mirror of the bubble's text, accumulated out here rather than read back
-      // out of the state updater — see the purity note on `eventNow` below.
-      let accumulatedText = '';
 
       // Same reason as _preCreatedConvId above: this must name the tab the run
       // was started in, which is what the ref holds and the closure may not.
@@ -2972,7 +2935,6 @@ const LeftAIView = ({ compact = false,
             // already-finished tool call.
             const eventNow = Date.now();
 
-            if (event.type === 'response' && event.content) accumulatedText += event.content;
 
             // Internal updater function to apply changes to a message array.
             // Keep it pure: no clock, no logging, no store writes, no calls out
@@ -3174,14 +3136,6 @@ const LeftAIView = ({ compact = false,
               // unfinished plan would otherwise be resumed by the next ask.
               if (event.reason === 'goal_satisfied' || event.reason === 'goal_failed') {
                 try { useGraphStore.getState().clearWizardPlanForConversation(targetConversationId); } catch { /* store unavailable */ }
-              }
-              if (persona === 'druid' && druidInstance) {
-                const history = (messagesRef.current || []).map(m => ({
-                  role: m.sender === 'ai' ? 'assistant' : 'user',
-                  content: m.content
-                }));
-                const finalText = accumulatedText.trimEnd();
-                druidInstance.processMessage(finalText, [...history, { role: 'assistant', content: finalText }]);
               }
             }
 
@@ -3735,7 +3689,7 @@ const LeftAIView = ({ compact = false,
                   onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
                   onMouseLeave={e => e.currentTarget.style.opacity = '1'}
                 >
-                  {viewMode === 'wizard' ? 'The Wizard' : 'Chat'}
+                  {viewMode === 'wizard' ? 'The Wizard' : viewMode === 'druid' ? 'The Druid' : 'Chat'}
                   <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: showModeMenu ? 'rotate(180deg)' : 'rotate(0deg)' }} />
                 </button>
               </div>
@@ -3773,7 +3727,7 @@ const LeftAIView = ({ compact = false,
                   onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
                   onMouseLeave={e => e.currentTarget.style.opacity = '1'}
                 >
-                  {viewMode === 'wizard' ? 'The Wizard' : 'Chat'}
+                  {viewMode === 'wizard' ? 'The Wizard' : viewMode === 'druid' ? 'The Druid' : 'Chat'}
                   <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: showModeMenu ? 'rotate(180deg)' : 'rotate(0deg)' }} />
                 </button>
               </div>
@@ -4054,6 +4008,7 @@ const LeftAIView = ({ compact = false,
           confirmLabel="Allow"
           cancelLabel="Don't allow"
         />
+        {viewMode === 'druid' ? <DruidView active={active} /> : (
         <div className="ai-chat-mode">
           <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="ai-messages" style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: messages.length === 0 ? 'center' : 'flex-start' }}>
             {/* Not gated on the bridge: the wizard works without one, so the
@@ -4633,7 +4588,7 @@ const LeftAIView = ({ compact = false,
               setCurrentInput(e.target.value);
               e.target.style.height = 'auto';
               e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
-            }} onKeyPress={handleKeyPress} placeholder={viewMode === 'druid' ? "Share an observation and I'll build upon it..." : viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your Universe..."} disabled={isProcessing} className="ai-input" rows={1} />
+            }} onKeyPress={handleKeyPress} placeholder={viewMode === 'wizard' ? "Ask anything and I'll cast my spells..." : "Ask me anything about your Universe..."} disabled={isProcessing} className="ai-input" rows={1} />
             {/* Stop is offered whenever a run holds the input, not only when an
                 abort controller happens to exist — otherwise a run that lost its
                 controller left a disabled input and no way out. */}
@@ -4644,6 +4599,7 @@ const LeftAIView = ({ compact = false,
             )}
           </div>
         </div>
+        )}
       </div>
 
     </div>

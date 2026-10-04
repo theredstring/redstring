@@ -53,6 +53,8 @@ export function readText(content, maxWords) {
   const obj = parseJson(content);
   let s = obj && typeof obj === 'object' ? (obj.text ?? obj.answer ?? obj.name ?? '') : String(content || '');
   s = String(s).replace(/\s+/g, ' ').replace(/^["'\s]+|["'\s]+$/g, '').trim();
+  // A label before the answer ("Relation: Attach") is not part of it.
+  s = s.replace(/^(relation|answer|name|description|thought|the relation is)\s*:\s*/i, '');
   if (!s || PLACEHOLDER.test(s) || GENERIC.test(s) || /_{3,}/.test(s)) return null;
   const words = s.split(' ');
   return words.length > maxWords && !readsAsName(s) ? clipWords(words, maxWords) : s;

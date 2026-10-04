@@ -186,7 +186,10 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // whatever it was thinking about while standing in them.
     let movedOut = false;
     const owner = ownerOf(graphId);
-    if (asPart && api.check && owner && !isOwnThinking(owner) && !(typeNodeId && isOwnThinking(typeNodeId))) {
+    // Nothing goes inside itself: in Redstring the same name is the same
+    // Thing, so "keep Tutorial" while standing inside Tutorial placed it there.
+    if (owner && lower(nameOf(owner)) === lower(name)) return { ok: false, error: `${name} cannot go inside itself` };
+    if (asPart && api.check && owner && !isOwnThinking(owner) && !druidOf(owner).topic && !(typeNodeId && isOwnThinking(typeNodeId))) {
       const outer = websOf(owner).find(w => w !== graphId && !isSystemWeb(w));
       if (outer && lower(name) !== lower(nameOf(owner))) {
         const verdict = await api.check(`${name} is a part of ${nameOf(owner)}`).catch(() => null);
@@ -214,7 +217,14 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   };
 
   /** Connect two Things placed in the same web. */
-  const connect = async (graphId, aId, bId, relation) => {
+  /**
+   * @param {Object} [opts]
+   * @param {boolean} [opts.fromSentence]  the relation came out of a whole sentence the Druid wrote
+   *   ("Bones support the feet"): it meant something, so the sense check is skipped. Checked
+   *   alone, good sentences were refused two times in five.
+   */
+  const connect = async (graphId, aId, bId, relation, { fromSentence = false } = {}) => {
+    if (aId === bId) return { ok: false, error: `${nameOf(aId)} is not connected to itself` };
     if (!isSystemWeb(graphId)) focusWeb(graphId);
     let rel = sameRelation(relation || 'relates to');
     // Asked before writing: does "Floor sit Footwear" make sense? (A helper
@@ -222,7 +232,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // is it a relation already in use under other words ("composed of" →
     // "made of")? Its own bookkeeping ("then", "is about") is not asked.
     if (api.check && !isOwnThinking(aId) && !isOwnThinking(bId)) {
-      const sense = await api.check(`${nameOf(aId)} ${rel} ${nameOf(bId)}`).catch(() => null);
+      const sense = fromSentence ? true : await api.check(`${nameOf(aId)} ${rel} ${nameOf(bId)}`).catch(() => null);
       if (sense === false) return { ok: false, error: `"${nameOf(aId)} ${rel} ${nameOf(bId)}" does not make sense, so nothing was connected` };
       if (api.sameRelationAs && rel === (relation || 'relates to')) {
         const same = await api.sameRelationAs(rel, relationsInUse()).catch(() => null);
@@ -286,6 +296,28 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     return !proto(protoId);
   };
 
+  /**
+   * Move a Thing from one web to another, taking along each connection whose
+   * other end is also in the destination; the rest cannot be drawn there and
+   * are dropped. Returns { kept, dropped }. Unplacing alone silently took a
+   * moved Thing's connections with it.
+   */
+  const move = async (fromWeb, toWeb, protoId) => {
+    const links = linksIn(fromWeb).filter(l => l.a === protoId || l.b === protoId);
+    place(toWeb, protoId);
+    const there = new Set(thingsIn(toWeb));
+    const already = new Set(linksIn(toWeb).map(l => `${l.a}|${lower(l.relation)}|${l.b}`));
+    let kept = 0;
+    for (const l of links) {
+      const other = l.a === protoId ? l.b : l.a;
+      if (!there.has(other) || already.has(`${l.a}|${lower(l.relation)}|${l.b}`)) continue;
+      const r = await act('createEdge', { sourceId: nameOf(l.a), targetId: nameOf(l.b), type: l.relation, targetGraphId: toWeb });
+      if (r.ok) kept++;
+    }
+    unplace(fromWeb, protoId);
+    return { kept, dropped: links.length - kept };
+  };
+
   /** Connections in a web, as { a, b, relation } over prototype ids. */
   const linksIn = (graphId) => {
     const g = graph(graphId);
@@ -336,7 +368,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     sameRelationAs: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking
+    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
   };
   return api;
 }

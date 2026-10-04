@@ -185,6 +185,41 @@ So the menu stays primary, and plain commands come in where they help:
 - **Tidy moves** (`moves/tidy.js`) are offered when code sees a need. "Move X out of Y" comes from sleep's audit of insides ("is X a part of Y?", a few each sleep, flagged in `druid.misplaced`); "merge X into Y" comes from names that normalize the same. Sleep notices; waking decides.
 - Command mode stays available (`--speak commands`, the panel's switch), with its executor fixes: making what already exists means describing it, and `go`/`open` fall back to a web of that name.
 
+**Second and third rounds (same day).** The first fixes made the Druid timid: a fresh 40-cycle life made 8 Things and 4 links. Three of the causes were bugs introduced that day:
+- the echo guard threw out relations the question had offered, so almost nothing got connected;
+- notices were cleared before the model could read them, so it never learned why a move failed;
+- "move X out" was offered only from inside that web, so a Druid that stayed in one web never saw the 15 Things sleep had flagged elsewhere.
+
+Fixed, and added:
+- **Refusal memory.** A suggestion a check refused stays off the menu for 24 cycles, whichever way round the pair is named.
+- **Wandering notice.** Two moves in a row that went somewhere without doing anything are said out loud.
+- **World invariants.** Nothing goes inside itself; nothing connects to itself.
+- **Moving keeps connections.** Moving a Thing takes along every connection that can still be drawn and reports the rest.
+- **Topic webs.** Webs started as topics are marked, so they are never checked as somebody's inside.
+- **Plan steps as questions.** Steps are things to find out, not chores: a step written "Find tutorial" had turned a wooden-floor run into one about tutorials.
+- **No examples in retry questions.** A small model copies them: asked to retry "like 'flows into'", it gave "flows into" for tutorials.
+- **Relations from sentences** (`relations.js`). Asked for a short sentence that begins with one Thing and ends with the other ("Bones support the feet"), the model writes something checkable; the relation is what lies between the names. A relation from the Druid's own sentence is trusted, because the sense check wrongly refused good sentences 2 times in 5. Bare fragments are still checked.
+
+**Dialogue** (`dialogue.js`):
+- **The through line.** One sentence, rewritten every six moments and kept only if it is new and names what the universe holds. It is shown when choosing, never when thinking: shown there, it became the thought for ten moments running.
+- **What a person says.** It is kept for 12 moments and shown with every choice. The Things it names pull attention. A request ("think about what holds the boards together") becomes its goal, replacing the last one a person asked for. It answers in a sentence.
+- **Tested live.** Told at cycle 4 to think about what holds the boards together, it moved within ten moments from wood types to Attach, Boards and Screw. Asked "why did you make that?", it explained.
+
+**Recency through lines** (`recency.js`, Grant's idea: a person remembers recent things better). Two through lines run side by side:
+- **the phonological loop:** the last three thoughts, verbatim;
+- **the recency trail:** the last few places and deeds, built by code from what happened ("just now: made Screw", "2 moments ago: looked at Boards", "3 moments ago: went to the web Wood"), newest first, fading after 24 moments.
+
+The view carries recency on the graph too: the focus, the Things beside it, its connections and the other webs are marked "just now" or "4 moments ago" while recent.
+
+The prose through line is now written from the trail, and it is refused only when it is a near-copy. At a looser threshold it stayed "the wood to build the floor" for 22 moments while the Druid worked on screwdrivers.
+
+Also from that run:
+- A connection sentence that names the two Things the other way round connects them that way round.
+- A sentence that isn't one relation is refused, instead of being taken whole as a relation and mapped onto an existing one ("Boards are used to make Screwdriver").
+- Name-clash failures ("Floor already exists") count as refusals, so the same failing grouping isn't offered again and again.
+
+**In the app.** The Druid is now "The Druid" in the Wizard panel's mode menu (above Chat; shown while Settings › Debug › The Druid is on), with its moments, what you say and what it answers in one stream, and an input to talk to it. The floating panel and the old Druid's leftovers in the Wizard (`DruidInstance`, its six-folder workspace) are gone from the panel.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

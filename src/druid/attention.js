@@ -17,6 +17,7 @@
  * the view moves with it.
  */
 
+import { recencyMark, ago, recentWebs, MARK_WITHIN } from './recency.js';
 import { assocStrength } from './activation.js';
 
 export const emptyLocus = () => ({ web: null, focus: null, path: [] });
@@ -120,7 +121,22 @@ export function buildView(world, locus, activation, { tick = 0, insideK = 6, nei
 }
 
 /** The view in plain words. */
-export function renderView(view) {
+/**
+ * @param {Object} view
+ * @param {Object} [recency]  { world, tick, writes, trail }: marks what was touched lately
+ *   ("just now", "3 moments ago") on Things, connections and webs (recency.js)
+ */
+export function renderView(view, recency = null) {
+  const mark = (id) => (recency ? recencyMark(recency.world, id, recency.tick) : '');
+  // A connection is recent when one write touched both its ends lately.
+  const linkMark = (a, b) => {
+    if (!recency) return '';
+    const w = [...(recency.writes || [])].reverse().find(x => (x.touched || []).includes(a) && (x.touched || []).includes(b));
+    const t = w ? ago(recency.tick, w.tick, MARK_WITHIN) : '';
+    return t ? ` (${t})` : '';
+  };
+  const visited = recency ? recentWebs(recency.trail, recency.tick) : new Map();
+  const webMark = (id) => (visited.has(id) ? ` (${ago(recency.tick, visited.get(id))})` : '');
   if (!view.web) {
     return view.webs.length === 0
       ? 'Your universe is empty. There are no webs yet.'
@@ -129,11 +145,11 @@ export function renderView(view) {
   const lines = [`You are in the web "${view.web.name}"${view.container ? ` — the inside of ${view.container.name}` : ''}.`];
   if (view.focus) {
     const f = view.focus;
-    lines.push(`In focus: ${f.name}${f.description ? ` — ${f.description}` : ' (no description yet)'}${f.kinds.length ? ` (a kind of ${f.kinds.join(', a kind of ')})` : ''}`);
+    lines.push(`In focus: ${f.name}${mark(f.id)}${f.description ? ` — ${f.description}` : ' (no description yet)'}${f.kinds.length ? ` (a kind of ${f.kinds.join(', a kind of ')})` : ''}`);
     if (view.inside.length) lines.push(`Inside ${f.name}: ${view.inside.map(t => t.name).join(', ')}${view.insideMore ? ` (+${view.insideMore} more)` : ''}`);
     else lines.push(`${f.name} has nothing inside it yet.`);
     if (view.links.length) {
-      lines.push(`${f.name}'s connections: ${view.links.map(l => (l.out ? `${l.relation} → ${l.name}` : `${l.name} ${l.relation} → ${f.name}`)).join('; ')}`);
+      lines.push(`${f.name}'s connections: ${view.links.map(l => (l.out ? `${l.relation} → ${l.name}` : `${l.name} ${l.relation} → ${f.name}`) + linkMark(f.id, l.id)).join('; ')}`);
     } else {
       lines.push(`${f.name} is not connected to anything here.`);
     }
@@ -141,8 +157,8 @@ export function renderView(view) {
   } else {
     lines.push('Nothing is in focus.');
   }
-  if (view.peers.length) lines.push(`${view.focus ? 'Also here' : 'Things here'}: ${view.peers.map(p => p.name).join(', ')}${view.peersMore ? ` (+${view.peersMore} more)` : ''}`);
+  if (view.peers.length) lines.push(`${view.focus ? 'Also here' : 'Things here'}: ${view.peers.map(p => p.name + mark(p.id)).join(', ')}${view.peersMore ? ` (+${view.peersMore} more)` : ''}`);
   else if (!view.focus) lines.push('This web is empty.');
-  if (view.webs.length) lines.push(`Other webs: ${view.webs.map(w => w.name).join(', ')}`);
+  if (view.webs.length) lines.push(`Other webs: ${view.webs.map(w => w.name + webMark(w.id)).join(', ')}`);
   return lines.join('\n');
 }

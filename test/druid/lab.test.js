@@ -27,7 +27,7 @@ function idealParticipant(best) {
       chosenMove = best;
       return { choice: hit.n };
     }
-    if (/what are you thinking now\?/.test(req.user)) return { text: 'Thinking about it plainly.' };
+    if (/what are you thinking now\?|what have you been doing lately/.test(req.user)) return { text: 'Thinking about it plainly.' };
     if (req.schema.name === 'judgment') return { answer: req.schema.schema.properties.answer.enum[1] };
     if (/one short sentence/.test(req.user)) return { text: 'A plain description.' };
     return { text: GOOD_WORDS[chosenMove] || 'Thing' };

@@ -68,6 +68,8 @@ export async function backendFor({ mind, endpoint, model }, electron = globalThi
 export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', speak = 'menu', pauseMs = 600, onCycle = () => {}, onStop = () => {}, window = 4096 } = {}) {
   const controller = new AbortController();
   const world = createWorld({ store, executeTool, applyToolResult });
+  // What a person says, waiting for its next moment (runLife's `heard`).
+  const inbox = [];
   const mind = createMind({ backend, window });
 
   const done = (async () => {
@@ -77,7 +79,7 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
       const owner = await homeOwner(world);
       // Copies both ways: the store freezes what it holds, and the loop changes its own.
       const resume = owner && world.druidOf(owner).life ? JSON.parse(JSON.stringify(world.druidOf(owner).life)) : {};
-      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal });
+      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal, hear: () => inbox.splice(0) });
       let unreachable = 0;
       for await (const r of life) {
         const owner2 = await homeOwner(world);
@@ -106,5 +108,5 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
     return { reason, error };
   })();
 
-  return { stop: () => controller.abort(), done, world, mind };
+  return { stop: () => controller.abort(), say: (text) => { inbox.push({ text: String(text), at: Date.now() }); }, done, world, mind };
 }

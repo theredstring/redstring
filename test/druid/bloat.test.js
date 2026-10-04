@@ -234,7 +234,7 @@ describe('tidying what is already there', () => {
     world.check = async () => false;
     await auditInsides(world);
     const far = moveOut.offer({ world, locus: { web: webs.Elsewhere, focus: ids.Rain, path: [] } });
-    expect(far).toEqual([expect.objectContaining({ label: 'move White Oak out of Feet (it is not a part of it)', prior: 0.6 })]);
+    expect(far).toEqual([expect.objectContaining({ label: 'move White Oak out of Feet (it is not a part of it)', prior: 0.8 })]);
   });
 
   it('offers to merge a Thing written twice', async () => {
@@ -245,5 +245,34 @@ describe('tidying what is already there', () => {
     expect(items[0].label).toBe('merge Tomatoes into Tomato (the same Thing, written twice)');
     expect((await mergeSame.run(ctx, items[0].data)).ok).toBe(true);
     expect(world.proto(ids.Tomatoes)).toBeFalsy();
+  });
+});
+
+describe('invariants the world keeps', () => {
+  it('nothing goes inside itself, nothing connects to itself, and moving keeps the connections it can', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Body: { things: { Feet: 'feet', Floor: 'f', Oak: 'o' }, links: [['Oak', 'Floor', 'covers']], insides: { Feet: { Oak: 'misplaced', Toe: 't' } } } } });
+    const inside = world.insideOf(ids.Feet);
+    expect((await world.createThing(inside, 'Feet')).error).toMatch(/cannot go inside itself/);
+    expect((await world.connect(webs.Body, ids.Floor, ids.Floor, 'is')).ok).toBe(false);
+    await world.connect(inside, ids.Oak, ids.Toe, 'touches');
+    const r = await world.move(inside, webs.Body, ids.Oak);
+    expect(r).toEqual({ kept: 0, dropped: 1 }); // Toe stays inside Feet; that link cannot be drawn outside
+    expect(world.thingsIn(inside).map(world.nameOf)).toEqual(['Toe']);
+    expect(world.linksIn(webs.Body).map(l => world.nameOf(l.a) + ' ' + l.relation.toLowerCase() + ' ' + world.nameOf(l.b))).toEqual(['Oak covers Floor']);
+  });
+
+  it('a web started as a topic is not checked as anyone\'s inside', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Elsewhere: { things: { Rain: 'r' } } } });
+    const { newWeb } = await import('../../src/druid/moves/basic.js');
+    const r = await newWeb.run({ world, locus: { web: webs.Elsewhere } }, {}, 'Find tutorial');
+    const topic = r.locus.web;
+    world.place(webs.Elsewhere, world.ownerOf(topic)); // a Thing of that name shows up elsewhere
+    world.check = async () => false;
+    const made = await world.createThing(topic, 'YouTube tutorial');
+    expect(made).toMatchObject({ ok: true, web: topic, movedOut: false });
+    expect(await auditInsides(world)).toEqual([]);
+    expect(ids.Rain).toBeTruthy();
   });
 });
