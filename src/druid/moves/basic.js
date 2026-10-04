@@ -31,7 +31,7 @@ export const namesIn = (s) => {
 };
 
 import { topLevelWebs, isHome } from '../attention.js';
-import { isBookkeeping } from '../roles.js';
+import { isObject } from '../roles.js';
 import { tokenize } from '../recall.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
@@ -64,7 +64,7 @@ export const make = {
   prior: 1,
   offer(ctx) {
     if (!ctx.locus.web) return [];
-    const f = ctx.view.focus && !isBookkeeping(ctx.world, ctx.view.focus.id) ? ctx.view.focus : null;
+    const f = ctx.view.focus && isObject(ctx.world, ctx.view.focus.id) ? ctx.view.focus : null;
     const near = f ? `, connected to ${f.name}` : '';
     return [{ label: `make a new Thing here${near}, named ___`, blank: { question: 'Name the new Thing.', maxWords: 4 }, data: { connectTo: f?.id || null }, prior: isHome(ctx.world, ctx.locus.web) ? 0.5 : 1 }];
   },
@@ -75,17 +75,19 @@ export const make = {
     const r = await world.createThing(locus.web, name, { fresh: true });
     if (!r.ok) return fail(r.error);
     const touched = [r.id];
-    let summary = `made ${name}`;
-    if (data?.connectTo && data.connectTo !== r.id) {
+    // Not a part of what this web is the inside of: it went one level out.
+    let summary = r.movedOut ? `made ${name} — not a part of ${world.nameOf(world.ownerOf(locus.web))}, so it went to ${world.graph(r.web)?.name}` : `made ${name}`;
+    if (data?.connectTo && data.connectTo !== r.id && !r.movedOut) {
       const rel = await ctx.ask(`${world.nameOf(data.connectTo)} ___ ${name}. What is the relation? (a verb or short phrase)`, 3);
       if (rel) {
         const c = await world.connect(locus.web, data.connectTo, r.id, rel);
-        if (c.ok) { summary += `: ${world.nameOf(data.connectTo)} ${rel} ${name}`; touched.push(data.connectTo); }
+        if (c.ok) { summary += `: ${world.nameOf(data.connectTo)} ${c.relation || rel} ${name}`; touched.push(data.connectTo); }
       }
     }
     const description = await ctx.ask(`Describe ${name} in one short sentence.`, 16);
-    if (description) await world.act('updateNode', { nodeName: name, description, targetGraphId: locus.web });
-    return { ok: true, summary, touched, locus: { ...locus, focus: r.id }, wrote: true };
+    if (description) await world.act('updateNode', { nodeName: world.nameOf(r.id), description, targetGraphId: r.web });
+    const web = r.web || locus.web;
+    return { ok: true, summary, touched, locus: web === locus.web ? { ...locus, focus: r.id } : { web, focus: r.id, path: (locus.path || []).slice(0, -1) }, wrote: true };
   }
 };
 
@@ -94,14 +96,19 @@ export const connect = {
   prior: 0.9,
   offer(ctx) {
     const f = ctx.view.focus;
-    if (!f || isBookkeeping(ctx.world, f.id)) return [];
+    if (!f || !isObject(ctx.world, f.id)) return [];
     const linked = new Set(ctx.view.links.map(l => l.id));
+    // Less tempting the more it already has: one Druid connected nine Things
+    // with 27 links, most of them nonsense. Not offered past six.
+    const degree = ctx.world.linksIn(ctx.locus.web).filter(l => l.a === f.id || l.b === f.id).length;
+    if (degree >= 6) return [];
     // The relations it already uses, so it reuses one where it fits rather
     // than coining a near-synonym each time.
     const known = ctx.world.relationsInUse().filter(r => !/^then$/i.test(r)).slice(0, 6);
     const reuse = known.length ? ` Relations you already use: ${known.join(', ')}. Use one of them if it fits.` : '';
-    return ctx.view.peers.filter(p => !linked.has(p.id) && !isBookkeeping(ctx.world, p.id)).slice(0, 4).map(p => ({
+    return ctx.view.peers.filter(p => !linked.has(p.id) && isObject(ctx.world, p.id)).slice(0, 4).map(p => ({
       label: `connect ${f.name} to ${p.name}`,
+      prior: 0.9 / (1 + degree / 2),
       blank: { question: `${f.name} ___ ${p.name}. What is the relation? (a verb or short phrase)${reuse}`, maxWords: 3 },
       data: { a: f.id, b: p.id },
       target: p.id
@@ -112,7 +119,7 @@ export const connect = {
     if (!rel) return fail('no relation');
     const c = await ctx.world.connect(ctx.locus.web, data.a, data.b, rel);
     if (!c.ok) return fail(c.error);
-    return { ok: true, summary: `${ctx.world.nameOf(data.a)} ${rel} ${ctx.world.nameOf(data.b)}`, touched: [data.a, data.b], wrote: true };
+    return { ok: true, summary: `${ctx.world.nameOf(data.a)} ${c.relation || rel} ${ctx.world.nameOf(data.b)}`, touched: [data.a, data.b], wrote: true };
   }
 };
 
@@ -157,6 +164,7 @@ export const open = {
     if (f.inside && f.insideCount > 0) {
       return [{ label: `go inside ${f.name} (${f.insideCount} Thing${f.insideCount === 1 ? '' : 's'} there)`, data: { into: f.id } }];
     }
+    if (!isObject(ctx.world, f.id)) return [];
     return [{ label: `open up ${f.name}: name one thing it is made of, ___`, blank: { question: `Name one part ${f.name} is made of.`, maxWords: 4 }, data: { into: f.id, create: true } }];
   },
   async run(ctx, data, text) {

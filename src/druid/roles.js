@@ -219,3 +219,13 @@ export function isBookkeeping(world, id) {
   const role = roleOf(world, id);
   return role === 'goal' || role === 'plan' || role === 'episode';
 }
+
+/**
+ * A Thing to build with: not the Druid's bookkeeping, and not a belief.
+ * A belief is a claim about Things, not one of them; treated as a Thing it
+ * was connected to ("Floor —Is→ House is a type of Modern Home") and opened
+ * up, and a web about pine needles grew inside a belief.
+ */
+export function isObject(world, id) {
+  return !!id && !isBookkeeping(world, id) && roleOf(world, id) !== 'belief';
+}

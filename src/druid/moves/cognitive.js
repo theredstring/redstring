@@ -36,6 +36,16 @@ const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote:
 const isContent = (world, id) => !!id && !world.druidOf(id).roleType && !world.typeChain(id).some(t => world.druidOf(t).roleType);
 const titleish = (s) => String(s || '').trim().replace(/^(a|an|the)\s+/i, '').replace(/[.!?]+$/, '').replace(/^\w/, c => c.toUpperCase());
 
+/**
+ * Whether "a is a kind of b" makes sense, by the world's check (a contextless
+ * helper call); true when there is no check or no usable answer. "Modern" was
+ * once made a variant of House and given a copy of House's whole inside.
+ */
+async function isKindOf(world, a, b) {
+  if (!world.check) return true;
+  return (await world.check(`${a} is a kind of ${b}`).catch(() => null)) !== false;
+}
+
 /** Copy a Thing's inside into another's by reference: the same Things, placed again, connected the same way. */
 async function shareInside(world, fromId, toId) {
   const from = world.insideOf(fromId);
@@ -59,8 +69,9 @@ export const variant = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    if (!(await isKindOf(world, name, world.nameOf(data.of)))) return fail(`${name} is not a kind of ${world.nameOf(data.of)}, so it is no variant of it`);
     const how = await ctx.ask(`How is ${name} different from ${world.nameOf(data.of)}? One short sentence.`, 16);
-    const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true });
+    const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true, asPart: false });
     if (!r.ok) return fail(r.error);
     const shared = await shareInside(world, data.of, r.id);
     await world.connect(ctx.locus.web, r.id, data.of, 'is a variant of');
@@ -80,7 +91,8 @@ export const specialize = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
-    const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true });
+    if (!(await isKindOf(world, name, world.nameOf(data.of)))) return fail(`${name} is not a kind of ${world.nameOf(data.of)}`);
+    const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true, asPart: false });
     if (!r.ok) return fail(r.error);
     if (world.proto(r.id)?.typeNodeId !== data.of) world.state().setNodeType(r.id, data.of);
     const what = await ctx.ask(`What makes ${name} a particular kind of ${world.nameOf(data.of)}? One short sentence.`, 16);
@@ -191,9 +203,12 @@ export const generalize = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    for (const x of [data.a, data.b]) {
+      if (!(await isKindOf(world, world.nameOf(x), name))) return fail(`${world.nameOf(x)} is not a kind of ${name}`);
+    }
     let parent = world.findThing(name);
     if (!parent) {
-      const r = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.a)} and ${world.nameOf(data.b)} both are.` });
+      const r = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.a)} and ${world.nameOf(data.b)} both are.`, asPart: false });
       if (!r.ok) return fail(r.error);
       parent = r.id;
     }

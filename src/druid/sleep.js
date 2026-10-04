@@ -27,7 +27,7 @@
  */
 
 import { normalizeName as norm } from './names.js';
-import { activePlans, roleType } from './roles.js';
+import { activePlans, roleType, roleOf } from './roles.js';
 
 const MIN_MEMBERS = 6;
 const MIN_GAIN = 2;
@@ -230,7 +230,7 @@ export async function sleep(ctx) {
         before[existing] = world.proto(existing)?.typeNodeId ?? null;
         world.state().setNodeType(existing, typeId);
       } else {
-        const r = await world.createThing(home, kindName, { description: `A kind of ${T}.`, typeNodeId: typeId });
+        const r = await world.createThing(home, kindName, { description: `A kind of ${T}.`, typeNodeId: typeId, asPart: false });
         if (!r.ok) break;
         kindId = r.id;
         created.push(r.id);
@@ -253,9 +253,11 @@ export async function sleep(ctx) {
     report.split.push({ kind: T, into: kinds.map(id => world.nameOf(id)), revision: revisionId, gain: cand.gain });
   }
 
-  // 3. Letting go: plans that stalled, episodes that are old.
+  // 3. Letting go: plans that stalled, episodes that are old, what is dead.
   report.lapsed = lapseStalledPlans(world, tick);
   report.condensed = await condenseEpisodes(world, tick);
+  const keep = new Set([ctx.locus?.focus, ...(ctx.held || []).map(h => h.id)].filter(Boolean));
+  report.pruned = pruneDead(world, tick, keep);
 
   return report;
 }
@@ -323,4 +325,34 @@ export async function condenseEpisodes(world, tick) {
     });
   }
   return condensed;
+}
+
+/** Cycles a Thing the Druid made may sit unconnected and unused before it is pruned. */
+export const PRUNE_AFTER = 48;
+
+/**
+ * Prune what the Druid made and nothing holds: a Thing with no connection, no
+ * inside, no members, not held in mind, unused for PRUNE_AFTER cycles; a
+ * relation type no connection uses any more. Only its own making — never what
+ * a person made — and never its goals, plans, beliefs or kinds of thought.
+ */
+export function pruneDead(world, tick, keep = new Set()) {
+  const pruned = [];
+  const relationTypes = world.relationTypeIds();
+  const kinds = new Set(world.allThingsIncludingSystem().map(id => world.proto(id)?.typeNodeId).filter(Boolean));
+  const linked = new Set();
+  for (const g of world.state().graphs.values()) for (const l of world.linksIn(g.id)) { linked.add(l.a); linked.add(l.b); }
+  for (const id of world.allThings()) {
+    const d = world.druidOf(id);
+    if (relationTypes.has(id) || kinds.has(id) || world.insideOf(id) || keep.has(id)) continue;
+    // A relation type its own connecting made, which no connection uses now.
+    if (d.relation) { const name = world.nameOf(id); if (world.forget(id)) pruned.push(name); continue; }
+    if (d.madeBy !== 'druid' || d.roleType || d.system || d.homeOf || roleOf(world, id)) continue;
+    if (linked.has(id)) continue;
+    const lastUse = Math.max(-Infinity, ...(d.uses || []));
+    if (!Number.isFinite(lastUse) || tick - lastUse < PRUNE_AFTER) continue;
+    const name = world.nameOf(id);
+    if (world.forget(id)) pruned.push(name);
+  }
+  return pruned;
 }

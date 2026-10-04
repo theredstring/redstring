@@ -152,7 +152,8 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   const isSystemWeb = (graphId) => !!druidOf(ownerOf(graphId) || '').system;
 
   /** Create a Thing in a web via the wizard tool; returns its prototype id. */
-  const createThing = async (graphId, givenName, { description: givenDescription = '', typeNodeId = null, fresh = false } = {}) => {
+  const createThing = async (givenGraphId, givenName, { description: givenDescription = '', typeNodeId = null, fresh = false, asPart = true } = {}) => {
+    let graphId = givenGraphId;
     // A name is a handle; a sentence given as one keeps its words in the
     // description (names.js). Every way of making a Thing comes through here.
     // A long one is put to the name gate, a contextless helper call
@@ -179,6 +180,19 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     if (clash && (druidOf(clash).roleType || druidOf(clash).system)) {
       return { ok: false, error: `"${name}" is the name of one of your own kinds of thought; choose another name` };
     }
+    // An inside holds what its Thing is made of. Asked "is Footwear a part of
+    // Floor?" before placing it there; if not, it goes one level out, into a
+    // web the Thing itself sits in. Left alone, a Druid's insides filled with
+    // whatever it was thinking about while standing in them.
+    let movedOut = false;
+    const owner = ownerOf(graphId);
+    if (asPart && api.check && owner && !isOwnThinking(owner) && !(typeNodeId && isOwnThinking(typeNodeId))) {
+      const outer = websOf(owner).find(w => w !== graphId && !isSystemWeb(w));
+      if (outer && lower(name) !== lower(nameOf(owner))) {
+        const verdict = await api.check(`${name} is a part of ${nameOf(owner)}`).catch(() => null);
+        if (verdict === false) { graphId = outer; movedOut = true; }
+      }
+    }
     // Its own webs (episodes, working memory) are written without looking at them.
     if (!isSystemWeb(graphId)) focusWeb(graphId);
     const r = await act('createNode', { name, description, ...(graphId ? { targetGraphId: graphId } : {}), ...(typeNodeId ? { typeNodeId } : {}) });
@@ -190,14 +204,40 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // Who made it decides what kind of evidence it is: a Thing someone else
     // made is an observation; one the Druid made is its own inference.
     if (id && api.actor && !druidOf(id).madeBy) setDruid(id, { madeBy: api.actor });
-    return { ok: !!id, id, error: id ? null : 'created but not found' };
+    return { ok: !!id, id, web: graphId, movedOut, error: id ? null : 'created but not found' };
+  };
+
+  /** The Druid's own apparatus (role types, goals, plans, beliefs, episodes, its system webs), not a Thing it thinks about. */
+  const isOwnThinking = (id) => {
+    const d = druidOf(id);
+    return !!(d.roleType || d.system || d.homeOf || typeChain(id).some(t => druidOf(t).roleType));
   };
 
   /** Connect two Things placed in the same web. */
   const connect = async (graphId, aId, bId, relation) => {
     if (!isSystemWeb(graphId)) focusWeb(graphId);
-    return act('createEdge', { sourceId: nameOf(aId), targetId: nameOf(bId), type: sameRelation(relation || 'relates to'), targetGraphId: graphId });
+    let rel = sameRelation(relation || 'relates to');
+    // Asked before writing: does "Floor sit Footwear" make sense? (A helper
+    // asked this one question got 12 of 12 from one Druid's own links.) And
+    // is it a relation already in use under other words ("composed of" →
+    // "made of")? Its own bookkeeping ("then", "is about") is not asked.
+    if (api.check && !isOwnThinking(aId) && !isOwnThinking(bId)) {
+      const sense = await api.check(`${nameOf(aId)} ${rel} ${nameOf(bId)}`).catch(() => null);
+      if (sense === false) return { ok: false, error: `"${nameOf(aId)} ${rel} ${nameOf(bId)}" does not make sense, so nothing was connected` };
+      if (api.sameRelationAs && rel === (relation || 'relates to')) {
+        const same = await api.sameRelationAs(rel, relationsInUse()).catch(() => null);
+        if (same) rel = relationsInUse().find(r => lower(r) === lower(same)) || same;
+      }
+    }
+    const typesBefore = relationTypeIds();
+    const r = await act('createEdge', { sourceId: nameOf(aId), targetId: nameOf(bId), type: rel, targetGraphId: graphId });
+    // A relation type this made is the Druid's, so sleep may prune it once nothing uses it.
+    if (r.ok) for (const id of relationTypeIds()) if (!typesBefore.has(id) && proto(id)) setDruid(id, { relation: true, ...(api.actor ? { madeBy: api.actor } : {}) });
+    return r.ok ? { ...r, relation: rel } : r;
   };
+
+  /** Prototypes that connections are made of (their relation types). */
+  const relationTypeIds = () => new Set([...state().edges.values()].flatMap(e => e.definitionNodeIds || []));
 
   /** Every relation in use, by how often, most used first. */
   const relationsInUse = () => {
@@ -290,9 +330,13 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     actor: null,
     /** async (longName) → { kind: 'name' } | { kind: 'sentence', short } | null (mind/helpers.js nameGate). */
     nameGate: null,
+    /** async (statement) → true | false | null: does it make sense? (mind/helpers.js plausible). */
+    check: null,
+    /** async (relation, inUse) → an existing relation meaning the same | null (mind/helpers.js sameRelation). */
+    sameRelationAs: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside, relationsInUse, forget
+    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking
   };
   return api;
 }

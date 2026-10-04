@@ -12,7 +12,7 @@ import { createMind } from '../../src/druid/mind/createMind.js';
 import { scripted } from '../../src/druid/mind/backends.js';
 import { seedRoles, activePlans, nextStep, roleType, openGoals } from '../../src/druid/roles.js';
 import { makePlan, addStep, stepDone, pursueStep } from '../../src/druid/moves/roles.js';
-import { lapseStalledPlans, condenseEpisodes, PLAN_PATIENCE, EPISODE_KEEP } from '../../src/druid/sleep.js';
+import { lapseStalledPlans, condenseEpisodes, pruneDead, PLAN_PATIENCE, EPISODE_KEEP, PRUNE_AFTER } from '../../src/druid/sleep.js';
 import { writeEpisode } from '../../src/druid/episodes.js';
 
 beforeAll(() => quiet());
@@ -53,22 +53,54 @@ describe('names', () => {
     expect([a, b, c].map(r => world.nameOf(r.id))).toEqual(['Yeast and rising', 'the restaurant at the end of the galaxy cookbook', 'Rivers carve valleys by eroding']);
   });
 
-  it('the name gate is one contextless call, read strictly, asked once per name', async () => {
+  it('the name gate: code first, then one question per call, read strictly, asked once per name', async () => {
     const seen = [];
-    const answers = { 'Yeast makes the dough rise by trapping gas': { kind: 'sentence', short: 'Rising dough' }, 'Second Law of Thermodynamics as Taught': { kind: 'name', short: '' }, 'something odd and long here today': { kind: 'sentence', short: 'name' } };
-    const mind = createMind({ backend: scripted((req) => { seen.push(req); return answers[req.user.split('\n\n').pop().trim()]; }) });
+    const mind = createMind({ backend: scripted((req) => {
+      seen.push(req);
+      const input = req.user.split('\n\n').pop().trim();
+      if (req.schema.name === 'nameKind') return { answer: /dough/i.test(input) ? 'statement' : /odd/i.test(input) ? 'statement' : 'title' };
+      if (req.schema.name === 'shortName') return { name: /dough/i.test(input) ? 'Rising dough' : 'name' };
+      return {};
+    }) });
     const gate = nameGate(mind);
+    expect(await gate('Second Law of Thermodynamics as Taught')).toEqual({ kind: 'name' }); // Title Case, no verb: code decides
+    expect(seen).toHaveLength(0);
     expect(await gate('Yeast makes the dough rise by trapping gas')).toEqual({ kind: 'sentence', short: 'Rising dough' });
     expect(await gate('Yeast makes the dough rise by trapping gas')).toEqual({ kind: 'sentence', short: 'Rising dough' });
-    expect(await gate('Second Law of Thermodynamics as Taught')).toEqual({ kind: 'name' });
-    expect(await gate('something odd and long here today')).toBeNull(); // a placeholder is no name
-    expect(seen).toHaveLength(3);
-    expect(seen[0].system).not.toMatch(/Redstring universe/); // no Druid context at all
-    expect(seen[0].temperature).toBeLessThan(0.3);
+    expect(seen).toHaveLength(2); // asked once: what it is, then a short name
+    expect(await gate('the restaurant at the end of the universe')).toEqual({ kind: 'name' });
+    expect(await gate('something odd and long here today')).toBeNull(); // "name" is a placeholder, not a name
+    expect(seen.every(r => !/Redstring universe/.test(r.system) && r.temperature < 0.3)).toBe(true);
   });
+
+  it('a Thing that is not a part of what an inside belongs to goes one level out', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Body: { things: { Feet: 'At the ends of the legs.' } } } });
+    const inside = world.ensureInside(ids.Feet);
+    world.check = async (s) => (/^Bone is a part of Feet$/.test(s) ? true : /is a part of/.test(s) ? false : null);
+    const bone = await world.createThing(inside, 'Bone');
+    const oak = await world.createThing(inside, 'White Oak');
+    expect(bone).toMatchObject({ ok: true, web: inside, movedOut: false });
+    expect(oak).toMatchObject({ ok: true, web: webs.Body, movedOut: true });
+    expect(world.thingsIn(inside).map(world.nameOf)).toEqual(['Bone']);
+  });
+
 });
 
 describe('relations', () => {
+  it('a connection that does not make sense is not written; one meaning an existing relation uses it', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Floor: 'f', Footwear: 'shoes', Material: 'm', Wood: 'w' } } } });
+    world.check = async (s) => !/Floor sit Footwear/.test(s);
+    world.sameRelationAs = async (rel, known) => (rel === 'composed of' && known.some(k => k.toLowerCase() === 'made of') ? 'made of' : null);
+    expect((await world.connect(webs.W, ids.Floor, ids.Footwear, 'sit')).ok).toBe(false);
+    await world.connect(webs.W, ids.Floor, ids.Wood, 'made of');
+    const c = await world.connect(webs.W, ids.Floor, ids.Material, 'composed of');
+    expect(c.ok).toBe(true);
+    expect(c.relation.toLowerCase()).toBe('made of');
+    expect(world.linksIn(webs.W).map(l => l.relation.toLowerCase()).sort()).toEqual(['made of', 'made of']);
+  });
+
   it('reuses a relation already in use under another spelling', async () => {
     const { world } = await freshWorld();
     const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { A: 'a', B: 'b', C: 'c' } } } });
@@ -125,6 +157,7 @@ describe('plans', () => {
     await addStep.run(ctx(), { plan }, 'let it rise');
     expect(lapseStalledPlans(world, 10 + PLAN_PATIENCE - 1)).toEqual([]);
     expect(lapseStalledPlans(world, 10 + PLAN_PATIENCE)).toEqual(['Plan: Bake bread']);
+    pruneDead(world, 10 + PLAN_PATIENCE); // the "then" relation nothing uses now
     expect(world.proto(plan)).toBeFalsy();
     expect(world.findThing('Mix the dough')).toBeNull();
     expect(world.findThing('Let it rise')).toBeNull();
@@ -154,6 +187,25 @@ describe('episodes', () => {
     // Folding more later adds to the same day.
     await condenseEpisodes(world, tick + 10);
     expect(world.proto(world.allThingsIncludingSystem().find(id => world.druidOf(id).role === 'day')).description).toMatch(/^15 moments/);
+    expect(stranded(world)).toEqual([]);
+  });
+});
+
+describe('pruning', () => {
+  it('prunes what the Druid made and nothing holds; never what a person made, or what is connected or in mind', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Given: 'made by a person', Anchor: 'a' } } } });
+    world.actor = 'druid';
+    const lonely = await world.createThing(webs.W, 'Lonely');
+    const held = await world.createThing(webs.W, 'Held');
+    const linkedOne = await world.createThing(webs.W, 'Linked');
+    await world.connect(webs.W, linkedOne.id, ids.Anchor, 'leans on');
+    for (const r of [lonely, held, linkedOne]) world.setDruid(r.id, { uses: [1] });
+    expect(pruneDead(world, PRUNE_AFTER - 1)).toEqual([]);
+    expect(pruneDead(world, PRUNE_AFTER + 1, new Set([held.id]))).toEqual(['Lonely']);
+    expect(world.proto(ids.Given)).toBeTruthy();
+    expect(world.proto(linkedOne.id)).toBeTruthy();
+    expect(world.proto(held.id)).toBeTruthy();
     expect(stranded(world)).toEqual([]);
   });
 });

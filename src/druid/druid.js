@@ -13,7 +13,7 @@ import { ROLE_MOVES } from './moves/roles.js';
 import { COGNITIVE_MOVES } from './moves/cognitive.js';
 import { seedRoles, roleType, openGoals, renderRoles, isRole, confidence, confidenceWords } from './roles.js';
 import { sleep as sleepCycle } from './sleep.js';
-import { nameGate } from './mind/helpers.js';
+import { nameGate, plausible, sameRelation } from './mind/helpers.js';
 
 export function druidMoves() {
   return [...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES];
@@ -37,7 +37,12 @@ function extrasFor(world, locus) {
  */
 export async function* createDruid(deps, { roles = true, sleeps = true, ...opts } = {}) {
   const { world, mind } = deps;
-  if (mind?.helper && !world.nameGate) world.nameGate = nameGate(mind);
+  // Language judgments at the edges, each one contextless question (mind/helpers.js).
+  if (mind?.helper) {
+    world.nameGate ||= nameGate(mind);
+    world.check ||= plausible(mind);
+    world.sameRelationAs ||= sameRelation(mind);
+  }
   if (roles) {
     const { home, types } = await seedRoles(world);
     // Something on its mind at birth becomes its first open goal, so attention
