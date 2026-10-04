@@ -152,6 +152,15 @@ export function sourceKind(world, sourceId) {
   return world.druidOf(sourceId).madeBy === 'druid' ? 'inference' : 'observation';
 }
 
+/**
+ * What a belief claims. Its name is a short handle ("Bread rises from gas");
+ * the whole claim is kept beside it, and that is what evidence is weighed
+ * against.
+ */
+export function claimOf(world, beliefId) {
+  return world.druidOf(beliefId).claim || world.nameOf(beliefId);
+}
+
 export function beliefsIn(world, webId) {
   return world.thingsIn(webId).filter(id => isRole(world, id, 'belief'));
 }

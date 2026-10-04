@@ -154,8 +154,9 @@ export const contrast = {
     const key = await ctx.ask(`${world.nameOf(data.a)} and ${world.nameOf(data.b)} — ${shown}. In a few words, the key difference between them?`, 10);
     if (!key) return fail('no difference named');
     const claim = titleish(`${world.nameOf(data.a)} differs from ${world.nameOf(data.b)}: ${key}`);
-    const r = await world.createThing(ctx.locus.web, claim.slice(0, 120), { description: `A contrast.${diffs.length ? ` ${shown}.` : ''}`, typeNodeId: ctx.roles.types.belief });
+    const r = await world.createThing(ctx.locus.web, `${world.nameOf(data.a)} vs ${world.nameOf(data.b)}`, { description: `${claim}.${diffs.length ? ` ${shown}.` : ''}`, typeNodeId: ctx.roles.types.belief });
     if (!r.ok) return fail(r.error);
+    world.setDruid(r.id, { claim });
     addEvidence(world, r.id, { source: data.a, judgment: 'support', kind: sourceKind(world, data.a), tick: ctx.tick });
     addEvidence(world, r.id, { source: data.b, judgment: 'support', kind: sourceKind(world, data.b), tick: ctx.tick });
     return { ok: true, summary: `contrasted them: ${key}`, touched: [r.id, data.a, data.b], wrote: true };

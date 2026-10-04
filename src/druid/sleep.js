@@ -26,23 +26,17 @@
  * code.
  */
 
+import { normalizeName as norm } from './names.js';
+import { activePlans, roleType } from './roles.js';
+
 const MIN_MEMBERS = 6;
 const MIN_GAIN = 2;
 const SIGHTINGS = 2;
 const COOLDOWN = 36;
 
-/** The singular of a final English word, roughly: processes → process, berries → berry, rivers → river. */
-const singular = (w) => (/(ss|x|z|ch|sh|o)es$/.test(w) ? w.slice(0, -2) : /ies$/.test(w) ? `${w.slice(0, -3)}y` : /[^s]s$/.test(w) ? w.slice(0, -1) : w);
-
-const norm = (s) => {
-  const words = String(s || '').toLowerCase().replace(/^(a|an|the)\s+/, '').replace(/[^a-z0-9 ]/g, '').trim().split(/\s+/);
-  if (words.length) words[words.length - 1] = singular(words[words.length - 1]);
-  return words.join(' ');
-};
-
-/** Things that look like the same Thing twice, by name. */
 export { norm as normalizeName };
 
+/** Things that look like the same Thing twice, by name. */
 export function duplicateGroups(world) {
   const groups = new Map();
   for (const id of world.allThings()) {
@@ -259,5 +253,74 @@ export async function sleep(ctx) {
     report.split.push({ kind: T, into: kinds.map(id => world.nameOf(id)), revision: revisionId, gain: cand.gain });
   }
 
+  // 3. Letting go: plans that stalled, episodes that are old.
+  report.lapsed = lapseStalledPlans(world, tick);
+  report.condensed = await condenseEpisodes(world, tick);
+
   return report;
+}
+
+/** Cycles a plan may sit on one step before it is let go. */
+export const PLAN_PATIENCE = 36;
+/** Cycles an episode is kept as itself before it is folded into its day. */
+export const EPISODE_KEEP = 24;
+
+/**
+ * Plans whose current step has not moved in PLAN_PATIENCE cycles are let go,
+ * steps and all. A plan nobody is following is not a plan; kept, it is clutter
+ * that still looks like an intention. The goal stays.
+ */
+export function lapseStalledPlans(world, tick) {
+  const lapsed = [];
+  for (const p of activePlans(world)) {
+    const since = world.druidOf(p).stepSince ?? world.druidOf(p).statusAt ?? 0;
+    if (tick - since < PLAN_PATIENCE) continue;
+    const name = world.nameOf(p);
+    if (world.forget(p)) lapsed.push(name);
+  }
+  return lapsed;
+}
+
+/**
+ * Episodes older than EPISODE_KEEP cycles are folded into one Thing for their
+ * day: how many moments, and what they were mostly about. Most of what happens
+ * is forgotten; what it was about stays. One Thing per write, kept forever,
+ * was more than half of a 30-cycle Druid's universe.
+ */
+export async function condenseEpisodes(world, tick) {
+  const old = world.allThingsIncludingSystem().filter(id => world.druidOf(id).role === 'episode' && (world.druidOf(id).tick ?? tick) < tick - EPISODE_KEEP);
+  const byDay = new Map();
+  for (const id of old) {
+    const web = world.websOf(id)[0];
+    if (!web) continue;
+    if (!byDay.has(web)) byDay.set(web, []);
+    byDay.get(web).push(id);
+  }
+  let condensed = 0;
+  for (const [web, moments] of byDay) {
+    const day = (world.graph(web)?.name || '').replace(/^Episodes\s*/, '') || 'earlier';
+    let summary = world.thingsIn(web).find(id => world.druidOf(id).role === 'day');
+    if (!summary) {
+      const r = await world.createThing(web, `Day ${day}`, { description: '', typeNodeId: roleType(world, 'episode') });
+      if (!r.ok) continue;
+      summary = r.id;
+      world.setDruid(summary, { role: 'day', moments: 0, about: {} });
+    }
+    const d = world.druidOf(summary);
+    const about = { ...(d.about || {}) };
+    for (const m of moments) {
+      for (const t of world.druidOf(m).touched || []) {
+        const n = world.nameOf(t);
+        if (n) about[n] = (about[n] || 0) + 1;
+      }
+    }
+    for (const m of moments) if (world.forget(m)) condensed++;
+    const total = (d.moments || 0) + moments.length;
+    const top = Object.entries(about).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([n]) => n);
+    world.setDruid(summary, { moments: total, about: Object.fromEntries(Object.entries(about).sort((a, b) => b[1] - a[1]).slice(0, 40)) });
+    world.state().updateNodePrototype(summary, (p) => {
+      p.description = `${total} moment${total === 1 ? '' : 's'}${top.length ? `, mostly about ${top.join(', ')}` : ''}.`;
+    });
+  }
+  return condensed;
 }

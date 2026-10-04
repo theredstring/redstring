@@ -18,6 +18,7 @@
  */
 
 import { assemble } from './budget.js';
+import { clipWords, readsAsName } from '../names.js';
 
 const PLACEHOLDER = /^(\.{2,}|_{2,}|…|\[.*\]|<.*>|n\/a|none|null|undefined)$/i;
 
@@ -54,7 +55,7 @@ export function readText(content, maxWords) {
   s = String(s).replace(/\s+/g, ' ').replace(/^["'\s]+|["'\s]+$/g, '').trim();
   if (!s || PLACEHOLDER.test(s) || GENERIC.test(s) || /_{3,}/.test(s)) return null;
   const words = s.split(' ');
-  return words.length > maxWords ? clipWords(words, maxWords) : s;
+  return words.length > maxWords && !readsAsName(s) ? clipWords(words, maxWords) : s;
 }
 
 const plainWords = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -65,21 +66,6 @@ export function echoes(answer, question) {
   return a.split(' ').length >= 3 && plainWords(question).includes(a);
 }
 
-const TRAILING = /^(the|a|an|of|to|and|or|but|with|by|for|in|on|at|from|that|which|causing|making|so|as)$/i;
-
-/**
- * An over-long answer, cut to `max` words where a phrase ends: at the last
- * clause break inside the limit, else without dangling little words. A plan
- * step written as "Yeast ferments sugars to produce carbon dioxide gas,
- * causing the" keeps "Yeast ferments sugars to produce carbon dioxide gas".
- */
-function clipWords(words, max) {
-  let kept = words.slice(0, max);
-  const lastBreak = kept.findLastIndex((w, i) => i < kept.length - 1 && /[,;:.]$/.test(w));
-  if (lastBreak >= 2) kept = kept.slice(0, lastBreak + 1);
-  while (kept.length > 1 && TRAILING.test(kept.at(-1).replace(/[,;:.]$/, ''))) kept.pop();
-  return kept.join(' ').replace(/[,;:.]$/, '');
-}
 
 /** Words in a reply's text field (or the reply itself). */
 function wordCount(content) {
@@ -125,6 +111,8 @@ const schemaFor = {
   })
 };
 
+const HELPER_SYSTEM = 'You do one small language task at a time. Answer exactly what is asked, in plain English.';
+
 /**
  * @param {Object} opts
  * @param {Object} opts.backend
@@ -135,14 +123,14 @@ const schemaFor = {
 export function createMind({ backend, window = 4096, temperature = 0.6, onCall } = {}) {
   const stats = { calls: 0, invalid: 0, promptTokens: 0, completionTokens: 0, ms: 0, byKind: {} };
 
-  async function call(kind, sections, schema, maxTokens, read) {
+  async function call(kind, sections, schema, maxTokens, read, temp = temperature) {
     const prompt = assemble(sections, maxTokens, window);
     const started = Date.now();
     let content = null;
     let usage = null;
     let error = null;
     try {
-      ({ content, usage } = await backend.complete({ system: prompt.system, user: prompt.user, schema, maxTokens, temperature }));
+      ({ content, usage } = await backend.complete({ system: prompt.system, user: prompt.user, schema, maxTokens, temperature: temp }));
     } catch (err) {
       error = err?.message || String(err);
     }
@@ -173,7 +161,8 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     const isName = maxWords <= 5;
     // A name asked for and a sentence given: clipped, it becomes a fragment
     // ("Moment when a"). Ask once more, firmly; a second sentence is no name.
-    const readName = (c) => (wordCount(c) > maxWords ? null : readText(c, maxWords));
+    // ...unless it is a long name: "The Hitchhiker's Guide to the Galaxy".
+    const readName = (c) => (wordCount(c) > maxWords && !readsAsName(readText(c, 64) || '') ? null : readText(c, maxWords));
     // The question said back is no answer: Apple's model answered "what are
     // you thinking now?" with "What are you thinking now? Name the Things you
     // mean." in half the cycles of one run.
@@ -202,5 +191,25 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     return { ...r, key: r.value };
   }
 
-  return { choose, fill, judge, stats };
+  /**
+   * A helper call: one small language task with no context at all — none of
+   * the Druid's view, memory or loop, only the task and its input. A tiny
+   * model reasons badly over a full window and well over a single question,
+   * so judgments about language (is this a title or a sentence?) are asked
+   * this way, where content enters the universe. See mind/helpers.js.
+   *
+   * @param {Object} h
+   * @param {string} h.name         the helper's name, for stats
+   * @param {string} h.task         what to do, in a sentence or two
+   * @param {string} h.input
+   * @param {Object} h.schema       { name, schema } — the answer's shape
+   * @param {Function} h.read       (content) → value | null
+   * @param {number} [h.maxTokens]
+   */
+  async function helper({ name, task, input, schema, read, maxTokens = 48 }) {
+    const r = await call(`helper:${name}`, { system: HELPER_SYSTEM, question: `${task}\n\n${input}` }, schema, maxTokens, read, 0.1);
+    return r;
+  }
+
+  return { choose, fill, judge, helper, stats };
 }

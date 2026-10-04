@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { freshWorld, buildUniverse, quiet } from './helpers/headlessWorld.js';
 import { variant, specialize, chunk, contrast, generalize, analogy, wonder, differences, analogues, gaps } from '../../src/druid/moves/cognitive.js';
 import { associate } from '../../src/druid/activation.js';
-import { seedRoles, roleOf, confidence } from '../../src/druid/roles.js';
+import { seedRoles, roleOf, confidence, claimOf } from '../../src/druid/roles.js';
 import { buildView } from '../../src/druid/attention.js';
 
 beforeAll(() => quiet());
@@ -67,7 +67,8 @@ describe('cognitive moves over the real store', () => {
     const r = await contrast.run(ctx({ ask: answers(['a river moves, a lake does not']) }), { a: ids.River, b: ids.Lake });
     expect(r.ok).toBe(true);
     const belief = world.allThings().find(id => roleOf(world, id) === 'belief');
-    expect(world.nameOf(belief)).toMatch(/^River differs from Lake/);
+    expect(world.nameOf(belief)).toBe('River vs Lake');
+    expect(claimOf(world, belief)).toMatch(/^River differs from Lake: a river moves/);
     expect(confidence(world, belief)).toBeGreaterThan(0.5);
   });
 

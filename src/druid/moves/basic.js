@@ -96,9 +96,13 @@ export const connect = {
     const f = ctx.view.focus;
     if (!f || isBookkeeping(ctx.world, f.id)) return [];
     const linked = new Set(ctx.view.links.map(l => l.id));
+    // The relations it already uses, so it reuses one where it fits rather
+    // than coining a near-synonym each time.
+    const known = ctx.world.relationsInUse().filter(r => !/^then$/i.test(r)).slice(0, 6);
+    const reuse = known.length ? ` Relations you already use: ${known.join(', ')}. Use one of them if it fits.` : '';
     return ctx.view.peers.filter(p => !linked.has(p.id) && !isBookkeeping(ctx.world, p.id)).slice(0, 4).map(p => ({
       label: `connect ${f.name} to ${p.name}`,
-      blank: { question: `${f.name} ___ ${p.name}. What is the relation? (a verb or short phrase)`, maxWords: 3 },
+      blank: { question: `${f.name} ___ ${p.name}. What is the relation? (a verb or short phrase)${reuse}`, maxWords: 3 },
       data: { a: f.id, b: p.id },
       target: p.id
     }));

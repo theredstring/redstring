@@ -6,12 +6,13 @@
  * its moves stop being offered.
  */
 
-import { recall, buildMemoryIndex } from '../recall.js';
+import { recall, buildMemoryIndex, tokenize } from '../recall.js';
 import {
   isBookkeeping,
   openGoals, setGoalStatus, activePlans, nextStep, planSteps,
-  addEvidence, confidence, confidenceWords, sourceKind, beliefsIn, JUDGMENT_SCALE
+  addEvidence, confidence, confidenceWords, sourceKind, beliefsIn, claimOf, JUDGMENT_SCALE
 } from '../roles.js';
+import { wordsIn, shortName, MAX_NAME_WORDS } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 const titleish = (s) => String(s || '').trim().replace(/[.!?]+$/, '').replace(/^\w/, c => c.toUpperCase());
@@ -22,7 +23,7 @@ export const commitGoal = {
   prior: 0.45,
   offer(ctx) {
     if (!ctx.roles?.types.goal || openGoals(ctx.world).length >= 3) return [];
-    return [{ label: 'set yourself a goal: ___', blank: { question: 'Your goal, in a few plain words (what you want to understand or build).', maxWords: 10 }, prior: openGoals(ctx.world).length === 0 ? 0.7 : 0.4 }];
+    return [{ label: 'set yourself a goal: ___', blank: { question: 'Your goal, in a few plain words (what you want to understand or build), like "understand how bread rises".', maxWords: 5 }, prior: openGoals(ctx.world).length === 0 ? 0.7 : 0.4 }];
   },
   async run(ctx, _data, text) {
     const name = titleish(text);
@@ -41,30 +42,48 @@ export const pursueGoal = {
     return topGoals(ctx, 2).map(g => ({ label: `work toward your goal "${ctx.world.nameOf(g)}"`, data: { goal: g }, target: g }));
   },
   async run(ctx, data) {
-    const { world } = ctx;
-    // Go where the goal's words point; if nothing matches yet, say so.
-    // Content only: a goal's own plan repeats its words, and pursuing a goal
-    // by visiting its plan is going in a circle.
-    const hits = recall(buildMemoryIndex(world.state()), world.nameOf(data.goal), { k: 8 })
-      .filter(h => h.id !== data.goal && !isBookkeeping(world, h.id));
-    // Nor inside a goal's or plan's own web: a plan's steps are its bookkeeping.
-    const contentWeb = (w) => !world.isSystemWeb(w) && !(world.ownerOf(w) && isBookkeeping(world, world.ownerOf(w)));
-    for (const h of hits) {
-      const web = world.websOf(h.id).find(contentWeb);
-      if (web) {
-        world.focusWeb(web);
-        return { ok: true, summary: `went to ${h.name}, toward the goal "${world.nameOf(data.goal)}"`, touched: [h.id, data.goal], locus: { web, focus: h.id, path: [] }, wrote: false };
-      }
-    }
-    return { ok: true, summary: `looked for something toward "${world.nameOf(data.goal)}" and found nothing yet — something new has to be made`, touched: [data.goal], wrote: false };
+    const r = goToward(ctx, ctx.world.nameOf(data.goal), [data.goal]);
+    if (r) return { ...r, summary: `${r.summary}, toward the goal "${ctx.world.nameOf(data.goal)}"`, touched: [...r.touched, data.goal] };
+    return { ok: true, summary: `looked for something toward "${ctx.world.nameOf(data.goal)}" and found nothing yet — something new has to be made`, touched: [data.goal], wrote: false };
   }
 };
+
+/**
+ * Go to the Thing a phrase points at, in a web of real content. Content only:
+ * a goal's own plan repeats its words, and pursuing a goal by visiting its
+ * plan is going in a circle. Nor inside a goal's or plan's own web.
+ */
+function goToward(ctx, phrase, exclude = []) {
+  const { world } = ctx;
+  const skip = new Set(exclude);
+  const usable = (id) => !skip.has(id) && !isBookkeeping(world, id);
+  // What the phrase names comes first ("mix the dough" → Dough); recall
+  // leaves out what its cue already names, so it only supplies what is
+  // associated, after that.
+  const words = new Set(tokenize(phrase));
+  const named = world.allThings()
+    .filter(usable)
+    .map(id => ({ id, name: world.nameOf(id), n: tokenize(world.nameOf(id)).filter(t => words.has(t)).length }))
+    .filter(h => h.n > 0)
+    .sort((a, b) => b.n - a.n);
+  const hits = [...named, ...recall(buildMemoryIndex(world.state()), phrase, { k: 8 }).filter(h => usable(h.id))];
+  const contentWeb = (w) => !world.isSystemWeb(w) && !(world.ownerOf(w) && isBookkeeping(world, world.ownerOf(w)));
+  for (const h of hits) {
+    const web = world.websOf(h.id).find(contentWeb);
+    if (web) {
+      world.focusWeb(web);
+      return { ok: true, summary: `went to ${h.name}`, touched: [h.id], locus: { web, focus: h.id, path: [] }, wrote: false };
+    }
+  }
+  return null;
+}
 
 export const resolveGoal = {
   id: 'resolveGoal',
   prior: 0.3,
   offer(ctx) {
-    return topGoals(ctx, 2).map(g => ({ label: `mark your goal "${ctx.world.nameOf(g)}" as reached`, data: { goal: g }, target: g }));
+    const planDone = (g) => ctx.world.allThings().some(p => ctx.world.druidOf(p).forGoal === g && ctx.world.druidOf(p).status === 'done');
+    return topGoals(ctx, 2).map(g => ({ label: `mark your goal "${ctx.world.nameOf(g)}" as reached`, data: { goal: g }, target: g, ...(planDone(g) ? { prior: 0.8 } : {}) }));
   },
   async run(ctx, data) {
     setGoalStatus(ctx.world, data.goal, 'resolved', ctx.tick);
@@ -89,7 +108,7 @@ export const breakDownGoal = {
   prior: 0.35,
   offer(ctx) {
     if (!ctx.roles?.types.goal) return [];
-    return topGoals(ctx, 1).map(g => ({ label: `break your goal "${ctx.world.nameOf(g)}" into a smaller goal: ___`, blank: { question: `One smaller goal on the way to "${ctx.world.nameOf(g)}".`, maxWords: 10 }, data: { goal: g }, target: g }));
+    return topGoals(ctx, 1).map(g => ({ label: `break your goal "${ctx.world.nameOf(g)}" into a smaller goal: ___`, blank: { question: `One smaller goal on the way to "${ctx.world.nameOf(g)}", in a few words.`, maxWords: 5 }, data: { goal: g }, target: g }));
   },
   async run(ctx, data, text) {
     const name = titleish(text);
@@ -106,11 +125,12 @@ export const makePlan = {
   id: 'makePlan',
   prior: 0.4,
   offer(ctx) {
-    if (!ctx.roles?.types.plan) return [];
-    const planned = new Set(activePlans(ctx.world).map(p => ctx.world.druidOf(p).forGoal));
-    return topGoals(ctx, 2).filter(g => !planned.has(g)).slice(0, 1).map(g => ({
+    // One plan at a time: plans made while another was open were dropped and
+    // never looked at again.
+    if (!ctx.roles?.types.plan || activePlans(ctx.world).length > 0) return [];
+    return topGoals(ctx, 1).map(g => ({
       label: `plan how to reach "${ctx.world.nameOf(g)}" — the first step: ___`,
-      blank: { question: `The first step toward "${ctx.world.nameOf(g)}", as a short to-do, like "mix the dough".`, maxWords: 8 },
+      blank: { question: `The first step toward "${ctx.world.nameOf(g)}", as a short to-do, like "mix the dough".`, maxWords: 5 },
       data: { goal: g }, target: g
     }));
   },
@@ -120,7 +140,7 @@ export const makePlan = {
     const { world } = ctx;
     const r = await world.createThing(ctx.roles.home, `Plan: ${world.nameOf(data.goal)}`, { description: `Steps toward ${world.nameOf(data.goal)}.`, typeNodeId: ctx.roles.types.plan });
     if (!r.ok) return fail(r.error);
-    world.setDruid(r.id, { forGoal: data.goal, cursor: 0, status: 'open' });
+    world.setDruid(r.id, { forGoal: data.goal, cursor: 0, status: 'open', stepSince: ctx.tick });
     const inside = world.ensureInside(r.id);
     const s = await world.createThing(inside, step, { description: 'A step.' });
     if (!s.ok) return fail(s.error);
@@ -134,7 +154,7 @@ export const addStep = {
   offer(ctx) {
     return activePlans(ctx.world).slice(0, 1).map(p => ({
       label: `add the next step to "${ctx.world.nameOf(p)}": ___`,
-      blank: { question: `The step after "${ctx.world.nameOf(planSteps(ctx.world, p).at(-1) || '')}", as a short to-do.`, maxWords: 8 },
+      blank: { question: `The step after "${ctx.world.nameOf(planSteps(ctx.world, p).at(-1) || '')}", as a short to-do.`, maxWords: 5 },
       data: { plan: p }, target: p
     }));
   },
@@ -151,21 +171,47 @@ export const addStep = {
   }
 };
 
+/**
+ * Work done since a plan's current step became next: a write that touched a
+ * Thing of substance, not more planning. Without this, "mark the step done"
+ * was a free claim — one run ticked a step off the moment after writing it.
+ */
+const workedSince = (ctx, plan) => {
+  const since = ctx.world.druidOf(plan).stepSince ?? -Infinity;
+  return (ctx.writes || []).some(w => w.tick > since && (w.touched || []).some(id => ctx.world.proto(id) && !isBookkeeping(ctx.world, id)));
+};
+
 export const stepDone = {
   id: 'stepDone',
   prior: 0.55,
   offer(ctx) {
-    return activePlans(ctx.world).slice(0, 2).map(p => {
+    return activePlans(ctx.world).slice(0, 1).map(p => {
       const step = nextStep(ctx.world, p);
-      return step ? { label: `mark the step "${ctx.world.nameOf(step)}" done`, data: { plan: p, step }, target: p } : null;
+      return step && workedSince(ctx, p) ? { label: `mark the step "${ctx.world.nameOf(step)}" done`, data: { plan: p, step }, target: p } : null;
     }).filter(Boolean);
   },
   async run(ctx, data) {
     const { world } = ctx;
     const cursor = (world.druidOf(data.plan).cursor || 0) + 1;
-    world.setDruid(data.plan, { cursor });
     const finished = cursor >= planSteps(world, data.plan).length;
+    world.setDruid(data.plan, { cursor, stepSince: ctx.tick, ...(finished ? { status: 'done', statusAt: ctx.tick } : {}) });
     return { ok: true, summary: `did "${world.nameOf(data.step)}"${finished ? ` — that was the last step of "${world.nameOf(data.plan)}"` : ''}`, touched: [data.plan], wrote: true };
+  }
+};
+
+/** Go where the next step points, the way pursuing a goal goes where the goal points. */
+export const pursueStep = {
+  id: 'pursueStep',
+  prior: 0.7,
+  offer(ctx) {
+    return activePlans(ctx.world).slice(0, 1).map(p => {
+      const step = nextStep(ctx.world, p);
+      return step ? { label: `work on the next step of your plan: "${ctx.world.nameOf(step)}"`, data: { plan: p, step }, target: step } : null;
+    }).filter(Boolean);
+  },
+  async run(ctx, data) {
+    const r = goToward(ctx, ctx.world.nameOf(data.step), [data.step, data.plan]);
+    return r || { ok: true, summary: `looked for what "${ctx.world.nameOf(data.step)}" needs and found nothing yet — something new has to be made`, touched: [data.plan], wrote: false };
   }
 };
 
@@ -182,8 +228,13 @@ export const believe = {
     const claim = titleish(String(text || '').split(/(?<=[.!?])\s/)[0]);
     if (!claim) return fail('no claim');
     const { world } = ctx;
-    const r = await world.createThing(ctx.locus.web, claim, { description: `A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief });
+    // The claim is a sentence; the belief is named by a handle for it.
+    const name = wordsIn(claim).length > MAX_NAME_WORDS
+      ? titleish(await ctx.ask(`Give that belief a short name, at most 4 words: "${claim}"`, 4) || shortName(claim))
+      : claim;
+    const r = await world.createThing(ctx.locus.web, name, { description: `${claim.replace(/[.!?]*$/, '.')} A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief, fresh: true });
     if (!r.ok) return fail(r.error);
+    world.setDruid(r.id, { claim });
     addEvidence(world, r.id, { source: data.about, judgment: 'support', kind: sourceKind(world, data.about), tick: ctx.tick });
     await world.connect(ctx.locus.web, r.id, data.about, 'is about');
     return { ok: true, summary: `came to believe: ${claim}`, touched: [r.id, data.about], wrote: true };
@@ -200,11 +251,11 @@ export const weighBelief = {
     return beliefsIn(ctx.world, ctx.locus.web)
       .filter(b => b !== f.id && !(ctx.world.druidOf(b).evidence || []).some(e => e.source === f.id))
       .slice(0, 2)
-      .map(b => ({ label: `weigh whether ${f.name} supports the belief "${ctx.world.nameOf(b)}"`, data: { belief: b, source: f.id }, target: b }));
+      .map(b => ({ label: `weigh whether ${f.name} supports the belief "${claimOf(ctx.world, b)}"`, data: { belief: b, source: f.id }, target: b }));
   },
   async run(ctx, data) {
     const { world } = ctx;
-    const key = await ctx.judge(`Belief: "${world.nameOf(data.belief)}". Consider ${world.nameOf(data.source)}: ${world.proto(data.source)?.description || '(no description)'}. How does ${world.nameOf(data.source)} bear on the belief?`, JUDGMENT_SCALE);
+    const key = await ctx.judge(`Belief: "${claimOf(world, data.belief)}". Consider ${world.nameOf(data.source)}: ${world.proto(data.source)?.description || '(no description)'}. How does ${world.nameOf(data.source)} bear on the belief?`, JUDGMENT_SCALE);
     if (!key) return fail('no judgment');
     addEvidence(world, data.belief, { source: data.source, judgment: key, kind: sourceKind(world, data.source), tick: ctx.tick });
     const c = confidence(world, data.belief);
@@ -212,4 +263,4 @@ export const weighBelief = {
   }
 };
 
-export const ROLE_MOVES = [commitGoal, pursueGoal, resolveGoal, abandonGoal, breakDownGoal, makePlan, addStep, stepDone, believe, weighBelief];
+export const ROLE_MOVES = [commitGoal, pursueGoal, resolveGoal, abandonGoal, breakDownGoal, makePlan, addStep, stepDone, pursueStep, believe, weighBelief];

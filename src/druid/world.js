@@ -21,6 +21,7 @@
 import { graphStateFromStore } from './graphStateFromStore.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
+import { shortName, normalizeName, wordsIn, MAX_NAME_WORDS } from './names.js';
 
 const valuesOf = (c) => (c instanceof Map ? Array.from(c.values()) : Array.isArray(c) ? c : Object.values(c || {}));
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -151,7 +152,20 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   const isSystemWeb = (graphId) => !!druidOf(ownerOf(graphId) || '').system;
 
   /** Create a Thing in a web via the wizard tool; returns its prototype id. */
-  const createThing = async (graphId, name, { description = '', typeNodeId = null, fresh = false } = {}) => {
+  const createThing = async (graphId, givenName, { description: givenDescription = '', typeNodeId = null, fresh = false } = {}) => {
+    // A name is a handle; a sentence given as one keeps its words in the
+    // description (names.js). Every way of making a Thing comes through here.
+    // A long one is put to the name gate, a contextless helper call
+    // (mind/helpers.js), when there is one; code decides when it has nothing.
+    let name = shortName(givenName);
+    if (api.nameGate && wordsIn(givenName).length > MAX_NAME_WORDS) {
+      const verdict = await api.nameGate(String(givenName).trim()).catch(() => null);
+      if (verdict?.kind === 'name') name = wordsIn(givenName).join(' ');
+      else if (verdict?.kind === 'sentence') name = verdict.short;
+    }
+    const description = name === String(givenName || '').trim()
+      ? givenDescription
+      : [`${String(givenName).trim().replace(/[.!?]*$/, '.')}`, givenDescription].filter(Boolean).join(' ');
     // `fresh`: the caller means a NEW Thing. Same name in the same web would
     // silently reuse the old one ("made Creative network" — again).
     if (fresh) {
@@ -182,7 +196,27 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   /** Connect two Things placed in the same web. */
   const connect = async (graphId, aId, bId, relation) => {
     if (!isSystemWeb(graphId)) focusWeb(graphId);
-    return act('createEdge', { sourceId: nameOf(aId), targetId: nameOf(bId), type: relation || 'relates to', targetGraphId: graphId });
+    return act('createEdge', { sourceId: nameOf(aId), targetId: nameOf(bId), type: sameRelation(relation || 'relates to'), targetGraphId: graphId });
+  };
+
+  /** Every relation in use, by how often, most used first. */
+  const relationsInUse = () => {
+    const count = new Map();
+    for (const e of state().edges.values()) {
+      const r = e.name || nameOf((e.definitionNodeIds || [])[0]) || '';
+      if (r) count.set(r, (count.get(r) || 0) + 1);
+    }
+    return [...count.entries()].sort((x, y) => y[1] - x[1]).map(([r]) => r);
+  };
+
+  /**
+   * A relation already in use under another spelling ("Connects" for
+   * "connect"), so the vocabulary does not drift: one long run made Connect,
+   * Connects, Contains and Includes, each its own type.
+   */
+  const sameRelation = (relation) => {
+    const want = normalizeName(relation);
+    return relationsInUse().find(r => normalizeName(r) === want) || relation;
   };
 
   /** Give a Thing an inside (empty web) if it has none; returns the web id. */
@@ -193,6 +227,23 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     const id = state().createAndAssignGraphDefinitionWithoutActivation(protoId);
     if (before && graph(before)) state().setActiveGraph(before);
     return id;
+  };
+
+  /**
+   * Delete a Thing the Druid no longer needs, with the Things inside it that
+   * live nowhere else. Deleting a Thing deletes its inside web, but the Things
+   * placed there would be left in no web at all.
+   */
+  const forget = (protoId) => {
+    if (!proto(protoId)) return false;
+    const inside = insideOf(protoId);
+    if (inside) {
+      for (const id of thingsIn(inside)) {
+        if (id !== protoId && websOf(id).every(w => w === inside)) forget(id);
+      }
+    }
+    state().deleteNodePrototype(protoId);
+    return !proto(protoId);
   };
 
   /** Connections in a web, as { a, b, relation } over prototype ids. */
@@ -237,9 +288,11 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   const api = {
     /** Set while the Druid is living, so what it makes is marked as its own. */
     actor: null,
+    /** async (longName) → { kind: 'name' } | { kind: 'sentence', short } | null (mind/helpers.js nameGate). */
+    nameGate: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside
+    act, focusWeb, place, unplace, systemWeb, isSystemWeb, createThing, connect, ensureInside, relationsInUse, forget
   };
   return api;
 }

@@ -78,6 +78,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     recent: Array.isArray(resume.recent) ? [...resume.recent] : [],
     missing: Array.isArray(resume.missing) ? [...resume.missing] : [],
     shown: resume.shown && typeof resume.shown === 'object' ? { ...resume.shown } : {},
+    writes: Array.isArray(resume.writes) ? [...resume.writes] : [],
     notice: ''
   };
   if (st.tick > 0) wake(world, isOpenGoal);
@@ -131,6 +132,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const ctx = {
       world, tick, locus: st.locus, view, activation, index, held: heldNow, ask, pick, judge,
       lastThought: st.loop[st.loop.length - 1] || '',
+      writes: st.writes,
       release: (id) => letGo(world, id, tick, 6),
       scratch: (text) => scratchThought(world, text, tick),
       promote: (id, web) => promote(world, id, web),
@@ -187,6 +189,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     associate(world, [...touched, ...held(world).slice(0, 3).map(h => h.id)], tick);
     let episode = null;
     if (result.ok && result.wrote) {
+      st.writes = [...st.writes, { tick, move: item?.move.id || null, touched }].slice(-RECENT_SIZE);
       episode = await writeEpisode(world, { tick, summary: result.summary, touched, episodeTypeId: episodeType(world) });
     }
 
@@ -229,6 +232,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       tick,
       locus: { ...st.locus, webName: world.graph(st.locus.web)?.name || null, focusName: world.nameOf(st.locus.focus) || null },
       menu: menu.map(m => m.label),
+      offerErrors: ctx.offerErrors || [],
       chose: item ? item.label : null,
       move: item?.move.id || null,
       text,
@@ -249,7 +253,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 }
 
 function snapshot(st) {
-  return { tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown };
+  return { tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown, writes: st.writes };
 }
 
 export default runLife;

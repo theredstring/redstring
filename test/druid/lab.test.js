@@ -43,6 +43,7 @@ describe('lab scenarios', () => {
       let rec = null;
       for await (const r of createDruid({ world, mind }, { maxCycles: 1, resume: { tick: 0, locus } })) if (r.type === 'cycle') rec = r;
       const s = score(sc, rec);
+      expect(rec.offerErrors).toEqual([]);
       expect(rec.move).toBe(sc.best);
       expect(s).toMatchObject({ valid: true, sensible: true, best: true, landed: true });
     });

@@ -41,7 +41,9 @@ export function buildMenu(moves, ctx, { recent = [], shown = {}, tick = 0, size 
   const items = [];
   for (const move of moves) {
     let offered = [];
-    try { offered = move.offer(ctx) || []; } catch { offered = []; }
+    // A move that cannot offer from here is left out, but never silently:
+    // a missing import once took weighing beliefs off every menu unnoticed.
+    try { offered = move.offer(ctx) || []; } catch (err) { offered = []; (ctx.offerErrors ||= []).push(`${move.id}: ${err?.message || err}`); }
     for (const it of offered) {
       const key = `${move.id}:${it.target || it.data?.id || it.data?.to || it.data?.at || ''}`;
       const recency = recent.lastIndexOf(key);
