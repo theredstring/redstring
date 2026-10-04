@@ -316,15 +316,8 @@ export const useGraphLayout = ({
         // the common case while the wizard streams: it keeps adding nodes (each
         // re-triggering layout) as the user tries to pick a node up.
         if (draggingNodeInfoRef?.current) return;
-        if (!activeGraphId) {
-            alert('No active graph is selected for auto-layout.');
-            return;
-        }
-
-        if (!nodes || nodes.length === 0) {
-            alert('Active graph has no nodes to layout yet.');
-            return;
-        }
+        // Nothing to lay out: no graph open, or an empty one. Do nothing.
+        if (!activeGraphId || !nodes || nodes.length === 0) return;
 
         // Show loading indicator for large graphs
         if (nodes.length > 20) {

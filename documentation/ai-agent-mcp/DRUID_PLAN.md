@@ -220,6 +220,22 @@ Also from that run:
 
 **In the app.** The Druid is now "The Druid" in the Wizard panel's mode menu (above Chat; shown while Settings › Debug › The Druid is on), with its moments, what you say and what it answers in one stream, and an input to talk to it. The floating panel and the old Druid's leftovers in the Wizard (`DruidInstance`, its six-folder workspace) are gone from the panel.
 
+The panel shows the Druid's own header: Copy and Clear, not the Wizard's tabs and buttons. **Copy is how a run is reported.** It copies the whole run as plain text:
+- each moment: where it was, its thought, the numbered menu with the choice starred, the result or the failure, every question it was asked and its answer, and what sleep did;
+- what was said either way;
+- an outline of the universe as found from Home (`lab/outline.js`).
+
+Grant tests on a fresh universe each time and pastes this.
+
+**No Wikipedia.** What the Druid makes is never looked up: not by the Wizard's apply path, which filled a Thing with no description yet with an article's text and picture, nor by the node panel's identifier lookup.
+
+**Nothing lost: everything hangs off Home** (`world.shelve`). In a DruidTest universe only 6 of 15 webs could be reached from Home; Working Memory and the episodes sat in no web at all.
+- Each web it starts gets a Thing in Home.
+- Its own webs (Working Memory, Revisions, the Diary) sit in Home.
+- Each day's episodes sit in the Diary.
+
+A web whose Thing sits only in Home still counts as top-level for going between webs. The Druid does not see its own webs as content. Waking shelves anything left over.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

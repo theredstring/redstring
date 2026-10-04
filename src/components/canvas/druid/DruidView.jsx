@@ -12,6 +12,8 @@ import useDruidStore from './druidStore.js';
  */
 
 const FONT = "'EmOne', sans-serif";
+/** Entries drawn; the store keeps the whole run for Copy. */
+const SHOWN = 150;
 
 const MINDS = [
   { value: 'afm', label: "Apple's model" },
@@ -70,12 +72,13 @@ export function DruidHeaderActions() {
     const t = setTimeout(() => setCopied(false), 1200);
     return () => clearTimeout(t);
   }, [copied]);
-  const copy = () => {
-    navigator.clipboard?.writeText(useDruidStore.getState().transcript()).then(() => setCopied(true), () => {});
+  const copy = async () => {
+    const text = await useDruidStore.getState().transcript();
+    navigator.clipboard?.writeText(text).then(() => setCopied(true), () => {});
   };
   return (
     <div className="ai-header-actions">
-      <PanelIconButton icon={copied ? Check : Copy} size={18} onClick={copy} disabled={empty} title={copied ? 'Copied' : 'Copy what it thought and said'} />
+      <PanelIconButton icon={copied ? Check : Copy} size={18} onClick={copy} disabled={empty} title={copied ? 'Copied' : 'Copy the whole run, and the universe as it stands'} />
       <PanelIconButton icon={Eraser} size={18} onClick={() => useDruidStore.getState().clear()} disabled={empty} title="Clear what is shown (the universe keeps everything)" />
     </div>
   );
@@ -159,7 +162,8 @@ function DruidView({ active = true }) {
             Wake it to watch it think. Say something to give it something to think about, now or while it lives.
           </div>
         )}
-        {stream.map((e, i) => (e.kind === 'moment' ? <Moment key={`m${e.tick}-${i}`} c={e} tokens={tokens} /> : <Said key={`s${i}`} e={e} tokens={tokens} />))}
+        {stream.length > SHOWN && <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', padding: '8px 0' }}>{stream.length - SHOWN} earlier, in Copy</div>}
+        {stream.slice(-SHOWN).map((e, i) => (e.kind === 'moment' ? <Moment key={`m${e.tick}-${i}`} c={e} tokens={tokens} /> : <Said key={`s${i}`} e={e} tokens={tokens} />))}
         <div ref={bottomRef} />
       </div>
 

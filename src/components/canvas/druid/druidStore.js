@@ -10,7 +10,8 @@ import { runCanvasCommand } from '../../../utils/canvas/canvasCommands.js';
  */
 
 const SETTINGS_KEY = 'redstring_druid_settings';
-const KEEP = 120;
+// The whole run is kept for Copy; the view draws the last stretch of it.
+const KEEP = 2000;
 
 export const DEFAULT_DRUID_SETTINGS = {
   mind: 'afm',
@@ -34,27 +35,58 @@ const readSettings = () => {
 
 let session = null;
 
+const clip = (t, n) => { const x = String(t ?? '').replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n - 1)}…` : x; };
+
+/** A model call, kept small: what kind, what was asked, what came back. */
+export function compactCall(c) {
+  const answer = c.kind === 'fill' ? c.text : c.kind === 'choose' ? (Number.isInteger(c.index) ? c.index + 1 : c.index) : c.key;
+  return { kind: c.kind, q: clip(c.question, 240), a: answer ?? null, ...(c.error ? { error: clip(c.error, 160) } : {}) };
+}
+
+/** What sleep did, in a line: only what it did. */
+function sleptLine(slept) {
+  if (!slept) return '';
+  if (slept.error) return `failed: ${slept.error}`;
+  const parts = [];
+  for (const [k, v] of Object.entries(slept)) {
+    if (Array.isArray(v) && v.length) parts.push(`${k} ${v.length}${typeof v[0] === 'string' ? ` (${v.slice(0, 4).join('; ')})` : ''}`);
+    else if (typeof v === 'number' && v > 0) parts.push(`${k} ${v}`);
+  }
+  return parts.join(', ') || 'nothing to tidy';
+}
+
 /**
- * Everything the view shows, as plain text: the through line, then each moment
- * (where it was, what it thought, what it chose and what came of it) and what
- * was said either way. For pasting into a bug report or a conversation.
+ * The whole run as plain text, for pasting into a conversation about it:
+ * the settings, the through line, each moment (where it was, what it thought,
+ * what it was offered, what it chose and what came of it, what it was asked
+ * and answered, what sleep did), what was said either way, and, given one,
+ * an outline of the universe as found from Home.
  */
-export function transcriptOf({ stream = [], throughLine = '', held = [], error = null } = {}) {
-  const lines = [];
+export function transcriptOf({ stream = [], throughLine = '', held = [], error = null, settings = null, stats = null } = {}, { outline = '', now = new Date() } = {}) {
+  const lines = [`The Druid, copied ${now.toISOString().slice(0, 16).replace('T', ' ')}`];
+  if (settings) lines.push(`Mind: ${settings.mind === 'afm' ? "Apple's model" : `${settings.model} (LM Studio)`} · ${settings.speak === 'commands' ? 'writes commands' : 'picks from a menu'}`);
+  if (stats?.calls) lines.push(`Calls: ${stats.calls}, ${Math.round(stats.ms / Math.max(1, stats.calls))} ms each`);
   if (throughLine) lines.push(`Lately: ${throughLine}`);
   if (held.length) lines.push(`Holding in mind: ${held.join(', ')}`);
-  if (lines.length) lines.push('');
+  if (error) lines.push(`Error: ${error}`);
+  lines.push('');
   for (const e of stream) {
     if (e.kind === 'you') { lines.push(`You: ${e.text}${e.pending ? ' (not heard yet)' : ''}`, ''); continue; }
     if (e.kind === 'reply') { lines.push(`The Druid: ${e.text}`, ''); continue; }
     const where = [e.locus?.webName, e.locus?.focusName].filter(Boolean).join(' › ');
-    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}`);
-    if (e.thought) lines.push(`  ${e.thought}`);
-    lines.push(`  ${e.chose || 'did not choose'}${e.text ? ` → ${e.text}` : ''}${e.result?.ok === false ? ' (failed)' : ''}`);
-    if (e.result?.summary || e.slept) lines.push(`  ${e.result?.summary || ''}${e.slept ? ' · slept' : ''}`.trimEnd());
+    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}${e.size ? `  (${e.size.webs} webs, ${e.size.things} Things)` : ''}`);
+    if (e.thought) lines.push(`  thought: ${e.thought}`);
+    if (e.menu?.length) lines.push(`  offered: ${e.menu.map((m, i) => `${m === e.chose ? '*' : ''}${i + 1} ${m}`).join(' | ')}`);
+    for (const err of e.offerErrors || []) lines.push(`  offer broke: ${typeof err === 'string' ? err : JSON.stringify(err)}`);
+    lines.push(`  chose: ${e.chose || 'nothing'}${e.text ? ` → "${e.text}"` : ''}${e.otherText ? ` (wrote "${e.otherText}")` : ''}`);
+    lines.push(`  ${e.result?.ok === false ? 'FAILED' : 'result'}: ${e.result?.summary || ''}${e.result?.error && e.result.error !== e.result.summary ? ` (${e.result.error})` : ''}`);
+    for (const c of e.asked || []) lines.push(`  asked (${c.kind}): ${c.q} → ${c.a === null ? '—' : `"${c.a}"`}${c.error ? ` [${c.error}]` : ''}`);
+    const flags = [e.repeating && 'repeating itself', e.unbacked?.length && `thought not kept: ${e.unbacked.join(', ')}`].filter(Boolean);
+    if (flags.length) lines.push(`  note: ${flags.join(' · ')}`);
+    if (e.slept) lines.push(`  slept: ${sleptLine(e.slept)}`);
     lines.push('');
   }
-  if (error) lines.push(`Error: ${error}`);
+  if (outline) lines.push(outline);
   return lines.join('\n').trim();
 }
 
@@ -112,6 +144,8 @@ export const useDruidStore = create((set, get) => ({
         onCycle: (r) => {
           // The view shows the moment, not the loop's internals.
           const moment = Object.fromEntries(Object.entries(r).filter(([k]) => !['state', 'calls', 'stats', 'reply', 'heard'].includes(k)));
+          // What it was asked and answered, small, for Copy.
+          moment.asked = (r.calls || []).map(compactCall);
           set(s => ({
             stream: keep([
               ...s.stream.map(e => (e.kind === 'you' && e.pending && r.heard?.length ? { ...e, pending: false } : e)),
@@ -147,8 +181,21 @@ export const useDruidStore = create((set, get) => ({
     session.stop();
   },
 
-  /** The stream as plain text (transcriptOf). */
-  transcript: () => transcriptOf(get()),
+  /** The whole run as plain text, with the universe as found from Home (transcriptOf). */
+  transcript: async () => {
+    let text = '';
+    try {
+      const [{ createWorld }, { outline }, { default: useGraphStore }] = await Promise.all([
+        import('../../../druid/world.js'),
+        import('../../../druid/lab/outline.js'),
+        import('../../../store/graphStore.js')
+      ]);
+      text = outline(session?.world || createWorld({ store: useGraphStore }));
+    } catch (err) {
+      text = `(could not outline the universe: ${err?.message || err})`;
+    }
+    return transcriptOf(get(), { outline: text });
+  },
 
   clear: () => set({ stream: [], throughLine: '', held: [], error: null })
 }));

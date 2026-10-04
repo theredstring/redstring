@@ -132,29 +132,62 @@ describe('in the app', () => {
     }
   });
 
-  it('copies what it thought and said as plain text', async () => {
-    const { transcriptOf } = await import('../../src/components/canvas/druid/druidStore.js');
+  it('copies the whole run as plain text: each moment, what it was asked, and the universe from Home', async () => {
+    const { transcriptOf, compactCall } = await import('../../src/components/canvas/druid/druidStore.js');
+    const asked = [{ kind: 'fill', question: 'How do Delta and River relate?', ok: true, text: 'River slows into Delta' }, { kind: 'choose', question: 'What do you do?', ok: true, index: 1 }].map(compactCall);
     const text = transcriptOf({
+      settings: { mind: 'afm', speak: 'menu' },
+      stats: { calls: 4, ms: 2000 },
       throughLine: 'Working out how rivers make deltas.',
       held: ['Delta'],
       stream: [
         { kind: 'you', text: 'think about deltas' },
-        { kind: 'moment', tick: 3, locus: { webName: 'Rivers', focusName: 'Delta' }, thought: 'A delta is where a river slows.', chose: 'connect Delta to River', text: 'River slows into Delta', result: { ok: true, summary: 'connected Delta to River' } },
+        { kind: 'moment', tick: 3, size: { webs: 2, things: 5 }, locus: { webName: 'Rivers', focusName: 'Delta' }, thought: 'A delta is where a river slows.', menu: ['look at River', 'connect Delta to River'], chose: 'connect Delta to River', text: 'River slows into Delta', result: { ok: true, summary: 'connected Delta to River' }, asked, slept: { merged: ['Flooring into Floor'], pruned: 0 } },
+        { kind: 'moment', tick: 4, locus: { webName: 'Rivers' }, menu: [], chose: 'make Silt', result: { ok: false, summary: 'Silt already exists', error: 'Silt already exists' }, repeating: true },
         { kind: 'reply', text: 'I will look at deltas.' }
       ]
-    });
+    }, { outline: 'The universe now: 2 webs', now: new Date('2026-10-04T10:30:00Z') });
     expect(text).toBe([
+      'The Druid, copied 2026-10-04 10:30',
+      "Mind: Apple's model · picks from a menu",
+      'Calls: 4, 500 ms each',
       'Lately: Working out how rivers make deltas.',
       'Holding in mind: Delta',
       '',
       'You: think about deltas',
       '',
-      '[3] Rivers › Delta',
-      '  A delta is where a river slows.',
-      '  connect Delta to River → River slows into Delta',
-      '  connected Delta to River',
+      '[3] Rivers › Delta  (2 webs, 5 Things)',
+      '  thought: A delta is where a river slows.',
+      '  offered: 1 look at River | *2 connect Delta to River',
+      '  chose: connect Delta to River → "River slows into Delta"',
+      '  result: connected Delta to River',
+      '  asked (fill): How do Delta and River relate? → "River slows into Delta"',
+      '  asked (choose): What do you do? → "2"',
+      '  slept: merged 1 (Flooring into Floor)',
       '',
-      'The Druid: I will look at deltas.'
+      '[4] Rivers',
+      '  chose: make Silt',
+      '  FAILED: Silt already exists',
+      '  note: repeating itself',
+      '',
+      'The Druid: I will look at deltas.',
+      '',
+      'The universe now: 2 webs'
     ].join('\n'));
+  });
+
+  it('outlines the universe as a person finds it from Home', async () => {
+    const { outline } = await import('../../src/druid/lab/outline.js');
+    const { buildUniverse } = await import('./helpers/headlessWorld.js');
+    const { world } = await freshWorld();
+    await ensureHome(world);
+    const { webs } = await buildUniverse(world, { webs: { Rivers: { things: { River: 'moving water', Delta: 'where it slows' }, links: [['River', 'Delta', 'feeds']] } } });
+    world.setDruid(world.ownerOf(webs.Rivers), { topic: true });
+    expect(outline(world)).toMatch(/Not reachable from Home: Rivers\nRivers — 2 Things, 1 connections\n {2}River, Delta\n {2}River —feeds→ Delta/i);
+    world.shelveAll();
+    const text = outline(world);
+    expect(text).not.toMatch(/Not reachable/);
+    expect(text).toMatch(/^Home — 1 Things, 0 connections\n {2}Rivers▸°$/m);
+    expect(text).toMatch(/^Rivers \(in Home\) — 2 Things, 1 connections$/m);
   });
 });
