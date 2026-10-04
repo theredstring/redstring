@@ -49,6 +49,11 @@ describe('preload surface', () => {
     });
   });
 
+  it('the Druid\'s local-model calls appear only in development', () => {
+    expect(exposedApi([]).api.druid).toBeUndefined();
+    expect(Object.keys(exposedApi(['--redstring-dev']).api.druid).sort()).toEqual(['afm', 'chat']);
+  });
+
   it('debugDowngrade / __devSimulate appear only when main asks for them', () => {
     expect(exposedApi(['--redstring-debug-downgrade']).api.updater.debugDowngrade).toBeTypeOf('function');
     const dev = exposedApi(['--redstring-dev', '--redstring-debug-downgrade']).api.updater;

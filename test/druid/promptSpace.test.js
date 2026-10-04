@@ -3,7 +3,8 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadPromptSpace, readWebs, DEFAULT_PROMPT_SPACE } from '../../src/druid/promptSpace.js';
+import { readWebs, DEFAULT_PROMPT_SPACE } from '../../src/druid/promptSpace.js';
+import { loadPromptSpace } from '../../src/druid/promptSpaceFile.js';
 
 const shipped = path.join(process.cwd(), 'src', 'druid', 'prompt-space.redstring');
 

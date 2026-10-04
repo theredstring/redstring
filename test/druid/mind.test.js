@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { createMind, readChoice, readText, readKey } from '../../src/druid/mind/createMind.js';
+import { createMind, readChoice, readText, readKey, echoes } from '../../src/druid/mind/createMind.js';
 import { scripted } from '../../src/druid/mind/backends.js';
 import { assemble, clipToTokens, WINDOW } from '../../src/druid/mind/budget.js';
 
@@ -16,6 +16,9 @@ describe('readers', () => {
   it('reads text, clips it to its words, and refuses placeholders', () => {
     expect(readText('{"text":"desert rock"}', 4)).toBe('desert rock');
     expect(readText('{"text":"one two three four five six"}', 4)).toBe('one two three four');
+    // Cut where a phrase ends, not mid-phrase.
+    expect(readText('{"text":"Yeast ferments sugars to produce carbon dioxide gas, causing the dough to rise"}', 10)).toBe('Yeast ferments sugars to produce carbon dioxide gas');
+    expect(readText('{"text":"Knead the dough until it is smooth and"}', 7)).toBe('Knead the dough until it is smooth');
     expect(readText('{"text":"..."}', 4)).toBeNull();
     expect(readText('{"text":"___"}', 4)).toBeNull();
     expect(readText('{"text":"  "}', 4)).toBeNull();
@@ -93,5 +96,23 @@ describe('createMind', () => {
     const mind = createMind({ backend: { complete: async () => { throw new Error('down'); } } });
     const r = await mind.choose({ question: 'x', options: ['a'] });
     expect(r).toMatchObject({ ok: false, error: 'down' });
+  });
+});
+
+describe('an answer that only repeats the question', () => {
+  const Q = 'In one plain sentence: what are you thinking now? Name the Things you mean.';
+  it('is recognized', () => {
+    expect(echoes('What are you thinking now? Name the Things you mean.', Q)).toBe(true);
+    expect(echoes('Yeast makes the dough rise.', Q)).toBe(false);
+    expect(echoes('now', Q)).toBe(false);
+  });
+
+  it('is asked again, and a real answer is kept', async () => {
+    const answers = ['{"text":"What are you thinking now? Name the Things you mean."}', '{"text":"Yeast makes the dough rise."}'];
+    const seen = [];
+    const mind = createMind({ backend: scripted((req) => { seen.push(req.user); return answers.shift(); }) });
+    const r = await mind.fill({ system: 's', question: Q, maxWords: 30 });
+    expect(r.text).toBe('Yeast makes the dough rise.');
+    expect(seen[1]).toMatch(/Do not repeat the question/);
   });
 });

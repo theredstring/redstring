@@ -1,6 +1,6 @@
 # The Druid — implementation plan (v2)
 
-> Status: **M1–M7 built and tested; M8 (in the app) not started** (2026-10-03). Run it: `npm run druid -- --mind afm` (Apple's on-device model) or `npm run druid` (LM Studio). Results are under [What the runs showed](#what-the-runs-showed). Branch `druid`. Builds on what is already there, described in [`DRUID.md`](DRUID.md).
+> Status: **M1–M7 built and tested; M8 (in the app) started: the Druid lives in the open universe, watched from a panel** (2026-10-04). Run it: `npm run druid -- --mind afm` (Apple's on-device model) or `npm run druid` (LM Studio). Results are under [What the runs showed](#what-the-runs-showed). Branch `druid`. Builds on what is already there, described in [`DRUID.md`](DRUID.md).
 >
 > The goal: a **persistent entity** that runs on a tiny on-device model (Apple's Foundation Models, ~3B parameters, 4,096-token window, on a Mac or an iPhone 15 Pro and later), with a Redstring universe as its memory. It keeps that universe in shape faster than a person could, because code does nearly all the work. The model makes judgments; it never builds structure.
 
@@ -135,9 +135,12 @@ Each ends in something runnable with tests. Most of the system can be tested **w
 `sleep.js`: duplicates by normalized name (English plurals included), judged then merged. Splits: features (webs, relations, parts), two-means by Jaccard, description length with a kind costing one. Proposed only on the **second** sighting, with a cooldown per kind. The kinds are named by the model; a name that already exists is **reused and not deleted on revert**. Revisions are Things in a "Revisions" system web carrying `druid.revision` (the before-map, what was created, what was reused, both scores); `revert` restores exactly. A web per revision was simpler as a record than as a new web over the same Things, and reverts just as exactly.
 
 ### M8 — In the app
-- The prompt space opened read-only behind a debug setting.
-- A read-only **follow** mode: reload the Druid's universe as it changes, so you can watch it think on the canvas.
-- Associations rendered per D1. Its working memory visible.
+- **Done (2026-10-04): the Druid lives in the open universe.** Settings › Debug › The Druid shows a panel (`src/components/canvas/druid/`, a host mounted by CanvasShell). From there you pick Apple's model or LM Studio, give it something to have on its mind, and press Wake. `src/druid/inApp/druidSession.js` runs the same `createDruid` as the CLI over the live store, so every Thing appears on the canvas as it is made. The panel streams each moment: its thought, what it chose and what happened. With **Follow** on, the camera centres on whatever it is looking at.
+  - Its loop state (cycle, locus, last thoughts) is kept on its Home Thing, so it travels with the universe and a later Wake resumes.
+  - Models are reached from Electron's main process (`electron/druidBridge.cjs`): the afm-bridge over stdio, and a chat-completions server on loopback only. This is development only for now: the preload exposes `druid` only with `--redstring-dev`, and the helper isn't shipped.
+  - It stops itself, and says why, when the model fails three cycles running (LM Studio not started).
+  - Its own webs (episodes, working memory) no longer take the canvas when it writes to them. `focusWeb` now opens a web that isn't open (`setActiveGraph` falls back to the first open web).
+- Still to do: the prompt space opened read-only behind the debug setting; associations rendered per D1; working memory shown on the canvas, not just listed in the panel.
 - Follows the canvas architecture rules (layers and hosts, nothing in `NodeCanvas.jsx`).
 
 ## What the runs showed

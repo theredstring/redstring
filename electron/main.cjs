@@ -19,6 +19,7 @@ const {
 const { registerAppScheme, handleAppProtocol } = require('./appProtocol.cjs');
 const { createSecretsStore } = require('./secretsStore.cjs');
 const legacyMigration = require('./legacyMigration.cjs');
+const { createDruidBridge, defaultBridgePath } = require('./druidBridge.cjs');
 
 let updaterHandle = null;
 
@@ -1260,6 +1261,19 @@ handle('agent:getConnection', async () => ({
   token: agentToken
 }));
 
+// ============================================================
+// The Druid's local models (Settings › Debug › The Druid)
+// ============================================================
+
+let druidBridge = null;
+const getDruidBridge = () => (druidBridge ||= createDruidBridge({ executable: defaultBridgePath(app.getAppPath()) }));
+
+// Development only for now: the helper is built in a checkout, not shipped.
+if (isDev) {
+  handle('druid:afm', async (event, request) => getDruidBridge().afm(request));
+  handle('druid:chat', async (event, { endpoint, body } = {}) => getDruidBridge().chat(endpoint, body));
+}
+
 // Second-launch attempts are forwarded here by the single-instance lock.
 app.on('second-instance', () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1341,6 +1355,7 @@ app.on('window-all-closed', function () {
 // Clean up agent server when app is quitting
 app.on('will-quit', () => {
   stopAgentServer();
+  druidBridge?.close();
 });
 
 // Also handle before-quit for macOS

@@ -90,6 +90,18 @@ describe('runLife over the real store', () => {
     expect(cycles[2].locus).toMatchObject({ web: webs.Geology, focusName: 'Rock', path: [] });
   });
 
+  it('never makes a Thing a part of itself', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Baking: { things: { Flour: 'Ground grain.' } } } });
+    const { mind } = planMind([
+      { choose: /^look at Flour/ },
+      { choose: /^open up Flour/ }, { fill: 'Flour, wheat grains' }, { fill: 'Seeds of wheat.' }
+    ]);
+    const { cycles } = await live(world, mind, 2, { resume: { tick: 0, locus: { web: webs.Baking, focus: null, path: [] } } });
+    expect(world.thingsIn(world.insideOf(ids.Flour)).map(world.nameOf)).toEqual(['Wheat grains']);
+    expect(cycles[1].result.ok).toBe(true);
+  });
+
   it('keeps "something else" it has no move for as a report, and maps what it can', async () => {
     const { world } = await freshWorld();
     const { webs } = await buildUniverse(world, { webs: { W: { things: { A: 'a thing' } } } });

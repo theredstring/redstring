@@ -8,6 +8,7 @@ import SyncDebugHost from './SyncDebugHost.jsx';
 import SearchHosts from './SearchHosts.jsx';
 import UniverseHost from './UniverseHost.jsx';
 import ForceSimHost from './ForceSimHost.jsx';
+import DruidHost from '../druid/DruidHost.jsx';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { CanvasOverlaySlot } from './canvasOverlaySlot.js';
@@ -62,6 +63,7 @@ function CanvasShell() {
       <SyncDebugHost />
       <SearchHosts />
       <ForceSimHost />
+      <DruidHost />
     </div>
   );
 }

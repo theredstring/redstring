@@ -47,8 +47,10 @@ export const pursueGoal = {
     // by visiting its plan is going in a circle.
     const hits = recall(buildMemoryIndex(world.state()), world.nameOf(data.goal), { k: 8 })
       .filter(h => h.id !== data.goal && !isBookkeeping(world, h.id));
+    // Nor inside a goal's or plan's own web: a plan's steps are its bookkeeping.
+    const contentWeb = (w) => !world.isSystemWeb(w) && !(world.ownerOf(w) && isBookkeeping(world, world.ownerOf(w)));
     for (const h of hits) {
-      const web = world.websOf(h.id).find(w => !world.isSystemWeb(w));
+      const web = world.websOf(h.id).find(contentWeb);
       if (web) {
         world.focusWeb(web);
         return { ok: true, summary: `went to ${h.name}, toward the goal "${world.nameOf(data.goal)}"`, touched: [h.id, data.goal], locus: { web, focus: h.id, path: [] }, wrote: false };
@@ -108,7 +110,7 @@ export const makePlan = {
     const planned = new Set(activePlans(ctx.world).map(p => ctx.world.druidOf(p).forGoal));
     return topGoals(ctx, 2).filter(g => !planned.has(g)).slice(0, 1).map(g => ({
       label: `plan how to reach "${ctx.world.nameOf(g)}" — the first step: ___`,
-      blank: { question: `The first step toward "${ctx.world.nameOf(g)}", in a few plain words.`, maxWords: 10 },
+      blank: { question: `The first step toward "${ctx.world.nameOf(g)}", as a short to-do, like "mix the dough".`, maxWords: 8 },
       data: { goal: g }, target: g
     }));
   },
@@ -132,7 +134,7 @@ export const addStep = {
   offer(ctx) {
     return activePlans(ctx.world).slice(0, 1).map(p => ({
       label: `add the next step to "${ctx.world.nameOf(p)}": ___`,
-      blank: { question: `The step after "${ctx.world.nameOf(planSteps(ctx.world, p).at(-1) || '')}", in a few plain words.`, maxWords: 10 },
+      blank: { question: `The step after "${ctx.world.nameOf(planSteps(ctx.world, p).at(-1) || '')}", as a short to-do.`, maxWords: 8 },
       data: { plan: p }, target: p
     }));
   },

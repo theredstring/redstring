@@ -16,6 +16,9 @@ const DEBUG_STORAGE_KEYS = {
   // Debug menu rendered beside it. The Settings page is nowhere near NodeCanvas,
   // so it lives here with the other debug flags and NodeCanvas subscribes.
   SHOW_DEBUG_OVERLAY: 'redstring_debug_show_overlay',
+  // The panel for watching (and starting) the Druid, a small local model that
+  // lives in the open universe. See src/druid/inApp/.
+  SHOW_DRUID: 'redstring_debug_show_druid',
   WIZARD_DESTINATION: 'redstring_wizard_destination'
 };
 
@@ -63,6 +66,7 @@ class DebugConfig {
         enableWizard: true,
         showNodeHitboxes: false,
         showDebugOverlay: false,
+        showDruid: false,
         wizardDestination: 'new'
       };
       this.isInitialized = true;
@@ -80,6 +84,7 @@ class DebugConfig {
         enableWizard: this.getBooleanSetting(DEBUG_STORAGE_KEYS.ENABLE_WIZARD, true),
         showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false),
         showDebugOverlay: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_DEBUG_OVERLAY, false),
+        showDruid: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_DRUID, false),
         wizardDestination: storedDestination
       };
 
@@ -124,6 +129,7 @@ class DebugConfig {
         enableWizard: false,
         showNodeHitboxes: false,
         showDebugOverlay: false,
+        showDruid: false,
         wizardDestination: 'new'
       };
       this.isInitialized = true;
@@ -207,6 +213,10 @@ class DebugConfig {
   // Check if the on-canvas debug overlay should be shown
   isDebugOverlayEnabled() {
     return this.config.showDebugOverlay || false;
+  }
+
+  isDruidEnabled() {
+    return this.config.showDruid || false;
   }
 
   // Where the next Ask The Wizard prompt goes: 'new' conversation or add to 'current'.
@@ -296,6 +306,13 @@ class DebugConfig {
     console.log(`[DebugConfig] Debug overlay ${enabled ? 'ENABLED' : 'DISABLED'}`);
   }
 
+  // Show/hide the Druid panel
+  setDruidEnabled(enabled) {
+    this.config.showDruid = enabled;
+    this.setSetting(DEBUG_STORAGE_KEYS.SHOW_DRUID, enabled);
+    this.notifyListeners();
+  }
+
   // Set where the next Ask The Wizard prompt goes: 'new' | 'current'
   setWizardDestination(value) {
     const next = WIZARD_DESTINATIONS.includes(value) ? value : 'new';
@@ -316,6 +333,7 @@ class DebugConfig {
         enableWizard: false,
         showNodeHitboxes: false,
         showDebugOverlay: false,
+        showDruid: false,
         wizardDestination: 'new'
       };
       this.notifyListeners();
@@ -335,6 +353,7 @@ class DebugConfig {
         enableWizard: false,
         showNodeHitboxes: false,
         showDebugOverlay: false,
+        showDruid: false,
         wizardDestination: 'new'
       };
 

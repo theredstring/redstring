@@ -120,6 +120,15 @@ contextBridge.exposeInMainWorld('electron', {
     getConnection: () => ipcRenderer.invoke('agent:getConnection'),
   },
 
+  // The Druid's local models, in development only: Apple's on-device model,
+  // or a model server on this machine (see electron/druidBridge.cjs).
+  ...(isDevBuild ? {
+    druid: {
+      afm: (request) => ipcRenderer.invoke('druid:afm', request),
+      chat: (endpoint, body) => ipcRenderer.invoke('druid:chat', { endpoint, body }),
+    },
+  } : {}),
+
   // App lifecycle — quit-flush handshake. Main intercepts window close,
   // asks the renderer to flush unsaved changes, and waits for confirmation
   // (bounded by a main-side timeout) before destroying the window.

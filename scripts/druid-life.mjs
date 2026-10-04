@@ -84,7 +84,7 @@ const { executeTool } = await import('../src/wizard/tools/index.js');
 const { createWorld } = await import('../src/druid/world.js');
 const { createMind } = await import('../src/druid/mind/createMind.js');
 const { openaiCompatible } = await import('../src/druid/mind/backends.js');
-const { loadPromptSpace } = await import('../src/druid/promptSpace.js');
+const { loadPromptSpace } = await import('../src/druid/promptSpaceFile.js');
 const { createDruid } = await import('../src/druid/druid.js');
 
 configureToolResultApplier({});

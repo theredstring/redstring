@@ -95,7 +95,12 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
 
   /** Make a web the active one, so tools that default to it act there. */
   const focusWeb = (graphId) => {
-    if (graphId && graph(graphId) && state().activeGraphId !== graphId) state().setActiveGraph(graphId);
+    if (!graphId || !graph(graphId) || state().activeGraphId === graphId) return;
+    // setActiveGraph only switches among open webs and otherwise falls back to
+    // the first one, so a web not yet open is opened: in the app, the canvas
+    // goes where the Druid looks.
+    if ((state().openGraphIds || []).includes(graphId) || !state().openGraphTab) state().setActiveGraph(graphId);
+    else state().openGraphTab(graphId, ownerOf(graphId) || null);
   };
 
   /** Place a Thing in a web (no-op if it is already there). Returns the instance id. */
@@ -160,7 +165,8 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     if (clash && (druidOf(clash).roleType || druidOf(clash).system)) {
       return { ok: false, error: `"${name}" is the name of one of your own kinds of thought; choose another name` };
     }
-    focusWeb(graphId);
+    // Its own webs (episodes, working memory) are written without looking at them.
+    if (!isSystemWeb(graphId)) focusWeb(graphId);
     const r = await act('createNode', { name, description, ...(graphId ? { targetGraphId: graphId } : {}), ...(typeNodeId ? { typeNodeId } : {}) });
     if (!r.ok) return { ok: false, error: r.error };
     const id = valuesOf(graph(graphId)?.instances)
@@ -175,7 +181,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
 
   /** Connect two Things placed in the same web. */
   const connect = async (graphId, aId, bId, relation) => {
-    focusWeb(graphId);
+    if (!isSystemWeb(graphId)) focusWeb(graphId);
     return act('createEdge', { sourceId: nameOf(aId), targetId: nameOf(bId), type: relation || 'relates to', targetGraphId: graphId });
   };
 

@@ -162,8 +162,12 @@ export const open = {
     const path = [...(locus.path || []), data.into];
     if (data.create) {
       // Each part named becomes a Thing inside — a list is welcome here.
-      const names = namesIn(text).slice(0, 4);
-      if (names.length === 0) return fail('no name');
+      // Nothing is a part of itself, or of what it sits inside: asked what
+      // Flour is made of, a model answered "Flour".
+      const enclosing = new Set([data.into, ...path].map(id => world.nameOf(id).trim().toLowerCase()));
+      const named = namesIn(text);
+      const names = named.filter(n => !enclosing.has(n.trim().toLowerCase())).slice(0, 4);
+      if (names.length === 0) return fail(named.length ? `${named.join(', ')} cannot be a part of itself; name what it is made of` : 'no name');
       const made = [];
       for (const name of names) {
         const r = await world.createThing(inside, name);

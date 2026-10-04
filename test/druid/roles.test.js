@@ -5,7 +5,7 @@ import {
   seedRoles, roleType, roleOf, openGoals, setGoalStatus, addEvidence, confidence, confidenceWords,
   planSteps, nextStep, activePlans, renderRoles, sourceKind
 } from '../../src/druid/roles.js';
-import { stepDone, addStep, makePlan } from '../../src/druid/moves/roles.js';
+import { stepDone, addStep, makePlan, pursueGoal } from '../../src/druid/moves/roles.js';
 
 beforeAll(() => quiet());
 
@@ -83,5 +83,18 @@ describe('plans: the cursor remembers where it was', () => {
     await stepDone.run(ctx(), { plan, step: nextStep(world, plan) });
     expect(world.nameOf(nextStep(world, plan))).toBe('Follow it downstream');
     expect(renderRoles(world)).toMatch(/next step: Follow it downstream/);
+  });
+});
+
+describe('pursuing a goal goes to content, not to its own plan', () => {
+  it('skips a step that shares the goal\'s words, and finds the Thing in a real web', async () => {
+    const { world } = await freshWorld();
+    const { home, types } = await seedRoles(world);
+    const { ids, webs } = await buildUniverse(world, { webs: { Baking: { things: { Yeast: 'A fungus that makes bread rise.' } } } });
+    const goal = await world.createThing(home, 'How bread rises', { typeNodeId: types.goal });
+    const ctx = { world, tick: 1, roles: { home, types }, activation: new Map() };
+    await makePlan.run(ctx, { goal: goal.id }, 'see how bread rises with yeast');
+    const r = await pursueGoal.run(ctx, { goal: goal.id });
+    expect(r.locus).toEqual({ web: webs.Baking, focus: ids.Yeast, path: [] });
   });
 });

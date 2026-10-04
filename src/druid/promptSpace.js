@@ -12,9 +12,8 @@
  *   web "Moves"      a Thing per move id         → guidance shown with that move (optional)
  *
  * Kept short on purpose: the system prompt has 500 tokens of a 4K window.
+ * No file access here, so the app can use it; promptSpaceFile.js reads a file.
  */
-
-import fs from 'node:fs';
 
 export const DEFAULT_PROMPT_SPACE = {
   system: [
@@ -53,15 +52,13 @@ export function readWebs(json) {
 }
 
 /**
- * Load the prompt space from a file, falling back to the defaults for anything
- * it does not define (or when the file is missing or unreadable).
+ * The prompt space from a parsed .redstring, falling back to the defaults for
+ * anything it does not define (or when there is nothing to read).
  */
-export function loadPromptSpace(filePath) {
+export function promptSpaceFrom(json, source = 'defaults') {
   const space = JSON.parse(JSON.stringify(DEFAULT_PROMPT_SPACE));
   let webs = null;
-  try {
-    if (filePath && fs.existsSync(filePath)) webs = readWebs(JSON.parse(fs.readFileSync(filePath, 'utf8')));
-  } catch { webs = null; }
+  try { webs = json ? readWebs(json) : null; } catch { webs = null; }
   if (!webs) return { ...space, source: 'defaults' };
 
   const find = (web, name) => (webs[web] || []).find(t => t.name.toLowerCase() === name.toLowerCase())?.description?.trim();
@@ -69,5 +66,5 @@ export function loadPromptSpace(filePath) {
   space.questions.choose = find('Questions', 'Choose') || space.questions.choose;
   space.questions.thought = find('Questions', 'Thought') || space.questions.thought;
   for (const t of webs.Moves || []) if (t.description?.trim()) space.moves[t.name] = t.description.trim();
-  return { ...space, source: filePath };
+  return { ...space, source };
 }

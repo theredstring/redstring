@@ -155,6 +155,20 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
         />
       </div>
 
+      <div className="settings-row">
+        <div className="settings-row-label">
+          The Druid
+          <div className="settings-row-description">
+            A panel for letting a small local model live in the open universe and watching it think.
+            It writes into whatever universe is open, so give it one of its own.
+          </div>
+        </div>
+        <Toggle
+          checked={!!settings.showDruid}
+          onChange={(v) => debugConfig.setDruidEnabled(v)}
+        />
+      </div>
+
       <hr className="settings-section-divider" />
 
       <div className="settings-section-subtitle">Storage</div>

@@ -54,7 +54,31 @@ export function readText(content, maxWords) {
   s = String(s).replace(/\s+/g, ' ').replace(/^["'\s]+|["'\s]+$/g, '').trim();
   if (!s || PLACEHOLDER.test(s) || GENERIC.test(s) || /_{3,}/.test(s)) return null;
   const words = s.split(' ');
-  return words.length > maxWords ? words.slice(0, maxWords).join(' ').replace(/[,;:]$/, '') : s;
+  return words.length > maxWords ? clipWords(words, maxWords) : s;
+}
+
+const plainWords = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+/** Whether an answer only says the question back (all of it, or a sentence of it). */
+export function echoes(answer, question) {
+  const a = plainWords(answer);
+  return a.split(' ').length >= 3 && plainWords(question).includes(a);
+}
+
+const TRAILING = /^(the|a|an|of|to|and|or|but|with|by|for|in|on|at|from|that|which|causing|making|so|as)$/i;
+
+/**
+ * An over-long answer, cut to `max` words where a phrase ends: at the last
+ * clause break inside the limit, else without dangling little words. A plan
+ * step written as "Yeast ferments sugars to produce carbon dioxide gas,
+ * causing the" keeps "Yeast ferments sugars to produce carbon dioxide gas".
+ */
+function clipWords(words, max) {
+  let kept = words.slice(0, max);
+  const lastBreak = kept.findLastIndex((w, i) => i < kept.length - 1 && /[,;:.]$/.test(w));
+  if (lastBreak >= 2) kept = kept.slice(0, lastBreak + 1);
+  while (kept.length > 1 && TRAILING.test(kept.at(-1).replace(/[,;:.]$/, ''))) kept.pop();
+  return kept.join(' ').replace(/[,;:.]$/, '');
 }
 
 /** Words in a reply's text field (or the reply itself). */
@@ -150,10 +174,18 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     // A name asked for and a sentence given: clipped, it becomes a fragment
     // ("Moment when a"). Ask once more, firmly; a second sentence is no name.
     const readName = (c) => (wordCount(c) > maxWords ? null : readText(c, maxWords));
-    let r = await call('fill', sections, schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), isName ? readName : (c) => readText(c, maxWords));
+    // The question said back is no answer: Apple's model answered "what are
+    // you thinking now?" with "What are you thinking now? Name the Things you
+    // mean." in half the cycles of one run.
+    const notEcho = (read) => (c) => { const v = read(c); return v && echoes(v, question) ? null : v; };
+    const reader = notEcho(isName ? readName : (c) => readText(c, maxWords));
+    let r = await call('fill', sections, schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), reader);
     if (isName && !r.ok && !r.error && wordCount(r.content) > maxWords) {
       r = await call('fill', { ...sections, question: `${question}\nAt most ${maxWords} words: a name, not a sentence.` },
-        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), readName);
+        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), notEcho(readName));
+    } else if (!r.ok && !r.error && echoes(readText(r.content, 200) || '', question)) {
+      r = await call('fill', { ...sections, question: `${question}\nDo not repeat the question. Answer it, in at most ${maxWords} words.` },
+        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), reader);
     }
     return { ...r, text: r.value };
   }
