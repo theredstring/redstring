@@ -123,6 +123,25 @@ describe('running commands over the real store', () => {
     expect(world.linksIn(world.websOf(ids.Feet)[0])).toHaveLength(1);
   });
 
+  it('going to its own goal is working toward it; an empty "go" becomes a choice among real places', async () => {
+    const { world, roles, ids, ctx } = await setup();
+    const goal = await world.createThing(roles.home, 'Understand feet', { typeNodeId: roles.types.goal });
+    world.setDruid(goal.id, { status: 'open' });
+    const toGoal = await runCommand(ctx(), 'go', 'to Understand feet');
+    expect(toGoal.summary).toMatch(/went to Feet, toward the goal/);
+    const asked = [];
+    const r = await runCommand(ctx({ pick: async (q, options) => { asked.push(q, options); return options.indexOf('Floor'); } }), 'go', 'to');
+    expect(asked[0]).toMatch(/no Thing named "".*Where do you go\?/);
+    expect(r).toMatchObject({ ok: true, locus: { focus: ids.Floor } });
+  });
+
+  it('"go to web Home" in a universe with nothing else says to start a web', async () => {
+    const { world } = await freshWorld();
+    await seedRoles(world);
+    const r = await runCommand({ world, locus: { web: null, focus: null, path: [] }, view: { peers: [] } }, 'go', 'to web Home');
+    expect(r.error).toMatch(/start a web/);
+  });
+
   it('menu items become suggested commands', async () => {
     const { world, ids, ctx } = await setup();
     const c = ctx();

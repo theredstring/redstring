@@ -27,7 +27,7 @@ import { computeActivation } from './activation.js';
 import { recordUse, associate } from './activation.js';
 import { settleLocus, buildView, renderView, emptyLocus } from './attention.js';
 import { hold, held, fade, letGo, scratch as scratchThought, promote, renderHeld, wake } from './heldInMind.js';
-import { buildMenu, matchOther } from './moves/menu.js';
+import { buildMenu, matchOther, REFUSED_FOR } from './moves/menu.js';
 import { BASIC_MOVES } from './moves/basic.js';
 import { writeEpisode } from './episodes.js';
 import { ungroundedNames, buildMemoryIndex } from './recall.js';
@@ -82,6 +82,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     missing: Array.isArray(resume.missing) ? [...resume.missing] : [],
     shown: resume.shown && typeof resume.shown === 'object' ? { ...resume.shown } : {},
     writes: Array.isArray(resume.writes) ? [...resume.writes] : [],
+    refused: resume.refused && typeof resume.refused === 'object' ? { ...resume.refused } : {},
+    idle: resume.idle || 0,
     notice: ''
   };
   if (st.tick > 0) wake(world, isOpenGoal);
@@ -143,8 +145,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     };
 
     // ── CHOOSE ────────────────────────────────────────────────────────────
-    const menu = buildMenu(moves, ctx, { recent: st.recent, shown: st.shown, tick });
-    st.notice = '';
+    const menu = buildMenu(moves, ctx, { recent: st.recent, shown: st.shown, refused: st.refused, tick });
     let item = null;
     let text = null;
     let result = null;
@@ -160,6 +161,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         `All commands (capitals are for you to fill in):\n${renderCommands()}`
       ].filter(Boolean).join('\n');
       const said = await mind.command({ ...sections(), question, verbs: VERBS });
+      // The notice has been seen with the choice; what the act reports is new.
+      st.notice = '';
       calls.unshift({ kind: 'command', question: 'command', ok: said.ok, verb: said.verb, rest: said.rest, ...(said.error ? { error: said.error } : {}), ...(!said.ok && !said.error ? { raw: String(said.content).slice(0, 200) } : {}) });
       if (!said.ok) {
         result = { ok: false, summary: 'did not say a command', touched: [], wrote: false };
@@ -171,6 +174,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       }
     } else {
       const choice = await mind.choose({ ...sections(), question: promptSpace.questions.choose, options: menu.map(m => m.label) });
+      st.notice = '';
       calls.unshift({ kind: 'choose', question: 'menu', ok: choice.ok, index: choice.index, ...(choice.error ? { error: choice.error } : {}), ...(!choice.ok && !choice.error ? { raw: String(choice.content).slice(0, 200) } : {}) });
       item = choice.ok ? menu[choice.index] : null;
     }
@@ -214,6 +218,13 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       st.recent = [...st.recent, item.key].slice(-RECENT_SIZE);
     }
     if (!result.ok && result.error) st.notice = `Your last move did not work: ${result.error}`;
+    // A check's refusal is remembered against the item, so it is not offered again soon.
+    if (item && !result.ok && REFUSAL.test(result.error || result.summary || '')) {
+      st.refused = Object.fromEntries([...Object.entries(st.refused).filter(([, t]) => tick - t < REFUSED_FOR), [item.key, tick]]);
+    }
+    // Moving about without doing anything, cycle after cycle, is said out loud.
+    st.idle = result.ok && !result.wrote && NAVIGATION.has(result.as?.move || item?.move.id) ? st.idle + 1 : 0;
+    if (st.idle >= 2) st.notice = [st.notice, 'You have been moving around without doing anything. Do something where you are: make, connect, describe or tidy.'].filter(Boolean).join('\n');
     if (result.locus) st.locus = { ...st.locus, ...result.locus };
 
     // ── REMEMBER ──────────────────────────────────────────────────────────
@@ -287,8 +298,13 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 }
 
 function snapshot(st) {
-  return { tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown, writes: st.writes };
+  return { tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle };
 }
+
+/** Failures that are a check saying no, as opposed to a slip. */
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself/i;
+/** Moves that go somewhere rather than do something. */
+const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 
 export default runLife;
 

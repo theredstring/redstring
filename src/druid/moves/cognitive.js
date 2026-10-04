@@ -69,6 +69,7 @@ export const variant = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    if (name.toLowerCase() === world.nameOf(data.of).toLowerCase()) return fail(`a variant of ${name} has a name of its own`);
     if (!(await isKindOf(world, name, world.nameOf(data.of)))) return fail(`${name} is not a kind of ${world.nameOf(data.of)}, so it is no variant of it`);
     const how = await ctx.ask(`How is ${name} different from ${world.nameOf(data.of)}? One short sentence.`, 16);
     const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true, asPart: false });
@@ -91,6 +92,7 @@ export const specialize = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    if (name.toLowerCase() === world.nameOf(data.of).toLowerCase()) return fail(`a kind of ${name} has a name of its own`);
     if (!(await isKindOf(world, name, world.nameOf(data.of)))) return fail(`${name} is not a kind of ${world.nameOf(data.of)}`);
     const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true, asPart: false });
     if (!r.ok) return fail(r.error);

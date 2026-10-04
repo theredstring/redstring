@@ -44,13 +44,48 @@ export function resolveThing(ctx, name) {
   const norm = normalizeName(want);
   const here = locus?.web ? world.thingsIn(locus.web) : [];
   const everywhere = world.allThings().filter(id => !world.isOwnThinking(id) || here.includes(id));
-  for (const pool of [here, everywhere]) {
+  // Its own goals and plans last: "go to Understand feet" means its goal.
+  const own = world.allThings().filter(id => world.isOwnThinking(id) && !world.druidOf(id).roleType);
+  for (const pool of [here, everywhere, own]) {
     const exact = pool.filter(id => lower(world.nameOf(id)) === want).pop();
     if (exact) return exact;
     const near = pool.filter(id => normalizeName(world.nameOf(id)) === norm).pop();
     if (near) return near;
   }
   return null;
+}
+
+/**
+ * Going to a web: not to the one it is in, and not to Home when Home is all
+ * there is. In an empty universe "go to web Home" and "open Home" were most of
+ * the first lab's wasted commands; what was needed was a web of its own.
+ */
+function goToWeb(ctx, w) {
+  const { world } = ctx;
+  if (ctx.locus.web === w.id) return fail(`you are already in ${w.name}; do something here`);
+  const isHomeWeb = world.druidOf(world.ownerOf(w.id) || '').homeOf;
+  const others = [...world.state().graphs.values()].filter(g => g.id !== w.id && !world.isSystemWeb(g.id) && !world.isOwnThinking(world.ownerOf(g.id) || ''));
+  if (isHomeWeb && others.length === 0) return fail('Home holds only your own goals and kinds of thought; start a web for what you want to think about: "web NAME"');
+  world.focusWeb(w.id);
+  return { ok: true, summary: `went to the web ${w.name}`, touched: [world.ownerOf(w.id)].filter(Boolean), locus: { web: w.id, focus: null, path: [] }, wrote: false };
+}
+
+/**
+ * A "go" whose place is not there, or not given: a choice among the places
+ * that are (what is in view, and the webs), instead of a failure.
+ */
+async function choosePlace(ctx, why) {
+  const { world } = ctx;
+  if (!ctx.pick) return fail(why);
+  const peers = (ctx.view?.peers || []).map(p => ({ label: p.name, id: p.id }));
+  const webs = [...world.state().graphs.values()].filter(g => !world.isSystemWeb(g.id) && g.id !== ctx.locus.web).map(g => ({ label: `the web ${g.name}`, web: g }));
+  const places = [...peers, ...webs].slice(0, 8);
+  if (!places.length) return fail(`${why}, and there is nowhere else to go: make something here`);
+  const i = await ctx.pick(`${why}. Where do you go?`, places.map(p => p.label));
+  const p = places[i];
+  if (!p) return fail(why);
+  if (p.web) return goToWeb(ctx, p.web);
+  return { ok: true, summary: `went to ${world.nameOf(p.id)}`, touched: [p.id], locus: { ...ctx.locus, focus: p.id }, wrote: false };
 }
 
 /** A web by its name (not one of the Druid's system webs). */
@@ -137,24 +172,26 @@ export const COMMANDS = [
     parse: (rest) => {
       const web = /^(?:to\s+)?(?:the\s+)?web\s+(.+)$/i.exec(rest);
       if (web) return { web: clean(web[1]) };
-      const m = /^(?:to\b\s*)?(.+)$/i.exec(rest);
-      return m && clean(m[1]) ? { name: clean(m[1]) } : null;
+      const m = /^(?:to\b\s*)?(.*)$/i.exec(rest);
+      return { name: clean(m?.[1] || '') };
     },
     async run(ctx, a) {
       const { world } = ctx;
       if (a.web) {
         const web = webNamed(world, a.web);
-        if (!web) return fail(`there is no web named "${a.web}"`);
-        world.focusWeb(web.id);
-        return { ok: true, summary: `went to the web ${web.name}`, touched: [world.ownerOf(web.id)].filter(Boolean), locus: { web: web.id, focus: null, path: [] }, wrote: false };
+        if (!web) return choosePlace(ctx, `there is no web named "${a.web}"`);
+        return goToWeb(ctx, web);
       }
       const { ids, error } = needs(ctx, [a.name]);
       if (error) {
         const w = webNamed(world, a.name);
-        if (w) { world.focusWeb(w.id); return { ok: true, summary: `went to the web ${w.name}`, touched: [world.ownerOf(w.id)].filter(Boolean), locus: { web: w.id, focus: null, path: [] }, wrote: false }; }
-        return fail(error);
+        if (w) return goToWeb(ctx, w);
+        // A place that is not there: choose one that is.
+        return choosePlace(ctx, `there is no Thing named "${a.name}"`);
       }
       const id = ids[0];
+      // Going to its own goal or plan is working toward it.
+      if (world.isOwnThinking(id) && commandByVerb('pursue')) return commandByVerb('pursue').run(ctx, {});
       const web = world.thingsIn(ctx.locus.web || '').includes(id) ? ctx.locus.web : world.websOf(id).find(w => !world.isSystemWeb(w));
       if (!web) return fail(`${world.nameOf(id)} is in no web you can go to`);
       world.focusWeb(web);
@@ -169,7 +206,7 @@ export const COMMANDS = [
       const { ids, error } = needs(ctx, [a.name]);
       if (error) {
         const w = webNamed(ctx.world, a.name);
-        if (w) { ctx.world.focusWeb(w.id); return { ok: true, summary: `went to the web ${w.name}`, touched: [], locus: { web: w.id, focus: null, path: [] }, wrote: false }; }
+        if (w) return goToWeb(ctx, w);
         return fail(error);
       }
       if (!ctx.world.insideOf(ids[0]) || ctx.world.thingsIn(ctx.world.insideOf(ids[0])).length === 0) return fail(`${ctx.world.nameOf(ids[0])} has nothing inside yet: "make NAME inside ${ctx.world.nameOf(ids[0])}"`);

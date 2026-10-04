@@ -105,6 +105,8 @@ describe('an answer that only repeats the question', () => {
     expect(echoes('What are you thinking now? Name the Things you mean.', Q)).toBe(true);
     expect(echoes('Yeast makes the dough rise.', Q)).toBe(false);
     expect(echoes('now', Q)).toBe(false);
+    // A short answer the question offered is a choice, not an echo.
+    expect(echoes('is made of', 'Floor ___ Wood. Relations you already use: is made of, supports.')).toBe(false);
   });
 
   it('is asked again, and a real answer is kept', async () => {

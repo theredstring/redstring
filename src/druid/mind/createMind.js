@@ -63,7 +63,10 @@ const plainWords = (s) => String(s).toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').r
 /** Whether an answer only says the question back (all of it, or a sentence of it). */
 export function echoes(answer, question) {
   const a = plainWords(answer);
-  return a.split(' ').length >= 3 && plainWords(question).includes(a);
+  // Five words at least: a short answer found in the question is usually one
+  // of the options it offered ("made of", from "relations you already use"),
+  // and rejecting those starved a Druid of connections.
+  return a.split(' ').length >= 5 && plainWords(question).includes(a);
 }
 
 

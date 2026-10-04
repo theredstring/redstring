@@ -15,21 +15,22 @@ import { normalizeName } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 
-/** Things sleep flagged as not a part of what they sit inside (druid.misplaced). */
-const misplacedIn = (world, web) => world.thingsIn(web).filter(id => world.druidOf(id).misplaced?.web === web);
-
 export const moveOut = {
   id: 'moveOut',
   prior: 0.9,
   offer(ctx) {
     const { world, locus } = ctx;
-    if (!locus.web) return [];
-    // Standing in the inside, or looking at the Thing it is the inside of.
-    const webs = [locus.web, locus.focus && world.insideOf(locus.focus)].filter(Boolean);
-    return webs.flatMap(web => misplacedIn(world, web).map(id => {
-      const owner = world.ownerOf(web);
-      return { label: `move ${world.nameOf(id)} out of ${world.nameOf(owner)} (it is not a part of it)`, data: { id, web }, target: id };
-    })).slice(0, 2);
+    // Here first (standing in the inside, or looking at its Thing), then from
+    // anywhere: a Druid that spent a whole run in one web was never offered
+    // the fifteen Things sleep had flagged elsewhere.
+    const near = new Set([locus.web, locus.focus && world.insideOf(locus.focus)].filter(Boolean));
+    const flagged = world.allThings().filter(id => world.druidOf(id).misplaced?.web).map(id => ({ id, web: world.druidOf(id).misplaced.web }))
+      .filter(({ id, web }) => world.graph(web) && world.thingsIn(web).includes(id));
+    flagged.sort((a, b) => (near.has(b.web) ? 1 : 0) - (near.has(a.web) ? 1 : 0));
+    return flagged.slice(0, 2).map(({ id, web }) => ({
+      label: `move ${world.nameOf(id)} out of ${world.nameOf(world.ownerOf(web))} (it is not a part of it)`,
+      data: { id, web }, target: id, prior: near.has(web) ? 0.9 : 0.6
+    }));
   },
   async run(ctx, data) {
     const { world } = ctx;

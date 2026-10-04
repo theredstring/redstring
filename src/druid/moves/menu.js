@@ -30,6 +30,12 @@ export const OTHER = {
   }
 };
 
+/** Cycles an item a check refused stays off the menu. */
+export const REFUSED_FOR = 24;
+
+/** What identifies a menu item: its move and the Things it is about, in any order ("Dog and Cat" is "Cat and Dog"). */
+export const itemKey = (move, it) => `${move.id}:${[...new Set([it.target, it.data?.id, it.data?.to, it.data?.at, it.data?.a, it.data?.b, it.data?.of].filter(Boolean))].sort().join(',')}`;
+
 /** Slots kept for moves not shown lately, so the whole repertoire comes round. */
 export const EXPLORE = 2;
 
@@ -42,7 +48,7 @@ export const EXPLORE = 2;
  * @param {number}   [opts.tick]
  * @returns {Array<{ move, label, blank, data, key, score }>}
  */
-export function buildMenu(moves, ctx, { recent = [], shown = {}, tick = 0, size = MENU_SIZE, explore = EXPLORE } = {}) {
+export function buildMenu(moves, ctx, { recent = [], shown = {}, refused = {}, tick = 0, size = MENU_SIZE, explore = EXPLORE } = {}) {
   const items = [];
   for (const move of moves) {
     let offered = [];
@@ -50,7 +56,11 @@ export function buildMenu(moves, ctx, { recent = [], shown = {}, tick = 0, size 
     // a missing import once took weighing beliefs off every menu unnoticed.
     try { offered = move.offer(ctx) || []; } catch (err) { offered = []; (ctx.offerErrors ||= []).push(`${move.id}: ${err?.message || err}`); }
     for (const it of offered) {
-      const key = `${move.id}:${it.target || it.data?.id || it.data?.to || it.data?.at || ''}`;
+      const key = itemKey(move, it);
+      // A check said no to this, on these Things, lately: not offered again
+      // yet. A Druid asked eight times in one run what Oak and Plank are both
+      // kinds of, refused each time.
+      if (refused[key] != null && tick - refused[key] < REFUSED_FOR) continue;
       const recency = recent.lastIndexOf(key);
       const penalty = recency < 0 ? 0 : 0.6 * (1 - (recent.length - 1 - recency) / Math.max(1, recent.length));
       // An item with no target gets little from activation. Scored as if its

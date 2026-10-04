@@ -11,6 +11,8 @@ import { createMind } from '../../src/druid/mind/createMind.js';
 import { scripted } from '../../src/druid/mind/backends.js';
 import { runLife } from '../../src/druid/life.js';
 import { held } from '../../src/druid/heldInMind.js';
+import { druidMoves } from '../../src/druid/druid.js';
+import { itemKey } from '../../src/druid/moves/menu.js';
 
 beforeAll(() => quiet());
 
@@ -97,6 +99,35 @@ describe('runLife over the real store', () => {
     const { cycles } = await live(world, mind, 1, { resume: { tick: 0, locus: { web: webs.W, focus: null, path: [] } } });
     expect(cycles[0]).toMatchObject({ chose: 'merge Flooring into Floor', move: 'merge', result: { ok: true } });
     expect(world.proto(ids.Flooring)).toBeFalsy();
+  });
+
+  it('a suggestion a check refused is not offered again soon, either way round', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Dog: 'an animal that barks', Cat: 'an animal that purrs', Bird: 'an animal that sings' } } } });
+    world.check = async (s) => !/kind of Rocks/.test(s);
+    const { mind } = planMind([
+      { choose: /^say what Dog and Cat are both kinds of/ }, { fill: 'Rocks' },
+      { choose: /^describe Dog/ }, { fill: 'A loyal animal that barks.' }
+    ]);
+    const { cycles } = await live(world, mind, 2, { moves: druidMoves(), resume: { tick: 0, locus: { web: webs.W, focus: ids.Dog, path: [] } } });
+    expect(cycles.map(c => c.result.ok)).toEqual([false, true]);
+    expect(cycles[0].result.error).toMatch(/not a kind of Rocks/);
+    expect(cycles[1].menu.some(l => /(Dog and Cat|Cat and Dog) are both kinds of/.test(l))).toBe(false);
+    const g = { id: 'generalize' };
+    expect(itemKey(g, { target: 'b', data: { a: 'a', b: 'b' } })).toBe(itemKey(g, { target: 'a', data: { a: 'b', b: 'a' } }));
+  });
+
+  it('moving about without doing anything, twice running, is said out loud', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Dog: 'd', Cat: 'c', Bird: 'b' } } } });
+    const { mind, seen } = planMind([
+      { choose: /^something else/ }, { fill: 'go to Cat' },
+      { choose: /^something else/ }, { fill: 'go to Bird' },
+      { choose: /^something else/ }, { fill: 'go to Dog' }
+    ]);
+    const { cycles } = await live(world, mind, 3, { resume: { tick: 0, locus: { web: webs.W, focus: ids.Dog, path: [] } } });
+    expect(cycles.map(c => c.state.idle)).toEqual([1, 2, 3]);
+    expect(seen.filter(r => r.schema.name === 'choice').at(-1).user).toMatch(/moving around without doing anything/);
   });
 
   it('never makes a Thing a part of itself', async () => {

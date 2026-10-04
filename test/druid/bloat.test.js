@@ -228,6 +228,15 @@ describe('tidying what is already there', () => {
     expect(moveOut.offer(ctx)).toEqual([]);
   });
 
+  it('a flagged Thing is offered to be moved out from anywhere, more weakly than from beside it', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Body: { things: { Feet: 'feet' }, insides: { Feet: { 'White Oak': 'a tree' } } }, Elsewhere: { things: { Rain: 'r' } } } });
+    world.check = async () => false;
+    await auditInsides(world);
+    const far = moveOut.offer({ world, locus: { web: webs.Elsewhere, focus: ids.Rain, path: [] } });
+    expect(far).toEqual([expect.objectContaining({ label: 'move White Oak out of Feet (it is not a part of it)', prior: 0.6 })]);
+  });
+
   it('offers to merge a Thing written twice', async () => {
     const { world } = await freshWorld();
     const { ids } = await buildUniverse(world, { webs: { A: { things: { Tomato: 'red' } }, B: { things: { Tomatoes: 'red fruits' } } } });
