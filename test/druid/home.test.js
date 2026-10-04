@@ -85,8 +85,9 @@ describe('Home holds what the Druid keeps', () => {
 describe('not about this place itself', () => {
   it('a name made only of words for this place is about the medium; anything in the world is not', async () => {
     const { aboutTheMedium } = await import('../../src/druid/names.js');
-    for (const n of ['Home Web', 'New web', 'Web', 'Navigation', 'Contents', 'Web of ideas', 'Web of connections', 'Explore the web']) expect(aboutTheMedium(n)).toBe(true);
-    for (const n of ['Spider Web', 'Memory Foam', 'Modern Home', 'Wooden Floor', 'Network Cable', 'Oak']) expect(aboutTheMedium(n)).toBe(false);
+    for (const n of ['Home Web', 'New web', 'Web', 'Navigation', 'Contents', 'Web of connections', 'Redstring']) expect(aboutTheMedium(n)).toBe(true);
+    // Subjects in the world, mind among them: "Thoughts" was once refused as a part of Consciousness.
+    for (const n of ['Spider Web', 'Memory Foam', 'Modern Home', 'Wooden Floor', 'Network Cable', 'Oak', 'Thoughts', 'Ideas', 'Working Memory', 'Universe', 'Explore the web']) expect(aboutTheMedium(n)).toBe(false);
     expect(aboutTheMedium('Web', new Set(['web', 'works']))).toBe(false);
   });
 
@@ -154,6 +155,7 @@ describe('subjects, not questions', () => {
     expect(understandGoal('Dark matter')).toBe('Understand dark matter');
     expect(understandGoal('DNA')).toBe('Understand DNA');
     expect(understandGoal('How plants grow?')).toBe('Understand how plants grow');
+    expect(understandGoal('Why is the sky blue?')).toBe('Why is the sky blue');
   });
 });
 

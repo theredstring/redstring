@@ -14,6 +14,28 @@
  * that does not exist yet.
  */
 
+import { isObject } from '../roles.js';
+
+/**
+ * What a move does to the universe. Structure (parts, kinds, nesting,
+ * connections) compounds: each part is a new place, with its own parts to
+ * find. A sentence (a contrast, a belief, a description) ends there. A Druid
+ * asking itself "what is consciousness made of?" for sixty moments spent them
+ * on contrasts, "both kinds of" and going back and forth, and never named a
+ * part. While the focus has no parts yet, text moves and going about rank lower.
+ */
+export const MOVE_KIND = {
+  text: new Set(['contrast', 'describe', 'believe', 'variant', 'analogy', 'note']),
+  going: new Set(['follow', 'look', 'close', 'goWeb', 'wonder', 'letGo'])
+};
+export const GAP_DAMP = { text: 0.5, going: 0.7 };
+
+/** Whether the focus is a Thing with nothing inside it yet: the first gap in what is known of it. */
+export function structureGap(ctx) {
+  const f = ctx.view?.focus;
+  return !!(f && !(f.inside && f.insideCount > 0) && ctx.world && isObject(ctx.world, f.id));
+}
+
 export const MENU_SIZE = 7;
 export const PER_MOVE = 2;
 
@@ -50,6 +72,8 @@ export const EXPLORE = 2;
  */
 export function buildMenu(moves, ctx, { recent = [], shown = {}, refused = {}, tick = 0, size = MENU_SIZE, explore = EXPLORE } = {}) {
   const items = [];
+  const gap = structureGap(ctx);
+  const damp = (id) => (!gap ? 1 : MOVE_KIND.text.has(id) ? GAP_DAMP.text : MOVE_KIND.going.has(id) ? GAP_DAMP.going : 1);
   for (const move of moves) {
     let offered = [];
     // A move that cannot offer from here is left out, but never silently:
@@ -66,7 +90,7 @@ export function buildMenu(moves, ctx, { recent = [], shown = {}, refused = {}, t
       // An item with no target gets little from activation. Scored as if its
       // target were half-active, "note a thought" sat on every menu.
       const act = it.target ? sigmoid(ctx.activation?.get(it.target) ?? -3) : 0.1;
-      items.push({ move, label: it.label, blank: it.blank || null, data: it.data || {}, key, score: (it.prior ?? move.prior ?? 0.5) + 0.4 * act - penalty });
+      items.push({ move, label: it.label, blank: it.blank || null, data: it.data || {}, key, score: (it.prior ?? move.prior ?? 0.5) * damp(move.id) + 0.4 * act - penalty });
     }
   }
   const byScore = (a, b) => b.score - a.score || a.label.localeCompare(b.label);

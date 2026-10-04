@@ -34,10 +34,11 @@ useGraphStore.getState().loadUniverseFromFile(JSON.parse(fs.readFileSync(positio
 const world = createWorld({ store: useGraphStore });
 
 let judge = null;
+let judgePart = null;
 let backend = null;
 if (args.judge) {
   const { createMind } = await import('../src/druid/mind/createMind.js');
-  const { plausible } = await import('../src/druid/mind/helpers.js');
+  const { plausible, madeOf } = await import('../src/druid/mind/helpers.js');
   if (args.judge === 'afm') {
     const { afmBackend } = await import('../src/druid/mind/afmBackend.js');
     backend = await afmBackend({ executable: path.join(here, '..', 'native', 'afm-bridge', '.build', 'release', 'afm-bridge') });
@@ -45,9 +46,11 @@ if (args.judge) {
     const { openaiCompatible } = await import('../src/druid/mind/backends.js');
     backend = openaiCompatible({ endpoint: args.endpoint, model: args.model });
   }
-  judge = plausible(createMind({ backend }));
+  const judgeMind = createMind({ backend });
+  judge = plausible(judgeMind);
+  judgePart = madeOf(judgeMind);
 }
-const r = await health(world, { judge });
+const r = await health(world, { judge, judgePart });
 process.stdout.write(args.json ? `${JSON.stringify(r)}\n` : `${renderHealth(r)}\n`);
 backend?.close?.();
 process.exit(0);

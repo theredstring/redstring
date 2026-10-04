@@ -15,7 +15,7 @@ import { TIDY_MOVES } from './moves/tidy.js';
 import { seedRoles, roleType, openGoals, renderRoles, isRole, confidence, confidenceWords, setGoalStatus } from './roles.js';
 import { asRequest } from './dialogue.js';
 import { sleep as sleepCycle } from './sleep.js';
-import { nameGate, plausible, sameRelation, curiosity } from './mind/helpers.js';
+import { nameGate, plausible, sameRelation, curiosity, madeOf, aboutKnowing, isQuality, kindOf } from './mind/helpers.js';
 import { topLevelWebs, isHome } from './attention.js';
 import { understandGoal } from './names.js';
 
@@ -52,6 +52,10 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
   if (mind?.helper) {
     world.nameGate ||= nameGate(mind);
     world.check ||= plausible(mind);
+    world.isPart ||= madeOf(mind);
+    world.aboutKnowing ||= aboutKnowing(mind);
+    world.isQuality ||= isQuality(mind);
+    world.isKind ||= kindOf(mind, world.check);
     world.sameRelationAs ||= sameRelation(mind);
   }
   if (roles) {

@@ -278,14 +278,21 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       question: promptSpace.questions.thought,
       maxWords: 30
     });
-    const thought = thoughtCall.text;
+    // A thought that says the question back is no thought: "What are you
+    // thinking now? Name the Things you mean." was kept as a Thing, "I am
+    // thinking now", and thought about for sixty moments.
+    const thought = thoughtCall.text && thoughtSimilarity(thoughtCall.text, promptSpace.questions.thought) < 0.5 ? thoughtCall.text : null;
     // A thought that repeats the last one is not rehearsed again: fed back
     // verbatim, a repeated thought becomes an attractor. On its first v2 run a
     // 4B model spent ten cycles restating one image of "breath stitching
     // silence", each version seeding the next.
     const repeating = thought && [...st.loop, st.throughLine].filter(Boolean).some(prev => thoughtSimilarity(thought, prev) > 0.6);
     if (thought && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
+    st.stuck = repeating ? (st.stuck || 0) + 1 : 0;
     if (repeating) st.notice = [st.notice, 'You keep coming back to the same thought. Look at something else, or do something with it.'].filter(Boolean).join('\n');
+    // Stuck: the loop is let go, so the thought it keeps seeding is no longer
+    // shown. Kept, one sentence held a Druid for sixty moments.
+    if (st.stuck >= 2) { st.loop = []; st.stuck = 0; }
 
     // ── ANSWER, and keep the through line ─────────────────────────────────
     let reply = null;
@@ -360,7 +367,7 @@ function snapshot(st) {
 }
 
 /** Failures that are a check saying no, as opposed to a slip. */
-const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself/i;
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation/i;
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

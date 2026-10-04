@@ -37,7 +37,10 @@ export function clipWords(words, max) {
 
 const SMALL = /^(a|an|the|of|to|and|or|for|in|on|at|by|with|from|de|la|le|von|van|der)$/i;
 // Words that make a run of words a statement: "is", "makes", "produces"...
-const VERB = /^(is|are|was|were|be|been|has|have|had|does|do|did|can|will|would|should|could|may|might|must|makes?|made|causes?|produces?|helps?|needs?|gives?|holds?|keeps?|turns?|leads?|creates?|becomes?|means?|uses?|grows?|feeds?|eats?|forms?|rises?|ferments?|carves?|flows?|seems?|shows?|explains?|lets?|stays?|goes|comes|takes?|puts?|gets?)$/i;
+const VERB = /^(is|are|was|were|be|been|has|have|had|does|do|did|can|will|would|should|could|may|might|must|makes?|made|causes?|produces?|helps?|needs?|gives?|holds?|keeps?|turns?|leads?|creates?|becomes?|means?|uses?|grows?|feeds?|eats?|forms?|rises?|ferments?|carves?|flows?|seems?|shows?|explains?|lets?|stays?|goes|comes|takes?|puts?|gets?|involves?|includes?|contains?|describes?|affects?|determines?|requires?|consists?|depends?|interacts?|orbits?|travels?|moves?|carries|carry|emits?|absorbs?|surrounds?|protects?|controls?|connects?|supports?)$/i;
+
+/** Whether words carry a verb, as a sentence does: "Gluons are particles". */
+export const hasVerb = (text) => wordsIn(String(text || '').replace(/[,;:.!?]/g, '')).some(w => VERB.test(w));
 
 /**
  * Whether a long run of words is a name (a title, a proper name) rather than
@@ -78,11 +81,12 @@ export function normalizeName(s) {
  * "Navigation" and "Contents" in four moments; an earlier one "Web of ideas"
  * and "Web of connections".
  */
-const MEDIUM = new Set(['redstring', 'web', 'webs', 'thing', 'things', 'node', 'nodes', 'home', 'new', 'my', 'navigation', 'navigate', 'navigating',
-  'content', 'contents', 'structure', 'structures', 'connection', 'connections', 'connect', 'connecting', 'link', 'links', 'graph', 'graphs',
-  'universe', 'network', 'networks', 'idea', 'ideas', 'thought', 'thoughts', 'thinking', 'concept', 'concepts', 'memory', 'working',
-  'explore', 'exploring', 'exploration', 'understand', 'understanding', 'place', 'space', 'start', 'starting', 'point', 'first',
-  'learn', 'learning', 'knowledge', 'information', 'interconnected', 'relation', 'relations', 'relationship', 'relationships']);
+// Only words that mean this place and nothing else. Thoughts, ideas, memory,
+// the universe, networks are subjects in the world: a Druid asking what
+// consciousness is made of was refused "Thoughts".
+const MEDIUM = new Set(['redstring', 'web', 'webs', 'thing', 'things', 'node', 'nodes', 'home', 'new', 'my',
+  'navigation', 'navigate', 'navigating', 'content', 'contents', 'connection', 'connections', 'link', 'links',
+  'graph', 'graphs', 'interconnected', 'description', 'descriptions']);
 const FILLER = /^(the|a|an|of|to|and|or|for|in|on|at|by|with|from|its|this|how|what|about|it|is)$/i;
 
 /**
@@ -104,7 +108,8 @@ export function aboutTheMedium(name, allowed = new Set()) {
 export function asSubject(text) {
   const t = String(text || '').trim().replace(/[.!?]+$/, '');
   const m = /^(?:what|who)(?:\s+(?:is|are|was|were)|'s)\s+(?:a\s+|an\s+|the\s+)?(.+)$/i.exec(t);
-  const out = m ? m[1] : t;
+  // "Understanding Black Hole" is about black holes.
+  const out = (m ? m[1] : t).replace(/^(?:understanding|understand|learning about|learn about|studying|study of|the study of)\s+(?:the\s+|a\s+|an\s+)?(?=\S)/i, '');
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
@@ -112,7 +117,34 @@ export function asSubject(text) {
 export function understandGoal(subject) {
   const s = asSubject(subject);
   if (/^understand\b/i.test(s)) return s;
+  // A whole question is its own goal: "Understand why is the sky blue" is no sentence.
+  if (/^(why|how|what|when|where|which|who)\s+(is|are|was|were|do|does|did|can|could|would|will|should|has|have)\b/i.test(s)) return s;
   // "Dark matter" → "dark matter"; one word may be a name (Mars, DNA) and keeps its capital.
   const lowered = /^[A-Z][a-z]*\s/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
   return `Understand ${lowered}`;
+}
+
+/** Words that are only ever qualities, and endings that usually are. */
+const QUALITIES = new Set(['dark', 'unknown', 'mysterious', 'invisible', 'visible', 'big', 'small', 'large', 'hot', 'cold', 'bright', 'strange', 'important', 'complex', 'simple', 'abstract']);
+const QUALITY_ENDING = /(al|ous|ive|ic|ible|able|ful|less)$/i;
+
+/** Whether a one-word name might be a quality, not a thing: asked of a helper only then. */
+export function looksLikeQuality(name) {
+  const words = wordsIn(name);
+  if (words.length !== 1) return false;
+  const w = words[0].toLowerCase();
+  return QUALITIES.has(w) || (w.length > 4 && QUALITY_ENDING.test(w));
+}
+
+/**
+ * An aspect of a Thing rather than a Thing: "Composition", "Origin", "Role of
+ * outer layers". Kept from thoughts, these became parts and kinds of nothing.
+ */
+const ASPECTS = new Set(['composition', 'origin', 'origins', 'role', 'roles', 'function', 'functions', 'purpose', 'nature', 'importance',
+  'significance', 'properties', 'property', 'characteristics', 'characteristic', 'features', 'aspects', 'structure', 'relationship',
+  'relationships', 'difference', 'differences', 'similarities', 'empty', 'size', 'shape', 'types', 'kinds', 'meaning', 'definition', 'overview']);
+export function isAspect(name) {
+  const words = wordsIn(String(name || '').toLowerCase());
+  if (!words.length || !ASPECTS.has(words[0])) return false;
+  return words.length === 1 || words[1] === 'of';
 }

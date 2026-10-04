@@ -37,6 +37,6 @@ export function relationFromSentence(sentence, a, b) {
   let middle = rest.slice(0, bt[0]).join(' ').trim();
   middle = middle.replace(/\s+(the|a|an|its|their|some)$/i, '').trim();
   // Not a relation but two clauses: "is underfoot, so", "is a mammal,".
-  if (!middle || middle.split(' ').length > 5 || /[,;:]|\b(so|and|but|because|while|which)\b/i.test(middle)) return null;
+  if (!middle || middle.split(' ').length > 5 || /[,;:.]|\b(so|and|but|because|while|which)\b/i.test(middle)) return null;
   return middle.toLowerCase();
 }

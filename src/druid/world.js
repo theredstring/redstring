@@ -21,7 +21,8 @@
 import { graphStateFromStore } from './graphStateFromStore.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
-import { shortName, normalizeName, wordsIn, MAX_NAME_WORDS, aboutTheMedium } from './names.js';
+import { DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, isSeededChain, seededChainFor } from '../wizard/tools/utils/abstractionSpec.js';
+import { shortName, normalizeName, wordsIn, readsAsName, hasVerb, MAX_NAME_WORDS, aboutTheMedium, looksLikeQuality, isAspect } from './names.js';
 
 const valuesOf = (c) => (c instanceof Map ? Array.from(c.values()) : Array.isArray(c) ? c : Object.values(c || {}));
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -200,14 +201,19 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   const isSystemWeb = (graphId) => !!druidOf(ownerOf(graphId) || '').system;
 
   /** Create a Thing in a web via the wizard tool; returns its prototype id. */
-  const createThing = async (givenGraphId, givenName, { description: givenDescription = '', typeNodeId = null, fresh = false, asPart = true } = {}) => {
+  const createThing = async (givenGraphId, givenName, { description: givenDescription = '', typeNodeId = null, fresh = false, asPart = true, reuse = true } = {}) => {
     let graphId = givenGraphId;
     // A name is a handle; a sentence given as one keeps its words in the
     // description (names.js). Every way of making a Thing comes through here.
     // A long one is put to the name gate, a contextless helper call
     // (mind/helpers.js), when there is one; code decides when it has nothing.
     let name = shortName(givenName);
-    if (api.nameGate && wordsIn(givenName).length > MAX_NAME_WORDS) {
+    // A sentence passing as a name is put to the gate too, long or not:
+    // "Volcanoes are fireholes in the earth." was kept as a Thing's name.
+    // So is a short one with a verb in it: "Gluons are particles".
+    const sentenceLike = (/[.!?]$/.test(String(givenName || '').trim()) && wordsIn(givenName).length >= 4)
+      || (wordsIn(givenName).length >= 3 && hasVerb(givenName) && !readsAsName(givenName));
+    if (api.nameGate && (wordsIn(givenName).length > MAX_NAME_WORDS || sentenceLike)) {
       const verdict = await api.nameGate(String(givenName).trim()).catch(() => null);
       if (verdict?.kind === 'name') name = wordsIn(givenName).join(' ');
       else if (verdict?.kind === 'sentence') name = verdict.short;
@@ -218,7 +224,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // `fresh`: the caller means a NEW Thing. Same name in the same web would
     // silently reuse the old one ("made Creative network" — again).
     if (fresh) {
-      const here = valuesOf(graph(graphId)?.instances).map(i => i.prototypeId).find(pid => lower(nameOf(pid)) === lower(name));
+      const here = valuesOf(graph(graphId)?.instances).map(i => i.prototypeId).find(pid => normalizeName(nameOf(pid)) === normalizeName(name));
       if (here) return { ok: false, error: `${nameOf(here)} is already here; name the new one differently` };
     }
     // In Redstring the same name is the same Thing, so a new Thing named like
@@ -227,6 +233,23 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // Not about this place itself, unless the person asked about it (names.js).
     if (api.actor && !isSystemWeb(graphId) && aboutTheMedium(name, api.personWords)) {
       return { ok: false, error: `"${name}" is about this place itself, not the world; name something in the world` };
+    }
+    // A Thing, not an aspect of one: "Composition", "Role of outer layers".
+    if (api.actor && !typeNodeId && !isSystemWeb(graphId) && isAspect(name)) {
+      return { ok: false, error: `"${name}" is an aspect of something, not a Thing; name the Thing itself` };
+    }
+    // A thing, not a quality: "Dark", "Gravitational" as parts of dark matter.
+    if (api.actor && !typeNodeId && !isSystemWeb(graphId) && looksLikeQuality(name) && !sameNamed(name)) {
+      const quality = api.isQuality ? await api.isQuality(name).catch(() => null) : null;
+      if (quality === true) return { ok: false, error: `"${name}" describes a quality; name the thing it describes` };
+    }
+    // Not about knowing in general, in a web about something (mind/helpers.js aboutKnowing).
+    if (api.actor && api.aboutKnowing && !typeNodeId && !isSystemWeb(graphId)) {
+      const subject = topicOf(graphId);
+      const said = wordsIn(lower(name)).some(w => api.personWords?.has(w));
+      if (subject && lower(subject) !== lower(name) && !said && (await api.aboutKnowing(name, subject).catch(() => null)) === true) {
+        return { ok: false, error: `"${name}" is about knowing in general, not about ${subject}; keep to ${subject}` };
+      }
     }
     const clash = findThing(name);
     if (clash && (druidOf(clash).roleType || druidOf(clash).system)) {
@@ -241,15 +264,32 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // Nothing goes inside itself: in Redstring the same name is the same
     // Thing, so "keep Tutorial" while standing inside Tutorial placed it there.
     if (owner && lower(nameOf(owner)) === lower(name)) return { ok: false, error: `${name} cannot go inside itself` };
-    if (asPart && api.check && owner && !isOwnThinking(owner) && !druidOf(owner).topic && !(typeNodeId && isOwnThinking(typeNodeId))) {
-      const outer = websOf(owner).find(w => w !== graphId && !isSystemWeb(w));
-      if (outer && lower(name) !== lower(nameOf(owner))) {
-        const verdict = await api.check(`${name} is a part of ${nameOf(owner)}`).catch(() => null);
-        if (verdict === false) { graphId = outer; movedOut = true; }
+    // Nor inside its own parts: "Pluto" was kept inside Pluto › Ice › Oxygen.
+    const topic = api.actor && !isSystemWeb(graphId) && owner && !druidOf(owner).topic ? topicOf(graphId) : null;
+    if (topic && normalizeName(topic) === normalizeName(name)) return { ok: false, error: `${name} is what this whole web is about; it does not go inside one of its parts` };
+    if (asPart && (api.isPart || api.check) && owner && !isOwnThinking(owner) && !druidOf(owner).topic && !(typeNodeId && isOwnThinking(typeNodeId))) {
+      // Out only to a web of content: not Home, nor a goal's or plan's inside.
+      const outer = websOf(owner).find(w => w !== graphId && !isSystemWeb(w) && !isOwnWeb(w));
+      if (lower(name) !== lower(nameOf(owner))) {
+        const verdict = await isPartOf(name, nameOf(owner));
+        if (verdict === false && outer) { graphId = outer; movedOut = true; }
+        else if (verdict === false) return { ok: false, error: `${name} is not a part of ${nameOf(owner)}` };
       }
     }
     // Its own webs (episodes, working memory) are written without looking at them.
     if (!isSystemWeb(graphId)) focusWeb(graphId);
+    // The same name is the same Thing: one already in the universe is placed
+    // here, not made again. Made again, "Water droplets" inside Clouds and
+    // inside Cloud were two Things, and the structures never met.
+    // A new Thing ("fresh") is still the one of that name elsewhere: made
+    // again, Proton and Protons were two Things. Only here is it refused.
+    const known = api.actor && reuse && !typeNodeId && !isSystemWeb(graphId) ? sameNamed(name) : null;
+    if (known) {
+      if (owner && containsThing(known, owner)) return { ok: false, error: `${nameOf(known)} cannot go inside ${nameOf(owner)}: ${nameOf(owner)} is already inside it` };
+      place(graphId, known);
+      if (api.actor && !druidOf(known).madeBy && !proto(known)?.description && description) await act('updateNode', { nodeName: nameOf(known), description, targetGraphId: graphId });
+      return { ok: true, id: known, web: graphId, movedOut, reused: true };
+    }
     const r = await act('createNode', { name, description, ...(graphId ? { targetGraphId: graphId } : {}), ...(typeNodeId ? { typeNodeId } : {}) });
     if (!r.ok) return { ok: false, error: r.error };
     const id = valuesOf(graph(graphId)?.instances)
@@ -260,6 +300,148 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // made is an observation; one the Druid made is its own inference.
     if (id && api.actor && !druidOf(id).madeBy) setDruid(id, { madeBy: api.actor });
     return { ok: !!id, id, web: graphId, movedOut, error: id ? null : 'created but not found' };
+  };
+
+  /**
+   * What a web is about: the name of the web it hangs from at the top (a web
+   * the Druid started, or any web not inside another), walking up through
+   * insides. Null for Home and its own places.
+   */
+  const topicOf = (graphId, seen = new Set()) => {
+    if (!graphId || seen.has(graphId) || isSystemWeb(graphId)) return null;
+    seen.add(graphId);
+    const owner = ownerOf(graphId);
+    const d = druidOf(owner || '');
+    if (!owner || d.topic) return graph(graphId)?.name || null;
+    if (d.homeOf || d.roleType || isOwnThinking(owner)) return null;
+    const up = websOf(owner).find(w => w !== graphId && !isSystemWeb(w) && !druidOf(ownerOf(w) || '').homeOf);
+    return up ? topicOf(up, seen) : graph(graphId)?.name || null;
+  };
+
+  /**
+   * X is a kind of K, kept as a ladder: the carousel shows a Thing's kinds as
+   * one chain from specific to general (Up quark › Quarks › Particles), and a
+   * Thing has one type, so a second kind used to replace the first. A more
+   * general kind goes above the one it has, a more specific one in between,
+   * each where the check agrees; unrelated kinds are refused, not overwritten.
+   * Without a check (tests, scripts), the new kind replaces the old.
+   */
+  const addKind = async (x, k) => {
+    if (!proto(x) || !proto(k) || x === k) return { ok: false, error: `${nameOf(x)} is not a kind of itself` };
+    if (typeChain(k).includes(x)) return { ok: false, error: `${nameOf(k)} is already a kind of ${nameOf(x)}` };
+    if (typeChain(x).includes(k)) return { ok: false, already: true, error: `${nameOf(x)} is already a kind of ${nameOf(k)}` };
+    const t = proto(x)?.typeNodeId;
+    if (!t || BASE_PROTOTYPE_IDS.has(t) || !proto(t) || !api.check) {
+      state().setNodeType(x, k);
+    } else {
+      const says = async (a, b) => (await isKindOf(nameOf(a), nameOf(b))) === true;
+      if (await says(t, k)) {
+        const r = await addKind(t, k);
+        if (!r.ok && !r.already) return r;
+      } else if (await says(k, t)) {
+        const r = await addKind(k, t);
+        if (!r.ok && !r.already) return r;
+        state().setNodeType(x, k);
+      } else {
+        return { ok: false, error: `${nameOf(x)} is already a kind of ${nameOf(t)}, and ${nameOf(k)} is neither above nor below ${nameOf(t)}` };
+      }
+    }
+    writeLadders();
+    return { ok: true };
+  };
+
+  /**
+   * Each Thing with a ladder of two kinds or more gets it as its carousel
+   * chain ([Thing, its kind, that one's kind, …, Thing]). Only chains still as
+   * seeding wrote them, or as the Druid wrote them: a chain a person built is theirs.
+   */
+  const writeLadders = () => {
+    // Only the most specific Thing owns a ladder: a rung that owned its own
+    // shorter one would be shown that instead (the carousel prefers a Thing's
+    // own chain to one it is a rung of).
+    const rungs = new Set();
+    for (const p of valuesOf(state().nodePrototypes)) for (const t of typeChain(p.id)) rungs.add(t);
+    for (const p of valuesOf(state().nodePrototypes)) {
+      if (BASE_PROTOTYPE_IDS.has(p.id)) continue;
+      if (rungs.has(p.id)) {
+        if (druidOf(p.id).ladder) {
+          state().updateNodePrototype(p.id, (draft) => {
+            const seeded = seededChainFor(p.id, draft.typeNodeId);
+            draft.abstractionChains = { ...(draft.abstractionChains || {}), [DEFAULT_ABSTRACTION_DIMENSION]: seeded || [p.id] };
+          });
+          setDruid(p.id, { ladder: false });
+        }
+        continue;
+      }
+      const kinds = typeChain(p.id).filter(t => !BASE_PROTOTYPE_IDS.has(t));
+      if (kinds.length < 2) continue;
+      const ladder = [p.id, ...kinds, THING_PROTOTYPE_ID];
+      const current = p.abstractionChains?.[DEFAULT_ABSTRACTION_DIMENSION];
+      if (current && current.join() === ladder.join()) continue;
+      if (current && !isSeededChain(p, current) && !druidOf(p.id).ladder) continue;
+      state().updateNodePrototype(p.id, (draft) => {
+        draft.abstractionChains = { ...(draft.abstractionChains || {}), [DEFAULT_ABSTRACTION_DIMENSION]: ladder };
+      });
+      setDruid(p.id, { ladder: true });
+    }
+  };
+
+  /** Home, or the inside of one of its goals, plans or role types. */
+  const isOwnWeb = (graphId) => {
+    const o = ownerOf(graphId);
+    if (!o) return false;
+    const d = druidOf(o);
+    return !!(d.homeOf || d.step || isOwnThinking(o));
+  };
+
+  /**
+   * How deep a web sits below the web it hangs from: 0 for a web it started,
+   * 1 for the inside of a Thing in it, and so on. The path a Druid walked does
+   * not say this (going to a Thing resets it); the nesting does.
+   */
+  const depthOf = (graphId, seen = new Set()) => {
+    if (!graphId || seen.has(graphId)) return 0;
+    seen.add(graphId);
+    const owner = ownerOf(graphId);
+    if (!owner || druidOf(owner).topic || druidOf(owner).homeOf) return 0;
+    const up = websOf(owner).filter(w => w !== graphId && !isSystemWeb(w) && !isOwnWeb(w));
+    return up.length ? 1 + Math.min(...up.map(w => depthOf(w, new Set(seen)))) : 0;
+  };
+
+  /** Is `a` a kind of `b`? The kind helper when there is one (mind/helpers.js kindOf), else the general check. */
+  const isKindOf = async (a, b) => {
+    if (api.isKind) return api.isKind(a, b).catch(() => null);
+    if (api.check) return api.check(`${a} is a kind of ${b}`).catch(() => null);
+    return null;
+  };
+
+  /** Is `part` a part of `whole`? The made-of helper when there is one (mind/helpers.js madeOf), else the general check. */
+  const isPartOf = async (part, whole) => {
+    if (api.isPart) return api.isPart(part, whole).catch(() => null);
+    if (api.check) return api.check(`${part} is a part of ${whole}`).catch(() => null);
+    return null;
+  };
+
+  /** A Thing to think with already named like this (plural and case aside): never its own apparatus. */
+  const sameNamed = (name) => {
+    const want = normalizeName(name);
+    let hit = null;
+    for (const p of state().nodePrototypes.values()) {
+      if (BASE_PROTOTYPE_IDS.has(p.id) || !p.name || normalizeName(p.name) !== want) continue;
+      const d = p.semanticMetadata?.druid || {};
+      if (d.system || d.homeOf || d.roleType || d.topic || d.relation || isOwnThinking(p.id)) continue;
+      hit = p.id;
+    }
+    return hit;
+  };
+
+  /** Whether `inner` sits somewhere inside `outer`'s inside, at any depth. */
+  const containsThing = (outer, inner, seen = new Set()) => {
+    if (outer === inner) return true;
+    if (seen.has(outer)) return false;
+    seen.add(outer);
+    const ins = insideOf(outer);
+    return !!ins && thingsIn(ins).some(t => containsThing(t, inner, seen));
   };
 
   /** The Druid's own apparatus (role types, goals, plans, beliefs, episodes, its system webs), not a Thing it thinks about. */
@@ -418,11 +600,19 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     nameGate: null,
     /** async (statement) → true | false | null: does it make sense? (mind/helpers.js plausible). */
     check: null,
+    /** async (part, whole) → true | false | null: is the whole made of it? (mind/helpers.js madeOf). */
+    isPart: null,
+    /** async (a, b) → true | false | null: is a a kind of b? (mind/helpers.js kindOf). */
+    isKind: null,
+    /** async (term, subject) → true when the term is about knowing in general (mind/helpers.js aboutKnowing). */
+    aboutKnowing: null,
+    /** async (word) → true when a one-word name is a quality, not a thing (mind/helpers.js isQuality). */
+    isQuality: null,
     /** async (relation, inUse) → an existing relation meaning the same | null (mind/helpers.js sameRelation). */
     sameRelationAs: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
+    act, focusWeb, place, unplace, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
   };
   return api;
 }

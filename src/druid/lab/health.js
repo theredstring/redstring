@@ -23,7 +23,7 @@ const pct = (n, d) => (d ? Math.round((100 * n) / d) : 0);
 /** Pick up to `k` items spread evenly, so a judged sample is the same each time. */
 const sample = (list, k) => (list.length <= k ? list : Array.from({ length: k }, (_, i) => list[Math.floor((i * list.length) / k)]));
 
-export async function health(world, { judge = null, judgeSample = 40 } = {}) {
+export async function health(world, { judge = null, judgePart = null, judgeSample = 40 } = {}) {
   const st = world.state();
   const all = world.allThingsIncludingSystem();
   const relationTypes = world.relationTypeIds();
@@ -63,7 +63,11 @@ export async function health(world, { judge = null, judgeSample = 40 } = {}) {
   // Insides of Things that sit somewhere else: decompositions.
   const insides = contentWebs
     .map(g => ({ web: g.id, owner: world.ownerOf(g.id) }))
-    .filter(({ web, owner }) => owner && world.websOf(owner).some(w => w !== web && !world.isSystemWeb(w)));
+    // A web the Druid started holds what its subject involves, not strictly
+    // its parts (tidy.js auditInsides exempts it the same way); and a web
+    // whose Thing sits only in Home is such a web, not an inside.
+    .filter(({ web, owner }) => owner && !world.druidOf(owner).topic
+      && world.websOf(owner).some(w => w !== web && !world.isSystemWeb(w) && !world.druidOf(world.ownerOf(w) || '').homeOf));
   const parts = insides.flatMap(({ web, owner }) => world.thingsIn(web).filter(id => kindOf(id) === 'content' && id !== owner).map(id => ({ part: id, owner })));
 
   const stranded = all.filter(id => world.websOf(id).length === 0 && !world.insideOf(id) && !['relation', 'system', 'roleType'].includes(kindOf(id)));
@@ -98,7 +102,19 @@ export async function health(world, { judge = null, judgeSample = 40 } = {}) {
       }
       return { judged: yes + no, sensiblePct: pct(yes, yes + no), examples: bad.slice(0, 6) };
     };
-    report.partsJudged = await judged(parts, ({ part, owner }) => `${world.nameOf(part)} is a part of ${world.nameOf(owner)}`);
+    // Parts asked as "is the whole made of it?" when there is a judge for that:
+    // asked whether "Protons is a part of Hydrogen" is sensible, judges said no.
+    if (judgePart) {
+      let yes = 0; let no = 0; const bad = [];
+      for (const { part, owner } of sample(parts, judgeSample)) {
+        const v = await judgePart(world.nameOf(part), world.nameOf(owner));
+        if (v === true) yes++;
+        else if (v === false) { no++; bad.push(`${world.nameOf(part)} is a part of ${world.nameOf(owner)}`); }
+      }
+      report.partsJudged = { judged: yes + no, sensiblePct: pct(yes, yes + no), examples: bad.slice(0, 6) };
+    } else {
+      report.partsJudged = await judged(parts, ({ part, owner }) => `${world.nameOf(part)} is a part of ${world.nameOf(owner)}`);
+    }
     report.linksJudged = await judged(links, (l) => `${world.nameOf(l.a)} ${l.relation.toLowerCase()} ${world.nameOf(l.b)}`);
   }
   return report;

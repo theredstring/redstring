@@ -27,7 +27,7 @@
  */
 
 import { normalizeName as norm } from './names.js';
-import { activePlans, roleType, roleOf } from './roles.js';
+import { activePlans, roleType, roleOf, isBookkeeping } from './roles.js';
 import { auditInsides } from './moves/tidy.js';
 
 const MIN_MEMBERS = 6;
@@ -41,7 +41,9 @@ export { norm as normalizeName };
 export function duplicateGroups(world) {
   const groups = new Map();
   for (const id of world.allThings()) {
-    if (world.druidOf(id).roleType || world.druidOf(id).role) continue;
+    // Never a goal, plan or step with a Thing named like it: "Why do people
+    // cry" the goal was merged into "Why do people cry" the web.
+    if (world.druidOf(id).roleType || world.druidOf(id).role || isBookkeeping(world, id) || roleOf(world, id)) continue;
     const k = norm(world.nameOf(id));
     if (!k) continue;
     if (!groups.has(k)) groups.set(k, []);
@@ -255,6 +257,8 @@ export async function sleep(ctx) {
   }
 
   // 3. Letting go: plans that stalled, episodes that are old, what is dead.
+  // Kinds sleep changed are kept as ladders in the carousel too (world.js addKind).
+  world.writeLadders?.();
   report.lapsed = lapseStalledPlans(world, tick);
   report.condensed = await condenseEpisodes(world, tick);
   const keep = new Set([ctx.locus?.focus, ...(ctx.held || []).map(h => h.id)].filter(Boolean));

@@ -7,12 +7,13 @@
  */
 
 import { recall, buildMemoryIndex, tokenize } from '../recall.js';
+import { isOwnPlace } from '../attention.js';
 import {
   isBookkeeping,
   openGoals, setGoalStatus, activePlans, nextStep, planSteps,
   addEvidence, confidence, confidenceWords, sourceKind, beliefsIn, claimOf, JUDGMENT_SCALE
 } from '../roles.js';
-import { wordsIn, shortName, MAX_NAME_WORDS } from '../names.js';
+import { wordsIn, shortName, normalizeName, MAX_NAME_WORDS } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 const titleish = (s) => String(s || '').trim().replace(/[.!?]+$/, '').replace(/^\w/, c => c.toUpperCase());
@@ -39,7 +40,10 @@ export const pursueGoal = {
   id: 'pursueGoal',
   prior: 0.75,
   offer(ctx) {
-    return topGoals(ctx, 2).map(g => ({ label: `work toward your goal "${ctx.world.nameOf(g)}"`, data: { goal: g }, target: g }));
+    // Only toward something that is there: with nothing to go to it "looked
+    // and found nothing" three times in a Druid's first eight moments.
+    return topGoals(ctx, 2).filter(g => elsewhere(ctx, towardTarget(ctx, ctx.world.nameOf(g), [g])))
+      .map(g => ({ label: `work toward your goal "${ctx.world.nameOf(g)}"`, data: { goal: g }, target: g }));
   },
   async run(ctx, data) {
     const r = goToward(ctx, ctx.world.nameOf(data.goal), [data.goal]);
@@ -54,6 +58,24 @@ export const pursueGoal = {
  * plan is going in a circle. Nor inside a goal's or plan's own web.
  */
 function goToward(ctx, phrase, exclude = []) {
+  const hit = towardTarget(ctx, phrase, exclude);
+  if (!hit) return null;
+  ctx.world.focusWeb(hit.web);
+  return { ok: true, summary: `went to ${hit.name}`, touched: [hit.id], locus: { web: hit.web, focus: hit.id, path: [] }, wrote: false };
+}
+
+/**
+ * Planning waits until there is a web to build in: a Druid with nothing yet
+ * spent its first eight moments breaking its goal down, planning, and looking
+ * at the plan.
+ */
+const hasContentWeb = (world) => [...world.state().graphs.keys()].some(g => !isOwnPlace(world, g));
+
+/** A place to go that is not where it already is: "went to Dark matter particle" four times, toward the same step. */
+const elsewhere = (ctx, hit) => !!hit && hit.id !== ctx.locus.focus && !(ctx.locus.path || []).includes(hit.id);
+
+/** What goToward would go to, without going: { id, name, web } | null. */
+function towardTarget(ctx, phrase, exclude = []) {
   const { world } = ctx;
   const skip = new Set(exclude);
   const usable = (id) => !skip.has(id) && !isBookkeeping(world, id);
@@ -67,19 +89,16 @@ function goToward(ctx, phrase, exclude = []) {
     .filter(h => h.n > 0)
     .sort((a, b) => b.n - a.n);
   const hits = [...named, ...recall(buildMemoryIndex(world.state()), phrase, { k: 8 }).filter(h => usable(h.id))];
-  const contentWeb = (w) => !world.isSystemWeb(w) && !(world.ownerOf(w) && isBookkeeping(world, world.ownerOf(w)));
+  // Not Home, its own webs, or a goal's or plan's inside (attention.js isOwnPlace).
   for (const h of hits) {
-    const web = world.websOf(h.id).find(contentWeb);
-    if (web) {
-      world.focusWeb(web);
-      return { ok: true, summary: `went to ${h.name}`, touched: [h.id], locus: { web, focus: h.id, path: [] }, wrote: false };
-    }
+    const web = world.websOf(h.id).find(w => !isOwnPlace(world, w));
+    if (web) return { id: h.id, name: h.name || world.nameOf(h.id), web };
   }
   return null;
 }
 
 /** Things built toward a goal: content Things its writes touched since the goal opened. */
-export const REACHED_AFTER = 5;
+export const REACHED_AFTER = 8;
 const builtToward = (ctx, g) => {
   const since = ctx.world.druidOf(g).statusAt ?? -Infinity;
   const ids = new Set();
@@ -125,7 +144,7 @@ export const breakDownGoal = {
   id: 'breakDownGoal',
   prior: 0.35,
   offer(ctx) {
-    if (!ctx.roles?.types.goal) return [];
+    if (!ctx.roles?.types.goal || !hasContentWeb(ctx.world)) return [];
     return topGoals(ctx, 1).map(g => ({ label: `break your goal "${ctx.world.nameOf(g)}" into a smaller goal: ___`, blank: { question: `One smaller goal on the way to "${ctx.world.nameOf(g)}", in a few words.`, maxWords: 5 }, data: { goal: g }, target: g }));
   },
   async run(ctx, data, text) {
@@ -145,7 +164,7 @@ export const makePlan = {
   offer(ctx) {
     // One plan at a time: plans made while another was open were dropped and
     // never looked at again.
-    if (!ctx.roles?.types.plan || activePlans(ctx.world).length > 0) return [];
+    if (!ctx.roles?.types.plan || activePlans(ctx.world).length > 0 || !hasContentWeb(ctx.world)) return [];
     return topGoals(ctx, 1).map(g => ({
       label: `plan how to reach "${ctx.world.nameOf(g)}" — the first step: ___`,
       // What to find out, not a chore: a step written as a to-do ("Find
@@ -162,8 +181,12 @@ export const makePlan = {
     if (!r.ok) return fail(r.error);
     world.setDruid(r.id, { forGoal: data.goal, cursor: 0, status: 'open', stepSince: ctx.tick });
     const inside = world.ensureInside(r.id);
-    const s = await world.createThing(inside, step, { description: 'A step.' });
+    // A step is its own Thing, never the content it names: reused, the step
+    // "Dark matter particle" was the Thing Dark matter particle, and building
+    // it filled the plan.
+    const s = await world.createThing(inside, step, { description: 'A step.', fresh: true, reuse: false });
     if (!s.ok) return fail(s.error);
+    world.setDruid(s.id, { step: true });
     return { ok: true, summary: `planned "${world.nameOf(data.goal)}", starting with: ${step}`, touched: [r.id, data.goal], wrote: true };
   }
 };
@@ -184,8 +207,9 @@ export const addStep = {
     const { world } = ctx;
     const inside = world.ensureInside(data.plan);
     const last = planSteps(world, data.plan).at(-1);
-    const s = await world.createThing(inside, step, { description: 'A step.' });
+    const s = await world.createThing(inside, step, { description: 'A step.', fresh: true, reuse: false });
     if (!s.ok) return fail(s.error);
+    world.setDruid(s.id, { step: true });
     if (last && last !== s.id) await world.connect(inside, last, s.id, 'then');
     return { ok: true, summary: `added a step to "${world.nameOf(data.plan)}": ${step}`, touched: [data.plan], wrote: true };
   }
@@ -226,7 +250,7 @@ export const pursueStep = {
   offer(ctx) {
     return activePlans(ctx.world).slice(0, 1).map(p => {
       const step = nextStep(ctx.world, p);
-      return step ? { label: `work on the next step of your plan: "${ctx.world.nameOf(step)}"`, data: { plan: p, step }, target: step } : null;
+      return step && elsewhere(ctx, towardTarget(ctx, ctx.world.nameOf(step), [step, p])) ? { label: `work on the next step of your plan: "${ctx.world.nameOf(step)}"`, data: { plan: p, step }, target: step } : null;
     }).filter(Boolean);
   },
   async run(ctx, data) {
@@ -257,6 +281,12 @@ export const believe = {
       name = titleish((verdict?.kind === 'sentence' && verdict.short)
         || await ctx.ask(`Give that belief a short name, at most 4 words: "${claim}"`, 4)
         || shortName(claim));
+    }
+    // Not the name of a Thing: a belief about Dark matter named "Dark matter"
+    // was refused as already here, and one about Air was named "Atmosphere".
+    if (world.findThing(name) || normalizeName(name) === normalizeName(world.nameOf(data.about))) {
+      name = titleish(await ctx.ask(`Give the belief "${claim}" a short name of at most 4 words that says what is believed, not only "${world.nameOf(data.about)}".`, 4) || shortName(claim));
+      if (world.findThing(name)) name = shortName(claim);
     }
     const r = await world.createThing(ctx.locus.web, name, { description: `${claim.replace(/[.!?]*$/, '.')} A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief, fresh: true });
     if (!r.ok) return fail(r.error);

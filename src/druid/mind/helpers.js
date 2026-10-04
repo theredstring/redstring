@@ -96,6 +96,104 @@ export function plausible(mind) {
   };
 }
 
+/**
+ * Is a part really a part? Asked as "Is Carbon dioxide made of Nitrogen, at
+ * least in part?", Apple's model answered 18 of 18 pairs right; asked whether
+ * "Nitrogen is a part of Carbon dioxide" is sensible, 12 of 18, refusing true
+ * parts (bone of a foot, wheels of a car) and letting false ones through
+ * (2026-10-04 probes).
+ *
+ * @returns {Function} async (part, whole) → true | false | null
+ */
+export function madeOf(mind) {
+  const cache = new Map();
+  return async (part, whole) => {
+    const key = `${String(part).trim()}\u0000${String(whole).trim()}`;
+    if (cache.has(key)) return cache.get(key);
+    const a = await ask(mind, 'madeOf', 'Answer yes or no.', `Is ${String(whole).trim()} made of ${String(part).trim()}, at least in part?`, ['yes', 'no']);
+    const value = a === 'yes' ? true : a === 'no' ? false : null;
+    cache.set(key, value);
+    return value;
+  };
+}
+
+/**
+ * Is a term about knowing in general rather than about the subject? Drift
+ * inside a web ran this way: a Druid set to understand Space kept
+ * Understanding, Confusion, Information, Raw data, Metadata. Yes/no questions
+ * ("is it part of Space or closely tied to it?") said yes to all of those;
+ * offered "Space / information and knowledge / neither", Apple's model picked
+ * information and knowledge for the drift and Space or neither for the rest,
+ * 20 of 23 (2026-10-04 probes). Only that pick refuses.
+ *
+ * @returns {Function} async (term, subject) → true (about knowing) | false | null
+ */
+export function aboutKnowing(mind) {
+  const cache = new Map();
+  return async (term, subject) => {
+    const key = `${String(term).trim()}\u0000${String(subject).trim()}`;
+    if (cache.has(key)) return cache.get(key);
+    const a = await ask(mind, 'aboutKnowing', 'Pick the subject the term belongs to.', `Term: ${String(term).trim()}\nChoices:\nA: ${String(subject).trim()}\nB: information and knowledge\nC: neither`, ['A', 'B', 'C']);
+    // Confirmed by a second question before it refuses: alone, it put
+    // Hydrogen and Oxygen under "information and knowledge" in a web about the
+    // ocean. Something physical is never refused (15 of 20 right; its misses
+    // let drift through rather than block a part).
+    let value = a === 'B' ? true : a ? false : null;
+    if (value === true) {
+      const physical = await ask(mind, 'physical', 'Answer yes or no.', `Is ${String(term).trim()} something in the physical or living world, such as a substance, an object, a living thing, a place, a force, or something that happens?`, ['yes', 'no']);
+      if (physical !== 'no') value = false;
+    }
+    cache.set(key, value);
+    return value;
+  };
+}
+
+/**
+ * Is a one-word name a quality rather than a thing? Asked of every word, Apple's
+ * model called Gravity, Light and Feelings qualities (17 of 24 right), so it is
+ * asked only of words that look like adjectives (names.js looksLikeQuality),
+ * where it erred on two of twelve (2026-10-04 probes). A Druid asked what dark
+ * matter is made of named Dark, Gravitational, Mysterious.
+ *
+ * @returns {Function} async (word) → true (a quality) | false | null
+ */
+export function isQuality(mind) {
+  const cache = new Map();
+  return async (word) => {
+    const key = String(word || '').trim();
+    if (!key) return null;
+    if (cache.has(key)) return cache.get(key);
+    const a = await ask(mind, 'isQuality', 'Is the word the name of a thing, or a word that describes a quality? Answer thing or quality.', `Word: ${key}`, ['thing', 'quality']);
+    const value = a === 'quality' ? true : a === 'thing' ? false : null;
+    cache.set(key, value);
+    return value;
+  };
+}
+
+/**
+ * Is A a kind of B? The sense check alone only ever erred by refusing
+ * (Electrons a kind of Particles, Iron of Elements: 20 of 24); a refusal is
+ * asked again two ways, "is A a kind of B?" and "is every A a B?", and
+ * accepted when both say yes: 21 of 24 (2026-10-04 probes).
+ *
+ * @returns {Function} async (a, b) → true | false | null
+ */
+export function kindOf(mind, sense = plausible(mind)) {
+  const cache = new Map();
+  return async (a, b) => {
+    const key = `${String(a).trim()}\u0000${String(b).trim()}`;
+    if (cache.has(key)) return cache.get(key);
+    let value = await sense(`${a} is a kind of ${b}`);
+    if (value === false) {
+      const kind = await ask(mind, 'kindOf', 'Answer yes or no.', `Is ${a} a kind of ${b}?`, ['yes', 'no']);
+      const every = kind === 'yes' ? await ask(mind, 'everyIs', 'Answer yes or no.', `Is every ${a} a ${b}?`, ['yes', 'no']) : null;
+      if (kind === 'yes' && every === 'yes') value = true;
+    }
+    cache.set(key, value);
+    return value;
+  };
+}
+
 /** Relations too general to stand in for another: everything "is" something. */
 const GENERIC = new Set(['is', 'are', 'has', 'have', 'relates to', 'connected', 'connected to']);
 
@@ -131,8 +229,9 @@ export function sameRelation(mind) {
  * What a Druid with nothing on its mind wants to understand: asked with no
  * context at all, so nothing about this place is in view to answer with. In
  * context, a seedless Druid built "Home Web", "Navigation" and "Contents";
- * asked alone (warm, so each Druid differs), Apple's model named DNA, gravity,
- * earthquakes, how plants grow, black holes (2026-10-04).
+ * asked alone (warm, so each Druid differs) for something it could see, touch
+ * or watch happen, Apple's model named the ocean, galaxies, Mars, Mount
+ * Everest, a sunset, thunder (2026-10-04).
  *
  * @returns {(tries?: number) => Promise<string|null>}
  */
@@ -141,7 +240,10 @@ export function curiosity(mind) {
     for (let i = 0; i < tries; i++) {
       const r = await mind.helper({
         name: 'curiosity',
-        task: 'You are curious. Name one thing in the world you want to understand. Answer with the thing only, in a few words.',
+        // Something to see, touch or watch happen: asked only for "one thing",
+        // it also named mystery, the purpose of existence, why God is necessary,
+        // and abstract subjects decomposed into synonyms of themselves.
+        task: 'You are curious. Name one real thing in the world you want to understand: something you could see, touch, or watch happen. Answer with the thing only, in a few words.',
         input: '',
         schema: { name: 'subject', schema: { type: 'object', properties: { subject: { type: 'string' } }, required: ['subject'], additionalProperties: false } },
         read: (content) => {

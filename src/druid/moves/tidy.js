@@ -10,6 +10,7 @@
  *   mergeSame two Things in view whose names say they are the same
  */
 
+import { isOwnPlace } from '../attention.js';
 import { isObject } from '../roles.js';
 import { normalizeName } from '../names.js';
 
@@ -25,7 +26,8 @@ export const moveOut = {
     // the fifteen Things sleep had flagged elsewhere.
     const near = new Set([locus.web, locus.focus && world.insideOf(locus.focus)].filter(Boolean));
     const flagged = world.allThings().filter(id => world.druidOf(id).misplaced?.web).map(id => ({ id, web: world.druidOf(id).misplaced.web }))
-      .filter(({ id, web }) => world.graph(web) && world.thingsIn(web).includes(id));
+      .filter(({ id, web }) => world.graph(web) && world.thingsIn(web).includes(id)
+        && world.websOf(world.ownerOf(web)).some(w => w !== web && !isOwnPlace(world, w)));
     flagged.sort((a, b) => (near.has(b.web) ? 1 : 0) - (near.has(a.web) ? 1 : 0));
     return flagged.slice(0, 2).map(({ id, web }) => ({
       label: `move ${world.nameOf(id)} out of ${world.nameOf(world.ownerOf(web))} (it is not a part of it)`,
@@ -35,7 +37,8 @@ export const moveOut = {
   async run(ctx, data) {
     const { world } = ctx;
     const owner = world.ownerOf(data.web);
-    const outer = owner && world.websOf(owner).find(w => w !== data.web && !world.isSystemWeb(w));
+    // Never out to Home or a goal's or plan's inside: "moved Electrons out … to Home".
+    const outer = owner && world.websOf(owner).find(w => w !== data.web && !isOwnPlace(world, w));
     if (!outer) return fail(`${world.nameOf(owner)} sits in no web to move it out to`);
     const { kept, dropped } = await world.move(data.web, outer, data.id);
     world.setDruid(data.id, (d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'misplaced')));
@@ -76,7 +79,7 @@ export const mergeSame = {
  * @returns {Promise<string[]>} "X in Y" for each newly flagged Thing
  */
 export async function auditInsides(world, { limit = 6 } = {}) {
-  if (!world.check) return [];
+  if (!world.check && !world.isPart) return [];
   const flagged = [];
   let asked = 0;
   for (const g of world.state().graphs.values()) {
@@ -88,7 +91,7 @@ export async function auditInsides(world, { limit = 6 } = {}) {
       const d = world.druidOf(id);
       if (id === owner || !isObject(world, id) || d.misplaced || d.partOf?.includes(g.id)) continue;
       asked++;
-      const v = await world.check(`${world.nameOf(id)} is a part of ${world.nameOf(owner)}`).catch(() => null);
+      const v = await world.isPartOf(world.nameOf(id), world.nameOf(owner));
       if (v === false) { world.setDruid(id, { misplaced: { web: g.id } }); flagged.push(`${world.nameOf(id)} in ${world.nameOf(owner)}`); }
       if (v === true) world.setDruid(id, (x) => ({ ...x, partOf: [...new Set([...(x.partOf || []), g.id])] }));
     }

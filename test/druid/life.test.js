@@ -30,6 +30,8 @@ function planMind(steps, thoughts = []) {
   const seen = [];
   const backend = scripted((req) => {
     seen.push(req);
+    // Helper calls (mind/helpers.js) are not steps of the plan.
+    if (!['choice', 'fill', 'judge', 'command'].includes(req.schema.name)) return {};
     if (req.schema.name === 'fill' && THROUGH_Q.test(req.user)) return { text: 'I have been working on what is in front of me.' };
     if (req.schema.name === 'fill' && THOUGHT_Q.test(req.user)) return { text: thoughts.shift() || 'I keep going.' };
     const step = queue.shift();
@@ -112,7 +114,7 @@ describe('runLife over the real store', () => {
     world.check = async (s) => !/kind of Rocks/.test(s);
     const { mind } = planMind([
       { choose: /^say what Dog and Cat are both kinds of/ }, { fill: 'Rocks' },
-      { choose: /^describe Dog/ }, { fill: 'A loyal animal that barks.' }
+      { choose: /^open up Dog/ }, { fill: 'Fur, Legs' }, { fill: 'Hair that covers its skin.' }
     ]);
     const { cycles } = await live(world, mind, 2, { moves: druidMoves(), resume: { tick: 0, locus: { web: webs.W, focus: ids.Dog, path: [] } } });
     expect(cycles.map(c => c.result.ok)).toEqual([false, true]);

@@ -531,7 +531,7 @@ export function asCommand(item, ctx) {
     case 'connect': return `connect ${n(d.a)} to ${n(d.b)} as RELATION`;
     case 'follow': return `go to ${n(d.to)}`;
     case 'look': return `go to ${n(d.at)}`;
-    case 'open': return d.create ? `make PART inside ${n(d.into)}` : `open ${n(d.into)}`;
+    case 'open': case 'deepen': return d.create ? `make PART inside ${n(d.into)}` : `open ${n(d.into)}`;
     case 'close': return 'out';
     case 'describe': return `describe ${n(d.id)}: WHAT IT IS`;
     case 'goWeb': return `go to web ${ctx.world.graph(d.web)?.name}`;

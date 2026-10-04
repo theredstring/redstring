@@ -215,7 +215,7 @@ export function renderRoles(world) {
  */
 export function isBookkeeping(world, id) {
   if (!id) return true;
-  if (world.druidOf(id).roleType || world.druidOf(id).system) return true;
+  if (world.druidOf(id).roleType || world.druidOf(id).system || world.druidOf(id).step) return true;
   const role = roleOf(world, id);
   return role === 'goal' || role === 'plan' || role === 'episode';
 }

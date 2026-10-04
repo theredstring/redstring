@@ -247,6 +247,65 @@ A web whose Thing sits only in Home still counts as top-level for going between 
 - **Beliefs** are named by the contextless name helper.
 - **Live:** after these changes, a seedless run started a web called "Dark matter" by moment 5 and built Dark energy and Vacuum.
 
+### M10 — Structure before sentences (2026-10-04)
+
+Grant's pasted transcript: a Druid set to understand consciousness asked itself "what is consciousness made of?" for sixty moments. It never named a part. It wrote descriptions, contrasts and "both kinds of" sentences, and went back and forth. A sentence ends there. A part is a new place with its own parts to find, which is how structure compounds into integration. **Structure drives; language fills.**
+
+**Ranking and moves** (`moves/menu.js`, `moves/basic.js`):
+- While the focus has no parts, sentence moves (describe, contrast, believe, variant) rank at half and moving around at 0.7.
+- Opening up asks for a list of parts ("What is X made of? Name its main parts") and makes up to five.
+- `deepen` offers the parts inside a Thing to open in turn.
+- A web the Druid started, while nearly empty, is filled from its subject ("what is Space made of, or what does it involve?").
+- Parts side by side and unconnected rank higher to connect.
+- Depth is how deep a web really sits (`world.depthOf`), capped at 4. The walked path, reset by every "go to", let one run go nine levels down to quarks.
+
+**Sentences that are structure** (`connectSaying`):
+- "X is a kind of Y" gives X a kind; so does a bare "are".
+- "Is a part of", "made of", "composed of", "the building blocks of", "make up", "within" and "contains" put a Thing inside another, where the check agrees.
+- "A and B are both C" makes both kinds of C. That's the commonest answer a small model gives, and was the most often thrown away.
+- "Both parts of X" puts both inside X.
+- Refused: generic kinds (Parts, Components, Things), "is different from" (a contrast, not a connection), relations that name a third Thing or this place, and relations over four words.
+
+**Kinds as ladders, for the carousel** (`world.addKind`). Data abstraction belongs in the carousel; composition belongs in insides. A Thing has one type, so a second kind used to replace the first. Now:
+- a more general kind goes above the one it has, and a more specific one goes in between;
+- the whole ladder is written as the most specific Thing's chain, so the carousel shows Up quark › Quarks › Fermions › Particles from any rung.
+
+**The same name is the same Thing.** What the Druid makes is reused by name (plural aside) and placed again, so structures meet. Two exceptions: plan steps, and nothing goes inside what it holds.
+
+**Guards, each a contextless helper chosen by probing Apple's model** (`mind/helpers.js`):
+
+| Helper | Question | Score |
+|---|---|---|
+| part check (`madeOf`) | "Is Y made of X, at least in part?" | 18/18 (the old sense wording: 12/18) |
+| kind check (`kindOf`) | sense check, then on a refusal both "is X a kind of Y?" and "is every X a Y?" | 21/24 |
+| quality (`isQuality`) | asked only for adjective-looking one-word names | — |
+| knowing (`aboutKnowing`) | "Space / information and knowledge / neither", confirmed by "is it something physical?" | 20/23 |
+
+In code (`names.js`): aspects ("Composition", "Role of …"), vague parts ("Unknown", "Not connected"), list labels before a colon, and names with a verb.
+
+**Its first subject.** A seedless Druid asks itself what real thing it wants to understand, "something you could see, touch, or watch happen". That gives the ocean, Mars, thunder, bacteria, trees. Without "real thing" it gave mystery and the purpose of existence, which decompose into synonyms of themselves.
+
+**Bookkeeping stays bookkeeping:**
+- planning waits for a content web;
+- goals and plans are not gone into or looked at;
+- steps are never the content they name;
+- nothing is moved into Home;
+- a goal is reached only after 8 Things are built toward it;
+- following a belief's "is about" link is not offered.
+
+**Measured.** Fresh seedless universes on Apple's model; parts judged by qwen with the made-of wording; topic webs exempt.
+
+| | Building moments | Insides with parts | Deepest nesting | Parts that are parts |
+|---|---|---|---|---|
+| Before (Grant's run, 66 moments) | ~10 of 66 | 1–2 | 1 | — |
+| Before (seedless, 20 moments) | 3 of 20 | 1 | 1 | — |
+| After (40 moments, 5 runs) | 19–26 of 40 | 5–11 | 3–8 | 42–88% (avg ~70%) |
+
+Still weak:
+- **Connections** are few, and judged poorly (0–50%).
+- **The model's own knowledge** limits facts: its checks agreed that a Proton is a kind of Hydrogen.
+- **Abstract subjects** still decompose into near-synonyms.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

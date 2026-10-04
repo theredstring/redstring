@@ -16,6 +16,8 @@
  *                but never opened); the model picks one to look at
  */
 
+import { normalizeName } from '../names.js';
+import { GENERIC_KIND } from './basic.js';
 import { assocStrength, associate } from '../activation.js';
 import { addEvidence, sourceKind } from '../roles.js';
 import { tokenize } from '../recall.js';
@@ -43,7 +45,7 @@ const titleish = (s) => String(s || '').trim().replace(/^(a|an|the)\s+/i, '').re
  */
 async function isKindOf(world, a, b) {
   if (!world.check) return true;
-  return (await world.check(`${a} is a kind of ${b}`).catch(() => null)) !== false;
+  return (await world.isKindOf(a, b)) !== false;
 }
 
 /** Copy a Thing's inside into another's by reference: the same Things, placed again, connected the same way. */
@@ -93,10 +95,27 @@ export const specialize = {
     if (!name) return fail('no name');
     const { world } = ctx;
     if (name.toLowerCase() === world.nameOf(data.of).toLowerCase()) return fail(`a kind of ${name} has a name of its own`);
-    if (!(await isKindOf(world, name, world.nameOf(data.of)))) return fail(`${name} is not a kind of ${world.nameOf(data.of)}`);
+    if (!(await isKindOf(world, name, world.nameOf(data.of)))) {
+      // Asked for a kind of Argon, small models name what Argon is a kind of
+      // ("noble gas"): taken the right way round, that is a kind too.
+      if (world.check && !world.typeChain(data.of).some(t => world.nameOf(t).toLowerCase() === name.toLowerCase())
+        && (await world.isKindOf(world.nameOf(data.of), name)) === true) {
+        let parent = world.findThing(name);
+        if (!parent) {
+          const p = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.of)} is a kind of.`, asPart: false });
+          if (!p.ok) return fail(p.error);
+          parent = p.id;
+        }
+        const k = await world.addKind(data.of, parent);
+        if (!k.ok) return fail(k.error);
+        return { ok: true, summary: `saw that ${world.nameOf(data.of)} is a kind of ${name}`, touched: [parent, data.of], wrote: true };
+      }
+      return fail(`${name} is not a kind of ${world.nameOf(data.of)}`);
+    }
     const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true, asPart: false });
     if (!r.ok) return fail(r.error);
     if (world.proto(r.id)?.typeNodeId !== data.of) world.state().setNodeType(r.id, data.of);
+    world.writeLadders?.();
     const what = await ctx.ask(`What makes ${name} a particular kind of ${world.nameOf(data.of)}? One short sentence.`, 16);
     if (what) await world.act('updateNode', { nodeName: name, description: what, targetGraphId: ctx.locus.web });
     const shared = await shareInside(world, data.of, r.id);
@@ -125,13 +144,46 @@ export const chunk = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    // Named for one of them: the others are its parts, where the check agrees.
+    // "Gather Atmosphere, Air, Gas into Atmosphere" was refused twice as a name clash.
+    const among = data.members.find(id => normalizeName(world.nameOf(id)) === normalizeName(name));
+    if (among) {
+      const inside = world.ensureInside(among);
+      const moved = [];
+      for (const m of data.members.filter(id => id !== among)) {
+        if ((await world.isPartOf(world.nameOf(m), world.nameOf(among))) === false) continue;
+        if (world.insideOf(m) && world.thingsIn(world.insideOf(m)).includes(among)) continue;
+        world.place(inside, m);
+        moved.push(m);
+      }
+      if (!moved.length) return fail(`none of them is a part of ${world.nameOf(among)}`);
+      return { ok: true, summary: `put ${moved.map(m => world.nameOf(m)).join(', ')} inside ${world.nameOf(among)}, as its parts`, touched: [among, ...moved], locus: { ...ctx.locus, focus: among }, wrote: true };
+    }
     if (world.findThing(name)) return fail(`${name} already exists; the gathered Thing needs a name of its own`);
+    // Only what the new Thing is made of: gathered because they kept coming up
+    // together, Cell and Nitrogen atoms became parts of a "Protein".
+    const members = [];
+    for (const m of data.members) if ((await world.isPartOf(world.nameOf(m), name)) !== false) members.push(m);
+    if (members.length < 2) return fail(`${name} is not made of ${data.members.map(m => world.nameOf(m)).join(', ')}`);
+    data = { ...data, members };
     const r = await world.act('condenseToNode', { memberNames: data.members.map(id => world.nameOf(id)), nodeName: name, collapse: false });
     if (!r.ok) return fail(r.error);
     const id = world.findThing(name);
     return { ok: true, summary: `gathered ${data.members.map(m => world.nameOf(m)).join(', ')} into ${name}`, touched: [id, ...data.members].filter(Boolean), locus: { ...ctx.locus, focus: id || ctx.locus.focus }, wrote: true };
   }
 };
+
+/** The web a web hangs from at the top (itself, when it is one): where claims about its Things are kept. */
+function topWebOf(world, webId) {
+  let web = webId;
+  for (let i = 0; i < 12 && world.depthOf?.(web) > 0; i++) {
+    const owner = world.ownerOf(web);
+    const up = owner && world.websOf(owner).find(w => w !== web && !world.isSystemWeb(w) && world.depthOf(w) < world.depthOf(web));
+    if (!up) break;
+    web = up;
+  }
+  return web;
+}
 
 /** How two Things differ, from structure alone. */
 export function differences(world, a, b, web) {
@@ -168,7 +220,9 @@ export const contrast = {
     const key = await ctx.ask(`${world.nameOf(data.a)} and ${world.nameOf(data.b)} — ${shown}. In a few words, the key difference between them?`, 10);
     if (!key) return fail('no difference named');
     const claim = titleish(`${world.nameOf(data.a)} differs from ${world.nameOf(data.b)}: ${key}`);
-    const r = await world.createThing(ctx.locus.web, `${world.nameOf(data.a)} vs ${world.nameOf(data.b)}`, { description: `${claim}.${diffs.length ? ` ${shown}.` : ''}`, typeNodeId: ctx.roles.types.belief });
+    // A claim about two Things, kept in the web the topic hangs from, not
+    // among the parts of whatever it stood inside ("Star vs Hydrogen" in Core).
+    const r = await world.createThing(topWebOf(world, ctx.locus.web), `${world.nameOf(data.a)} vs ${world.nameOf(data.b)}`, { description: `${claim}.${diffs.length ? ` ${shown}.` : ''}`, typeNodeId: ctx.roles.types.belief });
     if (!r.ok) return fail(r.error);
     world.setDruid(r.id, { claim });
     addEvidence(world, r.id, { source: data.a, judgment: 'support', kind: sourceKind(world, data.a), tick: ctx.tick });
@@ -205,6 +259,7 @@ export const generalize = {
     const name = titleish(text);
     if (!name) return fail('no name');
     const { world } = ctx;
+    if (GENERIC_KIND.test(name)) return fail(`"${name}" is too general to be a kind; name what kind of thing they are`);
     for (const x of [data.a, data.b]) {
       if (!(await isKindOf(world, world.nameOf(x), name))) return fail(`${world.nameOf(x)} is not a kind of ${name}`);
     }
@@ -215,8 +270,9 @@ export const generalize = {
       parent = r.id;
     }
     if (parent === data.a || parent === data.b) return fail('a Thing cannot be a kind of itself');
-    world.state().setNodeType(data.a, parent);
-    world.state().setNodeType(data.b, parent);
+    const kinded = [];
+    for (const x of [data.a, data.b]) { const k = await world.addKind(x, parent); if (k.ok || k.already) kinded.push(x); }
+    if (!kinded.length) return fail(`${world.nameOf(data.a)} and ${world.nameOf(data.b)} already have kinds that ${name} does not fit`);
     return { ok: true, summary: `saw that ${world.nameOf(data.a)} and ${world.nameOf(data.b)} are both kinds of ${name}`, touched: [parent, data.a, data.b], wrote: true };
   }
 };
