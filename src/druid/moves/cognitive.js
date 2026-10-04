@@ -269,7 +269,9 @@ export function gaps(world, webId) {
   for (const l of links) { degree.set(l.a, (degree.get(l.a) || 0) + 1); degree.set(l.b, (degree.get(l.b) || 0) + 1); }
   const out = [];
   for (const id of world.thingsIn(webId)) {
-    if (world.druidOf(id).roleType) continue;
+    // Its furniture and its own webs (Working Memory, the Diary sit in Home)
+    // are not gaps in what it knows: "wonder about Working Memory" was offered.
+    if (world.druidOf(id).roleType || world.druidOf(id).system) continue;
     const p = world.proto(id);
     if (!p.description || p.description.length < 12) out.push({ id, why: 'no description yet' });
     else if (!degree.get(id)) out.push({ id, why: 'not connected to anything' });

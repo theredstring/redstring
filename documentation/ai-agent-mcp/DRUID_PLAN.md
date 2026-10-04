@@ -236,6 +236,17 @@ Grant tests on a fresh universe each time and pastes this.
 
 A web whose Thing sits only in Home still counts as top-level for going between webs. The Druid does not see its own webs as content. Waking shelves anything left over.
 
+**A Druid with no seed** (Grant's first pasted transcript, 2026-10-04). It thought about its own medium, making "Home Web", "New web", "Web", "Navigation" and "Contents" in five moments. Then, guarded against that, it made "Redstring".
+- **The cause:** its instructions are about this place (Things, connections, webs), and an empty universe offers nothing else.
+- **Now, its first goal:** waking with no seed and nothing built, it asks itself out of context (`helpers.curiosity`, warm) what in the world it wants to understand. The answer becomes its first goal, "Understand dark matter". Probing Apple's model gave DNA, gravity, earthquakes, how plants grow, black holes.
+- **Now, its instructions** say the universe is where it keeps what it learns, not what it is about.
+- **Now, a name guard** (`names.aboutTheMedium`): a name made only of words for this place is refused, unless the person seeded or said those words.
+- **Bookkeeping places** (`attention.isOwnPlace`): goals' and plans' insides are bookkeeping, not places to keep what it learns. One run kept Mars, Earth and Water inside its plan and never started a web.
+- **Subjects, not questions:** a web named as a question names its subject ("What is dark matter?" → "Dark matter").
+- **Goals:** a goal is marked reached only after 5 Things were built toward it. One was declared reached on an empty web.
+- **Beliefs** are named by the contextless name helper.
+- **Live:** after these changes, a seedless run started a web called "Dark matter" by moment 5 and built Dark energy and Vacuum.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

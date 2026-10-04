@@ -15,7 +15,9 @@ import { TIDY_MOVES } from './moves/tidy.js';
 import { seedRoles, roleType, openGoals, renderRoles, isRole, confidence, confidenceWords, setGoalStatus } from './roles.js';
 import { asRequest } from './dialogue.js';
 import { sleep as sleepCycle } from './sleep.js';
-import { nameGate, plausible, sameRelation } from './mind/helpers.js';
+import { nameGate, plausible, sameRelation, curiosity } from './mind/helpers.js';
+import { topLevelWebs, isHome } from './attention.js';
+import { understandGoal } from './names.js';
 
 export function druidMoves() {
   return [...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
@@ -66,7 +68,23 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
       const g = await world.createThing(home, name, { description: 'What was on its mind when it first woke.', typeNodeId: types.goal });
       if (g.ok) world.setDruid(g.id, { status: 'open', seeded: true });
     }
+    // Nothing on its mind and nothing built: it asks itself, out of context,
+    // what in the world it wants to understand, and that is its first goal.
+    const fresh = !opts.seed && !(opts.resume?.tick > 0) && types.goal && openGoals(world).length === 0
+      && topLevelWebs(world).every(id => isHome(world, id));
+    if (fresh && mind?.helper) {
+      const subject = await curiosity(mind)();
+      if (subject) {
+        const g = await world.createThing(home, understandGoal(subject), { description: 'What it wondered about when it first woke.', typeNodeId: types.goal });
+        if (g.ok) world.setDruid(g.id, { status: 'open', curious: true });
+      }
+    }
   }
+  // What the person seeded or said is never refused as being about this place
+  // (names.js aboutTheMedium): asked to think about webs, it may.
+  const personWords = (text) => { for (const w of String(text || '').toLowerCase().match(/[a-z'-]+/g) || []) world.personWords?.add(w); };
+  personWords(opts.seed);
+  for (const id of world.allThings()) if (world.druidOf(id).seeded === true || world.druidOf(id).fromPerson) personWords(world.nameOf(id));
   yield* runLife(deps, {
     moves: druidMoves(),
     sources: (w) => openGoals(w).map(id => ({ id, weight: 0.6 })),
@@ -77,6 +95,7 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
     // What a person asks for becomes its goal: the one they asked for last
     // replaces the one they asked for before (dialogue.js asRequest).
     onHeard: roles ? async (w, text, tick) => {
+      personWords(text);
       const wanted = asRequest(text);
       const goalType = roleType(w, 'goal');
       if (!wanted || !goalType) return null;

@@ -360,7 +360,7 @@ function snapshot(st) {
 }
 
 /** Failures that are a check saying no, as opposed to a slip. */
-const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here/i;
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself/i;
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

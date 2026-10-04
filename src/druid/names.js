@@ -70,3 +70,49 @@ export function normalizeName(s) {
   if (words.length) words[words.length - 1] = singular(words[words.length - 1]);
   return words.join(' ');
 }
+
+/**
+ * Words for this place itself (webs, Things, Home, how it is navigated) and
+ * for thinking in general. With nothing to think about, a Druid thinks about
+ * its own medium: one fresh run made "Home Web", "New web", "Web",
+ * "Navigation" and "Contents" in four moments; an earlier one "Web of ideas"
+ * and "Web of connections".
+ */
+const MEDIUM = new Set(['redstring', 'web', 'webs', 'thing', 'things', 'node', 'nodes', 'home', 'new', 'my', 'navigation', 'navigate', 'navigating',
+  'content', 'contents', 'structure', 'structures', 'connection', 'connections', 'connect', 'connecting', 'link', 'links', 'graph', 'graphs',
+  'universe', 'network', 'networks', 'idea', 'ideas', 'thought', 'thoughts', 'thinking', 'concept', 'concepts', 'memory', 'working',
+  'explore', 'exploring', 'exploration', 'understand', 'understanding', 'place', 'space', 'start', 'starting', 'point', 'first',
+  'learn', 'learning', 'knowledge', 'information', 'interconnected', 'relation', 'relations', 'relationship', 'relationships']);
+const FILLER = /^(the|a|an|of|to|and|or|for|in|on|at|by|with|from|its|this|how|what|about|it|is)$/i;
+
+/**
+ * Whether a name is only about this place itself: every word is a medium word
+ * (or filler), and the person did not use them (`allowed`, lowercased words
+ * from what they seeded or said). "Spider Web" and "Memory Foam" are not.
+ */
+export function aboutTheMedium(name, allowed = new Set()) {
+  const words = wordsIn(String(name || '').toLowerCase().replace(/[^a-z\s'-]/g, ' ')).filter(w => !FILLER.test(w));
+  if (!words.length) return false;
+  return words.every(w => MEDIUM.has(w) || MEDIUM.has(w.replace(/s$/, ''))) && !words.some(w => allowed.has(w) && w !== 'new');
+}
+
+/**
+ * A subject, from a question asked about it: "What is dark matter?" names
+ * "Dark matter". A web named as a question read like a thought, not a place.
+ * Other questions only lose the question mark.
+ */
+export function asSubject(text) {
+  const t = String(text || '').trim().replace(/[.!?]+$/, '');
+  const m = /^(?:what|who)(?:\s+(?:is|are|was|were)|'s)\s+(?:a\s+|an\s+|the\s+)?(.+)$/i.exec(t);
+  const out = m ? m[1] : t;
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+/** A goal to understand a subject: "Dark matter" → "Understand dark matter"; "DNA" stays "DNA". */
+export function understandGoal(subject) {
+  const s = asSubject(subject);
+  if (/^understand\b/i.test(s)) return s;
+  // "Dark matter" → "dark matter"; one word may be a name (Mars, DNA) and keeps its capital.
+  const lowered = /^[A-Z][a-z]*\s/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
+  return `Understand ${lowered}`;
+}

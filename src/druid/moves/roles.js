@@ -78,14 +78,32 @@ function goToward(ctx, phrase, exclude = []) {
   return null;
 }
 
+/** Things built toward a goal: content Things its writes touched since the goal opened. */
+export const REACHED_AFTER = 5;
+const builtToward = (ctx, g) => {
+  const since = ctx.world.druidOf(g).statusAt ?? -Infinity;
+  const ids = new Set();
+  for (const w of ctx.writes || []) {
+    if (w.tick <= since) continue;
+    for (const id of w.touched || []) if (ctx.world.proto(id) && !isBookkeeping(ctx.world, id)) ids.add(id);
+  }
+  return ids.size;
+};
+
 export const resolveGoal = {
   id: 'resolveGoal',
   prior: 0.3,
   offer(ctx) {
     const planDone = (g) => ctx.world.allThings().some(p => ctx.world.druidOf(p).forGoal === g && ctx.world.druidOf(p).status === 'done');
-    return topGoals(ctx, 2).map(g => ({ label: `mark your goal "${ctx.world.nameOf(g)}" as reached`, data: { goal: g }, target: g, ...(planDone(g) ? { prior: 0.8 } : {}) }));
+    // Only once something has been built toward it: a seedless Druid declared
+    // "Dark matter" reached after one description, its web still empty.
+    return topGoals(ctx, 2).filter(g => builtToward(ctx, g) >= REACHED_AFTER)
+      .map(g => ({ label: `mark your goal "${ctx.world.nameOf(g)}" as reached`, data: { goal: g }, target: g, ...(planDone(g) ? { prior: 0.8 } : {}) }));
   },
   async run(ctx, data) {
+    if (ctx.writes && builtToward(ctx, data.goal) < REACHED_AFTER) {
+      return { ok: false, error: `you have built too little toward "${ctx.world.nameOf(data.goal)}" yet: make and connect what it needs first`, touched: [], wrote: false };
+    }
     setGoalStatus(ctx.world, data.goal, 'resolved', ctx.tick);
     return { ok: true, summary: `reached the goal "${ctx.world.nameOf(data.goal)}"`, touched: [data.goal], wrote: true };
   }
@@ -231,9 +249,15 @@ export const believe = {
     if (!claim) return fail('no claim');
     const { world } = ctx;
     // The claim is a sentence; the belief is named by a handle for it.
-    const name = wordsIn(claim).length > MAX_NAME_WORDS
-      ? titleish(await ctx.ask(`Give that belief a short name, at most 4 words: "${claim}"`, 4) || shortName(claim))
-      : claim;
+    // Named by the contextless name helper first: cut at five words, a belief
+    // was named "Dark energy is the mysterious".
+    let name = claim;
+    if (wordsIn(claim).length > MAX_NAME_WORDS) {
+      const verdict = await world.nameGate?.(claim).catch(() => null);
+      name = titleish((verdict?.kind === 'sentence' && verdict.short)
+        || await ctx.ask(`Give that belief a short name, at most 4 words: "${claim}"`, 4)
+        || shortName(claim));
+    }
     const r = await world.createThing(ctx.locus.web, name, { description: `${claim.replace(/[.!?]*$/, '.')} A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief, fresh: true });
     if (!r.ok) return fail(r.error);
     world.setDruid(r.id, { claim });

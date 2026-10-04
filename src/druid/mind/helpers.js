@@ -17,7 +17,7 @@
  * so a helper can only improve on the deterministic answer, never block a write.
  */
 
-import { wordsIn, readsAsName, SHORT_NAME_WORDS } from '../names.js';
+import { wordsIn, readsAsName, SHORT_NAME_WORDS, aboutTheMedium } from '../names.js';
 
 const PLACEHOLDER = /^(name|thing|none|n\/a|null|untitled|unknown|\.\.\.|_+)$/i;
 
@@ -124,5 +124,36 @@ export function sameRelation(mind) {
     }
     cache.set(key, value);
     return value;
+  };
+}
+
+/**
+ * What a Druid with nothing on its mind wants to understand: asked with no
+ * context at all, so nothing about this place is in view to answer with. In
+ * context, a seedless Druid built "Home Web", "Navigation" and "Contents";
+ * asked alone (warm, so each Druid differs), Apple's model named DNA, gravity,
+ * earthquakes, how plants grow, black holes (2026-10-04).
+ *
+ * @returns {(tries?: number) => Promise<string|null>}
+ */
+export function curiosity(mind) {
+  return async (tries = 3) => {
+    for (let i = 0; i < tries; i++) {
+      const r = await mind.helper({
+        name: 'curiosity',
+        task: 'You are curious. Name one thing in the world you want to understand. Answer with the thing only, in a few words.',
+        input: '',
+        schema: { name: 'subject', schema: { type: 'object', properties: { subject: { type: 'string' } }, required: ['subject'], additionalProperties: false } },
+        read: (content) => {
+          const t = String(parse(content)?.subject || '').trim().replace(/[.?!]+$/, '');
+          if (!t || PLACEHOLDER.test(t) || wordsIn(t).length > 6 || aboutTheMedium(t)) return null;
+          return t.charAt(0).toUpperCase() + t.slice(1);
+        },
+        maxTokens: 24,
+        temperature: 1
+      }).catch(() => null);
+      if (r?.ok && r.value) return r.value;
+    }
+    return null;
   };
 }

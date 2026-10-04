@@ -244,9 +244,10 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
    * @param {Object} h.schema       { name, schema } — the answer's shape
    * @param {Function} h.read       (content) → value | null
    * @param {number} [h.maxTokens]
+   * @param {number} [h.temperature]  low by default: a judgment should not vary
    */
-  async function helper({ name, task, input, schema, read, maxTokens = 48 }) {
-    const r = await call(`helper:${name}`, { system: HELPER_SYSTEM, question: `${task}\n\n${input}` }, schema, maxTokens, read, 0.1);
+  async function helper({ name, task, input, schema, read, maxTokens = 48, temperature: temp = 0.1 }) {
+    const r = await call(`helper:${name}`, { system: HELPER_SYSTEM, question: input ? `${task}\n\n${input}` : task }, schema, maxTokens, read, temp);
     return r;
   }
 

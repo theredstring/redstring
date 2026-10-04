@@ -81,3 +81,96 @@ describe('Home holds what the Druid keeps', () => {
     expect(reachableFromHome(world).unreachable.map(g => g.name)).toEqual([]);
   });
 });
+
+describe('not about this place itself', () => {
+  it('a name made only of words for this place is about the medium; anything in the world is not', async () => {
+    const { aboutTheMedium } = await import('../../src/druid/names.js');
+    for (const n of ['Home Web', 'New web', 'Web', 'Navigation', 'Contents', 'Web of ideas', 'Web of connections', 'Explore the web']) expect(aboutTheMedium(n)).toBe(true);
+    for (const n of ['Spider Web', 'Memory Foam', 'Modern Home', 'Wooden Floor', 'Network Cable', 'Oak']) expect(aboutTheMedium(n)).toBe(false);
+    expect(aboutTheMedium('Web', new Set(['web', 'works']))).toBe(false);
+  });
+
+  it('refuses to make one while living, unless the person asked about it', async () => {
+    const { world } = await freshWorld();
+    const { home } = await seedRoles(world);
+    world.actor = 'druid';
+    const r = await newWeb.run(ctxAt(world, home), null, 'Home Web');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/about this place itself/);
+    const floor = (await newWeb.run(ctxAt(world, home), null, 'Wooden Floor')).locus.web;
+    expect((await world.createThing(floor, 'Navigation')).error).toMatch(/about this place itself/);
+    world.personWords.add('navigation');
+    expect((await world.createThing(floor, 'Navigation')).ok).toBe(true);
+  });
+
+  it('its own webs in Home are never offered to wonder about', async () => {
+    const { gaps } = await import('../../src/druid/moves/cognitive.js');
+    const { world } = await freshWorld();
+    const { home } = await seedRoles(world);
+    wmWeb(world);
+    expect(gaps(world, home).map(g => world.nameOf(g.id))).not.toContain('Working Memory');
+  });
+});
+
+describe('a Druid with nothing on its mind', () => {
+  it('asks itself, out of context, what in the world it wants to understand, and makes that its first goal', async () => {
+    const { openGoals } = await import('../../src/druid/roles.js');
+    const { world } = await freshWorld();
+    const helperAsks = [];
+    const answers = ['Navigation', 'How earthquakes happen?'];
+    const mind = createMind({ backend: scripted((req) => {
+      if (req.schema.name === 'subject') { helperAsks.push(req); return { subject: answers.shift() }; }
+      if (req.schema.name === 'choice') return { choice: '1' };
+      return { text: 'Earthquakes shake the ground.' };
+    }) });
+    for await (const r of createDruid({ world, mind }, { maxCycles: 1 })) void r;
+    expect(openGoals(world).map(world.nameOf)).toEqual(['Understand how earthquakes happen']);
+    // Asked with nothing of this place in view: the medium answer was refused and asked again.
+    expect(helperAsks).toHaveLength(2);
+    expect(helperAsks[0].user).not.toMatch(/web|Home|Thing/);
+  });
+
+  it('is not asked when it was given a seed or already has something built', async () => {
+    const { openGoals } = await import('../../src/druid/roles.js');
+    const { world } = await freshWorld();
+    let asked = 0;
+    const mind = createMind({ backend: scripted((req) => {
+      if (req.schema.name === 'subject') { asked++; return { subject: 'Volcanoes' }; }
+      if (req.schema.name === 'choice') return { choice: '1' };
+      return { text: 'Bread rises.' };
+    }) });
+    for await (const r of createDruid({ world, mind }, { maxCycles: 1, seed: 'how bread rises' })) void r;
+    expect(asked).toBe(0);
+    expect(openGoals(world).map(world.nameOf)).toEqual(['how bread rises']);
+  });
+});
+
+describe('subjects, not questions', () => {
+  it('a question names its subject; a goal is to understand it', async () => {
+    const { asSubject, understandGoal } = await import('../../src/druid/names.js');
+    expect(asSubject('What is dark matter?')).toBe('Dark matter');
+    expect(asSubject("what's a black hole")).toBe('Black hole');
+    expect(asSubject('Is dark matter real?')).toBe('Is dark matter real');
+    expect(understandGoal('Dark matter')).toBe('Understand dark matter');
+    expect(understandGoal('DNA')).toBe('Understand DNA');
+    expect(understandGoal('How plants grow?')).toBe('Understand how plants grow');
+  });
+});
+
+describe('goals and plans hold steps, not what it learns', () => {
+  it('inside a plan, with no web yet, it is offered its first web and not "make a Thing here"', async () => {
+    const { make } = await import('../../src/druid/moves/basic.js');
+    const { world } = await freshWorld();
+    const { home, types } = await seedRoles(world);
+    const goal = await world.createThing(home, 'Understand Mars', { typeNodeId: types.goal });
+    world.setDruid(goal.id, { status: 'open' });
+    const plan = await world.createThing(home, 'Plan: Understand Mars', { typeNodeId: types.plan });
+    world.setDruid(plan.id, { forGoal: goal.id });
+    const inside = await world.ensureInside(plan.id);
+    await world.createThing(inside, 'Mars geology', { asPart: false });
+    expect(topLevelWebs(world)).not.toContain(inside);
+    const ctx = ctxAt(world, inside);
+    expect(newWeb.offer(ctx)[0]).toMatchObject({ label: 'start your first web, named ___' });
+    expect(make.offer(ctx)).toEqual([]);
+  });
+});

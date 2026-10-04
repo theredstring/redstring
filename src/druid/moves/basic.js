@@ -30,10 +30,11 @@ export const namesIn = (s) => {
   return text.split(separators).map(titleish).filter(n => n && n.split(/\s+/).length <= 5);
 };
 
-import { topLevelWebs, isHome } from '../attention.js';
+import { topLevelWebs, isHome, isOwnPlace } from '../attention.js';
 import { isObject } from '../roles.js';
 import { relationFromSentence } from '../relations.js';
 import { tokenize } from '../recall.js';
+import { aboutTheMedium, asSubject } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 
@@ -44,14 +45,16 @@ export const newWeb = {
     const empty = !ctx.locus.web;
     // A new web is offered once this one has something in it. Offered from an
     // empty web, a 4B model started three webs in four cycles and filled none.
-    if (!empty && ctx.world.thingsIn(ctx.locus.web).length < 3) return [];
+    // Home and the insides of its goals and plans are not such webs.
+    if (!empty && !isOwnPlace(ctx.world, ctx.locus.web) && ctx.world.thingsIn(ctx.locus.web).length < 3) return [];
     // A Druid whose only web is its Home has nowhere of its own to think yet.
-    const onlyHome = topLevelWebs(ctx.world).every(id => isHome(ctx.world, id));
-    return [{ label: empty || onlyHome ? 'start your first web, named ___' : 'start a new web, named ___', blank: { question: 'Name the new web: what it will be about.', maxWords: 4 }, prior: empty ? 3 : onlyHome ? 1.3 : 0.2 }];
+    const onlyHome = topLevelWebs(ctx.world).every(id => isOwnPlace(ctx.world, id));
+    return [{ label: empty || onlyHome ? 'start your first web, named ___' : 'start a new web, named ___', blank: { question: 'Name the new web: a subject in the world it will be about.', maxWords: 4 }, prior: empty ? 3 : onlyHome ? 1.3 : 0.2 }];
   },
   async run(ctx, _data, text) {
-    const name = titleish(text);
+    const name = titleish(asSubject(text));
     if (!name) return fail('no name');
+    if (aboutTheMedium(name, ctx.world.personWords)) return fail(`"${name}" is about this place itself, not the world; name something in the world`);
     const r = await ctx.world.act('createGraph', { name });
     if (!r.ok) return fail(r.error);
     const web = [...ctx.world.state().graphs.values()].filter(g => g.name === name).pop()?.id;
@@ -71,9 +74,11 @@ export const make = {
   prior: 1,
   offer(ctx) {
     if (!ctx.locus.web) return [];
+    // Not inside a goal or a plan: those hold steps and smaller goals, not what it learns.
+    if (isOwnPlace(ctx.world, ctx.locus.web) && !isHome(ctx.world, ctx.locus.web)) return [];
     const f = ctx.view.focus && isObject(ctx.world, ctx.view.focus.id) ? ctx.view.focus : null;
     const near = f ? `, connected to ${f.name}` : '';
-    return [{ label: `make a new Thing here${near}, named ___`, blank: { question: 'Name the new Thing.', maxWords: 4 }, data: { connectTo: f?.id || null }, prior: isHome(ctx.world, ctx.locus.web) ? 0.5 : 1 }];
+    return [{ label: `make a new Thing here${near}, named ___`, blank: { question: 'Name the new Thing.', maxWords: 4 }, data: { connectTo: f?.id || null }, prior: isHome(ctx.world, ctx.locus.web) ? 0.3 : 1 }];
   },
   async run(ctx, data, text) {
     const name = namesIn(text)[0];
@@ -339,8 +344,8 @@ export function unkeptWords(world, thought) {
 /** The web new knowledge should go to: this one, unless this is Home — then the last content web visited. */
 function contentWebFor(ctx) {
   const { world, locus } = ctx;
-  if (locus.web && !isHome(world, locus.web)) return locus.web;
-  return topLevelWebs(world).filter(id => !isHome(world, id)).pop() || null;
+  if (locus.web && !isOwnPlace(world, locus.web)) return locus.web;
+  return topLevelWebs(world).filter(id => !isOwnPlace(world, id)).pop() || null;
 }
 
 /**

@@ -42,7 +42,7 @@ export function resolveThing(ctx, name) {
   const want = lower(clean(name));
   if (!want) return null;
   const norm = normalizeName(want);
-  const here = locus?.web ? world.thingsIn(locus.web) : [];
+  const here = locus?.web ? world.thingsIn(locus.web).filter(id => !world.druidOf(id).system) : [];
   const everywhere = world.allThings().filter(id => !world.isOwnThinking(id) || here.includes(id));
   // Its own goals and plans last: "go to Understand feet" means its goal.
   const own = world.allThings().filter(id => world.isOwnThinking(id) && !world.druidOf(id).roleType);

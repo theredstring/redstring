@@ -19,6 +19,7 @@
 
 import { recencyMark, ago, recentWebs, MARK_WITHIN } from './recency.js';
 import { assocStrength } from './activation.js';
+import { isBookkeeping } from './roles.js';
 
 export const emptyLocus = () => ({ web: null, focus: null, path: [] });
 
@@ -53,6 +54,7 @@ export function userWebs(world) {
  */
 export function topLevelWebs(world) {
   return userWebs(world).filter(id => {
+    if (isOwnPlace(world, id) && !isHome(world, id)) return false;
     const owner = world.ownerOf(id);
     return !owner || world.websOf(owner).filter(w => !world.isSystemWeb(w) && !isHome(world, w)).length === 0;
   });
@@ -60,6 +62,19 @@ export function topLevelWebs(world) {
 
 /** Whether a web is the Druid's Home. */
 export const isHome = (world, webId) => !!world.druidOf(world.ownerOf(webId) || '').homeOf;
+
+/**
+ * Whether a web is the Druid's bookkeeping, not a place to keep what it
+ * learns: Home, its own webs, and the insides of its goals and plans. A
+ * seedless Druid kept Mars, Earth, Water and Volcanoes inside its plan to
+ * understand Mars, and never started a web.
+ */
+export function isOwnPlace(world, webId) {
+  if (!webId) return false;
+  if (isHome(world, webId) || world.isSystemWeb(webId)) return true;
+  const owner = world.ownerOf(webId);
+  return !!owner && isBookkeeping(world, owner);
+}
 
 /**
  * @returns {Object} the view, as data

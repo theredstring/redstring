@@ -21,7 +21,7 @@
 import { graphStateFromStore } from './graphStateFromStore.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
-import { shortName, normalizeName, wordsIn, MAX_NAME_WORDS } from './names.js';
+import { shortName, normalizeName, wordsIn, MAX_NAME_WORDS, aboutTheMedium } from './names.js';
 
 const valuesOf = (c) => (c instanceof Map ? Array.from(c.values()) : Array.isArray(c) ? c : Object.values(c || {}));
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -224,6 +224,10 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // In Redstring the same name is the same Thing, so a new Thing named like
     // one of the Druid's kinds of thought would BE that kind: "open up
     // Connection: Episode" put the Episode role type inside Connection.
+    // Not about this place itself, unless the person asked about it (names.js).
+    if (api.actor && !isSystemWeb(graphId) && aboutTheMedium(name, api.personWords)) {
+      return { ok: false, error: `"${name}" is about this place itself, not the world; name something in the world` };
+    }
     const clash = findThing(name);
     if (clash && (druidOf(clash).roleType || druidOf(clash).system)) {
       return { ok: false, error: `"${name}" is the name of one of your own kinds of thought; choose another name` };
@@ -408,6 +412,8 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   const api = {
     /** Set while the Druid is living, so what it makes is marked as its own. */
     actor: null,
+    /** Words the person seeded or said (lowercased): what they ask about is never refused as being about this place. */
+    personWords: new Set(),
     /** async (longName) → { kind: 'name' } | { kind: 'sentence', short } | null (mind/helpers.js nameGate). */
     nameGate: null,
     /** async (statement) → true | false | null: does it make sense? (mind/helpers.js plausible). */
