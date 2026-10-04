@@ -167,7 +167,7 @@ describe('a web it started, still empty', () => {
     const web = (await newWeb.run(ctxAt(world, { web: home, focus: null, path: [] }), null, 'Space')).locus.web;
     const ctx = ctxAt(world, { web, focus: null, path: [] });
     const [item] = open.offer(ctx);
-    expect(item.label).toBe('fill the web Space: name what Space is made of or involves, ___');
+    expect(item.label).toBe('name what Space is made of or involves, ___');
     const r = await open.run(ctx, item.data, 'Stars, Galaxies, Gravity');
     expect(r.ok).toBe(true);
     expect(world.thingsIn(web).map(world.nameOf)).toEqual(['Stars', 'Galaxies', 'Gravity']);
@@ -181,13 +181,13 @@ describe('a web it started, still empty', () => {
     const { home } = await seedRoles(world);
     const web = (await newWeb.run(ctxAt(world, { web: home, focus: null, path: [] }), null, 'Space')).locus.web;
     world.actor = 'druid';
-    world.aboutKnowing = async (term, subject) => subject === 'Space' && /Confusion|Understanding/.test(term);
+    world.aboutKnowing = async (term, subject) => subject === 'Space' && /Confusion|Curiosity/.test(term);
     expect((await world.createThing(web, 'Confusion')).error).toMatch(/about knowing in general, not about Space/);
     const stars = await world.createThing(web, 'Stars');
     expect(stars.ok).toBe(true);
     // Inside a part, the subject is still the web it hangs from.
     expect(world.topicOf(world.ensureInside(stars.id))).toBe('Space');
-    expect((await world.createThing(world.insideOf(stars.id), 'Understanding')).error).toMatch(/not about Space/);
+    expect((await world.createThing(world.insideOf(stars.id), 'Curiosity')).error).toMatch(/not about Space/);
   });
 });
 
@@ -438,5 +438,187 @@ describe('the subject stays on top', () => {
     const r = await connect.run(ctxAt(world, { web, focus: ice, path: [] }), { a: ice, b: water }, 'Ice and Water are both composed of molecules.');
     expect(r.ok).toBe(false);
     expect(world.findThing('Composed')).toBeFalsy();
+  });
+});
+
+describe('kinds are not parts', () => {
+  it('a kind named in the parts goes beside its Thing, as a kind; properties and comparatives are not parts', async () => {
+    const { sameHead, isAspect, isPlainlyQuality, looksLikeQuality } = await import('../../src/druid/names.js');
+    expect(sameHead('Up quark', 'Quarks')).toBe(true);
+    expect(sameHead('Cell membrane', 'Cell')).toBe(false);
+    expect(['Causes', 'Location', 'Depth', 'Kind of', 'Factors'].every(isAspect)).toBe(true);
+    expect(['Outermost', 'Less dense'].every(isPlainlyQuality)).toBe(true);
+    expect(looksLikeQuality('Cooler')).toBe(true);
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Physics: { things: { Quarks: 'q', Particle: 'p' } } } });
+    world.actor = 'druid';
+    world.isPart = async () => true;
+    world.check = async () => true;
+    world.isKind = async (a, b) => a === 'Leptons' && b === 'Particle';
+    // Asked only of what the made-of check turns away.
+    world.isPart = async (part) => part !== 'Leptons';
+    const quarks = world.ensureInside(ids.Quarks);
+    const r = await world.createThing(quarks, 'Up quark');
+    expect(r).toMatchObject({ ok: true, kindOf: ids.Quarks, web: webs.Physics });
+    expect(world.typeChain(r.id)).toContain(ids.Quarks);
+    expect(world.thingsIn(quarks)).not.toContain(r.id);
+    const ctx = ctxAt(world, { web: webs.Physics, focus: ids.Particle, path: [] });
+    const o = await open.run(ctx, { into: ids.Particle, create: true }, 'Quarks, Leptons, Outermost');
+    expect(o.ok).toBe(true);
+    expect(o.summary).toBe('opened up Particle and found Quarks inside; Leptons is a kind of Particle, not a part of it');
+    expect(world.findThing('Outermost')).toBeFalsy();
+    // Inside a Thing, what sits beside the one opened is not its part.
+    world.isKind = async () => false;
+    const sun = (await world.createThing(webs.Physics, 'Sun')).id;
+    const layers = world.ensureInside(sun);
+    for (const n of ['Core', 'Radiative zone', 'Photosphere']) await world.createThing(layers, n);
+    const zone = world.findThing('Radiative zone');
+    const z = await open.run(ctxAt(world, { web: layers, focus: zone, path: [sun] }), { into: zone, create: true }, 'Hydrogen, Photosphere');
+    expect(z.summary).toBe('opened up Radiative zone and found Hydrogen inside; Photosphere sits beside it already');
+    expect(world.thingsIn(world.insideOf(zone)).map(world.nameOf)).toEqual(['Hydrogen']);
+  });
+
+  it('a merge never leaves a Thing inside itself', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Quarks: 'q' } } } });
+    const inside = world.ensureInside(ids.Quarks);
+    const q = await world.createThing(inside, 'Quark');
+    expect(q.ok).toBe(true);
+    await world.act('mergeNodes', { primaryPrototypeId: ids.Quarks, secondaryPrototypeId: q.id });
+    world.unnest(ids.Quarks);
+    expect(world.thingsIn(world.insideOf(ids.Quarks))).not.toContain(ids.Quarks);
+    expect(world.thingsIn(webs.W)).toContain(ids.Quarks);
+  });
+});
+
+describe('relations that say something', () => {
+  it('"is about" and a relation that repeats a name are refused; a sentence with no relation is asked again as a blank', async () => {
+    const { connectSaying, emptyRelation } = await import('../../src/druid/moves/basic.js');
+    expect(emptyRelation('is about', 'Quantum field', 'Superposition')).toMatch(/does not say how/);
+    expect(emptyRelation('interact with', 'Interaction', 'Quarks')).toMatch(/only repeats a name/);
+    expect(emptyRelation('cause', 'Causes', 'Magnitude')).toMatch(/only repeats a name/);
+    expect(emptyRelation('drive screws into', 'Screwdriver', 'Boards')).toBe(null);
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Particles: 'p', Energy: 'e', Field: 'f' } } } });
+    world.check = async () => true;
+    const asked = [];
+    const ctx = { world, locus: { web: webs.W }, ask: async (q) => { asked.push(q); return 'carry'; } };
+    const r = await connectSaying(ctx, ids.Particles, ids.Energy, 'Particles and Energy are fundamental to quantum mechanics.');
+    expect(r.ok).toBe(true);
+    expect(asked[0]).toMatch(/"Particles ___ Energy"/);
+    expect(world.linksIn(webs.W).map(l => `${world.nameOf(l.a)} ${l.relation.toLowerCase()} ${world.nameOf(l.b)}`)).toEqual(['Particles carry Energy']);
+    expect((await connectSaying({ ...ctx, ask: async () => 'none' }, ids.Field, ids.Energy, 'Field and Energy are fundamental to quantum mechanics.')).ok).toBe(false);
+    // "impacts" is kept only when nothing sharper comes back.
+    const sharp = await connectSaying({ ...ctx, ask: async () => 'stores' }, ids.Field, ids.Energy, 'Field impacts Energy');
+    expect(sharp).toMatchObject({ ok: true, relation: 'stores' });
+    const vague = await connectSaying({ ...ctx, ask: async () => 'none' }, ids.Field, ids.Particles, 'Field impacts Particles');
+    expect(vague).toMatchObject({ ok: true, relation: 'impacts' });
+    const { isAspect, asSubject, normalizeName } = await import('../../src/druid/names.js');
+    expect(isAspect("Sun's Role")).toBe(true);
+    expect(asSubject('Sometimes chromium')).toBe('Chromium');
+    expect(normalizeName('Gases')).toBe(normalizeName('Gas'));
+  });
+});
+
+describe('not straight back', () => {
+  it('going back to a Thing it just left ranks lower', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Causes: 'c', Magnitude: 'm' }, links: [['Causes', 'Magnitude', 'shape']] } } });
+    const ctx = ctxAt(world, { web: webs.W, focus: ids.Magnitude, path: [] });
+    const score = (left) => buildMenu(druidMoves(), ctx, { explore: 0, left, size: 40 }).find(m => /^go to Causes/.test(m.label))?.score;
+    expect(score([ids.Causes])).toBeLessThan(score([]) - 0.4);
+  });
+});
+
+describe('one Thing, once', () => {
+  it('a part listed twice is made once; a kind each way is no kind; a gathered name is not their names run together', async () => {
+    const { chunk } = await import('../../src/druid/moves/cognitive.js');
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Volcano: { things: { Magma: 'm', Water: 'w', Gases: 'g' } } } });
+    world.actor = 'druid';
+    world.isPart = async () => true;
+    world.check = async () => true;
+    world.isKind = async () => true;
+    const o = await open.run(ctxAt(world, { web: webs.Volcano, focus: ids.Magma, path: [] }), { into: ids.Magma, create: true }, 'Minerals, Molten rock, Minerals');
+    expect(world.thingsIn(world.insideOf(ids.Magma)).map(world.nameOf)).toEqual(['Minerals', 'Molten rock']);
+    expect(o.summary).toBe('opened up Magma and found Minerals, Molten rock inside');
+    const r = await chunk.run(ctxAt(world, { web: webs.Volcano, focus: ids.Water, path: [] }), { members: [ids.Magma, ids.Water] }, 'Magma-Water');
+    expect(r.error).toMatch(/only puts their names together/);
+    expect((await world.createThing(webs.Volcano, 'Magma-Water')).error).toMatch(/only puts names together/);
+    expect((await world.createThing(webs.Volcano, 'Magma structure')).error).toMatch(/an aspect of Magma/);
+  });
+});
+
+describe('what it does is not a Thing', () => {
+  it('"Find" is refused; a refused "both kinds of" is asked again as a blank', async () => {
+    const { connectSaying } = await import('../../src/druid/moves/basic.js');
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Moon: { things: { Dust: 'd', Rock: 'r', Minerals: 'm' } } } });
+    world.actor = 'druid';
+    expect((await world.createThing(webs.Moon, 'find')).error).toMatch(/something you do/);
+    world.check = async () => true;
+    world.isKind = async () => false;
+    const ctx = { world, locus: { web: webs.Moon }, ask: async () => 'covers' };
+    const r = await connectSaying(ctx, ids.Dust, ids.Rock, 'Dust and Rock are both minerals.');
+    expect(r).toMatchObject({ ok: true, relation: 'covers' });
+  });
+});
+
+describe('the first moments', () => {
+  it('no second goal before there is a web; the same goal is refused; an aspect is no web', async () => {
+    const { seedRoles, roleType } = await import('../../src/druid/roles.js');
+    const { commitGoal } = await import('../../src/druid/moves/roles.js');
+    const { newWeb } = await import('../../src/druid/moves/basic.js');
+    const { world } = await freshWorld();
+    const { home } = await seedRoles(world);
+    world.actor = 'druid';
+    const types = { goal: roleType(world, 'goal') };
+    const g = await world.createThing(home, 'Understand dark matter', { typeNodeId: types.goal });
+    world.setDruid(g.id, { status: 'open' });
+    const ctx = { ...ctxAt(world, { web: home, focus: null, path: [] }), roles: { home, types } };
+    expect(commitGoal.offer(ctx)).toEqual([]);
+    expect((await commitGoal.run(ctx, {}, 'Dark Matter')).error).toMatch(/already your goal/);
+    expect((await newWeb.run(ctx, {}, 'Structure')).error).toMatch(/no subject of its own/);
+  });
+});
+
+describe('a process by its stages, an idea by its kinds', () => {
+  it('asks by what sort of Thing it is; stages lead to each other, kinds go on the ladder', async () => {
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { Sky: { things: {} } } });
+    world.actor = 'druid';
+    world.category = async (name) => ({ Rain: 'process', Love: 'idea' })[name] || 'thing';
+    world.isQuality = async (w) => /^(Romantic|Platonic)$/.test(w);
+    const rain = (await world.createThing(webs.Sky, 'Rain')).id;
+    const love = (await world.createThing(webs.Sky, 'Love')).id;
+    expect(world.druidOf(rain).category).toBe('process');
+    const at = (f) => ctxAt(world, { web: webs.Sky, focus: f, path: [] });
+    const [r] = open.offer(at(rain));
+    expect(r.label).toBe('open up Rain: name its stages in order, ___');
+    const s = await open.run(at(rain), r.data, 'Evaporation, Condensation, Precipitation');
+    expect(s.summary).toBe('opened up Rain into its stages: Evaporation, then Condensation, then Precipitation');
+    expect(world.linksIn(world.insideOf(rain)).map(l => `${world.nameOf(l.a)} ${l.relation.toLowerCase()} ${world.nameOf(l.b)}`))
+      .toEqual(['Evaporation leads to Condensation', 'Condensation leads to Precipitation']);
+    const { stageName } = await import('../../src/druid/moves/basic.js');
+    expect(['Then Freezing', 'Step 2: Osmosis', 'Intestines. Then', 'First'].map(stageName)).toEqual(['Freezing', 'Osmosis', 'Intestines', '']);
+    const [k] = open.offer(at(love));
+    expect(k.label).toBe('open up Love: name its main kinds, ___');
+    const o = await open.run(at(love), k.data, 'Romantic, Platonic, Self-love');
+    expect(o.summary).toBe('opened up Love into its kinds: Romantic love, Platonic love, Self-love');
+    expect(world.typeChain(world.findThing('Romantic love'))).toContain(love);
+    expect(world.thingsIn(world.insideOf(love)).map(world.nameOf)).toEqual(['Romantic love', 'Platonic love', 'Self-love']);
+  });
+});
+
+describe('where structures meet', () => {
+  it('the view says what else the focus sits inside', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Earth: { things: { Water: 'w', Rock: 'r' }, insides: { Water: { Oxygen: 'o' } } } } });
+    const inWater = world.insideOf(ids.Water);
+    const oxygen = world.thingsIn(inWater)[0];
+    world.place(world.ensureInside(ids.Rock), oxygen);
+    const ctx = ctxAt(world, { web: inWater, focus: oxygen, path: [ids.Water] });
+    expect(ctx.view.focus.alsoIn).toEqual(['Rock']);
+    expect(webs.Earth).toBeTruthy();
   });
 });

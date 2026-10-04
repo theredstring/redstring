@@ -65,7 +65,9 @@ export function shortName(name) {
 }
 
 /** The singular of a final English word, roughly: processes → process, berries → berry, rivers → river. */
-const singular = (w) => (/(ss|x|z|ch|sh|o)es$/.test(w) ? w.slice(0, -2) : /ies$/.test(w) ? `${w.slice(0, -3)}y` : /[^s]s$/.test(w) ? w.slice(0, -1) : w);
+// Words already singular that end in s ("Gas", "Virus", "Basis") stay; "Gas" read as "ga", and Gas and Gases were two Things.
+const PLURAL_OF_S = { gases: 'gas', buses: 'bus', viruses: 'virus', species: 'species', series: 'series' };
+const singular = (w) => (PLURAL_OF_S[w] || (/(ss|us|is|as)$/.test(w) ? w : /(ss|x|z|ch|sh|o)es$/.test(w) ? w.slice(0, -2) : /ies$/.test(w) ? `${w.slice(0, -3)}y` : /[^s]s$/.test(w) ? w.slice(0, -1) : w));
 
 /** A name reduced to what makes it the same name: case, articles, punctuation and a final plural ignored. */
 export function normalizeName(s) {
@@ -106,10 +108,17 @@ export function aboutTheMedium(name, allowed = new Set()) {
  * Other questions only lose the question mark.
  */
 export function asSubject(text) {
-  const t = String(text || '').trim().replace(/[.!?]+$/, '');
+  // Not its number in a list: "1. Past".
+  const t = String(text || '').trim().replace(/[.!?]+$/, '').replace(/^\(?\d+[.):]\s*/, '');
   const m = /^(?:what|who)(?:\s+(?:is|are|was|were)|'s)\s+(?:a\s+|an\s+|the\s+)?(.+)$/i.exec(t);
   // "Understanding Black Hole" is about black holes.
-  const out = (m ? m[1] : t).replace(/^(?:understanding|understand|learning about|learn about|studying|study of|the study of)\s+(?:the\s+|a\s+|an\s+)?(?=\S)/i, '');
+  const out = (m ? m[1] : t).replace(/^(?:understanding|understand|learning about|learn about|studying|study of|the study of)\s+(?:the\s+|a\s+|an\s+)?(?=\S)/i, '')
+    // Not how often it is one: "Sometimes Chromium", listed as a part of Nickel.
+    .replace(/^(?:sometimes|often|usually|mainly|mostly|also|possibly|primarily|typically|generally|occasionally|rarely)\s+(?=\S)/i, '')
+    // Nor how many: "One electron" is the Electron.
+    .replace(/^(?:one|two|three|four|five|single|several|many|some|a few|multiple)\s+(?=\S)/i, '')
+    // "Love as a whole" is Love.
+    .replace(/\s+as\s+a\s+whole$/i, '');
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
@@ -125,15 +134,27 @@ export function understandGoal(subject) {
 }
 
 /** Words that are only ever qualities, and endings that usually are. */
-const QUALITIES = new Set(['dark', 'unknown', 'mysterious', 'invisible', 'visible', 'big', 'small', 'large', 'hot', 'cold', 'bright', 'strange', 'important', 'complex', 'simple', 'abstract']);
+const QUALITIES = new Set(['dark', 'unknown', 'mysterious', 'invisible', 'visible', 'big', 'small', 'large', 'hot', 'cold', 'bright', 'strange', 'important', 'complex', 'simple', 'abstract',
+  'smooth', 'rough', 'soft', 'hard', 'wet', 'dry', 'warm', 'cool', 'dense', 'thin', 'thick', 'fast', 'slow', 'strong', 'weak', 'heavy',
+  'sharp', 'flat', 'round', 'deep', 'shallow', 'mutual', 'tiny', 'huge', 'new', 'old', 'young', 'bitter', 'sweet', 'sour']);
 const QUALITY_ENDING = /(al|ous|ive|ic|ible|able|ful|less)$/i;
+// Comparatives ("Cooler", "Denser") and "Charged" end like many things do ("Water", "Seed"): only asked.
+const COMPARATIVE_ENDING = /(er|est|ed)$/i;
 
 /** Whether a one-word name might be a quality, not a thing: asked of a helper only then. */
 export function looksLikeQuality(name) {
   const words = wordsIn(name);
+  if (words.length === 2 && /^(more|less|most|least|very)$/i.test(words[0])) return true;
   if (words.length !== 1) return false;
   const w = words[0].toLowerCase();
-  return QUALITIES.has(w) || (w.length > 4 && QUALITY_ENDING.test(w));
+  return QUALITIES.has(w) || (w.length > 4 && (QUALITY_ENDING.test(w) || COMPARATIVE_ENDING.test(w))) || isPlainlyQuality(w);
+}
+
+/** A name that is a quality whatever a model says: "Outermost", "Less dense". */
+export function isPlainlyQuality(name) {
+  const words = wordsIn(String(name || '').toLowerCase());
+  if (words.length === 2 && /^(more|less|most|least|very)$/.test(words[0])) return true;
+  return words.length === 1 && words[0].length > 5 && /most$/.test(words[0]);
 }
 
 /**
@@ -142,9 +163,45 @@ export function looksLikeQuality(name) {
  */
 const ASPECTS = new Set(['composition', 'origin', 'origins', 'role', 'roles', 'function', 'functions', 'purpose', 'nature', 'importance',
   'significance', 'properties', 'property', 'characteristics', 'characteristic', 'features', 'aspects', 'structure', 'relationship',
-  'relationships', 'difference', 'differences', 'similarities', 'empty', 'size', 'shape', 'types', 'kinds', 'meaning', 'definition', 'overview']);
+  'relationships', 'difference', 'differences', 'similarities', 'empty', 'size', 'shape', 'types', 'kinds', 'meaning', 'definition', 'overview',
+  // What a thing has or does, asked what it is made of: "Causes, Magnitude,
+  // Location, Depth" as the parts of Earthquakes. "Kind of" kept as a Thing.
+  'cause', 'causes', 'effect', 'effects', 'factor', 'factors', 'consequences', 'examples', 'example', 'history', 'impact', 'impacts',
+  'uses', 'benefits', 'location', 'depth', 'magnitude', 'kind', 'type', 'types', 'sort', 'sorts', 'part', 'parts',
+  'component', 'components', 'pattern', 'patterns', 'understanding', 'contrast', 'comparison',
+  // "Stage of Absorption": a stage of something, not a stage.
+  'stage', 'stages', 'step', 'steps', 'phase', 'phases']);
 export function isAspect(name) {
   const words = wordsIn(String(name || '').toLowerCase());
+  // "Sun's role", "Earth's composition": an aspect of the one named before it.
+  if (words.length >= 2 && /'s$/.test(words[words.length - 2]) && ASPECTS.has(words[words.length - 1])) return true;
+  // "How it works", "Its purpose": about some Thing, not one.
+  if (words.length >= 2 && /^(how|why|what|when|where|its|their|his|her|our)$/.test(words[0])) return true;
   if (!words.length || !ASPECTS.has(words[0])) return false;
   return words.length === 1 || words[1] === 'of';
+}
+
+/** The Thing a name is an aspect of, by its last word: "Up quark structure" → "Up quark". Null otherwise. */
+export function aspectOf(name) {
+  const words = wordsIn(name);
+  if (words.length < 2 || !ASPECTS.has(words[words.length - 1].toLowerCase())) return null;
+  return words.slice(0, -1).join(' ');
+}
+
+/**
+ * A name that is a kind of another by its words: "Up quark" of Quarks,
+ * "Fundamental particles" of Particle. Kept inside, they read as parts.
+ */
+export function sameHead(name, whole) {
+  const n = normalizeName(name);
+  const w = normalizeName(whole);
+  return !!w && n !== w && n.endsWith(` ${w}`);
+}
+
+/** Words for what the Druid does, not Things in the world: "Find" and "Understand", kept from its own thoughts. */
+const DOING = new Set(['find', 'understand', 'learn', 'explore', 'know', 'see', 'think', 'study', 'discover', 'investigate', 'observe', 'ask',
+  'wonder', 'remember', 'try', 'look', 'examine', 'consider', 'describe', 'explain', 'analyze', 'analyse', 'compare', 'figure', 'search', 'notice', 'fill']);
+export function isDoing(name) {
+  const words = wordsIn(String(name || '').toLowerCase());
+  return words.length === 1 && DOING.has(words[0]);
 }

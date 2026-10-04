@@ -40,6 +40,7 @@ import { extendTrail, renderTrail } from './recency.js';
 const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|defined)\b/i;
 const LOOP_SIZE = 3;
 const RECENT_SIZE = 6;
+const LEFT_SIZE = 4;
 
 /**
  * @param {Object} deps
@@ -85,6 +86,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     locus: resume.locus || emptyLocus(),
     loop: Array.isArray(resume.loop) ? [...resume.loop] : [],
     recent: Array.isArray(resume.recent) ? [...resume.recent] : [],
+    left: Array.isArray(resume.left) ? [...resume.left] : [],
     missing: Array.isArray(resume.missing) ? [...resume.missing] : [],
     shown: resume.shown && typeof resume.shown === 'object' ? { ...resume.shown } : {},
     writes: Array.isArray(resume.writes) ? [...resume.writes] : [],
@@ -158,6 +160,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const ctx = {
       world, tick, locus: st.locus, view, activation, index, held: heldNow, ask, pick, judge,
       lastThought: st.loop[st.loop.length - 1] || '',
+      left: st.left,
       writes: st.writes,
       release: (id) => letGo(world, id, tick, 6),
       scratch: (text) => scratchThought(world, text, tick),
@@ -166,7 +169,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     };
 
     // ── CHOOSE ────────────────────────────────────────────────────────────
-    const menu = buildMenu(moves, ctx, { recent: st.recent, shown: st.shown, refused: st.refused, tick });
+    const menu = buildMenu(moves, ctx, { recent: st.recent, shown: st.shown, refused: st.refused, tick, left: st.left });
     let item = null;
     let text = null;
     let result = null;
@@ -248,6 +251,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     if (st.idle >= 2) st.notice = [st.notice, 'You have been moving around without doing anything. Do something where you are: make, connect, describe or tidy.'].filter(Boolean).join('\n');
     const before = st.locus;
     if (result.locus) st.locus = { ...st.locus, ...result.locus };
+    // Where it just was, so going straight back ranks lower: one Druid went
+    // Causes, Magnitude, Causes, Magnitude for nine moments.
+    if (before.focus && st.locus.focus !== before.focus) st.left = [...st.left.filter(id => id !== before.focus), before.focus].slice(-LEFT_SIZE);
 
     // ── REMEMBER ──────────────────────────────────────────────────────────
     const touched = (result.touched || []).filter(id => world.proto(id));
@@ -361,13 +367,13 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 
 function snapshot(st) {
   return {
-    tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
+    tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
     throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail
   };
 }
 
 /** Failures that are a check saying no, as opposed to a slip. */
-const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation/i;
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation|does not say how|only repeats a name|could not tell from|not inside it|something you do|only puts names together|no subject of its own|already your goal/i;
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

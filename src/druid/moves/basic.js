@@ -28,14 +28,16 @@ export const namesIn = (s) => {
   // "Salt and Pepper" stays one Thing and "sand, rock, and mud" is three.
   const separators = /[,;\n]/.test(text) ? /,|;|\n|\band\b|\bor\b/i : /[,;\n]/;
   // An item with a verb is a thought, not a name: "Carbon dioxide produces Argon".
-  return text.split(separators).map(n => titleish(asSubject(n))).filter(n => n && n.split(/\s+/).length <= 5 && !VAGUE.test(n) && !(n.split(/\s+/).length >= 3 && hasVerb(n)));
+  // A name, not the clause after it: "H2O molecules arranged in a hexagonal lattice".
+  const clip = (n) => String(n).replace(/\s+(?:arranged|found|located|formed|made|held|bound|linked|that|which|who|where|in\s+a|in\s+the)\b.*$/i, '');
+  return text.split(separators).map(n => titleish(asSubject(clip(n)))).filter(n => n && n.split(/\s+/).length <= 5 && !VAGUE.test(n) && !(n.split(/\s+/).length >= 3 && hasVerb(n)));
 };
 
 import { topLevelWebs, isHome, isOwnPlace } from '../attention.js';
 import { isObject, isBookkeeping, roleOf } from '../roles.js';
 import { relationFromSentence } from '../relations.js';
 import { tokenize } from '../recall.js';
-import { aboutTheMedium, asSubject, normalizeName, wordsIn, hasVerb } from '../names.js';
+import { aboutTheMedium, asSubject, normalizeName, wordsIn, hasVerb, isAspect, isDoing, looksLikeQuality } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 
@@ -56,6 +58,8 @@ export const newWeb = {
     const name = titleish(asSubject(text));
     if (!name) return fail('no name');
     if (aboutTheMedium(name, ctx.world.personWords)) return fail(`"${name}" is about this place itself, not the world; name something in the world`);
+    // A subject, not an aspect of every subject: a web named "Structure" filled with "Components, Patterns".
+    if (isAspect(name) || isDoing(name)) return fail(`"${name}" is no subject of its own; name something in the world`);
     // A web of that name already: go there. Started again, "Why do people cry"
     // was two webs, and sleep merged one into the goal of the same name.
     const { world } = ctx;
@@ -71,6 +75,8 @@ export const newWeb = {
     // share its name: no part checks there (world.js, tidy.js).
     const owner = ctx.world.ownerOf(web);
     if (owner) ctx.world.setDruid(owner, { topic: true, madeBy: 'druid' });
+    // What sort of subject it is decides how it is filled (openAsk).
+    if (owner) await ctx.world.classify?.(owner);
     // Its Thing goes in Home, so the web is found by opening Home.
     ctx.world.shelve?.(web);
     ctx.world.focusWeb(web);
@@ -98,8 +104,9 @@ export const make = {
     if (!r.ok) return fail(r.error);
     const touched = [r.id];
     // Not a part of what this web is the inside of: it went one level out.
-    let summary = r.movedOut ? `made ${name} — not a part of ${world.nameOf(world.ownerOf(locus.web))}, so it went to ${world.graph(r.web)?.name}` : `made ${name}`;
-    if (data?.connectTo && data.connectTo !== r.id && !r.movedOut) {
+    let summary = r.kindOf ? `made ${name}, a kind of ${world.nameOf(r.kindOf)}, beside it`
+      : r.movedOut ? `made ${name} — not a part of ${world.nameOf(world.ownerOf(locus.web))}, so it went to ${world.graph(r.web)?.name}` : `made ${name}`;
+    if (data?.connectTo && data.connectTo !== r.id && !r.movedOut && !r.kindOf) {
       const rel = await ctx.ask(`How do ${world.nameOf(data.connectTo)} and ${name} relate? Say it as one short plain sentence that names both.`, 12);
       if (rel) {
         const c = await connectSaying(ctx, data.connectTo, r.id, rel);
@@ -227,7 +234,42 @@ async function bothKindsOf(ctx, a, b, said) {
   return { ok: true, relation: `are both kinds of ${name}`, structure: 'kind', summary: `${an} and ${bn} are both kinds of ${name}` };
 }
 
-export async function connectSaying(ctx, a, b, saidWhole) {
+/** Relations that say nothing about how two Things relate: "Quantum field is about Superposition". */
+const EMPTY_REL = /^(is|are)\s+(about|related\s+to|connected\s+to|linked\s+to|associated\s+with)$|^(relates?|connects?|links?)\s+(to|with)$|^(involves?|concerns?)$/i;
+/** Relations that say only that one acts on the other: kept, but asked once for something sharper. */
+export const GENERIC_REL = /^(impacts?|affects?|influences?|(is|are)\s+(important|essential|necessary)\s+(to|for)|interacts?\s+with|depends?\s+on)$/i;
+const stem = (w) => normalizeName(w).replace(/(ions?|ing|ed|es|s|e)$/, '');
+
+/**
+ * Why a relation says nothing, or null: empty ("is about"), or only the name of
+ * one of them again ("Gluons interact with Interaction", "Causes cause Magnitude").
+ */
+export function emptyRelation(relation, aName, bName) {
+  const rel = String(relation || '').trim();
+  if (EMPTY_REL.test(rel)) return `"${rel}" does not say how ${aName} and ${bName} relate; say what one does to or has of the other`;
+  const nameStems = [aName, bName].flatMap(n => wordsIn(n)).map(stem).filter(x => x.length >= 4);
+  const echo = wordsIn(rel).map(stem).find(w => w.length >= 4 && nameStems.includes(w));
+  if (echo) return `"${rel}" only repeats a name; say how ${aName} and ${bName} relate in other words`;
+  return null;
+}
+
+/**
+ * Asked once more, as a blank between the names: told how two Things relate, a
+ * small model says what they share ("Particles and Energy are fundamental to
+ * quantum mechanics") about one time in three, or only that one "impacts" the
+ * other. `error` is what to say if the answer is no better (null: just no).
+ */
+async function askAgain(ctx, a, b, error) {
+  const { world } = ctx;
+  const no = { ok: false, error: error || 'no sharper relation' };
+  if (!ctx.ask) return no;
+  const again = await ctx.ask(`Give the words that make "${world.nameOf(a)} ___ ${world.nameOf(b)}" a true plain sentence saying what one does to or has of the other, or "none" if neither does anything to the other.`, 4);
+  if (!again || /^none\b/i.test(again.trim())) return no;
+  const c = await connectSaying(ctx, a, b, again, { retried: true });
+  return c.ok ? c : { ...no, error: error || c.error };
+}
+
+export async function connectSaying(ctx, a, b, saidWhole, { retried = false } = {}) {
   const { world } = ctx;
   // The first sentence: "Cosmic constant and Matter are different. Cosmic
   // constant is…" gave the relation "are different. Cosmic constant".
@@ -239,18 +281,30 @@ export async function connectSaying(ctx, a, b, saidWhole) {
   const backward = !fromSentence && relationFromSentence(said, world.nameOf(b), world.nameOf(a));
   // "Glucose and Fructose are both simple sugars": both kinds of Simple sugars.
   const both = await bothKindsOf(ctx, a, b, said);
+  // Refused ("Dust is not a kind of Minerals"), how they relate is still unsaid: asked once.
+  if (both && !both.ok && !retried) return askAgain(ctx, a, b, both.error);
   if (both) return both;
   // How they differ is a contrast, not a connection: "Dark energy is different from Matter".
   if (DIFFER_REL.test(backward || fromSentence || '')) return { ok: false, error: `a connection says how ${world.nameOf(a)} and ${world.nameOf(b)} relate, not that they differ; contrast them instead` };
   const structural = await asStructure(ctx, backward ? b : a, backward ? a : b, backward || fromSentence || String(said || '').trim());
   if (structural) return structural.ok ? { ...structural, reversed: !!backward } : structural;
   if (backward) {
+    const empty = emptyRelation(backward, world.nameOf(b), world.nameOf(a));
+    if (empty) return retried ? { ok: false, error: empty } : askAgain(ctx, a, b, empty);
+    if (GENERIC_REL.test(backward) && !retried) {
+      const sharper = await askAgain(ctx, a, b, null);
+      if (sharper.ok) return sharper;
+    }
     const c = await world.connect(ctx.locus.web, b, a, backward, { fromSentence: true });
     return c.ok ? { ...c, relation: c.relation || backward, reversed: true } : c;
   }
   // A sentence that is not one relation between them is not a relation either.
   if (!fromSentence && String(said || '').trim().split(/\s+/).length > 4) {
-    return { ok: false, error: `could not tell from "${String(said).trim()}" how ${world.nameOf(a)} relates to ${world.nameOf(b)}` };
+    // Asked once more, as a blank between the names: told how they relate, a
+    // small model says what they share ("Particles and Energy are fundamental
+    // to quantum mechanics") about one time in three.
+    const error = `could not tell from "${String(said).trim()}" how ${world.nameOf(a)} relates to ${world.nameOf(b)}`;
+    return retried ? { ok: false, error } : askAgain(ctx, a, b, error);
   }
   // A fragment is the relation, without the names it may repeat: "Feelings
   // expressed physically" made "Feelings Feelings expressed physically Physical expression".
@@ -274,8 +328,15 @@ export async function connectSaying(ctx, a, b, saidWhole) {
   // Not about this place: "Tree Parts is a web about How to describe".
   if (relation && wordsIn(relation).some(w => MEDIUM_IN_RELATION.test(w) && !world.personWords?.has(w.toLowerCase()))) return { ok: false, error: `"${relation}" is about this place itself; say how ${world.nameOf(a)} and ${world.nameOf(b)} relate in the world` };
   if (!relation) return { ok: false, error: `no relation between ${world.nameOf(a)} and ${world.nameOf(b)} in "${String(said).trim()}"` };
+  const empty = emptyRelation(relation, world.nameOf(a), world.nameOf(b));
+  if (empty) return retried ? { ok: false, error: empty } : askAgain(ctx, a, b, empty);
+  // "Queen impacts Workers": true, and says almost nothing. Asked once for what it does.
+  if (GENERIC_REL.test(relation) && !retried) {
+    const sharper = await askAgain(ctx, a, b, null);
+    if (sharper.ok) return sharper;
+  }
   let c = await world.connect(ctx.locus.web, a, b, relation, { fromSentence: !!fromSentence });
-  if (!c.ok && /does not make sense/.test(c.error || '')) {
+  if (!c.ok && !retried && /does not make sense/.test(c.error || '')) {
     // No example in the question: a small model copies it ("flows into", for tutorials).
     const again = await ctx.ask(`"${world.nameOf(a)} ${relation} ${world.nameOf(b)}" does not read as a true plain sentence. Give the relation as the words that make "${world.nameOf(a)} ___ ${world.nameOf(b)}" a true plain sentence, or "none" if they are not related.`, 4);
     if (again && !/^none\b/i.test(again)) c = await world.connect(ctx.locus.web, a, b, again);
@@ -294,12 +355,9 @@ export const connect = {
     // with 27 links, most of them nonsense. Not offered past six.
     const degree = ctx.world.linksIn(ctx.locus.web).filter(l => l.a === f.id || l.b === f.id).length;
     if (degree >= 6) return [];
-    // The relations it already uses, so it reuses one where it fits rather
-    // than coining a near-synonym each time.
-    // Short ones only: offered for reuse, "are techniques used to locate" became
-    // the relation between nearly everything in a web.
-    const known = ctx.world.relationsInUse().filter(r => !/^then$/i.test(r) && wordsIn(r).length <= 2).slice(0, 6);
-    const reuse = known.length ? ` Relations you already use: ${known.join(', ')}. Use one of them if it fits.` : '';
+    // No relations offered for reuse: offered, one took over each run
+    // ("impacts", "dissolve in", "surrounds", "makes" between nearly
+    // everything). Near-synonyms are merged when connecting (world.connect).
     // Not a pair already related as a kind or a part: "Up quark is a kind of
     // Quarks" was connected six times over, each time a success.
     const { world } = ctx;
@@ -312,7 +370,7 @@ export const connect = {
       prior: ((ctx.locus.path || []).length && degree === 0 ? 1.3 : 0.9) / (1 + degree / 2),
       // Either order: told to begin with the focus, it wrote "Wood is a type
       // of Wooden planks" — the order forced the fact backwards.
-      blank: { question: `How do ${f.name} and ${p.name} relate? Say it as one short plain sentence that names both.${reuse}`, maxWords: 12 },
+      blank: { question: `How do ${f.name} and ${p.name} relate? Say it as one short plain sentence that names both.`, maxWords: 12 },
       data: { a: f.id, b: p.id },
       target: p.id
     }));
@@ -375,23 +433,41 @@ function fillTopic(ctx) {
   const owner = locus.web && world.ownerOf(locus.web);
   if (!owner || !world.druidOf(owner).topic) return [];
   if (world.thingsIn(locus.web).filter(id => isObject(world, id)).length >= 3) return [];
-  const name = world.nameOf(owner);
+  const a = openAsk(world, owner, { topic: true });
   return [{
-    label: `fill the web ${name}: name what ${name} is made of or involves, ___`,
-    blank: { question: `What is ${name} made of, or what does it involve? Name the main ones, separated by commas.`, maxWords: 16 },
-    data: { into: owner, create: true, topic: true },
+    label: a.label,
+    blank: { question: a.question, maxWords: a.maxWords },
+    data: { into: owner, create: true, topic: true, schema: a.schema },
     target: owner,
     prior: 1.8
   }];
 }
 
 /** Not a part: "Unknown", "Other things", "Various". */
-const VAGUE = /^(unknown|other|others|other things|something|some things|things|stuff|various|many|more|etc|none|nothing|everything)$|^not\b|^(self|reason|reasons)$|^(kind|type|sort|part)s? of\b/i;
+const VAGUE = /^(unknown|other|others|other things|something|some things|things|stuff|various|many|more|etc|none|nothing|everything)$|^not\b|^(self|reason|reasons)$|^(kind|type|sort|part)s? of\b|^(each|every|both|with)\b/i;
 
 /** Deepest an inside is opened into its own parts, counting from a web. */
 export const MAX_DEPTH = 4;
 
 const OPEN_QUESTION = (name) => `What is ${name} made of? Name its main parts, separated by commas.`;
+
+/**
+ * What opening a Thing up asks, by what sort of Thing it is (world.schemaOf):
+ * a thing's parts, a process's stages in order, an idea's kinds. Asked of
+ * everything as "what is it made of?", Earthquakes was made of Causes,
+ * Magnitude and Location, and Love of near-synonyms of love.
+ */
+export function openAsk(world, id, { topic = false, partOf = null } = {}) {
+  const name = world.nameOf(id);
+  const schema = world.schemaOf ? world.schemaOf(id) : 'parts';
+  const where = partOf ? `, a part of ${partOf}` : '';
+  if (schema === 'stages') return { schema, label: `open up ${name}${where}: name its stages in order, ___`, question: `What are the stages of ${name}, in the order they happen? Name each stage in a few words, separated by commas.`, maxWords: 24 };
+  if (schema === 'kinds') return { schema, label: `open up ${name}${where}: name its main kinds, ___`, question: `Name the main kinds of ${name}, separated by commas.`, maxWords: 16 };
+  // Not "fill the web Snow": a Druid told so named Snow's parts as
+  // "Connections to other webs, How it works, Its purpose".
+  if (topic) return { schema, label: `name what ${name} is made of or involves, ___`, question: `In the world, what is ${name} made of, or what does it involve? Name the main ones, separated by commas.`, maxWords: 16 };
+  return { schema, label: `open up ${name}${where}: name what it is made of, ___`, question: OPEN_QUESTION(name), maxWords: 16 };
+}
 
 export const open = {
   id: 'open',
@@ -414,7 +490,8 @@ export const open = {
     // the walked path, reset by each "go to", read shallow.
     const depth = Math.max((ctx.locus.path || []).length, ctx.world.depthOf ? ctx.world.depthOf(ctx.locus.web) : 0);
     if (depth >= MAX_DEPTH) return [];
-    return [{ label: `open up ${f.name}: name what it is made of, ___`, blank: { question: OPEN_QUESTION(f.name), maxWords: 16 }, data: { into: f.id, create: true }, prior: 1.4 / (1 + depth * 0.5) }];
+    const a = openAsk(ctx.world, f.id);
+    return [{ label: a.label, blank: { question: a.question, maxWords: a.maxWords }, data: { into: f.id, create: true, schema: a.schema }, prior: 1.4 / (1 + depth * 0.5) }];
   },
   async run(ctx, data, text) {
     const { world, locus, activation } = ctx;
@@ -437,15 +514,41 @@ export const open = {
       const listed = /[,;\n]/.test(list) ? namesIn(list) : list.split(/\band\b/i).flatMap(namesIn);
       // Not a clause: "is responsible" from "…the universe and is responsible".
       const named = listed.filter(n => !/\b(made|composed|consists?)\s+of\b|\bof$/i.test(n) && !VAGUE.test(n) && !/^(is|are|was|were|has|have|had|can|will|does|do|did|it|they|which|that)\b/i.test(n));
-      const names = named.filter(n => !enclosing.has(normalizeName(n))).slice(0, 5);
+      // Nor what sits beside it, a part of the same whole: asked what the
+      // Sun's Radiative Zone is made of, a model named the Photosphere and the
+      // Chromosphere, the layers next to it.
+      // Only inside a Thing, where what sits side by side are parts of one
+      // whole: in a web, Hydrogen and the Protons beside it are not.
+      const whole = locus.web && world.ownerOf(locus.web);
+      const inAnInside = whole && !world.druidOf(whole).topic && !data.topic && locus.web !== inside
+        && world.websOf(whole).some(w => w !== locus.web && !world.isSystemWeb(w));
+      const besideIt = new Map((inAnInside ? world.thingsIn(locus.web) : [])
+        .filter(id => id !== data.into && isObject(world, id)).map(id => [normalizeName(world.nameOf(id)), id]));
+      const siblings = named.filter(n => besideIt.has(normalizeName(n)));
+      // Once each: "Minerals, Water, Minerals".
+      const names = [...new Map(named.filter(n => !enclosing.has(normalizeName(n)) && !besideIt.has(normalizeName(n))).map(n => [normalizeName(n), n])).values()].slice(0, data.schema === 'stages' ? 6 : 5);
+      if (names.length === 0 && siblings.length) return fail(`${siblings.join(', ')} ${siblings.length > 1 ? 'sit' : 'sits'} beside ${world.nameOf(data.into)}, not inside it; name what ${world.nameOf(data.into)} itself is made of`);
       if (names.length === 0) return fail(named.length ? `${named.join(', ')} cannot be a part of itself; name what it is made of` : 'no name');
+      if (data.schema === 'stages') return openStages(ctx, data, inside, names, path);
+      if (data.schema === 'kinds') return openKinds(ctx, data, inside, names, path);
       const made = [];
+      const kinds = [];
+      const beside = [];
       const errors = [];
       for (const name of names) {
         const r = await world.createThing(inside, name);
-        if (r.ok) made.push(r.id);
+        // A kind of it went beside it, not inside: "Up quark", asked what Quarks are made of.
+        if (r.ok && r.kindOf) kinds.push(r.id);
+        else if (r.ok && r.web === inside) made.push(r.id);
+        else if (r.ok) beside.push(r.id);
         else errors.push(r.error);
       }
+      const kindNote = [
+        kinds.length ? `${kinds.map(id => world.nameOf(id)).join(' and ')} ${kinds.length > 1 ? 'are kinds' : 'is a kind'} of ${world.nameOf(data.into)}, not ${kinds.length > 1 ? 'parts' : 'a part'} of it` : '',
+        beside.length ? `${beside.map(id => world.nameOf(id)).join(' and ')} ${beside.length > 1 ? 'are' : 'is'} not part of it, so went beside it` : '',
+        siblings.length ? `${siblings.join(' and ')} ${siblings.length > 1 ? 'sit' : 'sits'} beside it already` : ''
+      ].filter(Boolean).join('; ');
+      if (made.length === 0 && (kinds.length || beside.length)) return { ok: true, summary: `saw that ${kindNote}`, touched: [data.into, ...kinds, ...beside], wrote: true };
       // The reason, not "could not make the parts": that hid why the one time a
       // Druid asking what consciousness is made of tried to open it up.
       if (made.length === 0) return fail(errors.filter(Boolean).join('; ') || 'could not make the parts');
@@ -453,13 +556,83 @@ export const open = {
       const description = await ctx.ask(`Describe ${world.nameOf(first)}, as a part of ${world.nameOf(data.into)}, in one short sentence.`, 16);
       if (description) await world.act('updateNode', { nodeName: world.nameOf(first), description, targetGraphId: inside });
       world.focusWeb(inside);
-      return { ok: true, summary: `opened up ${world.nameOf(data.into)} and found ${made.map(id => world.nameOf(id)).join(', ')} inside`, touched: [data.into, ...made], locus: { web: inside, focus: first, path }, wrote: true };
+      return { ok: true, summary: [`opened up ${world.nameOf(data.into)} and found ${made.map(id => world.nameOf(id)).join(', ')} inside`, kindNote].filter(Boolean).join('; '), touched: [data.into, ...made, ...kinds, ...beside], locus: { web: inside, focus: first, path }, wrote: true };
     }
     const first = world.thingsIn(inside).sort((a, b) => (activation.get(b) ?? -9) - (activation.get(a) ?? -9))[0] || null;
     world.focusWeb(inside);
     return { ok: true, summary: `went inside ${world.nameOf(data.into)}`, touched: [data.into, first].filter(Boolean), locus: { web: inside, focus: first, path }, wrote: false };
   }
 };
+
+const ORDINAL = /^(then|first|firstly|second|secondly|third|next|finally|lastly|last|after that|afterwards|later|begin|beginning|start|end)$/i;
+/** A stage's name without the words that only say where it falls in the order. Empty when nothing else is left. */
+export function stageName(text) {
+  const t = String(text || '').trim()
+    .replace(/^(?:(?:then|first|firstly|second|secondly|third|next|finally|lastly|after that|afterwards|later)\b[,:]?\s*)+/i, '')
+    .replace(/^(?:step|stage|phase)\s*\d+\s*[:.)-]?\s*/i, '')
+    .replace(/[.:]\s*then$/i, '')
+    .replace(/[.:;]+$/, '')
+    .trim();
+  if (!t || ORDINAL.test(t)) return '';
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/**
+ * A process opened up: its stages inside it, each leading to the next. The
+ * order is the model's; the links are code's, so every one of them says
+ * something ("Evaporation leads to Condensation"), where links asked for one
+ * pair at a time were judged sensible about a third of the time.
+ */
+async function openStages(ctx, data, inside, names, path) {
+  const { world } = ctx;
+  const made = [];
+  const errors = [];
+  for (const given of names) {
+    // The stage, not its place in the order: "Then Freezing", "Step 2: Osmosis", "Intestines. Then".
+    const name = stageName(given);
+    if (!name) continue;
+    // Not checked as parts: Rain is not "made of" Evaporation, it begins with it.
+    const r = await world.createThing(inside, name, { asPart: false });
+    if (r.ok && r.web === inside && !made.includes(r.id)) made.push(r.id);
+    else if (!r.ok) errors.push(r.error);
+  }
+  if (made.length === 0) return fail(errors.filter(Boolean).join('; ') || 'could not make the stages');
+  for (let i = 0; i + 1 < made.length; i++) await world.connect(inside, made[i], made[i + 1], 'leads to', { fromSentence: true });
+  world.setDruid(data.into, { insideIs: 'stages' });
+  world.focusWeb(inside);
+  const said = made.map(id => world.nameOf(id)).join(', then ');
+  return { ok: true, summary: `opened up ${world.nameOf(data.into)} into its stages: ${said}`, touched: [data.into, ...made], locus: { web: inside, focus: made[0], path }, wrote: true };
+}
+
+/**
+ * An idea opened up: its kinds inside it, each a kind of it on its carousel
+ * ladder. "Romantic", named as a kind of Love, is "Romantic love": the
+ * quality check would refuse it alone.
+ */
+async function openKinds(ctx, data, inside, names, path) {
+  const { world } = ctx;
+  const whole = world.nameOf(data.into);
+  const head = whole.toLowerCase();
+  const kinds = [];
+  const errors = [];
+  // Not its siblings: kinds of what it is a kind of ("Platonic love", named as a kind of Romantic love).
+  const parent = world.typeChain(data.into)[0];
+  const siblings = new Set(parent ? world.allThings().filter(id => id !== data.into && world.typeChain(id)[0] === parent).map(id => normalizeName(world.nameOf(id))) : []);
+  for (const given of names) {
+    let name = given;
+    // "Romantic" is Romantic love; "Self-love" and "Jazz" stand as they are.
+    if (wordsIn(name).length === 1 && !/-/.test(name) && !normalizeName(name).includes(normalizeName(head)) && looksLikeQuality(name)) name = `${name} ${head}`;
+    if (siblings.has(normalizeName(name))) { errors.push(`${name} is beside ${whole}, not a kind of it`); continue; }
+    const r = await world.createThing(inside, name, { asPart: false });
+    if (!r.ok) { errors.push(r.error); continue; }
+    const k = await world.addKind(r.id, data.into);
+    if (k.ok || k.already) { if (!kinds.includes(r.id)) kinds.push(r.id); } else errors.push(k.error);
+  }
+  if (kinds.length === 0) return fail(errors.filter(Boolean).join('; ') || 'could not name its kinds');
+  world.setDruid(data.into, { insideIs: 'kinds' });
+  world.focusWeb(inside);
+  return { ok: true, summary: `opened up ${whole} into its kinds: ${kinds.map(id => world.nameOf(id)).join(', ')}`, touched: [data.into, ...kinds], locus: { web: inside, focus: kinds[0], path }, wrote: true };
+}
 
 /**
  * Inside a Thing, its parts that have no parts yet, offered to open up in
@@ -477,7 +650,8 @@ export const deepen = {
       .filter(id => id !== locus.focus && isObject(world, id) && !(world.insideOf(id) && world.thingsIn(world.insideOf(id)).length))
       .sort((a, b) => (ctx.activation.get(b) ?? -9) - (ctx.activation.get(a) ?? -9))
       .slice(0, 2)
-      .map(id => ({ label: `open up ${world.nameOf(id)}, a part of ${world.nameOf(world.ownerOf(locus.web))}: name what it is made of, ___`, blank: { question: OPEN_QUESTION(world.nameOf(id)), maxWords: 16 }, data: { into: id, create: true }, target: id, prior: 1.1 / (1 + depth * 0.5) }));
+      .map(id => ({ id, a: openAsk(world, id, { partOf: world.nameOf(world.ownerOf(locus.web)) }) }))
+      .map(({ id, a }) => ({ label: a.label, blank: { question: a.question, maxWords: a.maxWords }, data: { into: id, create: true, schema: a.schema }, target: id, prior: 1.1 / (1 + depth * 0.5) }));
   },
   run: (ctx, data, text) => open.run(ctx, data, text)
 };

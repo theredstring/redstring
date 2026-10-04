@@ -113,7 +113,13 @@ export function buildView(world, locus, activation, { tick = 0, insideK = 6, nei
       description: clip(f.description, 220),
       kinds: world.typeChain(f.id).slice(0, 2).map(id => world.nameOf(id)).filter(n => n && n !== 'Thing'),
       inside,
-      insideCount: insideThings.length
+      insideCount: insideThings.length,
+      // The other Things it sits inside: where separate structures meet
+      // (Oxygen inside Water, Rock and Silicates).
+      alsoIn: world.websOf(f.id)
+        .filter(w => w !== locus.web && !isOwnPlace(world, w))
+        .map(w => world.ownerOf(w)).filter(o => o && o !== f.id && !world.druidOf(o).topic)
+        .map(o => world.nameOf(o)).slice(0, 3)
     };
     view.inside = insideThings.slice(0, insideK).map(id => ({ id, name: world.nameOf(id) }));
     view.insideMore = Math.max(0, insideThings.length - insideK);
@@ -167,6 +173,7 @@ export function renderView(view, recency = null) {
   if (view.focus) {
     const f = view.focus;
     lines.push(`In focus: ${f.name}${mark(f.id)}${f.description ? ` — ${f.description}` : ' (no description yet)'}${f.kinds.length ? ` (a kind of ${f.kinds.join(', a kind of ')})` : ''}`);
+    if (f.alsoIn?.length) lines.push(`${f.name} is also inside: ${f.alsoIn.join(', ')}`);
     if (view.inside.length) lines.push(`Inside ${f.name}: ${view.inside.map(t => t.name).join(', ')}${view.insideMore ? ` (+${view.insideMore} more)` : ''}`);
     else lines.push(`${f.name} has nothing inside it yet.`);
     if (view.links.length) {

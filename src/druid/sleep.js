@@ -184,7 +184,7 @@ export async function sleep(ctx) {
     const [keep, drop] = linkCount(a) >= linkCount(b) ? [a, b] : [b, a];
     const name = world.nameOf(keep);
     const r = await world.act('mergeNodes', { primaryPrototypeId: keep, secondaryPrototypeId: drop });
-    if (r.ok) report.merged.push(name);
+    if (r.ok) { world.unnest?.(keep); report.merged.push(name); }
   }
 
   // 2. Splits.

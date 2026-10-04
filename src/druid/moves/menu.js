@@ -66,11 +66,12 @@ export const EXPLORE = 2;
  * @param {Object} ctx
  * @param {Object} [opts]
  * @param {string[]} [opts.recent]  keys of recently chosen items, newest last
+ * @param {string[]} [opts.left]    Things it just left, newest last: going back ranks lower
  * @param {Object}   [opts.shown]   moveId → the tick it was last on the menu
  * @param {number}   [opts.tick]
  * @returns {Array<{ move, label, blank, data, key, score }>}
  */
-export function buildMenu(moves, ctx, { recent = [], shown = {}, refused = {}, tick = 0, size = MENU_SIZE, explore = EXPLORE } = {}) {
+export function buildMenu(moves, ctx, { recent = [], shown = {}, refused = {}, tick = 0, size = MENU_SIZE, explore = EXPLORE, left = [] } = {}) {
   const items = [];
   const gap = structureGap(ctx);
   const damp = (id) => (!gap ? 1 : MOVE_KIND.text.has(id) ? GAP_DAMP.text : MOVE_KIND.going.has(id) ? GAP_DAMP.going : 1);
@@ -86,7 +87,10 @@ export function buildMenu(moves, ctx, { recent = [], shown = {}, refused = {}, t
       // kinds of, refused each time.
       if (refused[key] != null && tick - refused[key] < REFUSED_FOR) continue;
       const recency = recent.lastIndexOf(key);
-      const penalty = recency < 0 ? 0 : 0.6 * (1 - (recent.length - 1 - recency) / Math.max(1, recent.length));
+      // Going back to where it just was: a different label each time ("go to
+      // Causes", "work toward your goal"), so the recency above never saw it.
+      const back = it.target && left.includes(it.target) && (MOVE_KIND.going.has(move.id) || /^pursue/.test(move.id)) ? 0.5 : 0;
+      const penalty = back + (recency < 0 ? 0 : 0.6 * (1 - (recent.length - 1 - recency) / Math.max(1, recent.length)));
       // An item with no target gets little from activation. Scored as if its
       // target were half-active, "note a thought" sat on every menu.
       const act = it.target ? sigmoid(ctx.activation?.get(it.target) ?? -3) : 0.1;

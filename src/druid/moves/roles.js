@@ -13,7 +13,7 @@ import {
   openGoals, setGoalStatus, activePlans, nextStep, planSteps,
   addEvidence, confidence, confidenceWords, sourceKind, beliefsIn, claimOf, JUDGMENT_SCALE
 } from '../roles.js';
-import { wordsIn, shortName, normalizeName, MAX_NAME_WORDS } from '../names.js';
+import { wordsIn, shortName, normalizeName, understandGoal, MAX_NAME_WORDS } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 const titleish = (s) => String(s || '').trim().replace(/[.!?]+$/, '').replace(/^\w/, c => c.toUpperCase());
@@ -24,11 +24,18 @@ export const commitGoal = {
   prior: 0.45,
   offer(ctx) {
     if (!ctx.roles?.types.goal || openGoals(ctx.world).length >= 3) return [];
+    // With a goal and nowhere to work on it yet, the web comes first: woken
+    // wondering about dark matter, a Druid set "Dark Matter" as a second goal.
+    if (openGoals(ctx.world).length && !hasContentWeb(ctx.world)) return [];
     return [{ label: 'set yourself a goal: ___', blank: { question: 'Your goal, in a few plain words (what you want to understand or build), like "understand how bread rises".', maxWords: 5 }, prior: openGoals(ctx.world).length === 0 ? 0.7 : 0.4 }];
   },
   async run(ctx, _data, text) {
     const name = titleish(text);
     if (!name) return fail('no goal');
+    // The same goal again, in other words: "Dark Matter" beside "Understand dark matter".
+    const key = normalizeName(understandGoal(name));
+    const again = openGoals(ctx.world).find(g => normalizeName(understandGoal(ctx.world.nameOf(g))) === key);
+    if (again) return fail(`"${ctx.world.nameOf(again)}" is already your goal`);
     const r = await ctx.world.createThing(ctx.roles.home, name, { description: 'A goal.', typeNodeId: ctx.roles.types.goal });
     if (!r.ok) return fail(r.error);
     setGoalStatus(ctx.world, r.id, 'open', ctx.tick);
@@ -90,9 +97,15 @@ function towardTarget(ctx, phrase, exclude = []) {
     .sort((a, b) => b.n - a.n);
   const hits = [...named, ...recall(buildMemoryIndex(world.state()), phrase, { k: 8 }).filter(h => usable(h.id))];
   // Not Home, its own webs, or a goal's or plan's inside (attention.js isOwnPlace).
-  for (const h of hits) {
-    const web = world.websOf(h.id).find(w => !isOwnPlace(world, w));
-    if (web) return { id: h.id, name: h.name || world.nameOf(h.id), web };
+  // Not where it just was, when anywhere else will do: pursuing one goal went
+  // to Causes four times, and back and forth from there.
+  const left = new Set(ctx.left || []);
+  for (const pass of [true, false]) {
+    for (const h of hits) {
+      if (pass && left.has(h.id)) continue;
+      const web = world.websOf(h.id).find(w => !isOwnPlace(world, w));
+      if (web) return { id: h.id, name: h.name || world.nameOf(h.id), web };
+    }
   }
   return null;
 }

@@ -16,7 +16,7 @@
  *                but never opened); the model picks one to look at
  */
 
-import { normalizeName } from '../names.js';
+import { normalizeName, sameHead } from '../names.js';
 import { GENERIC_KIND } from './basic.js';
 import { assocStrength, associate } from '../activation.js';
 import { addEvidence, sourceKind } from '../roles.js';
@@ -101,13 +101,16 @@ export const specialize = {
       if (world.check && !world.typeChain(data.of).some(t => world.nameOf(t).toLowerCase() === name.toLowerCase())
         && (await world.isKindOf(world.nameOf(data.of), name)) === true) {
         let parent = world.findThing(name);
+        let made = false;
         if (!parent) {
           const p = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.of)} is a kind of.`, asPart: false });
           if (!p.ok) return fail(p.error);
           parent = p.id;
+          made = !p.reused;
         }
         const k = await world.addKind(data.of, parent);
-        if (!k.ok) return fail(k.error);
+        // Refused, the kind it made for it goes too: "Kind of" stayed, and was connected to.
+        if (!k.ok) { if (made) world.forget(parent); return fail(k.error); }
         return { ok: true, summary: `saw that ${world.nameOf(data.of)} is a kind of ${name}`, touched: [parent, data.of], wrote: true };
       }
       return fail(`${name} is not a kind of ${world.nameOf(data.of)}`);
@@ -125,7 +128,9 @@ export const specialize = {
 
 export const chunk = {
   id: 'chunk',
-  prior: 0.55,
+  // Below opening up: gathered only because they came up together, a run
+  // made "Water" of Oxygen, Carbon and Carbon-12, and a second Protein.
+  prior: 0.4,
   offer(ctx) {
     const { world, locus, tick } = ctx;
     const f = ctx.view.focus;
@@ -151,6 +156,8 @@ export const chunk = {
       const inside = world.ensureInside(among);
       const moved = [];
       for (const m of data.members.filter(id => id !== among)) {
+        // Not a kind of it: "Down quark" was put inside Quarks.
+        if (sameHead(world.nameOf(m), world.nameOf(among)) || world.typeChain(m).includes(among) || world.typeChain(among).includes(m)) continue;
         if ((await world.isPartOf(world.nameOf(m), world.nameOf(among))) === false) continue;
         if (world.insideOf(m) && world.thingsIn(world.insideOf(m)).includes(among)) continue;
         world.place(inside, m);
@@ -159,7 +166,12 @@ export const chunk = {
       if (!moved.length) return fail(`none of them is a part of ${world.nameOf(among)}`);
       return { ok: true, summary: `put ${moved.map(m => world.nameOf(m)).join(', ')} inside ${world.nameOf(among)}, as its parts`, touched: [among, ...moved], locus: { ...ctx.locus, focus: among }, wrote: true };
     }
-    if (world.findThing(name)) return fail(`${name} already exists; the gathered Thing needs a name of its own`);
+    // By its name normalized too: "Protein" was gathered beside Proteins.
+    if (world.findThing(name) || world.allThings().some(id => normalizeName(world.nameOf(id)) === normalizeName(name))) return fail(`${name} already exists; the gathered Thing needs a name of its own`);
+    // A name of its own, not theirs run together: "Magma-Water".
+    const theirs = new Set(data.members.flatMap(id => normalizeName(world.nameOf(id)).split(' ')));
+    const words = normalizeName(name.replace(/[-/&+]/g, ' ')).split(' ').filter(w => !/^(and|of|the|with)$/.test(w));
+    if (words.length >= 2 && words.every(w => theirs.has(w))) return fail(`"${name}" only puts their names together; name the one Thing they make up`);
     // Only what the new Thing is made of: gathered because they kept coming up
     // together, Cell and Nitrogen atoms became parts of a "Protein".
     const members = [];
@@ -206,8 +218,10 @@ export const contrast = {
   offer(ctx) {
     const f = ctx.view.focus;
     if (!f || !ctx.roles?.types.belief || !isContent(ctx.world, f.id)) return [];
+    // Once per pair: "Mutual vs Friendship" was contrasted twice, ten moments apart.
+    const done = (p) => [`${f.name} vs ${p.name}`, `${p.name} vs ${f.name}`].some(n => ctx.world.findThing(n));
     return ctx.view.peers
-      .filter(p => isContent(ctx.world, p.id))
+      .filter(p => isContent(ctx.world, p.id) && !done(p))
       .map(p => ({ p, shared: sharedWords(ctx.world, f.id, p.id) }))
       .sort((x, y) => y.shared.length - x.shared.length)
       .slice(0, 1)

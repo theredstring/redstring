@@ -306,6 +306,79 @@ Still weak:
 - **The model's own knowledge** limits facts: its checks agreed that a Proton is a kind of Hydrogen.
 - **Abstract subjects** still decompose into near-synonyms.
 
+**Second pass (night of 2026-10-04).** Nine rounds of two fresh, seedless 40-moment runs each, fixing what each round showed before the next.
+
+Kinds and parts:
+- A kind named among the parts goes beside its Thing, as a kind on its carousel ladder, not inside it ("Up quark" asked what Quarks are made of). This happens by name (`sameHead`), or by the kind helper.
+- The kind helper is asked only about what the made-of check turned away. Asked first, it called Protons a kind of Atoms.
+- The kind helper asks both ways. When each is a kind of the other, they are the same Thing (H2O and Water), and neither becomes a kind.
+- Inside a Thing, a part named for one of its siblings stays where it is (the Photosphere is not inside the Radiative Zone).
+- A part listed twice is made once.
+- A merge never leaves a Thing inside itself (`world.unnest`). "Quark" is not put inside Quarks.
+
+Names refused:
+- Properties: Causes, Location, Depth, Magnitude, Components, Patterns.
+- "X's role", "Its purpose", "How it works".
+- An aspect of an existing Thing ("Up quark structure").
+- Names run together ("Gluon-Up quark").
+- Doing-words (Find, Understand).
+- Plain qualities ("Outermost", "Less dense"); comparatives and adjectives are put to the quality helper.
+- Leading adverbs are stripped ("Sometimes Chromium").
+- Gas and Gases now normalize to the same name.
+
+Relations:
+- "is about" and relations that repeat a name ("Gluons interact with Interaction") are refused.
+- A sentence with no relation in it, a refused "both kinds of", and generic relations ("impacts") are each followed by one fill-in question: "A ___ B".
+- Relations are no longer offered for reuse. Each run, one offered relation took over ("impacts", "dissolve in", "surrounds", "makes"). Near-synonyms are still merged when connecting.
+
+Moves:
+- Going back to a Thing just left ranks lower. Pursuing a goal skips Things just left.
+- Contrast is made once per pair.
+- Gather ranks below opening up, refuses a name that only joins its members' names, and refuses a name already taken in normalized form.
+- The topic-fill label no longer says "the web" ("fill the web Snow" was answered with "Connections to other webs").
+- A web name must be a subject, not an aspect.
+- No second goal is set before there is a web, and the same goal is refused when restated.
+
+| Runs | Parts judged real | Links judged sensible |
+|---|---|---|
+| Round 1 (2 runs) | 57%, 74% | 2 of 15 |
+| Rounds 7–9 (6 runs) | 68–96% (avg ~83%) | 14 of 43 |
+
+Still weak: links (about a third judged sensible, and the judge is noisy too: it rejected Wings in a queen ant and the Brain in a Body), abstract subjects (Love, Structure), and what the model believes ("Care is made of Body, DNA").
+
+### M11 — Understanding by sort (2026-10-05)
+
+**The diagnosis.** Every Thing was asked one question: what is it made of? That suits objects only.
+- Asked of an event, it gave properties: Earthquakes was made of Causes, Magnitude and Location. Those were then blocklisted word by word, a symptom fix.
+- Asked of an idea, it gave near-synonyms: Love was made of Care and Affection.
+- Links were asked one pair at a time ("how do A and B relate?"), and about a third came back sensible.
+
+**The change.** A Thing's sort is asked once, when it is made (helper `category`, 38 of 42 on Apple's model; misses fall back to parts). Opening it up then depends on its sort:
+
+| Sort | Opened into | Placed | Links |
+|---|---|---|---|
+| thing | its parts (as before) | inside | asked per pair |
+| process | its stages, in order | inside | each stage "leads to" the next, written by code |
+| idea | its kinds | inside, and each is a kind of it on its carousel ladder | — |
+
+Details:
+- An idea that is already a kind of another (Romantic love) is opened by its parts (Intimacy, Commitment, Trust), not by more kinds. Asked for kinds of kinds, a model named siblings and "Romantic love as a whole".
+- An adjective named as a kind gets the noun back: "Romantic" becomes Romantic love.
+- Stage names lose their order words ("Then Freezing", "Step 2: Osmosis").
+- The view shows what else the Thing in focus sits inside ("Oxygen is also inside: Rock, Water"): where separate structures meet.
+
+| Seeded run | Before | After |
+|---|---|---|
+| "how digestion works" | — | 7 processes opened into stages (Ingestion › Breakdown › Absorption › Elimination; Mechanical digestion › Chewing, Mixing, Grinding); 23 links, 61% judged sensible |
+| "what love is" | Romantic love › Self-love romantic love › "Love as a whole" | Love › Romantic, Platonic, Familial love; Romantic love › Intimacy, Commitment, Trust; parts 94%, kinds 81% judged real |
+
+**Frontiers, not built:**
+- **The atom attractor.** Whatever the subject (Mars, rain, neurons), decomposition ends at Hydrogen › Protons › Quarks. Understanding has levels: rain is understood at the level of clouds and droplets, not quarks. Depth could be measured in the topic's own terms, and opening stopped at Things that are the universal substrate (elements and particles shared by every topic).
+- **Integration as a move.** Shared Things (Oxygen in Water, Rock and Silicates) are now visible but not used. A move could compare the wholes that share a part, or ask what kind of thing they all are.
+- **Links from structure, not from pairs.** Stages show that links are better when structure implies them. Parts might be linked by what each does for the whole ("Axon carries signals away"), asked once per inside, rather than A-to-B guesses.
+- **Checks that ask the model about itself agree with it.** Two-way questions catch some confusion (a kind each way is the same Thing). The same might work for made-of ("Is Care made of Body?" and "Is Body made of Care?"), but this is not yet probed.
+- **The judge.** qwen rejects true parts (Electron in Hydrogen, Gluons in Protons) and true sequences. A fixed, hand-checked set of statements from past runs would make scores comparable between rounds.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

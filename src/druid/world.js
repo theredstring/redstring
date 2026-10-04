@@ -22,7 +22,7 @@ import { graphStateFromStore } from './graphStateFromStore.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
 import { DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, isSeededChain, seededChainFor } from '../wizard/tools/utils/abstractionSpec.js';
-import { shortName, normalizeName, wordsIn, readsAsName, hasVerb, MAX_NAME_WORDS, aboutTheMedium, looksLikeQuality, isAspect } from './names.js';
+import { shortName, normalizeName, wordsIn, readsAsName, hasVerb, MAX_NAME_WORDS, aboutTheMedium, looksLikeQuality, isPlainlyQuality, isAspect, aspectOf, sameHead, isDoing } from './names.js';
 
 const valuesOf = (c) => (c instanceof Map ? Array.from(c.values()) : Array.isArray(c) ? c : Object.values(c || {}));
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -127,6 +127,14 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     for (const inst of valuesOf(g.instances)) {
       if (inst.prototypeId === protoId) state().removeNodeInstance(graphId, inst.id);
     }
+  };
+
+  /**
+   * Nothing sits inside itself. Merging two Things can leave one inside its
+   * own inside: "Quark", gathered inside Quarks, merged into it as Quarks › Quarks.
+   */
+  const unnest = (protoId) => {
+    for (const w of proto(protoId)?.definitionGraphIds || []) if (graph(w) && thingsIn(w).includes(protoId)) unplace(w, protoId);
   };
 
   /**
@@ -235,12 +243,24 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       return { ok: false, error: `"${name}" is about this place itself, not the world; name something in the world` };
     }
     // A Thing, not an aspect of one: "Composition", "Role of outer layers".
-    if (api.actor && !typeNodeId && !isSystemWeb(graphId) && isAspect(name)) {
+    // A named kind too ("Mutual", a kind of Friendship); not the Druid's own kinds of thought.
+    const contentKind = !typeNodeId || !isOwnThinking(typeNodeId);
+    if (api.actor && contentKind && !isSystemWeb(graphId) && isAspect(name)) {
       return { ok: false, error: `"${name}" is an aspect of something, not a Thing; name the Thing itself` };
     }
+    // A name of its own, not others' run together ("Gluon-Up quark"), nor an
+    // aspect of one it already has ("Up quark structure").
+    if (api.actor && contentKind && !isSystemWeb(graphId)) {
+      if (isDoing(name)) return { ok: false, error: `"${name}" is something you do, not a Thing; name a Thing in the world` };
+      if (wordsIn(name).length > 1 && /^(is|are|was|were)$/i.test(wordsIn(name).at(-1))) return { ok: false, error: `"${name}" is the start of a sentence, not a name` };
+      const pieces = String(name).split(/\s*[-/+&]\s*/).filter(Boolean);
+      if (pieces.length >= 2 && pieces.every(p => findThing(p) || sameNamed(p))) return { ok: false, error: `"${name}" only puts names together; name the one Thing you mean` };
+      const of = aspectOf(name);
+      if (of && (findThing(of) || sameNamed(of))) return { ok: false, error: `"${name}" is an aspect of ${of}, not a Thing; name the Thing itself` };
+    }
     // A thing, not a quality: "Dark", "Gravitational" as parts of dark matter.
-    if (api.actor && !typeNodeId && !isSystemWeb(graphId) && looksLikeQuality(name) && !sameNamed(name)) {
-      const quality = api.isQuality ? await api.isQuality(name).catch(() => null) : null;
+    if (api.actor && contentKind && !isSystemWeb(graphId) && looksLikeQuality(name) && !sameNamed(name)) {
+      const quality = isPlainlyQuality(name) || (api.isQuality ? await api.isQuality(name).catch(() => null) : null);
       if (quality === true) return { ok: false, error: `"${name}" describes a quality; name the thing it describes` };
     }
     // Not about knowing in general, in a web about something (mind/helpers.js aboutKnowing).
@@ -260,10 +280,13 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // web the Thing itself sits in. Left alone, a Druid's insides filled with
     // whatever it was thinking about while standing in them.
     let movedOut = false;
+    let kindOf = null;
     const owner = ownerOf(graphId);
     // Nothing goes inside itself: in Redstring the same name is the same
     // Thing, so "keep Tutorial" while standing inside Tutorial placed it there.
-    if (owner && lower(nameOf(owner)) === lower(name)) return { ok: false, error: `${name} cannot go inside itself` };
+    // Nor a Thing named like it: "Quark", gathered inside Quarks, was merged into it by sleep.
+    const same = api.actor && owner && !druidOf(owner).topic ? normalizeName : lower;
+    if (owner && same(nameOf(owner)) === same(name)) return { ok: false, error: `${name} cannot go inside itself` };
     // Nor inside its own parts: "Pluto" was kept inside Pluto › Ice › Oxygen.
     const topic = api.actor && !isSystemWeb(graphId) && owner && !druidOf(owner).topic ? topicOf(graphId) : null;
     if (topic && normalizeName(topic) === normalizeName(name)) return { ok: false, error: `${name} is what this whole web is about; it does not go inside one of its parts` };
@@ -271,8 +294,18 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       // Out only to a web of content: not Home, nor a goal's or plan's inside.
       const outer = websOf(owner).find(w => w !== graphId && !isSystemWeb(w) && !isOwnWeb(w));
       if (lower(name) !== lower(nameOf(owner))) {
-        const verdict = await isPartOf(name, nameOf(owner));
-        if (verdict === false && outer) { graphId = outer; movedOut = true; }
+        // A kind of it is not a part of it: "Up quark" inside Quarks, "Leptons"
+        // inside Particle. It goes beside it, as a kind (the carousel's ladder).
+        // The kind helper only for what the made-of check turned away: asked
+        // first, it called Protons a kind of Atoms. Asked both ways, a kind
+        // each of the other is the same Thing said twice ("H2O" and Water).
+        const named = api.actor && !typeNodeId && sameHead(name, nameOf(owner));
+        const verdict = named ? null : await isPartOf(name, nameOf(owner));
+        const kind = named || (verdict === false && api.actor && !typeNodeId && api.isKind
+          && (await isKindOf(name, nameOf(owner))) === true && (await isKindOf(nameOf(owner), name)) !== true);
+        if (kind && outer) { graphId = outer; kindOf = owner; }
+        else if (kind) return { ok: false, error: `${name} is a kind of ${nameOf(owner)}, not a part of it` };
+        else if (verdict === false && outer) { graphId = outer; movedOut = true; }
         else if (verdict === false) return { ok: false, error: `${name} is not a part of ${nameOf(owner)}` };
       }
     }
@@ -285,10 +318,12 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // again, Proton and Protons were two Things. Only here is it refused.
     const known = api.actor && reuse && !typeNodeId && !isSystemWeb(graphId) ? sameNamed(name) : null;
     if (known) {
-      if (owner && containsThing(known, owner)) return { ok: false, error: `${nameOf(known)} cannot go inside ${nameOf(owner)}: ${nameOf(owner)} is already inside it` };
+      if (owner && !kindOf && containsThing(known, owner)) return { ok: false, error: `${nameOf(known)} cannot go inside ${nameOf(owner)}: ${nameOf(owner)} is already inside it` };
       place(graphId, known);
       if (api.actor && !druidOf(known).madeBy && !proto(known)?.description && description) await act('updateNode', { nodeName: nameOf(known), description, targetGraphId: graphId });
-      return { ok: true, id: known, web: graphId, movedOut, reused: true };
+      if (api.actor && contentKind) await classify(known);
+      const k = kindOf ? await addKind(known, kindOf) : null;
+      return { ok: true, id: known, web: graphId, movedOut, reused: true, ...(k?.ok || k?.already ? { kindOf } : {}) };
     }
     const r = await act('createNode', { name, description, ...(graphId ? { targetGraphId: graphId } : {}), ...(typeNodeId ? { typeNodeId } : {}) });
     if (!r.ok) return { ok: false, error: r.error };
@@ -299,7 +334,9 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // Who made it decides what kind of evidence it is: a Thing someone else
     // made is an observation; one the Druid made is its own inference.
     if (id && api.actor && !druidOf(id).madeBy) setDruid(id, { madeBy: api.actor });
-    return { ok: !!id, id, web: graphId, movedOut, error: id ? null : 'created but not found' };
+    if (id && api.actor && contentKind && !isSystemWeb(graphId)) await classify(id);
+    const k = id && kindOf ? await addKind(id, kindOf) : null;
+    return { ok: !!id, id, web: graphId, movedOut, ...(k?.ok || k?.already ? { kindOf } : {}), error: id ? null : 'created but not found' };
   };
 
   /**
@@ -413,6 +450,28 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     if (api.isKind) return api.isKind(a, b).catch(() => null);
     if (api.check) return api.check(`${a} is a kind of ${b}`).catch(() => null);
     return null;
+  };
+
+  /**
+   * What sort of Thing it is (mind/helpers.js category), asked once and kept:
+   * a thing is understood by its parts, a process by its stages, an idea by its kinds.
+   */
+  const classify = async (id) => {
+    if (!proto(id) || druidOf(id).category || !api.category || isOwnThinking(id)) return druidOf(id).category || null;
+    const c = await api.category(nameOf(id)).catch(() => null);
+    if (c) setDruid(id, { category: c });
+    return c;
+  };
+
+  /** How a Thing is opened up: 'parts' (a thing, or not yet known), 'stages' (a process), 'kinds' (an idea). */
+  // One level of kinds: an idea that is already a kind of another is opened by
+  // what it involves. Asked for kinds of Romantic love, a model named Platonic
+  // and Familial love, its siblings, and "Romantic love as a whole".
+  const schemaOf = (id) => {
+    const c = druidOf(id).category;
+    if (c === 'process') return 'stages';
+    if (c === 'idea' && !typeChain(id).some(t => !BASE_PROTOTYPE_IDS.has(t) && !isOwnThinking(t) && nameOf(t) !== 'Thing')) return 'kinds';
+    return 'parts';
   };
 
   /** Is `part` a part of `whole`? The made-of helper when there is one (mind/helpers.js madeOf), else the general check. */
@@ -610,9 +669,11 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     isQuality: null,
     /** async (relation, inUse) → an existing relation meaning the same | null (mind/helpers.js sameRelation). */
     sameRelationAs: null,
+    /** async (name) → 'thing' | 'process' | 'idea' | null (mind/helpers.js category). */
+    category: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
+    act, focusWeb, place, unplace, unnest, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, classify, schemaOf, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
   };
   return api;
 }

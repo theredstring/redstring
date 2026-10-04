@@ -68,7 +68,14 @@ export async function health(world, { judge = null, judgePart = null, judgeSampl
     // whose Thing sits only in Home is such a web, not an inside.
     .filter(({ web, owner }) => owner && !world.druidOf(owner).topic
       && world.websOf(owner).some(w => w !== web && !world.isSystemWeb(w) && !world.druidOf(world.ownerOf(w) || '').homeOf));
-  const parts = insides.flatMap(({ web, owner }) => world.thingsIn(web).filter(id => kindOf(id) === 'content' && id !== owner).map(id => ({ part: id, owner })));
+  // Stages and kinds are judged as what they are (moves/basic.js openStages,
+  // openKinds): stages by their "leads to" links, kinds as kinds.
+  const partInsides = insides.filter(({ owner }) => !world.druidOf(owner).insideIs);
+  const parts = partInsides.flatMap(({ web, owner }) => world.thingsIn(web).filter(id => kindOf(id) === 'content' && id !== owner).map(id => ({ part: id, owner })));
+  const kindItems = contentWebs.map(g => ({ web: g.id, owner: world.ownerOf(g.id) }))
+    .filter(({ owner }) => owner && world.druidOf(owner).insideIs === 'kinds')
+    .flatMap(({ web, owner }) => world.thingsIn(web).filter(id => id !== owner && world.typeChain(id).includes(owner)).map(id => ({ kind: id, owner })));
+  const stageWebs = contentWebs.filter(g => world.druidOf(world.ownerOf(g.id) || '').insideIs === 'stages').length;
 
   const stranded = all.filter(id => world.websOf(id).length === 0 && !world.insideOf(id) && !['relation', 'system', 'roleType'].includes(kindOf(id)));
 
@@ -89,6 +96,8 @@ export async function health(world, { judge = null, judgePart = null, judgeSampl
     claimsAsThings: claims.length,
     insideWebs: insides.length,
     parts: parts.length,
+    kindsInside: kindItems.length,
+    stageWebs,
     stranded: stranded.length
   };
 
@@ -116,6 +125,7 @@ export async function health(world, { judge = null, judgePart = null, judgeSampl
       report.partsJudged = await judged(parts, ({ part, owner }) => `${world.nameOf(part)} is a part of ${world.nameOf(owner)}`);
     }
     report.linksJudged = await judged(links, (l) => `${world.nameOf(l.a)} ${l.relation.toLowerCase()} ${world.nameOf(l.b)}`);
+    if (kindItems.length) report.kindsJudged = await judged(kindItems, ({ kind, owner }) => `${world.nameOf(kind)} is a kind of ${world.nameOf(owner)}`);
   }
   return report;
 }
@@ -131,5 +141,7 @@ export function renderHealth(r) {
   if (r.partsJudged) lines.push(`judged: parts that are parts ${r.partsJudged.sensiblePct}% of ${r.partsJudged.judged}; links that make sense ${r.linksJudged.sensiblePct}% of ${r.linksJudged.judged}`);
   for (const e of r.partsJudged?.examples || []) lines.push(`  ✗ ${e}`);
   for (const e of r.linksJudged?.examples || []) lines.push(`  ✗ ${e}`);
+  if (r.stageWebs || r.kindsInside) lines.push(`stages: ${r.stageWebs} processes opened into stages · kinds inside ideas: ${r.kindsInside}${r.kindsJudged ? ` (${r.kindsJudged.sensiblePct}% of ${r.kindsJudged.judged} judged kinds)` : ''}`);
+  for (const e of r.kindsJudged?.examples || []) lines.push(`  ✗ ${e}`);
   return lines.join('\n');
 }

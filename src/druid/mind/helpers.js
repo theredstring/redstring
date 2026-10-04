@@ -171,6 +171,28 @@ export function isQuality(mind) {
 }
 
 /**
+ * What sort of Thing a name is, which decides how it is understood: a thing
+ * by its parts, a process by its stages in order, an idea by its kinds. Asked
+ * of everything as "what is it made of?", events gave properties (Causes,
+ * Magnitude, Location as the parts of Earthquakes) and ideas gave near-synonyms.
+ * 31 of 36 on Apple's model (2026-10-05); most misses called a process or an
+ * idea a thing, which is asked about as before.
+ *
+ * @returns {Function} async (name) → 'thing' | 'process' | 'idea' | null
+ */
+export function category(mind) {
+  const cache = new Map();
+  return async (name) => {
+    const key = String(name || '').trim();
+    if (!key) return null;
+    if (cache.has(key)) return cache.get(key);
+    const value = await ask(mind, 'category', 'Is the word below the name of a THING (an object or a substance you could point at), a PROCESS (something that happens over time, in steps), or an IDEA (something abstract you cannot point at)?', key, ['thing', 'process', 'idea']);
+    cache.set(key, value);
+    return value;
+  };
+}
+
+/**
  * Is A a kind of B? The sense check alone only ever erred by refusing
  * (Electrons a kind of Particles, Iron of Elements: 20 of 24); a refusal is
  * asked again two ways, "is A a kind of B?" and "is every A a B?", and

@@ -67,6 +67,7 @@ export const mergeSame = {
     const name = world.nameOf(data.into);
     const r = await world.act('mergeNodes', { primaryPrototypeId: data.into, secondaryPrototypeId: data.from });
     if (!r.ok) return fail(r.error);
+    world.unnest?.(data.into);
     return { ok: true, summary: `merged the second ${name} into the first`, touched: [data.into], wrote: true };
   }
 };
@@ -84,12 +85,13 @@ export async function auditInsides(world, { limit = 6 } = {}) {
   let asked = 0;
   for (const g of world.state().graphs.values()) {
     const owner = world.ownerOf(g.id);
-    if (!owner || world.isSystemWeb(g.id) || !isObject(world, owner) || world.druidOf(owner).topic) continue;
+    // Stages and kinds are not parts (moves/basic.js openStages, openKinds).
+    if (!owner || world.isSystemWeb(g.id) || !isObject(world, owner) || world.druidOf(owner).topic || world.druidOf(owner).insideIs) continue;
     if (!world.websOf(owner).some(w => w !== g.id && !world.isSystemWeb(w))) continue; // a top-level web, not an inside
     for (const id of world.thingsIn(g.id)) {
       if (asked >= limit) return flagged;
       const d = world.druidOf(id);
-      if (id === owner || !isObject(world, id) || d.misplaced || d.partOf?.includes(g.id)) continue;
+      if (id === owner || !isObject(world, id) || d.misplaced || d.partOf?.includes(g.id) || world.typeChain(id).includes(owner)) continue;
       asked++;
       const v = await world.isPartOf(world.nameOf(id), world.nameOf(owner));
       if (v === false) { world.setDruid(id, { misplaced: { web: g.id } }); flagged.push(`${world.nameOf(id)} in ${world.nameOf(owner)}`); }
