@@ -33,6 +33,7 @@ import { writeEpisode } from './episodes.js';
 import { ungroundedNames, buildMemoryIndex } from './recall.js';
 import { DEFAULT_PROMPT_SPACE } from './promptSpace.js';
 import { thoughtSimilarity } from './runDruid.js';
+import { VERBS, renderCommands, asCommand, runCommand, commandByVerb } from './commands/commands.js';
 
 const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|defined)\b/i;
 const LOOP_SIZE = 3;
@@ -56,6 +57,7 @@ const RECENT_SIZE = 6;
  * @param {number}   [opts.maxCycles]
  * @param {string}   [opts.seed]
  * @param {AbortSignal} [opts.signal]
+ * @param {'menu'|'commands'} [opts.speak]  choose from a menu of moves, or write a plain command (commands/commands.js)
  */
 export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE }, {
   resume = {},
@@ -69,7 +71,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
   extras = () => '',
   maxCycles = Infinity,
   seed = '',
-  signal = null
+  signal = null,
+  speak = 'menu'
 } = {}) {
   const st = {
     tick: resume.tick || 0,
@@ -141,24 +144,55 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 
     // ── CHOOSE ────────────────────────────────────────────────────────────
     const menu = buildMenu(moves, ctx, { recent: st.recent, shown: st.shown, tick });
-    const choice = await mind.choose({ ...sections(), question: promptSpace.questions.choose, options: menu.map(m => m.label) });
-    calls.unshift({ kind: 'choose', question: 'menu', ok: choice.ok, index: choice.index, ...(choice.error ? { error: choice.error } : {}), ...(!choice.ok && !choice.error ? { raw: String(choice.content).slice(0, 200) } : {}) });
     st.notice = '';
-
-    let item = choice.ok ? menu[choice.index] : null;
+    let item = null;
     let text = null;
     let result = null;
     let otherText = null;
+    let commandLine = null;
+
+    if (speak === 'commands') {
+      // ── SAY AND DO: one plain command, carried out by the executor ──────
+      const suggestions = [...new Set(menu.map(m => asCommand(m, ctx)).filter(Boolean))].slice(0, 6);
+      const question = [
+        promptSpace.questions.command || 'What do you do next? Write one command: a verb, then plain words.',
+        suggestions.length ? `Suggested from here:\n${suggestions.map(x => `- ${x}`).join('\n')}` : '',
+        `All commands (capitals are for you to fill in):\n${renderCommands()}`
+      ].filter(Boolean).join('\n');
+      const said = await mind.command({ ...sections(), question, verbs: VERBS });
+      calls.unshift({ kind: 'command', question: 'command', ok: said.ok, verb: said.verb, rest: said.rest, ...(said.error ? { error: said.error } : {}), ...(!said.ok && !said.error ? { raw: String(said.content).slice(0, 200) } : {}) });
+      if (!said.ok) {
+        result = { ok: false, summary: 'did not say a command', touched: [], wrote: false };
+      } else {
+        const rewrite = mind.helper ? (line) => rewriteCommand(mind, line) : null;
+        result = await runCommand(ctx, said.verb, said.rest, { rewrite });
+        commandLine = result.command;
+        st.recent = [...st.recent, `cmd:${commandByVerb(said.verb)?.verb || said.verb}`].slice(-RECENT_SIZE);
+      }
+    } else {
+      const choice = await mind.choose({ ...sections(), question: promptSpace.questions.choose, options: menu.map(m => m.label) });
+      calls.unshift({ kind: 'choose', question: 'menu', ok: choice.ok, index: choice.index, ...(choice.error ? { error: choice.error } : {}), ...(!choice.ok && !choice.error ? { raw: String(choice.content).slice(0, 200) } : {}) });
+      item = choice.ok ? menu[choice.index] : null;
+    }
 
     // ── ACT ───────────────────────────────────────────────────────────────
-    if (!item) {
+    if (result) {
+      // already done, by a command
+      if (result.as) text = result.as.text ?? null;
+    } else if (!item) {
       result = { ok: false, summary: 'did not choose', touched: [], wrote: false };
     } else {
       if (item.blank) text = await ask(item.blank.question, item.blank.maxWords);
       if (item.move.id === 'other') {
         otherText = text;
-        const mapped = matchOther(text, menu);
-        if (mapped && mapped.move.id !== 'other') {
+        // A plain command, carried out by the executor (commands/commands.js):
+        // the menu for choosing, plain words for what it does not offer.
+        const said = await saidAsCommand(text, mind);
+        const mapped = said ? null : matchOther(text, menu);
+        if (said) {
+          result = await runCommand(ctx, said.verb, said.rest, {});
+          commandLine = result.command;
+        } else if (mapped && mapped.move.id !== 'other') {
           item = mapped;
           text = mapped.blank ? await ask(mapped.blank.question, mapped.blank.maxWords) : null;
         } else {
@@ -189,7 +223,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     associate(world, [...touched, ...held(world).slice(0, 3).map(h => h.id)], tick);
     let episode = null;
     if (result.ok && result.wrote) {
-      st.writes = [...st.writes, { tick, move: item?.move.id || null, touched }].slice(-RECENT_SIZE);
+      st.writes = [...st.writes, { tick, move: commandLine ? commandLine.split(' ')[0] : (item?.move.id || null), touched }].slice(-RECENT_SIZE);
       episode = await writeEpisode(world, { tick, summary: result.summary, touched, episodeTypeId: episodeType(world) });
     }
 
@@ -233,8 +267,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       locus: { ...st.locus, webName: world.graph(st.locus.web)?.name || null, focusName: world.nameOf(st.locus.focus) || null },
       menu: menu.map(m => m.label),
       offerErrors: ctx.offerErrors || [],
-      chose: item ? item.label : null,
-      move: item?.move.id || null,
+      chose: commandLine || (item ? item.label : null),
+      move: commandLine ? (result.as?.move || `cmd:${commandLine.split(' ')[0]}`) : (item?.move.id || null),
       text,
       otherText,
       result: { ok: result.ok, summary: result.summary, wrote: !!result.wrote, error: result.error || null },
@@ -257,3 +291,33 @@ function snapshot(st) {
 }
 
 export default runLife;
+
+/**
+ * A command code could not read, put once to a contextless helper call:
+ * "rewrite this as one of these forms".
+ */
+async function rewriteCommand(mind, line) {
+  const r = await mind.helper({
+    name: 'rewriteCommand',
+    task: `Rewrite the instruction below as exactly one command in one of these forms (capitals are placeholders to fill with real words):\n${renderCommands()}`,
+    input: line,
+    schema: { name: 'command', schema: { type: 'object', properties: { verb: { type: 'string', enum: VERBS }, rest: { type: 'string' } }, required: ['verb', 'rest'], additionalProperties: false } },
+    read: (content) => { try { const o = JSON.parse(content); return VERBS.includes(o.verb) ? { verb: o.verb, rest: String(o.rest || '') } : null; } catch { return null; } },
+    maxTokens: 60
+  });
+  return r.ok ? r.value : null;
+}
+
+const VAGUE = /^(another|a|an|some|the|new|one more)?\s*(thing|one|something|it|stuff)s?$/i;
+
+/** Something-else text as a command: its first word a verb, or rewritten into one by a helper. */
+async function saidAsCommand(text, mind) {
+  const t = String(text || '').trim().replace(/^["']|["']$/g, '');
+  if (!t) return null;
+  const [first, ...rest] = t.split(/\s+/);
+  // "make another thing" names nothing: a hint for the menu, not a command.
+  if (VAGUE.test(rest.join(' '))) return null;
+  const cmd = commandByVerb(first);
+  if (cmd && cmd.parse(rest.join(' '))) return { verb: cmd.verb, rest: rest.join(' ') };
+  return mind.helper ? rewriteCommand(mind, t).catch(() => null) : null;
+}

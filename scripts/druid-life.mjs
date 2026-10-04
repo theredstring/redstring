@@ -39,6 +39,7 @@ const { values: args } = parseArgs({
     'sleep-every': { type: 'string', default: '12' },
     fresh: { type: 'boolean', default: false },
     verbose: { type: 'boolean', default: false },
+    speak: { type: 'string', default: process.env.DRUID_SPEAK || 'menu' },
     help: { type: 'boolean', short: 'h', default: false }
   }
 });
@@ -57,6 +58,7 @@ if (args.help) {
   --prompt-space <file>  read-only instructions, as a .redstring [src/druid/prompt-space.redstring]
   --sleep-every <n>      cycles between sleeps [12]
   --fresh                ignore saved state (the universe is kept)
+  --speak menu|commands  choose from a menu of moves, or write plain commands [menu]
   --verbose              keep the store's and tools' own logging
 `);
   process.exit(0);
@@ -132,7 +134,8 @@ const life = createDruid({ world, mind, promptSpace }, {
   seed: args.seed,
   maxCycles: args.cycles ? Number(args.cycles) : Infinity,
   sleepEvery: Number(args['sleep-every']),
-  signal: controller.signal
+  signal: controller.signal,
+  speak: args.speak
 });
 
 try {

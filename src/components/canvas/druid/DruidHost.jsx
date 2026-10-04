@@ -14,6 +14,11 @@ import useDruidStore from './druidStore.js';
 
 const FONT = "'EmOne', sans-serif";
 
+const SPEAK = [
+  { value: 'commands', label: 'writes commands' },
+  { value: 'menu', label: 'picks from a menu' }
+];
+
 const MINDS = [
   { value: 'afm', label: "Apple's model" },
   { value: 'openai', label: 'LM Studio' }
@@ -104,6 +109,20 @@ function DruidPanel() {
                     variant="outline"
                     active={settings.mind === m.value}
                     onClick={() => setSetting('mind', m.value)}
+                    style={{ padding: '4px 10px' }}
+                  />
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: tokens.muted }}>It</span>
+                {SPEAK.map(m => (
+                  <PanelIconButton
+                    key={m.value}
+                    label={m.label}
+                    labelFontSize={11}
+                    variant="outline"
+                    active={(settings.speak || 'commands') === m.value}
+                    onClick={() => setSetting('speak', m.value)}
                     style={{ padding: '4px 10px' }}
                   />
                 ))}

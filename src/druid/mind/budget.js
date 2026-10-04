@@ -20,7 +20,9 @@ export const CAPS = {
   wm: 400,
   loop: 600,
   notice: 200,
-  question: 400
+  // The question carries its options, or in command mode the forms and the
+  // suggestions (about 450 tokens); the view gives way first.
+  question: 700
 };
 
 /** Which sections give way first. */

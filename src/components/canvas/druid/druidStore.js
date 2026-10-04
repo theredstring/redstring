@@ -15,7 +15,9 @@ export const DEFAULT_DRUID_SETTINGS = {
   endpoint: 'http://localhost:1234/v1/chat/completions',
   model: 'qwen/qwen3-4b-2507',
   seed: '',
-  follow: true
+  follow: true,
+  // 'menu': it chooses from moves offered; 'commands': it writes a plain command.
+  speak: 'commands'
 };
 
 const readSettings = () => {
@@ -66,6 +68,7 @@ export const useDruidStore = create((set, get) => ({
         backend
       }, {
         seed: settings.seed,
+        speak: settings.speak,
         onCycle: (r) => {
           // The panel shows the moment, not the loop's internals.
           const shown = Object.fromEntries(Object.entries(r).filter(([k]) => k !== 'state' && k !== 'calls' && k !== 'stats'));

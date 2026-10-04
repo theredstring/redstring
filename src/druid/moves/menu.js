@@ -21,8 +21,13 @@ const sigmoid = (x) => 1 / (1 + Math.exp(-x));
 
 export const OTHER = {
   id: 'other',
-  label: 'something else: ___',
-  blank: { question: 'What do you want to do instead?', maxWords: 10 }
+  label: 'something else, as a command: ___',
+  blank: {
+    // Forms, not examples with real names: an answer that matched an example
+    // read as the question said back.
+    question: 'Write one command for what you want to do, in one of these forms: "merge THING into THING", "move THING out", "rename THING to NAME", "connect THING to THING as RELATION", "delete THING" (only what you made).',
+    maxWords: 12
+  }
 };
 
 /** Slots kept for moves not shown lately, so the whole repertoire comes round. */

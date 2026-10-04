@@ -80,8 +80,8 @@ export const make = {
     if (data?.connectTo && data.connectTo !== r.id && !r.movedOut) {
       const rel = await ctx.ask(`${world.nameOf(data.connectTo)} ___ ${name}. What is the relation? (a verb or short phrase)`, 3);
       if (rel) {
-        const c = await world.connect(locus.web, data.connectTo, r.id, rel);
-        if (c.ok) { summary += `: ${world.nameOf(data.connectTo)} ${c.relation || rel} ${name}`; touched.push(data.connectTo); }
+        const c = await connectSaying(ctx, data.connectTo, r.id, rel);
+        if (c.ok) { summary += `: ${world.nameOf(data.connectTo)} ${c.relation} ${name}`; touched.push(data.connectTo); }
       }
     }
     const description = await ctx.ask(`Describe ${name} in one short sentence.`, 16);
@@ -90,6 +90,21 @@ export const make = {
     return { ok: true, summary, touched, locus: web === locus.web ? { ...locus, focus: r.id } : { web, focus: r.id, path: (locus.path || []).slice(0, -1) }, wrote: true };
   }
 };
+
+/**
+ * Connect, and if the check finds the line does not make sense, ask once for
+ * words that do. "River flows Delta" was refused (it is not a sentence) where
+ * "River flows into Delta" was meant; "Dog is Cat" was refused and should be.
+ */
+export async function connectSaying(ctx, a, b, relation) {
+  const { world } = ctx;
+  let c = await world.connect(ctx.locus.web, a, b, relation);
+  if (!c.ok && /does not make sense/.test(c.error || '')) {
+    const again = await ctx.ask(`"${world.nameOf(a)} ${relation} ${world.nameOf(b)}" does not read as a true plain sentence. Give the relation as words that do (like "flows into"), or "none" if they are not related.`, 4);
+    if (again && !/^none\b/i.test(again)) c = await world.connect(ctx.locus.web, a, b, again);
+  }
+  return c.ok ? { ...c, relation: c.relation || relation } : c;
+}
 
 export const connect = {
   id: 'connect',
@@ -117,9 +132,9 @@ export const connect = {
   async run(ctx, data, text) {
     const rel = String(text || '').trim();
     if (!rel) return fail('no relation');
-    const c = await ctx.world.connect(ctx.locus.web, data.a, data.b, rel);
+    const c = await connectSaying(ctx, data.a, data.b, rel);
     if (!c.ok) return fail(c.error);
-    return { ok: true, summary: `${ctx.world.nameOf(data.a)} ${c.relation || rel} ${ctx.world.nameOf(data.b)}`, touched: [data.a, data.b], wrote: true };
+    return { ok: true, summary: `${ctx.world.nameOf(data.a)} ${c.relation} ${ctx.world.nameOf(data.b)}`, touched: [data.a, data.b], wrote: true };
   }
 };
 

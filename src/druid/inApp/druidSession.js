@@ -60,11 +60,12 @@ export async function backendFor({ mind, endpoint, model }, electron = globalThi
  * @param {Object} deps.backend          a mind backend (backendFor)
  * @param {Object} opts
  * @param {string} [opts.seed]
+ * @param {'menu'|'commands'} [opts.speak]
  * @param {number} [opts.pauseMs]        a breath between cycles, so a person can read along
  * @param {Function} [opts.onCycle]      (cycle record) → void
  * @param {Function} [opts.onStop]       ({ reason, error }) → void
  */
-export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', pauseMs = 600, onCycle = () => {}, onStop = () => {}, window = 4096 } = {}) {
+export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', speak = 'menu', pauseMs = 600, onCycle = () => {}, onStop = () => {}, window = 4096 } = {}) {
   const controller = new AbortController();
   const world = createWorld({ store, executeTool, applyToolResult });
   const mind = createMind({ backend, window });
@@ -76,7 +77,7 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
       const owner = await homeOwner(world);
       // Copies both ways: the store freezes what it holds, and the loop changes its own.
       const resume = owner && world.druidOf(owner).life ? JSON.parse(JSON.stringify(world.druidOf(owner).life)) : {};
-      const life = createDruid({ world, mind, promptSpace }, { resume, seed, signal: controller.signal });
+      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal });
       let unreachable = 0;
       for await (const r of life) {
         const owner2 = await homeOwner(world);

@@ -90,6 +90,15 @@ describe('runLife over the real store', () => {
     expect(cycles[2].locus).toMatchObject({ web: webs.Geology, focusName: 'Rock', path: [] });
   });
 
+  it('carries out "something else" written as a command', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Flooring: 'boards', Floor: 'what you stand on' } } } });
+    const { mind } = planMind([{ choose: /^something else/ }, { fill: 'merge Flooring into Floor' }]);
+    const { cycles } = await live(world, mind, 1, { resume: { tick: 0, locus: { web: webs.W, focus: null, path: [] } } });
+    expect(cycles[0]).toMatchObject({ chose: 'merge Flooring into Floor', move: 'merge', result: { ok: true } });
+    expect(world.proto(ids.Flooring)).toBeFalsy();
+  });
+
   it('never makes a Thing a part of itself', async () => {
     const { world } = await freshWorld();
     const { webs, ids } = await buildUniverse(world, { webs: { Baking: { things: { Flour: 'Ground grain.' } } } });

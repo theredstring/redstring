@@ -26,7 +26,8 @@ const { values: args } = parseArgs({
     trials: { type: 'string', default: '5' },
     scenario: { type: 'string', default: '' },
     temperature: { type: 'string', default: '0.6' },
-    out: { type: 'string', default: '' }
+    out: { type: 'string', default: '' },
+    speak: { type: 'string', default: 'menu' }
   }
 });
 
@@ -66,7 +67,7 @@ const rows = [];
 const records = [];
 const kindMs = {};
 
-out(`Druid lab · ${backend.id} · ${trials} trial(s) × ${scenarios.length} scenario(s)\n\n`);
+out(`Druid lab · ${backend.id} · speaks in ${args.speak} · ${trials} trial(s) × ${scenarios.length} scenario(s)\n\n`);
 for (const sc of scenarios) {
   const tally = { valid: 0, sensible: 0, best: 0, landed: 0, moves: {} };
   for (let t = 0; t < trials; t++) {
@@ -79,7 +80,7 @@ for (const sc of scenarios) {
       onCall: (c) => { (kindMs[c.kind] ||= []).push(c.ms); }
     });
     let rec = null;
-    for await (const r of createDruid({ world, mind }, { maxCycles: 1, resume: { tick: 0, locus } })) {
+    for await (const r of createDruid({ world, mind }, { maxCycles: 1, resume: { tick: 0, locus }, speak: args.speak })) {
       if (r.type === 'cycle') rec = r;
     }
     const s = score(sc, rec);

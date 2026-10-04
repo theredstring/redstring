@@ -111,6 +111,9 @@ const schemaFor = {
   })
 };
 
+/** A form's capitals copied into a command ("make NAME"), not filled in. */
+const TEMPLATE = /\b(NAME|THING|RELATION|CLAIM|PART|BELIEF|WHAT IT IS|WHAT YOU WANT|FIRST STEP|NEXT STEP|A THOUGHT)\b/;
+
 const HELPER_SYSTEM = 'You do one small language task at a time. Answer exactly what is asked, in plain English.';
 
 /**
@@ -145,6 +148,37 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     const record = { kind, ok: value != null, value, content, error, ms, promptTokens: usage?.prompt ?? prompt.tokens, trimmed: prompt.trimmed, user: prompt.user };
     onCall?.(record);
     return record;
+  }
+
+  /**
+   * One command, in plain words: a verb from the list (enforced) and the
+   * words after it. A command that copies the form's capitals ("make NAME")
+   * is no command; it is asked once more, saying so.
+   * @returns {Promise<{ ok, verb, rest, ... }>}
+   */
+  async function command({ system, view, wm, loop, notice, question, verbs }) {
+    const schema = {
+      name: 'command',
+      schema: {
+        type: 'object',
+        properties: { verb: { type: 'string', enum: verbs }, rest: { type: 'string' } },
+        required: ['verb', 'rest'],
+        additionalProperties: false
+      }
+    };
+    const read = (c) => {
+      const o = parseJson(c);
+      if (!o || !verbs.includes(o.verb)) return null;
+      const rest = String(o.rest ?? '').replace(/\s+/g, ' ').trim();
+      if (TEMPLATE.test(rest) || /_{3,}/.test(rest)) return null;
+      return { verb: o.verb, rest };
+    };
+    const sections = { system, view, wm, loop, notice, question };
+    let r = await call('command', sections, schema, 80, read);
+    if (!r.ok && !r.error && TEMPLATE.test(String(parseJson(r.content)?.rest || ''))) {
+      r = await call('command', { ...sections, question: `${question}\nWrite real names where the form has capitals: not "NAME", but the name itself.` }, schema, 80, read);
+    }
+    return { ...r, verb: r.value?.verb ?? null, rest: r.value?.rest ?? '' };
   }
 
   /** @returns {Promise<{ ok, index, ... }>} */
@@ -211,5 +245,5 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     return r;
   }
 
-  return { choose, fill, judge, helper, stats };
+  return { choose, fill, judge, command, helper, stats };
 }

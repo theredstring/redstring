@@ -143,6 +143,34 @@ Each ends in something runnable with tests. Most of the system can be tested **w
 - Still to do: the prompt space opened read-only behind the debug setting; associations rendered per D1; working memory shown on the canvas, not just listed in the panel.
 - Follows the canvas architecture rules (layers and hosts, nothing in `NodeCanvas.jsx`).
 
+### M9 — Taste: bloat, helpers, commands — **in progress (2026-10-04)**
+
+Grant's first in-app run (`DruidTest.redstring`, read from a copy) measured with `scripts/druid-health.mjs`, connections and insides judged by qwen3-4b:
+
+| | |
+|---|---|
+| bookkeeping | 84% of 274 Things (episodes alone 68%) |
+| sentences as names | 8 ("Pine wood is a soft and flexible type of wood") |
+| relation types | 28 for 95 links; Made Of / Is Made Of, Sit / Sits, Support / Supports… |
+| beliefs treated as Things | 15 links to a belief; one belief opened up, a 12-Thing web grew inside it |
+| insides that hold parts | 13% (the inside of House held Feet, Footwear, Comfort…) |
+| connections that make sense | 18% ("Floor —Sit→ Footwear", "Wood —Soft→ Comfort") |
+
+What changed:
+- **Names** (`names.js`). A long name that reads as a sentence is shortened, and the sentence becomes its description. Titles and proper names are kept ("The Hitchhiker's Guide to the Galaxy"). Code decides what it can; a helper decides the rest. Beliefs and contrasts get short handles, with the claim kept in `druid.claim`.
+- **Helpers** (`mind/helpers.js`): contextless, single-question model calls at low temperature, made where content enters. The rule from the probes on Apple's model: one question per call.
+  - "Does this make sense?" asked alone: 12/12 on the run's own links.
+  - Two questions in one call: every link "made sense".
+  - Name or sentence: 2/6 when asked together with a short name; every statement right when asked alone.
+  - Synonyms: pick, then confirm "roughly the same thing" (10/12).
+  - Used by the world: an inside takes only parts ("is X a part of Y?"; if not, it goes one level out); a connection must make sense, and reuses a relation that means the same; a variant, subtype or shared kind must be a kind ("Modern is a kind of House": no).
+- **Beliefs are claims** (`isObject`): never connected to, opened up, or connected from (except "is about").
+- **Connecting** gets less attractive with every link the Thing already has, and stops being offered at six.
+- **Plans**: one at a time; steps named as short to-dos; "step done" is offered only after real work since the step became next; "work on the next step" goes where the step points; a finished plan closes; a plan stalled for 36 cycles is let go in sleep, steps and all.
+- **Sleep lets go**: episodes older than 24 cycles fold into one "Day …" Thing per day (count, and what it was mostly about); dead Things the Druid made (unconnected, unused for 48 cycles) and relation types nothing uses are pruned. Never what a person made.
+- **Commands** (`commands/commands.js`, `--speak commands`): the Druid writes one plain line, a verb from a fixed list plus words ("connect Floor to Wood as made of", "make Bone inside Feet", "move White Oak out", "merge Flooring into Floor"). An executor parses it, resolves names, runs the same moves (checks included) and reports in plain words. What it can't parse is rewritten once by a helper. The menu's offers become suggested commands. Rename, move, merge and delete are new: tidying the Druid can choose. It can delete only what it made.
+- **Health** (`lab/health.js`, `scripts/druid-health.mjs`): these numbers for any universe, so runs can be compared.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):
