@@ -137,13 +137,14 @@ function containsByRules(inner, outer, outerMemberIdSet) {
   }
   if (outerMembers.length > innerMembers.length) return true;
 
-  // Equal member sets. Deliberately narrow: the only failure mode nesting
-  // protects against here is an opaque shell painting over its own child, so
-  // only a node-group parent qualifies. Two plain groups are both unfilled
-  // dashed outlines and neither can hide the other — leaving them incomparable
-  // is correct. Two node-groups stay incomparable too; a real nesting between
-  // them is expressed through the anchor rule instead.
-  return !!outer.linkedNodePrototypeId && !inner.linkedNodePrototypeId;
+  // Equal member sets. A node-group's opaque shell would paint over a plain
+  // group with the same members, so a node-group parent contains it. Two
+  // node-groups with the same members nest too: left incomparable, they drew
+  // one box twice, their titles one over the other ("Temporary attachment"
+  // and "Stick-slip event", 2026-10-05). Both directions claim containment
+  // and `isGroupInsideGroup` breaks the tie deterministically. Two plain
+  // groups are both unfilled dashed outlines and stay peers.
+  return !!outer.linkedNodePrototypeId;
 }
 
 /**
@@ -170,8 +171,8 @@ export function isGroupInsideGroup(inner, outer, outerMemberIdSet = null) {
   if (!containsByRules(inner, outer, outerSet)) return false;
   if (!containsByRules(outer, inner, new Set(innerMembers))) return true;
 
-  // Both directions claim containment. Only degenerate state gets here (e.g. a
-  // node-group that somehow lists its own anchor as a member), but the relation
+  // Both directions claim containment: two node-groups with the same members,
+  // or degenerate state (a node-group that lists its own anchor). The relation
   // must stay antisymmetric regardless or `computeGroupDepths` resolves the
   // pair by Map iteration order and shells swap layers between renders. Break
   // it deterministically: more members wins, then node-group over plain, then id.

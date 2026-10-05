@@ -154,6 +154,41 @@ describe('computeGroupLayout', () => {
     expect(outerLayout.bbox.minY).toBe(innerLayout.nodeGroupRect.y);
   });
 
+  it('two node-groups with the same members nest, so their titles do not overlap', () => {
+    // Two Things gathered from the same members drew one box twice, one title
+    // over the other ("Temporary attachment" and "Stick-slip event").
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0);
+    addNode(ctx, 'b', 300, 0);
+    const first = { id: 'g-a', name: 'Temporary attachment', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p1' };
+    const second = { id: 'g-b', name: 'Stick-slip event', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p2' };
+    addGroup(ctx, first);
+    addGroup(ctx, second);
+    const children = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    // Exactly one contains the other, the same one every time.
+    expect([...children.get('g-a')]).toEqual(['g-b']);
+    expect([...children.get('g-b')]).toEqual([]);
+    const depths = computeGroupDepths(ctx.groupsById, ctx.groupsByMemberId, children);
+    expect([depths.get('g-a'), depths.get('g-b')]).toEqual([0, 1]);
+
+    const inner = computeGroupLayout(second, { ...ctx, childGroupIdsByGroupId: children });
+    const outer = computeGroupLayout(first, { ...ctx, childGroupIdsByGroupId: children });
+    const iv = inner.visualBounds;
+    expect(outer.rect.x).toBeLessThanOrEqual(iv.x - margin);
+    expect(outer.rect.x + outer.rect.w).toBeGreaterThanOrEqual(iv.x + iv.w + margin);
+    expect(outer.label.y + outer.label.h).toBeLessThanOrEqual(inner.label.y);
+  });
+
+  it('two plain groups with the same members stay peers', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'a', 0, 0);
+    addGroup(ctx, { id: 'p-a', name: 'One', memberInstanceIds: ['a'] });
+    addGroup(ctx, { id: 'p-b', name: 'Two', memberInstanceIds: ['a'] });
+    const children = buildChildGroupIdsIndex(ctx.groupsById, ctx.groupsByMemberId);
+    expect([...children.get('p-a')]).toEqual([]);
+    expect([...children.get('p-b')]).toEqual([]);
+  });
+
   it('empty node-group placeholder folds into the parent shell via its anchor instance', () => {
     const ctx = buildContext();
     addNode(ctx, 'a', 0, 0);
@@ -211,7 +246,7 @@ describe('computeGroupLayout', () => {
     expect(ngLayout.rect.y + ngLayout.rect.h).toBeGreaterThanOrEqual(pv.y + pv.h + margin);
   });
 
-  it('peer node-groups (equal member sets) do NOT fold each other — neither is a strict subset', () => {
+  it('node-groups with equal member sets: one folds the other in, never both', () => {
     const ctx = buildContext();
     addNode(ctx, 'a', 0, 0);
     addNode(ctx, 'b', 300, 0);
@@ -223,10 +258,10 @@ describe('computeGroupLayout', () => {
     const rA = computeGroupLayout(gA, ctx);
     const rB = computeGroupLayout(gB, ctx);
 
-    expect(rA.bbox.minY).toBe(0);
+    // gA holds gB (the tie broken by id): gA's box takes in gB's shell, gB's does not take in gA's.
     expect(rB.bbox.minY).toBe(0);
-    expect(rA.nestedContributors).toEqual([]);
     expect(rB.nestedContributors).toEqual([]);
+    expect(rA.bbox.minY).toBeLessThan(0);
   });
 
   it('three-deep nesting (thing > node > thing) propagates overhang correctly', () => {
@@ -500,13 +535,14 @@ describe('group containment predicate', () => {
     expect(childIndex.get('b').has('a')).toBe(false);
   });
 
-  it('leaves two anchorless node-groups with the same members incomparable', () => {
+  it('nests two anchorless node-groups with the same members, one way only', () => {
+    // Left incomparable, they drew one box twice, one title over the other.
     const ctx = buildContext();
     addGroup(ctx, { id: 'a', name: 'A', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p1' });
     addGroup(ctx, { id: 'b', name: 'B', memberInstanceIds: ['m1', 'm2'], linkedNodePrototypeId: 'p2' });
 
     const childIndex = childrenOf(ctx);
-    expect(childIndex.get('a').has('b')).toBe(false);
+    expect(childIndex.get('a').has('b')).toBe(true);
     expect(childIndex.get('b').has('a')).toBe(false);
   });
 
