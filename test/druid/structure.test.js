@@ -653,6 +653,32 @@ describe('an inside by the sort of composition it is', () => {
   });
 });
 
+describe('how deep a web is', () => {
+  it('is found quickly however many ways up it has: each web once, the nearest way up', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Top: { things: { A0: 'a', B0: 'b' } } } });
+    // A lattice: every Thing at one level is placed in both insides of the level above.
+    // Twenty levels have 2^20 ways up from the bottom; walked path by path, the app froze.
+    let above = [ids.A0, ids.B0];
+    const LEVELS = 20;
+    for (let k = 1; k <= LEVELS; k++) {
+      const insides = above.map(id => world.ensureInside(id));
+      const here = [];
+      for (const n of [`A${k}`, `B${k}`]) {
+        const r = await world.createThing(insides[0], n, { description: n.toLowerCase() });
+        world.place(insides[1], r.id);
+        here.push(r.id);
+      }
+      above = here;
+    }
+    const bottom = world.ensureInside(above[0]);
+    const t = performance.now();
+    expect(world.depthOf(bottom)).toBe(LEVELS + 1);
+    expect(world.depthOf(webs.Top)).toBe(0);
+    expect(performance.now() - t).toBeLessThan(200);
+  });
+});
+
 describe('where structures meet', () => {
   it('the view says what else the focus sits inside', async () => {
     const { world } = await freshWorld();

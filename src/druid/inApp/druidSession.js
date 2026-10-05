@@ -97,7 +97,10 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
           error = `The model is not answering: ${failed[0].error}`;
           break;
         }
-        if (pauseMs > 0 && !controller.signal.aborted) await new Promise(res => setTimeout(res, pauseMs));
+        // Always a turn of the event loop between moments, even at a quick
+        // pace: with a model that answers at once, moments ran back to back
+        // in microtasks and nothing else on the page (timers, the panel) ran.
+        if (!controller.signal.aborted) await new Promise(res => setTimeout(res, Math.max(0, pauseMs)));
       }
     } catch (err) {
       reason = 'error';

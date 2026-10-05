@@ -56,7 +56,7 @@ describe("Apple's model, one session a moment", () => {
 
   it('a refused turn falls back to the whole prompt only for a language refusal; other errors are errors', async () => {
     let n = 0;
-    const { sent, client } = bridge((req) => (++n === 1 ? { ok: false, error: 'unsupportedLanguageOrLocale' } : { ok: true, content: '{"text":"Ice"}' }));
+    const { sent, client } = bridge(() => (++n === 1 ? { ok: false, error: 'unsupportedLanguageOrLocale' } : { ok: true, content: '{"text":"Ice"}' }));
     const r = await client.complete({ system: 'sys', user: 'ctx\n\nq', context: 'ctx', turn: 'q', schema: fill, maxTokens: 20, temperature: 0 });
     expect(r.content).toBe('{"text":"Ice"}');
     expect(sent.filter(x => x.op === 'complete').at(-1).sid).toBeUndefined();

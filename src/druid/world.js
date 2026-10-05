@@ -454,13 +454,29 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
    * 1 for the inside of a Thing in it, and so on. The path a Druid walked does
    * not say this (going to a Thing resets it); the nesting does.
    */
-  const depthOf = (graphId, seen = new Set()) => {
-    if (!graphId || seen.has(graphId)) return 0;
-    seen.add(graphId);
-    const owner = ownerOf(graphId);
-    if (!owner || druidOf(owner).topic || druidOf(owner).homeOf) return 0;
-    const up = websOf(owner).filter(w => w !== graphId && !isSystemWeb(w) && !isOwnWeb(w));
-    return up.length ? 1 + Math.min(...up.map(w => depthOf(w, new Set(seen)))) : 0;
+  // Breadth first, each web once: the nearest way up is the depth. Walked
+  // path by path (each branch with its own copy of `seen`), a universe whose
+  // Things sat in several webs had more ways up than could ever be counted:
+  // past 20 million calls from one web, the app froze at moment 1823 (Druid
+  // Test 10, 2026-10-05).
+  const depthOf = (graphId) => {
+    if (!graphId) return 0;
+    const seen = new Set([graphId]);
+    let level = [graphId];
+    for (let depth = 0; level.length; depth++) {
+      const next = [];
+      for (const g of level) {
+        const owner = ownerOf(g);
+        if (!owner || druidOf(owner).topic || druidOf(owner).homeOf) return depth;
+        const up = websOf(owner).filter(w => w !== g && !isSystemWeb(w) && !isOwnWeb(w));
+        if (!up.length) return depth;
+        for (const w of up) if (!seen.has(w)) { seen.add(w); next.push(w); }
+      }
+      // Every way up leads back to where it has been: a loop, as far up as it goes.
+      if (!next.length) return depth + 1;
+      level = next;
+    }
+    return 0;
   };
 
   /** Is `a` a kind of `b`? The kind helper when there is one (mind/helpers.js kindOf), else the general check. */

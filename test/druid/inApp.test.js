@@ -149,7 +149,7 @@ describe('in the app', () => {
     }, { outline: 'The universe now: 2 webs', now: new Date('2026-10-04T10:30:00Z') });
     expect(text).toBe([
       'The Druid, copied 2026-10-04 10:30',
-      "Mind: Apple's model · picks from a menu",
+      "Mind: Apple's model · picks from a menu · quick",
       'Calls: 4, 500 ms each',
       'Lately: Working out how rivers make deltas.',
       'Holding in mind: Delta',
