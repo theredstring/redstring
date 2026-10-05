@@ -24,7 +24,7 @@ describe('structure before sentences', () => {
     const { webs, ids } = await buildUniverse(world, { webs: { Mind: { things: { Consciousness: 'Being aware.' } } } });
     const ctx = ctxAt(world, { web: webs.Mind, focus: ids.Consciousness, path: [] });
     const [item] = open.offer(ctx);
-    expect(item.blank.question).toBe('What is Consciousness made of? Name its main parts, separated by commas.');
+    expect(item.blank.question).toBe('What are the main parts of Consciousness? Name the parts you could point to on Consciousness itself, not the materials it is made of. Separate them with commas.');
     const r = await open.run(ctx, item.data, 'Perception, Attention, Memory, Thoughts');
     expect(r.ok).toBe(true);
     expect(world.thingsIn(world.insideOf(ids.Consciousness)).map(world.nameOf)).toEqual(['Perception', 'Attention', 'Memory', 'Thoughts']);
@@ -36,7 +36,7 @@ describe('structure before sentences', () => {
     const inside = world.insideOf(ids.Consciousness);
     const ctx = ctxAt(world, { web: inside, focus: null, path: [ids.Consciousness] });
     const items = deepen.offer(ctx);
-    expect(items.map(i => i.label)).toEqual(expect.arrayContaining([expect.stringMatching(/^open up (Perception|Attention), a part of Consciousness: name what it is made of/)]));
+    expect(items.map(i => i.label)).toEqual(expect.arrayContaining([expect.stringMatching(/^open up (Perception|Attention), a part of Consciousness: name its parts/)]));
     const r = await deepen.run(ctx, items[0].data, 'Sight, Hearing');
     expect(r.ok).toBe(true);
     expect(r.locus.path).toEqual([ids.Consciousness, items[0].data.into]);
@@ -159,7 +159,7 @@ describe('small things that kept it from building', () => {
 });
 
 describe('a web it started, still empty', () => {
-  it('is filled from its subject: what it is made of or involves', async () => {
+  it('is filled from its subject: the parts that make it up', async () => {
     const { newWeb } = await import('../../src/druid/moves/basic.js');
     const { seedRoles } = await import('../../src/druid/roles.js');
     const { world } = await freshWorld();
@@ -167,7 +167,7 @@ describe('a web it started, still empty', () => {
     const web = (await newWeb.run(ctxAt(world, { web: home, focus: null, path: [] }), null, 'Space')).locus.web;
     const ctx = ctxAt(world, { web, focus: null, path: [] });
     const [item] = open.offer(ctx);
-    expect(item.label).toBe('name what Space is made of or involves, ___');
+    expect(item.label).toBe('open up Space: name its parts, ___');
     const r = await open.run(ctx, item.data, 'Stars, Galaxies, Gravity');
     expect(r.ok).toBe(true);
     expect(world.thingsIn(web).map(world.nameOf)).toEqual(['Stars', 'Galaxies', 'Gravity']);
@@ -211,7 +211,7 @@ describe('plans hold steps, and nothing is put away into Home', () => {
     expect(webs.Physics).toBeTruthy();
   });
 
-  it('a Thing that is not a part, with nowhere real to go, is refused, not put in Home', async () => {
+  it('what is named into an inside stays there, and nothing is put in Home', async () => {
     const { seedRoles } = await import('../../src/druid/roles.js');
     const { newWeb } = await import('../../src/druid/moves/basic.js');
     const { world } = await freshWorld();
@@ -226,7 +226,7 @@ describe('plans hold steps, and nothing is put away into Home', () => {
     const inner = world.ensureInside(r.id);
     const bad = await world.createThing(inner, 'Galaxies');
     expect(bad.ok).toBe(true);
-    expect(bad.web).toBe(web);
+    expect(bad.web).toBe(inner);
     expect(world.thingsIn(home).map(world.nameOf)).not.toContain('Galaxies');
   });
 });
@@ -442,7 +442,7 @@ describe('the subject stays on top', () => {
 });
 
 describe('kinds are not parts', () => {
-  it('a kind named in the parts goes beside its Thing, as a kind; properties and comparatives are not parts', async () => {
+  it('a kind named in the parts goes on the ladder and is noticed, not placed in any web of content; properties and comparatives are not parts', async () => {
     const { sameHead, isAspect, isPlainlyQuality, looksLikeQuality } = await import('../../src/druid/names.js');
     expect(sameHead('Up quark', 'Quarks')).toBe(true);
     expect(sameHead('Cell membrane', 'Cell')).toBe(false);
@@ -454,21 +454,18 @@ describe('kinds are not parts', () => {
     world.actor = 'druid';
     world.isPart = async () => true;
     world.check = async () => true;
-    world.isKind = async (a, b) => a === 'Leptons' && b === 'Particle';
-    // Asked only of what the made-of check turns away.
-    world.isPart = async (part) => part !== 'Leptons';
     const quarks = world.ensureInside(ids.Quarks);
     const r = await world.createThing(quarks, 'Up quark');
-    expect(r).toMatchObject({ ok: true, kindOf: ids.Quarks, web: webs.Physics });
+    expect(r).toMatchObject({ ok: true, kindOf: ids.Quarks, noticed: true });
+    expect(world.thingsIn(webs.Physics)).not.toContain(r.id);
     expect(world.typeChain(r.id)).toContain(ids.Quarks);
     expect(world.thingsIn(quarks)).not.toContain(r.id);
     const ctx = ctxAt(world, { web: webs.Physics, focus: ids.Particle, path: [] });
-    const o = await open.run(ctx, { into: ids.Particle, create: true }, 'Quarks, Leptons, Outermost');
+    const o = await open.run(ctx, { into: ids.Particle, create: true }, 'Quarks, Fundamental particle, Outermost');
     expect(o.ok).toBe(true);
-    expect(o.summary).toBe('opened up Particle and found Quarks inside; Leptons is a kind of Particle, not a part of it');
+    expect(o.summary).toBe('opened up Particle and found Quarks inside; Fundamental particle is a kind of Particle, not a part of it');
     expect(world.findThing('Outermost')).toBeFalsy();
     // Inside a Thing, what sits beside the one opened is not its part.
-    world.isKind = async () => false;
     const sun = (await world.createThing(webs.Physics, 'Sun')).id;
     const layers = world.ensureInside(sun);
     for (const n of ['Core', 'Radiative zone', 'Photosphere']) await world.createThing(layers, n);
@@ -582,8 +579,8 @@ describe('the first moments', () => {
   });
 });
 
-describe('a process by its stages, an idea by its kinds', () => {
-  it('asks by what sort of Thing it is; stages lead to each other, kinds go on the ladder', async () => {
+describe('an inside by the sort of composition it is', () => {
+  it('an object by its parts at its scale, a process by its stages leading to each other, an idea by what makes it up', async () => {
     const { world } = await freshWorld();
     const { webs } = await buildUniverse(world, { webs: { Sky: { things: {} } } });
     world.actor = 'druid';
@@ -602,11 +599,10 @@ describe('a process by its stages, an idea by its kinds', () => {
     const { stageName } = await import('../../src/druid/moves/basic.js');
     expect(['Then Freezing', 'Step 2: Osmosis', 'Intestines. Then', 'First'].map(stageName)).toEqual(['Freezing', 'Osmosis', 'Intestines', '']);
     const [k] = open.offer(at(love));
-    expect(k.label).toBe('open up Love: name its main kinds, ___');
-    const o = await open.run(at(love), k.data, 'Romantic, Platonic, Self-love');
-    expect(o.summary).toBe('opened up Love into its kinds: Romantic love, Platonic love, Self-love');
-    expect(world.typeChain(world.findThing('Romantic love'))).toContain(love);
-    expect(world.thingsIn(world.insideOf(love)).map(world.nameOf)).toEqual(['Romantic love', 'Platonic love', 'Self-love']);
+    expect(k.label).toBe('open up Love: name what makes it up, ___');
+    const o = await open.run(at(love), k.data, 'Intimacy, Commitment, Trust');
+    expect(o.ok).toBe(true);
+    expect(world.thingsIn(world.insideOf(love)).map(world.nameOf)).toEqual(['Intimacy', 'Commitment', 'Trust']);
   });
 });
 
@@ -677,6 +673,22 @@ describe('a long run stays whole', () => {
     const report = await sleep({ world, tick: 1, judge: async () => 'different', held: [] });
     expect(world.proto(step)).toBeFalsy();
     expect(world.proto(granite)).toBeTruthy();
+    expect(world.druidOf(granite).step).toBeFalsy();
     expect(report.repaired).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('sleep keeps the parts of things', () => {
+  it('an unconnected part of something is not forgotten; an unused noticed Thing is', async () => {
+    const { pruneDead, PRUNE_AFTER } = await import('../../src/druid/sleep.js');
+    const { world } = await freshWorld();
+    const { ids } = await buildUniverse(world, { webs: { Body: { things: { Brain: 'b' } } } });
+    world.actor = 'druid';
+    const pons = (await world.createThing(world.ensureInside(ids.Brain), 'Pons')).id;
+    const noticed = (await world.createThing(world.ensureInside(ids.Brain), 'Curiosity', { noticed: true })).id;
+    for (const id of [pons, noticed]) world.setDruid(id, { madeBy: 'druid', uses: [1] });
+    pruneDead(world, 1 + PRUNE_AFTER + 1);
+    expect(world.proto(pons)).toBeTruthy();
+    expect(world.proto(noticed)).toBeFalsy();
   });
 });

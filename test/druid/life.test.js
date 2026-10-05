@@ -58,8 +58,8 @@ describe('runLife over the real store', () => {
     const { world } = await freshWorld();
     const { mind, seen } = planMind([
       { choose: /^start your first web/ }, { fill: 'Rivers' },
-      { choose: /^make a new Thing here, named/ }, { fill: 'River' }, { fill: 'Water moving in a channel.' },
-      { choose: /^make a new Thing here, connected to River/ }, { fill: 'Valley' }, { fill: 'carves' }, { fill: 'Low land between hills.' }
+      { choose: /^add a part to Rivers, named/ }, { fill: 'River' }, { fill: 'Water moving in a channel.' },
+      { choose: /^add a part to Rivers, connected to River/ }, { fill: 'Valley' }, { fill: 'carves' }, { fill: 'Low land between hills.' }
     ], ['A web for rivers.', 'A river.', 'Rivers carve valleys.']);
     const { cycles } = await live(world, mind, 3);
 
@@ -73,7 +73,7 @@ describe('runLife over the real store', () => {
     const lastChoice = seen.filter(r => r.schema.name === 'choice').at(-1);
     expect(lastChoice.user).toMatch(/In focus: River \(just now\) — Water moving in a channel\./);
     // The recency trail: what it did lately, newest first, built by the loop.
-    expect(lastChoice.user).toMatch(/What you did lately, newest first:\n- just now: made River\n- 2 moments ago: started the web Rivers/);
+    expect(lastChoice.user).toMatch(/What you did lately, newest first:\n- just now: added River to Rivers\n- 2 moments ago: started the web Rivers/);
     expect(lastChoice.user).toMatch(/Held in mind:\n- River/);
     expect(lastChoice.user).toMatch(/What you were just thinking:\n- A web for rivers\.\n- A river\./);
     expect(cycles[2].locus.focusName).toBe('Valley');
@@ -220,7 +220,7 @@ describe('createDruid at birth', () => {
 });
 
 describe('keeping a thought (phonological loop → long-term memory)', () => {
-  it('offers back what a thought named that the universe lacks, and keeps it in the content web, not Home', async () => {
+  it('offers back what a thought named that the universe lacks, and keeps it as noticed, not in the web it was thought in', async () => {
     const { createDruid } = await import('../../src/druid/druid.js');
     const { world } = await freshWorld();
     const { webs } = await buildUniverse(world, { webs: { Water: { things: { River: 'Water flowing in a channel.' } } } });
@@ -233,7 +233,9 @@ describe('keeping a thought (phonological loop → long-term memory)', () => {
     for await (const r of createDruid({ world, mind }, { maxCycles: 2, resume: { tick: 0, locus: { web: webs.Water, focus: null, path: [] } } })) out.push(r);
     const second = out.filter(r => r.type === 'cycle')[1];
     expect(second.move).toBe('remember');
-    expect(world.thingsIn(webs.Water).map(world.nameOf).sort()).toEqual(['Erosion', 'River', 'Sediment', 'Valley']);
+    // A Thing in a thought is not therefore a part of the web it was thought in.
+    expect(world.thingsIn(webs.Water).map(world.nameOf)).toEqual(['River']);
+    expect(world.thingsIn(world.noticedWeb()).map(world.nameOf).sort()).toEqual(['Erosion', 'Sediment', 'Valley']);
     expect(world.proto(world.findThing('Erosion')).description).toBe('The wearing away of rock.');
   });
 });

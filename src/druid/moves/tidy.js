@@ -37,13 +37,14 @@ export const moveOut = {
   async run(ctx, data) {
     const { world } = ctx;
     const owner = world.ownerOf(data.web);
-    // Never out to Home or a goal's or plan's inside: "moved Electrons out … to Home".
-    const outer = owner && world.websOf(owner).find(w => w !== data.web && !isOwnPlace(world, w));
+    // Not out to the web above: a Thing that is not a part of B is not a part
+    // of what B is in either. Noticed, until something places it where it belongs.
+    const outer = world.noticedWeb ? world.noticedWeb() : owner && world.websOf(owner).find(w => w !== data.web && !isOwnPlace(world, w));
     if (!outer) return fail(`${world.nameOf(owner)} sits in no web to move it out to`);
     const { kept, dropped } = await world.move(data.web, outer, data.id);
     world.setDruid(data.id, (d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'misplaced')));
     const links = kept || dropped ? ` (${kept} connection${kept === 1 ? '' : 's'} kept${dropped ? `, ${dropped} left behind` : ''})` : '';
-    return { ok: true, summary: `moved ${world.nameOf(data.id)} out of ${world.nameOf(owner)}, to ${world.graph(outer)?.name}${links}`, touched: [data.id, owner], wrote: true };
+    return { ok: true, summary: `took ${world.nameOf(data.id)} out of ${world.nameOf(owner)}, to ${world.graph(outer)?.name}${links}`, touched: [data.id, owner], wrote: true };
   }
 };
 

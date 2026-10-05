@@ -67,10 +67,11 @@ export const variant = {
     if (name.toLowerCase() === world.nameOf(data.of).toLowerCase()) return fail(`a variant of ${name} has a name of its own`);
     if (!(await isKindOf(world, name, world.nameOf(data.of)))) return fail(`${name} is not a kind of ${world.nameOf(data.of)}, so it is no variant of it`);
     const how = await ctx.ask(`How is ${name} different from ${world.nameOf(data.of)}? One short sentence.`, 16);
-    const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true, asPart: false });
+    const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true, noticed: true });
     if (!r.ok) return fail(r.error);
-    await world.connect(ctx.locus.web, r.id, data.of, 'is a variant of');
-    return { ok: true, summary: `imagined ${name}, a variant of ${world.nameOf(data.of)}`, touched: [r.id, data.of], locus: { ...ctx.locus, focus: r.id }, wrote: true };
+    // A variant is a kind of it, on its ladder, not a connection in this web.
+    await world.addKind(r.id, data.of);
+    return { ok: true, summary: `imagined ${name}, a variant of ${world.nameOf(data.of)}`, touched: [r.id, data.of], wrote: true };
   }
 };
 
@@ -95,7 +96,7 @@ export const specialize = {
         let parent = world.findThing(name);
         let made = false;
         if (!parent) {
-          const p = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.of)} is a kind of.`, asPart: false });
+          const p = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.of)} is a kind of.`, noticed: true });
           if (!p.ok) return fail(p.error);
           parent = p.id;
           made = !p.reused;
@@ -107,13 +108,13 @@ export const specialize = {
       }
       return fail(`${name} is not a kind of ${world.nameOf(data.of)}`);
     }
-    const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true, asPart: false });
+    const r = await world.createThing(ctx.locus.web, name, { typeNodeId: data.of, fresh: true, noticed: true });
     if (!r.ok) return fail(r.error);
     if (world.proto(r.id)?.typeNodeId !== data.of) world.state().setNodeType(r.id, data.of);
     world.writeLadders?.();
     const what = await ctx.ask(`What makes ${name} a particular kind of ${world.nameOf(data.of)}? One short sentence.`, 16);
-    if (what) await world.act('updateNode', { nodeName: name, description: what, targetGraphId: ctx.locus.web });
-    return { ok: true, summary: `named ${name}, a kind of ${world.nameOf(data.of)}`, touched: [r.id, data.of], locus: { ...ctx.locus, focus: r.id }, wrote: true };
+    if (what) await world.act('updateNode', { nodeName: name, description: what, targetGraphId: r.web });
+    return { ok: true, summary: `named ${name}, a kind of ${world.nameOf(data.of)}`, touched: [r.id, data.of], wrote: true };
   }
 };
 
@@ -227,7 +228,9 @@ export const contrast = {
     const claim = titleish(`${world.nameOf(data.a)} differs from ${world.nameOf(data.b)}: ${key}`);
     // A claim about two Things, kept in the web the topic hangs from, not
     // among the parts of whatever it stood inside ("Star vs Hydrogen" in Core).
-    const r = await world.createThing(topWebOf(world, ctx.locus.web), `${world.nameOf(data.a)} vs ${world.nameOf(data.b)}`, { description: `${claim}.${diffs.length ? ` ${shown}.` : ''}`, typeNodeId: ctx.roles.types.belief });
+    // A claim about two Things, kept with its beliefs: placed in a web, 33
+    // "X vs Y" claims made a third of the largest web of one long run.
+    const r = await world.createThing(world.beliefsWeb ? world.beliefsWeb() : topWebOf(world, ctx.locus.web), `${world.nameOf(data.a)} vs ${world.nameOf(data.b)}`, { description: `${claim}.${diffs.length ? ` ${shown}.` : ''}`, typeNodeId: ctx.roles.types.belief });
     if (!r.ok) return fail(r.error);
     world.setDruid(r.id, { claim });
     addEvidence(world, r.id, { source: data.a, judgment: 'support', kind: sourceKind(world, data.a), tick: ctx.tick });
@@ -270,7 +273,7 @@ export const generalize = {
     }
     let parent = world.findThing(name);
     if (!parent) {
-      const r = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.a)} and ${world.nameOf(data.b)} both are.`, asPart: false });
+      const r = await world.createThing(ctx.locus.web, name, { description: `What ${world.nameOf(data.a)} and ${world.nameOf(data.b)} both are.`, noticed: true });
       if (!r.ok) return fail(r.error);
       parent = r.id;
     }

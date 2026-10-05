@@ -6,8 +6,9 @@
  * itself is wrong and has to change. Sleep is where that happens, offline,
  * between stretches of thought:
  *
- *   1. DUPLICATES  Things whose names normalize to the same word are put to the
- *                  model as "the same thing?"; a yes merges them.
+ *   1. DUPLICATES  Things with the same name are merged (the same name is the
+ *                  same Thing); names that differ more than in capitals
+ *                  ("Cause", "Causes") are put to the model first.
  *   2. SPLITS      for every kind with enough members, code clusters the members
  *                  by what they are connected to, made of and placed among, and
  *                  scores the split by DESCRIPTION LENGTH: a kind costs one, and
@@ -22,13 +23,18 @@
  *                  "Revisions" web: what every member was before, what was
  *                  created, the scores. `revert` restores it exactly.
  *
+ *   4. LETTING GO  plans stuck on one step are let go; old moments are folded
+ *                  into their day; what it made and never used is forgotten.
+ *   5. REPAIRS     placements of Things already gone, plan steps loose among
+ *                  content, beliefs placed in webs of content, a Thing with two
+ *                  insides: put right.
+ *
  * The model only judges and names. Detection, scoring and the restructure are
  * code.
  */
 
 import { normalizeName as norm } from './names.js';
 import { activePlans, roleType, roleOf, isBookkeeping } from './roles.js';
-import { auditInsides } from './moves/tidy.js';
 import { isOwnPlace } from './attention.js';
 
 const MIN_MEMBERS = 6;
@@ -269,8 +275,10 @@ export async function sleep(ctx) {
   report.condensed = await condenseEpisodes(world, tick);
   const keep = new Set([ctx.locus?.focus, ...(ctx.held || []).map(h => h.id)].filter(Boolean));
   report.pruned = pruneDead(world, tick, keep);
-  // Insides holding what is not a part of them, flagged for the Druid to move out.
-  report.misplaced = await auditInsides(world);
+  // No audit of insides by a yes or no: Apple's model answers "is X a part of
+  // Y?" yes both ways, and the made-of check turned true parts away (a Summit
+  // from Mount Everest). What enters an inside enters by the question that
+  // asked for it (moves/basic.js openAsk).
   // Placements of Things already gone (world.js repairDangling).
   report.repaired = world.repairDangling?.() || 0;
   // A plan's steps live in the plan: steps taken for Things of the same name
@@ -286,10 +294,24 @@ export async function sleep(ctx) {
     const twin = world.allThings().find(t => t !== id && !world.druidOf(t).step && !isBookkeeping(world, t) && norm(world.nameOf(t)) === norm(world.nameOf(id)));
     if (twin) {
       const r = await world.act('mergeNodes', { primaryPrototypeId: twin, secondaryPrototypeId: id });
-      if (r.ok) { world.unnest?.(twin); await world.foldInsides?.(twin); }
+      // The merge brings the step's metadata along; the Thing is no step.
+      if (r.ok) { world.setDruid(twin, (d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'step'))); world.unnest?.(twin); await world.foldInsides?.(twin); }
     } else {
       world.setDruid(id, (d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'step')));
     }
+    report.repaired++;
+  }
+  // Beliefs and contrasts are kept with the beliefs, not among the parts of
+  // what they are about: one long run's largest web was more than half claims.
+  const beliefType = roleType(world, 'belief');
+  for (const id of world.allThings()) {
+    if (!beliefType || roleOf(world, id) !== 'belief' || !world.beliefsWeb) continue;
+    const loose = world.websOf(id).filter(w => !isOwnPlace(world, w));
+    if (!loose.length) continue;
+    const aboutLink = loose.flatMap(w => world.linksIn(w)).find(l => l.a === id && /^is about$/i.test(l.relation));
+    if (aboutLink && !world.druidOf(id).about) world.setDruid(id, { about: aboutLink.b });
+    world.place(world.beliefsWeb(), id);
+    for (const w of loose) world.unplace(w, id);
     report.repaired++;
   }
   // Things merged before merges folded their insides.
@@ -385,6 +407,9 @@ export function pruneDead(world, tick, keep = new Set()) {
     if (d.relation) { const name = world.nameOf(id); if (world.forget(id)) pruned.push(name); continue; }
     if (d.madeBy !== 'druid' || d.roleType || d.system || d.homeOf || roleOf(world, id)) continue;
     if (linked.has(id)) continue;
+    // A part of something is held by the composition it is in: only what sits
+    // in its own places alone (Noticed, Working Memory) is forgotten unused.
+    if (world.websOf(id).some(w => !isOwnPlace(world, w))) continue;
     const lastUse = Math.max(-Infinity, ...(d.uses || []));
     if (!Number.isFinite(lastUse) || tick - lastUse < PRUNE_AFTER) continue;
     const name = world.nameOf(id);

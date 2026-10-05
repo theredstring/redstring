@@ -161,8 +161,17 @@ export function claimOf(world, beliefId) {
   return world.druidOf(beliefId).claim || world.nameOf(beliefId);
 }
 
+/**
+ * Beliefs about what is in a web: kept in the Beliefs folder (world.js), found
+ * by what they are about and their evidence; and any still placed in the web.
+ */
 export function beliefsIn(world, webId) {
-  return world.thingsIn(webId).filter(id => isRole(world, id, 'belief'));
+  const here = new Set(world.thingsIn(webId));
+  const about = (id) => {
+    const d = world.druidOf(id);
+    return here.has(d.about) || (d.evidence || []).some(e => here.has(e.source));
+  };
+  return world.allThings().filter(id => isRole(world, id, 'belief') && (here.has(id) || about(id)));
 }
 
 // ── Plans ────────────────────────────────────────────────────────────────

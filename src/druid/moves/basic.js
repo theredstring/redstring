@@ -33,11 +33,11 @@ export const namesIn = (s) => {
   return text.split(separators).map(n => titleish(asSubject(clip(n)))).filter(n => n && n.split(/\s+/).length <= 5 && !VAGUE.test(n) && !(n.split(/\s+/).length >= 3 && hasVerb(n)));
 };
 
-import { topLevelWebs, isHome, isOwnPlace } from '../attention.js';
+import { topLevelWebs, isOwnPlace } from '../attention.js';
 import { isObject, isBookkeeping, roleOf } from '../roles.js';
 import { relationFromSentence } from '../relations.js';
 import { tokenize } from '../recall.js';
-import { aboutTheMedium, asSubject, normalizeName, wordsIn, hasVerb, isAspect, isDoing, looksLikeQuality } from '../names.js';
+import { aboutTheMedium, asSubject, normalizeName, wordsIn, hasVerb, isAspect, isDoing } from '../names.js';
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 
@@ -88,12 +88,24 @@ export const make = {
   id: 'make',
   prior: 1,
   offer(ctx) {
-    if (!ctx.locus.web) return [];
-    // Not inside a goal or a plan: those hold steps and smaller goals, not what it learns.
-    if (isOwnPlace(ctx.world, ctx.locus.web) && !isHome(ctx.world, ctx.locus.web)) return [];
-    const f = ctx.view.focus && isObject(ctx.world, ctx.view.focus.id) ? ctx.view.focus : null;
+    const { world, locus } = ctx;
+    if (!locus.web) return [];
+    // A web is its Thing opened up, so what is made here is one of what makes
+    // that Thing up, and is asked for as that. Not at Home or in its own
+    // places (folders of webs, goals and steps): a new subject is a new web.
+    if (isOwnPlace(world, locus.web)) return [];
+    const whole = world.ownerOf(locus.web);
+    if (!whole) return [];
+    const schema = world.schemaOf ? world.schemaOf(whole) : 'parts';
+    // A process's stages come in order, from opening it up (openStages).
+    if (schema === 'stages') return [];
+    const W = world.nameOf(whole);
+    const question = schema === 'material' ? `Name something else ${W} is made of.`
+      : schema === 'elements' ? `Name something else that makes up ${W}.`
+      : `Name another part of ${W}, one you could point to on ${W} itself.`;
+    const f = ctx.view.focus && isObject(world, ctx.view.focus.id) ? ctx.view.focus : null;
     const near = f ? `, connected to ${f.name}` : '';
-    return [{ label: `make a new Thing here${near}, named ___`, blank: { question: 'Name the new Thing.', maxWords: 4 }, data: { connectTo: f?.id || null }, prior: isHome(ctx.world, ctx.locus.web) ? 0.3 : 1 }];
+    return [{ label: `add a part to ${W}${near}, named ___`, blank: { question, maxWords: 4 }, data: { connectTo: f?.id || null } }];
   },
   async run(ctx, data, text) {
     // One Thing: "Nitrogen and Methane" is two, and the first is made.
@@ -103,10 +115,9 @@ export const make = {
     const r = await world.createThing(locus.web, name, { fresh: true });
     if (!r.ok) return fail(r.error);
     const touched = [r.id];
-    // Not a part of what this web is the inside of: it went one level out.
-    let summary = r.kindOf ? `made ${name}, a kind of ${world.nameOf(r.kindOf)}, beside it`
-      : r.movedOut ? `made ${name} — not a part of ${world.nameOf(world.ownerOf(locus.web))}, so it went to ${world.graph(r.web)?.name}` : `made ${name}`;
-    if (data?.connectTo && data.connectTo !== r.id && !r.movedOut && !r.kindOf) {
+    // Named like a kind of the whole ("Up quark" in Quarks): on its ladder, noticed.
+    let summary = r.kindOf ? `named ${name}, a kind of ${world.nameOf(r.kindOf)}, not a part of it` : `added ${name} to ${world.nameOf(world.ownerOf(locus.web))}`;
+    if (data?.connectTo && data.connectTo !== r.id && !r.noticed) {
       const rel = await ctx.ask(`How do ${world.nameOf(data.connectTo)} and ${name} relate? Say it as one short plain sentence that names both.`, 12);
       if (rel) {
         const c = await connectSaying(ctx, data.connectTo, r.id, rel);
@@ -119,8 +130,7 @@ export const make = {
     }
     const description = await ctx.ask(`Describe ${name} in one short sentence.`, 16);
     if (description) await world.act('updateNode', { nodeName: world.nameOf(r.id), description, targetGraphId: r.web });
-    const web = r.web || locus.web;
-    return { ok: true, summary, touched, locus: web === locus.web ? { ...locus, focus: r.id } : { web, focus: r.id, path: (locus.path || []).slice(0, -1) }, wrote: true };
+    return { ok: true, summary, touched, locus: r.noticed ? locus : { ...locus, focus: r.id }, wrote: true };
   }
 };
 
@@ -224,7 +234,7 @@ async function bothKindsOf(ctx, a, b, said) {
   if (parent === a || parent === b) return null;
   if (parent && world.typeChain(a).includes(parent) && world.typeChain(b).includes(parent)) return { ok: false, error: `${an} and ${bn} are already both kinds of ${world.nameOf(parent)}` };
   if (!parent) {
-    const r = await world.createThing(ctx.locus.web, name, { description: `What ${an} and ${bn} both are.`, asPart: false });
+    const r = await world.createThing(ctx.locus.web, name, { description: `What ${an} and ${bn} both are.`, noticed: true });
     if (!r.ok) return { ok: false, error: r.error };
     parent = r.id;
   }
@@ -433,7 +443,7 @@ function fillTopic(ctx) {
   const owner = locus.web && world.ownerOf(locus.web);
   if (!owner || !world.druidOf(owner).topic) return [];
   if (world.thingsIn(locus.web).filter(id => isObject(world, id)).length >= 3) return [];
-  const a = openAsk(world, owner, { topic: true });
+  const a = openAsk(world, owner);
   return [{
     label: a.label,
     blank: { question: a.question, maxWords: a.maxWords },
@@ -449,24 +459,30 @@ const VAGUE = /^(unknown|other|others|other things|something|some things|things|
 /** Deepest an inside is opened into its own parts, counting from a web. */
 export const MAX_DEPTH = 4;
 
-const OPEN_QUESTION = (name) => `What is ${name} made of? Name its main parts, separated by commas.`;
-
 /**
- * What opening a Thing up asks, by what sort of Thing it is (world.schemaOf):
- * a thing's parts, a process's stages in order, an idea's kinds. Asked of
- * everything as "what is it made of?", Earthquakes was made of Causes,
- * Magnitude and Location, and Love of near-synonyms of love.
+ * What opening a Thing up asks, by the sort of composition its inside is
+ * (world.schemaOf). The question is the discipline: a small model cannot tell
+ * which way round "is X a part of Y?" goes (it said a Bicycle is a part of a
+ * Wheel), but asked for the right members it names them well. So what enters
+ * an inside enters through the question that asked for it.
+ *
+ *   parts      an object's parts at its own scale: Mount Everest's summit,
+ *              ridges, glaciers. Asked what it is "made of", a model said
+ *              rock, ice, snow, and the Druid was in water chemistry in six moments.
+ *   material   a substance's makeup: Ice, of water molecules
+ *   stages     a process's stages, in order
+ *   elements   what makes up an idea: Love, of intimacy and commitment
  */
-export function openAsk(world, id, { topic = false, partOf = null } = {}) {
+export const PARTS_QUESTION = (name) => `What are the main parts of ${name}? Name the parts you could point to on ${name} itself, not the materials it is made of. Separate them with commas.`;
+
+export function openAsk(world, id, { partOf = null } = {}) {
   const name = world.nameOf(id);
   const schema = world.schemaOf ? world.schemaOf(id) : 'parts';
   const where = partOf ? `, a part of ${partOf}` : '';
   if (schema === 'stages') return { schema, label: `open up ${name}${where}: name its stages in order, ___`, question: `What are the stages of ${name}, in the order they happen? Name each stage in a few words, separated by commas.`, maxWords: 24 };
-  if (schema === 'kinds') return { schema, label: `open up ${name}${where}: name its main kinds, ___`, question: `Name the main kinds of ${name}, separated by commas.`, maxWords: 16 };
-  // Not "fill the web Snow": a Druid told so named Snow's parts as
-  // "Connections to other webs, How it works, Its purpose".
-  if (topic) return { schema, label: `name what ${name} is made of or involves, ___`, question: `In the world, what is ${name} made of, or what does it involve? Name the main ones, separated by commas.`, maxWords: 16 };
-  return { schema, label: `open up ${name}${where}: name what it is made of, ___`, question: OPEN_QUESTION(name), maxWords: 16 };
+  if (schema === 'material') return { schema, label: `open up ${name}${where}: name what it is made of, ___`, question: `What is ${name} made of? Name what it is made of, separated by commas.`, maxWords: 16 };
+  if (schema === 'elements') return { schema, label: `open up ${name}${where}: name what makes it up, ___`, question: `What makes up ${name}? Name the main things that together make it up, separated by commas.`, maxWords: 16 };
+  return { schema, label: `open up ${name}${where}: name its parts, ___`, question: PARTS_QUESTION(name), maxWords: 16 };
 }
 
 export const open = {
@@ -517,11 +533,12 @@ export const open = {
       // Nor what sits beside it, a part of the same whole: asked what the
       // Sun's Radiative Zone is made of, a model named the Photosphere and the
       // Chromosphere, the layers next to it.
-      // Only inside a Thing, where what sits side by side are parts of one
-      // whole: in a web, Hydrogen and the Protons beside it are not.
+      // Inside a Thing, what sits side by side are parts of one whole, the web
+      // it started on a subject included (Thalamus went inside Cortex, both
+      // parts of Brain). Not in a web of a person's that is no one's inside.
       const whole = locus.web && world.ownerOf(locus.web);
-      const inAnInside = whole && !world.druidOf(whole).topic && !data.topic && locus.web !== inside
-        && world.websOf(whole).some(w => w !== locus.web && !world.isSystemWeb(w));
+      const inAnInside = whole && !data.topic && locus.web !== inside
+        && (world.druidOf(whole).topic || world.websOf(whole).some(w => w !== locus.web && !world.isSystemWeb(w)));
       const besideIt = new Map((inAnInside ? world.thingsIn(locus.web) : [])
         .filter(id => id !== data.into && isObject(world, id)).map(id => [normalizeName(world.nameOf(id)), id]));
       const siblings = named.filter(n => besideIt.has(normalizeName(n)));
@@ -530,7 +547,6 @@ export const open = {
       if (names.length === 0 && siblings.length) return fail(`${siblings.join(', ')} ${siblings.length > 1 ? 'sit' : 'sits'} beside ${world.nameOf(data.into)}, not inside it; name what ${world.nameOf(data.into)} itself is made of`);
       if (names.length === 0) return fail(named.length ? `${named.join(', ')} cannot be a part of itself; name what it is made of` : 'no name');
       if (data.schema === 'stages') return openStages(ctx, data, inside, names, path);
-      if (data.schema === 'kinds') return openKinds(ctx, data, inside, names, path);
       const made = [];
       const kinds = [];
       const beside = [];
@@ -592,7 +608,7 @@ async function openStages(ctx, data, inside, names, path) {
     const name = stageName(given);
     if (!name) continue;
     // Not checked as parts: Rain is not "made of" Evaporation, it begins with it.
-    const r = await world.createThing(inside, name, { asPart: false });
+    const r = await world.createThing(inside, name);
     if (r.ok && r.web === inside && !made.includes(r.id)) made.push(r.id);
     else if (!r.ok) errors.push(r.error);
   }
@@ -602,36 +618,6 @@ async function openStages(ctx, data, inside, names, path) {
   world.focusWeb(inside);
   const said = made.map(id => world.nameOf(id)).join(', then ');
   return { ok: true, summary: `opened up ${world.nameOf(data.into)} into its stages: ${said}`, touched: [data.into, ...made], locus: { web: inside, focus: made[0], path }, wrote: true };
-}
-
-/**
- * An idea opened up: its kinds inside it, each a kind of it on its carousel
- * ladder. "Romantic", named as a kind of Love, is "Romantic love": the
- * quality check would refuse it alone.
- */
-async function openKinds(ctx, data, inside, names, path) {
-  const { world } = ctx;
-  const whole = world.nameOf(data.into);
-  const head = whole.toLowerCase();
-  const kinds = [];
-  const errors = [];
-  // Not its siblings: kinds of what it is a kind of ("Platonic love", named as a kind of Romantic love).
-  const parent = world.typeChain(data.into)[0];
-  const siblings = new Set(parent ? world.allThings().filter(id => id !== data.into && world.typeChain(id)[0] === parent).map(id => normalizeName(world.nameOf(id))) : []);
-  for (const given of names) {
-    let name = given;
-    // "Romantic" is Romantic love; "Self-love" and "Jazz" stand as they are.
-    if (wordsIn(name).length === 1 && !/-/.test(name) && !normalizeName(name).includes(normalizeName(head)) && looksLikeQuality(name)) name = `${name} ${head}`;
-    if (siblings.has(normalizeName(name))) { errors.push(`${name} is beside ${whole}, not a kind of it`); continue; }
-    const r = await world.createThing(inside, name, { asPart: false });
-    if (!r.ok) { errors.push(r.error); continue; }
-    const k = await world.addKind(r.id, data.into);
-    if (k.ok || k.already) { if (!kinds.includes(r.id)) kinds.push(r.id); } else errors.push(k.error);
-  }
-  if (kinds.length === 0) return fail(errors.filter(Boolean).join('; ') || 'could not name its kinds');
-  world.setDruid(data.into, { insideIs: 'kinds' });
-  world.focusWeb(inside);
-  return { ok: true, summary: `opened up ${whole} into its kinds: ${kinds.map(id => world.nameOf(id)).join(', ')}`, touched: [data.into, ...kinds], locus: { web: inside, focus: kinds[0], path }, wrote: true };
 }
 
 /**
@@ -741,7 +727,7 @@ export const promoteMove = {
   prior: 0.8,
   offer(ctx) {
     if (!ctx.locus.web) return [];
-    return ctx.held.filter(h => h.scratch).slice(0, 2).map(h => ({ label: `make "${ctx.world.nameOf(h.id)}" a lasting Thing in this web`, data: { id: h.id }, target: h.id }));
+    return ctx.held.filter(h => h.scratch).slice(0, 2).map(h => ({ label: `make "${ctx.world.nameOf(h.id)}" a lasting Thing`, data: { id: h.id }, target: h.id }));
   },
   async run(ctx, data) {
     // A half-formed thought may be a sentence; kept, it is named by a handle
@@ -755,8 +741,10 @@ export const promoteMove = {
         world.state().updateNodePrototype(data.id, (d) => { d.name = short; d.description = [said.replace(/[.!?]*$/, '.'), d.description].filter(Boolean).join(' '); });
       }
     }
-    if (!ctx.promote(data.id, ctx.locus.web)) return fail('could not promote it');
-    return { ok: true, summary: `kept the thought "${ctx.world.nameOf(data.id)}"`, touched: [data.id], locus: { ...ctx.locus, focus: data.id }, wrote: true };
+    // Noticed, not a part of where it was thought: kept in the Noticed folder
+    // until something places it where it belongs (world.js createThing).
+    if (!ctx.promote(data.id, ctx.world.noticedWeb ? ctx.world.noticedWeb() : ctx.locus.web)) return fail('could not promote it');
+    return { ok: true, summary: `kept the thought "${ctx.world.nameOf(data.id)}"`, touched: [data.id], wrote: true };
   }
 };
 
@@ -801,19 +789,22 @@ export const remember = {
     const names = namesIn(text).slice(0, 3);
     if (names.length === 0) return fail('nothing named');
     const made = [];
+    // Kept, not placed: a Thing in a thought is not therefore a part of the
+    // web it was thought in ("Mountain", kept while in Mount Everest, became a
+    // part of Mount Everest). Noticed until something places it.
+    const errors = [];
     for (const name of names) {
-      const r = await world.createThing(data.web, name);
-      if (r.ok) made.push(r.id);
+      const r = await world.createThing(data.web, name, { noticed: true });
+      if (r.ok) made.push(r.id); else errors.push(r.error);
     }
-    if (made.length === 0) return fail('could not keep them');
+    if (made.length === 0) return fail(errors.filter(Boolean).join('; ') || 'could not keep them');
     for (const id of made) {
       if ((world.proto(id)?.description || '').length < 12) {
         const d = await ctx.ask(`Describe ${world.nameOf(id)} in one short sentence, as you understand it.`, 16);
-        if (d) await world.act('updateNode', { nodeName: world.nameOf(id), description: d, targetGraphId: data.web });
+        if (d) await world.act('updateNode', { nodeName: world.nameOf(id), description: d, targetGraphId: world.websOf(id)[0] || data.web });
       }
     }
-    world.focusWeb(data.web);
-    return { ok: true, summary: `kept ${made.map(id => world.nameOf(id)).join(', ')} from that thought`, touched: made, locus: { web: data.web, focus: made[0], path: [] }, wrote: true };
+    return { ok: true, summary: `kept ${made.map(id => world.nameOf(id)).join(', ')} from that thought, as noticed`, touched: made, wrote: true };
   }
 };
 

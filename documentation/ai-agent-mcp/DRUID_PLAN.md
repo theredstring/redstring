@@ -379,6 +379,50 @@ Details:
 - **Checks that ask the model about itself agree with it.** Two-way questions catch some confusion (a kind each way is the same Thing). The same might work for made-of ("Is Care made of Body?" and "Is Body made of Care?"), but this is not yet probed.
 - **The judge.** qwen rejects true parts (Electron in Hydrogen, Gluons in Protons) and true sequences. A fixed, hand-checked set of statements from past runs would make scores comparable between rounds.
 
+### M12 — Webs are compositions (2026-10-05)
+
+**The principle (Grant).** The web-node relationship is composition. A web is its Thing opened up, and being placed in a web means being one of what makes that Thing up. Composition is an axis (zoom in and out), separate from the carousel's axis of kinds. Webs may be rooms or folders, but only when declared as that: a folder is a subtype of composition, made up of its members, and it is kept to what it is for.
+
+**What broke it.** The Druid 8's largest web, Mount Everest, held 78 Things:
+- 42 were beliefs, about 33 of them "X vs Y" contrasts;
+- there were kinds placed "beside" their Thing;
+- there were Things moved "one level out" of insides.
+
+M10 had exempted the webs the Druid starts from part checks, which made every web an undisciplined folder. "Made of" asked for material, not composition: Everest was "rock, ice, snow", and six moments later the Druid was doing water chemistry.
+
+**What a probe showed.** Apple's model cannot verify composition with a yes or no. Asked "is X a part of Y?", it says yes both ways (a Bicycle a part of a Wheel). The made-of check turned away a Summit from Everest and let Mountain in. A two-way check scored 17 of 30. But the model generates composition well when asked for exactly that: Everest → summit, ridge, glacier, valley; Oak → trunk, branches, leaves; Sun → core, photosphere, chromosphere, corona. So discipline is by construction, not verification.
+
+**The rules:**
+
+| Web | Sort | What enters, and how |
+|---|---|---|
+| an object's inside, a subject's web | parts at its own scale | open up ("the parts you could point to on X itself, not the materials"), add a part |
+| a substance's inside | material | "what is it made of" |
+| a process's inside | stages | in order, each leading to the next |
+| an idea's inside | what makes it up | "what makes up X" |
+| Noticed (folder) | what was noticed, not yet placed | Things kept from a thought, kinds, promoted notes; a Thing leaves Noticed when placed as a part |
+| Beliefs (folder) | claims and contrasts | found by what they are about (evidence, `about`) |
+| Home, Diary, Working Memory, plans | folders and steps | written by code |
+
+Details:
+- The sort is asked once per Thing: thing, process or idea, then object or substance (15 of 16).
+- Kinds are never placed in a web; they go on the carousel and into Noticed.
+- Nothing falls upward: there are no more moves "one level out", and sleep no longer audits insides with a yes or no.
+- "Make a Thing here" became "add a part to W". It is not offered at Home or inside a process.
+- Sleep moves beliefs out of content webs into Beliefs.
+
+**Result.** One sleep on a copy of The Druid 8 took the Mount Everest web from 78 Things to 30, all content. Fresh live runs:
+- Brain › Cortex, Cerebellum, Brainstem, Hypothalamus, Thalamus; Brainstem › Midbrain, Pons, Medulla oblongata.
+- Earth › Core, Mantle, Crust, Atmosphere, Oceans, Mountain; Mountain › Top › Peak, Summit, Ridge.
+
+**Also from The Druid 8:**
+- deletions left 263 placements of Things that were gone;
+- plan steps named like Things were taken for them by name resolution;
+- merges left Things with two insides;
+- kinds were given copies of their kind's inside.
+
+All are fixed, and sleep repairs universes that already have them.
+
 ## What the runs showed
 
 **Lab** (one cycle per trial from a built state; 10 scenarios × 5 trials):

@@ -178,7 +178,7 @@ export function isQuality(mind) {
  * 31 of 36 on Apple's model (2026-10-05); most misses called a process or an
  * idea a thing, which is asked about as before.
  *
- * @returns {Function} async (name) → 'thing' | 'process' | 'idea' | null
+ * @returns {Function} async (name) → 'object' | 'substance' | 'process' | 'idea' | null
  */
 export function category(mind) {
   const cache = new Map();
@@ -186,7 +186,16 @@ export function category(mind) {
     const key = String(name || '').trim();
     if (!key) return null;
     if (cache.has(key)) return cache.get(key);
-    const value = await ask(mind, 'category', 'Is the word below the name of a THING (an object or a substance you could point at), a PROCESS (something that happens over time, in steps), or an IDEA (something abstract you cannot point at)?', key, ['thing', 'process', 'idea']);
+    let value = await ask(mind, 'category', 'Is the word below the name of a THING (an object or a substance you could point at), a PROCESS (something that happens over time, in steps), or an IDEA (something abstract you cannot point at)?', key, ['thing', 'process', 'idea']);
+    // A thing is an object, composed of parts at its own scale (Mount Everest:
+    // summit, ridges, glaciers), or a substance, composed of what it is made
+    // of (Ice: water molecules). Asked of Everest what it is made of, a model
+    // said rock, ice, snow, and the Druid was in water chemistry in six
+    // moments. 15 of 16 on Apple's model (2026-10-05).
+    if (value === 'thing') {
+      const sort = await ask(mind, 'objectOrSubstance', 'Is the word below the name of an OBJECT (a single thing with parts you could point to, like a bicycle or a tree) or a SUBSTANCE (a material, like water or iron)?', key, ['object', 'substance']);
+      value = sort || 'object';
+    }
     cache.set(key, value);
     return value;
   };

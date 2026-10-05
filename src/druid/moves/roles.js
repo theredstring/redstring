@@ -311,11 +311,12 @@ export const believe = {
       name = titleish(await ctx.ask(`Give the belief "${claim}" a short name of at most 4 words that says what is believed, not only "${world.nameOf(data.about)}".`, 4) || shortName(claim));
       if (world.findThing(name)) name = shortName(claim);
     }
-    const r = await world.createThing(ctx.locus.web, name, { description: `${claim.replace(/[.!?]*$/, '.')} A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief, fresh: true });
+    // Kept with its beliefs, not among the parts of what it is about.
+    const r = await world.createThing(world.beliefsWeb ? world.beliefsWeb() : ctx.locus.web, name, { description: `${claim.replace(/[.!?]*$/, '.')} A belief about ${world.nameOf(data.about)}.`, typeNodeId: ctx.roles.types.belief, fresh: true });
     if (!r.ok) return fail(r.error);
     world.setDruid(r.id, { claim });
     addEvidence(world, r.id, { source: data.about, judgment: 'support', kind: sourceKind(world, data.about), tick: ctx.tick });
-    await world.connect(ctx.locus.web, r.id, data.about, 'is about');
+    world.setDruid(r.id, { about: data.about });
     return { ok: true, summary: `came to believe: ${claim}`, touched: [r.id, data.about], wrote: true };
   }
 };

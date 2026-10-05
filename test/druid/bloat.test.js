@@ -74,16 +74,24 @@ describe('names', () => {
     expect(seen.every(r => !/Redstring universe/.test(r.system) && r.temperature < 0.3)).toBe(true);
   });
 
-  it('a Thing that is not a part of what an inside belongs to goes one level out', async () => {
+  it('what enters an inside is not second-guessed by a yes or no; what is only noticed goes to Noticed, not one level out', async () => {
     const { world } = await freshWorld();
     const { webs, ids } = await buildUniverse(world, { webs: { Body: { things: { Feet: 'At the ends of the legs.' } } } });
+    world.actor = 'druid';
     const inside = world.ensureInside(ids.Feet);
-    world.check = async (s) => (/^Bone is a part of Feet$/.test(s) ? true : /is a part of/.test(s) ? false : null);
+    world.check = async () => false;
+    world.isPart = async () => false;
     const bone = await world.createThing(inside, 'Bone');
-    const oak = await world.createThing(inside, 'White Oak');
-    expect(bone).toMatchObject({ ok: true, web: inside, movedOut: false });
-    expect(oak).toMatchObject({ ok: true, web: webs.Body, movedOut: true });
+    const oak = await world.createThing(inside, 'White Oak', { noticed: true });
+    expect(bone).toMatchObject({ ok: true, web: inside });
+    expect(oak).toMatchObject({ ok: true, noticed: true });
+    expect(world.graph(oak.web).name).toBe('Noticed');
     expect(world.thingsIn(inside).map(world.nameOf)).toEqual(['Bone']);
+    expect(world.thingsIn(webs.Body).map(world.nameOf)).not.toContain('White Oak');
+    // Placed where it belongs later, it is no longer only noticed.
+    await world.createThing(inside, 'White Oak');
+    expect(world.thingsIn(oak.web)).not.toContain(oak.id);
+    expect(world.thingsIn(inside)).toContain(oak.id);
   });
 
 });
@@ -193,12 +201,12 @@ describe('episodes', () => {
 });
 
 describe('pruning', () => {
-  it('prunes what the Druid made and nothing holds; never what a person made, or what is connected or in mind', async () => {
+  it('prunes what the Druid noticed and nothing holds; never what a person made, a part of something, or what is connected or in mind', async () => {
     const { world } = await freshWorld();
     const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Given: 'made by a person', Anchor: 'a' } } } });
     world.actor = 'druid';
-    const lonely = await world.createThing(webs.W, 'Lonely');
-    const held = await world.createThing(webs.W, 'Held');
+    const lonely = await world.createThing(webs.W, 'Lonely', { noticed: true });
+    const held = await world.createThing(webs.W, 'Held', { noticed: true });
     const linkedOne = await world.createThing(webs.W, 'Linked');
     await world.connect(webs.W, linkedOne.id, ids.Anchor, 'leans on');
     for (const r of [lonely, held, linkedOne]) world.setDruid(r.id, { uses: [1] });
@@ -224,7 +232,9 @@ describe('tidying what is already there', () => {
     expect(items.map(i => i.label)).toEqual(['move White Oak out of Feet (it is not a part of it)']);
     expect((await moveOut.run(ctx, items[0].data)).ok).toBe(true);
     expect(world.thingsIn(inside).map(world.nameOf)).toEqual(['Toe']);
-    expect(world.thingsIn(webs.Body)).toContain(ids['White Oak']);
+    // Not up into Body: noticed, until something places it where it belongs.
+    expect(world.thingsIn(webs.Body)).not.toContain(ids['White Oak']);
+    expect(world.thingsIn(world.noticedWeb())).toContain(ids['White Oak']);
     expect(moveOut.offer(ctx)).toEqual([]);
   });
 
@@ -271,7 +281,7 @@ describe('invariants the world keeps', () => {
     world.place(webs.Elsewhere, world.ownerOf(topic)); // a Thing of that name shows up elsewhere
     world.check = async () => false;
     const made = await world.createThing(topic, 'YouTube tutorial');
-    expect(made).toMatchObject({ ok: true, web: topic, movedOut: false });
+    expect(made).toMatchObject({ ok: true, web: topic });
     expect(await auditInsides(world)).toEqual([]);
     expect(ids.Rain).toBeTruthy();
   });
