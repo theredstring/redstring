@@ -29,6 +29,7 @@
 import { normalizeName as norm } from './names.js';
 import { activePlans, roleType, roleOf, isBookkeeping } from './roles.js';
 import { auditInsides } from './moves/tidy.js';
+import { isOwnPlace } from './attention.js';
 
 const MIN_MEMBERS = 6;
 const MIN_GAIN = 2;
@@ -158,7 +159,7 @@ export function revert(world, revisionId) {
     for (const [member, oldType] of Object.entries(rev.before)) {
       if (world.proto(member)) world.state().setNodeType(member, oldType);
     }
-    for (const id of rev.created) if (world.proto(id)) world.state().deleteNodePrototype(id);
+    for (const id of rev.created) if (world.proto(id)) world.forget(id);
   }
   world.setDruid(revisionId, (d) => ({ ...d, revision: { ...d.revision, reverted: true } }));
   return true;
@@ -172,10 +173,15 @@ export async function sleep(ctx) {
   const { world, tick } = ctx;
   const report = { merged: [], misfits: [], split: [], declined: [] };
 
-  // 1. Duplicates.
-  for (const group of duplicateGroups(world).slice(0, 2)) {
+  // 1. Duplicates. The same name is the same Thing (world.js createThing), so
+  // one written twice exactly is merged without asking: asked, a judge kept two
+  // Molecules and two Minerals apart for a whole run. Only names that differ
+  // more than in capitals ("Cause", "Causes") are asked, two a sleep.
+  const exact = (g) => new Set(g.map(id => world.nameOf(id).trim().toLowerCase())).size === 1;
+  const groups = duplicateGroups(world);
+  for (const group of [...groups.filter(exact), ...groups.filter(g => !exact(g)).slice(0, 2)]) {
     const [a, b] = group;
-    const key = await ctx.judge(`Are these the same thing? "${world.nameOf(a)}" — ${world.proto(a)?.description || 'no description'}; and "${world.nameOf(b)}" — ${world.proto(b)?.description || 'no description'}.`, [
+    const key = exact(group) ? 'same' : await ctx.judge(`Are these the same thing? "${world.nameOf(a)}" — ${world.proto(a)?.description || 'no description'}; and "${world.nameOf(b)}" — ${world.proto(b)?.description || 'no description'}.`, [
       { key: 'same', label: 'the same thing, written twice' },
       { key: 'different', label: 'different things' }
     ]);
@@ -184,7 +190,7 @@ export async function sleep(ctx) {
     const [keep, drop] = linkCount(a) >= linkCount(b) ? [a, b] : [b, a];
     const name = world.nameOf(keep);
     const r = await world.act('mergeNodes', { primaryPrototypeId: keep, secondaryPrototypeId: drop });
-    if (r.ok) { world.unnest?.(keep); report.merged.push(name); }
+    if (r.ok) { world.unnest?.(keep); await world.foldInsides?.(keep); report.merged.push(name); }
   }
 
   // 2. Splits.
@@ -244,7 +250,7 @@ export async function sleep(ctx) {
     if (kinds.length !== 2) {
       // Half a split is no split: put it back.
       for (const [m, t] of Object.entries(before)) world.state().setNodeType(m, t);
-      for (const id of created) world.state().deleteNodePrototype(id);
+      for (const id of created) world.forget(id);
       report.declined.push(`split of ${T} (unnamed)`);
       continue;
     }
@@ -265,6 +271,29 @@ export async function sleep(ctx) {
   report.pruned = pruneDead(world, tick, keep);
   // Insides holding what is not a part of them, flagged for the Druid to move out.
   report.misplaced = await auditInsides(world);
+  // Placements of Things already gone (world.js repairDangling).
+  report.repaired = world.repairDangling?.() || 0;
+  // A plan's steps live in the plan: steps taken for Things of the same name
+  // were placed in content webs.
+  // One whose plan is gone and that lives only among content has become the
+  // Thing it names: merged into that Thing, its connections kept, or kept as it.
+  for (const id of world.allThings()) {
+    if (!world.druidOf(id).step || !world.proto(id)) continue;
+    const webs = world.websOf(id);
+    const loose = webs.filter(w => !isOwnPlace(world, w));
+    if (!loose.length) continue;
+    if (loose.length < webs.length) { for (const w of loose) world.unplace(w, id); report.repaired++; continue; }
+    const twin = world.allThings().find(t => t !== id && !world.druidOf(t).step && !isBookkeeping(world, t) && norm(world.nameOf(t)) === norm(world.nameOf(id)));
+    if (twin) {
+      const r = await world.act('mergeNodes', { primaryPrototypeId: twin, secondaryPrototypeId: id });
+      if (r.ok) { world.unnest?.(twin); await world.foldInsides?.(twin); }
+    } else {
+      world.setDruid(id, (d) => Object.fromEntries(Object.entries(d).filter(([k]) => k !== 'step')));
+    }
+    report.repaired++;
+  }
+  // Things merged before merges folded their insides.
+  for (const id of world.allThings()) report.repaired += await world.foldInsides?.(id) || 0;
 
   return report;
 }

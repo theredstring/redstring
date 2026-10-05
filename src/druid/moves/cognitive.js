@@ -48,16 +48,9 @@ async function isKindOf(world, a, b) {
   return (await world.isKindOf(a, b)) !== false;
 }
 
-/** Copy a Thing's inside into another's by reference: the same Things, placed again, connected the same way. */
-async function shareInside(world, fromId, toId) {
-  const from = world.insideOf(fromId);
-  if (!from) return 0;
-  const to = world.ensureInside(toId);
-  const parts = world.thingsIn(from);
-  for (const p of parts) world.place(to, p);
-  for (const l of world.linksIn(from)) await world.connect(to, l.a, l.b, l.relation);
-  return parts.length;
-}
+// A kind is not given a copy of its kind's inside: it has those parts by
+// being a kind of it (its carousel ladder). Copied, one long run held Ice's
+// whole inside again in Ice cube, and Soil's in Loam and in Sandy soil.
 
 export const variant = {
   id: 'variant',
@@ -76,9 +69,8 @@ export const variant = {
     const how = await ctx.ask(`How is ${name} different from ${world.nameOf(data.of)}? One short sentence.`, 16);
     const r = await world.createThing(ctx.locus.web, name, { description: how ? `A variant of ${world.nameOf(data.of)}: ${how}` : `A variant of ${world.nameOf(data.of)}.`, fresh: true, asPart: false });
     if (!r.ok) return fail(r.error);
-    const shared = await shareInside(world, data.of, r.id);
     await world.connect(ctx.locus.web, r.id, data.of, 'is a variant of');
-    return { ok: true, summary: `imagined ${name}, a variant of ${world.nameOf(data.of)}${shared ? `, sharing its ${shared} parts` : ''}`, touched: [r.id, data.of], locus: { ...ctx.locus, focus: r.id }, wrote: true };
+    return { ok: true, summary: `imagined ${name}, a variant of ${world.nameOf(data.of)}`, touched: [r.id, data.of], locus: { ...ctx.locus, focus: r.id }, wrote: true };
   }
 };
 
@@ -121,8 +113,7 @@ export const specialize = {
     world.writeLadders?.();
     const what = await ctx.ask(`What makes ${name} a particular kind of ${world.nameOf(data.of)}? One short sentence.`, 16);
     if (what) await world.act('updateNode', { nodeName: name, description: what, targetGraphId: ctx.locus.web });
-    const shared = await shareInside(world, data.of, r.id);
-    return { ok: true, summary: `named ${name}, a kind of ${world.nameOf(data.of)}${shared ? ` (it has the same ${shared} parts)` : ''}`, touched: [r.id, data.of], locus: { ...ctx.locus, focus: r.id }, wrote: true };
+    return { ok: true, summary: `named ${name}, a kind of ${world.nameOf(data.of)}`, touched: [r.id, data.of], locus: { ...ctx.locus, focus: r.id }, wrote: true };
   }
 };
 

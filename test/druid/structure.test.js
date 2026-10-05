@@ -641,3 +641,42 @@ describe('its memory is not an edit', () => {
     expect(world.druidOf(made.id).uses).toBe(20);
   });
 });
+
+describe('a long run stays whole', () => {
+  it('forgetting removes every placement; sleep repairs placements left behind, folds a second inside, merges exact twins and stray steps', async () => {
+    const { sleep } = await import('../../src/druid/sleep.js');
+    const { stepName } = await import('../../src/druid/moves/roles.js');
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Earth: { things: { Ice: 'i', Rock: 'r', Moss: 'm' } } } });
+    world.actor = 'druid';
+    // Forgotten, out of every web.
+    world.place(world.ensureInside(ids.Rock), ids.Moss);
+    world.forget(ids.Moss);
+    expect([...world.state().graphs.values()].flatMap(g => [...(g.instances?.values?.() || Object.values(g.instances || {}))]).some(i => i.prototypeId === ids.Moss)).toBe(false);
+    // A placement left by an older deletion is repaired.
+    world.place(webs.Earth, ids.Rock);
+    world.state().deleteNodePrototype(ids.Rock);
+    expect(world.repairDangling()).toBe(1);
+    // Two insides become one.
+    world.setDruid(ids.Ice, { madeBy: 'druid' });
+    const first = world.ensureInside(ids.Ice);
+    world.place(first, (await world.createThing(first, 'Water', { asPart: false })).id);
+    const second = world.state().createAndAssignGraphDefinitionWithoutActivation(ids.Ice);
+    world.place(second, (await world.createThing(second, 'Crystals', { asPart: false })).id);
+    expect(await world.foldInsides(ids.Ice)).toBe(1);
+    expect(world.thingsIn(world.insideOf(ids.Ice)).map(world.nameOf).sort()).toEqual(['Crystals', 'Water']);
+    // A step is never named like a Thing, and a name finds the Thing, not the step.
+    expect(stepName(world, 'Water')).toBe('Water (step)');
+    const step = (await world.createThing(webs.Earth, 'Granite', { reuse: false, fresh: true })).id;
+    world.setDruid(step, { step: true });
+    const granite = (await world.createThing(world.insideOf(ids.Ice), 'Granite', { asPart: false, reuse: false })).id;
+    world.place(webs.Earth, granite);
+    world.setDruid(granite, { madeBy: 'druid' });
+    expect(world.findThing('Granite')).toBe(granite);
+    // Sleep: the stray step merges into its twin, without asking.
+    const report = await sleep({ world, tick: 1, judge: async () => 'different', held: [] });
+    expect(world.proto(step)).toBeFalsy();
+    expect(world.proto(granite)).toBeTruthy();
+    expect(report.repaired).toBeGreaterThanOrEqual(1);
+  });
+});

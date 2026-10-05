@@ -51,7 +51,7 @@ function release(world, id) {
   const d = world.druidOf(id);
   if (d.role === 'scratch') {
     // A half-formed thought that was never promoted is gone.
-    world.state().deleteNodePrototype(id);
+    world.forget(id);
     return;
   }
   world.setDruid(id, (x) => without(x, 'wm'));

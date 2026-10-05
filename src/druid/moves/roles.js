@@ -197,12 +197,22 @@ export const makePlan = {
     // A step is its own Thing, never the content it names: reused, the step
     // "Dark matter particle" was the Thing Dark matter particle, and building
     // it filled the plan.
-    const s = await world.createThing(inside, step, { description: 'A step.', fresh: true, reuse: false });
+    const s = await world.createThing(inside, stepName(world, step), { description: 'A step.', fresh: true, reuse: false });
     if (!s.ok) return fail(s.error);
     world.setDruid(s.id, { step: true });
     return { ok: true, summary: `planned "${world.nameOf(data.goal)}", starting with: ${step}`, touched: [r.id, data.goal], wrote: true };
   }
 };
+
+/**
+ * A step's name, never another Thing's: tools find Things by name and take the
+ * last made, so a step "Minerals" was taken for the Thing Minerals and placed
+ * in Ice and Ice cube. Named like a Thing that exists, it is "Minerals (step)".
+ */
+export function stepName(world, step) {
+  const taken = world.allThings().some(id => normalizeName(world.nameOf(id)) === normalizeName(step));
+  return taken ? `${step} (step)` : step;
+}
 
 export const addStep = {
   id: 'addStep',
@@ -220,7 +230,7 @@ export const addStep = {
     const { world } = ctx;
     const inside = world.ensureInside(data.plan);
     const last = planSteps(world, data.plan).at(-1);
-    const s = await world.createThing(inside, step, { description: 'A step.', fresh: true, reuse: false });
+    const s = await world.createThing(inside, stepName(world, step), { description: 'A step.', fresh: true, reuse: false });
     if (!s.ok) return fail(s.error);
     world.setDruid(s.id, { step: true });
     if (last && last !== s.id) await world.connect(inside, last, s.id, 'then');

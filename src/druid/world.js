@@ -57,11 +57,18 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     .map(g => g.id);
 
   /** Find a Thing by name — the LAST match, so a current one beats an old one. */
+  // The last Thing of that name, preferring the world's over the Druid's own
+  // bookkeeping: a plan step named "Minerals" was found in place of Minerals.
   const findThing = (name) => {
     const want = lower(name);
     let hit = null;
-    for (const p of state().nodePrototypes.values()) if (lower(p.name) === want) hit = p.id;
-    return hit;
+    let own = null;
+    for (const p of state().nodePrototypes.values()) {
+      if (lower(p.name) !== want) continue;
+      const d = p.semanticMetadata?.druid || {};
+      if (d.step || d.roleType || d.system || d.homeOf) own = p.id; else hit = p.id;
+    }
+    return hit || own;
   };
 
   /** Write the Druid's bookkeeping onto a Thing. `patch` is merged; a function patch receives the current value. */
@@ -491,7 +498,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     for (const p of state().nodePrototypes.values()) {
       if (BASE_PROTOTYPE_IDS.has(p.id) || !p.name || normalizeName(p.name) !== want) continue;
       const d = p.semanticMetadata?.druid || {};
-      if (d.system || d.homeOf || d.roleType || d.topic || d.relation || isOwnThinking(p.id)) continue;
+      if (d.system || d.homeOf || d.roleType || d.topic || d.relation || d.step || isOwnThinking(p.id)) continue;
       hit = p.id;
     }
     return hit;
@@ -588,8 +595,49 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
         if (id !== protoId && websOf(id).every(w => w === inside)) forget(id);
       }
     }
+    // Out of every web first: deleting a Thing deletes its own inside, not
+    // where it was placed, and one long run left 263 placements of Things that
+    // no longer existed, shown as nameless dots.
+    for (const w of websOf(protoId)) unplace(w, protoId);
     state().deleteNodePrototype(protoId);
     return !proto(protoId);
+  };
+
+  /**
+   * One inside for a Thing the Druid made. Merging two Things that each had an
+   * inside left the survivor with both ("Ice crystal" with two webs, the
+   * second never found again). The smaller is folded into the larger, its
+   * connections with it. A person's Things keep every definition they gave.
+   */
+  const foldInsides = async (protoId) => {
+    if (!proto(protoId) || !druidOf(protoId).madeBy) return 0;
+    const insides = (proto(protoId).definitionGraphIds || []).filter(id => graph(id));
+    if (insides.length < 2) return 0;
+    const [keep, ...rest] = [...insides].sort((a, b) => thingsIn(b).length - thingsIn(a).length);
+    for (const w of rest) {
+      for (const id of thingsIn(w)) if (id !== protoId) place(keep, id);
+      const there = new Set(linksIn(keep).map(l => `${l.a}|${lower(l.relation)}|${l.b}`));
+      for (const l of linksIn(w)) {
+        if (there.has(`${l.a}|${lower(l.relation)}|${l.b}`)) continue;
+        await act('createEdge', { sourceId: nameOf(l.a), targetId: nameOf(l.b), type: l.relation, targetGraphId: keep });
+      }
+      state().deleteGraph(w);
+    }
+    state().updateNodePrototype(protoId, (draft) => {
+      draft.definitionGraphIds = (draft.definitionGraphIds || []).filter(id => !rest.includes(id));
+    });
+    return rest.length;
+  };
+
+  /** Placements of Things that no longer exist, removed (left by deletions before forget cleaned up after itself). */
+  const repairDangling = () => {
+    let n = 0;
+    for (const g of valuesOf(state().graphs)) {
+      for (const inst of valuesOf(g.instances)) {
+        if (!proto(inst.prototypeId)) { state().removeNodeInstance(g.id, inst.id); n++; }
+      }
+    }
+    return n;
   };
 
   /**
@@ -676,7 +724,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     category: null,
     state, proto, graph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
-    act, focusWeb, place, unplace, unnest, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, classify, schemaOf, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, isOwnThinking, move
+    act, focusWeb, place, unplace, unnest, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, classify, schemaOf, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, repairDangling, foldInsides, isOwnThinking, move
   };
   return api;
 }

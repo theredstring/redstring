@@ -24,18 +24,19 @@ async function setup(spec, focusName) {
 }
 
 describe('cognitive moves over the real store', () => {
-  it('variant: a new Thing sharing the same parts (placed again, not copied)', async () => {
+  it('variant: a new Thing, its own inside left for what makes it different', async () => {
     const { world, ids, ctx } = await setup({
       webs: { Kitchen: { things: { Bread: 'Baked dough.' }, insides: { Bread: { Flour: 'ground grain', Water: 'water' } } } }
     }, 'Bread');
     const r = await variant.run(ctx({ ask: answers(['It has no yeast.']) }), { of: ids.Bread }, 'Flatbread');
     expect(r.ok).toBe(true);
     const flat = world.findThing('Flatbread');
-    expect(world.thingsIn(world.insideOf(flat)).sort()).toEqual([ids.Flour, ids.Water].sort());
+    // Not Bread's parts again: copied, every kind repeated its kind's inside.
+    expect(world.insideOf(flat) ? world.thingsIn(world.insideOf(flat)) : []).toEqual([]);
     expect(world.proto(flat).description).toMatch(/no yeast/);
   });
 
-  it('specialize: an is-a link, inheriting the inside', async () => {
+  it('specialize: an is-a link; the kind has its kind\'s parts by the ladder, not by a copy', async () => {
     const { world, ids, ctx } = await setup({
       webs: { Geology: { things: { Rock: 'A solid mass.' }, insides: { Rock: { Mineral: 'a crystal' } } } }
     }, 'Rock');
@@ -43,7 +44,8 @@ describe('cognitive moves over the real store', () => {
     expect(r.ok).toBe(true);
     const basalt = world.findThing('Basalt');
     expect(world.proto(basalt).typeNodeId).toBe(ids.Rock);
-    expect(world.thingsIn(world.insideOf(basalt))).toEqual([ids.Mineral]);
+    expect(world.insideOf(basalt) ? world.thingsIn(world.insideOf(basalt)) : []).toEqual([]);
+    expect(world.typeChain(basalt)).toContain(ids.Rock);
   });
 
   it('chunk: offered only for Things that keep being in mind together, and gathers them', async () => {

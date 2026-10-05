@@ -68,6 +68,7 @@ export const mergeSame = {
     const r = await world.act('mergeNodes', { primaryPrototypeId: data.into, secondaryPrototypeId: data.from });
     if (!r.ok) return fail(r.error);
     world.unnest?.(data.into);
+    await world.foldInsides?.(data.into);
     return { ok: true, summary: `merged the second ${name} into the first`, touched: [data.into], wrote: true };
   }
 };
