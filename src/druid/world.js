@@ -22,7 +22,7 @@ import { graphStateFromStore } from './graphStateFromStore.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
 import { DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, isSeededChain, seededChainFor } from '../wizard/tools/utils/abstractionSpec.js';
-import { shortName, normalizeName, wordsIn, readsAsName, hasVerb, MAX_NAME_WORDS, aboutTheMedium, looksLikeQuality, isPlainlyQuality, isAspect, aspectOf, sameHead, isDoing } from './names.js';
+import { shortName, normalizeName, wordsIn, readsAsName, hasVerb, MAX_NAME_WORDS, aboutTheMedium, looksLikeQuality, isPlainlyQuality, isAspect, aspectOf, sameHead, isDoing, isAbsence } from './names.js';
 
 const valuesOf = (c) => (c instanceof Map ? Array.from(c.values()) : Array.isArray(c) ? c : Object.values(c || {}));
 const lower = (s) => String(s || '').trim().toLowerCase();
@@ -263,6 +263,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // aspect of one it already has ("Up quark structure").
     if (api.actor && contentKind && !isSystemWeb(graphId)) {
       if (isDoing(name)) return { ok: false, error: `"${name}" is something you do, not a Thing; name a Thing in the world` };
+      if (isAbsence(name)) return { ok: false, error: `"${name}" names something missing, not a Thing; name what is there` };
       if (wordsIn(name).length > 1 && /^(is|are|was|were)$/i.test(wordsIn(name).at(-1))) return { ok: false, error: `"${name}" is the start of a sentence, not a name` };
       const pieces = String(name).split(/\s*[-/+&]\s*/).filter(Boolean);
       if (pieces.length >= 2 && pieces.every(p => findThing(p) || sameNamed(p))) return { ok: false, error: `"${name}" only puts names together; name the one Thing you mean` };

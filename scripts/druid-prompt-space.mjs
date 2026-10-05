@@ -11,6 +11,7 @@
  * start. It is read-only to the Druid.
  *
  *   Identity   "Who you are"          — the system prompt
+ *              "When you talk"        — the system prompt when a person talks with it
  *   Questions  "Choose", "Thought"    — how each call is asked
  *   Moves      one Thing per move     — what each move does (for people; the
  *                                        Druid sees the move's own menu wording)
@@ -84,7 +85,7 @@ const moves = {};
 for (const m of druidMoves()) moves[m.id] = MOVE_NOTES[m.id] || '';
 await buildUniverse(world, {
   webs: {
-    Identity: { description: 'Who the Druid is told it is.', things: { 'Who you are': DEFAULT_PROMPT_SPACE.system } },
+    Identity: { description: 'Who the Druid is told it is.', things: { 'Who you are': DEFAULT_PROMPT_SPACE.system, 'When you talk': DEFAULT_PROMPT_SPACE.talk } },
     Questions: { description: 'How each kind of call is asked.', things: { Choose: DEFAULT_PROMPT_SPACE.questions.choose, Thought: DEFAULT_PROMPT_SPACE.questions.thought } },
     Moves: { description: 'The Druid\'s repertoire. Each is one menu option and a chain of deterministic steps.', things: moves }
   }

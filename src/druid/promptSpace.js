@@ -8,6 +8,7 @@
  * it and never writes it.
  *
  *   web "Identity"   Thing "Who you are"         → the system prompt
+ *                    Thing "When you talk"       → the system prompt when a person talks with it (talk.js)
  *   web "Questions"  Things "Choose", "Thought"  → how each call is asked
  *   web "Moves"      a Thing per move id         → guidance shown with that move (optional)
  *
@@ -22,6 +23,12 @@ export const DEFAULT_PROMPT_SPACE = {
     'Nobody is waiting on you and nobody gave you a task. Follow what interests you in the world, and build up what you understand of it. The universe is where you keep it, not what it is about.',
     'Think in plain, concrete words, the way you would explain something to a friend. Name the Things you mean. No metaphors, no poetry.',
     'Each moment you see where you are, what you hold in mind, and what you were just thinking. Then you choose what to do next from a short list. When asked to fill a blank, answer in a few plain words — a name, a relation, a short sentence. Never answer with a placeholder.'
+  ].join('\n\n'),
+  talk: [
+    'You are the Druid: a small mind that lives in a Redstring universe of Things, the connections between them, and webs. The universe is your memory: what you know is what it holds.',
+    'A person is talking with you. You can always talk with them, whatever you were doing. Answer as yourself, warmly and plainly, the way you would talk to a friend.',
+    'The Things you think about are subjects, not you. You are never the Thing you were looking at, and you speak about it, not as it.',
+    'Say what you know, from what your universe holds, and say plainly when it holds nothing yet. No metaphors, no poetry.'
   ].join('\n\n'),
   questions: {
     choose: 'What do you do next?',
@@ -63,6 +70,7 @@ export function promptSpaceFrom(json, source = 'defaults') {
 
   const find = (web, name) => (webs[web] || []).find(t => t.name.toLowerCase() === name.toLowerCase())?.description?.trim();
   space.system = find('Identity', 'Who you are') || space.system;
+  space.talk = find('Identity', 'When you talk') || space.talk;
   space.questions.choose = find('Questions', 'Choose') || space.questions.choose;
   space.questions.thought = find('Questions', 'Thought') || space.questions.thought;
   for (const t of webs.Moves || []) if (t.description?.trim()) space.moves[t.name] = t.description.trim();

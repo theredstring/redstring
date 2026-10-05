@@ -64,7 +64,7 @@ export function renderDialogue({ throughLine, said }, tick) {
   if (throughLine) lines.push(`Lately: ${throughLine}`);
   for (const s of stillSaid(said, tick)) {
     const ago = tick - s.tick;
-    lines.push(`A person said to you${ago > 0 ? ` (${ago} moment${ago === 1 ? '' : 's'} ago)` : ''}: "${s.text}"`);
+    lines.push(`A person said to you${ago > 0 ? ` (${ago} moment${ago === 1 ? '' : 's'} ago)` : ''}: "${s.text}"${s.answer ? ` You answered: "${s.answer}"` : ''}`);
   }
   return lines.join('\n');
 }

@@ -15,7 +15,8 @@ import { createMind } from '../mind/createMind.js';
 import { openaiCompatible } from '../mind/backends.js';
 import { afmClient, assertAvailable } from '../mind/afmClient.js';
 import { createDruid } from '../druid.js';
-import { ensureHome } from '../roles.js';
+import { ensureHome, HOME_MARK } from '../roles.js';
+import { answer, TALK_KEEP } from '../talk.js';
 
 const UNREACHABLE_AFTER = 3;
 
@@ -64,8 +65,9 @@ export async function backendFor({ mind, endpoint, model }, electron = globalThi
  * @param {number} [opts.pauseMs]        a breath between cycles, so a person can read along
  * @param {Function} [opts.onCycle]      (cycle record) → void
  * @param {Function} [opts.onStop]       ({ reason, error }) → void
+ * @param {Function} [opts.onReply]      (text, tick) → void: its answer to what was said, as soon as it has one
  */
-export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', speak = 'menu', pauseMs = 600, onCycle = () => {}, onStop = () => {}, window = 4096 } = {}) {
+export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', speak = 'menu', pauseMs = 600, onCycle = () => {}, onStop = () => {}, onReply = null, window = 4096 } = {}) {
   const controller = new AbortController();
   const world = createWorld({ store, executeTool, applyToolResult });
   // What a person says, waiting for its next moment (runLife's `heard`).
@@ -79,7 +81,7 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
       const owner = await homeOwner(world);
       // Copies both ways: the store freezes what it holds, and the loop changes its own.
       const resume = owner && world.druidOf(owner).life ? JSON.parse(JSON.stringify(world.druidOf(owner).life)) : {};
-      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal, hear: () => inbox.splice(0) });
+      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal, hear: () => inbox.splice(0), onReply });
       let unreachable = 0;
       for await (const r of life) {
         const owner2 = await homeOwner(world);
@@ -108,5 +110,39 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
     return { reason, error };
   })();
 
-  return { stop: () => controller.abort(), say: (text) => { inbox.push({ text: String(text), at: Date.now() }); }, done, world, mind };
+  return { stop: () => controller.abort(), say: (text, { answered = false } = {}) => { inbox.push({ text: String(text), at: Date.now(), answered }); }, done, world, mind };
+}
+
+/**
+ * Talk with the Druid while it sleeps: one answer, from what the universe
+ * holds (talk.js), with what it was doing and the conversation it keeps on
+ * Home. Writes nothing into the universe but the exchange, onto Home's loop
+ * state; what was said is also heard when it wakes, but not answered again.
+ * Returns { ok, text, error? }.
+ *
+ * @param {Object} deps   { store, promptSpace, backend }
+ * @param {Object} talk   { text, history? } (history: [{ who, text }], from the panel when Home has none)
+ */
+export async function talkTo({ store, promptSpace, backend }, { text, history = null, window = 4096 } = {}) {
+  const world = createWorld({ store, executeTool: async () => ({ ok: false }), applyToolResult: () => {} });
+  const home = [...store.getState().nodePrototypes.values()].find(p => p.semanticMetadata?.druid?.homeOf === HOME_MARK);
+  const life = home?.semanticMetadata?.druid?.life || {};
+  try {
+    const past = life.talk || history || [];
+    const r = await answer(world, createMind({ backend, window }), {
+      text,
+      history: past,
+      throughLine: life.throughLine || '',
+      focus: life.locus?.focus || null,
+      system: promptSpace?.talk
+    });
+    // Kept with its loop state, so it remembers the conversation when it wakes.
+    if (home && r.text) {
+      const tick = life.tick || 0;
+      world.setDruid(home.id, { life: { ...life, talk: [...past, { who: 'person', text, tick }, { who: 'druid', text: r.text, tick }].slice(-TALK_KEEP * 2) } });
+    }
+    return r;
+  } finally {
+    backend.close?.();
+  }
 }

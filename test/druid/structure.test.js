@@ -546,6 +546,19 @@ describe('one Thing, once', () => {
   });
 });
 
+describe('what is missing is not a Thing', () => {
+  it('"No signal" is refused as a part; a hyphened name is a Thing', async () => {
+    const { isAbsence } = await import('../../src/druid/names.js');
+    expect(['No signal', 'No vibration', 'Without light', 'Lack of water', 'Absence of sound', 'Non living'].every(isAbsence)).toBe(true);
+    expect(['No-fly zone', 'Non-Newtonian fluid', 'Absence', 'Nothingness', 'Noise', 'North'].some(isAbsence)).toBe(false);
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { Absence: { things: { Silence: 's' } } } });
+    world.actor = 'druid';
+    expect((await world.createThing(webs.Absence, 'No signal')).error).toMatch(/names something missing/);
+    expect((await world.createThing(webs.Absence, 'No-fly zone')).ok).toBe(true);
+  });
+});
+
 describe('what it does is not a Thing', () => {
   it('"Find" is refused; a refused "both kinds of" is asked again as a blank', async () => {
     const { connectSaying } = await import('../../src/druid/moves/basic.js');

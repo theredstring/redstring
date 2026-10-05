@@ -198,6 +198,17 @@ export function sameHead(name, whole) {
   return !!w && n !== w && n.endsWith(` ${w}`);
 }
 
+/**
+ * A name for what is missing, not for a Thing: "No signal", "No vibration",
+ * "Without light". Something defined by a lack has no parts: opened up, "No
+ * signal" was made of "No sound" and "No vibration", and "No vibration" of
+ * "No motion", four webs down (The Druid 9, 2026-10-05). Hyphened names are
+ * Things ("No-fly zone", "Non-Newtonian fluid").
+ */
+export function isAbsence(name) {
+  return /^(no|not|non|without|lack of|absence of)\s+\S/i.test(String(name || '').trim());
+}
+
 /** Words for what the Druid does, not Things in the world: "Find" and "Understand", kept from its own thoughts. */
 const DOING = new Set(['find', 'understand', 'learn', 'explore', 'know', 'see', 'think', 'study', 'discover', 'investigate', 'observe', 'ask',
   'wonder', 'remember', 'try', 'look', 'examine', 'consider', 'describe', 'explain', 'analyze', 'analyse', 'compare', 'figure', 'search', 'notice', 'fill']);

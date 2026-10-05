@@ -35,6 +35,7 @@ import { DEFAULT_PROMPT_SPACE } from './promptSpace.js';
 import { thoughtSimilarity } from './runDruid.js';
 import { VERBS, renderCommands, asCommand, runCommand, commandByVerb } from './commands/commands.js';
 import { throughLineDue, keepThroughLine, stillSaid, renderDialogue, saidSources } from './dialogue.js';
+import { answer, TALK_KEEP } from './talk.js';
 import { extendTrail, renderTrail } from './recency.js';
 
 const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|defined)\b/i;
@@ -63,6 +64,7 @@ const LEFT_SIZE = 4;
  * @param {'menu'|'commands'} [opts.speak]  choose from a menu of moves, or write a plain command (commands/commands.js)
  * @param {Function} [opts.hear]      () → [{ text }]: what a person has said since the last moment (dialogue.js)
  * @param {Function} [opts.onHeard]   async (world, text, tick) → a line for the notice, if what was said changed something (e.g. became a goal)
+ * @param {Function} [opts.onReply]   (text, tick) → void: its answer, as soon as it has one (before it acts)
  */
 export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE }, {
   resume = {},
@@ -79,7 +81,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
   signal = null,
   speak = 'menu',
   hear = () => [],
-  onHeard = null
+  onHeard = null,
+  onReply = null
 } = {}) {
   const st = {
     tick: resume.tick || 0,
@@ -95,6 +98,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     throughLine: resume.throughLine || '',
     throughLineAt: resume.throughLineAt || 0,
     said: Array.isArray(resume.said) ? [...resume.said] : [],
+    // The conversation with a person, both sides (talk.js), kept across sleeps.
+    talk: Array.isArray(resume.talk) ? [...resume.talk] : [],
+    lastDid: resume.lastDid || '',
     trail: Array.isArray(resume.trail) ? [...resume.trail] : [],
     notice: ''
   };
@@ -111,11 +117,36 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // ── HEAR ──────────────────────────────────────────────────────────────
     // What a person said since the last moment: kept for a while, shown with
     // every choice, and steering attention (dialogue.js).
-    const heard = (hear() || []).map(h => String(h?.text ?? h).trim()).filter(Boolean);
+    // Each { text, answered }: answered while it slept (talk.js), it is heard but not answered again.
+    const heardItems = (hear() || []).map(h => ({ text: String(h?.text ?? h).trim(), answered: !!h?.answered })).filter(h => h.text);
+    const heard = heardItems.map(h => h.text);
     for (const text of heard) {
       st.said = [...st.said, { text, tick }].slice(-6);
       const changed = onHeard ? await onHeard(world, text, tick).catch(() => null) : null;
       if (changed) st.notice = [st.notice, changed].filter(Boolean).join('\n');
+    }
+
+    // ── ANSWER ────────────────────────────────────────────────────────────
+    // At once, as itself, from what the universe holds (talk.js): asked over
+    // the moment's own prompt, it answered in the voice of the web it stood in.
+    let reply = null;
+    const unanswered = heardItems.filter(h => !h.answered).map(h => h.text);
+    if (unanswered.length) {
+      const said = unanswered[unanswered.length - 1];
+      const r = await answer(world, mind, {
+        text: said,
+        history: [...st.talk, ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))],
+        throughLine: st.throughLine,
+        focus: st.locus.focus,
+        doing: st.lastDid,
+        system: promptSpace.talk
+      });
+      reply = r.text || null;
+      st.talk = [...st.talk, ...unanswered.map(t => ({ who: 'person', text: t, tick })), ...(reply ? [{ who: 'druid', text: reply, tick }] : [])].slice(-TALK_KEEP * 2);
+      if (reply) {
+        st.said = st.said.map(x => (x.tick === tick && x.text === said ? { ...x, answer: reply } : x));
+        if (onReply) onReply(reply, tick);
+      }
     }
 
     // ── ATTEND ────────────────────────────────────────────────────────────
@@ -230,7 +261,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       }
       if (!result) {
         if (item.blank && !text) {
-          result = { ok: false, summary: `${item.move.id}: left the blank empty`, touched: [], wrote: false };
+          // Apple's model blocks some plain questions outright ("What makes up Death?"), and blocks them again each time.
+          const blocked = calls.some(c => c.kind === 'fill' && /guardrailViolation/.test(c.error || ''));
+          result = { ok: false, summary: `${item.move.id}: ${blocked ? "the model's safety filter would not answer" : 'left the blank empty'}`, touched: [], wrote: false };
         } else {
           try {
             result = await item.move.run(ctx, item.data, text);
@@ -242,8 +275,10 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       st.recent = [...st.recent, item.key].slice(-RECENT_SIZE);
     }
     if (!result.ok && result.error) st.notice = `Your last move did not work: ${result.error}`;
-    // A check's refusal is remembered against the item, so it is not offered again soon.
-    if (item && !result.ok && REFUSAL.test(result.error || result.summary || '')) {
+    // A check's refusal, or a blank it could not fill, is remembered against
+    // the item, so it is not offered again soon: chosen first every time, an
+    // unanswerable one was the whole of a run.
+    if (item && !result.ok && (REFUSAL.test(result.error || result.summary || '') || UNFILLED.test(result.summary || ''))) {
       st.refused = Object.fromEntries([...Object.entries(st.refused).filter(([, t]) => tick - t < REFUSED_FOR), [item.key, tick]]);
     }
     // Moving about without doing anything, cycle after cycle, is said out loud.
@@ -300,17 +335,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // shown. Kept, one sentence held a Druid for sixty moments.
     if (st.stuck >= 2) { st.loop = []; st.stuck = 0; }
 
-    // ── ANSWER, and keep the through line ─────────────────────────────────
-    let reply = null;
-    if (heard.length) {
-      const r = await mind.fill({
-        ...sections(),
-        notice: `You just ${result.ok ? result.summary : `tried, but ${result.summary}`}.`,
-        question: `A person just said to you: "${heard[heard.length - 1]}". Answer them in one or two plain sentences, as yourself: what you think, or what you will do.`,
-        maxWords: 40
-      });
-      reply = r.text;
-    }
+    // ── KEEP THE THROUGH LINE ─────────────────────────────────────────────
+    st.lastDid = result.ok ? result.summary : `tried, but ${result.summary}`;
     if (throughLineDue(st, tick)) {
       const r = await mind.fill({
         ...sections(),
@@ -368,12 +394,14 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 function snapshot(st) {
   return {
     tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
-    throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail
+    throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail,
+    talk: st.talk, lastDid: st.lastDid
   };
 }
 
 /** Failures that are a check saying no, as opposed to a slip. */
-const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation|does not say how|only repeats a name|could not tell from|not inside it|something you do|only puts names together|no subject of its own|already your goal/i;
+const UNFILLED = /: left the blank empty$|safety filter would not answer$/;
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation|does not say how|only repeats a name|could not tell from|not inside it|something you do|only puts names together|no subject of its own|already your goal|names something missing/i;
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

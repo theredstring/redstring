@@ -124,6 +124,22 @@ describe('runLife over the real store', () => {
     expect(itemKey(g, { target: 'b', data: { a: 'a', b: 'b' } })).toBe(itemKey(g, { target: 'a', data: { a: 'b', b: 'a' } }));
   });
 
+  it("a blank the model will not fill is not chosen again and again (Apple's safety filter)", async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Death: 'the end of a life' } } } });
+    // Always the first option; every question about what makes up Death blocked, as Apple's filter blocked it.
+    const backend = scripted((req) => {
+      if (req.schema.name === 'choice') return { choice: '1' };
+      if (/makes up Death|part of Death|Death is made of/i.test(req.user) && !THOUGHT_Q.test(req.user)) throw new Error('afm: guardrailViolation');
+      return req.schema.name === 'fill' ? { text: 'Still here.' } : {};
+    });
+    const { cycles } = await live(world, createMind({ backend }), 6, { moves: druidMoves(), resume: { tick: 0, locus: { web: webs.W, focus: ids.Death, path: [] } } });
+    const blocked = cycles.filter(c => /safety filter would not answer/.test(c.result.summary));
+    expect(blocked.length).toBeGreaterThan(0);
+    const chosen = blocked.map(c => c.chose);
+    expect(new Set(chosen).size).toBe(chosen.length);
+  });
+
   it('moving about without doing anything, twice running, is said out loud', async () => {
     const { world } = await freshWorld();
     const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Dog: 'd', Cat: 'c', Bird: 'b' } } } });

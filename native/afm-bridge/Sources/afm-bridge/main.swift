@@ -15,6 +15,12 @@
 // is translated to a DynamicGenerationSchema, so the model cannot produce an
 // answer outside it. Each request gets a fresh session — the Druid's calls are
 // independent and carry their own context.
+//
+// Apple's guardrails block some plain questions on plain subjects ("What makes
+// up Death?"). A blocked answer that is one free string (the Druid's fill) is
+// asked once more under the permissive guardrails, which pass text responses
+// but not guided ones, and the text is put back in the shape asked for. The
+// reply then carries "permissive": true.
 
 import Foundation
 import FoundationModels
@@ -88,6 +94,23 @@ func generationSchema(_ spec: SchemaSpec) throws -> GenerationSchema {
     return try GenerationSchema(root: root, dependencies: [])
 }
 
+/// The one free-string property of a schema, if that is all it asks for (a fill).
+func singleTextProperty(_ spec: SchemaSpec?) -> String? {
+    guard let spec, spec.schema.properties.count == 1, let (name, p) = spec.schema.properties.first,
+          (p.enum ?? []).isEmpty, (p.type ?? "string") == "string" else { return nil }
+    return name
+}
+
+/// The same request as plain text, under the permissive guardrails, put back in its one property.
+func permissiveText(_ req: Request, property: String, options: GenerationOptions) async -> String? {
+    let model = SystemLanguageModel(guardrails: .permissiveContentTransformations)
+    let session = LanguageModelSession(model: model, instructions: req.system)
+    guard let response = try? await session.respond(to: req.user ?? "", options: options) else { return nil }
+    let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let data = try? JSONSerialization.data(withJSONObject: [property: text], options: [.sortedKeys]) else { return nil }
+    return String(data: data, encoding: .utf8)
+}
+
 func complete(_ req: Request) async -> [String: Any] {
     let model = SystemLanguageModel.default
     guard case .available = model.availability else {
@@ -117,6 +140,9 @@ func complete(_ req: Request) async -> [String: Any] {
         case .exceededContextWindowSize:
             return ["id": req.id, "ok": false, "error": "exceededContextWindowSize"]
         case .guardrailViolation:
+            if let property = singleTextProperty(req.schema), let content = await permissiveText(req, property: property, options: options) {
+                return ["id": req.id, "ok": true, "content": content, "usage": [String: Any](), "permissive": true]
+            }
             return ["id": req.id, "ok": false, "error": "guardrailViolation"]
         default:
             return ["id": req.id, "ok": false, "error": String(describing: error)]

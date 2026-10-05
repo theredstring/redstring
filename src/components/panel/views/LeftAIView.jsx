@@ -26,6 +26,9 @@ import { useWizardConfirmationStore, pendingForConversation, buildConfirmationQu
 import { settleToolCallBlocks, settleToolCallBlocksInPlace, settleToolCallsInMessages, clearStuckStreamingFlags } from './toolCallStatus.js';
 import DruidView, { DruidHeaderActions } from '../../canvas/druid/DruidView.jsx';
 import useDruidStore from '../../canvas/druid/druidStore.js';
+
+/** Which of the panel's modes was open last, on this device. */
+const VIEW_MODE_KEY = 'redstring_wizard_view_mode';
 import debugConfig from '../../../utils/debugConfig.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import { useTheme } from '../../../hooks/useTheme.js';
@@ -637,7 +640,19 @@ const LeftAIView = ({ compact = false,
   const [testToolArgs, setTestToolArgs] = React.useState('');
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
-  const [viewMode, setViewMode] = React.useState('wizard'); // 'wizard', 'chat', 'druid'
+  // 'wizard', 'chat', 'druid'. Remembered on this device, so a reload comes
+  // back to the Druid's run rather than to the Wizard.
+  const [viewMode, setViewModeState] = React.useState(() => {
+    try {
+      const saved = globalThis.localStorage?.getItem(VIEW_MODE_KEY);
+      if (saved === 'chat' || (saved === 'druid' && debugConfig.isDruidEnabled())) return saved;
+    } catch { /* per-device convenience only */ }
+    return 'wizard';
+  });
+  const setViewMode = React.useCallback((mode) => {
+    setViewModeState(mode);
+    try { globalThis.localStorage?.setItem(VIEW_MODE_KEY, mode); } catch { /* per-device convenience only */ }
+  }, []);
   const druidStatus = useDruidStore(s => s.status);
   // 'plan' | 'goal' — which contract ends a Wizard turn. Shared with AI settings.
   const [wizardMode, setWizardMode] = useWizardMode();
@@ -657,7 +672,7 @@ const LeftAIView = ({ compact = false,
       active: viewMode === opt.value,
       action: () => setViewMode(opt.value),
     })), { onClose: () => setShowModeMenu(false) });
-  }, [viewMode]);
+  }, [viewMode, setViewMode]);
   // Chooser for the Wizard's Plan/Goal mode. A chooser, not a toggle: a lone
   // icon could not say whether it showed the mode you were in or the one a
   // click would take you to. The pill names the current mode; the menu shows

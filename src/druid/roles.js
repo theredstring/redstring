@@ -30,7 +30,7 @@ export const ROLE_TYPES = {
   episode: { name: 'Episode', description: 'Something that happened.' }
 };
 
-const HOME_MARK = 'home';
+export const HOME_MARK = 'home';
 
 /** The Home web: an ordinary web (the Druid can visit and reshape it), marked once. */
 export async function ensureHome(world) {
