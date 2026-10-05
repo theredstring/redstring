@@ -1,8 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Send, Copy, Check, Eraser } from 'lucide-react';
+import { Send, Copy, Check, Eraser, Moon } from 'lucide-react';
 import { useTheme } from '../../../hooks/useTheme.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
-import useDruidStore from './druidStore.js';
+import useDruidStore, { sleptLine } from './druidStore.js';
 
 /**
  * The Druid, inside the Wizard panel (its "The Druid" mode): wake a small
@@ -38,8 +38,15 @@ function Moment({ c, tokens }) {
         {c.chose || 'did not choose'}{c.text ? ` → ${c.text}` : ''}
       </div>
       <div style={{ fontSize: 10, color: tokens.muted }}>
-        {c.result?.summary}{c.slept ? ' · slept' : ''}
+        {c.result?.summary}
       </div>
+      {/* Every 12 moments it sleeps: merges, repairs, lets go (druid/sleep.js). Its own row, so it is seen. */}
+      {c.slept && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '5px 8px', borderRadius: 6, background: tokens.field, fontSize: 11, lineHeight: 1.4, color: tokens.text }}>
+          <Moon size={12} style={{ flexShrink: 0, marginTop: 2, color: tokens.brand }} />
+          <span><span style={{ color: tokens.brand }}>Slept</span>: {sleptLine(c.slept)}</span>
+        </div>
+      )}
     </div>
   );
 }

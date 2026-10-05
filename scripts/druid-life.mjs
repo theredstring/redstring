@@ -164,7 +164,7 @@ try {
     for (const h of r.heard || []) out(`  ${accent('you:')} ${h}\n`);
     if (r.reply) out(`  ${accent('it:')} ${r.reply}\n`);
     if (r.throughLine) out(dim(`  lately: ${r.throughLine}\n`));
-    if (r.slept) out(`  ${accent('☾ slept')} ${dim(JSON.stringify(r.slept).slice(0, 300))}\n`);
+    if (r.slept) out(`  ${accent('slept')} ${dim(JSON.stringify(r.slept).slice(0, 300))}\n`);
     out(dim(`  held: ${r.held.join(', ') || '—'} · ${r.size.things} Things, ${r.size.webs} webs · calls ${mind.stats.calls}, invalid ${mind.stats.invalid}\n`));
 
     await fsp.writeFile(statePath, JSON.stringify(r.state));

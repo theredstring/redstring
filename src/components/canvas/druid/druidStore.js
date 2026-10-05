@@ -49,13 +49,21 @@ export function compactCall(c) {
 }
 
 /** What sleep did, in a line: only what it did. */
-function sleptLine(slept) {
+/** What each part of a sleep did, in plain words (sleep.js). */
+const SLEPT_WORDS = {
+  merged: 'merged', split: 'split a kind', declined: 'kept apart', lapsed: 'let go of plans',
+  condensed: 'folded moments into the day', pruned: 'forgot', repaired: 'repaired', misplaced: 'flagged'
+};
+
+/** One sleep, as a line: "merged 2 (Molecules; Minerals), repaired 315", or "nothing to tidy". */
+export function sleptLine(slept) {
   if (!slept) return '';
   if (slept.error) return `failed: ${slept.error}`;
   const parts = [];
   for (const [k, v] of Object.entries(slept)) {
-    if (Array.isArray(v) && v.length) parts.push(`${k} ${v.length}${typeof v[0] === 'string' ? ` (${v.slice(0, 4).join('; ')})` : ''}`);
-    else if (typeof v === 'number' && v > 0) parts.push(`${k} ${v}`);
+    const word = SLEPT_WORDS[k] || k;
+    if (Array.isArray(v) && v.length) parts.push(`${word} ${v.length}${typeof v[0] === 'string' ? ` (${v.slice(0, 4).join('; ')})` : ''}`);
+    else if (typeof v === 'number' && v > 0) parts.push(`${word} ${v}`);
   }
   return parts.join(', ') || 'nothing to tidy';
 }
