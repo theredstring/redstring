@@ -101,6 +101,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // The conversation with a person, both sides (talk.js), kept across sleeps.
     talk: Array.isArray(resume.talk) ? [...resume.talk] : [],
     lastDid: resume.lastDid || '',
+    lastWrote: !!resume.lastWrote,
     trail: Array.isArray(resume.trail) ? [...resume.trail] : [],
     notice: ''
   };
@@ -163,13 +164,70 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const view = buildView(world, st.locus, activation, { tick });
 
     const extra = extras(world, st.locus);
-    const sections = () => ({
+    // The moment's context, fixed as it begins: every call of the moment shares
+    // it, so Apple's model reads it once (mind/budget.js, afmClient.js). What
+    // changes within the moment (what was said, its thought, a notice, the
+    // question) is each call's turn.
+    const context = {
       system: promptSpace.system,
-      wm: [renderDialogue(st, tick), renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
+      wm: [renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
       view: renderView(view, { world, tick, writes: st.writes, trail: st.trail }),
-      loop: st.loop.length ? `What you were just thinking:\n${st.loop.map(t => `- ${t}`).join('\n')}` : (seed && tick === 1 ? `On your mind as you wake: ${seed}` : ''),
+      loop: st.loop.length ? `What you were just thinking:\n${st.loop.map(t => `- ${t}`).join('\n')}` : (seed && tick === 1 ? `On your mind as you wake: ${seed}` : '')
+    };
+    let thought = null;
+    const sections = () => ({
+      ...context,
+      dialogue: [renderDialogue(st, tick), thought && `What you are thinking now: ${thought}`].filter(Boolean).join('\n'),
       notice: st.notice
     });
+
+    // ── THINK ─────────────────────────────────────────────────────────────
+    // First, about what it sees now and what it just did; then it chooses.
+    // (Asked last in a moment, over a view of its own, it was a whole reading
+    // of the prompt more each moment.) Not shown the through line: shown it,
+    // the through line became the thought, ten moments running.
+    const thoughtCall = await mind.fill({
+      ...context,
+      notice: st.lastDid ? `You just ${st.lastDid}.` : '',
+      question: promptSpace.questions.thought,
+      maxWords: 30
+    });
+    // A thought that says the question back is no thought: "What are you
+    // thinking now? Name the Things you mean." was kept as a Thing, "I am
+    // thinking now", and thought about for sixty moments.
+    thought = thoughtCall.text && thoughtSimilarity(thoughtCall.text, promptSpace.questions.thought) < 0.5 ? thoughtCall.text : null;
+    // A thought that repeats the last one is not rehearsed again: fed back
+    // verbatim, a repeated thought becomes an attractor. On its first v2 run a
+    // 4B model spent ten cycles restating one image of "breath stitching
+    // silence", each version seeding the next.
+    const repeating = thought && [...st.loop, st.throughLine].filter(Boolean).some(prev => thoughtSimilarity(thought, prev) > 0.6);
+    if (thought && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
+    st.stuck = repeating ? (st.stuck || 0) + 1 : 0;
+    if (repeating) st.notice = [st.notice, 'You keep coming back to the same thought. Look at something else, or do something with it.'].filter(Boolean).join('\n');
+    // Stuck: the loop is let go, so the thought it keeps seeding is no longer
+    // shown. Kept, one sentence held a Druid for sixty moments.
+    if (st.stuck >= 2) { st.loop = []; st.stuck = 0; }
+
+    // A thought that claims a write the last moment did not make is said so.
+    let unbacked = [];
+    if (thought && !st.lastWrote && CLAIM.test(thought)) {
+      unbacked = ungroundedNames(buildMemoryIndex(world.state()), thought);
+      if (unbacked.length) {
+        st.notice = [st.notice, `You thought you had made ${unbacked.join(', ')}, but nothing was written and your universe has no Thing by ${unbacked.length === 1 ? 'that name' : 'those names'}.`].filter(Boolean).join('\n');
+      }
+    }
+
+    // ── KEEP THE THROUGH LINE ─────────────────────────────────────────────
+    if (throughLineDue(st, tick)) {
+      const r = await mind.fill({
+        ...sections(),
+        question: `${renderTrail(st.trail, tick) || 'You have not done much yet.'}\nFrom that, in one plain sentence: what have you been doing lately, and what are you after? Name the Things you mean.`,
+        maxWords: 30
+      });
+      const kept = keepThroughLine(world, st.throughLine, r.text);
+      if (kept) st.throughLine = kept;
+      st.throughLineAt = tick;
+    }
 
     const calls = [];
     const ask = async (question, maxWords) => {
@@ -306,56 +364,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       episode = await writeEpisode(world, { tick, summary: result.summary, touched, episodeTypeId: episodeType(world) });
     }
 
-    // ── THINK ─────────────────────────────────────────────────────────────
-    ({ activation } = computeActivation(world, { tick, sources: baseSources }));
-    const thinkView = buildView(world, settleLocus(world, st.locus, activation), activation, { tick });
-    // The through line is shown when choosing, not when thinking: shown here,
-    // it became the thought, ten moments running.
-    const thoughtCall = await mind.fill({
-      ...sections(),
-      wm: [renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
-      view: renderView(thinkView, { world, tick, writes: st.writes, trail: st.trail }),
-      notice: `You just ${result.ok ? result.summary : `tried, but ${result.summary}`}.`,
-      question: promptSpace.questions.thought,
-      maxWords: 30
-    });
-    // A thought that says the question back is no thought: "What are you
-    // thinking now? Name the Things you mean." was kept as a Thing, "I am
-    // thinking now", and thought about for sixty moments.
-    const thought = thoughtCall.text && thoughtSimilarity(thoughtCall.text, promptSpace.questions.thought) < 0.5 ? thoughtCall.text : null;
-    // A thought that repeats the last one is not rehearsed again: fed back
-    // verbatim, a repeated thought becomes an attractor. On its first v2 run a
-    // 4B model spent ten cycles restating one image of "breath stitching
-    // silence", each version seeding the next.
-    const repeating = thought && [...st.loop, st.throughLine].filter(Boolean).some(prev => thoughtSimilarity(thought, prev) > 0.6);
-    if (thought && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
-    st.stuck = repeating ? (st.stuck || 0) + 1 : 0;
-    if (repeating) st.notice = [st.notice, 'You keep coming back to the same thought. Look at something else, or do something with it.'].filter(Boolean).join('\n');
-    // Stuck: the loop is let go, so the thought it keeps seeding is no longer
-    // shown. Kept, one sentence held a Druid for sixty moments.
-    if (st.stuck >= 2) { st.loop = []; st.stuck = 0; }
-
-    // ── KEEP THE THROUGH LINE ─────────────────────────────────────────────
+    // What it did, for the thought that opens the next moment.
     st.lastDid = result.ok ? result.summary : `tried, but ${result.summary}`;
-    if (throughLineDue(st, tick)) {
-      const r = await mind.fill({
-        ...sections(),
-        question: `${renderTrail(st.trail, tick) || 'You have not done much yet.'}\nFrom that, in one plain sentence: what have you been doing lately, and what are you after? Name the Things you mean.`,
-        maxWords: 30
-      });
-      const kept = keepThroughLine(world, st.throughLine, r.text);
-      if (kept) st.throughLine = kept;
-      st.throughLineAt = tick;
-    }
-
-    // ── CHECK ─────────────────────────────────────────────────────────────
-    let unbacked = [];
-    if (thought && !result.wrote && CLAIM.test(thought)) {
-      unbacked = ungroundedNames(buildMemoryIndex(world.state()), thought);
-      if (unbacked.length) {
-        st.notice = [st.notice, `You thought you had made ${unbacked.join(', ')}, but nothing was written and your universe has no Thing by ${unbacked.length === 1 ? 'that name' : 'those names'}.`].filter(Boolean).join('\n');
-      }
-    }
+    st.lastWrote = !!(result.ok && result.wrote);
 
     // ── SLEEP ─────────────────────────────────────────────────────────────
     let slept = null;
@@ -395,13 +406,13 @@ function snapshot(st) {
   return {
     tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
     throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail,
-    talk: st.talk, lastDid: st.lastDid
+    talk: st.talk, lastDid: st.lastDid, lastWrote: st.lastWrote
   };
 }
 
 /** Failures that are a check saying no, as opposed to a slip. */
 const UNFILLED = /: left the blank empty$|safety filter would not answer$/;
-const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation|does not say how|only repeats a name|could not tell from|not inside it|something you do|only puts names together|no subject of its own|already your goal|names something missing/i;
+const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation|does not say how|only repeats a name|could not tell from|not inside it|something you do|only puts names together|no subject of its own|already your goal|names something missing|already make up/i;
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

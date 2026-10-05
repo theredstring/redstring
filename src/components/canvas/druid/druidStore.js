@@ -26,8 +26,14 @@ export const DEFAULT_DRUID_SETTINGS = {
   // 'menu': it chooses from moves offered (and can write a command as "something
   // else"); 'commands': it writes a plain command every time. The menu won the
   // lab on Apple's model (sensible 94% vs 66%, 2026-10-04).
-  speak: 'menu'
+  speak: 'menu',
+  // 'quick': each moment follows the last at once; 'steady': a breath between
+  // them, to read along. The model's calls are nearly all of a moment's time.
+  pace: 'quick'
 };
+
+/** The breath between moments, by pace. */
+export const PACE_MS = { quick: 0, steady: 600 };
 
 const readSettings = () => {
   try {
@@ -106,7 +112,7 @@ export function sleptLine(slept) {
  */
 export function transcriptOf({ stream = [], throughLine = '', held = [], error = null, settings = null, stats = null } = {}, { outline = '', now = new Date() } = {}) {
   const lines = [`The Druid, copied ${now.toISOString().slice(0, 16).replace('T', ' ')}`];
-  if (settings) lines.push(`Mind: ${settings.mind === 'afm' ? "Apple's model" : `${settings.model} (LM Studio)`} · ${settings.speak === 'commands' ? 'writes commands' : 'picks from a menu'}`);
+  if (settings) lines.push(`Mind: ${settings.mind === 'afm' ? "Apple's model" : `${settings.model} (LM Studio)`} · ${settings.speak === 'commands' ? 'writes commands' : 'picks from a menu'} · ${settings.pace === 'steady' ? 'steady' : 'quick'}`);
   if (stats?.calls) lines.push(`Calls: ${stats.calls}, ${Math.round(stats.ms / Math.max(1, stats.calls))} ms each`);
   if (throughLine) lines.push(`Lately: ${throughLine}`);
   if (held.length) lines.push(`Holding in mind: ${held.join(', ')}`);
@@ -117,7 +123,7 @@ export function transcriptOf({ stream = [], throughLine = '', held = [], error =
     if (e.kind === 'reply') { lines.push(`The Druid: ${e.text}`, ''); continue; }
     if (e.kind === 'woke') { lines.push(`-- woke${e.at ? ` ${new Date(e.at).toISOString().slice(0, 16).replace('T', ' ')}` : ''} --`, ''); continue; }
     const where = [e.locus?.webName, e.locus?.focusName].filter(Boolean).join(' › ');
-    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}${e.size ? `  (${e.size.webs} webs, ${e.size.things} Things)` : ''}${e.heapMB ? `  heap ${e.heapMB} MB` : ''}`);
+    lines.push(`[${e.tick}]${where ? ` ${where}` : ''}${e.size ? `  (${e.size.webs} webs, ${e.size.things} Things)` : ''}${e.heapMB ? `  heap ${e.heapMB} MB` : ''}${e.ms ? `  ${(e.ms / 1000).toFixed(1)} s` : ''}`);
     if (e.thought) lines.push(`  thought: ${e.thought}`);
     if (e.menu?.length) lines.push(`  offered: ${e.menu.map((m, i) => `${m === e.chose ? '*' : ''}${i + 1} ${m}`).join(' | ')}`);
     for (const err of e.offerErrors || []) lines.push(`  offer broke: ${typeof err === 'string' ? err : JSON.stringify(err)}`);
@@ -299,6 +305,7 @@ export const useDruidStore = create((set, get) => ({
         backend
       }, {
         speak: settings.speak,
+        pauseMs: PACE_MS[settings.pace] ?? PACE_MS.quick,
         // Its answer, as soon as it has one: before the moment it goes on with.
         onReply: (text, tick) => {
           if (now().getState().universe !== universe) return;
@@ -313,6 +320,10 @@ export const useDruidStore = create((set, get) => ({
           moment.asked = (r.calls || []).map(compactCall);
           const heap = heapNow();
           if (heap) moment.heapMB = heap.usedMB;
+          // How long the moment took, from the one before (or from waking).
+          const at = Date.now();
+          moment.ms = at - (live.lastMomentAt || at);
+          live.lastMomentAt = at;
           const s = now().getState();
           const heard = [];
           const stream = s.stream.map(e => {
@@ -352,6 +363,7 @@ export const useDruidStore = create((set, get) => ({
       for (const e of stream) if (e.kind === 'you' && e.pending) live.session.say(e.text, { answered: !!e.answered });
       // Where this waking begins, in a run kept over many.
       const woke = { kind: 'woke', at: Date.now(), seq: nextSeq(get().seq) };
+      live.lastMomentAt = woke.at;
       set(s => ({ status: 'living', behind: false, stream: keep([...s.stream, woke]), seq: woke.seq }));
       persist(get(), [woke]);
     } catch (err) {

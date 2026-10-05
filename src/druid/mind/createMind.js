@@ -138,7 +138,7 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     let usage = null;
     let error = null;
     try {
-      ({ content, usage } = await backend.complete({ system: prompt.system, user: prompt.user, schema, maxTokens, temperature: temp }));
+      ({ content, usage } = await backend.complete({ system: prompt.system, user: prompt.user, context: prompt.context, turn: prompt.turn, schema, maxTokens, temperature: temp }));
     } catch (err) {
       error = err?.message || String(err);
     }
@@ -161,7 +161,7 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
    * is no command; it is asked once more, saying so.
    * @returns {Promise<{ ok, verb, rest, ... }>}
    */
-  async function command({ system, view, wm, loop, notice, question, verbs }) {
+  async function command({ system, view, wm, loop, dialogue, notice, question, verbs }) {
     const schema = {
       name: 'command',
       schema: {
@@ -178,7 +178,7 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
       if (TEMPLATE.test(rest) || /_{3,}/.test(rest)) return null;
       return { verb: o.verb, rest };
     };
-    const sections = { system, view, wm, loop, notice, question };
+    const sections = { system, view, wm, loop, dialogue, notice, question };
     let r = await call('command', sections, schema, 80, read);
     if (!r.ok && !r.error && TEMPLATE.test(String(parseJson(r.content)?.rest || ''))) {
       r = await call('command', { ...sections, question: `${question}\nWrite real names where the form has capitals: not "NAME", but the name itself.` }, schema, 80, read);
@@ -187,16 +187,16 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
   }
 
   /** @returns {Promise<{ ok, index, ... }>} */
-  async function choose({ system, view, wm, loop, notice, question, options }) {
+  async function choose({ system, view, wm, loop, dialogue, notice, question, options }) {
     const list = options.map((o, i) => `${i + 1}. ${o}`).join('\n');
-    const r = await call('choose', { system, view, wm, loop, notice, question: `${question}\n${list}\nAnswer with the number of one option.` },
+    const r = await call('choose', { system, view, wm, loop, dialogue, notice, question: `${question}\n${list}\nAnswer with the number of one option.` },
       schemaFor.choose(options.length), 16, (c) => readChoice(c, options.length));
     return { ...r, index: r.value };
   }
 
   /** @returns {Promise<{ ok, text, ... }>} */
-  async function fill({ system, view, wm, loop, notice, question, maxWords = 6 }) {
-    const sections = { system, view, wm, loop, notice, question: `${question}\n(Answer in at most ${maxWords} words.)` };
+  async function fill({ system, view, wm, loop, dialogue, notice, question, maxWords = 6 }) {
+    const sections = { system, view, wm, loop, dialogue, notice, question: `${question}\n(Answer in at most ${maxWords} words.)` };
     const isName = maxWords <= 5;
     // A name asked for and a sentence given: clipped, it becomes a fragment
     // ("Moment when a"). Ask once more, firmly; a second sentence is no name.
@@ -222,10 +222,10 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
    * @param {Array<{ key: string, label: string }>} scale
    * @returns {Promise<{ ok, key, ... }>}
    */
-  async function judge({ system, view, wm, loop, notice, question, scale }) {
+  async function judge({ system, view, wm, loop, dialogue, notice, question, scale }) {
     const keys = scale.map(s => s.key);
     const list = scale.map(s => `- ${s.key}: ${s.label}`).join('\n');
-    const r = await call('judge', { system, view, wm, loop, notice, question: `${question}\n${list}\nAnswer with one of: ${keys.join(', ')}.` },
+    const r = await call('judge', { system, view, wm, loop, dialogue, notice, question: `${question}\n${list}\nAnswer with one of: ${keys.join(', ')}.` },
       schemaFor.judge(keys), 16, (c) => readKey(c, keys));
     return { ...r, key: r.value };
   }

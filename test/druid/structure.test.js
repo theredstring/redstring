@@ -546,6 +546,40 @@ describe('one Thing, once', () => {
   });
 });
 
+describe('gathering nests; it does not repeat', () => {
+  it('the same Things gathered again are refused; more than a gathering gathers its Thing, so the groups nest', async () => {
+    const { chunk, gatherable, gatheredIn } = await import('../../src/druid/moves/cognitive.js');
+    const { isGroupInsideGroup } = await import('../../src/services/groupLayout.js');
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Contact: { things: { 'Temporary bond': 't', 'Weak attraction': 'w', Surface: 's' } } } });
+    world.actor = 'druid';
+    world.focusWeb(webs.Contact);
+    const ctx = { world, locus: { web: webs.Contact, focus: ids['Temporary bond'], path: [] } };
+    const pair = [ids['Temporary bond'], ids['Weak attraction']];
+    const first = await chunk.run(ctx, { members: pair }, 'Temporary attachment');
+    expect(first.ok).toBe(true);
+    const attachment = world.findThing('Temporary attachment');
+    expect(gatheredIn(world, webs.Contact).map(g => g.thing)).toEqual([attachment]);
+
+    // The same two again, by another name: refused, and not offered.
+    expect(gatherable(world, webs.Contact, pair)).toBe(null);
+    const again = await chunk.run(ctx, { members: pair }, 'Stick-slip event');
+    expect(again.ok).toBe(false);
+    expect(again.summary || again.error).toMatch(/already make up Temporary attachment/);
+
+    // The two and one more: the gathering's Thing and the one more, so it nests.
+    const three = gatherable(world, webs.Contact, [...pair, ids.Surface]);
+    expect(three).toEqual([attachment, ids.Surface]);
+    const second = await chunk.run(ctx, { members: three }, 'Stick-slip event');
+    expect(second.ok).toBe(true);
+    const groups = [...world.graph(webs.Contact).groups.values()];
+    const inner = groups.find(g => g.linkedNodePrototypeId === attachment);
+    const outer = groups.find(g => g.linkedNodePrototypeId === world.findThing('Stick-slip event'));
+    expect(isGroupInsideGroup(inner, outer)).toBe(true);
+    expect(isGroupInsideGroup(outer, inner)).toBe(false);
+  });
+});
+
 describe('what is missing is not a Thing', () => {
   it('"No signal" is refused as a part; a hyphened name is a Thing', async () => {
     const { isAbsence } = await import('../../src/druid/names.js');

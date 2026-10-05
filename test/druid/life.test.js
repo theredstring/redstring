@@ -185,8 +185,8 @@ describe('runLife over the real store', () => {
     let n = 0;
     const mind = createMind({
       backend: scripted((req) => {
-        n++;
-        if (req.schema.name === 'choice') return n === 1 ? { choice: '99' } : { choice: '1' };
+        // The first choice is out of range (the thought comes before it).
+        if (req.schema.name === 'choice') return ++n === 1 ? { choice: '99' } : { choice: '1' };
         return THOUGHT_Q.test(req.user) ? { text: 'I created the Soul and connected it.' } : { text: 'x' };
       })
     });

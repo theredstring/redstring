@@ -30,6 +30,11 @@ const SPEAK = [
   { value: 'commands', label: 'Commands', title: 'It writes a plain command every time' }
 ];
 
+const PACE = [
+  { value: 'quick', label: 'Quick', title: 'Each moment follows the last at once' },
+  { value: 'steady', label: 'Steady', title: 'A breath between moments, to read along' }
+];
+
 const clamp = (lines) => ({ display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', overflow: 'hidden' });
 
 /** What it chose, read as a sentence: the blank in a move filled with what it wrote. */
@@ -231,6 +236,10 @@ function DruidView({ active = true }) {
   };
 
   const lastTick = [...stream].reverse().find(e => e.kind === 'moment')?.tick;
+  // Seconds a moment, over the last few of this waking.
+  const recent = [];
+  for (let i = stream.length - 1; i >= 0 && recent.length < 8 && stream[i].kind !== 'woke'; i--) if (stream[i].kind === 'moment' && stream[i].ms) recent.push(stream[i].ms);
+  const perMoment = recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length / 1000 : null;
   const field = {
     width: '100%', boxSizing: 'border-box', fontFamily: FONT, fontSize: 12, color: tokens.text,
     background: tokens.field, border: `1px solid ${tokens.hairline}`, borderRadius: 6, padding: '5px 8px'
@@ -254,7 +263,7 @@ function DruidView({ active = true }) {
               {lastTick != null && <span style={{ color: tokens.muted }}>{` · moment ${lastTick}`}</span>}
             </div>
             {living && stats?.calls > 0 && (
-              <div style={{ fontSize: 10, color: tokens.muted }}>{`${stats.calls} calls, ${Math.round(stats.ms / Math.max(1, stats.calls))} ms each`}</div>
+              <div style={{ fontSize: 10, color: tokens.muted }}>{`${perMoment ? `${perMoment.toFixed(1)} s a moment · ` : ''}${stats.calls} calls, ${Math.round(stats.ms / Math.max(1, stats.calls))} ms each`}</div>
             )}
           </div>
           {idle
@@ -271,6 +280,7 @@ function DruidView({ active = true }) {
               </div>
             )}
             <Choice label="Moves" options={SPEAK} value={settings.speak || 'menu'} onChange={v => setSetting('speak', v)} tokens={tokens} />
+            <Choice label="Pace" options={PACE} value={settings.pace || 'quick'} onChange={v => setSetting('pace', v)} tokens={tokens} />
           </>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: tokens.muted, cursor: 'pointer' }}>

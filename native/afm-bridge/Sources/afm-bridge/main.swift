@@ -13,8 +13,18 @@
 // The answer shape is locked by guided generation: the JSON-schema subset the
 // Druid uses (an object of string properties, each optionally a string enum)
 // is translated to a DynamicGenerationSchema, so the model cannot produce an
-// answer outside it. Each request gets a fresh session — the Druid's calls are
-// independent and carry their own context.
+// answer outside it.
+//
+// Sessions. Reading the prompt is nearly all of a call's time (about 1 ms a
+// token). A request with a "sid" and a "context" starts a session whose
+// instructions are the system prompt and that context; a later request with
+// the same "sid" and no context is a turn in it, so the context is not read
+// again. The Druid's calls in one moment share their context this way.
+//   → {"id":3,"op":"complete","sid":"m1","system":"…","context":"…","user":"What do you do next?…",…}
+//   → {"id":4,"op":"complete","sid":"m1","user":"Name the new web.",…}
+//   → {"id":5,"op":"end","sid":"m1"}
+// A request without "sid" gets a fresh session, as before. "usage": true asks
+// for token counts (they cost a little on every call).
 //
 // Apple's guardrails block some plain questions on plain subjects ("What makes
 // up Death?"). A blocked answer that is one free string (the Druid's fill) is
@@ -33,6 +43,32 @@ struct Request: Decodable {
     let maxTokens: Int?
     let temperature: Double?
     let schema: SchemaSpec?
+    let sid: String?
+    let context: String?
+    let usage: Bool?
+}
+
+/// Each session's context, for the permissive retry, which starts afresh.
+var contexts: [String: String] = [:]
+
+/// Sessions kept for follow-up turns, newest last; a few at most.
+var sessions: [(sid: String, session: LanguageModelSession)] = []
+let SESSIONS_KEPT = 3
+
+@MainActor
+func sessionFor(_ req: Request, model: SystemLanguageModel) -> LanguageModelSession? {
+    if let sid = req.sid {
+        if let context = req.context {
+            sessions.removeAll { $0.sid == sid }
+            let instructions = [req.system ?? "", context].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            let session = LanguageModelSession(model: model, instructions: instructions)
+            sessions.append((sid, session))
+            if sessions.count > SESSIONS_KEPT { sessions.removeFirst(sessions.count - SESSIONS_KEPT) }
+            return session
+        }
+        return sessions.first { $0.sid == sid }?.session
+    }
+    return LanguageModelSession(model: model, instructions: req.system)
 }
 
 struct SchemaSpec: Decodable {
@@ -102,22 +138,29 @@ func singleTextProperty(_ spec: SchemaSpec?) -> String? {
 }
 
 /// The same request as plain text, under the permissive guardrails, put back in its one property.
+@MainActor
 func permissiveText(_ req: Request, property: String, options: GenerationOptions) async -> String? {
     let model = SystemLanguageModel(guardrails: .permissiveContentTransformations)
     let session = LanguageModelSession(model: model, instructions: req.system)
-    guard let response = try? await session.respond(to: req.user ?? "", options: options) else { return nil }
+    // A turn in a session carries only its question: the context goes with it here.
+    let context = req.context ?? (req.sid.flatMap { sid in contexts[sid] } ?? "")
+    let user = [context, req.user ?? ""].filter { !$0.isEmpty }.joined(separator: "\n\n")
+    guard let response = try? await session.respond(to: user, options: options) else { return nil }
     let text = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let data = try? JSONSerialization.data(withJSONObject: [property: text], options: [.sortedKeys]) else { return nil }
     return String(data: data, encoding: .utf8)
 }
 
+@MainActor
 func complete(_ req: Request) async -> [String: Any] {
     let model = SystemLanguageModel.default
     guard case .available = model.availability else {
         return ["id": req.id, "ok": false, "error": "model unavailable"].merging(availabilityReport()) { a, _ in a }
     }
     let user = req.user ?? ""
-    let session = LanguageModelSession(model: model, instructions: req.system)
+    guard let session = sessionFor(req, model: model) else {
+        return ["id": req.id, "ok": false, "error": "unknown session"]
+    }
     let options = GenerationOptions(temperature: req.temperature, maximumResponseTokens: req.maxTokens)
     do {
         var content: String
@@ -130,7 +173,7 @@ func complete(_ req: Request) async -> [String: Any] {
             content = response.content
         }
         var usage: [String: Any] = [:]
-        if #available(macOS 26.4, *) {
+        if req.usage == true, #available(macOS 26.4, *) {
             if let p = try? await model.tokenCount(for: (req.system ?? "") + "\n" + user) { usage["prompt"] = p }
             if let c = try? await model.tokenCount(for: content) { usage["completion"] = c }
         }
@@ -138,6 +181,7 @@ func complete(_ req: Request) async -> [String: Any] {
     } catch let error as LanguageModelSession.GenerationError {
         switch error {
         case .exceededContextWindowSize:
+            if let sid = req.sid { sessions.removeAll { $0.sid == sid } }
             return ["id": req.id, "ok": false, "error": "exceededContextWindowSize"]
         case .guardrailViolation:
             if let property = singleTextProperty(req.schema), let content = await permissiveText(req, property: property, options: options) {
@@ -168,7 +212,11 @@ while let line = readLine(strippingNewline: true) {
         LanguageModelSession(instructions: req.system).prewarm()
         write(["id": req.id, "ok": true])
     case "complete":
+        if let sid = req.sid, let context = req.context { contexts[sid] = context }
         write(await complete(req))
+    case "end":
+        if let sid = req.sid { sessions.removeAll { $0.sid == sid }; contexts[sid] = nil }
+        write(["id": req.id, "ok": true])
     default:
         write(["id": req.id, "ok": false, "error": "unknown op \(req.op)"])
     }

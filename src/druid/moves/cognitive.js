@@ -118,6 +118,44 @@ export const specialize = {
   }
 };
 
+/**
+ * The Things gathered into a Thing in a web (its Thing-groups): the Thing,
+ * its members as Things, and whether the Thing has its title tab there.
+ */
+export function gatheredIn(world, webId) {
+  const g = world.graph(webId);
+  if (!g) return [];
+  const all = (c) => (c instanceof Map ? [...c.values()] : Array.isArray(c) ? c : Object.values(c || {}));
+  const protoOf = new Map(all(g.instances).map(i => [i.id, i.prototypeId]));
+  return all(g.groups)
+    .filter(gr => gr?.linkedNodePrototypeId && world.proto(gr.linkedNodePrototypeId))
+    .map(gr => ({
+      thing: gr.linkedNodePrototypeId,
+      members: new Set((gr.memberInstanceIds || []).map(id => protoOf.get(id)).filter(Boolean)),
+      anchored: protoOf.get(gr.anchorInstanceId) === gr.linkedNodePrototypeId
+    }));
+}
+
+/**
+ * What to gather, given what is already gathered: the same Things again is
+ * nothing new (null); all of an existing gathering and more gathers that
+ * Thing instead of its members, so the new one nests around it. Two
+ * gatherings of the same Things were drawn one over the other, their titles
+ * overlapping ("Temporary attachment" and "Stick-slip event", 2026-10-05).
+ */
+export function gatherable(world, webId, members) {
+  let out = [...new Set(members)];
+  const groups = gatheredIn(world, webId).sort((a, b) => b.members.size - a.members.size);
+  for (const gr of groups) {
+    const set = new Set(out);
+    if (gr.members.size === set.size && [...gr.members].every(m => set.has(m))) return null;
+    if (gr.anchored && gr.members.size >= 2 && gr.members.size < set.size && [...gr.members].every(m => set.has(m))) {
+      out = [gr.thing, ...out.filter(m => !gr.members.has(m))];
+    }
+  }
+  return out.length >= 2 ? out : null;
+}
+
 export const chunk = {
   id: 'chunk',
   // Below opening up: gathered only because they came up together, a run
@@ -134,7 +172,8 @@ export const chunk = {
       .sort((a, b) => b.s - a.s)
       .slice(0, 3);
     if (partners.length < 2) return [];
-    const members = [f.id, ...partners.map(p => p.id)];
+    const members = gatherable(world, locus.web, [f.id, ...partners.map(p => p.id)]);
+    if (!members) return [];
     return [{ label: `gather ${members.map(id => world.nameOf(id)).join(', ')} into one Thing, named ___`, blank: { question: `These keep coming up together: ${members.map(id => world.nameOf(id)).join(', ')}. Name the one Thing they make up.`, maxWords: 4 }, data: { members }, target: f.id }];
   },
   async run(ctx, data, text) {
@@ -169,6 +208,8 @@ export const chunk = {
     const members = [];
     for (const m of data.members) if ((await world.isPartOf(world.nameOf(m), name)) !== false) members.push(m);
     if (members.length < 2) return fail(`${name} is not made of ${data.members.map(m => world.nameOf(m)).join(', ')}`);
+    const same = gatheredIn(world, ctx.locus.web).find(gr => gr.members.size === members.length && members.every(m => gr.members.has(m)));
+    if (same) return fail(`they already make up ${world.nameOf(same.thing)}; one whole is made of them, not two`);
     data = { ...data, members };
     const r = await world.act('condenseToNode', { memberNames: data.members.map(id => world.nameOf(id)), nodeName: name, collapse: false });
     if (!r.ok) return fail(r.error);

@@ -7,6 +7,12 @@
  * order in which they give way is the order of what matters least:
  * surroundings before thoughts, thoughts before what is held in mind, and the
  * question and its options never.
+ *
+ * A prompt has two parts: the context (what it holds in mind, where it is,
+ * what it was thinking), the same for every call of a moment, and the turn
+ * (what was said, a notice, the question), different each time. Apple's model
+ * reads the context once per moment and takes each turn as a follow-up
+ * (afmClient.js): reading a prompt is nearly all of a call's time.
  */
 
 import { estimateTokens } from '../../wizard/tokenEstimate.js';
@@ -19,6 +25,7 @@ export const CAPS = {
   view: 1200,
   wm: 400,
   loop: 600,
+  dialogue: 300,
   notice: 200,
   // The question carries its options, or in command mode the forms and the
   // suggestions (about 450 tokens); the view gives way first.
@@ -26,7 +33,10 @@ export const CAPS = {
 };
 
 /** Which sections give way first. */
-const TRIM_ORDER = ['view', 'loop', 'notice', 'wm'];
+const TRIM_ORDER = ['view', 'loop', 'notice', 'wm', 'dialogue'];
+/** The context, shared by a moment's calls; then the turn. */
+const CONTEXT = ['wm', 'view', 'loop'];
+const TURN = ['dialogue', 'notice', 'question'];
 
 /** Keep the first lines of a text that fit `tokens`. */
 export function clipToTokens(text, tokens) {
@@ -48,10 +58,10 @@ export function clipToTokens(text, tokens) {
 /**
  * Assemble a prompt from named sections within a budget.
  *
- * @param {Object} sections   { system, view, wm, loop, notice, question } — strings, any may be empty
+ * @param {Object} sections   { system, view, wm, loop, dialogue, notice, question } — strings, any may be empty
  * @param {number} reserveOut tokens kept for the reply
  * @param {number} [window]
- * @returns {{ system: string, user: string, tokens: number, trimmed: string[] }}
+ * @returns {{ system: string, user: string, context: string, turn: string, tokens: number, trimmed: string[] }}
  */
 export function assemble(sections, reserveOut, window = WINDOW) {
   const capped = {};
@@ -68,9 +78,8 @@ export function assemble(sections, reserveOut, window = WINDOW) {
     capped[k] = keep > 20 ? clipToTokens(capped[k], keep) : '';
     trimmed.push(k);
   }
-  const user = ['wm', 'view', 'loop', 'notice', 'question']
-    .map(k => capped[k])
-    .filter(Boolean)
-    .join('\n\n');
-  return { system: capped.system || '', user, tokens: total(), trimmed };
+  const join = (keys) => keys.map(k => capped[k]).filter(Boolean).join('\n\n');
+  const context = join(CONTEXT);
+  const turn = join(TURN);
+  return { system: capped.system || '', user: [context, turn].filter(Boolean).join('\n\n'), context, turn, tokens: total(), trimmed };
 }
