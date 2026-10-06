@@ -234,6 +234,26 @@ describe('electron/main.cjs', () => {
     });
   });
 
+  describe('startup on Windows/Linux', () => {
+    const realPlatform = process.platform;
+    beforeEach(() => { Object.defineProperty(process, 'platform', { value: 'win32' }); });
+    afterEach(() => { Object.defineProperty(process, 'platform', { value: realPlatform }); });
+
+    it('closing the hidden legacy-export window does not quit before the app window opens', async () => {
+      ctx = await boot({ isPackaged: true });
+      const exportWin = ctx.fake.calls.windows.find((w) => w.loadedFile);
+      expect(exportWin.destroyed).toBe(true);
+      expect(ctx.fake.calls.quits).toBeUndefined();
+      expect(ctx.fake.calls.windows.find((w) => w.loadedURL).loadedURL).toBe(APP);
+    });
+
+    it('closing the app window still quits', async () => {
+      ctx = await boot({ isPackaged: true });
+      ctx.fake.calls.windows.find((w) => w.loadedURL).destroy();
+      expect(ctx.fake.calls.quits).toBe(1);
+    });
+  });
+
   describe('agent server + secrets (S-26, C-6, C-7)', () => {
     beforeEach(async () => { ctx = await boot(); });
 

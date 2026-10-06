@@ -37,7 +37,7 @@ function createFakeElectron({ userData, documents, isPackaged = false, dialogRes
     whenReady: () => ready,
     isReady: () => true,
     requestSingleInstanceLock: () => true,
-    quit: () => {},
+    quit: () => { calls.quits = (calls.quits || 0) + 1; },
     exit: () => {}
   });
 
@@ -77,7 +77,12 @@ function createFakeElectron({ userData, documents, isPackaged = false, dialogRes
     loadFile(file) { this.loadedFile = file; return Promise.resolve(); }
     once(...a) { return super.once(...a); }
     isDestroyed() { return this.destroyed; }
-    destroy() { this.destroyed = true; }
+    // Like Electron: destroying the last window emits window-all-closed.
+    destroy() {
+      if (this.destroyed) return;
+      this.destroyed = true;
+      if (BrowserWindow.getAllWindows().length === 0) appEmitter.emit('window-all-closed');
+    }
     isVisible() { return true; }
     show() {}
     focus() {}

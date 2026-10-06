@@ -1,9 +1,18 @@
-# Training the Druid's model
+# Training Redstring's small model
 
-The goal: a small, specialized model (about 1–2B parameters) that runs locally
-and is very good at exactly what the Druid asks it. That covers naming the
-parts of a thing, choosing a next step, saying how two Things relate, answering
-yes or no, thinking in plain words, and talking honestly.
+The goal: a small open-weight model that runs locally and is very good at what
+Redstring asks of it, in both of its roles:
+
+- **The Druid** makes hundreds of tiny, structured calls: naming the parts of
+  a thing, choosing a next step, saying how two Things relate, answering yes or
+  no, thinking in plain words, talking honestly. Each is one JSON answer.
+- **The wizard** builds webs on request with tool calls, many steps a request
+  (its small-model tier: 9 tools, a compact prompt).
+
+One process trains both, with no crossover. The roles never share a dataset,
+and each trains its own adapter (LoRA) on the same base model, so the Druid
+can't learn tool calling habits and the wizard can't learn the Druid's voice.
+Each role is judged by its own benchmark.
 
 ## Why this can work
 
@@ -31,13 +40,13 @@ whether a model is used.
 
 | Step | Command | What it does |
 |---|---|---|
-| 1. Baseline | `npm run druid:bench -- --mind openai --model <id> --out runs/base.json` | The numbers to beat, on 16 held-out subjects (`src/druid/lab/subjects.js` EVAL) |
-| 2. Gather | `npm run druid:bench -- --split train --record data/calls/x.jsonl` | Runs the Druid over training subjects and records every call: prompt, schema and answer |
-| 3. Label | `npm run druid:label -- --in data/calls/x.jsonl --out data/labels/x.jsonl` | The teacher labels each call. Use `--dry-run` first: it prints counts and cost and spends nothing |
-| 4. Datasets | `python training/druid/prepare.py --labels 'training/druid/data/labels/*.jsonl'` | SFT examples and RL prompts, split by subject |
-| 5. SFT | `MODEL=… sh training/druid/sft_mlx.sh` | LoRA on this Mac with MLX, loss on the answer only, then fused into a model LM Studio can load |
-| 6. RL | `python training/druid/grpo.py --model … --adapter …` | GRPO with TRL, rewarded by `scripts/druid-reward.mjs` |
-| 7. Judge | `npm run druid:bench -- … --out runs/cand.json` then `node scripts/druid-bench-compare.mjs runs/base.json runs/cand.json` | Use the new model only if it says USE IT |
+| 1. Baseline | `npm run druid:bench -- --mind openai --model <id> --out runs/base.json` and `npm run wizard:bench -- --model <id> --out runs/wizard-base.json` | The numbers to beat, per role, on 16 held-out subjects (`src/druid/lab/subjects.js` EVAL) |
+| 2. Gather | `npm run druid:bench -- --split train --record data/calls/x.jsonl` and `npm run wizard:bench -- --split train --record data/wizard/x.jsonl --out runs/wizard-x.json` | Runs each role over training subjects on the local model (free) and records every call |
+| 3. Label | `npm run druid:label -- --in data/calls/x.jsonl --out data/labels/x.jsonl --provider gemini` | The teacher labels the Druid's calls, only those training will use. `--dry-run` first: counts and cost, nothing spent. The wizard needs no labels: its examples are its own runs that passed its checks |
+| 4. Datasets | `python training/druid/prepare.py --labels '…' --wizard-calls '…' --wizard-runs '…'` | `sft-druid/`, `grpo-druid/`, `sft-wizard/`, split by subject |
+| 5. SFT | `ROLE=druid sh training/druid/sft_mlx.sh`, `ROLE=wizard sh …` | One LoRA adapter per role on this Mac with MLX, loss on the answer only, then fused into a model LM Studio can load |
+| 6. RL | `python training/druid/grpo.py --model … --adapter …` | GRPO with TRL on the Druid's checkable calls, rewarded by `scripts/druid-reward.mjs` |
+| 7. Judge | the role's benchmark `--out runs/cand.json`, then `node scripts/druid-bench-compare.mjs runs/base.json runs/cand.json` | Use the new adapter only if it says USE IT |
 | Any time | `npm run druid:canary -- --model <id>` | 14 hand-labeled probes: a fast check for regressions and gaming |
 
 Then repeat: gather again with the new model, label, and train. A model gets
@@ -69,30 +78,42 @@ better on the prompts its own runs produce.
 ## What the teacher judges, and what it doesn't
 
 The teacher judges structure and truth: whether these are the parts of a crust,
-and which menu option builds something correct and on subject. It does not
-reward obedience. Taking up what a person asked is marked good, and finishing a
-nearly done step is marked good too. How strongly the Druid weighs a person
-against its own aims is its temperament, and that is not trained in
-(`src/druid/conversation.js`).
+whether a yes or no is right, which menu options would drift, repeat or build
+something wrong. It does not lend the Druid its voice or its taste:
+
+- **Choices.** Every option the teacher calls reasonable scores the same; only
+  the bad ones score badly. Which reasonable option the Druid takes, and how
+  strongly it weighs a person against its own aims, is its temperament
+  (`src/druid/conversation.js`), and that is not trained in.
+- **Voice.** Thoughts, the through line and speech are learned from the
+  Druid's own recorded answers that its checks passed (`prepare.py` OWN), never
+  from the teacher's wording. Training removes the failures (over the word
+  limit, naming nothing here, claiming what it didn't do) and leaves the rest.
 
 ## Decisions so far
 
-- **Student:** a small open-weight instruct model, such as Qwen3-1.7B, compared
-  against Qwen3-0.6B and against Qwen3-4B (already in LM Studio).
-- **Teacher:** Claude through `ANTHROPIC_API_KEY`, Haiku-class by default
-  (`--model` to change it). `--provider openai` takes any OpenAI-compatible
-  endpoint instead.
+- **Student:** Qwen3-4B-Instruct-2507, the model already in LM Studio. At 1–2B
+  the wizard's tool calling isn't realistic.
+- **Teacher:** Gemini 3.8 Flash (`--provider gemini`, `GEMINI_API_KEY` in the
+  repo's `.env`). A pilot against 3.5 Flash-Lite on the same 60 calls: 3.8
+  Flash named a clock's parts right where Flash-Lite marked gears and pendulum
+  wrong. `--provider anthropic` (Claude) and `--provider openai` (any
+  OpenAI-compatible endpoint) also work.
 - **SFT on this Mac with MLX.** GRPO with TRL; a CUDA GPU is best, but a model
   of 1–2B runs slowly on MPS.
 - **Apple's on-device model** can't be trained with TRL. Apple's adapter
   toolkit trains LoRA adapters for it by example only. The route there is to
   distill this model's checked answers into an adapter, later.
 
-## Waiting on
+## Where things are kept
 
-- **A teacher.** An API key with a spending cap. `--dry-run` shows the cost before anything is spent.
-- **Disk space.** About 30 GB for the Python packages, model weights and checkpoints.
-- **The student**, if a different one is wanted.
+Model weights, checkpoints, the Hugging Face cache and the Python environment
+live on Grant's external SSD, inside an APFS disk image
+(`Redstring Training/redstring-training.sparsebundle`, mounted at
+`/Volumes/Redstring Training`; `env.sh` opens it). `models/`, `checkpoints/` and
+`.venv` here are links into it. The SSD itself is exFAT, whose 1 MB blocks and
+`._` sidecar files make a Python environment unusable directly on it. Gathered
+calls, labels and datasets are small and stay in `data/`.
 
 ## Files
 
@@ -100,6 +121,7 @@ against its own aims is its temperament, and that is not trained in
 - `src/druid/lab/rewards.js`: rewards (`rewardFor`, `rewardWithLabel`)
 - `src/druid/lab/teacher.js`: the teacher's prompts, labels and targets
 - `src/druid/lab/canaries.js`: hand-labeled probes
+- `src/wizard/lab/bench.js`, `recorder.js`, `scripts/wizard-bench.mjs`: the wizard's benchmark and call recording
 - `scripts/druid-bench.mjs`, `druid-label.mjs`, `druid-reward.mjs`, `druid-canary.mjs`, `druid-bench-compare.mjs`
-- `training/druid/prepare.py`, `sft_mlx.sh`, `grpo.py`, `requirements-*.txt`
+- `training/druid/prepare.py`, `sft_mlx.sh`, `grpo.py`, `env.sh`, `requirements-*.txt`
 - `training/druid/data/`, `runs/`, `models/`: data and checkpoints (git-ignored)

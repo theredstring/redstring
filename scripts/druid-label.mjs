@@ -4,13 +4,18 @@
  *
  *   npm run druid:label -- --in calls.jsonl --out labels.jsonl --dry-run
  *   ANTHROPIC_API_KEY=… npm run druid:label -- --in calls.jsonl --out labels.jsonl
+ *   npm run druid:label -- --in calls.jsonl --out labels.jsonl --provider gemini --model gemini-3.8-flash
  *   npm run druid:label -- --in calls.jsonl --out labels.jsonl --provider openai --endpoint http://localhost:1234/v1/chat/completions --model some-model
+ *
+ * Keys come from the environment or the repo's .env (git-ignored):
+ * ANTHROPIC_API_KEY, GEMINI_API_KEY, or TEACHER_API_KEY for --provider openai.
  *
  * Held-out subjects (lab/subjects.js EVAL) are never labeled: what the
  * benchmark measures must not be trained on. Each prompt is labeled once (by
  * a hash of what was shown), and a run picks up where the last one stopped.
  * --dry-run prints how many calls of each kind would be labeled and what it
- * would cost, and calls nothing.
+ * would cost, and calls nothing. Calls training won't use are not labeled
+ * (see OWN_VOICE and SHARE below); --all labels them anyway.
  */
 
 import fs from 'node:fs';
@@ -22,16 +27,26 @@ const { values: args } = parseArgs({
     in: { type: 'string', default: '' },
     out: { type: 'string', default: '' },
     provider: { type: 'string', default: 'anthropic' },
-    model: { type: 'string', default: 'claude-haiku-4-5-20251001' },
+    model: { type: 'string', default: '' },
     endpoint: { type: 'string', default: '' },
+    effort: { type: 'string', default: '' },
     concurrency: { type: 'string', default: '6' },
     limit: { type: 'string', default: '' },
     types: { type: 'string', default: '' },
     'dry-run': { type: 'boolean', default: false },
-    'price-in': { type: 'string', default: '1' },
-    'price-out': { type: 'string', default: '5' }
+    all: { type: 'boolean', default: false },
+    'price-in': { type: 'string', default: '' },
+    'price-out': { type: 'string', default: '' }
   }
 });
+
+try { process.loadEnvFile(new URL('../.env', import.meta.url)); } catch { /* no .env: the environment only */ }
+/** [model, $/M in, $/M out] when none is given */
+const DEFAULTS = { anthropic: ['claude-haiku-4-5-20251001', 1, 5], gemini: ['gemini-3.8-flash', 0.75, 3.75], openai: ['', 0, 0] };
+const [defModel, defIn, defOut] = DEFAULTS[args.provider] || DEFAULTS.openai;
+args.model ||= defModel;
+args['price-in'] ||= String(defIn);
+args['price-out'] ||= String(defOut);
 
 for (const k of ['log', 'info', 'debug', 'warn']) console[k] = () => {};
 const say = (s) => process.stdout.write(s);
@@ -65,7 +80,29 @@ for (const file of args.in.split(',')) {
     queue.push({ hash, rec, t });
   }
 }
-const jobs = args.limit ? queue.slice(0, Number(args.limit)) : queue;
+// Only what training will use is worth paying for (training/druid/prepare.py):
+// the Druid's voice is learned from its own answers, so those calls need no
+// teacher, and the yes-or-no helpers are capped at SHARE of the examples, so
+// labeling more of them than that is money thrown away. Which helpers is
+// fixed by hash, so a resumed run picks the same ones.
+const OWN_VOICE = new Set(['thought', 'throughLine', 'speech']);
+const SHARE = 0.3;
+let skippedVoice = 0;
+let skippedHelpers = 0;
+let picked = queue;
+if (!args.all) {
+  const kept = queue.filter(j => !OWN_VOICE.has(j.t.type));
+  skippedVoice = queue.length - kept.length;
+  const doneTypes = [];
+  if (args.out && fs.existsSync(args.out)) for (const line of fs.readFileSync(args.out, 'utf8').split('\n')) { try { doneTypes.push(JSON.parse(line).type); } catch { /* a torn line */ } }
+  const others = kept.filter(j => j.t.type !== 'helper').length + doneTypes.filter(t => t && t !== 'helper' && !OWN_VOICE.has(t)).length;
+  const room = Math.max(0, Math.ceil((SHARE / (1 - SHARE)) * others) - doneTypes.filter(t => t === 'helper').length);
+  const helpers = kept.filter(j => j.t.type === 'helper').sort((a, b) => (a.hash < b.hash ? -1 : 1));
+  skippedHelpers = Math.max(0, helpers.length - room);
+  const chosen = new Set(helpers.slice(0, room));
+  picked = kept.filter(j => j.t.type !== 'helper' || chosen.has(j));
+}
+const jobs = args.limit ? picked.slice(0, Number(args.limit)) : picked;
 
 const byType = {};
 let inTokens = 0;
@@ -73,11 +110,12 @@ for (const j of jobs) { byType[j.t.type] = (byType[j.t.type] || 0) + 1; inTokens
 const outTokens = jobs.length * 180;
 const cost = (inTokens / 1e6) * Number(args['price-in']) + (outTokens / 1e6) * Number(args['price-out']);
 say(`${jobs.length} call(s) to label (${done.size} already labeled, ${heldOut} from held-out subjects skipped)\n`);
+if (skippedVoice || skippedHelpers) say(`not labeled, as training won't use them: ${skippedVoice} in the Druid's own voice, ${skippedHelpers} yes-or-no helpers over the cap (--all labels everything)\n`);
 say(`${Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ')}\n`);
 say(`about ${Math.round(inTokens / 1000)}K tokens in, ${Math.round(outTokens / 1000)}K out: about $${cost.toFixed(2)} at $${args['price-in']}/M in and $${args['price-out']}/M out\n`);
 if (args['dry-run'] || !jobs.length) process.exit(0);
 
-const teacher = teacherBackend({ provider: args.provider, model: args.model, endpoint: args.endpoint, apiKey: args.provider === 'openai' ? process.env.TEACHER_API_KEY : undefined });
+const teacher = teacherBackend({ provider: args.provider, model: args.model, endpoint: args.endpoint, effort: args.effort || undefined, apiKey: args.provider === 'openai' ? process.env.TEACHER_API_KEY : undefined });
 const outFd = fs.openSync(args.out, 'a');
 let next = 0;
 let ok = 0;

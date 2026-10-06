@@ -68,6 +68,7 @@
     "druid:label": "node scripts/druid-label.mjs",
     "druid:reward": "node scripts/druid-reward.mjs",
     "druid:canary": "node scripts/druid-canary.mjs",
+    "wizard:bench": "node scripts/wizard-bench.mjs",
     "bench:layout": "LAYOUT_BENCH=1 vitest run test/layout-bench",
     "test:e2e": "bash test/e2e/daemon-smoke.sh && bash test/e2e/cli-roundtrip.sh && node test/e2e/mcp-daemon-smoke.mjs",
     "test:canvas": "playwright test",

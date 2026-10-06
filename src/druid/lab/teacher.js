@@ -96,10 +96,17 @@ export function targetFrom(rec, type, label) {
 
 /**
  * A teacher model behind a small interface: complete({ system, user }) → text.
- * Anthropic's Messages API (ANTHROPIC_API_KEY), or any OpenAI-compatible
- * endpoint (a local model, another provider).
+ * Anthropic's Messages API (ANTHROPIC_API_KEY), Gemini through Google's
+ * OpenAI-compatible endpoint (GEMINI_API_KEY), or any OpenAI-compatible
+ * endpoint (a local model, another provider). A Gemini model that thinks
+ * spends its thinking from the same token budget, so it gets a larger one.
  */
-export function teacherBackend({ provider = 'anthropic', model, apiKey, endpoint, fetchImpl = globalThis.fetch, maxTokens = 600 } = {}) {
+export function teacherBackend({ provider = 'anthropic', model, apiKey, endpoint, effort, fetchImpl = globalThis.fetch, maxTokens = 600 } = {}) {
+  if (provider === 'gemini') {
+    const key = apiKey || globalThis.process?.env?.GEMINI_API_KEY || globalThis.process?.env?.GOOGLE_API_KEY;
+    if (!key) throw new Error('No teacher: set GEMINI_API_KEY (in .env, or the environment).');
+    return openaiCompatible({ id: `gemini:${model}`, model, apiKey: key, endpoint: endpoint || GEMINI_ENDPOINT, effort, fetchImpl, maxTokens: Math.max(maxTokens, 4000) });
+  }
   if (provider === 'anthropic') {
     const key = apiKey || globalThis.process?.env?.ANTHROPIC_API_KEY;
     if (!key) throw new Error('No teacher: set ANTHROPIC_API_KEY, or pass --provider openai with an endpoint.');
@@ -117,13 +124,19 @@ export function teacherBackend({ provider = 'anthropic', model, apiKey, endpoint
       }
     };
   }
+  return openaiCompatible({ id: `openai:${model}`, model, apiKey, endpoint, effort, fetchImpl, maxTokens });
+}
+
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+
+function openaiCompatible({ id, model, apiKey, endpoint, effort, fetchImpl, maxTokens }) {
   return {
-    id: `openai:${model}`,
+    id,
     async complete({ system, user }) {
       const res = await fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
-        body: JSON.stringify({ model, temperature: 0, max_tokens: maxTokens, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
+        body: JSON.stringify({ model, temperature: 0, max_tokens: maxTokens, ...(effort ? { reasoning_effort: effort } : {}), messages: [{ role: 'system', content: system }, { role: 'user', content: user }] })
       });
       if (!res.ok) throw new Error(`teacher ${res.status}: ${(await res.text()).slice(0, 300)}`);
       const j = await res.json();
@@ -132,10 +145,22 @@ export function teacherBackend({ provider = 'anthropic', model, apiKey, endpoint
   };
 }
 
+/**
+ * A list label is names, one per entry. A teacher sometimes packs a whole
+ * answer into one entry ("Numbers, hour markers, minute marks"); those are
+ * split, so the names in it still count.
+ */
+export function tidy(type, parsed) {
+  if (type !== 'list' || !parsed) return parsed;
+  const names = (xs) => [...new Set([].concat(xs ?? []).flatMap(x => String(x).split(/\s*,\s*/)).map(x => x.trim()).filter(Boolean))];
+  const best = names(parsed.best);
+  return { ...parsed, best: best.slice(0, 6), acceptable: [...new Set([...best.slice(6), ...names(parsed.acceptable)])], wrong: names(parsed.wrong) };
+}
+
 /** Label one recorded call: the teacher's label, and the target to train on. */
 export async function label(teacher, rec) {
   const t = teaching(rec);
   const r = await teacher.complete({ system: t.system, user: t.user });
-  const parsed = readJson(r.text);
+  const parsed = tidy(t.type, readJson(r.text));
   return { type: t.type, label: parsed, target: targetFrom(rec, t.type, parsed), usage: r.usage, raw: parsed ? undefined : String(r.text).slice(0, 300) };
 }

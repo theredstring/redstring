@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { rewardFor, classify, badName } from '../../src/druid/lab/rewards.js';
+import { echoes, rewardFor, classify, badName } from '../../src/druid/lab/rewards.js';
 
 const fill = (question, maxWords, where = { web: 'Clouds', topic: 'Venus', things: ['Cloud tops', 'Cloud base'] }) => ({
   kind: 'fill', meta: { phase: 'blank', question, maxWords }, user: question, schema: { name: 'fill' }, where
@@ -32,6 +32,17 @@ describe('rewards for what the Druid asks', () => {
     expect(rewardFor(rec, said('Haze layer')).reward).toBe(0.5);
     expect(rewardFor(rec, said('Middle')).reward).toBeLessThan(0);
     expect(rewardFor(rec, said('Cloud tops')).reasons).toContain('Cloud tops: already here');
+    const roomy = fill('Name another part of Clouds, one you could point to on Clouds itself.', 16);
+    expect(rewardFor(roomy, said('Name another part of Clouds, one you could point to on Clouds itself.')).reasons).toContain('says the question back');
+    expect(rewardFor(roomy, said('one you could point to on it')).reasons).toContain('says the question back');
+  });
+
+  it('does not call an answer an echo for using what the question shows', () => {
+    // Picking names out of a quoted thought, and speaking from what the universe holds (2026-10-06).
+    expect(echoes('Tube, Lens, Mirror', 'You just thought: "Tube holds Lens at the front and runs straight to Mirror.". Name up to three Things in that thought worth keeping, separated by commas.')).toBe(false);
+    const speech = 'What your universe holds about what they mention:\nBell (in Bicycle bell): A thin, cold metal ring, hanging at the bicycle\'s end.\n\nAnswer them as yourself, in two or three plain sentences of your own.';
+    expect(echoes('I found the Bicycle bell. It is a thin, cold metal ring at the end of the bike.', speech)).toBe(false);
+    expect(echoes('Answer them as yourself, in two or three plain sentences.', speech)).toBe(true);
   });
 
   it('wants a relation that says how, and a thought about what is here', () => {

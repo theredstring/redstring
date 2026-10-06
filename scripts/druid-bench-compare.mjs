@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Whether a trained model is better than the one it would replace, on the
- * benchmark's held-out subjects (scripts/druid-bench.mjs --out).
+ * benchmark's held-out subjects (scripts/druid-bench.mjs or wizard-bench.mjs --out),
+ * each role by its own measures.
  *
  *   node scripts/druid-bench-compare.mjs runs/base.json runs/candidate.json
  *
@@ -21,8 +22,13 @@ const cand = JSON.parse(fs.readFileSync(candPath, 'utf8'));
 const subjects = (r) => r.results.map(x => x.subject).sort().join(',');
 if (subjects(base) !== subjects(cand)) process.stdout.write('Warning: not the same subjects; the comparison is loose.\n\n');
 
-/** [measure, higher is better, noise] */
-const MEASURES = [
+/** [measure, higher is better, noise]: the Druid's, or the wizard's (scripts/wizard-bench.mjs) */
+const WIZARD = [
+  ['thingsPerRun', true, 1], ['edgesPerRun', true, 1], ['connectedPct', true, 5], ['subjectWebPct', true, 5],
+  ['refusedPerRun', false, 0.3], ['dupesPerRun', false, 0.3], ['failedPct', false, 3], ['answeredPct', true, 5], ['erroredPct', false, 5]
+];
+if (base.role !== cand.role) { process.stdout.write(`These are different roles' benchmarks (${base.role || 'druid'} and ${cand.role || 'druid'}).\n`); process.exit(1); }
+const MEASURES = base.role === 'wizard' ? WIZARD : [
   ['onSubjectPct', true, 3], ['driftPerRun', false, 0.5], ['positionsPerRun', false, 0.2],
   ['failedPct', false, 3], ['emptyPct', false, 2], ['ungroundedThoughtsPct', false, 3], ['daydreamPct', false, 2],
   ['turnedPct', true, 5], ['turnLatency', false, 0.5], ['heldPct', true, 5], ['answeredPct', true, 5],

@@ -39,6 +39,19 @@ describe('the teacher', () => {
     const r = await label(teacherBackend({ model: 'm', apiKey: 'k', fetchImpl }), listRec);
     expect(r).toMatchObject({ type: 'list', label: crustLabel, target: { ok: true }, usage: { input: 900, output: 60 } });
   });
+
+  it('labels through Gemini\'s OpenAI-compatible endpoint, with room to think', async () => {
+    const fetchImpl = async (url, init) => {
+      const body = JSON.parse(init.body);
+      expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+      expect(init.headers.authorization).toBe('Bearer g');
+      expect(body).toMatchObject({ model: 'gemini-2.5-flash-lite', temperature: 0, reasoning_effort: 'low' });
+      expect(body.max_tokens).toBeGreaterThanOrEqual(4000);
+      return { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(crustLabel) } }], usage: { prompt_tokens: 900, completion_tokens: 60 } }) };
+    };
+    const r = await label(teacherBackend({ provider: 'gemini', model: 'gemini-2.5-flash-lite', apiKey: 'g', effort: 'low', fetchImpl }), listRec);
+    expect(r).toMatchObject({ type: 'list', label: crustLabel, target: { ok: true }, usage: { input: 900, output: 60 } });
+  });
 });
 
 describe('rewards with a teacher\'s label', () => {
@@ -57,8 +70,9 @@ describe('rewards with a teacher\'s label', () => {
   it('scores choices and yes or no against the label, and leaves free text to teaching by example', () => {
     const choose = { kind: 'choose', meta: { phase: 'choose', options: ['a', 'b', 'c'] } };
     const l = { best: [2], acceptable: [3], bad: [1] };
-    expect(rewardWithLabel(choose, '{"choice":"2"}', l).reward).toBe(1);
-    expect(rewardWithLabel(choose, '{"choice":"3"}', l).reward).toBe(0.4);
+    // Its taste among reasonable options is its own: best and acceptable score alike.
+    expect(rewardWithLabel(choose, '{"choice":"2"}', l).reward).toBe(0.5);
+    expect(rewardWithLabel(choose, '{"choice":"3"}', l).reward).toBe(0.5);
     expect(rewardWithLabel(choose, '{"choice":"1"}', l).reward).toBe(-0.6);
     const yes = { kind: 'helper:onSubject', meta: { phase: 'helper', helper: 'onSubject' }, schema: { schema: { properties: { answer: { enum: ['yes', 'no'] } } } } };
     expect(rewardWithLabel(yes, '{"answer":"no"}', { answer: 'no' }).reward).toBe(1);
@@ -108,5 +122,15 @@ describe('the canaries', () => {
     const b = await runCanaries(gaming, { rewardWithLabel });
     expect(a.score).toBeGreaterThan(0.8);
     expect(b.score).toBeLessThan(0);
+  });
+});
+
+describe('tidying a teacher\'s list label', () => {
+  it('splits a whole answer packed into one entry into its names', async () => {
+    const { tidy } = await import('../../src/druid/lab/teacher.js');
+    const t = tidy('list', { best: ['Numbers, hour markers, minute marks', 'Numerals, tick marks, dial'], acceptable: ['Dial', 'Indices'], wrong: ['Hands'] });
+    expect(t.best).toEqual(['Numbers', 'hour markers', 'minute marks', 'Numerals', 'tick marks', 'dial']);
+    expect(t.acceptable).toEqual(['Dial', 'Indices']);
+    expect(tidy('name', { best: 'a, b' })).toEqual({ best: 'a, b' });
   });
 });

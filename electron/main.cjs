@@ -203,6 +203,11 @@ function stopAgentServer() {
 }
 
 let mainWindow = null;
+// Startup can open and destroy a hidden window (the legacy-origin export in
+// runOriginMigration) before the app window exists. Electron reports that as
+// window-all-closed; quitting on it ended every Windows/Linux launch that had
+// legacy storage to migrate, before the app window was ever shown.
+let appWindowOpened = false;
 
 // ============================================================
 // Directories
@@ -495,6 +500,7 @@ function createWindow() {
     additionalArguments.push('--redstring-debug-downgrade');
   }
 
+  appWindowOpened = true;
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -1349,6 +1355,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', function () {
+  if (!appWindowOpened) return;
   if (process.platform !== 'darwin') app.quit();
 });
 

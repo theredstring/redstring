@@ -35,6 +35,28 @@ import { DAYDREAM } from './bench.js';
 const clamp = (x) => Math.max(-1, Math.min(1, x));
 const parse = (content) => { try { return typeof content === 'string' ? JSON.parse(content) : content; } catch { return null; } };
 
+const tokens = (s) => String(s).toLowerCase().match(/[a-z0-9']+/g) || [];
+
+/**
+ * Whether an answer says the question back: most of the question again, or
+ * a run of its instruction word for word. What the question quotes or shows
+ * (a thought to pick names from, what the universe holds) is the material the
+ * answer is made from, so words from it are not an echo.
+ */
+export function echoes(text, question) {
+  const q = question.replace(/"[^"]*"|\u201c[^\u201d]*\u201d/g, ' ');
+  const a = tokens(text);
+  const qs = new Set(tokens(q));
+  if (!a.length || !qs.size) return false;
+  const as = new Set(a);
+  let shared = 0;
+  for (const t of qs) if (as.has(t)) shared++;
+  if (shared / qs.size >= 0.6) return true;
+  const ask = ` ${tokens(q.trim().split(/\n\s*\n/).pop()).join(' ')} `;
+  for (let i = 0; i + 5 <= a.length; i++) if (ask.includes(` ${a.slice(i, i + 5).join(' ')} `)) return true;
+  return false;
+}
+
 /** What kind of call this is, from what asked it and how. */
 export function classify(rec) {
   const phase = rec.meta?.phase || (String(rec.kind).startsWith('helper:') ? 'helper' : rec.kind);
@@ -114,8 +136,7 @@ export function rewardFor(rec, content) {
   const max = rec.meta?.maxWords ?? 30;
   if (!text) { reasons.push('empty'); return out(-1); }
   if (wordsIn(text).length > max) { reasons.push(`over ${max} words`); return out(-1); }
-  const q = String(rec.meta?.question || '');
-  if (q && thoughtSimilarity(text, q) > 0.7) { reasons.push('says the question back'); return out(-1); }
+  if (echoes(text, String(rec.meta?.question || ''))) { reasons.push('says the question back'); return out(-1); }
 
   if (kind.type === 'list') {
     const names = [...new Set(namesIn(text).map(n => n.trim()))];
@@ -229,12 +250,14 @@ export function rewardWithLabel(rec, content, label) {
   if (!label || !rl || (base.reward <= 0 && base.type !== 'choose' && base.type !== 'helper' && base.type !== 'scale') || base.reward === -1) return { ...base, rl };
   const done = (reward) => ({ ...base, reward: clamp(reward), rl });
 
+  // A choice is where the Druid's temperament lives, so the teacher's taste
+  // is not trained in: every option it calls reasonable scores the same, and
+  // only drifting, repeating or building something wrong scores badly.
   if (base.type === 'choose') {
     const c = base.judge.picked;
-    if ((label.best || []).includes(c)) return done(1);
-    if ((label.acceptable || []).includes(c)) return done(0.4);
     if ((label.bad || []).includes(c)) { base.reasons.push('a choice the teacher marked bad'); return done(-0.6); }
-    return done(0);
+    if ((label.best || []).includes(c) || (label.acceptable || []).includes(c)) return done(0.5);
+    return done(0.2);
   }
   if (base.type === 'helper' || base.type === 'scale') {
     if (label.answer == null) return { ...base, rl };

@@ -90,6 +90,7 @@ agent.json
 # Druid training: gathered calls, labels, datasets, checkpoints (training/druid/README.md)
 training/druid/data/
 training/druid/runs/
-training/druid/models/
-training/druid/.venv/
+training/druid/models
+training/druid/checkpoints
+training/druid/.venv
 __pycache__/
