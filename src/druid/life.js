@@ -32,7 +32,7 @@
 
 import { computeActivation } from './activation.js';
 import { recordUse, associate } from './activation.js';
-import { settleLocus, buildView, renderView, emptyLocus } from './attention.js';
+import { settleLocus, buildView, renderView, emptyLocus, isOwnPlace } from './attention.js';
 import { hold, held, fade, letGo, scratch as scratchThought, promote, renderHeld, wake } from './heldInMind.js';
 import { buildMenu, matchOther, REFUSED_FOR } from './moves/menu.js';
 import { BASIC_MOVES } from './moves/basic.js';
@@ -254,7 +254,11 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // built a web about Venus (The Druid 12, 2026-10-06).
     // With nothing yet to name, a thought is an intention ("a web for rivers"), and kept.
     const nothingYet = !world.allThings().some(id => !world.isOwnThinking?.(id));
-    const grounded = !!thought && (nothingYet || namedIn(world, thought, 1).length > 0);
+    // Named in what it has built, not only in what it kept from thoughts: once
+    // a daydream had made Forest a Thing, every forest thought after it passed.
+    const content = (w) => !!w && !isOwnPlace(world, w) && !world.isSystemWeb?.(w);
+    const inContent = (id) => world.websOf(id).some(content) || content(world.insideOf(id));
+    const grounded = !!thought && (nothingYet || namedIn(world, thought, 5).some(inContent));
     if (thought && grounded && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
     if (thought && !grounded) st.notice = [st.notice, 'That thought named nothing in your universe. Think about what is in front of you, by name.'].filter(Boolean).join('\n');
     st.stuck = repeating ? (st.stuck || 0) + 1 : 0;
@@ -287,18 +291,26 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     }
 
     const calls = [];
+    // What the moves that build ask is asked over where it stands, not over
+    // its thoughts, its goals or the conversation: asked to describe Middle,
+    // a part of Venus's cloud tops, while a person was asking about a ham
+    // sandwich, it said "Middle layer of a ham sandwich is the bread"; and a
+    // thought about forests named the next part of Middle "Trunk" (The Druid
+    // 12, 2026-10-06). The question names what it is part of (moves/basic.js inContext).
+    let building = false;
+    const over = () => (building ? { system: context.system, view: context.view } : sections());
     const ask = async (question, maxWords) => {
-      const r = await mind.fill({ ...sections(), question, maxWords });
+      const r = await mind.fill({ ...over(), question, maxWords });
       calls.push({ kind: 'fill', question, ok: r.ok, text: r.text, ...(r.error ? { error: r.error } : {}) });
       return r.text;
     };
     const pick = async (question, options) => {
-      const r = await mind.choose({ ...sections(), question, options });
+      const r = await mind.choose({ ...over(), question, options });
       calls.push({ kind: 'choose', question, ok: r.ok, index: r.index, ...(r.error ? { error: r.error } : {}) });
       return r.index;
     };
     const judge = async (question, scale) => {
-      const r = await mind.judge({ ...sections(), question, scale });
+      const r = await mind.judge({ ...over(), question, scale });
       calls.push({ kind: 'judge', question, ok: r.ok, key: r.key, ...(r.error ? { error: r.error } : {}) });
       return r.key;
     };
@@ -355,6 +367,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 
     // ── ACT ───────────────────────────────────────────────────────────────
     if (item?.blank) listen();
+    building = !!item && BUILDING.has(item.move.id);
     if (cut) {
       result = { ok: true, summary: 'stopped what you were doing to listen', touched: [], wrote: false };
       item = null;
@@ -624,6 +637,8 @@ function snapshot(st) {
 /** Failures that are a check saying no, as opposed to a slip. */
 const UNFILLED = /: left the blank empty$|safety filter would not answer$/;
 const REFUSAL = /does not make sense|is not a kind of|not a part of|has a name of its own|cannot be a part of itself|cannot go inside itself|already exists|already here|about this place itself|about knowing in general|describes a quality|not that they differ|already both kinds of|already a kind of|too general to be a kind|an aspect of something|too long for a relation|does not say how|only repeats a name|could not tell from|not inside it|something you do|only puts names together|no subject of its own|already your goal|names something missing|already make up/i;
+/** Moves that build the web: their blanks are asked over where it stands only. */
+const BUILDING = new Set(['make', 'open', 'deepen', 'describe', 'connect', 'specialize', 'generalize', 'variant', 'contrast', 'chunk', 'analogy', 'remember', 'mergeSame', 'moveOut']);
 /** Moves that go somewhere rather than do something. */
 const NAVIGATION = new Set(['look', 'follow', 'goWeb', 'open', 'close', 'pursueGoal', 'pursueStep', 'wonder']);
 

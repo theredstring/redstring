@@ -66,7 +66,7 @@ describe("Apple's model, one session a moment", () => {
 });
 
 describe('a moment shares one context', () => {
-  it('its thought, its choice and what it fills in are asked over the same context; the thought comes first', async () => {
+  it('its thought and its choice are asked over one context, what it builds over another without its thoughts; the thought comes first', async () => {
     const { world } = await freshWorld();
     const { webs, ids } = await buildUniverse(world, { webs: { Everest: { things: { Summit: 's', Glacier: 'g' } } } });
     const seen = [];
@@ -85,7 +85,15 @@ describe('a moment shares one context', () => {
     const moment = seen.filter(r => r.context);
     expect(/thinking now/.test(moment[0].turn)).toBe(true);
     expect(moment.length).toBeGreaterThanOrEqual(3);
-    expect(new Set(moment.map(r => r.context)).size).toBe(1);
+    // Thinking and choosing share one context; what a building move fills in is
+    // asked over where it stands only, without its thoughts (life.js BUILDING),
+    // and those blanks share a second.
+    const thinking = moment.filter(r => /thinking now/.test(r.turn) || r.schema.name === 'choice');
+    const blanks = moment.filter(r => !thinking.includes(r));
+    expect(new Set(thinking.map(r => r.context)).size).toBe(1);
+    expect(blanks.length).toBeGreaterThan(0);
+    expect(new Set(blanks.map(r => r.context)).size).toBe(1);
+    expect(blanks[0].context).not.toMatch(/The Summit is the top of Everest/);
     // The choice sees the thought just made.
     expect(moment.find(r => r.schema.name === 'choice').turn).toMatch(/What you are thinking now: The Summit is the top of Everest\./);
     expect(out[0].thought).toBe('The Summit is the top of Everest.');

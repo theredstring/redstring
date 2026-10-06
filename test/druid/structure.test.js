@@ -31,6 +31,13 @@ describe('structure before sentences', () => {
     expect(world.thingsIn(world.insideOf(ids.Consciousness)).map(world.nameOf)).toEqual(['Perception', 'Attention', 'Memory', 'Thoughts']);
   });
 
+  it('a position is no part: Middle, Upper, Layers', async () => {
+    const { isAspect } = await import('../../src/druid/names.js');
+    // Cloud tops → Layers → Upper, Middle, Lower; Middle then held a Trunk, a River and the Mid-Atlantic Ridge (The Druid 12).
+    for (const n of ['Middle', 'Upper', 'Lower', 'Layers', 'Inner', 'Region']) expect(isAspect(n)).toBe(true);
+    for (const n of ['Middle layer', 'Lower mantle', 'Inner core', 'Cloud tops', 'Back', 'Bread']) expect(isAspect(n)).toBe(false);
+  });
+
   it('a part is asked about with its whole and the subject it is in', async () => {
     const { inContext } = await import('../../src/druid/moves/basic.js');
     const { world } = await freshWorld();
@@ -109,6 +116,15 @@ describe('a thought about nothing in its universe', () => {
     expect(seen.find(r => r.schema.name === 'choice').user).toMatch(/That thought named nothing in your universe/);
     expect(out[1]).toMatchObject({ grounded: true });
     expect(out[1].state.loop).toEqual(['Consciousness is being aware.']);
+  });
+
+  it('nor kept as Things: what it keeps from a thought must come from one about what it has built', async () => {
+    const { remember } = await import('../../src/druid/moves/basic.js');
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { Venus: { things: { Clouds: 'c', Surface: 's' } } } });
+    const at = (lastThought) => ({ ...ctxAt(world, { web: webs.Venus, focus: ids.Clouds, path: [] }), lastThought });
+    expect(remember.offer(at('I am thinking of the winds that swirl through the trees, carrying whispers of the past.'))).toEqual([]);
+    expect(remember.offer(at('Clouds of sulfuric acid hide the Surface and trap heat beneath them.'))).toHaveLength(1);
   });
 
   it('nor is the through-line question said back', async () => {

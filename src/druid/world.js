@@ -310,7 +310,9 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // nor with the webs above, is asked whether it belongs (mind/helpers.js onSubject).
     if (api.actor && api.onSubject && !typeNodeId && !isSystemWeb(graphId) && !isOwnWeb(graphId)) {
       const subject = topicOf(graphId);
-      const said = wordsIn(lower(name)).some(w => api.personWords?.has(w));
+      // A person's words pass only in what they are about: "Ham", said of a
+      // sandwich, went into Venus's cloud tops (The Druid 12, 2026-10-06).
+      const said = wordsIn(lower(name)).some(w => api.personWords?.has(w)) && wordsIn(lower(subject || '')).some(w => api.personWords?.has(w));
       if (subject && lower(subject) !== lower(name) && !said && !sharesWordWith(name, graphId) && (await api.onSubject(name, subject).catch(() => null)) === false) {
         // A part of a part is seldom named in explaining the whole subject
         // (Leaf, of Lettuce, of a Submarine sandwich): it stays when it fits

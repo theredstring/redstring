@@ -170,7 +170,15 @@ const ASPECTS = new Set(['composition', 'origin', 'origins', 'role', 'roles', 'f
   'uses', 'benefits', 'location', 'depth', 'magnitude', 'kind', 'type', 'types', 'sort', 'sorts', 'part', 'parts',
   'component', 'components', 'pattern', 'patterns', 'understanding', 'contrast', 'comparison',
   // "Stage of Absorption": a stage of something, not a stage.
-  'stage', 'stages', 'step', 'steps', 'phase', 'phases']);
+  'stage', 'stages', 'step', 'steps', 'phase', 'phases',
+  // Where in something, not a thing there: asked for the parts of Venus's
+  // cloud tops, "Layers"; of Layers, "Upper, Middle, Lower"; and a Middle,
+  // part of nothing in particular, took a Trunk, a River and the Mid-Atlantic
+  // Ridge (The Druid 12, 2026-10-06). "Middle layer" names a thing; "Middle" does not.
+  // (Not Back, Side or Top: a back is a body part.)
+  'layer', 'layers', 'level', 'levels', 'middle', 'upper', 'lower', 'inner', 'outer', 'inside', 'outside',
+  'section', 'sections', 'region', 'regions', 'area', 'areas', 'zone', 'zones',
+  'piece', 'pieces', 'element', 'elements', 'portion', 'portions', 'segment', 'segments']);
 export function isAspect(name) {
   const words = wordsIn(String(name || '').toLowerCase());
   // "Sun's role", "Earth's composition": an aspect of the one named before it.

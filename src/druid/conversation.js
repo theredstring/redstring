@@ -46,6 +46,7 @@ import { isOwnPlace } from './attention.js';
 import { isBookkeeping } from './roles.js';
 import { asksForWork } from './mind/helpers.js';
 import { newWeb } from './moves/basic.js';
+import { hasVerb } from './names.js';
 
 /** Moments after the last thing said that it stays in the conversation. */
 export const ENGAGED_FOR = 6;
@@ -67,7 +68,7 @@ const CORRECT = /\b(?:you'?re|you are)\s+(?:drifting|wandering|off|lost|rambling
  */
 const ASK_TO_DO = /^(?:please\s+|so\s+|ok(?:ay)?,?\s+)?(?:can|could|would|will) you\s+(?:please\s+)?(?:go|look|start|work|think|find|make|focus|build|map|study|explore|figure|learn|research|open|try|dig|read|keep|stop|move|turn|switch|begin|get|leave|drop)\b/i;
 /** The subject a request names: "start working on a submarine sandwich" → Submarine sandwich. */
-const SUBJECT = /\b(?:start(?:ing)?\s+(?:working\s+on|on|thinking\s+about|looking\s+into|to\s+(?:understand|learn\s+about|explore)|with)|work(?:ing)?\s+on|think(?:ing)?\s+about|look(?:ing)?\s+(?:into|at)|explor(?:e|ing)|learn(?:ing)?\s+about|understand(?:ing)?|build(?:ing)?\s+(?:an?\s+)?(?:understanding|picture|map|web)\s+of|(?:make|making|create|creating|start|starting|draw|drawing)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:web|map|picture|graph)\s+(?:of|for|about|on)|figure\s+out|study(?:ing)?|focus(?:ing)?\s+on|research(?:ing)?|go\s+(?:back\s+)?to|switch\s+to|turn\s+to|move\s+on\s+to|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+|some\s+)?([^.,;:!?]+)/i;
+const SUBJECT = /\b(?:start(?:ing)?\s+(?:working\s+on|on|thinking\s+about|looking\s+into|to\s+(?:understand|learn\s+about|explore)|with)|work(?:ing)?\s+on|think(?:ing)?\s+about|look(?:ing)?\s+(?:into|at)|explor(?:e|ing)|learn(?:ing)?\s+about|understand(?:ing)?|build(?:ing)?\s+(?:an?\s+)?(?:understanding|picture|map|web)\s+of|(?:make|making|create|creating|start|starting|draw|drawing)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:web|map|picture|graph)\s+(?:of|for|about|on)|figure\s+out|study(?:ing)?|focus(?:ing)?\s+on|talk(?:ing)?\s+about|chat\s+about|discuss(?:ing)?|research(?:ing)?|go\s+(?:back\s+)?to|switch\s+to|turn\s+to|move\s+on\s+to|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+|some\s+)?([^.,;:!?]+)/i;
 /** Asking it to say something, not to do something: a question, however it is put. */
 const SAY_TO = /^(?:please\s+)?(?:(?:can|could|would|will) you\s+(?:please\s+)?)?(?:tell|explain|show|remind)\b/i;
 /** A question without its question mark: "what do you believe". */
@@ -120,8 +121,19 @@ export function parseSaid(text) {
     : clauses.some(c => !SAY_TO.test(c) && ((DIRECT.test(c) && !/\?$/.test(c)) || ASK_TO_DO.test(c))) ? 'direction'
       : /\?\s*$/.test(t) || directed.some(c => /\?$/.test(c)) || clauses.some(c => SAY_TO.test(c) || ASKING.test(c)) ? 'question'
         : 'telling';
+  // A thing named on its own is pointed at: "ham sandwich", said after "let's
+  // talk about a ham sandwich" went unheard, was taken for a remark (2026-10-06).
+  const bare = t.replace(/[.!?]+$/, '').trim();
+  const said = String(text || '').trim();
+  if (kind === 'telling' && bare && !/[,;:]/.test(bare) && bare.split(/\s+/).length <= 4 && !hasVerb(bare) && !VAGUE.test(bare) && !/^(?:there|here|you|me|us)$/i.test(bare) && !NOT_A_THING.test(bare) && !NOT_A_THING.test(said)) {
+    const subject = bare.replace(/^(?:the|a|an|some)\s+/i, '');
+    return { kind: 'direction', toward: bare, away: awayText, subject: subject.charAt(0).toUpperCase() + subject.slice(1), meant: false };
+  }
   return { kind, toward, away: awayText, subject: subjectOf(toward || t), meant: MEANT.test(t) };
 }
+
+/** Said on its own, but no Thing: a greeting, a thanks, a laugh, a yes or no. */
+const NOT_A_THING = /^(?:h(?:i|ey|ello|owdy)|yo|sup|thanks?|thank you|thx|ty|ok(?:ay)?|k|yes|yeah|yep|yup|no|nope|nah|sure|cool|nice|great|good|awesome|wow|whoa|lol|lmao|haha+|hah|hmm+|huh|oh|ah|wait|sorry|please|good (?:job|work|morning|night|evening)|nice (?:job|work)|well done|you there|hello there|bye|goodbye|cheers)\b/i;
 
 /**
  * Understand what was said: its kind, the Things it turns toward and away
@@ -177,7 +189,9 @@ export function holding(world, subject) {
   if (!subject) return [];
   const words = (x) => new Set(tokenize(x).map(stem));
   const want = [...words(subject)];
-  return namedIn(world, subject, 3).filter(id => { const n = words(world.nameOf(id)); return want.every(w => n.has(w)); });
+  // Only kept as noticed, with no inside, it is not held: there is nowhere to work on it.
+  const placed = (id) => !!world.insideOf(id) || world.websOf(id).some(w => !isOwnPlace(world, w));
+  return namedIn(world, subject, 3).filter(id => { const n = words(world.nameOf(id)); return want.every(w => n.has(w)) && placed(id); });
 }
 
 /**

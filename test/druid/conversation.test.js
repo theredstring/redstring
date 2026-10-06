@@ -33,6 +33,11 @@ describe('understanding what was said', () => {
     expect(parseSaid('how about we switch to medieval castles')).toMatchObject({ kind: 'direction', subject: 'Medieval castles' });
     expect(parseSaid('why not look at tide pools')).toMatchObject({ kind: 'direction', away: '', subject: 'Tide pools' });
     expect(parseSaid('hey, that is really cool').kind).toBe('telling');
+    // The Druid 12 (2026-10-06): neither of these was heard as pointing at anything.
+    expect(parseSaid("hey let's talk about a ham sandwich")).toMatchObject({ kind: 'direction', subject: 'Ham sandwich' });
+    expect(parseSaid('ham sandwich')).toMatchObject({ kind: 'direction', subject: 'Ham sandwich' });
+    expect(parseSaid('hello there').kind).toBe('telling');
+    expect(parseSaid('thanks').kind).toBe('telling');
   });
 
   it('says a sentence once, however often the model loops on it', async () => {
@@ -66,6 +71,19 @@ describe('understanding what was said', () => {
     const { heed } = await import('../../src/druid/conversation.js');
     const offered = heed.offer({ world, tick: 1, locus: { web: null, focus: null }, conversation: { last: 1, kind: 'direction', ask: 'Make a web of a ham sandwich', newSubject: 'Ham sandwich', topic: [], promised: [] } });
     expect(offered[0].label).toBe('start a web for Ham sandwich, as they asked');
+  });
+
+  it('does not take a Thing only kept as noticed for holding the subject', async () => {
+    // "Ham sandwich", kept from a thought, blocked the web it was asked for, and had nowhere to stand (The Druid 12).
+    const { holding } = await import('../../src/druid/conversation.js');
+    const { seedRoles } = await import('../../src/druid/roles.js');
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { Venus: { things: { Clouds: 'c' } } } });
+    await seedRoles(world);
+    world.actor = 'druid';
+    const kept = await world.createThing(webs.Venus, 'Ham sandwich', { noticed: true });
+    expect(kept.noticed).toBe(true);
+    expect(holding(world, 'Ham sandwich')).toEqual([]);
   });
 
   it('can stand inside a web it started, though the web hangs off Home', async () => {

@@ -36,6 +36,7 @@ export const namesIn = (s) => {
 import { topLevelWebs, isOwnPlace } from '../attention.js';
 import { isObject, isBookkeeping, roleOf } from '../roles.js';
 import { relationFromSentence } from '../relations.js';
+import { namedIn as namedInThought } from '../talk.js';
 import { tokenize } from '../recall.js';
 import { aboutTheMedium, asSubject, normalizeName, wordsIn, hasVerb, isAspect, isDoing } from '../names.js';
 
@@ -807,6 +808,12 @@ export const remember = {
     const web = contentWebFor(ctx);
     const thought = ctx.lastThought || '';
     if (!web || !thought) return [];
+    // Only a thought about what it has built: kept from daydreams, "Interconnectedness
+    // of nature", "Harmony", "Forest" became Things, and then grounded the next
+    // daydream (The Druid 12, 2026-10-06).
+    const content = (w) => !!w && !isOwnPlace(ctx.world, w) && !ctx.world.isSystemWeb?.(w);
+    const built = (id) => ctx.world.websOf(id).some(content) || content(ctx.world.insideOf(id));
+    if (!namedInThought(ctx.world, thought).some(built)) return [];
     const unkept = unkeptWords(ctx.world, thought);
     if (unkept.length < 2) return [];
     return [{
