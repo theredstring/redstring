@@ -100,12 +100,13 @@ function Message({ e }) {
   );
 }
 
-/** What it is doing now, while awake: its latest thought, or that it is working out an answer. */
-function Now({ status, answering, thought, tokens }) {
+/** What it is doing now, while awake: its latest thought, that it has heard you and is working it through, or that it is working out an answer. */
+function Now({ status, answering, heard, thought, tokens }) {
   const label = answering ? 'thinking about what to say'
+    : heard ? 'heard you, and is thinking it through'
     : status === 'starting' ? 'waking up'
-      : status === 'stopping' ? 'falling asleep'
-        : thought || null;
+    : status === 'stopping' ? 'falling asleep'
+    : thought || null;
   if (!answering && status === 'idle') return null;
   return (
     <div className="ai-thinking-row" style={{ alignItems: 'flex-start', maxWidth: '100%' }}>
@@ -125,6 +126,9 @@ function Now({ status, answering, thought, tokens }) {
 function DruidChat({ stream, status, answering, tokens }) {
   const talk = asConversation(stream);
   const thought = [...stream].reverse().find(e => e.kind === 'moment' && e.thought)?.thought || null;
+  // Awake, and the last thing said is yours: it stops what it is doing and works through what you said before it answers.
+  const lastSaid = [...talk].reverse().find(x => x.kind !== 'between');
+  const heard = status === 'living' && lastSaid?.kind === 'you';
   if (!talk.length && status === 'idle' && !answering) {
     return (
       <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '56px 8px', fontFamily: FONT }}>
@@ -141,7 +145,7 @@ function DruidChat({ stream, status, answering, tokens }) {
       {talk.map((x, i) => (x.kind === 'between'
         ? <Between key={x.key} b={x} tokens={tokens} />
         : <Message key={x.seq ?? `m${i}`} e={x} />))}
-      <Now status={status} answering={answering} thought={thought} tokens={tokens} />
+      <Now status={status} answering={answering} heard={heard} thought={thought} tokens={tokens} />
     </div>
   );
 }

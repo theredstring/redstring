@@ -655,7 +655,13 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       const sense = fromSentence ? true : await api.check(`${nameOf(aId)} ${rel} ${nameOf(bId)}`).catch(() => null);
       if (sense === false) return { ok: false, error: `"${nameOf(aId)} ${rel} ${nameOf(bId)}" does not make sense, so nothing was connected` };
       if (api.sameRelationAs && rel === (relation || 'relates to')) {
-        const same = await api.sameRelationAs(rel, relationsInUse()).catch(() => null);
+        // Only general relations to match against, not ones that name a Thing:
+        // asked how Bread and Mustard relate, Apple's model took "manipulate
+        // qubits for" to mean the same (2026-10-06).
+        const relTypes = relationTypeIds();
+        const nameWords = new Set(allThings().filter(id => !relTypes.has(id)).flatMap(id => wordsOfName(nameOf(id))));
+        const general = relationsInUse().filter(r => !wordsOfName(r).some(w => nameWords.has(w)));
+        const same = await api.sameRelationAs(rel, general).catch(() => null);
         if (same) rel = relationsInUse().find(r => lower(r) === lower(same)) || same;
       }
     }

@@ -18,25 +18,34 @@
  * the gist, not the words. When the talk goes quiet, you go back to your own
  * pursuits, carrying what came up.
  *
- * So while a person is talking with it (ENGAGED_FOR moments after the last
- * thing they said), the conversation is the foreground:
+ * Hearing is not obeying. What is said always interrupts it and is always
+ * taken in, in code; what it does about it is its own choice, made where it
+ * can be seen. Code turning its head for it, putting what was asked ahead of
+ * its own goals and giving those up when told, made a thing that follows
+ * orders, not one you talk with (2026-10-06). So while a person is talking
+ * with it (ENGAGED_FOR moments after the last thing they said):
  *
  *   understand  what kind of thing was said, what it turns toward and away
- *               from (in code), and what they want, in a few words (a fill)
- *   orient      its locus moves to what they point at, before it thinks
- *   intend      a direction or correction is its goal, ahead of its own;
- *               what they turned it away from is let go of
- *   heed        the menu's first item is what they asked, or what it told
- *               them it would do (moves: heed)
- *   report      having done something about it, it tells them, unasked
+ *               from (in code), and what they want, in a few words (a helper);
+ *               code took for a remark is put to the model (asksForWork)
+ *   take in     the Things they name are held in mind; what they want is
+ *               held as a goal among its own; what they turn it from is let
+ *               go of for a while
+ *   decide      it thinks with their words in front of it, and chooses: the
+ *               menu offers to turn where they point, to start a web for what
+ *               its universe lacks, and to do what it told them (moves: heed)
+ *   speak       after it has acted, about what it did (life.js), and later,
+ *               unasked, about what it found
  *   gist        the prompt carries what they want and what it said, once
  *               the words themselves have had their moment
  */
 
-import { namedIn } from './talk.js';
+import { namedIn, stem } from './talk.js';
+import { tokenize } from './recall.js';
 import { isOwnPlace } from './attention.js';
 import { isBookkeeping } from './roles.js';
 import { asksForWork } from './mind/helpers.js';
+import { newWeb } from './moves/basic.js';
 
 /** Moments after the last thing said that it stays in the conversation. */
 export const ENGAGED_FOR = 6;
@@ -150,11 +159,36 @@ export async function understand(world, mind, text) {
     said.subject = subjectOf(ask);
     if (said.subject) bySubject.push(...namedIn(world, said.subject, 1));
   }
-  const toward = [...new Set([...bySubject, ...(said.toward ? namedIn(world, said.toward) : [])])].filter(id => !away.includes(id));
+  // A near name is still what "I meant ..." corrects.
+  const held = said.meant ? bySubject : holding(world, said.subject);
+  const toward = [...new Set([...held, ...(said.toward ? namedIn(world, said.toward) : [])])].filter(id => !away.includes(id));
   // A subject the universe does not hold yet: for a request, a web is started for it (druid.js onHeard).
   // "I'm saying submarine sandwich" of a Thing named Sub sandwich: that Thing, by the name they meant.
   const renamed = said.meant && said.subject && bySubject.length && world.nameOf(bySubject[0]).toLowerCase() !== said.subject.toLowerCase() ? bySubject[0] : null;
-  return { kind: said.kind, toward, away, ask, awayText: said.away, subject: said.subject, newSubject: said.subject && !bySubject.length ? said.subject : null, renamed };
+  return { kind: said.kind, toward, away, ask, awayText: said.away, subject: said.subject, newSubject: said.subject && !held.length && !toward.some(id => namedWithin(world, id, said.subject)) ? said.subject : null, renamed };
+}
+
+/**
+ * The Things that hold a subject: whose names have all of its words. Asked
+ * for a ham sandwich, a universe with a Sub sandwich was taken to hold it, so
+ * it had no web to start and nowhere to turn (2026-10-06).
+ */
+export function holding(world, subject) {
+  if (!subject) return [];
+  const words = (x) => new Set(tokenize(x).map(stem));
+  const want = [...words(subject)];
+  return namedIn(world, subject, 3).filter(id => { const n = words(world.nameOf(id)); return want.every(w => n.has(w)); });
+}
+
+/**
+ * Whether a Thing's whole name is inside a subject: Yeast and Dough are in
+ * "how yeast raises dough", which is about them, not new; a Sub sandwich is
+ * not in "ham sandwich".
+ */
+function namedWithin(world, id, subject) {
+  const words = new Set(tokenize(subject).map(stem));
+  const name = tokenize(world.nameOf(id)).map(stem);
+  return name.length > 0 && name.every(w => words.has(w));
 }
 
 /** Whether it is in a conversation now. */
@@ -162,11 +196,17 @@ export function engaged(conv, tick) {
   return !!conv && tick - conv.last < ENGAGED_FOR;
 }
 
-/** Where to stand to look at a Thing: a web of real content it is in. */
+/**
+ * Where to stand to look at a Thing: a web of real content it is in, or else
+ * its own inside. A web it started hangs off Home, so a Ham sandwich it had
+ * started for a person had nowhere to stand, and was never offered again.
+ */
 export function placeOf(world, id) {
   if (!world.proto(id) || isBookkeeping(world, id)) return null;
   const web = world.websOf(id).find(w => !isOwnPlace(world, w));
-  return web ? { web, focus: id, path: [] } : null;
+  if (web) return { web, focus: id, path: [] };
+  const inside = world.insideOf(id);
+  return inside && !isOwnPlace(world, inside) ? { web: inside, focus: null, path: [] } : null;
 }
 
 /**
@@ -185,20 +225,22 @@ export function promisedIn(world, reply) {
  */
 export function renderConversation(world, conv, tick) {
   if (!engaged(conv, tick)) return '';
-  const lines = ['You are in a conversation with a person. What they ask comes before your own goals.'];
+  const lines = ['A person is here, talking with you.'];
   if (conv.ask) lines.push(`They asked you to ${conv.ask.charAt(0).toLowerCase()}${conv.ask.slice(1)}.`);
   const topic = (conv.topic || []).map(id => world.nameOf(id)).filter(Boolean);
   if (topic.length) lines.push(`You are talking about ${topic.join(', ')}.`);
   const away = (conv.away || []).map(id => world.nameOf(id)).filter(Boolean);
   if (away.length) lines.push(`They asked you to leave ${away.join(', ')} alone.`);
+  if (conv.newSubject && !holding(world, conv.newSubject).length) lines.push(`Your universe holds nothing about ${conv.newSubject} yet.`);
   const promised = (conv.promised || []).map(id => world.nameOf(id)).filter(Boolean);
   if (promised.length) lines.push(`You told them you would look at ${promised.join(', ')}.`);
   return lines.join('\n');
 }
 
 /**
- * Heed: go to what they are talking about, or to what it told them it would
- * look at. First on the menu while it is in the conversation and not there.
+ * Heed: turn where they point, start a web for what they named that its
+ * universe lacks, or do what it told them it would. Offered, not imposed:
+ * which it takes, if any, is its choice, and the menu shows it the choice.
  */
 export const heed = {
   id: 'heed',
@@ -209,19 +251,31 @@ export const heed = {
     const { world, locus } = ctx;
     const seen = new Set();
     const items = [];
-    for (const [ids, label, prior] of [[conv.promised || [], (n) => `do what you told them: look at ${n}`, 2.2], [conv.topic || [], (n) => `go to ${n}, which they are asking about`, 1.6]]) {
+    const asked = conv.ask ? ', as they asked' : ', which they are talking about';
+    for (const [ids, label, prior] of [[conv.promised || [], (n) => `do what you told them: look at ${n}`, 2.2], [conv.topic || [], (n) => `turn to ${n}${asked}`, 1.6]]) {
       for (const id of ids) {
-        if (seen.has(id) || id === locus.focus || !placeOf(world, id)) continue;
+        const at = placeOf(world, id);
+        if (seen.has(id) || id === locus.focus || !at || (!at.focus && at.web === locus.web)) continue;
         seen.add(id);
         items.push({ label: label(world.nameOf(id)), data: { id }, target: id, prior });
       }
     }
+    // Asked about something it does not hold: a fresh page, if it takes it up.
+    if (conv.newSubject && (conv.kind === 'direction' || conv.kind === 'correction') && !holding(world, conv.newSubject).length) {
+      items.unshift({ label: `start a web for ${conv.newSubject}${asked}`, data: { subject: conv.newSubject }, prior: 1.6 });
+    }
     return items.slice(0, 2);
   },
   async run(ctx, data) {
+    const from = ctx.locus.web;
+    if (data.subject) {
+      const r = await newWeb.run({ ...ctx, locus: { web: null, focus: null, path: [] }, view: {} }, null, data.subject);
+      if (!r?.ok) return r || { ok: false, summary: `could not start a web for ${data.subject}`, touched: [], wrote: false };
+      return { ...r, summary: `${r.summary}, as they asked`, turned: r.locus?.web !== from };
+    }
     const at = placeOf(ctx.world, data.id);
     if (!at) return { ok: false, summary: `could not find ${ctx.world.nameOf(data.id)}`, touched: [], wrote: false };
     ctx.world.focusWeb(at.web);
-    return { ok: true, summary: `went to ${ctx.world.nameOf(data.id)}, as they asked`, touched: [data.id], locus: at, wrote: false };
+    return { ok: true, summary: `went to ${ctx.world.nameOf(data.id)}, as they asked`, touched: [data.id], locus: at, wrote: false, turned: at.web !== from };
   }
 };

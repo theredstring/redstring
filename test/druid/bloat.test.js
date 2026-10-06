@@ -108,6 +108,14 @@ describe('relations', () => {
     expect(c.ok).toBe(true);
     expect(c.relation.toLowerCase()).toBe('made of');
     expect(world.linksIn(webs.W).map(l => l.relation.toLowerCase()).sort()).toEqual(['made of', 'made of']);
+    // Not a relation that names a Thing: "Bread Manipulate Qubits For Mustard" (2026-10-06).
+    const { ids: more } = await buildUniverse(world, { webs: { Q: { things: { Qubits: 'q', Gates: 'g', Bread: 'b', Mustard: 'm' } } } });
+    await world.connect(webs.W, more.Gates, more.Qubits, 'manipulate qubits for');
+    let offered = null;
+    world.sameRelationAs = async (rel, known) => { offered = known.map(k => k.toLowerCase()); return null; };
+    await world.connect(webs.W, more.Bread, more.Mustard, 'pairs with');
+    expect(offered).toContain('made of');
+    expect(offered).not.toContain('manipulate qubits for');
   });
 
   it('reuses a relation already in use under another spelling', async () => {

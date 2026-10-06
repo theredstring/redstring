@@ -11,7 +11,7 @@
  * start. It is read-only to the Druid.
  *
  *   Identity   "Who you are"          — the system prompt
- *              "When you talk"        — who it is when a person talks with it
+ *              "When you talk"        — how it speaks to a person (who it is stays "Who you are")
  *   Questions  "Choose", "Thought"    — how each call is asked
  *   Moves      one Thing per move     — what each move does (for people; the
  *                                        Druid sees the move's own menu wording)

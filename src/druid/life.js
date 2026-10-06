@@ -19,6 +19,13 @@
  *                back; every write has already been checked against the store
  *   8. SLEEP     every few cycles, consolidation runs (sleep.js), if provided
  *
+ * A person talking with it (conversation.js) comes first in a moment, and
+ * what they say cuts into the moment it is in: between its calls, if someone
+ * has spoken, it stops what it was thinking and choosing (never a write
+ * halfway) and listens. It hears, thinks with their words in front of it,
+ * chooses (turning to them is one of its choices), acts, and only then
+ * speaks, about what it did.
+ *
  * Everything but the three kinds of model call is deterministic, and the
  * model is given only what fits a 4K window.
  */
@@ -68,8 +75,9 @@ const ENGAGED_LET_GO = 12;
  * @param {AbortSignal} [opts.signal]
  * @param {'menu'|'commands'} [opts.speak]  choose from a menu of moves, or write a plain command (commands/commands.js)
  * @param {Function} [opts.hear]      () → [{ text }]: what a person has said since the last moment (dialogue.js)
+ * @param {Function} [opts.waiting]   () → whether a person has said something not yet heard: the moment stops to listen
  * @param {Function} [opts.onHeard]   async (world, text, tick, understood) → a line for the notice, if what was said changed something (e.g. became a goal)
- * @param {Function} [opts.onReply]   (text, tick) → void: its answer, as soon as it has one (before it acts), or what it tells them unasked (conversation.js)
+ * @param {Function} [opts.onReply]   (text, tick) → void: its answer, once it has acted on what they said, or what it tells them unasked (conversation.js)
  */
 export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE }, {
   resume = {},
@@ -86,6 +94,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
   signal = null,
   speak = 'menu',
   hear = () => [],
+  waiting = () => false,
   onHeard = null,
   onReply = null
 } = {}) {
@@ -112,6 +121,10 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     talkFrom: resume.talkFrom || 0,
     lastWrote: !!resume.lastWrote,
     trail: Array.isArray(resume.trail) ? [...resume.trail] : [],
+    // What a person said that a moment stopped for before it could answer: answered in the next.
+    unanswered: Array.isArray(resume.unanswered) ? [...resume.unanswered] : [],
+    // A sleep put off to listen.
+    sleepOwed: !!resume.sleepOwed,
     notice: ''
   };
   if (st.tick > 0) wake(world, isOpenGoal);
@@ -126,69 +139,49 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
 
     // ── HEAR ──────────────────────────────────────────────────────────────
     // A voice addressed to it: what kind of thing was said, what it turns
-    // toward and away from, and what they want (conversation.js). What they
-    // want becomes its goal; what they turn it from is let go of.
+    // toward and away from, and what they want (conversation.js). The Things
+    // they name are held in mind; what they want is held as a goal; what they
+    // turn it from is let go of for a while. Where it goes is its choice.
     // Each { text, answered }: answered while it slept (talk.js), it is heard but not answered again.
     const heardItems = (hear() || []).map(h => ({ text: String(h?.text ?? h).trim(), answered: !!h?.answered })).filter(h => h.text);
     const heard = heardItems.map(h => h.text);
-    let oriented = null;
     // What they asked it to do, this moment, for its answer.
     let asked = null;
     for (const text of heard) {
       st.said = [...st.said, { text, tick }].slice(-6);
       const understood = await understand(world, mind, text).catch(() => ({ kind: 'telling', toward: [], away: [], ask: null }));
       const was = engaged(st.conversation, tick) ? st.conversation : null;
+      // What "it" is, after a quiet spell: what they were last talking about.
+      const lately = st.conversation && tick - st.conversation.last < TALK_FRESH ? st.conversation : null;
       st.conversation = {
         since: was?.since ?? tick,
         last: tick,
         kind: understood.kind,
-        topic: understood.toward.length ? understood.toward.slice(0, 3) : (was?.topic || []),
+        topic: understood.toward.length ? understood.toward.slice(0, 3) : (lately?.topic || []),
         away: understood.away,
-        ask: understood.ask || (understood.kind === 'question' || understood.kind === 'telling' ? was?.ask || null : null),
+        ask: understood.ask || (understood.kind === 'question' || understood.kind === 'telling' ? lately?.ask || null : null),
+        // Something they named that its universe does not hold: it may start a web for it (conversation.js heed).
+        newSubject: understood.newSubject || (understood.kind === 'question' || understood.kind === 'telling' ? was?.newSubject || null : null),
         promised: [],
-        reports: 0,
-        report: false
+        reports: 0
       };
       for (const id of understood.away) letGo(world, id, tick, ENGAGED_LET_GO);
-      oriented = understood.toward.map(id => placeOf(world, id)).find(Boolean) || oriented;
-      // What hearing it changed (druid.js onHeard): a line for the notice, its
-      // goal, and a web started for a subject its universe did not hold.
+      // What they name lights up: held, as a word heard calls its meaning to mind.
+      for (const id of understood.toward.slice(0, 3)) hold(world, id, tick);
+      // What hearing it changed (druid.js onHeard): a line for the notice, and what they want, held as a goal.
       const changed = onHeard ? await onHeard(world, text, tick, understood).catch(() => null) : null;
       const note = typeof changed === 'string' ? changed : changed?.notice;
       if (note) st.notice = [st.notice, note].filter(Boolean).join('\n');
       // What it took on, as its goal says it.
       if (changed?.ask) st.conversation.ask = changed.ask;
-      if (changed?.orient) {
-        oriented = changed.orient;
-        if (changed.topic?.length) st.conversation.topic = changed.topic;
-      }
-      if (understood.kind === 'direction' || understood.kind === 'correction') asked = { ask: st.conversation.ask, note };
-    }
-
-    // ── ORIENT ────────────────────────────────────────────────────────────
-    // It looks where they point before it thinks, and answers from there.
-    if (oriented) {
-      // Sent somewhere else, it clears its head, as a person switching tasks
-      // does: its last thoughts, what it was doing lately and what it held were
-      // all the old work. Kept, a Druid asked to start on a submarine sandwich
-      // thought about quantum algorithms for the sandwich's preparation.
-      if (asked && oriented.web !== st.locus.web) {
-        st.loop = [];
-        st.trail = [];
-        st.lastDid = '';
-        st.lastWrote = false;
-        st.throughLine = '';
-        st.throughLineAt = tick;
-        // And the conversation it answers from starts here: its last answer,
-        // about the old work, was given again word for word.
-        st.talkFrom = tick;
-        for (const h of held(world)) if (!h.scratch) letGo(world, h.id, tick);
-      }
-      if (st.locus.focus && st.locus.focus !== oriented.focus) st.left = [...st.left.filter(id => id !== st.locus.focus), st.locus.focus].slice(-LEFT_SIZE);
-      st.locus = oriented;
-      world.focusWeb(oriented.web);
+      if (understood.kind === 'direction' || understood.kind === 'correction') asked = { ask: st.conversation.ask };
     }
     const talking = engaged(st.conversation, tick);
+    // Someone spoke while this moment was going: it stops what it was doing
+    // and listens, in the next moment. Checked between calls; a write already
+    // begun is finished, never left halfway.
+    let cut = false;
+    const listen = () => cut || (cut = !!waiting());
 
     // ── ATTEND ────────────────────────────────────────────────────────────
     const heldNow = held(world);
@@ -264,57 +257,10 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       }
     }
 
-    // ── ANSWER ────────────────────────────────────────────────────────────
-    // Having heard, looked and thought: over the moment's own context, so the
-    // one who answers is the one thinking (talk.js), and before it acts, so
-    // what it does next follows the conversation. What it says it will look
-    // at, it is held to (conversation.js heed).
-    let reply = null;
-    const unanswered = heardItems.filter(h => !h.answered).map(h => h.text);
-    if (unanswered.length) {
-      const said = unanswered[unanswered.length - 1];
-      const r = await answer(world, mind, {
-        text: said,
-        // Only the conversation of late: asked "what have you found so far?",
-        // it repeated its answer to "what have you learned so far?" from four
-        // thousand moments before.
-        history: [...st.talk.filter(x => tick - (x.tick ?? tick) <= TALK_FRESH && (x.tick ?? tick) >= (st.talkFrom || 0)), ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))],
-        context,
-        thought: thought || '',
-        focus: st.locus.focus,
-        request: asked ? { ...asked, at: world.graph(st.locus.web)?.name || null } : null,
-        system: promptSpace.talk
-      });
-      reply = r.text || null;
-      st.talk = [...st.talk, ...unanswered.map(t => ({ who: 'person', text: t, tick })), ...(reply ? [{ who: 'druid', text: reply, tick }] : [])].slice(-TALK_KEEP * 2);
-      if (reply) {
-        st.said = st.said.map(x => (x.tick === tick && x.text === said ? { ...x, answer: reply } : x));
-        if (st.conversation) st.conversation.promised = promisedIn(world, reply).filter(id => id !== st.locus.focus && placeOf(world, id));
-        if (onReply) onReply(reply, tick);
-      }
-    } else if (talking && st.conversation.report && st.conversation.reports < REPORTS_PER_TURN) {
-      // ── REPORT ──────────────────────────────────────────────────────────
-      // Having done something about what they asked, it tells them, unasked:
-      // from here, after looking, as a person comes back with what they found.
-      const r = await mind.fill({
-        ...sections(),
-        notice: st.lastDid ? `You just ${st.lastDid}.` : '',
-        question: `${promptSpace.talk}\n\nTell the person, in one or two plain sentences of your own, what you just did or found about what they asked, from what you see now; do not read out what you see. If you found nothing yet, say what you will look at next.`,
-        maxWords: 45
-      });
-      st.conversation.report = false;
-      const told = withoutRepeats(r.text);
-      if (told) {
-        reply = told;
-        st.conversation.reports++;
-        st.talk = [...st.talk, { who: 'druid', text: reply, tick }].slice(-TALK_KEEP * 2);
-        st.said = [...st.said, { text: '', tick, answer: reply }].slice(-6);
-        if (onReply) onReply(reply, tick);
-      }
-    }
+    listen();
 
     // ── KEEP THE THROUGH LINE ─────────────────────────────────────────────
-    if (throughLineDue(st, tick)) {
+    if (!cut && throughLineDue(st, tick)) {
       const r = await mind.fill({
         ...sections(),
         question: `${renderTrail(st.trail, tick) || 'You have not done much yet.'}\nFrom that, in one plain sentence: what have you been doing lately, and what are you after? Name the Things you mean.`,
@@ -362,7 +308,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     let otherText = null;
     let commandLine = null;
 
-    if (speak === 'commands') {
+    if (listen()) {
+      // stopped to listen
+    } else if (speak === 'commands') {
       // ── SAY AND DO: one plain command, carried out by the executor ──────
       const suggestions = [...new Set(menu.map(m => asCommand(m, ctx)).filter(Boolean))].slice(0, 6);
       const question = [
@@ -390,7 +338,11 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     }
 
     // ── ACT ───────────────────────────────────────────────────────────────
-    if (result) {
+    if (item?.blank) listen();
+    if (cut) {
+      result = { ok: true, summary: 'stopped what you were doing to listen', touched: [], wrote: false };
+      item = null;
+    } else if (result) {
       // already done, by a command
       if (result.as) text = result.as.text ?? null;
     } else if (!item) {
@@ -444,6 +396,22 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // Where it just was, so going straight back ranks lower: one Druid went
     // Causes, Magnitude, Causes, Magnitude for nine moments.
     if (before.focus && st.locus.focus !== before.focus) st.left = [...st.left.filter(id => id !== before.focus), before.focus].slice(-LEFT_SIZE);
+    // Having turned to what they asked, it puts the old work down, as a person
+    // switching tasks does: its last thoughts, what it was doing lately and
+    // what it held were all the old work. Kept, a Druid asked to start on a
+    // submarine sandwich thought about quantum algorithms for the sandwich's
+    // preparation. Its own choice to turn, not code turning it.
+    if (result.ok && result.turned) {
+      st.loop = [];
+      st.trail = [];
+      st.throughLine = '';
+      st.throughLineAt = tick;
+      // And the conversation it answers from starts here: its last answer,
+      // about the old work, was given again word for word.
+      st.talkFrom = tick;
+      for (const h of held(world)) if (!h.scratch) letGo(world, h.id, tick);
+      if (st.conversation && item?.move.id === 'heed' && result.touched?.length) st.conversation.topic = result.touched.slice(0, 3);
+    }
 
     // ── REMEMBER ──────────────────────────────────────────────────────────
     const touched = (result.touched || []).filter(id => world.proto(id));
@@ -461,26 +429,119 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       episode = await writeEpisode(world, { tick, summary: result.summary, touched, episodeTypeId: episodeType(world) });
     }
 
-    // In a conversation: having gone where they pointed, or done something
-    // there, it will tell them at the start of the next moment.
-    if (talking && st.conversation) {
+    // In a conversation: did this moment do something about what they asked?
+    let worthTelling = false;
+    let onIt = null;
+    if (talking && st.conversation && !cut) {
       const conv = st.conversation;
       const about = new Set([...(conv.topic || []), ...(conv.promised || [])]);
+      // Working inside what they talk about is about it: Cheese, in the Ham sandwich.
+      for (const id of conv.topic || []) { const inside = world.insideOf(id); if (inside) for (const x of world.thingsIn(inside)) about.add(x); }
       // Only about something they asked or pointed at, not after a hello; and
-      // having done what it told them it would, even in the moment it said so.
+      // having done what it told them it would.
       const kept = (conv.promised || []).includes(st.locus.focus);
-      if (result.ok && (kept || (!reply && (item?.move.id === 'heed' || touched.some(id => about.has(id)) || (conv.ask && result.wrote))))) conv.report = true;
-      // A promise is kept by being there, in the moment it was made or after.
+      onIt = result.ok && (kept || item?.move.id === 'heed' || touched.some(id => about.has(id)));
+      worthTelling = onIt || !!(result.ok && conv.ask && result.wrote);
+
+      // A promise is kept by being there.
       conv.promised = (conv.promised || []).filter(id => id !== st.locus.focus && id !== before.focus);
     }
 
-    // What it did, for the thought that opens the next moment.
+    // What it did, for the thought that opens the next moment, and for what it says now.
     st.lastDid = result.ok ? result.summary : `tried, but ${result.summary}`;
     st.lastWrote = !!(result.ok && result.wrote);
 
+    // ── SPEAK ─────────────────────────────────────────────────────────────
+    // After it has acted, about what it did: the one who speaks is the one who
+    // chose and acted, over the moment's own context. Answered before it acted,
+    // it said yes to anything and made up what it was doing. What it says it
+    // will look at, it is held to (conversation.js heed).
+    let reply = null;
+    const unanswered = [...st.unanswered, ...heardItems.filter(h => !h.answered).map(h => h.text)];
+    // Where it stands now, if it moved, and with what it has in mind now, if it
+    // turned: it speaks from there. Answered over the moment's opening context,
+    // having turned to a ham sandwich it spoke of its Superposition, and its
+    // words kept the quantum work in the conversation for moments after.
+    const moved = st.locus.web !== before.web || st.locus.focus !== before.focus;
+    const here = !moved ? context : {
+      ...context,
+      view: renderView(buildView(world, st.locus, activation, { tick }), { world, tick, writes: st.writes, trail: st.trail }),
+      ...(result.turned ? { wm: [renderTrail(st.trail, tick), renderHeld(world), extras(world, st.locus, { talking })].filter(Boolean).join('\n'), loop: '' } : {})
+    };
+    if (cut) {
+      // Stopped to listen: what it heard this moment is answered with what comes next.
+      st.unanswered = unanswered;
+    } else if (unanswered.length) {
+      st.unanswered = [];
+      const said = unanswered[unanswered.length - 1];
+      const ask = (history, ctx = here) => answer(world, mind, {
+        text: said,
+        // Only the conversation of late: asked "what have you found so far?",
+        // it repeated its answer to "what have you learned so far?" from four
+        // thousand moments before.
+        history,
+        context: ctx,
+        // Having turned, what it was thinking was the old work: a ham sandwich and Quantum bits.
+        thought: result.turned ? '' : thought || '',
+        focus: st.locus.focus,
+        // What "it" is, when they name nothing: what they are talking about.
+        topic: st.conversation?.topic || [],
+        doing: st.lastDid,
+        // Whether what it just did was about what they said, for what it says.
+        onIt,
+        request: asked,
+        manner: promptSpace.talk
+      });
+      let r = await ask([...st.talk.filter(x => tick - (x.tick ?? tick) <= TALK_FRESH && (x.tick ?? tick) >= (st.talkFrom || 0)), ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))]);
+      // Not what it has already told them: asked what was in the sandwich so
+      // far, it gave its first answer again. All of it said before, it is
+      // asked again without its past words to copy, from what it holds now.
+      const toldBefore = st.talk.filter(x => x.who === 'druid').slice(-3).map(x => x.text);
+      reply = withoutRepeats(r.text, toldBefore);
+      if (!reply && r.text) {
+        // In a context of its own: within one context, Apple's model sees the
+        // turns before (afmClient.js), and gave the same words again.
+        r = await ask(unanswered.slice(0, -1).map(t => ({ who: 'person', text: t })), { ...here, wm: [here.wm, `You already told them: "${toldBefore.at(-1)}" Say something new, from what your universe holds now.`].filter(Boolean).join('\n') });
+        reply = withoutRepeats(r.text, toldBefore) || r.text;
+      }
+      reply = reply || null;
+      st.talk = [...st.talk, ...unanswered.map(t => ({ who: 'person', text: t, tick })), ...(reply ? [{ who: 'druid', text: reply, tick }] : [])].slice(-TALK_KEEP * 2);
+      if (reply) {
+        st.said = st.said.map(x => (x.tick === tick && x.text === said ? { ...x, answer: reply } : x));
+        if (st.conversation) st.conversation.promised = promisedIn(world, reply).filter(id => id !== st.locus.focus && placeOf(world, id));
+        if (onReply) onReply(reply, tick);
+      }
+    } else if (worthTelling && st.conversation.reports < REPORTS_PER_TURN) {
+      // Having done something about what they asked, it tells them, unasked,
+      // as a person comes back with what they found.
+      const r = await mind.fill({
+        ...here,
+        dialogue: [renderConversation(world, st.conversation, tick), renderDialogue(st, tick)].filter(Boolean).join('\n'),
+        notice: `You just ${st.lastDid}.`,
+        question: `${promptSpace.talk}\n\nTell the person, in one or two plain sentences of your own, what you just did or found about what they asked, from what you see now; do not read out what you see. If you found nothing yet, say what you will look at next.`,
+        maxWords: 45
+      });
+      // Not what it last told them, again.
+      const last = [...st.talk].reverse().find(x => x.who === 'druid')?.text || '';
+      const told = withoutRepeats(r.text, st.talk.filter(x => x.who === 'druid').slice(-3).map(x => x.text));
+      if (told && !(last && thoughtSimilarity(told, last) >= 0.9)) {
+        reply = told;
+        st.conversation.reports++;
+        // Telling them keeps the conversation going.
+        st.conversation.last = tick;
+        st.talk = [...st.talk, { who: 'druid', text: reply, tick }].slice(-TALK_KEEP * 2);
+        st.said = [...st.said, { text: '', tick, answer: reply }].slice(-6);
+        if (onReply) onReply(reply, tick);
+      }
+    }
+
     // ── SLEEP ─────────────────────────────────────────────────────────────
     let slept = null;
-    if (sleep && sleepEvery > 0 && tick % sleepEvery === 0) {
+    // Not while someone is waiting to be heard: put off to a later moment.
+    const sleepDue = sleep && sleepEvery > 0 && (tick % sleepEvery === 0 || st.sleepOwed);
+    if (sleepDue && waiting()) st.sleepOwed = true;
+    else if (sleepDue) {
+      st.sleepOwed = false;
       try { slept = await sleep({ ...ctx, tick }); } catch (err) { slept = { error: err?.message || String(err) }; }
     }
 
@@ -498,6 +559,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       text,
       otherText,
       result: { ok: result.ok, summary: result.summary, wrote: !!result.wrote, error: result.error || null },
+      listened: cut,
       thought,
       repeating: !!repeating,
       unbacked,
@@ -516,7 +578,8 @@ function snapshot(st) {
   return {
     tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
     throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail,
-    talk: st.talk, talkFrom: st.talkFrom, lastDid: st.lastDid, lastWrote: st.lastWrote, conversation: st.conversation
+    talk: st.talk, talkFrom: st.talkFrom, lastDid: st.lastDid, lastWrote: st.lastWrote, conversation: st.conversation,
+    unanswered: st.unanswered, sleepOwed: st.sleepOwed
   };
 }
 

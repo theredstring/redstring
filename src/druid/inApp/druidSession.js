@@ -83,7 +83,7 @@ export function startDruid({ store, executeTool, applyToolResult, promptSpace, b
       const owner = await homeOwner(world);
       // Copies both ways: the store freezes what it holds, and the loop changes its own.
       const resume = owner && world.druidOf(owner).life ? JSON.parse(JSON.stringify(world.druidOf(owner).life)) : {};
-      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal, hear: () => inbox.splice(0), onReply });
+      const life = createDruid({ world, mind, promptSpace }, { resume, seed, speak, signal: controller.signal, hear: () => inbox.splice(0), waiting: () => inbox.length > 0, onReply });
       let unreachable = 0;
       for await (const r of life) {
         const owner2 = await homeOwner(world);
@@ -142,7 +142,9 @@ export async function talkTo({ store, promptSpace, backend }, { text, history = 
       focus: life.locus?.focus || null,
       doing: life.lastDid || '',
       thoughts: Array.isArray(life.loop) ? life.loop : [],
-      system: promptSpace?.talk
+      // One self, asleep or awake: who it is thinking, and how it speaks.
+      self: promptSpace?.system,
+      manner: promptSpace?.talk
     });
     // Kept with its loop state, so it remembers the conversation when it wakes.
     if (home && r.text) {

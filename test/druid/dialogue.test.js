@@ -76,18 +76,19 @@ describe('talking with a living Druid', () => {
     }
     expect(out[1].heard).toEqual(['think about how yeast raises dough']);
     expect(out[1].reply).toBe('I will look at how Yeast works on Dough.');
-    // Answered within the moment, before it acts: the reply comes ahead of the moment.
+    // Answered within the moment it heard it, once it has acted: the reply comes ahead of the moment's record.
     expect(events.indexOf('reply 2')).toBeLessThan(events.indexOf('moment 2'));
-    // It thinks with what was said in front of it, then answers as the one
-    // thinking: over the moment's own context, with its thought, told who it
-    // is when it talks and what its universe holds.
+    // It thinks with what was said in front of it, chooses and acts, then
+    // answers as the one who did: over the moment's own context, with its
+    // thought and what it just did, told how to speak and what its universe holds.
     const heardAt = seen.findIndex(r => /They say to you now/.test(r.user));
     const thinking = seen.slice(0, heardAt).filter(r => /what are you thinking now/.test(r.user)).at(-1);
     expect(thinking.user).toMatch(/A person said to you: "think about how yeast raises dough"/);
     const asked = seen[heardAt];
     expect(asked.system).toBe(thinking.system);
     expect(asked.user).toContain(thinking.user.split('\n\n')[0]);
-    expect(asked.user).toMatch(/What you are thinking now: Yeast makes Dough rise\./);
+    expect(asked.user).toMatch(/What you were thinking: Yeast makes Dough rise\./);
+    expect(asked.user).toMatch(/They asked you to think about how yeast raises dough\. Just now you [^.]+\. Tell them plainly, as yourself, what you make of it/);
     expect(asked.user).toMatch(/never the Thing you were looking at/);
     expect(asked.user).toMatch(/What your universe holds about what they mention:\n(Yeast|Dough)/);
     // Having done something about what was asked, it told them, unasked.
@@ -96,9 +97,11 @@ describe('talking with a living Druid', () => {
     expect(openGoals(world).map(world.nameOf)).toContain('Think about how yeast raises dough');
     const choiceAfter = seen.filter(r => r.schema.name === 'choice').at(-1);
     // The words have had their moment; the gist stays.
-    expect(choiceAfter.user).toMatch(/You are in a conversation with a person\. What they ask comes before your own goals\.\nThey asked you to think about how yeast raises dough\./);
-    const choiceThen = seen.filter(r => r.schema.name === 'choice')[1];
-    expect(choiceThen.user).toMatch(/A person said to you: "think about how yeast raises dough" You answered: "I will look at how Yeast works on Dough."/);
+    expect(choiceAfter.user).toMatch(/A person is here, talking with you\.\nThey asked you to think about how yeast raises dough\./);
+    // It chooses with their words in front of it, before it has answered; the next moment, with its answer too.
+    expect(seen.filter(r => r.schema.name === 'choice')[1].user).toMatch(/A person said to you: "think about how yeast raises dough"/);
+    const choiceThen = seen.filter(r => r.schema.name === 'choice')[2];
+    expect(choiceThen.user).toMatch(/A person said to you \(1 moment ago\): "think about how yeast raises dough" You answered: "I will look at how Yeast works on Dough."/);
     expect(out.at(-1).throughLine).toBe('I have been looking at Yeast and Dough.');
     expect(out.at(-1).state.throughLine).toBe('I have been looking at Yeast and Dough.');
   });

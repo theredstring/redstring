@@ -135,8 +135,9 @@ export function subgoalsOf(world, goal) {
 /** Open goals, the ones it set out with (or was given) first, then the smaller ones, newest first. */
 export function goalsInOrder(world) {
   const open = openGoals(world);
-  // What a person asked for comes first.
-  const top = open.filter(g => !parentGoalOf(world, g)).sort((a, b) => (world.druidOf(b).fromPerson ? 1 : 0) - (world.druidOf(a).fromPerson ? 1 : 0));
+  // The newest first, whoever set it: what was just asked for is near the top
+  // because it is fresh, not because a person asked it.
+  const top = open.filter(g => !parentGoalOf(world, g)).sort((a, b) => (world.druidOf(b).statusAt ?? 0) - (world.druidOf(a).statusAt ?? 0));
   const smaller = open.filter(g => parentGoalOf(world, g)).sort((a, b) => (world.druidOf(b).statusAt ?? 0) - (world.druidOf(a).statusAt ?? 0));
   return [...top, ...smaller];
 }
@@ -265,20 +266,14 @@ export function nextStep(world, planId) {
 }
 
 /** Rendered for the prompt: open goals, plan cursors. */
-export function renderRoles(world, { talking = false } = {}) {
+export function renderRoles(world) {
   const lines = [];
-  // In a conversation, what the person asked for, and its own goals wait:
-  // listed beside a submarine sandwich, "Understand quantum mechanics" had it
-  // relating bread to fundamental particles (The Druid 11, 2026-10-06).
-  const theirs = talking ? goalsInOrder(world).filter(g => world.druidOf(g).fromPerson) : [];
-  if (theirs.length) {
-    lines.push(`What you are after: ${theirs.map(id => world.nameOf(id)).join('; ')}. Your own goals wait while you talk with them.`);
-    return lines.join('\n');
-  }
+  // Its own goals stay in front of it while a person talks: hidden, it could
+  // only do as it was told (2026-10-06). What they asked is marked.
   const goals = goalsInOrder(world);
   const top = goals.filter(g => !parentGoalOf(world, g));
   const smaller = goals.filter(g => parentGoalOf(world, g));
-  if (top.length) lines.push(`What you are after: ${top.slice(0, 3).map(id => world.nameOf(id)).join('; ')}`);
+  if (top.length) lines.push(`What you are after: ${top.slice(0, 3).map(id => `${world.nameOf(id)}${world.druidOf(id).fromPerson ? ' (they asked)' : ''}`).join('; ')}`);
   if (smaller.length) lines.push(`On the way: ${smaller.slice(0, 2).map(id => world.nameOf(id)).join('; ')}`);
   for (const p of activePlans(world).slice(0, 2)) {
     const step = nextStep(world, p);
