@@ -1,0 +1,3 @@
+# Supervised fine-tuning on Apple silicon (training/druid/sft_mlx.sh)
+mlx>=0.25
+mlx-lm>=0.24

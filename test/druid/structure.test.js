@@ -35,7 +35,9 @@ describe('structure before sentences', () => {
     const { isAspect } = await import('../../src/druid/names.js');
     // Cloud tops → Layers → Upper, Middle, Lower; Middle then held a Trunk, a River and the Mid-Atlantic Ridge (The Druid 12).
     for (const n of ['Middle', 'Upper', 'Lower', 'Layers', 'Inner', 'Region']) expect(isAspect(n)).toBe(true);
-    for (const n of ['Middle layer', 'Lower mantle', 'Inner core', 'Cloud tops', 'Back', 'Bread']) expect(isAspect(n)).toBe(false);
+    for (const n of ['Middle layer', 'Lower mantle', 'Inner core', 'Cloud tops', 'Back', 'Bread', 'Stage']) expect(isAspect(n)).toBe(false);
+    // A microscope's stage is a part; a stage of something is not (found by the canaries, 2026-10-06).
+    expect(isAspect('Stage of absorption')).toBe(true);
   });
 
   it('a part of an object is no process, and a stage is not opened into stages', async () => {

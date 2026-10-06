@@ -183,3 +183,89 @@ export function rewardFor(rec, content) {
   if ((text.match(/[.!?](\s|$)/g) || []).length > 2) { r -= 0.3; reasons.push('more than one sentence'); }
   return out(r, { judge: { kind: 'sentence', text } });
 }
+
+// ── with a teacher's labels ────────────────────────────────────────────────
+
+/** Calls whose answer can be checked against a label, so RL can train them. Free text is taught by example only. */
+export const CHECKABLE = new Set(['list', 'name', 'relationWords', 'relationSentence', 'choose', 'helper', 'scale']);
+
+/** Same name, near enough: case, articles, plural, and a head noun with words before it ("Haze layer" ~ "Upper haze layer"). */
+export function sameName(a, b, { exact = false } = {}) {
+  const x = normalizeName(a);
+  const y = normalizeName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  // A stage named as a verb or as a doing: "Mix" is "Mixing", "Rise" is "Rising".
+  const stem = (s) => s.split(' ').map(w => w.replace(/ing$/, '').replace(/e$/, '')).join(' ');
+  if (stem(x) === stem(y)) return true;
+  if (exact) return false;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  return short.split(' ').length >= 1 && long.endsWith(` ${short}`) && short.split(' ').length >= long.split(' ').length - 1;
+}
+
+const verdict = (name, label) => {
+  const any = (xs, opts) => [].concat(xs ?? []).some(x => sameName(name, x, opts));
+  // Wrong only as named: "Loaf" is no kind of bread, but "White loaf" is.
+  if (any(label.wrong, { exact: true })) return 'wrong';
+  if (any(label.best) || any(label.acceptable)) return 'right';
+  return 'unknown';
+};
+
+/**
+ * The reward for a candidate, given a teacher's label for the call
+ * (lab/teacher.js): what the code checks gates it; the label says whether it
+ * is true. A name the label does not know earns a little (it may be right),
+ * never as much as one it knows to be right, so inventing names never beats
+ * naming the right ones.
+ *
+ * @param {Object} rec
+ * @param {string} content
+ * @param {Object} label   { best, acceptable, wrong } | { answer } | { best: [option numbers], acceptable, bad }
+ * @returns {{ reward, type, reasons, rl: boolean }}
+ */
+export function rewardWithLabel(rec, content, label) {
+  const base = rewardFor(rec, content);
+  const rl = CHECKABLE.has(base.type);
+  if (!label || !rl || (base.reward <= 0 && base.type !== 'choose' && base.type !== 'helper' && base.type !== 'scale') || base.reward === -1) return { ...base, rl };
+  const done = (reward) => ({ ...base, reward: clamp(reward), rl });
+
+  if (base.type === 'choose') {
+    const c = base.judge.picked;
+    if ((label.best || []).includes(c)) return done(1);
+    if ((label.acceptable || []).includes(c)) return done(0.4);
+    if ((label.bad || []).includes(c)) { base.reasons.push('a choice the teacher marked bad'); return done(-0.6); }
+    return done(0);
+  }
+  if (base.type === 'helper' || base.type === 'scale') {
+    if (label.answer == null) return { ...base, rl };
+    const right = String(base.judge.answer).toLowerCase() === String(label.answer).toLowerCase();
+    if (!right) base.reasons.push(`teacher says ${label.answer}`);
+    return done(right ? 1 : -1);
+  }
+  if (base.type === 'list') {
+    const names = base.judge.names;
+    let right = 0;
+    let unknown = 0;
+    let wrong = 0;
+    for (const n of names) {
+      const v = verdict(n, label);
+      if (v === 'right') right++; else if (v === 'unknown') unknown++; else { wrong++; base.reasons.push(`${n}: the teacher marks it wrong`); }
+    }
+    const credited = right + 0.25 * unknown;
+    const precision = names.length ? credited / names.length : 0;
+    const coverage = Math.min(credited, 4) / 4;
+    return done(wrong && !right ? -0.5 : coverage * precision);
+  }
+  if (base.type === 'name') {
+    const v = verdict(base.judge.name, label);
+    if (v === 'wrong') base.reasons.push('the teacher marks it wrong');
+    return done(v === 'right' ? 1 : v === 'unknown' ? 0.25 : -0.5);
+  }
+  // A relation: the words that say how, against the teacher's.
+  const words = String(base.judge.sentence || '').toLowerCase();
+  const verbs = [...(label.best ? [].concat(label.best) : []), ...(label.acceptable || [])].map(x => String(x).toLowerCase().trim()).filter(Boolean);
+  const hit = verbs.some(v => words.includes(v) || v.split(/\s+/).every(w => words.includes(w.replace(/s$/, ''))));
+  const miss = (label.wrong || []).some(v => words.includes(String(v).toLowerCase()));
+  if (miss) base.reasons.push('a relation the teacher marks wrong');
+  return done(miss ? -0.5 : hit ? 1 : 0.3);
+}

@@ -1,0 +1,8 @@
+# RL with Hugging Face TRL (training/druid/grpo.py). Best on a CUDA GPU; runs,
+# slowly, on Apple silicon (MPS) for a model of a billion or two parameters.
+torch>=2.5
+transformers>=4.51
+trl>=0.19
+peft>=0.15
+datasets>=3.0
+accelerate>=1.0

@@ -86,3 +86,10 @@ agent.json
 
 # Maintainer-only notes (security runbook, audit findings). Never committed.
 .private/
+
+# Druid training: gathered calls, labels, datasets, checkpoints (training/druid/README.md)
+training/druid/data/
+training/druid/runs/
+training/druid/models/
+training/druid/.venv/
+__pycache__/

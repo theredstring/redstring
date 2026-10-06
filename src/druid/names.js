@@ -179,6 +179,7 @@ const ASPECTS = new Set(['composition', 'origin', 'origins', 'role', 'roles', 'f
   'layer', 'layers', 'level', 'levels', 'middle', 'upper', 'lower', 'inner', 'outer', 'inside', 'outside',
   'section', 'sections', 'region', 'regions', 'area', 'areas', 'zone', 'zones',
   'piece', 'pieces', 'element', 'elements', 'portion', 'portions', 'segment', 'segments']);
+const THINGS_TOO = new Set(['stage', 'step']);
 export function isAspect(name) {
   const words = wordsIn(String(name || '').toLowerCase());
   // "Sun's role", "Earth's composition": an aspect of the one named before it.
@@ -186,6 +187,8 @@ export function isAspect(name) {
   // "How it works", "Its purpose": about some Thing, not one.
   if (words.length >= 2 && /^(how|why|what|when|where|its|their|his|her|our)$/.test(words[0])) return true;
   if (!words.length || !ASPECTS.has(words[0])) return false;
+  // A microscope has a stage, a staircase steps: alone, these name things; "Stage of absorption" does not.
+  if (words.length === 1 && THINGS_TOO.has(words[0])) return false;
   return words.length === 1 || words[1] === 'of';
 }
 
