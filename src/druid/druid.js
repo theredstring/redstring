@@ -12,6 +12,8 @@ import { BASIC_MOVES } from './moves/basic.js';
 import { ROLE_MOVES } from './moves/roles.js';
 import { COGNITIVE_MOVES } from './moves/cognitive.js';
 import { TIDY_MOVES } from './moves/tidy.js';
+import { heed } from './conversation.js';
+import { tokenize } from './recall.js';
 import { seedRoles, roleType, openGoals, goalsInOrder, GOALS_ATTENDED, renderRoles, isRole, confidence, confidenceWords, setGoalStatus } from './roles.js';
 import { asRequest } from './dialogue.js';
 import { sleep as sleepCycle } from './sleep.js';
@@ -20,7 +22,7 @@ import { topLevelWebs, isHome } from './attention.js';
 import { understandGoal } from './names.js';
 
 export function druidMoves() {
-  return [...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
+  return [heed, ...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
 }
 
 /** What the Druid is shown about its goals, plans and the belief in focus. */
@@ -99,19 +101,33 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
     episodeType: (w) => roleType(w, 'episode'),
     extendCtx: async (w) => ({ roles: roles ? { home: await seedRoles(w).then(r => r.home), types: { goal: roleType(w, 'goal'), belief: roleType(w, 'belief'), plan: roleType(w, 'plan') } } : null }),
     extras: extrasFor,
-    // What a person asks for becomes its goal: the one they asked for last
-    // replaces the one they asked for before (dialogue.js asRequest).
-    onHeard: roles ? async (w, text, tick) => {
+    // What a person asks for becomes its goal, ahead of its own: the one they
+    // asked for last replaces the one they asked for before. What they turn it
+    // away from, its own goals about that are given up (conversation.js).
+    onHeard: roles ? async (w, text, tick, understood = null) => {
       personWords(text);
-      const wanted = asRequest(text);
+      const notes = [];
+      const awayWords = new Set(tokenize(understood?.awayText || ''));
+      if (awayWords.size) {
+        for (const g of openGoals(w)) {
+          if (w.druidOf(g).fromPerson || !tokenize(w.nameOf(g)).some(t => awayWords.has(t))) continue;
+          setGoalStatus(w, g, 'abandoned', tick);
+          notes.push(`They asked you to leave ${understood.awayText} alone, so you gave up your goal "${w.nameOf(g)}".`);
+        }
+      }
+      const wanted = understood?.ask || asRequest(text);
       const goalType = roleType(w, 'goal');
-      if (!wanted || !goalType) return null;
-      for (const g of openGoals(w)) if (w.druidOf(g).fromPerson) setGoalStatus(w, g, 'abandoned', tick);
-      const home = (await seedRoles(w)).home;
-      const r = await w.createThing(home, wanted, { description: 'Asked of it by a person.', typeNodeId: goalType });
-      if (!r.ok) return null;
-      w.setDruid(r.id, { status: 'open', fromPerson: true, statusAt: tick });
-      return `They asked you to ${wanted.charAt(0).toLowerCase()}${wanted.slice(1)}; it is now your goal.`;
+      if (wanted && goalType) {
+        for (const g of openGoals(w)) if (w.druidOf(g).fromPerson) setGoalStatus(w, g, 'abandoned', tick);
+        const home = (await seedRoles(w)).home;
+        const r = await w.createThing(home, wanted, { description: 'Asked of it by a person.', typeNodeId: goalType });
+        if (r.ok) {
+          w.setDruid(r.id, { status: 'open', fromPerson: true, statusAt: tick });
+          personWords(wanted);
+          notes.push(`They asked you to ${wanted.charAt(0).toLowerCase()}${wanted.slice(1)}; it is now your goal.`);
+        }
+      }
+      return notes.join('\n') || null;
     } : null,
     sleep: sleeps ? (ctx) => sleepCycle(ctx) : null,
     ...opts

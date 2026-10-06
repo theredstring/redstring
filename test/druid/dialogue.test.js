@@ -58,6 +58,7 @@ describe('talking with a living Druid', () => {
       seen.push(req);
       if (req.schema.name === 'choice') return { choice: '1' };
       if (/They say to you now/.test(req.user)) return { text: 'I will look at how Yeast works on Dough.' };
+      if (req.schema.name === 'wants') return { wants: 'Think about how yeast raises dough' };
       if (/what have you been doing lately/.test(req.user)) return { text: 'I have been looking at Yeast and Dough.' };
       if (/what are you thinking now/.test(req.user)) return { text: 'Yeast makes Dough rise.' };
       return { text: 'A plain thing.' };
@@ -89,10 +90,15 @@ describe('talking with a living Druid', () => {
     expect(asked.user).toMatch(/What you are thinking now: Yeast makes Dough rise\./);
     expect(asked.user).toMatch(/never the Thing you were looking at/);
     expect(asked.user).toMatch(/What your universe holds about what they mention:\n(Yeast|Dough)/);
-    expect(out.at(-1).state.talk.map(t => t.who)).toEqual(['person', 'druid']);
+    // Having done something about what was asked, it told them, unasked.
+    expect(out.at(-1).state.talk.map(t => t.who).slice(0, 2)).toEqual(['person', 'druid']);
+    expect(seen.some(r => /Tell the person, in one or two plain sentences of your own, what you just did/.test(r.user))).toBe(true);
     expect(openGoals(world).map(world.nameOf)).toContain('Think about how yeast raises dough');
     const choiceAfter = seen.filter(r => r.schema.name === 'choice').at(-1);
-    expect(choiceAfter.user).toMatch(/A person said to you \(\d moments? ago\): "think about how yeast raises dough" You answered: "I will look at how Yeast works on Dough."/);
+    // The words have had their moment; the gist stays.
+    expect(choiceAfter.user).toMatch(/You are in a conversation with a person\. What they ask comes before your own goals\.\nThey asked you to think about how yeast raises dough\./);
+    const choiceThen = seen.filter(r => r.schema.name === 'choice')[1];
+    expect(choiceThen.user).toMatch(/A person said to you: "think about how yeast raises dough" You answered: "I will look at how Yeast works on Dough."/);
     expect(out.at(-1).throughLine).toBe('I have been looking at Yeast and Dough.');
     expect(out.at(-1).state.throughLine).toBe('I have been looking at Yeast and Dough.');
   });

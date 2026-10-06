@@ -36,12 +36,15 @@ import { thoughtSimilarity } from './runDruid.js';
 import { VERBS, renderCommands, asCommand, runCommand, commandByVerb } from './commands/commands.js';
 import { throughLineDue, keepThroughLine, stillSaid, renderDialogue, saidSources } from './dialogue.js';
 import { answer, TALK_KEEP } from './talk.js';
+import { understand, engaged, placeOf, promisedIn, renderConversation, REPORTS_PER_TURN } from './conversation.js';
 import { extendTrail, renderTrail } from './recency.js';
 
 const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|defined)\b/i;
 const LOOP_SIZE = 3;
 const RECENT_SIZE = 6;
 const LEFT_SIZE = 4;
+/** Moments what a person turned it away from is kept from coming straight back. */
+const ENGAGED_LET_GO = 12;
 
 /**
  * @param {Object} deps
@@ -63,8 +66,8 @@ const LEFT_SIZE = 4;
  * @param {AbortSignal} [opts.signal]
  * @param {'menu'|'commands'} [opts.speak]  choose from a menu of moves, or write a plain command (commands/commands.js)
  * @param {Function} [opts.hear]      () → [{ text }]: what a person has said since the last moment (dialogue.js)
- * @param {Function} [opts.onHeard]   async (world, text, tick) → a line for the notice, if what was said changed something (e.g. became a goal)
- * @param {Function} [opts.onReply]   (text, tick) → void: its answer, as soon as it has one (before it acts)
+ * @param {Function} [opts.onHeard]   async (world, text, tick, understood) → a line for the notice, if what was said changed something (e.g. became a goal)
+ * @param {Function} [opts.onReply]   (text, tick) → void: its answer, as soon as it has one (before it acts), or what it tells them unasked (conversation.js)
  */
 export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE }, {
   resume = {},
@@ -100,6 +103,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     said: Array.isArray(resume.said) ? [...resume.said] : [],
     // The conversation with a person, both sides (talk.js), kept across sleeps.
     talk: Array.isArray(resume.talk) ? [...resume.talk] : [],
+    // The conversation it is in, if any (conversation.js).
+    conversation: resume.conversation && typeof resume.conversation === 'object' ? { ...resume.conversation } : null,
     lastDid: resume.lastDid || '',
     lastWrote: !!resume.lastWrote,
     trail: Array.isArray(resume.trail) ? [...resume.trail] : [],
@@ -116,16 +121,42 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     if (tick > 1) fade(world);
 
     // ── HEAR ──────────────────────────────────────────────────────────────
-    // What a person said since the last moment: kept for a while, shown with
-    // every choice, and steering attention (dialogue.js).
+    // A voice addressed to it: what kind of thing was said, what it turns
+    // toward and away from, and what they want (conversation.js). What they
+    // want becomes its goal; what they turn it from is let go of.
     // Each { text, answered }: answered while it slept (talk.js), it is heard but not answered again.
     const heardItems = (hear() || []).map(h => ({ text: String(h?.text ?? h).trim(), answered: !!h?.answered })).filter(h => h.text);
     const heard = heardItems.map(h => h.text);
+    let oriented = null;
     for (const text of heard) {
       st.said = [...st.said, { text, tick }].slice(-6);
-      const changed = onHeard ? await onHeard(world, text, tick).catch(() => null) : null;
+      const understood = await understand(world, mind, text).catch(() => ({ kind: 'telling', toward: [], away: [], ask: null }));
+      const was = engaged(st.conversation, tick) ? st.conversation : null;
+      st.conversation = {
+        since: was?.since ?? tick,
+        last: tick,
+        kind: understood.kind,
+        topic: understood.toward.length ? understood.toward.slice(0, 3) : (was?.topic || []),
+        away: understood.away,
+        ask: understood.ask || (understood.kind === 'question' || understood.kind === 'telling' ? was?.ask || null : null),
+        promised: [],
+        reports: 0,
+        report: false
+      };
+      for (const id of understood.away) letGo(world, id, tick, ENGAGED_LET_GO);
+      const changed = onHeard ? await onHeard(world, text, tick, understood).catch(() => null) : null;
       if (changed) st.notice = [st.notice, changed].filter(Boolean).join('\n');
+      oriented = understood.toward.map(id => placeOf(world, id)).find(Boolean) || oriented;
     }
+
+    // ── ORIENT ────────────────────────────────────────────────────────────
+    // It looks where they point before it thinks, and answers from there.
+    if (oriented) {
+      if (st.locus.focus && st.locus.focus !== oriented.focus) st.left = [...st.left.filter(id => id !== st.locus.focus), st.locus.focus].slice(-LEFT_SIZE);
+      st.locus = oriented;
+      world.focusWeb(oriented.web);
+    }
+    const talking = engaged(st.conversation, tick);
 
     // ── ATTEND ────────────────────────────────────────────────────────────
     const heldNow = held(world);
@@ -133,7 +164,10 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       ...(st.locus.focus ? [{ id: st.locus.focus, weight: 1 }] : []),
       ...heldNow.map(h => ({ id: h.id, weight: h.a })),
       ...sources(world, tick),
-      ...saidSources(world, st.said, tick)
+      // In a conversation, what it is about pulls hardest; what it told them it would look at, harder.
+      ...(talking
+        ? [...(st.conversation.topic || []).map(id => ({ id, weight: 1.2 })), ...(st.conversation.promised || []).map(id => ({ id, weight: 1.4 }))]
+        : saidSources(world, st.said, tick))
     ];
     let { activation, index } = computeActivation(world, { tick, sources: baseSources });
     st.locus = settleLocus(world, st.locus, activation);
@@ -154,7 +188,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     let thought = null;
     const sections = () => ({
       ...context,
-      dialogue: [renderDialogue(st, tick), thought && `What you are thinking now: ${thought}`].filter(Boolean).join('\n'),
+      dialogue: [renderConversation(world, st.conversation, tick), renderDialogue(st, tick), thought && `What you are thinking now: ${thought}`].filter(Boolean).join('\n'),
       notice: st.notice
     });
 
@@ -166,7 +200,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // What a person said is in front of it as it thinks (not the through line).
     const thoughtCall = await mind.fill({
       ...context,
-      dialogue: renderDialogue({ said: st.said }, tick),
+      dialogue: [renderConversation(world, st.conversation, tick), renderDialogue({ said: st.said }, tick)].filter(Boolean).join('\n'),
       notice: st.lastDid ? `You just ${st.lastDid}.` : '',
       question: promptSpace.questions.thought,
       maxWords: 30
@@ -199,7 +233,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // ── ANSWER ────────────────────────────────────────────────────────────
     // Having heard, looked and thought: over the moment's own context, so the
     // one who answers is the one thinking (talk.js), and before it acts, so
-    // what it does next follows the conversation.
+    // what it does next follows the conversation. What it says it will look
+    // at, it is held to (conversation.js heed).
     let reply = null;
     const unanswered = heardItems.filter(h => !h.answered).map(h => h.text);
     if (unanswered.length) {
@@ -216,6 +251,25 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       st.talk = [...st.talk, ...unanswered.map(t => ({ who: 'person', text: t, tick })), ...(reply ? [{ who: 'druid', text: reply, tick }] : [])].slice(-TALK_KEEP * 2);
       if (reply) {
         st.said = st.said.map(x => (x.tick === tick && x.text === said ? { ...x, answer: reply } : x));
+        if (st.conversation) st.conversation.promised = promisedIn(world, reply).filter(id => id !== st.locus.focus && placeOf(world, id));
+        if (onReply) onReply(reply, tick);
+      }
+    } else if (talking && st.conversation.report && st.conversation.reports < REPORTS_PER_TURN) {
+      // ── REPORT ──────────────────────────────────────────────────────────
+      // Having done something about what they asked, it tells them, unasked:
+      // from here, after looking, as a person comes back with what they found.
+      const r = await mind.fill({
+        ...sections(),
+        notice: st.lastDid ? `You just ${st.lastDid}.` : '',
+        question: `${promptSpace.talk}\n\nTell the person, in one or two plain sentences of your own, what you just did or found about what they asked, from what you see now; do not read out what you see. If you found nothing yet, say what you will look at next.`,
+        maxWords: 45
+      });
+      st.conversation.report = false;
+      if (r.text) {
+        reply = r.text;
+        st.conversation.reports++;
+        st.talk = [...st.talk, { who: 'druid', text: reply, tick }].slice(-TALK_KEEP * 2);
+        st.said = [...st.said, { text: '', tick, answer: reply }].slice(-6);
         if (onReply) onReply(reply, tick);
       }
     }
@@ -257,6 +311,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       release: (id) => letGo(world, id, tick, 6),
       scratch: (text) => scratchThought(world, text, tick),
       promote: (id, web) => promote(world, id, web),
+      conversation: talking ? st.conversation : null,
       ...(typeof extendCtx === 'function' ? await extendCtx(world, tick) : extendCtx)
     };
 
@@ -367,6 +422,19 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       episode = await writeEpisode(world, { tick, summary: result.summary, touched, episodeTypeId: episodeType(world) });
     }
 
+    // In a conversation: having gone where they pointed, or done something
+    // there, it will tell them at the start of the next moment.
+    if (talking && st.conversation) {
+      const conv = st.conversation;
+      const about = new Set([...(conv.topic || []), ...(conv.promised || [])]);
+      // Only about something they asked or pointed at, not after a hello; and
+      // having done what it told them it would, even in the moment it said so.
+      const kept = (conv.promised || []).includes(st.locus.focus);
+      if (result.ok && (kept || (!reply && (item?.move.id === 'heed' || touched.some(id => about.has(id)) || (conv.ask && result.wrote))))) conv.report = true;
+      // A promise is kept by being there, in the moment it was made or after.
+      conv.promised = (conv.promised || []).filter(id => id !== st.locus.focus && id !== before.focus);
+    }
+
     // What it did, for the thought that opens the next moment.
     st.lastDid = result.ok ? result.summary : `tried, but ${result.summary}`;
     st.lastWrote = !!(result.ok && result.wrote);
@@ -409,7 +477,7 @@ function snapshot(st) {
   return {
     tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
     throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail,
-    talk: st.talk, lastDid: st.lastDid, lastWrote: st.lastWrote
+    talk: st.talk, lastDid: st.lastDid, lastWrote: st.lastWrote, conversation: st.conversation
   };
 }
 

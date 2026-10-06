@@ -123,7 +123,7 @@ export async function answer(world, mind, { text, history = [], context = null, 
       ...context,
       dialogue: [renderTalk(history), thought && `What you are thinking now: ${thought}`].filter(Boolean).join('\n'),
       notice: '',
-      question: [system, view, `${said}\nAnswer them as yourself, in two or three plain sentences, from what you are doing and thinking and what your universe holds. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
+      question: [system, view, `${said}\nAnswer them as yourself, in two or three plain sentences of your own, from what you are doing and thinking and what your universe holds; do not read out what you see. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
       maxWords: 60
     });
   } else {

@@ -58,13 +58,26 @@ export function stillSaid(said, tick) {
   return (said || []).filter(s => tick - s.tick < SAID_FOR).slice(-SAID_KEEP);
 }
 
+/**
+ * Moments the words themselves are shown, and what it said back. After that
+ * the gist is (conversation.js): shown for twelve moments with every choice,
+ * its own answer became its thought, four moments running.
+ */
+export const WORDS_FOR = 3;
+export const ANSWER_FOR = 2;
+
 /** Rendered for the prompt: the through line, and what was said. */
 export function renderDialogue({ throughLine, said }, tick) {
   const lines = [];
   if (throughLine) lines.push(`Lately: ${throughLine}`);
   for (const s of stillSaid(said, tick)) {
     const ago = tick - s.tick;
-    lines.push(`A person said to you${ago > 0 ? ` (${ago} moment${ago === 1 ? '' : 's'} ago)` : ''}: "${s.text}"${s.answer ? ` You answered: "${s.answer}"` : ''}`);
+    const when = ago > 0 ? ` (${ago} moment${ago === 1 ? '' : 's'} ago)` : '';
+    const answered = s.answer && ago < ANSWER_FOR ? s.answer : '';
+    // What it told them unasked has no words of theirs.
+    if (!s.text) { if (answered) lines.push(`You told them${when}: "${answered}"`); continue; }
+    if (ago >= WORDS_FOR) continue;
+    lines.push(`A person said to you${when}: "${s.text}"${answered ? ` You answered: "${answered}"` : ''}`);
   }
   return lines.join('\n');
 }
@@ -76,6 +89,7 @@ export function renderDialogue({ throughLine, said }, tick) {
 export function saidSources(world, said, tick) {
   const out = [];
   for (const s of stillSaid(said, tick)) {
+    if (!s.text) continue;
     const words = new Set(tokenize(s.text));
     const weight = 0.9 * (1 - (tick - s.tick) / SAID_FOR);
     for (const id of world.allThings()) {

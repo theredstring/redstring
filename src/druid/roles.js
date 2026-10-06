@@ -135,7 +135,8 @@ export function subgoalsOf(world, goal) {
 /** Open goals, the ones it set out with (or was given) first, then the smaller ones, newest first. */
 export function goalsInOrder(world) {
   const open = openGoals(world);
-  const top = open.filter(g => !parentGoalOf(world, g));
+  // What a person asked for comes first.
+  const top = open.filter(g => !parentGoalOf(world, g)).sort((a, b) => (world.druidOf(b).fromPerson ? 1 : 0) - (world.druidOf(a).fromPerson ? 1 : 0));
   const smaller = open.filter(g => parentGoalOf(world, g)).sort((a, b) => (world.druidOf(b).statusAt ?? 0) - (world.druidOf(a).statusAt ?? 0));
   return [...top, ...smaller];
 }
