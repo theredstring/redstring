@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import useGraphStore from '../../store/graphStore.js';
 import { getStorageKey } from '../../utils/storageUtils.js';
 import debugConfig from '../../utils/debugConfig.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import DialogGallery from './DialogGallery.jsx';
 import PaletteEditor from './PaletteEditor.jsx';
+import DruidWarningDialog from './DruidWarningDialog.jsx';
 
 /**
  * Debug settings, moved here from the Debug submenu in RedstringMenu.
@@ -51,6 +53,8 @@ const ActionRow = ({ title, description, actionLabel, onClick }) => (
 
 const DebugSection = ({ onCloseSettings, onRelock }) => {
   const [settings, setSettings] = useState(() => debugConfig.getConfig());
+  // Switching the Druid on waits for its warning to be confirmed.
+  const [askDruid, setAskDruid] = useState(false);
 
   useEffect(() => debugConfig.addListener(setSettings), []);
 
@@ -165,9 +169,29 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
         </div>
         <Toggle
           checked={!!settings.showDruid}
-          onChange={(v) => debugConfig.setDruidEnabled(v)}
+          onChange={(v) => {
+            if (v) { setAskDruid(true); return; }
+            debugConfig.setDruidEnabled(false);
+            // Switched off while it lives: put it to sleep, rather than leave it
+            // writing into the universe from a panel that is no longer there.
+            if (globalThis.__redstringDruid?.session) {
+              import('../canvas/druid/druidStore.js').then(m => m.useDruidStore.getState().stop()).catch(() => {});
+            }
+          }}
         />
       </div>
+      {askDruid && typeof document !== 'undefined' && createPortal(
+        // Settings sits at z-index 20201 and dialogs ask for 20001, so the
+        // warning takes a stacking context above Settings (as DialogGallery does).
+        <div style={{ position: 'relative', zIndex: 30000 }}>
+          <DruidWarningDialog
+            isOpen
+            onConfirm={() => debugConfig.setDruidEnabled(true)}
+            onClose={() => setAskDruid(false)}
+          />
+        </div>,
+        document.body
+      )}
 
       <hr className="settings-section-divider" />
 

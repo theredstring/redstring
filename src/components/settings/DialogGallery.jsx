@@ -9,6 +9,7 @@ import UniverseTargetConflictDialog from '../shared/UniverseTargetConflictDialog
 import LocalFileConflictDialog from '../shared/LocalFileConflictDialog.jsx';
 import MergeUniverseDialog from '../shared/MergeUniverseDialog.jsx';
 import ConfirmDialog from '../shared/ConfirmDialog.jsx';
+import DruidWarningDialog from './DruidWarningDialog.jsx';
 import CanvasConfirmDialog from '../shared/CanvasConfirmDialog.jsx';
 import WizardIntentModal from '../wizard/WizardIntentModal.jsx';
 import { SURFACES as WIZARD_SURFACES } from '../../wizard/prompts/intents.js';
@@ -270,6 +271,19 @@ const DIALOGS = [
         message="“Semiotics” is used in 4 Webs. Deleting it removes every instance and the connections that reach them."
         details={'4 Webs · 11 instances · 26 connections\nThis cannot be undone from the file, only from history.'}
         confirmLabel="Delete"
+        onConfirm={() => fire('onConfirm')}
+        onCancel={() => fire('onCancel')}
+        onClose={() => fire('onClose')}
+      />
+    )
+  },
+  {
+    key: 'druid-warning',
+    name: 'Druid Warning',
+    note: 'Before the Druid is switched on in Features: it is experimental.',
+    render: (fire) => (
+      <DruidWarningDialog
+        isOpen
         onConfirm={() => fire('onConfirm')}
         onCancel={() => fire('onCancel')}
         onClose={() => fire('onClose')}

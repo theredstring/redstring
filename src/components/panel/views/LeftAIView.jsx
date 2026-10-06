@@ -654,6 +654,10 @@ const LeftAIView = ({ compact = false,
     try { globalThis.localStorage?.setItem(VIEW_MODE_KEY, mode); } catch { /* per-device convenience only */ }
   }, []);
   const druidStatus = useDruidStore(s => s.status);
+  // Switched off in Settings while its view is showing: back to the Wizard.
+  React.useEffect(() => debugConfig.addListener((cfg) => {
+    if (!cfg.showDruid) setViewModeState(m => (m === 'druid' ? 'wizard' : m));
+  }), []);
   // 'plan' | 'goal' — which contract ends a Wizard turn. Shared with AI settings.
   const [wizardMode, setWizardMode] = useWizardMode();
   // Kept only so the trigger's chevron can point at an open menu — the menu
