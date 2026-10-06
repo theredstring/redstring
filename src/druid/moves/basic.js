@@ -84,6 +84,17 @@ export const newWeb = {
   }
 };
 
+/**
+ * ", as it is in Snowflake formation": the subject a description is written
+ * within. Asked about the name alone, "Slip before break" was "a hacker who
+ * exploited vulnerabilities in the web", and "Water hits tip" an exhilarating
+ * waterfall hike (Druid Test 10, 2026-10-05).
+ */
+function asIn(world, name, web) {
+  const subject = web && world.topicOf ? world.topicOf(web) : null;
+  return subject && subject.trim().toLowerCase() !== String(name).trim().toLowerCase() ? `, as it is in ${subject},` : '';
+}
+
 export const make = {
   id: 'make',
   prior: 1,
@@ -128,7 +139,7 @@ export const make = {
         }
       }
     }
-    const description = await ctx.ask(`Describe ${name} in one short sentence.`, 16);
+    const description = await ctx.ask(`Describe ${name}${asIn(world, name, locus.web)} in one short sentence.`, 16);
     if (description) await world.act('updateNode', { nodeName: world.nameOf(r.id), description, targetGraphId: r.web });
     return { ok: true, summary, touched, locus: r.noticed ? locus : { ...locus, focus: r.id }, wrote: true };
   }
@@ -667,7 +678,7 @@ export const describe = {
     const f = ctx.view.focus;
     if (!f) return [];
     const thin = !f.description || f.description.length < 25;
-    return [{ label: thin ? `describe ${f.name}: ___` : `redescribe ${f.name} as you understand it now: ___`, blank: { question: `Describe ${f.name} in one sentence.`, maxWords: 20 }, data: { id: f.id }, prior: thin ? 1.1 : 0.25 }];
+    return [{ label: thin ? `describe ${f.name}: ___` : `redescribe ${f.name} as you understand it now: ___`, blank: { question: `Describe ${f.name}${asIn(ctx.world, f.name, ctx.locus.web)} in one sentence.`, maxWords: 20 }, data: { id: f.id }, prior: thin ? 1.1 : 0.25 }];
   },
   async run(ctx, data, text) {
     if (!text) return fail('no description');

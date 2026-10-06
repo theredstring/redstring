@@ -127,29 +127,6 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       if (changed) st.notice = [st.notice, changed].filter(Boolean).join('\n');
     }
 
-    // ── ANSWER ────────────────────────────────────────────────────────────
-    // At once, as itself, from what the universe holds (talk.js): asked over
-    // the moment's own prompt, it answered in the voice of the web it stood in.
-    let reply = null;
-    const unanswered = heardItems.filter(h => !h.answered).map(h => h.text);
-    if (unanswered.length) {
-      const said = unanswered[unanswered.length - 1];
-      const r = await answer(world, mind, {
-        text: said,
-        history: [...st.talk, ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))],
-        throughLine: st.throughLine,
-        focus: st.locus.focus,
-        doing: st.lastDid,
-        system: promptSpace.talk
-      });
-      reply = r.text || null;
-      st.talk = [...st.talk, ...unanswered.map(t => ({ who: 'person', text: t, tick })), ...(reply ? [{ who: 'druid', text: reply, tick }] : [])].slice(-TALK_KEEP * 2);
-      if (reply) {
-        st.said = st.said.map(x => (x.tick === tick && x.text === said ? { ...x, answer: reply } : x));
-        if (onReply) onReply(reply, tick);
-      }
-    }
-
     // ── ATTEND ────────────────────────────────────────────────────────────
     const heldNow = held(world);
     const baseSources = [
@@ -186,8 +163,10 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // (Asked last in a moment, over a view of its own, it was a whole reading
     // of the prompt more each moment.) Not shown the through line: shown it,
     // the through line became the thought, ten moments running.
+    // What a person said is in front of it as it thinks (not the through line).
     const thoughtCall = await mind.fill({
       ...context,
+      dialogue: renderDialogue({ said: st.said }, tick),
       notice: st.lastDid ? `You just ${st.lastDid}.` : '',
       question: promptSpace.questions.thought,
       maxWords: 30
@@ -214,6 +193,30 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       unbacked = ungroundedNames(buildMemoryIndex(world.state()), thought);
       if (unbacked.length) {
         st.notice = [st.notice, `You thought you had made ${unbacked.join(', ')}, but nothing was written and your universe has no Thing by ${unbacked.length === 1 ? 'that name' : 'those names'}.`].filter(Boolean).join('\n');
+      }
+    }
+
+    // ── ANSWER ────────────────────────────────────────────────────────────
+    // Having heard, looked and thought: over the moment's own context, so the
+    // one who answers is the one thinking (talk.js), and before it acts, so
+    // what it does next follows the conversation.
+    let reply = null;
+    const unanswered = heardItems.filter(h => !h.answered).map(h => h.text);
+    if (unanswered.length) {
+      const said = unanswered[unanswered.length - 1];
+      const r = await answer(world, mind, {
+        text: said,
+        history: [...st.talk, ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))],
+        context,
+        thought: thought || '',
+        focus: st.locus.focus,
+        system: promptSpace.talk
+      });
+      reply = r.text || null;
+      st.talk = [...st.talk, ...unanswered.map(t => ({ who: 'person', text: t, tick })), ...(reply ? [{ who: 'druid', text: reply, tick }] : [])].slice(-TALK_KEEP * 2);
+      if (reply) {
+        st.said = st.said.map(x => (x.tick === tick && x.text === said ? { ...x, answer: reply } : x));
+        if (onReply) onReply(reply, tick);
       }
     }
 

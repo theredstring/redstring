@@ -149,6 +149,33 @@ export function aboutKnowing(mind) {
 }
 
 /**
+ * Does a term belong to a subject at all? Standing in Separate (a stage of
+ * how a snowflake forms), asked for "another part of Separate", a Druid named
+ * Solar System, Sword of Shadows, Fabric Types and Emotional overwhelm, and
+ * each was kept (Druid Test 10, 2026-10-05). Asked "Would someone explaining S
+ * talk about T?", Apple's model kept 29 of 36 Things on three subjects and
+ * refused 33 of 34 that had drifted in (2026-10-05 probes). What it turned away
+ * were the Druid's own terse names (Gap opens, Slip onset), so it is asked
+ * only of names that share no word with where they go (world.js createThing).
+ * A second question to confirm a no let most of the drift back in.
+ *
+ * @returns {Function} async (term, subject) → true | false (off the subject) | null
+ */
+export function onSubject(mind) {
+  const cache = new Map();
+  return async (term, subject) => {
+    const key = `${String(term).trim()}\u0000${String(subject).trim()}`;
+    if (cache.has(key)) return cache.get(key);
+    // In lower case: "Snowflake Formation" reads as a title, and Fabric Types belonged to it.
+    const about = String(subject).trim().replace(/\b([A-Z])([a-z]+)\b/g, (_, a, b) => a.toLowerCase() + b);
+    const a = await ask(mind, 'onSubject', 'Answer yes or no.', `Would someone explaining ${about} talk about ${String(term).trim()}?`, ['yes', 'no']);
+    const value = a === 'yes' ? true : a === 'no' ? false : null;
+    cache.set(key, value);
+    return value;
+  };
+}
+
+/**
  * Is a one-word name a quality rather than a thing? Asked of every word, Apple's
  * model called Gravity, Light and Feelings qualities (17 of 24 right), so it is
  * asked only of words that look like adjectives (names.js looksLikeQuality),
@@ -159,9 +186,10 @@ export function aboutKnowing(mind) {
  */
 export function isQuality(mind) {
   const cache = new Map();
-  return async (word) => {
-    const key = String(word || '').trim();
-    if (!key) return null;
+  return async (word, subject = null) => {
+    const w = String(word || '').trim();
+    if (!w) return null;
+    const key = subject ? `${w} (in: ${subject})` : w;
     if (cache.has(key)) return cache.get(key);
     const a = await ask(mind, 'isQuality', 'Is the word the name of a thing, or a word that describes a quality? Answer thing or quality.', `Word: ${key}`, ['thing', 'quality']);
     const value = a === 'quality' ? true : a === 'thing' ? false : null;
@@ -182,9 +210,11 @@ export function isQuality(mind) {
  */
 export function category(mind) {
   const cache = new Map();
-  return async (name) => {
-    const key = String(name || '').trim();
-    if (!key) return null;
+  // With the subject it is meant within (world.js subjectFor): "Gap" alone is a brand of clothes.
+  return async (name, subject = null) => {
+    const word = String(name || '').trim();
+    if (!word) return null;
+    const key = subject ? `${word} (in: ${subject})` : word;
     if (cache.has(key)) return cache.get(key);
     let value = await ask(mind, 'category', 'Is the word below the name of a THING (an object or a substance you could point at), a PROCESS (something that happens over time, in steps), or an IDEA (something abstract you cannot point at)?', key, ['thing', 'process', 'idea']);
     // A thing is an object, composed of parts at its own scale (Mount Everest:

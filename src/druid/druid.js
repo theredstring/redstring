@@ -12,10 +12,10 @@ import { BASIC_MOVES } from './moves/basic.js';
 import { ROLE_MOVES } from './moves/roles.js';
 import { COGNITIVE_MOVES } from './moves/cognitive.js';
 import { TIDY_MOVES } from './moves/tidy.js';
-import { seedRoles, roleType, openGoals, renderRoles, isRole, confidence, confidenceWords, setGoalStatus } from './roles.js';
+import { seedRoles, roleType, openGoals, goalsInOrder, GOALS_ATTENDED, renderRoles, isRole, confidence, confidenceWords, setGoalStatus } from './roles.js';
 import { asRequest } from './dialogue.js';
 import { sleep as sleepCycle } from './sleep.js';
-import { nameGate, plausible, sameRelation, curiosity, madeOf, aboutKnowing, isQuality, kindOf, category } from './mind/helpers.js';
+import { nameGate, plausible, sameRelation, curiosity, madeOf, aboutKnowing, onSubject, isQuality, kindOf, category } from './mind/helpers.js';
 import { topLevelWebs, isHome } from './attention.js';
 import { understandGoal } from './names.js';
 
@@ -54,6 +54,7 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
     world.check ||= plausible(mind);
     world.isPart ||= madeOf(mind);
     world.aboutKnowing ||= aboutKnowing(mind);
+    world.onSubject ||= onSubject(mind);
     world.isQuality ||= isQuality(mind);
     world.category ||= category(mind);
     world.isKind ||= kindOf(mind, world.check);
@@ -92,7 +93,8 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
   for (const id of world.allThings()) if (world.druidOf(id).seeded === true || world.druidOf(id).fromPerson) personWords(world.nameOf(id));
   yield* runLife(deps, {
     moves: druidMoves(),
-    sources: (w) => openGoals(w).map(id => ({ id, weight: 0.6 })),
+    // The goals it set out with pull at attention, not every smaller goal on the way.
+    sources: (w) => goalsInOrder(w).slice(0, GOALS_ATTENDED).map(id => ({ id, weight: 0.6 })),
     isOpenGoal: (id) => openGoals(world).includes(id),
     episodeType: (w) => roleType(w, 'episode'),
     extendCtx: async (w) => ({ roles: roles ? { home: await seedRoles(w).then(r => r.home), types: { goal: roleType(w, 'goal'), belief: roleType(w, 'belief'), plan: roleType(w, 'plan') } } : null }),

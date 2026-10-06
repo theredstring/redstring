@@ -8,7 +8,7 @@
  * it and never writes it.
  *
  *   web "Identity"   Thing "Who you are"         → the system prompt
- *                    Thing "When you talk"       → the system prompt when a person talks with it (talk.js)
+ *                    Thing "When you talk"       → who it is told it is when a person talks with it (talk.js)
  *   web "Questions"  Things "Choose", "Thought"  → how each call is asked
  *   web "Moves"      a Thing per move id         → guidance shown with that move (optional)
  *

@@ -189,6 +189,32 @@ describe('a web it started, still empty', () => {
     expect(world.topicOf(world.ensureInside(stars.id))).toBe('Space');
     expect((await world.createThing(world.insideOf(stars.id), 'Curiosity')).error).toMatch(/not about Space/);
   });
+
+  it('keeps to its subject: a Thing with nothing to do with it is refused, asked only when no word ties it there', async () => {
+    const { newWeb } = await import('../../src/druid/moves/basic.js');
+    const { seedRoles } = await import('../../src/druid/roles.js');
+    const { world } = await freshWorld();
+    const { home } = await seedRoles(world);
+    const web = (await newWeb.run(ctxAt(world, { web: home, focus: null, path: [] }), null, 'Snowflake Formation')).locus.web;
+    world.actor = 'druid';
+    const asked = [];
+    world.onSubject = async (term, subject) => { asked.push(term); return !/Sword|Shadow|Fabric/.test(term) && subject === 'Snowflake Formation'; };
+    const bond = await world.createThing(web, 'Bond breaks');
+    expect(bond.ok).toBe(true);
+    const inside = world.ensureInside(bond.id);
+    // Druid Test 10: in a stage of a snowflake forming, Sword of Shadows and Fabric Types.
+    expect((await world.createThing(inside, 'Sword of Shadows')).error).toMatch(/nothing to do with Snowflake Formation/);
+    expect((await world.createThing(inside, 'Fabric Types')).error).toMatch(/nothing to do with Snowflake Formation/);
+    // Its own terse names share a word with where they go, and are not asked.
+    expect((await world.createThing(inside, 'Bond weakens')).ok).toBe(true);
+    expect((await world.createThing(inside, 'Ice crystal')).ok).toBe(true);
+    expect(asked).toEqual(['Bond breaks', 'Sword of Shadows', 'Fabric Types', 'Ice crystal']);
+    // A word one drift brought in does not vouch for the next.
+    world.onSubject = async () => true;
+    await world.createThing(inside, 'Shadow');
+    world.onSubject = async (term) => { asked.push(term); return false; };
+    expect((await world.createThing(inside, 'Shadow puppet')).error).toMatch(/nothing to do with/);
+  });
 });
 
 describe('plans hold steps, and nothing is put away into Home', () => {

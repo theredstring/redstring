@@ -137,6 +137,8 @@ export async function talkTo({ store, promptSpace, backend }, { text, history = 
       history: past,
       throughLine: life.throughLine || '',
       focus: life.locus?.focus || null,
+      doing: life.lastDid || '',
+      thoughts: Array.isArray(life.loop) ? life.loop : [],
       system: promptSpace?.talk
     });
     // Kept with its loop state, so it remembers the conversation when it wakes.

@@ -10,7 +10,7 @@ import { recall, buildMemoryIndex, tokenize } from '../recall.js';
 import { isOwnPlace } from '../attention.js';
 import {
   isBookkeeping,
-  openGoals, setGoalStatus, activePlans, nextStep, planSteps,
+  openGoals, setGoalStatus, activePlans, nextStep, planSteps, parentGoalOf, subgoalsOf, MAX_OPEN_GOALS, MAX_SUBGOALS,
   addEvidence, confidence, confidenceWords, sourceKind, beliefsIn, claimOf, JUDGMENT_SCALE
 } from '../roles.js';
 import { wordsIn, shortName, normalizeName, understandGoal, MAX_NAME_WORDS } from '../names.js';
@@ -158,11 +158,18 @@ export const breakDownGoal = {
   prior: 0.35,
   offer(ctx) {
     if (!ctx.roles?.types.goal || !hasContentWeb(ctx.world)) return [];
-    return topGoals(ctx, 1).map(g => ({ label: `break your goal "${ctx.world.nameOf(g)}" into a smaller goal: ___`, blank: { question: `One smaller goal on the way to "${ctx.world.nameOf(g)}", in a few words.`, maxWords: 5 }, data: { goal: g }, target: g }));
+    // A goal it set out with, broken a little: not past MAX_SUBGOALS under it,
+    // MAX_OPEN_GOALS in all, nor a smaller goal broken again (roles.js).
+    if (openGoals(ctx.world).length >= MAX_OPEN_GOALS) return [];
+    const goals = topGoals(ctx, 3).filter(g => !parentGoalOf(ctx.world, g) && subgoalsOf(ctx.world, g).length < MAX_SUBGOALS).slice(0, 1);
+    return goals.map(g => ({ label: `break your goal "${ctx.world.nameOf(g)}" into a smaller goal: ___`, blank: { question: `One smaller goal on the way to "${ctx.world.nameOf(g)}", in a few words.`, maxWords: 5 }, data: { goal: g }, target: g }));
   },
   async run(ctx, data, text) {
     const name = titleish(text);
     if (!name) return fail('no subgoal');
+    const key = normalizeName(name);
+    const again = openGoals(ctx.world).find(g => normalizeName(ctx.world.nameOf(g)) === key);
+    if (again) return fail(`"${ctx.world.nameOf(again)}" is already your goal`);
     const inside = ctx.world.ensureInside(data.goal);
     const r = await ctx.world.createThing(inside, name, { description: `On the way to: ${ctx.world.nameOf(data.goal)}.`, typeNodeId: ctx.roles.types.goal });
     if (!r.ok) return fail(r.error);

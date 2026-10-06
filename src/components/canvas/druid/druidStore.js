@@ -86,7 +86,7 @@ export function compactCall(c) {
 /** What sleep did, in a line: only what it did. */
 /** What each part of a sleep did, in plain words (sleep.js). */
 const SLEPT_WORDS = {
-  merged: 'merged', split: 'split a kind', declined: 'kept apart', lapsed: 'let go of plans',
+  merged: 'merged', split: 'split a kind', declined: 'kept apart', lapsed: 'let go of plans', dropped: 'let go of smaller goals',
   condensed: 'folded moments into the day', pruned: 'forgot', repaired: 'repaired', misplaced: 'flagged'
 };
 

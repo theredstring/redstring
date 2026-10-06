@@ -216,18 +216,34 @@ function DruidView({ active = true }) {
   const { setSetting, start, stop, say } = useDruidStore.getState();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef(null);
-  const bottomRef = useRef(null);
+  const contentRef = useRef(null);
   // Following the newest moment, unless you have scrolled up to read.
   const [following, setFollowing] = useState(true);
+  const followingRef = useRef(true);
+  followingRef.current = following;
 
   // The open universe's run, now and whenever another is opened.
   useEffect(() => { watchUniverse().catch(() => {}); }, []);
 
   const idle = status === 'idle';
   const living = status === 'living';
+  // Followed by the newest entry, not by how many there are: the store keeps
+  // the last 2000, so past that the count stood still and a long run stopped
+  // following, one moment after another, with you at the bottom.
+  const last = stream[stream.length - 1];
+  const lastKey = last ? (last.seq ?? stream.length) : 0;
+  const toBottom = () => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; };
   useEffect(() => {
-    if (active && following) bottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [stream.length, answering, active, following]);
+    if (active && following) toBottom();
+  }, [lastKey, answering, active, following]);
+  // What grows after it is drawn (a sleep row, a line that wraps) keeps it at the bottom too.
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => { if (followingRef.current) toBottom(); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -307,30 +323,31 @@ function DruidView({ active = true }) {
 
       <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex' }}>
         <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
-          {stream.length === 0 && (
-            <div style={{ color: tokens.muted, fontSize: 13, textAlign: 'center', padding: '40px 8px', lineHeight: 1.5 }}>
-              Wake it to watch it think. Talk to it any time, awake or asleep: it answers from what its universe holds, and what you say steers it.
-              <div style={{ fontSize: 11, marginTop: 12 }}>
-                It lives in the universe that is open and writes into it, so give it one of its own. What it does there is kept here until you clear it.
+          <div ref={contentRef}>
+            {stream.length === 0 && (
+              <div style={{ color: tokens.muted, fontSize: 13, textAlign: 'center', padding: '40px 8px', lineHeight: 1.5 }}>
+                Wake it to watch it think. Talk to it any time, awake or asleep: it answers from what its universe holds, and what you say steers it.
+                <div style={{ fontSize: 11, marginTop: 12 }}>
+                  It lives in the universe that is open and writes into it, so give it one of its own. What it does there is kept here until you clear it.
+                </div>
               </div>
-            </div>
-          )}
-          {stream.length > SHOWN && <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', padding: '8px 0' }}>{stream.length - SHOWN} earlier, in Copy</div>}
-          {/* Keyed by each entry's place in its universe's run (seq), so a new
-              moment never remounts the ones before it. */}
-          {stream.slice(-SHOWN).map((e, i) => {
-            const key = e.seq ?? `at${Math.max(0, stream.length - SHOWN) + i}`;
-            if (e.kind === 'moment') return <Moment key={key} c={e} tokens={tokens} />;
-            if (e.kind === 'woke') return <Woke key={key} e={e} tokens={tokens} />;
-            return <Said key={key} e={e} tokens={tokens} />;
-          })}
-          {answering && <Answering tokens={tokens} />}
-          <div ref={bottomRef} />
+            )}
+            {stream.length > SHOWN && <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', padding: '8px 0' }}>{stream.length - SHOWN} earlier, in Copy</div>}
+            {/* Keyed by each entry's place in its universe's run (seq), so a new
+                moment never remounts the ones before it. */}
+            {stream.slice(-SHOWN).map((e, i) => {
+              const key = e.seq ?? `at${Math.max(0, stream.length - SHOWN) + i}`;
+              if (e.kind === 'moment') return <Moment key={key} c={e} tokens={tokens} />;
+              if (e.kind === 'woke') return <Woke key={key} e={e} tokens={tokens} />;
+              return <Said key={key} e={e} tokens={tokens} />;
+            })}
+            {answering && <Answering tokens={tokens} />}
+          </div>
         </div>
         {!following && stream.length > 0 && (
           <button
             type="button"
-            onClick={() => { setFollowing(true); bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }}
+            onClick={() => { setFollowing(true); toBottom(); }}
             style={{
               position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 4,
               padding: '4px 10px', borderRadius: 12, border: `1px solid ${tokens.hairline}`, cursor: 'pointer',

@@ -81,7 +81,7 @@ export function isOwnPlace(world, webId) {
  */
 export function buildView(world, locus, activation, { tick = 0, insideK = 6, neighbourK = 6, peersK = 6 } = {}) {
   const sort = byActivation(activation);
-  const view = { web: null, container: null, focus: null, inside: [], insideMore: 0, links: [], associated: [], peers: [], webs: [] };
+  const view = { web: null, container: null, above: [], focus: null, inside: [], insideMore: 0, links: [], associated: [], peers: [], webs: [] };
 
   if (!locus.web) {
     view.webs = userWebs(world).map(id => ({ id, name: world.graph(id)?.name || '?' })).slice(0, 8);
@@ -92,6 +92,10 @@ export function buildView(world, locus, activation, { tick = 0, insideK = 6, nei
   view.web = { id: locus.web, name: web?.name || '?' };
   const owner = world.ownerOf(locus.web);
   if (owner) view.container = { id: owner, name: world.nameOf(owner) };
+  // What it is all part of, up to its subject: deep in a composition, a Druid
+  // shown only the web it stood in lost the thread (ten insides down in
+  // "Snowflake Formation", it read Gap as a brand).
+  view.above = (world.pathUp?.(view.web.id) || []).map(id => world.graph(id)?.name).filter(Boolean);
 
   // Role types (Goal, Belief, Plan, Episode) are the Druid's furniture: their
   // behavior works through the role moves, but they are not content to look
@@ -170,6 +174,11 @@ export function renderView(view, recency = null) {
       : `You are not in any web. Your webs: ${view.webs.map(w => w.name).join(', ')}.`;
   }
   const lines = [`You are in the web "${view.web.name}"${view.container ? ` — the inside of ${view.container.name}` : ''}.`];
+  if (view.above.length) {
+    const a = view.above;
+    const shown = a.length > 5 ? [...a.slice(0, 3), '…', ...a.slice(-1)] : a;
+    lines.push(`${view.web.name} is part of ${shown.join(', part of ')}${a.length > 2 ? ` (${a.length} levels up to ${a[a.length - 1]})` : ''}.`);
+  }
   if (view.focus) {
     const f = view.focus;
     lines.push(`In focus: ${f.name}${mark(f.id)}${f.description ? ` — ${f.description}` : ' (no description yet)'}${f.kinds.length ? ` (a kind of ${f.kinds.join(', a kind of ')})` : ''}`);

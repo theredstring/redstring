@@ -75,11 +75,19 @@ describe('talking with a living Druid', () => {
     }
     expect(out[1].heard).toEqual(['think about how yeast raises dough']);
     expect(out[1].reply).toBe('I will look at how Yeast works on Dough.');
-    // Answered as it hears, before the moment goes on: the reply comes ahead of the moment.
+    // Answered within the moment, before it acts: the reply comes ahead of the moment.
     expect(events.indexOf('reply 2')).toBeLessThan(events.indexOf('moment 2'));
-    // Asked as itself, about what the universe holds, not over the web it stands in.
-    const asked = seen.find(r => /They say to you now/.test(r.user));
-    expect(asked.system).toMatch(/never the Thing you were looking at/);
+    // It thinks with what was said in front of it, then answers as the one
+    // thinking: over the moment's own context, with its thought, told who it
+    // is when it talks and what its universe holds.
+    const heardAt = seen.findIndex(r => /They say to you now/.test(r.user));
+    const thinking = seen.slice(0, heardAt).filter(r => /what are you thinking now/.test(r.user)).at(-1);
+    expect(thinking.user).toMatch(/A person said to you: "think about how yeast raises dough"/);
+    const asked = seen[heardAt];
+    expect(asked.system).toBe(thinking.system);
+    expect(asked.user).toContain(thinking.user.split('\n\n')[0]);
+    expect(asked.user).toMatch(/What you are thinking now: Yeast makes Dough rise\./);
+    expect(asked.user).toMatch(/never the Thing you were looking at/);
     expect(asked.user).toMatch(/What your universe holds about what they mention:\n(Yeast|Dough)/);
     expect(out.at(-1).state.talk.map(t => t.who)).toEqual(['person', 'druid']);
     expect(openGoals(world).map(world.nameOf)).toContain('Think about how yeast raises dough');
@@ -96,8 +104,10 @@ describe('talking with it', () => {
     const { createMind } = await import('../../src/druid/mind/createMind.js');
     const { scripted } = await import('../../src/druid/mind/backends.js');
     const { world } = await freshWorld();
-    const { ids } = await buildUniverse(world, { webs: { Baking: { things: { Dough: 'flour and water', Yeast: 'a fungus', Oven: 'o' }, links: [['Yeast', 'Dough', 'raises']] } } });
+    const { ids } = await buildUniverse(world, { webs: { Baking: { things: { Dough: 'flour and water', Yeast: 'a fungus', Oven: 'o' }, links: [['Yeast', 'Dough', 'raises']] }, Ice: { things: { 'Snowflake Formation': 's', 'Pulls back': 'p' } } } });
     expect(namedIn(world, 'what does the yeast do?')).toEqual([ids.Yeast]);
+    // Plural or not, and not by a word that names nothing alone.
+    expect(namedIn(world, 'does any of this connect back to snowflakes?')).toEqual([ids['Snowflake Formation']]);
     expect(knownAbout(world, ids.Yeast)).toMatch(/^Yeast \(in Baking\): a fungus\n {2}connections: Yeast raises Dough/);
     const seen = [];
     const mind = createMind({ backend: scripted((req) => { seen.push(req); return { text: 'Yeast raises Dough.' }; }) });

@@ -176,3 +176,65 @@ describe('goals and plans hold steps, not what it learns', () => {
     expect(make.offer(ctx)).toEqual([]);
   });
 });
+
+describe('goals in bounds, and the thread back up', () => {
+  it('a goal is broken only a little; sleep lets smaller goals go; the goals it set out with lead', async () => {
+    const roles = await import('../../src/druid/roles.js');
+    const { breakDownGoal } = await import('../../src/druid/moves/roles.js');
+    const { world } = await freshWorld();
+    const { home, types } = await seedRoles(world);
+    world.actor = 'druid';
+    const subject = (await world.createThing(home, 'Snowflake Formation', { description: 'how a snowflake forms' })).id;
+    world.setDruid(subject, { topic: true });
+    world.ensureInside(subject);
+    const goal = (await world.createThing(home, 'Understand a snowflake forming', { description: 'A goal.', typeNodeId: types.goal })).id;
+    roles.setGoalStatus(world, goal, 'open', 1);
+    const ctx = { world, tick: 2, roles: { home, types }, activation: new Map(), locus: { web: home, focus: goal, path: [] } };
+    // Two smaller goals, then no third.
+    for (const [i, n] of ['Slip before break', 'Gap opens'].entries()) {
+      const offered = breakDownGoal.offer(ctx);
+      expect(offered).toHaveLength(1);
+      expect((await breakDownGoal.run({ ...ctx, tick: 2 + i }, offered[0].data, n)).ok).toBe(true);
+    }
+    expect(breakDownGoal.offer(ctx)).toEqual([]);
+    const smaller = roles.subgoalsOf(world, roles.openGoals(world).find(g => world.nameOf(g) === 'Understand a snowflake forming'));
+    expect(smaller.map(world.nameOf).sort()).toEqual(['Gap opens', 'Slip before break']);
+    expect(roles.goalsInOrder(world).map(world.nameOf)[0]).toBe('Understand a snowflake forming');
+    expect(roles.renderRoles(world)).toMatch(/^What you are after: Understand a snowflake forming\nOn the way: /);
+    // Long open, smaller goals go in sleep; the goal it set out with stays.
+    expect(roles.lapseStaleGoals(world, 10)).toEqual([]);
+    expect(roles.lapseStaleGoals(world, 2 + roles.GOAL_PATIENCE + 1).sort()).toEqual(['Gap opens', 'Slip before break']);
+    expect(roles.openGoals(world).map(world.nameOf)).toEqual(['Understand a snowflake forming']);
+  });
+
+  it('deep in a composition, the view says what it is all part of, up to its subject', async () => {
+    const { renderView } = await import('../../src/druid/attention.js');
+    const { world } = await freshWorld();
+    const { home } = await seedRoles(world);
+    world.actor = 'druid';
+    const top = (await world.createThing(home, 'Snowflake Formation', { description: 'how a snowflake forms' })).id;
+    world.setDruid(top, { topic: true });
+    let owner = top;
+    for (const n of ['Nucleation', 'Branch', 'Break surface', 'Separate', 'Slip onset', 'Bond breaks']) {
+      const r = await world.createThing(world.ensureInside(owner), n, { description: n.toLowerCase() });
+      owner = r.id;
+    }
+    const web = world.ensureInside(owner);
+    const gap = (await world.createThing(web, 'Gap', { description: 'a thin opening' })).id;
+    expect(world.pathUp(web).map(w => world.graph(w).name)).toEqual(['Slip onset', 'Separate', 'Break surface', 'Branch', 'Nucleation', 'Snowflake Formation']);
+    const text = renderView(buildView(world, { web, focus: gap, path: [] }, new Map(), { tick: 1 }), { world, tick: 1 });
+    expect(text).toMatch(/Bond breaks is part of Slip onset, part of Separate, part of Break surface, part of …, part of Snowflake Formation \(6 levels up to Snowflake Formation\)\./);
+  });
+
+  it('the sort of a Thing is asked with the subject it is meant within', async () => {
+    const { world } = await freshWorld();
+    const { home } = await seedRoles(world);
+    world.actor = 'druid';
+    const top = (await world.createThing(home, 'Snowflake Formation', { description: 'how a snowflake forms' })).id;
+    world.setDruid(top, { topic: true });
+    const asked = [];
+    world.category = async (name, subject) => { asked.push([name, subject]); return 'object'; };
+    await world.createThing(world.ensureInside(top), 'Gap', { description: 'a thin opening' });
+    expect(asked).toContainEqual(['Gap', 'Snowflake Formation']);
+  });
+});

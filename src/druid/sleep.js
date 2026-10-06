@@ -34,7 +34,7 @@
  */
 
 import { normalizeName as norm } from './names.js';
-import { activePlans, roleType, roleOf, isBookkeeping } from './roles.js';
+import { activePlans, roleType, roleOf, isBookkeeping, lapseStaleGoals } from './roles.js';
 import { isOwnPlace } from './attention.js';
 
 const MIN_MEMBERS = 6;
@@ -268,10 +268,11 @@ export async function sleep(ctx) {
     report.split.push({ kind: T, into: kinds.map(id => world.nameOf(id)), revision: revisionId, gain: cand.gain });
   }
 
-  // 3. Letting go: plans that stalled, episodes that are old, what is dead.
+  // 3. Letting go: plans that stalled, smaller goals long open, episodes that are old, what is dead.
   // Kinds sleep changed are kept as ladders in the carousel too (world.js addKind).
   world.writeLadders?.();
   report.lapsed = lapseStalledPlans(world, tick);
+  report.dropped = lapseStaleGoals(world, tick);
   report.condensed = await condenseEpisodes(world, tick);
   const keep = new Set([ctx.locus?.focus, ...(ctx.held || []).map(h => h.id)].filter(Boolean));
   report.pruned = pruneDead(world, tick, keep);

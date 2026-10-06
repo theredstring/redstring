@@ -100,6 +100,66 @@ export function setGoalStatus(world, id, status, tick) {
   world.setDruid(id, { status, statusAt: tick });
 }
 
+/**
+ * Goals kept in bounds. Smaller goals had no cap and were never let go: at
+ * moment 2312 a Druid had 90 open goals, nearly all fragments of one process
+ * ("Slip before break", "Gap opens, then slips"), each pulling at attention
+ * as hard as the goal it set out with, "Understand a snowflake forming in
+ * winter". It rebuilt slip, gap and bond at every level, ten insides down.
+ */
+export const MAX_OPEN_GOALS = 6;
+/** Smaller goals under one goal, at most; and only one level of them. */
+export const MAX_SUBGOALS = 2;
+/** Moments a smaller goal stays open before sleep lets it go. */
+export const GOAL_PATIENCE = 60;
+/** Goals that pull at attention, at most. */
+export const GOALS_ATTENDED = 3;
+
+/** The goal a smaller goal is on the way to (it sits inside it), if any. */
+export function parentGoalOf(world, id) {
+  for (const w of world.websOf(id)) {
+    const owner = world.ownerOf(w);
+    if (owner && owner !== id && isRole(world, owner, 'goal')) return owner;
+  }
+  return null;
+}
+
+/** Open smaller goals on the way to a goal. */
+export function subgoalsOf(world, goal) {
+  const inside = world.insideOf(goal);
+  if (!inside) return [];
+  const open = new Set(openGoals(world));
+  return world.thingsIn(inside).filter(id => id !== goal && open.has(id));
+}
+
+/** Open goals, the ones it set out with (or was given) first, then the smaller ones, newest first. */
+export function goalsInOrder(world) {
+  const open = openGoals(world);
+  const top = open.filter(g => !parentGoalOf(world, g));
+  const smaller = open.filter(g => parentGoalOf(world, g)).sort((a, b) => (world.druidOf(b).statusAt ?? 0) - (world.druidOf(a).statusAt ?? 0));
+  return [...top, ...smaller];
+}
+
+/**
+ * Smaller goals let go in sleep: any open longer than GOAL_PATIENCE, and the
+ * oldest while there are more than MAX_OPEN_GOALS. Never one a person gave,
+ * never a goal it set out with. Returns their names.
+ */
+export function lapseStaleGoals(world, tick) {
+  const smaller = openGoals(world)
+    .filter(g => parentGoalOf(world, g) && !world.druidOf(g).fromPerson)
+    .sort((a, b) => (world.druidOf(a).statusAt ?? 0) - (world.druidOf(b).statusAt ?? 0));
+  let over = openGoals(world).length - MAX_OPEN_GOALS;
+  const dropped = [];
+  for (const g of smaller) {
+    const stale = tick - (world.druidOf(g).statusAt ?? 0) >= GOAL_PATIENCE;
+    if (!stale && over <= 0) continue;
+    const name = world.nameOf(g);
+    if (world.forget(g)) { dropped.push(name); over--; }
+  }
+  return dropped;
+}
+
 // ── Beliefs ──────────────────────────────────────────────────────────────
 
 /** Log-odds steps per judgment. */
@@ -206,8 +266,11 @@ export function nextStep(world, planId) {
 /** Rendered for the prompt: open goals, plan cursors. */
 export function renderRoles(world) {
   const lines = [];
-  const goals = openGoals(world);
-  if (goals.length) lines.push(`Your open goals: ${goals.slice(0, 4).map(id => world.nameOf(id)).join('; ')}`);
+  const goals = goalsInOrder(world);
+  const top = goals.filter(g => !parentGoalOf(world, g));
+  const smaller = goals.filter(g => parentGoalOf(world, g));
+  if (top.length) lines.push(`What you are after: ${top.slice(0, 3).map(id => world.nameOf(id)).join('; ')}`);
+  if (smaller.length) lines.push(`On the way: ${smaller.slice(0, 2).map(id => world.nameOf(id)).join('; ')}`);
   for (const p of activePlans(world).slice(0, 2)) {
     const step = nextStep(world, p);
     if (step) lines.push(`Your plan "${world.nameOf(p)}" — next step: ${world.nameOf(step)}`);

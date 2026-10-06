@@ -19,6 +19,7 @@
  */
 
 import { graphStateFromStore } from './graphStateFromStore.js';
+import { tokenize } from './recall.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
 import { DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, isSeededChain, seededChainFor } from '../wizard/tools/utils/abstractionSpec.js';
@@ -272,7 +273,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     }
     // A thing, not a quality: "Dark", "Gravitational" as parts of dark matter.
     if (api.actor && contentKind && !isSystemWeb(graphId) && looksLikeQuality(name) && !sameNamed(name)) {
-      const quality = isPlainlyQuality(name) || (api.isQuality ? await api.isQuality(name).catch(() => null) : null);
+      const quality = isPlainlyQuality(name) || (api.isQuality ? await api.isQuality(name, subjectFor(name, graphId)).catch(() => null) : null);
       if (quality === true) return { ok: false, error: `"${name}" describes a quality; name the thing it describes` };
     }
     // Not about knowing in general, in a web about something (mind/helpers.js aboutKnowing).
@@ -281,6 +282,15 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       const said = wordsIn(lower(name)).some(w => api.personWords?.has(w));
       if (subject && lower(subject) !== lower(name) && !said && (await api.aboutKnowing(name, subject).catch(() => null)) === true) {
         return { ok: false, error: `"${name}" is about knowing in general, not about ${subject}; keep to ${subject}` };
+      }
+    }
+    // On the subject at all: a name that shares no word with where it goes,
+    // nor with the webs above, is asked whether it belongs (mind/helpers.js onSubject).
+    if (api.actor && api.onSubject && !typeNodeId && !isSystemWeb(graphId) && !isOwnWeb(graphId)) {
+      const subject = topicOf(graphId);
+      const said = wordsIn(lower(name)).some(w => api.personWords?.has(w));
+      if (subject && lower(subject) !== lower(name) && !said && !sharesWordWith(name, graphId) && (await api.onSubject(name, subject).catch(() => null)) === false) {
+        return { ok: false, error: `"${name}" has nothing to do with ${subject}; keep to ${subject}` };
       }
     }
     const clash = findThing(name);
@@ -479,6 +489,33 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     return 0;
   };
 
+  /**
+   * The nearest way up from a web to the top of its composition (a subject
+   * web, or one hanging from Home): the webs above it, nearest first. The
+   * same walk as depthOf, keeping the route. Shown in the view, so that ten
+   * insides down a Druid still sees what it is all part of.
+   */
+  const pathUp = (graphId) => {
+    if (!graphId) return [];
+    const from = new Map([[graphId, null]]);
+    let level = [graphId];
+    while (level.length) {
+      const next = [];
+      for (const g of level) {
+        const owner = ownerOf(g);
+        const up = !owner || druidOf(owner).topic || druidOf(owner).homeOf ? [] : websOf(owner).filter(w => w !== g && !isSystemWeb(w) && !isOwnWeb(w));
+        if (!up.length) {
+          const route = [];
+          for (let at = g; at && at !== graphId; at = from.get(at)) route.unshift(at);
+          return route;
+        }
+        for (const w of up) if (!from.has(w)) { from.set(w, g); next.push(w); }
+      }
+      level = next;
+    }
+    return [];
+  };
+
   /** Is `a` a kind of `b`? The kind helper when there is one (mind/helpers.js kindOf), else the general check. */
   const isKindOf = async (a, b) => {
     if (api.isKind) return api.isKind(a, b).catch(() => null);
@@ -487,12 +524,42 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
   };
 
   /**
+   * Whether a name shares a word with where it goes: the web, the webs above
+   * it, its subject, and the Things in it that share a word with those. "Gap
+   * opens" beside "Slip-triggered gap" in Separate is on the subject by its
+   * words; "Sword of Shadows" beside a drifted-in "Shadow" is asked.
+   */
+  const stemOf = (w) => w.replace(/(?<=..)(ies)$/, 'y').replace(/(?<=..[^s])s$/, '');
+  const wordsOfName = (n) => tokenize(n).map(stemOf);
+  const sharesWordWith = (name, graphId) => {
+    const mine = new Set(wordsOfName(name));
+    if (!mine.size) return true;
+    const around = new Set([graphId, ...pathUp(graphId)].map(w => graph(w)?.name).concat(topicOf(graphId)).flatMap(n => (n ? wordsOfName(n) : [])));
+    for (const id of thingsIn(graphId)) {
+      const w = wordsOfName(nameOf(id));
+      if (w.some(x => around.has(x))) for (const x of w) around.add(x);
+    }
+    return [...mine].some(w => around.has(w));
+  };
+
+  /**
+   * The subject a name is meant within, for a helper that would otherwise see
+   * the name alone: "Gap" alone reads as a brand of clothes; in Snowflake
+   * Formation it is a gap. Null when the name is the subject itself.
+   */
+  const subjectFor = (name, graphId) => {
+    const subject = graphId ? topicOf(graphId) : null;
+    return subject && normalizeName(subject) !== normalizeName(name) ? subject : null;
+  };
+
+  /**
    * What sort of Thing it is (mind/helpers.js category), asked once and kept:
    * a thing is understood by its parts, a process by its stages, an idea by its kinds.
    */
   const classify = async (id) => {
     if (!proto(id) || druidOf(id).category || !api.category || isOwnThinking(id)) return druidOf(id).category || null;
-    const c = await api.category(nameOf(id)).catch(() => null);
+    const web = websOf(id).find(w => !isSystemWeb(w));
+    const c = await api.category(nameOf(id), subjectFor(nameOf(id), web)).catch(() => null);
     if (c) setDruid(id, { category: c });
     return c;
   };
@@ -739,6 +806,8 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     isKind: null,
     /** async (term, subject) → true when the term is about knowing in general (mind/helpers.js aboutKnowing). */
     aboutKnowing: null,
+    /** async (term, subject) → false when the term has nothing to do with the subject (mind/helpers.js onSubject). */
+    onSubject: null,
     /** async (word) → true when a one-word name is a quality, not a thing (mind/helpers.js isQuality). */
     isQuality: null,
     /** async (relation, inUse) → an existing relation meaning the same | null (mind/helpers.js sameRelation). */
@@ -746,7 +815,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     /** async (name) → 'thing' | 'process' | 'idea' | null (mind/helpers.js category). */
     category: null,
     state, proto, graph, nameOf, druidOf, setDruid,
-    thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem,
+    thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem, pathUp,
     act, focusWeb, place, unplace, unnest, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, classify, schemaOf, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, repairDangling, foldInsides, noticedWeb, beliefsWeb, leaveNoticed, isOwnThinking, move
   };
   return api;
