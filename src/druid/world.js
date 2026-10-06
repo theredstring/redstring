@@ -28,8 +28,17 @@ import { shortName, normalizeName, wordsIn, readsAsName, hasVerb, MAX_NAME_WORDS
 const valuesOf = (c) => (c instanceof Map ? Array.from(c.values()) : Array.isArray(c) ? c : Object.values(c || {}));
 const lower = (s) => String(s || '').trim().toLowerCase();
 
-export function createWorld({ store, executeTool, applyToolResult, cid = 'druid' }) {
+/**
+ * @param {Object}   opts
+ * @param {Function} [opts.onLook]  (graphId) → void. Given, the Druid has a gaze of its own: where
+ *                                  it looks and writes is not the person's active web, and the app
+ *                                  decides whether the canvas goes along (druidStore: Follow).
+ *                                  Without it (headless), the active web is its gaze.
+ */
+export function createWorld({ store, executeTool, applyToolResult, cid = 'druid', onLook = null }) {
   const state = () => store.getState();
+  // Where it looks, when it has a gaze of its own.
+  let gaze = null;
 
   const proto = (id) => state().nodePrototypes.get(id) || null;
   const graph = (id) => state().graphs.get(id) || null;
@@ -93,8 +102,13 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
    */
   const act = async (toolName, args) => {
     let result;
+    // With a gaze of its own, the tools act where it looks, and the person's
+    // web and tabs are left as they were: a web it made used to open on them.
+    const own = onLook && gaze && graph(gaze) ? gaze : null;
     try {
-      result = await executeTool(toolName, args, graphStateFromStore(state()), cid, () => {});
+      const graphState = graphStateFromStore(state());
+      if (own) graphState.activeGraphId = own;
+      result = await executeTool(toolName, args, graphState, cid, () => {});
     } catch (err) {
       return { ok: false, error: err?.message || String(err) };
     }
@@ -102,7 +116,13 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     // Never enriched from Wikipedia: the Wizard's apply path fills a Thing that
     // has no description yet with an article's text and picture, which landed
     // before the Druid wrote its own and pulled names off toward the article.
-    applyToolResult(toolName, { ...result, enrich: false }, `druid-${Date.now()}`, cid);
+    // Taken just before applying, so a tab the person opened meanwhile stays.
+    const before = onLook ? { active: state().activeGraphId, open: [...(state().openGraphIds || [])] } : null;
+    applyToolResult(toolName, { ...result, ...(own && !result.graphId ? { graphId: own } : {}), enrich: false }, `druid-${Date.now()}`, cid);
+    if (before) {
+      if (before.active && graph(before.active) && state().activeGraphId !== before.active) state().setActiveGraph(before.active);
+      for (const id of state().openGraphIds || []) if (!before.open.includes(id)) state().closeGraphTab?.(id);
+    }
     if (writeLanded(toolName, result, state()) === false) {
       return { ok: false, error: `${toolName} reported success but nothing changed in the graph`, result };
     }
@@ -111,7 +131,9 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
 
   /** Make a web the active one, so tools that default to it act there. */
   const focusWeb = (graphId) => {
-    if (!graphId || !graph(graphId) || state().activeGraphId === graphId) return;
+    if (!graphId || !graph(graphId)) return;
+    if (onLook) { if (gaze !== graphId) { gaze = graphId; onLook(graphId); } return; }
+    if (state().activeGraphId === graphId) return;
     // setActiveGraph only switches among open webs and otherwise falls back to
     // the first one, so a web not yet open is opened: in the app, the canvas
     // goes where the Druid looks.

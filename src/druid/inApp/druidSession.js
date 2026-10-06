@@ -66,10 +66,12 @@ export async function backendFor({ mind, endpoint, model }, electron = globalThi
  * @param {Function} [opts.onCycle]      (cycle record) → void
  * @param {Function} [opts.onStop]       ({ reason, error }) → void
  * @param {Function} [opts.onReply]      (text, tick) → void: its answer to what was said, as soon as it has one
+ * @param {Function} [opts.onLook]       (graphId) → void: where it looks; given, the canvas is the person's (world.js)
  */
-export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', speak = 'menu', pauseMs = 600, onCycle = () => {}, onStop = () => {}, onReply = null, window = 4096 } = {}) {
+export function startDruid({ store, executeTool, applyToolResult, promptSpace, backend }, { seed = '', speak = 'menu', pauseMs = 600, onCycle = () => {}, onStop = () => {}, onReply = null, onLook = null, window = 4096 } = {}) {
   const controller = new AbortController();
-  const world = createWorld({ store, executeTool, applyToolResult });
+  // With onLook, it looks and writes without moving the person's canvas (world.js).
+  const world = createWorld({ store, executeTool, applyToolResult, onLook });
   // What a person says, waiting for its next moment (runLife's `heard`).
   const inbox = [];
   const mind = createMind({ backend, window });

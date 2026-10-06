@@ -29,7 +29,9 @@ export const DEFAULT_DRUID_SETTINGS = {
   speak: 'menu',
   // 'quick': each moment follows the last at once; 'steady': a breath between
   // them, to read along. The model's calls are nearly all of a moment's time.
-  pace: 'quick'
+  pace: 'quick',
+  // Which view the panel shows: its moments, or what it keeps (DruidMind.jsx).
+  view: 'chat'
 };
 
 /** The breath between moments, by pace. */
@@ -155,7 +157,7 @@ const runOf = (s) => ({ throughLine: s.throughLine, held: s.held, stats: s.stats
 function addEntries(entries) {
   const s = now().getState();
   let seq = s.seq;
-  const added = entries.map(e => ({ ...e, seq: (seq = nextSeq(seq)) }));
+  const added = entries.map(e => ({ at: Date.now(), ...e, seq: (seq = nextSeq(seq)) }));
   now().setState({ stream: keep([...s.stream, ...added]), seq, answering: false });
   persist(now().getState(), added);
 }
@@ -268,7 +270,7 @@ export const useDruidStore = create((set, get) => ({
     const t = String(text || '').trim();
     if (!t) return;
     const pending = !live.session;
-    const entry = { kind: 'you', text: t, pending, seq: nextSeq(get().seq) };
+    const entry = { kind: 'you', text: t, pending, at: Date.now(), seq: nextSeq(get().seq) };
     set(s => ({ stream: keep([...s.stream, entry]), seq: entry.seq, answering: true }));
     persist(get(), [entry]);
     if (live.session) live.session.say(t);
@@ -306,6 +308,14 @@ export const useDruidStore = create((set, get) => ({
       }, {
         speak: settings.speak,
         pauseMs: PACE_MS[settings.pace] ?? PACE_MS.quick,
+        // Where it looks is its own; the canvas goes along only when followed.
+        onLook: (graphId) => {
+          if (now().getState().universe !== universe || !now().getState().settings.follow) return;
+          const g = store.getState();
+          if (!g.graphs.has(graphId) || g.activeGraphId === graphId) return;
+          if ((g.openGraphIds || []).includes(graphId) || !g.openGraphTab) g.setActiveGraph(graphId);
+          else g.openGraphTab(graphId);
+        },
         // Its answer, as soon as it has one: before the moment it goes on with.
         onReply: (text, tick) => {
           if (now().getState().universe !== universe) return;

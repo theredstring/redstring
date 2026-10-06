@@ -37,14 +37,15 @@ export function quiet() {
   for (const k of ['log', 'warn', 'error', 'info', 'debug']) vi.spyOn(console, k).mockImplementation(() => {});
 }
 
-/** A fresh universe and a world over it. */
-export async function freshWorld() {
+/** A fresh universe and a world over it (`opts` go to createWorld, e.g. onLook). */
+export async function freshWorld(opts = {}) {
   const b = await boot();
   b.useGraphStore.getState().loadUniverseFromFile(emptyUniverse());
   const world = b.createWorld({
     store: b.useGraphStore,
     executeTool: b.executeTool,
-    applyToolResult: (name, result, id, cid) => b.applyToolResultToStore(name, result, id, cid, { confirmed: true })
+    applyToolResult: (name, result, id, cid) => b.applyToolResultToStore(name, result, id, cid, { confirmed: true }),
+    ...opts
   });
   return { world, store: b.useGraphStore };
 }

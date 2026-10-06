@@ -41,7 +41,7 @@ const PIE_HOVER_TRANSITION = '0.15s ease';
  * @param {number} [props.size=20] - Icon size in pixels (matches right panel icons)
  * @param {string} [props.color] - Icon color (defaults to theme.canvas.textPrimary)
  * @param {boolean} [props.filled=false] - Whether icon should be filled
- * @param {string} [props.fillColor] - Fill color when filled (defaults to theme.accent.primary)
+ * @param {string} [props.fillColor] - Fill color when filled (defaults to the stroke color)
  * @param {boolean} [props.fillOnHover=false] - Whether icon should fill when hovered
  * @param {string} [props.hoverFillColor] - Fill color when hovered (defaults to theme.accent.primary)
  * @param {Function} props.onClick - Click handler
@@ -89,7 +89,8 @@ const PanelIconButton = forwardRef(({
   // Use theme colors as defaults
   const isSolid = variant === 'solid';
   const actualColor = color || (isSolid ? theme.canvas.bg : theme.canvas.textPrimary);
-  const actualFillColor = fillColor || theme.accent.primary;
+  // A conditional fill is the stroke's colour (as a saved Thing's bookmark is), unless a caller says otherwise.
+  const actualFillColor = fillColor || actualColor;
   const hoverStrokeColor = theme.accent.primary;
   const actualHoverFillColor = hoverFillColor || hoverStrokeColor;
 

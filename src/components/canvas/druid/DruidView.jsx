@@ -1,8 +1,11 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Send, Copy, Check, Eraser, Moon, ArrowDown } from 'lucide-react';
+import { Send, Copy, Check, Eraser, Moon, ArrowDown, Activity, Brain, Target, Scale, BookOpen, Settings, Coffee, BedDouble, MessagesSquare } from 'lucide-react';
 import { useTheme } from '../../../hooks/useTheme.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import useDruidStore, { sleptLine, watchUniverse } from './druidStore.js';
+import DruidMind from './DruidMind.jsx';
+import DruidChat from './DruidChat.jsx';
+import Spotlight from './spotlightIcon.js';
 
 /**
  * The Druid, inside the Wizard panel (its "The Druid" mode): wake a small
@@ -35,7 +38,54 @@ const PACE = [
   { value: 'steady', label: 'Steady', title: 'A breath between moments, to read along' }
 ];
 
-const clamp = (lines) => ({ display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', overflow: 'hidden' });
+/** What the panel shows: its moments as they happen, or what it keeps in its universe (DruidMind.jsx). */
+const VIEWS = [
+  { value: 'chat', label: 'Chat', icon: MessagesSquare, title: 'Chat: talk with it, with what it does folded away' },
+  { value: 'moments', label: 'Moments', icon: Activity, title: 'Moments: each as it happens, and what you say to each other' },
+  { value: 'mind', label: 'Mind', icon: Brain, title: 'Mind: where it is, what it is thinking and holding' },
+  { value: 'goals', label: 'Goals', icon: Target, title: 'Goals: what it is after, and its plans' },
+  { value: 'beliefs', label: 'Beliefs', icon: Scale, title: 'Beliefs: what it believes, and how sure it is' },
+  { value: 'diary', label: 'Diary', icon: BookOpen, title: 'Diary: its days, and what each was about' },
+  { value: 'settings', label: 'Settings', icon: Settings, title: 'Settings: which model it thinks with, how it chooses, its pace' }
+];
+
+/**
+ * The views, as the panel's tabs (AICollaborationPanel.css .ai-tab: the
+ * Wizard's conversations look the same), scrolled sideways when they do not
+ * all fit, the one shown kept in view.
+ */
+function ViewTabs({ value, onChange }) {
+  const refs = useRef({});
+  useEffect(() => { refs.current[value]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }); }, [value]);
+  return (
+    <div className="ai-tabs-bar">
+      {/* Scrolled into view with room for the active tab's ring, which sits outside it. */}
+      <div className="ai-tabs-scroll" role="tablist" style={{ scrollPaddingInline: 16 }} onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollLeft += e.deltaY; }}>
+        {VIEWS.map((v) => {
+          const Icon = v.icon;
+          const on = value === v.value;
+          return (
+            <div
+              key={v.value}
+              ref={(el) => { refs.current[v.value] = el; }}
+              role="tab"
+              tabIndex={0}
+              aria-selected={on}
+              title={v.title}
+              className={`ai-tab ${on ? 'active' : ''}`}
+              onClick={() => onChange(v.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChange(v.value); } }}
+              style={{ gap: 6 }}
+            >
+              <Icon size={14} strokeWidth={on ? 2.5 : 2} style={{ flexShrink: 0 }} />
+              <span className="ai-tab-title">{v.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /** What it chose, read as a sentence: the blank in a move filled with what it wrote. */
 function choseLine(c) {
@@ -56,7 +106,7 @@ const timeOf = (at) => {
 function Choice({ label, options, value, onChange, tokens }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ width: 44, flexShrink: 0, fontSize: 10, color: tokens.muted }}>{label}</span>
+      {label && <span style={{ width: 44, flexShrink: 0, fontSize: 10, color: tokens.muted }}>{label}</span>}
       <div style={{ display: 'flex', flex: 1, minWidth: 0, border: `1px solid ${tokens.hairline}`, borderRadius: 6, overflow: 'hidden' }}>
         {options.map((o, i) => {
           const on = value === o.value;
@@ -149,6 +199,37 @@ function Woke({ e, tokens }) {
   );
 }
 
+/** Which model it thinks with, how it chooses, its pace; and how it is running. */
+function Setup({ tokens, field, settings, setSetting, running, idle }) {
+  const row = { padding: '10px 0', borderTop: `1px solid ${tokens.hairline}`, display: 'flex', flexDirection: 'column', gap: 8 };
+  return (
+    <div style={{ paddingBottom: 12 }}>
+      <div style={{ ...row, borderTop: 'none' }}>
+        <Choice label="Mind" options={MINDS} value={settings.mind} onChange={v => setSetting('mind', v)} tokens={tokens} />
+        {settings.mind === 'openai' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 44, flexShrink: 0, fontSize: 10, color: tokens.muted }}>Model</span>
+            <input style={field} value={settings.model} placeholder="the model loaded in LM Studio" onChange={e => setSetting('model', e.target.value)} />
+          </div>
+        )}
+        <Choice label="Moves" options={SPEAK} value={settings.speak || 'menu'} onChange={v => setSetting('speak', v)} tokens={tokens} />
+        <Choice label="Pace" options={PACE} value={settings.pace || 'quick'} onChange={v => setSetting('pace', v)} tokens={tokens} />
+        {!idle && <div style={{ fontSize: 10, color: tokens.muted }}>These take effect the next time it wakes.</div>}
+      </div>
+      {running && (
+        <div style={row}>
+          <div style={{ fontSize: 10, color: tokens.muted }}>How it is running</div>
+          <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+            {running.lastTick != null && <div>{`Moment ${running.lastTick}`}</div>}
+            {running.perMoment && <div>{`${running.perMoment.toFixed(1)} s a moment`}</div>}
+            {running.stats?.calls > 0 && <div>{`${running.stats.calls} calls to the model, ${Math.round(running.stats.ms / Math.max(1, running.stats.calls))} ms each`}</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * The Druid's buttons in the panel header, in place of the Wizard's (new
  * conversation, API key, bridge): copy the run, and clear it. Clearing asks
@@ -156,7 +237,9 @@ function Woke({ e, tokens }) {
  */
 export function DruidHeaderActions() {
   const empty = useDruidStore(s => s.stream.length === 0 && !s.throughLine);
-  const living = useDruidStore(s => s.status !== 'idle');
+  const status = useDruidStore(s => s.status);
+  const follow = useDruidStore(s => !!s.settings.follow);
+  const living = status !== 'idle';
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -180,6 +263,18 @@ export function DruidHeaderActions() {
   };
   return (
     <div className="ai-header-actions">
+      {/* Asleep, a coffee wakes it; awake, the bed puts it to sleep. */}
+      {status === 'idle' || status === 'starting'
+        ? <PanelIconButton icon={Coffee} size={18} onClick={() => useDruidStore.getState().start()} disabled={status === 'starting'} title={status === 'starting' ? 'Waking…' : 'Wake it'} />
+        : <PanelIconButton icon={BedDouble} size={18} onClick={() => useDruidStore.getState().stop()} disabled={status !== 'living'} title={status === 'living' ? 'Put it to sleep' : 'Falling asleep…'} />}
+      {/* Filled while the canvas follows where it looks, as a saved Thing's bookmark is. */}
+      <PanelIconButton
+        icon={Spotlight}
+        size={18}
+        filled={follow}
+        onClick={() => useDruidStore.getState().setSetting('follow', !follow)}
+        title={follow ? 'Following where it looks. Click to stop' : 'Follow where it looks'}
+      />
       <PanelIconButton icon={copied ? Check : Copy} size={18} onClick={copy} disabled={empty} title={copied ? 'Copied' : 'Copy the whole run, and the universe as it stands'} />
       <PanelIconButton
         icon={Eraser}
@@ -208,12 +303,10 @@ function DruidView({ active = true }) {
   const error = useDruidStore(s => s.error);
   const stream = useDruidStore(s => s.stream);
   const stats = useDruidStore(s => s.stats);
-  const held = useDruidStore(s => s.held);
-  const throughLine = useDruidStore(s => s.throughLine);
   const settings = useDruidStore(s => s.settings);
   const behind = useDruidStore(s => s.behind);
   const answering = useDruidStore(s => s.answering);
-  const { setSetting, start, stop, say } = useDruidStore.getState();
+  const { setSetting, say } = useDruidStore.getState();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef(null);
   const contentRef = useRef(null);
@@ -225,6 +318,9 @@ function DruidView({ active = true }) {
   // The open universe's run, now and whenever another is opened.
   useEffect(() => { watchUniverse().catch(() => {}); }, []);
 
+  const view = VIEWS.some(v => v.value === settings.view) ? settings.view : 'chat';
+  // Chat and Moments are both the run as it happens, in one scrolled list.
+  const live = view === 'chat' || view === 'moments';
   const idle = status === 'idle';
   const living = status === 'living';
   // Followed by the newest entry, not by how many there are: the store keeps
@@ -234,8 +330,8 @@ function DruidView({ active = true }) {
   const lastKey = last ? (last.seq ?? stream.length) : 0;
   const toBottom = () => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; };
   useEffect(() => {
-    if (active && following) toBottom();
-  }, [lastKey, answering, active, following]);
+    if (active && following && live) toBottom();
+  }, [lastKey, answering, active, following, live, status]);
   // What grows after it is drawn (a sleep row, a line that wraps) keeps it at the bottom too.
   useEffect(() => {
     const el = contentRef.current;
@@ -267,81 +363,49 @@ function DruidView({ active = true }) {
     setDraft('');
     setFollowing(true);
   };
-  const stateWord = living ? 'Awake' : idle ? 'Asleep' : status === 'starting' ? 'Waking' : 'Falling asleep';
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, fontFamily: FONT, color: tokens.text }}>
-      <div style={{ padding: '8px 12px 10px', borderBottom: `1px solid ${tokens.hairline}`, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: tokens.text }}>
-              {stateWord}{idle || living ? '' : '…'}
-              {lastTick != null && <span style={{ color: tokens.muted }}>{` · moment ${lastTick}`}</span>}
-            </div>
-            {living && stats?.calls > 0 && (
-              <div style={{ fontSize: 10, color: tokens.muted }}>{`${perMoment ? `${perMoment.toFixed(1)} s a moment · ` : ''}${stats.calls} calls, ${Math.round(stats.ms / Math.max(1, stats.calls))} ms each`}</div>
-            )}
-          </div>
-          {idle
-            ? <PanelIconButton label="Wake" labelFontSize={11} variant="outline" onClick={start} style={{ padding: '4px 12px' }} />
-            : <PanelIconButton label="Sleep" labelFontSize={11} variant="outline" onClick={stop} disabled={status !== 'living'} style={{ padding: '4px 12px' }} />}
-        </div>
-        {idle && (
-          <>
-            <Choice label="Mind" options={MINDS} value={settings.mind} onChange={v => setSetting('mind', v)} tokens={tokens} />
-            {settings.mind === 'openai' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 44, flexShrink: 0, fontSize: 10, color: tokens.muted }}>Model</span>
-                <input style={field} value={settings.model} placeholder="the model loaded in LM Studio" onChange={e => setSetting('model', e.target.value)} />
-              </div>
-            )}
-            <Choice label="Moves" options={SPEAK} value={settings.speak || 'menu'} onChange={v => setSetting('speak', v)} tokens={tokens} />
-            <Choice label="Pace" options={PACE} value={settings.pace || 'quick'} onChange={v => setSetting('pace', v)} tokens={tokens} />
-          </>
-        )}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: tokens.muted, cursor: 'pointer' }}>
-          <input type="checkbox" checked={!!settings.follow} onChange={e => setSetting('follow', e.target.checked)} style={{ margin: 0 }} />
-          Follow where it looks
-        </label>
-        {throughLine && (
-          <div style={{ fontSize: 11, color: tokens.text, lineHeight: 1.4, ...clamp(3) }} title={throughLine}>
-            <span style={{ color: tokens.muted }}>Lately: </span>{throughLine}
-          </div>
-        )}
-        {held?.length > 0 && (
-          <div style={{ fontSize: 10, color: tokens.muted, lineHeight: 1.4, ...clamp(2) }} title={held.join('\n')}>
-            Holding in mind: {held.join(' · ')}
-          </div>
-        )}
-        {error && <div style={{ fontSize: 11, lineHeight: 1.4, color: theme.alert.error.text }}>{error}</div>}
-        {behind && living && (
-          <div style={{ fontSize: 11, lineHeight: 1.4, color: tokens.muted }}>
-            Its code has changed since it woke. Put it to sleep and wake it to use the new code.
-          </div>
-        )}
-      </div>
+      <ViewTabs value={view} onChange={v => setSetting('view', v)} />
 
-      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: 'flex' }}>
+      {/* Said only when there is something to say. */}
+      {(error || (behind && living)) && (
+        <div style={{ padding: '8px 12px', borderBottom: `1px solid ${tokens.hairline}`, fontSize: 11, lineHeight: 1.4, color: error ? theme.alert.error.text : tokens.muted }}>
+          {error || 'Its code has changed since it woke. Put it to sleep and wake it to use the new code.'}
+        </div>
+      )}
+
+      {view === 'settings' && (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
+          <Setup tokens={tokens} field={field} settings={settings} setSetting={setSetting} running={living ? { lastTick, perMoment, stats } : null} idle={idle} />
+        </div>
+      )}
+      {!live && view !== 'settings' && (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
+          <DruidMind view={view} tokens={tokens} field={field} />
+        </div>
+      )}
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, display: live ? 'flex' : 'none' }}>
         <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
           <div ref={contentRef}>
-            {stream.length === 0 && (
+            {view === 'chat' && <DruidChat stream={stream} status={status} answering={answering} tokens={tokens} />}
+            {view === 'moments' && stream.length === 0 && (
               <div style={{ color: tokens.muted, fontSize: 13, textAlign: 'center', padding: '40px 8px', lineHeight: 1.5 }}>
-                Wake it to watch it think. Talk to it any time, awake or asleep: it answers from what its universe holds, and what you say steers it.
+                Wake it (the cup, above) to watch it think. Talk to it any time, awake or asleep: it answers from what its universe holds, and what you say steers it.
                 <div style={{ fontSize: 11, marginTop: 12 }}>
                   It lives in the universe that is open and writes into it, so give it one of its own. What it does there is kept here until you clear it.
                 </div>
               </div>
             )}
-            {stream.length > SHOWN && <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', padding: '8px 0' }}>{stream.length - SHOWN} earlier, in Copy</div>}
+            {view === 'moments' && stream.length > SHOWN && <div style={{ fontSize: 10, color: tokens.muted, textAlign: 'center', padding: '8px 0' }}>{stream.length - SHOWN} earlier, in Copy</div>}
             {/* Keyed by each entry's place in its universe's run (seq), so a new
                 moment never remounts the ones before it. */}
-            {stream.slice(-SHOWN).map((e, i) => {
+            {view === 'moments' && stream.slice(-SHOWN).map((e, i) => {
               const key = e.seq ?? `at${Math.max(0, stream.length - SHOWN) + i}`;
               if (e.kind === 'moment') return <Moment key={key} c={e} tokens={tokens} />;
               if (e.kind === 'woke') return <Woke key={key} e={e} tokens={tokens} />;
               return <Said key={key} e={e} tokens={tokens} />;
             })}
-            {answering && <Answering tokens={tokens} />}
+            {view === 'moments' && answering && <Answering tokens={tokens} />}
           </div>
         </div>
         {!following && stream.length > 0 && (
