@@ -176,6 +176,22 @@ export function onSubject(mind) {
 }
 
 /**
+ * Is what a person said asking it to do something? Code reads the plain
+ * requests (conversation.js parseSaid); this is asked only of what code took
+ * for a remark, so a request put some way the patterns miss still steers it.
+ * "hey make a web of a ham sandwich" was a remark, answered in passing while
+ * it went on with quantum computing (2026-10-05).
+ *
+ * @returns {Function} async (text) → true | false | null
+ */
+export function asksForWork(mind) {
+  return async (text) => {
+    const a = await ask(mind, 'asksForWork', 'A person said this to a small mind that works in a universe of ideas. Are they asking it to do something (go somewhere, make something, look into something, change what it is working on)? Answer yes or no.', `They said: "${String(text || '').trim().slice(0, 300)}"`, ['yes', 'no']);
+    return a === 'yes' ? true : a === 'no' ? false : null;
+  };
+}
+
+/**
  * Is a one-word name a quality rather than a thing? Asked of every word, Apple's
  * model called Gravity, Light and Feelings qualities (17 of 24 right), so it is
  * asked only of words that look like adjectives (names.js looksLikeQuality),

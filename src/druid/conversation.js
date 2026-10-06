@@ -36,6 +36,7 @@
 import { namedIn } from './talk.js';
 import { isOwnPlace } from './attention.js';
 import { isBookkeeping } from './roles.js';
+import { asksForWork } from './mind/helpers.js';
 
 /** Moments after the last thing said that it stays in the conversation. */
 export const ENGAGED_FOR = 6;
@@ -44,7 +45,7 @@ export const REPORTS_PER_TURN = 2;
 
 const clip = (t, n) => { const x = String(t || '').replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n - 1)}…` : x; };
 
-const DIRECT = /^(?:please\s+|now\s+|ok(?:ay)?,?\s+|so\s+|then\s+)?(?:go|look|stop|think|tell|explain|find|show|make|focus|work|try|open|connect|describe|name|keep|forget|drop|leave|come|get|start|read|build|map|study|explore|figure|learn|take|turn|move|add|write|check|see|consider|zoom|return|do|switch|begin)\b|^(?:can|could|would|will) you\b|^(?:i want you to|i'd like you to|let'?s)\b/i;
+const DIRECT = /^(?:please\s+|now\s+|ok(?:ay)?,?\s+|so\s+|then\s+)?(?:go|look|stop|think|tell|explain|find|show|make|focus|work|try|open|connect|describe|name|keep|forget|drop|leave|come|get|start|read|build|map|study|explore|figure|learn|take|turn|move|add|write|check|see|consider|zoom|return|do|switch|begin)\b|^(?:can|could|would|will) you\b|^(?:i want you to|i'd like you to|let'?s|how about (?:we|you)|why not)\b/i;
 /** Saying again what they meant: "I'm saying submarine sandwich", "I meant the brain". */
 const MEANT = /\b(?:i'?m saying|i said|i mean|i meant|i'?m talking about|i was talking about)\s+(?:the\s+|a\s+|an\s+)?([^.,;:!?]+)/i;
 const CORRECT = /\b(?:you'?re|you are)\s+(?:drifting|wandering|off|lost|rambling|stuck)|\bthat'?s (?:not|wrong)|\bno[,.]|\bnot (?:that|what i)|\bwrong\b|\bstop\b|\bdon'?t\b|\benough\b|\bget back\b|\bgo back\b/i;
@@ -57,12 +58,20 @@ const CORRECT = /\b(?:you'?re|you are)\s+(?:drifting|wandering|off|lost|rambling
  */
 const ASK_TO_DO = /^(?:please\s+|so\s+|ok(?:ay)?,?\s+)?(?:can|could|would|will) you\s+(?:please\s+)?(?:go|look|start|work|think|find|make|focus|build|map|study|explore|figure|learn|research|open|try|dig|read|keep|stop|move|turn|switch|begin|get|leave|drop)\b/i;
 /** The subject a request names: "start working on a submarine sandwich" → Submarine sandwich. */
-const SUBJECT = /\b(?:start(?:ing)?\s+(?:working\s+on|on|thinking\s+about|looking\s+into|to\s+(?:understand|learn\s+about|explore)|with)|work(?:ing)?\s+on|think(?:ing)?\s+about|look(?:ing)?\s+(?:into|at)|explor(?:e|ing)|learn(?:ing)?\s+about|understand(?:ing)?|build(?:ing)?\s+(?:an?\s+)?(?:understanding|picture|map|web)\s+of|figure\s+out|study(?:ing)?|focus(?:ing)?\s+on|research(?:ing)?|go\s+(?:back\s+)?to|switch\s+to|turn\s+to|move\s+on\s+to|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+|some\s+)?([^.,;:!?]+)/i;
+const SUBJECT = /\b(?:start(?:ing)?\s+(?:working\s+on|on|thinking\s+about|looking\s+into|to\s+(?:understand|learn\s+about|explore)|with)|work(?:ing)?\s+on|think(?:ing)?\s+about|look(?:ing)?\s+(?:into|at)|explor(?:e|ing)|learn(?:ing)?\s+about|understand(?:ing)?|build(?:ing)?\s+(?:an?\s+)?(?:understanding|picture|map|web)\s+of|(?:make|making|create|creating|start|starting|draw|drawing)\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:web|map|picture|graph)\s+(?:of|for|about|on)|figure\s+out|study(?:ing)?|focus(?:ing)?\s+on|research(?:ing)?|go\s+(?:back\s+)?to|switch\s+to|turn\s+to|move\s+on\s+to|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+|some\s+)?([^.,;:!?]+)/i;
 /** Asking it to say something, not to do something: a question, however it is put. */
 const SAY_TO = /^(?:please\s+)?(?:(?:can|could|would|will) you\s+(?:please\s+)?)?(?:tell|explain|show|remind)\b/i;
 /** A question without its question mark: "what do you believe". */
 const ASKING = /^(?:so\s+|and\s+|ok(?:ay)?,?\s+)?(?:what|how|why|who|where|when|which|do you|did you|are you|have you|is it|is there)\b/i;
 const VAGUE = /^(that|this|it|them|something|anything|stuff|things?|more|everything|what\b.*)$/i;
+/**
+ * How people open what they say, before the part that matters: "hey make a
+ * web of a ham sandwich" is "make a web of a ham sandwich". Every pattern
+ * here reads from the start of a clause, so a greeting in front hid the
+ * request, and it went on with quantum computing (2026-10-05).
+ */
+const LEAD = /^(?:(?:hey|hi|hello|yo|ok(?:ay)?|alright|all right|well|um+|uh+|so|now|then|and|druid)\b[,!.]?\s+)+/i;
+const unlead = (c) => c.replace(LEAD, '');
 
 /** The subject a request or question names, in a few words, if it names one plainly. */
 export function subjectOf(text) {
@@ -76,7 +85,7 @@ export function subjectOf(text) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const AWAY = /\b(?:stop (?:thinking|talking|working|looking)?\s*(?:about|on|at)?|don'?t (?:think|talk|work|look)\s+(?:about|on|at)|no more|enough (?:about|of)|forget about|leave|drop|away from|instead of|not)\s+([^.;:!?]+)/gi;
+const AWAY = /\b(?:stop (?:thinking|talking|working|looking)?\s*(?:about|on|at)?|don'?t (?:think|talk|work|look)\s+(?:about|on|at)|no more|enough (?:about|of)|forget about|leave|drop|away from|instead of|(?<!why )not)\s+([^.;:!?]+)/gi;
 
 /**
  * What kind of thing was said, and what it turns toward and away from, in
@@ -85,11 +94,11 @@ const AWAY = /\b(?:stop (?:thinking|talking|working|looking)?\s*(?:about|on|at)?
  * clauses that hold one ("Go look at Branch tip" over "What does Time have to
  * do with a snowflake?").
  *
- * @returns {{ kind: 'question'|'direction'|'correction'|'telling', toward: string, away: string, subject: string|null }}
+ * @returns {{ kind: 'question'|'direction'|'correction'|'telling', toward: string, away: string, subject: string|null, meant: boolean }}
  */
 export function parseSaid(text) {
-  const t = String(text || '').trim();
-  const clauses = t.split(/(?<=[.!?;])\s+|:\s+/).map(c => c.trim()).filter(Boolean);
+  const t = unlead(String(text || '').trim());
+  const clauses = t.split(/(?<=[.!?;])\s+|:\s+/).map(c => unlead(c.trim())).filter(Boolean);
   const away = [];
   for (const m of t.matchAll(AWAY)) away.push(m[1].trim());
   const awayText = away.join(', ');
@@ -102,7 +111,7 @@ export function parseSaid(text) {
     : clauses.some(c => !SAY_TO.test(c) && ((DIRECT.test(c) && !/\?$/.test(c)) || ASK_TO_DO.test(c))) ? 'direction'
       : /\?\s*$/.test(t) || directed.some(c => /\?$/.test(c)) || clauses.some(c => SAY_TO.test(c) || ASKING.test(c)) ? 'question'
         : 'telling';
-  return { kind, toward, away: awayText, subject: subjectOf(toward || t) };
+  return { kind, toward, away: awayText, subject: subjectOf(toward || t), meant: MEANT.test(t) };
 }
 
 /**
@@ -117,10 +126,11 @@ export function parseSaid(text) {
  */
 export async function understand(world, mind, text) {
   const said = parseSaid(text);
+  // What code took for a remark may be a request put some way it does not read: the model says.
+  if (said.kind === 'telling' && mind?.helper && String(text).trim().split(/\s+/).length >= 3 && await asksForWork(mind)(text).catch(() => null)) said.kind = 'direction';
   const away = said.away ? namedIn(world, said.away) : [];
   // The subject it names, when there is one, before the rest of its words.
   const bySubject = said.subject ? namedIn(world, said.subject, 1) : [];
-  const toward = [...new Set([...bySubject, ...(said.toward ? namedIn(world, said.toward) : [])])].filter(id => !away.includes(id));
   let ask = null;
   if ((said.kind === 'direction' || said.kind === 'correction') && mind?.helper) {
     // Not a fill: what they want often says their words back, and a fill that does is thrown out.
@@ -135,8 +145,16 @@ export async function understand(world, mind, text) {
     const a = String(r?.value || '').trim().replace(/^["']|["'.]+$/g, '');
     if (a && a.split(/\s+/).length <= 12) ask = a.charAt(0).toUpperCase() + a.slice(1);
   }
+  // No subject in their words, but one in what they want ("look into tide pools"): that one.
+  if (!said.subject && ask) {
+    said.subject = subjectOf(ask);
+    if (said.subject) bySubject.push(...namedIn(world, said.subject, 1));
+  }
+  const toward = [...new Set([...bySubject, ...(said.toward ? namedIn(world, said.toward) : [])])].filter(id => !away.includes(id));
   // A subject the universe does not hold yet: for a request, a web is started for it (druid.js onHeard).
-  return { kind: said.kind, toward, away, ask, awayText: said.away, subject: said.subject, newSubject: said.subject && !bySubject.length ? said.subject : null };
+  // "I'm saying submarine sandwich" of a Thing named Sub sandwich: that Thing, by the name they meant.
+  const renamed = said.meant && said.subject && bySubject.length && world.nameOf(bySubject[0]).toLowerCase() !== said.subject.toLowerCase() ? bySubject[0] : null;
+  return { kind: said.kind, toward, away, ask, awayText: said.away, subject: said.subject, newSubject: said.subject && !bySubject.length ? said.subject : null, renamed };
 }
 
 /** Whether it is in a conversation now. */

@@ -142,7 +142,7 @@ export async function answer(world, mind, { text, history = [], context = null, 
   // what it was doing, it described its quantum computing to a person who had
   // asked it to start on a submarine sandwich (The Druid 11, 2026-10-06).
   const taking = request?.ask
-    ? `They are asking you to ${request.ask.charAt(0).toLowerCase()}${request.ask.slice(1)}. It is now your goal, ahead of your own${request.at ? `, and you have turned to ${request.at}` : ''}. Tell them plainly that you will, and what you will do first.`
+    ? `They are asking you to ${request.ask.charAt(0).toLowerCase()}${request.ask.slice(1)}. It is now your goal, ahead of your own${request.at ? `, and you have turned to ${request.at}` : ''}. Tell them plainly that you will, and what you will do first, in words you have not said to them before.`
     : '';
   let r;
   if (context) {
@@ -152,7 +152,7 @@ export async function answer(world, mind, { text, history = [], context = null, 
       ...context,
       dialogue: [renderTalk(history), thought && `What you are thinking now: ${thought}`].filter(Boolean).join('\n'),
       notice: '',
-      question: [system, view, taking ? `${said}\n${taking}` : `${said}\nAnswer them as yourself, in two or three plain sentences of your own, from what you are doing and thinking and what your universe holds; do not read out what you see. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
+      question: [system, view, taking ? `${said}\n${taking}` : `${said}\nAnswer them as yourself, in two or three plain sentences of your own, from what you are doing and thinking and what your universe holds; do not read out what you see, nor say again what you said before. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
       maxWords: 60
     });
   } else {

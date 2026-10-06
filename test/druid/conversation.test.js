@@ -27,6 +27,12 @@ describe('understanding what was said', () => {
     expect(parseSaid('can you work on sub sandwich web?')).toMatchObject({ kind: 'direction', subject: 'Sub sandwich' });
     expect(parseSaid("i'm saying submarine sandwich. do that now.")).toMatchObject({ kind: 'correction', subject: 'Submarine sandwich' });
     expect(parseSaid('what do you believe').kind).toBe('question');
+    // A greeting in front hid the request, and it went on with quantum computing (2026-10-05).
+    expect(parseSaid('hey make a web of a ham sandwich and tell me everything you think is in it')).toMatchObject({ kind: 'direction', subject: 'Ham sandwich' });
+    expect(parseSaid('hi druid, could you look into volcanoes?')).toMatchObject({ kind: 'direction', subject: 'Volcanoes' });
+    expect(parseSaid('how about we switch to medieval castles')).toMatchObject({ kind: 'direction', subject: 'Medieval castles' });
+    expect(parseSaid('why not look at tide pools')).toMatchObject({ kind: 'direction', away: '', subject: 'Tide pools' });
+    expect(parseSaid('hey, that is really cool').kind).toBe('telling');
   });
 
   it('says a sentence once, however often the model loops on it', async () => {
@@ -34,6 +40,21 @@ describe('understanding what was said', () => {
     expect(withoutRepeats('I am thinking about the web that connects Sub, Sandwich, and Gathering. I will look at the web that connects Sub, Sandwich, and Gathering. I will look at the web that connects Sub, Sandwich, and Gathering'))
       .toBe('I am thinking about the web that connects Sub, Sandwich, and Gathering.');
     expect(withoutRepeats('Bread holds it together. Lettuce adds crunch.')).toBe('Bread holds it together. Lettuce adds crunch.');
+  });
+
+  it('asks the model about what code took for a remark, so a request put any way steers it', async () => {
+    const { createMind } = await import('../../src/druid/mind/createMind.js');
+    const { scripted } = await import('../../src/druid/mind/backends.js');
+    const { understand } = await import('../../src/druid/conversation.js');
+    const { world } = await freshWorld();
+    await buildUniverse(world, { webs: { Ice: { things: { Gap: 'g' } } } });
+    const mind = createMind({ backend: scripted((req) => {
+      if (req.schema.name === 'asksForWork') return { answer: /dig into/.test(req.user) ? 'yes' : 'no' };
+      if (req.schema.name === 'wants') return { wants: 'look into tide pools' };
+      return { text: '' };
+    }) });
+    expect(await understand(world, mind, 'you should really dig into tide pools')).toMatchObject({ kind: 'direction', ask: 'Look into tide pools', subject: 'Tide pools', newSubject: 'Tide pools' });
+    expect(await understand(world, mind, 'that is really cool')).toMatchObject({ kind: 'telling', ask: null });
   });
 
   it('holds it to what it said it would look at', async () => {
@@ -148,7 +169,7 @@ describe('in a conversation with a living Druid', () => {
     expect(thinking.user).not.toMatch(/What you were just thinking/);
     expect(thinking.user).not.toMatch(/Lately: I have been studying Qubit/);
     const asked = seen.find(r => /They say to you now/.test(r.user));
-    expect(asked.user).toMatch(/They are asking you to build an understanding of a submarine sandwich\. It is now your goal, ahead of your own, and you have turned to Submarine sandwich\. Tell them plainly that you will/);
+    expect(asked.user).toMatch(/They are asking you to understand submarine sandwich\. It is now your goal, ahead of your own, and you have turned to Submarine sandwich\. Tell them plainly that you will/);
     expect(out[1].locus.webName).toBe('Submarine sandwich');
     // Its goal, ahead of its own.
     expect(goalsInOrder(world).map(world.nameOf)).toEqual(['Understand submarine sandwich', 'Understand quantum mechanics']);

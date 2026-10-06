@@ -156,7 +156,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       const changed = onHeard ? await onHeard(world, text, tick, understood).catch(() => null) : null;
       const note = typeof changed === 'string' ? changed : changed?.notice;
       if (note) st.notice = [st.notice, note].filter(Boolean).join('\n');
-      if (changed?.ask && !st.conversation.ask) st.conversation.ask = changed.ask;
+      // What it took on, as its goal says it.
+      if (changed?.ask) st.conversation.ask = changed.ask;
       if (changed?.orient) {
         oriented = changed.orient;
         if (changed.topic?.length) st.conversation.topic = changed.topic;
@@ -174,6 +175,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       if (asked && oriented.web !== st.locus.web) {
         st.loop = [];
         st.trail = [];
+        st.lastDid = '';
+        st.lastWrote = false;
         st.throughLine = '';
         st.throughLineAt = tick;
         // And the conversation it answers from starts here: its last answer,
@@ -237,7 +240,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // A thought that says the question back is no thought: "What are you
     // thinking now? Name the Things you mean." was kept as a Thing, "I am
     // thinking now", and thought about for sixty moments.
-    thought = thoughtCall.text && thoughtSimilarity(thoughtCall.text, promptSpace.questions.thought) < 0.5 ? thoughtCall.text : null;
+    // Nor one that ends by asking the question back: "...What are you thinking now?" went on into what it told a person.
+    const thoughtText = String(thoughtCall.text || '').replace(/\s*what are you thinking(?: about)?(?: now)?\?\s*$/i, '').trim();
+    thought = thoughtText && thoughtSimilarity(thoughtText, promptSpace.questions.thought) < 0.5 ? thoughtText : null;
     // A thought that repeats the last one is not rehearsed again: fed back
     // verbatim, a repeated thought becomes an attractor. On its first v2 run a
     // 4B model spent ten cycles restating one image of "breath stitching

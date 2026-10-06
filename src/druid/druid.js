@@ -122,6 +122,17 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
       // naming a subject, it is named for the subject.
       let wanted = understood?.ask || asRequest(text) || (asked && understood.subject ? understandGoal(understood.subject) : null);
       if (wanted && wordsIn(wanted).length > MAX_NAME_WORDS && understood?.subject) wanted = understandGoal(understood.subject);
+      // And it names what it is about: asked to work on the sub sandwich web, its goal was "Work".
+      const about = new Set(tokenize(understood?.subject || ''));
+      if (wanted && about.size && !tokenize(wanted).some(t => about.has(t))) wanted = understandGoal(understood.subject);
+      // Said again by the name they meant: the Thing, and the web that is its inside, take that name.
+      if (understood?.renamed && w.proto(understood.renamed)) {
+        const was = w.nameOf(understood.renamed);
+        w.state().updateNodePrototype(understood.renamed, (p) => { p.name = understood.subject; });
+        const inside = w.insideOf(understood.renamed);
+        if (inside) w.state().updateGraph(inside, (g) => { g.name = understood.subject; });
+        notes.push(`They meant ${understood.subject}, so ${was} is now named ${understood.subject}.`);
+      }
       const goalType = roleType(w, 'goal');
       if (wanted && goalType) {
         for (const g of openGoals(w)) if (w.druidOf(g).fromPerson) setGoalStatus(w, g, 'abandoned', tick);
