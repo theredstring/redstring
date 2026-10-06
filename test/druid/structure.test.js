@@ -38,6 +38,22 @@ describe('structure before sentences', () => {
     for (const n of ['Middle layer', 'Lower mantle', 'Inner core', 'Cloud tops', 'Back', 'Bread']) expect(isAspect(n)).toBe(false);
   });
 
+  it('a part of an object is no process, and a stage is not opened into stages', async () => {
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { 'Ham sandwich': { things: { Bread: 'b', Filling: 'f', Ham: 'h', Cheese: 'c' } }, Kitchen: { things: { Baking: 'b' } } } });
+    // The Druid's helpers took Filling for a process (The Druid 12 run, 2026-10-06).
+    world.setDruid(world.ownerOf(webs['Ham sandwich']), { category: 'object' });
+    world.setDruid(ids.Filling, { category: 'process' });
+    expect(world.schemaOf(ids.Filling)).toBe('parts');
+    world.setDruid(ids.Baking, { category: 'process' });
+    const inside = world.ensureInside(ids.Baking);
+    world.actor = null;
+    const mix = await world.createThing(inside, 'Mixing');
+    expect(world.isStage(mix.id)).toBe(true);
+    const ctx = ctxAt(world, { web: inside, focus: mix.id, path: [] });
+    expect(open.offer(ctx)).toEqual([]);
+  });
+
   it('a part is asked about with its whole and the subject it is in', async () => {
     const { inContext } = await import('../../src/druid/moves/basic.js');
     const { world } = await freshWorld();
@@ -69,7 +85,9 @@ describe('structure before sentences', () => {
     expect(structureGap(ctx)).toBe(true);
     const menu = buildMenu(druidMoves(), ctx, { explore: 0 });
     const rank = (re) => menu.findIndex(m => re.test(m.label));
-    expect(rank(/^open up Consciousness/)).toBe(0);
+    // Two Things in the web: filling it out comes before opening one up (BREADTH), and both before sentences.
+    expect(rank(/^add a part to Mind/)).toBe(0);
+    expect(rank(/^describe Consciousness/)).not.toBe(0);
     expect(describeMove.id).toBe('describe');
   });
 });

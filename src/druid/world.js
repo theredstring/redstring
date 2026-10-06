@@ -601,7 +601,29 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
    * its stages in order, an idea of what makes it up. Kinds are not
    * composition: they are the carousel's axis, never an inside.
    */
-  const schemaOf = (id) => ({ process: 'stages', substance: 'material', idea: 'elements' })[druidOf(id).category] || 'parts';
+  // The whole a Thing is part of, by the content web it sits in.
+  const wholeOf = (id) => {
+    const web = websOf(id).find(w => !isSystemWeb(w) && !isOwnWeb(w));
+    const owner = web ? ownerOf(web) : null;
+    return owner && owner !== id ? owner : null;
+  };
+  /**
+   * A stage of a process, not a thing: never opened into stages of its own.
+   * Opened, Roll, a stage of Filling, became Prepare and Slice, and Prepare
+   * became Gather Ingredients, Measure, Assemble and Cook (2026-10-06).
+   */
+  const isStage = (id) => { const w = wholeOf(id); return !!w && druidOf(w).category === 'process'; };
+  const schemaOf = (id) => {
+    const schema = ({ process: 'stages', substance: 'material', idea: 'elements' })[druidOf(id).category] || 'parts';
+    // A part of an object is a part, whatever its name sounds like: Filling,
+    // of a Ham sandwich, was taken for a process and opened into Mix, Roll,
+    // Spread, Assemble and Cut.
+    if (schema === 'stages') {
+      const w = wholeOf(id);
+      if (w && ['object', 'substance'].includes(druidOf(w).category)) return 'parts';
+    }
+    return schema;
+  };
 
   /** Is `part` a part of `whole`? The made-of helper when there is one (mind/helpers.js madeOf), else the general check. */
   const isPartOf = async (part, whole) => {
@@ -850,7 +872,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     /** async (name) → 'thing' | 'process' | 'idea' | null (mind/helpers.js category). */
     category: null,
     state, proto, graph, nameOf, druidOf, setDruid,
-    thingsIn, insideOf, ownerOf, websOf, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem, pathUp,
+    thingsIn, insideOf, ownerOf, websOf, isStage, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem, pathUp,
     act, focusWeb, place, unplace, unnest, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, classify, schemaOf, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, repairDangling, foldInsides, noticedWeb, beliefsWeb, leaveNoticed, isOwnThinking, move
   };
   return api;

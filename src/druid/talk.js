@@ -141,7 +141,7 @@ export function renderTalk(history = []) {
  * @param {string} [talk.manner] how it speaks to a person (prompt space "When you talk")
  * @returns {Promise<{ ok, text, error?, about: string[] }>}
  */
-export async function answer(world, mind, { text, history = [], context = null, thought = '', thoughts = [], request = null, throughLine = '', focus = null, topic = [], doing = '', onIt = null, self = DEFAULT_PROMPT_SPACE.system, manner = DEFAULT_PROMPT_SPACE.talk } = {}) {
+export async function answer(world, mind, { text, history = [], context = null, thought = '', thoughts = [], request = null, throughLine = '', focus = null, topic = [], doing = '', onIt = null, meta = null, self = DEFAULT_PROMPT_SPACE.system, manner = DEFAULT_PROMPT_SPACE.talk } = {}) {
   const named = namedIn(world, text);
   const talkedOf = topic.filter(id => world.proto(id));
   const about = named.length ? named : talkedOf.length ? talkedOf : (focus && world.proto(focus) ? [focus] : []);
@@ -173,7 +173,8 @@ export async function answer(world, mind, { text, history = [], context = null, 
       dialogue: [renderTalk(history), thought && `What you were thinking: ${thought}`].filter(Boolean).join('\n'),
       notice: '',
       question: [manner, view, asked ? `${said}\n${asked}` : `${said}\n${did ? `${did}\n` : ''}Answer them as yourself, in two or three plain sentences of your own, from what you did and what your universe holds; do not read out what you see, nor say again what you said before. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
-      maxWords: 60
+      maxWords: 60,
+      meta
     });
   } else {
     const goals = openGoals(world).map(g => world.nameOf(g)).filter(Boolean).slice(0, 3);

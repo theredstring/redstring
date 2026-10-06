@@ -131,7 +131,7 @@ const HELPER_SYSTEM = 'You do one small language task at a time. Answer exactly 
 export function createMind({ backend, window = 4096, temperature = 0.6, onCall } = {}) {
   const stats = { calls: 0, invalid: 0, promptTokens: 0, completionTokens: 0, ms: 0, byKind: {} };
 
-  async function call(kind, sections, schema, maxTokens, read, temp = temperature) {
+  async function call(kind, sections, schema, maxTokens, read, temp = temperature, meta = null) {
     const prompt = assemble(sections, maxTokens, window);
     const started = Date.now();
     let content = null;
@@ -150,7 +150,9 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     stats.promptTokens += usage?.prompt || prompt.tokens;
     stats.completionTokens += usage?.completion || 0;
     if (value == null) { stats.invalid++; k.invalid++; }
-    const record = { kind, ok: value != null, value, content, error, ms, promptTokens: usage?.prompt ?? prompt.tokens, trimmed: prompt.trimmed, user: prompt.user };
+    // Everything a training example needs (scripts/druid-bench.mjs --record): the
+    // prompt as sent, its schema and sampling, what came back, and what asked.
+    const record = { kind, ok: value != null, value, content, error, ms, promptTokens: usage?.prompt ?? prompt.tokens, trimmed: prompt.trimmed, user: prompt.user, system: prompt.system, schema, maxTokens, temperature: temp, meta };
     onCall?.(record);
     return record;
   }
@@ -187,15 +189,15 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
   }
 
   /** @returns {Promise<{ ok, index, ... }>} */
-  async function choose({ system, view, wm, loop, dialogue, notice, question, options }) {
+  async function choose({ system, view, wm, loop, dialogue, notice, question, options, meta = null }) {
     const list = options.map((o, i) => `${i + 1}. ${o}`).join('\n');
     const r = await call('choose', { system, view, wm, loop, dialogue, notice, question: `${question}\n${list}\nAnswer with the number of one option.` },
-      schemaFor.choose(options.length), 16, (c) => readChoice(c, options.length));
+      schemaFor.choose(options.length), 16, (c) => readChoice(c, options.length), temperature, meta && { ...meta, options });
     return { ...r, index: r.value };
   }
 
   /** @returns {Promise<{ ok, text, ... }>} */
-  async function fill({ system, view, wm, loop, dialogue, notice, question, maxWords = 6 }) {
+  async function fill({ system, view, wm, loop, dialogue, notice, question, maxWords = 6, meta = null }) {
     const sections = { system, view, wm, loop, dialogue, notice, question: `${question}\n(Answer in at most ${maxWords} words.)` };
     const isName = maxWords <= 5;
     // A name asked for and a sentence given: clipped, it becomes a fragment
@@ -207,13 +209,14 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
     // mean." in half the cycles of one run.
     const notEcho = (read) => (c) => { const v = read(c); return v && echoes(v, question) ? null : v; };
     const reader = notEcho(isName ? readName : (c) => readText(c, maxWords));
-    let r = await call('fill', sections, schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), reader);
+    const tag = meta && { ...meta, question, maxWords };
+    let r = await call('fill', sections, schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), reader, temperature, tag);
     if (isName && !r.ok && !r.error && wordCount(r.content) > maxWords) {
       r = await call('fill', { ...sections, question: `${question}\nAt most ${maxWords} words: a name, not a sentence.` },
-        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), notEcho(readName));
+        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), notEcho(readName), temperature, tag && { ...tag, retry: true });
     } else if (!r.ok && !r.error && echoes(readText(r.content, 200) || '', question)) {
       r = await call('fill', { ...sections, question: `${question}\nDo not repeat the question. Answer it, in at most ${maxWords} words.` },
-        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), reader);
+        schemaFor.fill(maxWords), Math.min(300, maxWords * 3 + 24), reader, temperature, tag && { ...tag, retry: true });
     }
     return { ...r, text: r.value };
   }
@@ -222,11 +225,11 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
    * @param {Array<{ key: string, label: string }>} scale
    * @returns {Promise<{ ok, key, ... }>}
    */
-  async function judge({ system, view, wm, loop, dialogue, notice, question, scale }) {
+  async function judge({ system, view, wm, loop, dialogue, notice, question, scale, meta = null }) {
     const keys = scale.map(s => s.key);
     const list = scale.map(s => `- ${s.key}: ${s.label}`).join('\n');
     const r = await call('judge', { system, view, wm, loop, dialogue, notice, question: `${question}\n${list}\nAnswer with one of: ${keys.join(', ')}.` },
-      schemaFor.judge(keys), 16, (c) => readKey(c, keys));
+      schemaFor.judge(keys), 16, (c) => readKey(c, keys), temperature, meta && { ...meta, question, keys });
     return { ...r, key: r.value };
   }
 
@@ -247,7 +250,7 @@ export function createMind({ backend, window = 4096, temperature = 0.6, onCall }
    * @param {number} [h.temperature]  low by default: a judgment should not vary
    */
   async function helper({ name, task, input, schema, read, maxTokens = 48, temperature: temp = 0.1 }) {
-    const r = await call(`helper:${name}`, { system: HELPER_SYSTEM, question: input ? `${task}\n\n${input}` : task }, schema, maxTokens, read, temp);
+    const r = await call(`helper:${name}`, { system: HELPER_SYSTEM, question: input ? `${task}\n\n${input}` : task }, schema, maxTokens, read, temp, { phase: 'helper', helper: name, task, input });
     return r;
   }
 

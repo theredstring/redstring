@@ -117,7 +117,9 @@ export const make = {
       : `Name another part of ${W}, one you could point to on ${W} itself.`;
     const f = ctx.view.focus && isObject(world, ctx.view.focus.id) ? ctx.view.focus : null;
     const near = f ? `, connected to ${f.name}` : '';
-    return [{ label: `add a part to ${W}${near}, named ___`, blank: { question, maxWords: 4 }, data: { connectTo: f?.id || null } }];
+    // Wide before deep (open): a web with only a few Things is filled out first.
+    const thin = world.thingsIn(locus.web).length < BREADTH;
+    return [{ label: `add a part to ${W}${near}, named ___`, blank: { question, maxWords: 4 }, data: { connectTo: f?.id || null }, ...(thin ? { prior: 1.8 } : {}) }];
   },
   async run(ctx, data, text) {
     // One Thing: "Nitrogen and Methane" is two, and the first is made.
@@ -468,6 +470,9 @@ function fillTopic(ctx) {
 /** Not a part: "Unknown", "Other things", "Various". */
 const VAGUE = /^(unknown|other|others|other things|something|some things|things|stuff|various|many|more|etc|none|nothing|everything)$|^not\b|^(self|reason|reasons)$|^(kind|type|sort|part)s? of\b|^(each|every|both|with)\b/i;
 
+/** Things a web holds before opening one of them ranks with filling it out. */
+export const BREADTH = 4;
+
 /** Deepest an inside is opened into its own parts, counting from a web. */
 export const MAX_DEPTH = 4;
 
@@ -531,6 +536,7 @@ export const open = {
       return [{ label: `go inside ${f.name} (${f.insideCount} Thing${f.insideCount === 1 ? '' : 's'} there)`, data: { into: f.id } }];
     }
     if (!isObject(ctx.world, f.id)) return [];
+    if (ctx.world.isStage?.(f.id)) return [];
     // A list: one part at a time, a whole run went by with one part named.
     // Less pressing the deeper it already is: unchecked, one Druid went nine
     // levels down (Strings, Quantum fields, Charge, Electricity, Electron…)
@@ -540,7 +546,12 @@ export const open = {
     const depth = Math.max((ctx.locus.path || []).length, ctx.world.depthOf ? ctx.world.depthOf(ctx.locus.web) : 0);
     if (depth >= MAX_DEPTH) return [];
     const a = openAsk(ctx.world, f.id);
-    return [{ label: a.label, blank: { question: a.question, maxWords: a.maxWords }, data: { into: f.id, create: true, schema: a.schema }, prior: 1.4 / (1 + depth * 0.5) }];
+    // Wide before deep: while the web it stands in holds only a few Things,
+    // opening one of them waits. Asked what is in a ham sandwich, it named
+    // Bread and Filling, then went Bread, Crust, Surface, and found Ham,
+    // Cheese and Lettuce in the surface of the crust (2026-10-06).
+    const thin = ctx.locus.web && ctx.world.ownerOf(ctx.locus.web) !== f.id && ctx.world.thingsIn(ctx.locus.web).length < BREADTH;
+    return [{ label: a.label, blank: { question: a.question, maxWords: a.maxWords }, data: { into: f.id, create: true, schema: a.schema }, prior: (1.4 / (1 + depth * 0.5)) * (thin ? 0.3 : 1) }];
   },
   async run(ctx, data, text) {
     const { world, locus, activation } = ctx;

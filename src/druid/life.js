@@ -235,7 +235,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       dialogue: [renderConversation(world, st.conversation, tick), renderDialogue({ said: st.said }, tick)].filter(Boolean).join('\n'),
       notice: st.lastDid ? `You just ${st.lastDid}.` : '',
       question: promptSpace.questions.thought,
-      maxWords: 30
+      maxWords: 30,
+      meta: { phase: 'thought', tick }
     });
     // A thought that says the question back is no thought: "What are you
     // thinking now? Name the Things you mean." was kept as a Thing, "I am
@@ -283,7 +284,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       const r = await mind.fill({
         ...sections(),
         question: `${renderTrail(st.trail, tick) || 'You have not done much yet.'}\nFrom that, in one plain sentence: what have you been doing lately, and what are you after? Name the Things you mean.`,
-        maxWords: 30
+        maxWords: 30,
+        meta: { phase: 'throughLine', tick }
       });
       const kept = keepThroughLine(world, st.throughLine, r.text);
       if (kept) st.throughLine = kept;
@@ -298,19 +300,21 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // thought about forests named the next part of Middle "Trunk" (The Druid
     // 12, 2026-10-06). The question names what it is part of (moves/basic.js inContext).
     let building = false;
+    let moveNow = null;
     const over = () => (building ? { system: context.system, view: context.view } : sections());
+    const tagged = () => ({ phase: 'blank', tick, move: moveNow, building });
     const ask = async (question, maxWords) => {
-      const r = await mind.fill({ ...over(), question, maxWords });
+      const r = await mind.fill({ ...over(), question, maxWords, meta: tagged() });
       calls.push({ kind: 'fill', question, ok: r.ok, text: r.text, ...(r.error ? { error: r.error } : {}) });
       return r.text;
     };
     const pick = async (question, options) => {
-      const r = await mind.choose({ ...over(), question, options });
+      const r = await mind.choose({ ...over(), question, options, meta: tagged() });
       calls.push({ kind: 'choose', question, ok: r.ok, index: r.index, ...(r.error ? { error: r.error } : {}) });
       return r.index;
     };
     const judge = async (question, scale) => {
-      const r = await mind.judge({ ...over(), question, scale });
+      const r = await mind.judge({ ...over(), question, scale, meta: tagged() });
       calls.push({ kind: 'judge', question, ok: r.ok, key: r.key, ...(r.error ? { error: r.error } : {}) });
       return r.key;
     };
@@ -359,7 +363,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         st.recent = [...st.recent, `cmd:${commandByVerb(said.verb)?.verb || said.verb}`].slice(-RECENT_SIZE);
       }
     } else {
-      const choice = await mind.choose({ ...sections(), question: promptSpace.questions.choose, options: menu.map(m => m.label) });
+      const choice = await mind.choose({ ...sections(), question: promptSpace.questions.choose, options: menu.map(m => m.label), meta: { phase: 'choose', tick, talking, task: !!st.task, moves: menu.map(m => m.move.id) } });
       st.notice = '';
       calls.unshift({ kind: 'choose', question: 'menu', ok: choice.ok, index: choice.index, ...(choice.error ? { error: choice.error } : {}), ...(!choice.ok && !choice.error ? { raw: String(choice.content).slice(0, 200) } : {}) });
       item = choice.ok ? menu[choice.index] : null;
@@ -368,6 +372,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // ── ACT ───────────────────────────────────────────────────────────────
     if (item?.blank) listen();
     building = !!item && BUILDING.has(item.move.id);
+    moveNow = item?.move.id || null;
     if (cut) {
       result = { ok: true, summary: 'stopped what you were doing to listen', touched: [], wrote: false };
       item = null;
@@ -538,6 +543,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         doing: st.lastDid,
         // Whether what it just did was about what they said, for what it says.
         onIt,
+        meta: { phase: 'answer', tick, said, did: st.lastDid, onIt, ask: asked?.ask || null },
         request: asked,
         manner: promptSpace.talk
       });
@@ -568,7 +574,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         dialogue: [renderConversation(world, st.conversation, tick), renderDialogue(st, tick)].filter(Boolean).join('\n'),
         notice: `You just ${st.lastDid}.`,
         question: `${promptSpace.talk}\n\nTell the person, in one or two plain sentences of your own, what you just did or found about what they asked, from what you see now; do not read out what you see. If you found nothing yet, say what you will look at next.`,
-        maxWords: 45
+        maxWords: 45,
+        meta: { phase: 'report', tick, did: st.lastDid }
       });
       // Not what it last told them, again.
       const last = [...st.talk].reverse().find(x => x.who === 'druid')?.text || '';

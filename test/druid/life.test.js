@@ -126,7 +126,8 @@ describe('runLife over the real store', () => {
 
   it("a blank the model will not fill is not chosen again and again (Apple's safety filter)", async () => {
     const { world } = await freshWorld();
-    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Death: 'the end of a life' } } } });
+    // Four Things, so opening one up is not put off for filling out the web (moves/basic.js BREADTH).
+    const { webs, ids } = await buildUniverse(world, { webs: { W: { things: { Death: 'the end of a life', Birth: 'b', Aging: 'a', Illness: 'i' } } } });
     // Always the first option; every question about what makes up Death blocked, as Apple's filter blocked it.
     const backend = scripted((req) => {
       if (req.schema.name === 'choice') return { choice: '1' };
