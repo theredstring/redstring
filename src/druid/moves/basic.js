@@ -484,16 +484,37 @@ export const MAX_DEPTH = 4;
  *   stages     a process's stages, in order
  *   elements   what makes up an idea: Love, of intimacy and commitment
  */
-export const PARTS_QUESTION = (name) => `What are the main parts of ${name}? Name the parts you could point to on ${name} itself, not the materials it is made of. Separate them with commas.`;
+export const PARTS_QUESTION = (name, it = name) => `What are the main parts of ${it.replace(/,$/, '')}? Name the parts you could point to on ${name} itself, not the materials it is made of. Separate them with commas.`;
+
+/**
+ * A Thing as the questions about it name it: with the whole it is part of,
+ * and the subject that whole is in. Asked "What are the stages of
+ * Expansion?", of an Expansion that was a stage of Pressure in a web about
+ * Venus's atmosphere, Apple's model named Accretion, Volcanism and Plate
+ * Tectonics, and the Druid was in planetary formation four moments on
+ * (The Druid 12, 2026-10-06).
+ */
+export function inContext(world, id) {
+  const name = world.nameOf(id);
+  const web = world.websOf(id).find(w => !world.isSystemWeb?.(w) && !isOwnPlace(world, w));
+  if (!web) return name;
+  const owner = world.ownerOf(web);
+  const whole = owner && !isBookkeeping(world, owner) ? world.nameOf(owner) : null;
+  const topic = world.topicOf ? world.topicOf(web) : null;
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  if (whole && !same(whole, name)) return `${name}, as part of ${whole}${topic && !same(topic, whole) && !same(topic, name) ? ` in ${topic}` : ''},`;
+  return topic && !same(topic, name) ? `${name}, as it is in ${topic},` : name;
+}
 
 export function openAsk(world, id, { partOf = null } = {}) {
   const name = world.nameOf(id);
+  const it = inContext(world, id);
   const schema = world.schemaOf ? world.schemaOf(id) : 'parts';
   const where = partOf ? `, a part of ${partOf}` : '';
-  if (schema === 'stages') return { schema, label: `open up ${name}${where}: name its stages in order, ___`, question: `What are the stages of ${name}, in the order they happen? Name each stage in a few words, separated by commas.`, maxWords: 24 };
-  if (schema === 'material') return { schema, label: `open up ${name}${where}: name what it is made of, ___`, question: `What is ${name} made of? Name what it is made of, separated by commas.`, maxWords: 16 };
-  if (schema === 'elements') return { schema, label: `open up ${name}${where}: name what makes it up, ___`, question: `What makes up ${name}? Name the main things that together make it up, separated by commas.`, maxWords: 16 };
-  return { schema, label: `open up ${name}${where}: name its parts, ___`, question: PARTS_QUESTION(name), maxWords: 16 };
+  if (schema === 'stages') return { schema, label: `open up ${name}${where}: name its stages in order, ___`, question: `What are the stages of ${it} in the order they happen? Name each stage in a few words, separated by commas.`, maxWords: 24 };
+  if (schema === 'material') return { schema, label: `open up ${name}${where}: name what it is made of, ___`, question: `What is ${it} made of? Name what it is made of, separated by commas.`, maxWords: 16 };
+  if (schema === 'elements') return { schema, label: `open up ${name}${where}: name what makes it up, ___`, question: `What makes up ${it}? Name the main things that together make it up, separated by commas.`, maxWords: 16 };
+  return { schema, label: `open up ${name}${where}: name its parts, ___`, question: PARTS_QUESTION(name, it), maxWords: 16 };
 }
 
 export const open = {

@@ -17,8 +17,12 @@ import { wordsIn, shortName, normalizeName, understandGoal, MAX_NAME_WORDS } fro
 
 const fail = (error) => ({ ok: false, error, summary: error, touched: [], wrote: false });
 const titleish = (s) => String(s || '').trim().replace(/[.!?]+$/, '').replace(/^\w/, c => c.toUpperCase());
-// In a conversation, only what the person asked for (conversation.js): its own goals wait.
-const topGoals = (ctx, k) => openGoals(ctx.world).sort((a, b) => (ctx.activation.get(b) ?? -9) - (ctx.activation.get(a) ?? -9)).slice(0, k);
+// While it holds a task, the goals it works toward, reaches or gives up are that one (task.js): the others wait.
+const topGoals = (ctx, k) => {
+  const open = openGoals(ctx.world);
+  if (ctx.task && open.includes(ctx.task.goal)) return [ctx.task.goal];
+  return open.sort((a, b) => (ctx.activation.get(b) ?? -9) - (ctx.activation.get(a) ?? -9)).slice(0, k);
+};
 
 export const commitGoal = {
   id: 'commitGoal',

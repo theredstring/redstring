@@ -43,8 +43,11 @@ export function throughLineDue(st, tick) {
  * old one again), and names at least one Thing the universe holds.
  */
 export function keepThroughLine(world, previous, candidate) {
-  const text = String(candidate || '').trim();
-  if (!text) return null;
+  // The question said back, with names tacked on, is no through line: "What
+  // have you been doing lately, and what are you after? Name the Things you
+  // mean: Planetary Formation, ..." was kept (The Druid 12, 2026-10-06).
+  const text = String(candidate || '').trim().replace(/^.*\bwhat are you after\?(?:\s*name the things you mean[.:]?)?\s*/i, '').trim();
+  if (!text || !/\b(?:i|i'?ve|i'?m|my|been)\b/i.test(text) && text.split(/[\s,]+/).length <= 8 && /,/.test(text)) return null;
   // Only a near-copy is refused: at 0.75 a through line once stayed "the wood
   // to build the floor" for 22 moments while the Druid worked on screwdrivers.
   if (previous && thoughtSimilarity(text, previous) > 0.9) return null;

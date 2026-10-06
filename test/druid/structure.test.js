@@ -24,10 +24,23 @@ describe('structure before sentences', () => {
     const { webs, ids } = await buildUniverse(world, { webs: { Mind: { things: { Consciousness: 'Being aware.' } } } });
     const ctx = ctxAt(world, { web: webs.Mind, focus: ids.Consciousness, path: [] });
     const [item] = open.offer(ctx);
-    expect(item.blank.question).toBe('What are the main parts of Consciousness? Name the parts you could point to on Consciousness itself, not the materials it is made of. Separate them with commas.');
+    // With the whole it is part of: asked without it, the stages of an Expansion in Venus's atmosphere were a planet's history (2026-10-06).
+    expect(item.blank.question).toBe('What are the main parts of Consciousness, as part of Mind? Name the parts you could point to on Consciousness itself, not the materials it is made of. Separate them with commas.');
     const r = await open.run(ctx, item.data, 'Perception, Attention, Memory, Thoughts');
     expect(r.ok).toBe(true);
     expect(world.thingsIn(world.insideOf(ids.Consciousness)).map(world.nameOf)).toEqual(['Perception', 'Attention', 'Memory', 'Thoughts']);
+  });
+
+  it('a part is asked about with its whole and the subject it is in', async () => {
+    const { inContext } = await import('../../src/druid/moves/basic.js');
+    const { world } = await freshWorld();
+    const { webs, ids } = await buildUniverse(world, { webs: { 'Atmospheric dynamics': { things: { Pressure: 'p' } } } });
+    const ctx = ctxAt(world, { web: webs['Atmospheric dynamics'], focus: ids.Pressure, path: [] });
+    const [item] = open.offer(ctx);
+    await open.run(ctx, item.data, 'Formation, Expansion');
+    const expansion = world.thingsIn(world.insideOf(ids.Pressure)).find(id => world.nameOf(id) === 'Expansion');
+    expect(inContext(world, ids.Pressure)).toBe('Pressure, as part of Atmospheric dynamics,');
+    expect(inContext(world, expansion)).toBe('Expansion, as part of Pressure in Atmospheric dynamics,');
   });
 
   it('inside a Thing, its parts without parts are offered to open up in turn', async () => {
@@ -70,6 +83,40 @@ describe('a thought that only says the question back', () => {
     for await (const r of createDruid({ world, mind }, { maxCycles: 2, resume: { tick: 0, locus: { web: webs.Mind, focus: null, path: [] } } })) if (r.type === 'cycle') out.push(r);
     expect(out.map(r => r.thought)).toEqual([null, null]);
     expect(out.at(-1).state.loop).toEqual([]);
+  });
+});
+
+describe('a thought about nothing in its universe', () => {
+  it('is not carried into the next moment, and it is told so', async () => {
+    const { createMind } = await import('../../src/druid/mind/createMind.js');
+    const { scripted } = await import('../../src/druid/mind/backends.js');
+    const { createDruid } = await import('../../src/druid/druid.js');
+    const { world } = await freshWorld();
+    const { webs } = await buildUniverse(world, { webs: { Mind: { things: { Consciousness: 'Being aware.' } } } });
+    const seen = [];
+    let n = 0;
+    const mind = createMind({ backend: scripted((req) => {
+      seen.push(req);
+      if (req.schema.name === 'choice') return { choice: '1' };
+      // The Druid 12 (2026-10-06): forests and rivers, in a web about Venus.
+      if (/what are you thinking now/.test(req.user)) return { text: ++n === 1 ? 'The trees in the forest weave a living tapestry.' : 'Consciousness is being aware.' };
+      return { text: 'Perception' };
+    }) });
+    const out = [];
+    for await (const r of createDruid({ world, mind }, { maxCycles: 2, resume: { tick: 0, locus: { web: webs.Mind, focus: null, path: [] } } })) if (r.type === 'cycle') out.push(r);
+    expect(out[0]).toMatchObject({ thought: 'The trees in the forest weave a living tapestry.', grounded: false });
+    expect(out[0].state.loop).toEqual([]);
+    expect(seen.find(r => r.schema.name === 'choice').user).toMatch(/That thought named nothing in your universe/);
+    expect(out[1]).toMatchObject({ grounded: true });
+    expect(out[1].state.loop).toEqual(['Consciousness is being aware.']);
+  });
+
+  it('nor is the through-line question said back', async () => {
+    const { keepThroughLine } = await import('../../src/druid/dialogue.js');
+    const { world } = await freshWorld();
+    await buildUniverse(world, { webs: { Planets: { things: { Accretion: 'a', Crystallization: 'c' } } } });
+    expect(keepThroughLine(world, '', 'What have you been doing lately, and what are you after? Name the Things you mean: Accretion, Crystallization')).toBeNull();
+    expect(keepThroughLine(world, '', 'I have been following Accretion into Crystallization.')).toBe('I have been following Accretion into Crystallization.');
   });
 });
 

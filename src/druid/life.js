@@ -42,9 +42,11 @@ import { DEFAULT_PROMPT_SPACE } from './promptSpace.js';
 import { thoughtSimilarity } from './runDruid.js';
 import { VERBS, renderCommands, asCommand, runCommand, commandByVerb } from './commands/commands.js';
 import { throughLineDue, keepThroughLine, stillSaid, renderDialogue, saidSources } from './dialogue.js';
-import { answer, withoutRepeats, TALK_KEEP } from './talk.js';
+import { answer, withoutRepeats, namedIn, TALK_KEEP } from './talk.js';
 import { understand, engaged, placeOf, promisedIn, renderConversation, REPORTS_PER_TURN } from './conversation.js';
 import { extendTrail, renderTrail } from './recency.js';
+import { takeUp, onTask, stillHeld, renderTask, TASK_LAPSE } from './task.js';
+import { openGoals, isBookkeeping } from './roles.js';
 
 const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|recorded|defined)\b/i;
 const LOOP_SIZE = 3;
@@ -125,6 +127,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     unanswered: Array.isArray(resume.unanswered) ? [...resume.unanswered] : [],
     // A sleep put off to listen.
     sleepOwed: !!resume.sleepOwed,
+    // What it is working on: a goal it took up (task.js).
+    task: resume.task && typeof resume.task === 'object' ? { ...resume.task } : null,
     notice: ''
   };
   if (st.tick > 0) wake(world, isOpenGoal);
@@ -184,8 +188,11 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const listen = () => cut || (cut = !!waiting());
 
     // ── ATTEND ────────────────────────────────────────────────────────────
+    if (st.task && !stillHeld(world, st.task)) st.task = null;
     const heldNow = held(world);
     const baseSources = [
+      // What it is working on pulls hardest of its own aims.
+      ...(st.task ? [st.task.anchor && { id: st.task.anchor, weight: 1.2 }, { id: st.task.goal, weight: 0.9 }].filter(x => x && world.proto(x.id)) : []),
       ...(st.locus.focus ? [{ id: st.locus.focus, weight: 1 }] : []),
       ...heldNow.map(h => ({ id: h.id, weight: h.a })),
       ...sources(world, tick, { talking }),
@@ -206,7 +213,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // question) is each call's turn.
     const context = {
       system: promptSpace.system,
-      wm: [renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
+      wm: [renderTask(world, st.task, tick), renderTrail(st.trail, tick), renderHeld(world), extra].filter(Boolean).join('\n'),
       view: renderView(view, { world, tick, writes: st.writes, trail: st.trail }),
       loop: st.loop.length ? `What you were just thinking:\n${st.loop.map(t => `- ${t}`).join('\n')}` : (seed && tick === 1 ? `On your mind as you wake: ${seed}` : '')
     };
@@ -241,7 +248,15 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // 4B model spent ten cycles restating one image of "breath stitching
     // silence", each version seeding the next.
     const repeating = thought && [...st.loop, st.throughLine].filter(Boolean).some(prev => thoughtSimilarity(thought, prev) > 0.6);
-    if (thought && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
+    // A thought about nothing in its universe is not carried on: "the trees in
+    // the forest, a living tapestry", "the river and its flowing water", fed
+    // back as what it was just thinking, seeded more of the same while it
+    // built a web about Venus (The Druid 12, 2026-10-06).
+    // With nothing yet to name, a thought is an intention ("a web for rivers"), and kept.
+    const nothingYet = !world.allThings().some(id => !world.isOwnThinking?.(id));
+    const grounded = !!thought && (nothingYet || namedIn(world, thought, 1).length > 0);
+    if (thought && grounded && !repeating) st.loop = [...st.loop, thought].slice(-LOOP_SIZE);
+    if (thought && !grounded) st.notice = [st.notice, 'That thought named nothing in your universe. Think about what is in front of you, by name.'].filter(Boolean).join('\n');
     st.stuck = repeating ? (st.stuck || 0) + 1 : 0;
     if (repeating) st.notice = [st.notice, 'You keep coming back to the same thought. Look at something else, or do something with it.'].filter(Boolean).join('\n');
     // Stuck: the loop is let go, so the thought it keeps seeding is no longer
@@ -297,6 +312,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       scratch: (text) => scratchThought(world, text, tick),
       promote: (id, web) => promote(world, id, web),
       conversation: talking ? st.conversation : null,
+      task: st.task,
       ...(typeof extendCtx === 'function' ? await extendCtx(world, tick) : extendCtx)
     };
 
@@ -429,6 +445,26 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       episode = await writeEpisode(world, { tick, summary: result.summary, touched, episodeTypeId: episodeType(world) });
     }
 
+    // ── TASK ──────────────────────────────────────────────────────────────
+    // What it chose to take up is held until it reaches it, gives it up, sets
+    // it aside, or drifts away from it too long (task.js).
+    if (result.ok && result.setAside) st.task = null;
+    else {
+      const personGoal = () => openGoals(world).filter(g => world.druidOf(g).fromPerson).sort((a, b) => (world.druidOf(b).statusAt ?? 0) - (world.druidOf(a).statusAt ?? 0))[0] || null;
+      const taken = !result.ok || cut ? null
+        : result.takeUp || (item?.move.id === 'heed' && st.conversation?.ask ? personGoal() : null) || (item?.move.id === 'pursueGoal' ? item.data?.goal : null);
+      if (taken && st.task?.goal !== taken) {
+        const anchor = touched.find(id => !isBookkeeping(world, id)) || world.ownerOf(st.locus.web) || null;
+        st.task = takeUp(taken, anchor && !isBookkeeping(world, anchor) ? anchor : null, st.locus.web, tick);
+      } else if (st.task && stillHeld(world, st.task)) {
+        if (onTask(world, st.task, st.locus)) st.task.lastOn = tick;
+        else if (tick - st.task.lastOn >= TASK_LAPSE) {
+          st.notice = [st.notice, `You drifted away from "${world.nameOf(st.task.goal)}"; it is no longer what you are working on.`].filter(Boolean).join('\n');
+          st.task = null;
+        }
+      } else st.task = null;
+    }
+
     // In a conversation: did this moment do something about what they asked?
     let worthTelling = false;
     let onIt = null;
@@ -466,7 +502,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const here = !moved ? context : {
       ...context,
       view: renderView(buildView(world, st.locus, activation, { tick }), { world, tick, writes: st.writes, trail: st.trail }),
-      ...(result.turned ? { wm: [renderTrail(st.trail, tick), renderHeld(world), extras(world, st.locus, { talking })].filter(Boolean).join('\n'), loop: '' } : {})
+      ...(result.turned ? { wm: [renderTask(world, st.task, tick), renderTrail(st.trail, tick), renderHeld(world), extras(world, st.locus, { talking })].filter(Boolean).join('\n'), loop: '' } : {})
     };
     if (cut) {
       // Stopped to listen: what it heard this moment is answered with what comes next.
@@ -561,6 +597,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       result: { ok: result.ok, summary: result.summary, wrote: !!result.wrote, error: result.error || null },
       listened: cut,
       thought,
+      grounded,
+      task: st.task ? { goal: world.nameOf(st.task.goal), at: st.task.anchor ? world.nameOf(st.task.anchor) : null, since: st.task.since } : null,
       repeating: !!repeating,
       unbacked,
       episode,
@@ -579,7 +617,7 @@ function snapshot(st) {
     tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
     throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail,
     talk: st.talk, talkFrom: st.talkFrom, lastDid: st.lastDid, lastWrote: st.lastWrote, conversation: st.conversation,
-    unanswered: st.unanswered, sleepOwed: st.sleepOwed
+    unanswered: st.unanswered, sleepOwed: st.sleepOwed, task: st.task
   };
 }
 

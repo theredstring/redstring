@@ -9,6 +9,7 @@
 
 import { runLife } from './life.js';
 import { BASIC_MOVES } from './moves/basic.js';
+import { backToTask, goalWeb, setAside } from './task.js';
 import { ROLE_MOVES } from './moves/roles.js';
 import { COGNITIVE_MOVES } from './moves/cognitive.js';
 import { TIDY_MOVES } from './moves/tidy.js';
@@ -22,7 +23,7 @@ import { topLevelWebs, isHome } from './attention.js';
 import { understandGoal, wordsIn, MAX_NAME_WORDS } from './names.js';
 
 export function druidMoves() {
-  return [heed, ...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
+  return [heed, backToTask, goalWeb, setAside, ...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
 }
 
 /** What the Druid is shown about its goals, plans and the belief in focus. */

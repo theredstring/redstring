@@ -95,6 +95,15 @@ function MindNow({ m, tokens }) {
           </div>
         )}
       </Section>
+      {n.task && (
+        <Section label="Working on" tokens={tokens}>
+          <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+            <Name t={n.task.goal} tokens={tokens} />
+            {n.task.at && <> at <Name t={n.task.at} tokens={tokens} /></>}
+            <span style={{ color: tokens.muted }}>{` · since moment ${n.task.since}`}</span>
+          </div>
+        </Section>
+      )}
       {n.conversation && (
         <Section label="Talking with you" tokens={tokens}>
           <div style={{ fontSize: 12, lineHeight: 1.6 }}>

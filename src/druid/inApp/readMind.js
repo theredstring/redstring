@@ -132,7 +132,11 @@ export function readMind(store) {
         away: (conv.away || []).map(id => thing(world, id)).filter(Boolean),
         promised: (conv.promised || []).map(id => thing(world, id)).filter(Boolean)
       },
-      noticed: noticedWeb ? world.thingsIn(noticedWeb).map(id => thing(world, id)).filter(Boolean) : []
+      noticed: noticedWeb ? world.thingsIn(noticedWeb).map(id => thing(world, id)).filter(Boolean) : [],
+      // What it is working on (task.js), while its goal is still open.
+      task: life.task && world.proto(life.task.goal) && world.druidOf(life.task.goal).status === 'open'
+        ? { goal: thing(world, life.task.goal), at: life.task.anchor ? thing(world, life.task.anchor) : null, since: life.task.since }
+        : null
     },
     goals,
     closed,
