@@ -265,8 +265,16 @@ export function nextStep(world, planId) {
 }
 
 /** Rendered for the prompt: open goals, plan cursors. */
-export function renderRoles(world) {
+export function renderRoles(world, { talking = false } = {}) {
   const lines = [];
+  // In a conversation, what the person asked for, and its own goals wait:
+  // listed beside a submarine sandwich, "Understand quantum mechanics" had it
+  // relating bread to fundamental particles (The Druid 11, 2026-10-06).
+  const theirs = talking ? goalsInOrder(world).filter(g => world.druidOf(g).fromPerson) : [];
+  if (theirs.length) {
+    lines.push(`What you are after: ${theirs.map(id => world.nameOf(id)).join('; ')}. Your own goals wait while you talk with them.`);
+    return lines.join('\n');
+  }
   const goals = goalsInOrder(world);
   const top = goals.filter(g => !parentGoalOf(world, g));
   const smaller = goals.filter(g => parentGoalOf(world, g));

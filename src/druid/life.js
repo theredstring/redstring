@@ -35,7 +35,7 @@ import { DEFAULT_PROMPT_SPACE } from './promptSpace.js';
 import { thoughtSimilarity } from './runDruid.js';
 import { VERBS, renderCommands, asCommand, runCommand, commandByVerb } from './commands/commands.js';
 import { throughLineDue, keepThroughLine, stillSaid, renderDialogue, saidSources } from './dialogue.js';
-import { answer, TALK_KEEP } from './talk.js';
+import { answer, withoutRepeats, TALK_KEEP } from './talk.js';
 import { understand, engaged, placeOf, promisedIn, renderConversation, REPORTS_PER_TURN } from './conversation.js';
 import { extendTrail, renderTrail } from './recency.js';
 
@@ -43,6 +43,8 @@ const CLAIM = /\b(created|added|made|built|established|connected|linked|wrote|re
 const LOOP_SIZE = 3;
 const RECENT_SIZE = 6;
 const LEFT_SIZE = 4;
+/** Moments a past exchange stays in the conversation an answer is given in. */
+const TALK_FRESH = 60;
 /** Moments what a person turned it away from is kept from coming straight back. */
 const ENGAGED_LET_GO = 12;
 
@@ -54,13 +56,13 @@ const ENGAGED_LET_GO = 12;
  * @param {Object} [opts]
  * @param {Object} [opts.resume]        persisted state from a previous run
  * @param {Array}  [opts.moves]         defaults to BASIC_MOVES
- * @param {Function} [opts.sources]     (world, tick) → extra activation sources (e.g. open goals)
+ * @param {Function} [opts.sources]     (world, tick, { talking }) → extra activation sources (e.g. open goals)
  * @param {Function} [opts.isOpenGoal]  (id) → whether a held Thing survives waking
  * @param {Function} [opts.sleep]       async (ctx) → sleep record, run every `sleepEvery` cycles
  * @param {number}   [opts.sleepEvery]
  * @param {Function} [opts.episodeType] (world) → Episode role type id, if any
  * @param {Object|Function} [opts.extendCtx]  extra fields every move sees in ctx, or (world, tick) → them, per cycle
- * @param {Function} [opts.extras]      (world, locus) → extra lines for the held-in-mind section
+ * @param {Function} [opts.extras]      (world, locus, { talking }) → extra lines for the held-in-mind section
  * @param {number}   [opts.maxCycles]
  * @param {string}   [opts.seed]
  * @param {AbortSignal} [opts.signal]
@@ -106,6 +108,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     // The conversation it is in, if any (conversation.js).
     conversation: resume.conversation && typeof resume.conversation === 'object' ? { ...resume.conversation } : null,
     lastDid: resume.lastDid || '',
+    // Where the conversation an answer is given in begins (a redirect starts it again).
+    talkFrom: resume.talkFrom || 0,
     lastWrote: !!resume.lastWrote,
     trail: Array.isArray(resume.trail) ? [...resume.trail] : [],
     notice: ''
@@ -128,6 +132,8 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const heardItems = (hear() || []).map(h => ({ text: String(h?.text ?? h).trim(), answered: !!h?.answered })).filter(h => h.text);
     const heard = heardItems.map(h => h.text);
     let oriented = null;
+    // What they asked it to do, this moment, for its answer.
+    let asked = null;
     for (const text of heard) {
       st.said = [...st.said, { text, tick }].slice(-6);
       const understood = await understand(world, mind, text).catch(() => ({ kind: 'telling', toward: [], away: [], ask: null }));
@@ -144,14 +150,37 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         report: false
       };
       for (const id of understood.away) letGo(world, id, tick, ENGAGED_LET_GO);
-      const changed = onHeard ? await onHeard(world, text, tick, understood).catch(() => null) : null;
-      if (changed) st.notice = [st.notice, changed].filter(Boolean).join('\n');
       oriented = understood.toward.map(id => placeOf(world, id)).find(Boolean) || oriented;
+      // What hearing it changed (druid.js onHeard): a line for the notice, its
+      // goal, and a web started for a subject its universe did not hold.
+      const changed = onHeard ? await onHeard(world, text, tick, understood).catch(() => null) : null;
+      const note = typeof changed === 'string' ? changed : changed?.notice;
+      if (note) st.notice = [st.notice, note].filter(Boolean).join('\n');
+      if (changed?.ask && !st.conversation.ask) st.conversation.ask = changed.ask;
+      if (changed?.orient) {
+        oriented = changed.orient;
+        if (changed.topic?.length) st.conversation.topic = changed.topic;
+      }
+      if (understood.kind === 'direction' || understood.kind === 'correction') asked = { ask: st.conversation.ask, note };
     }
 
     // ── ORIENT ────────────────────────────────────────────────────────────
     // It looks where they point before it thinks, and answers from there.
     if (oriented) {
+      // Sent somewhere else, it clears its head, as a person switching tasks
+      // does: its last thoughts, what it was doing lately and what it held were
+      // all the old work. Kept, a Druid asked to start on a submarine sandwich
+      // thought about quantum algorithms for the sandwich's preparation.
+      if (asked && oriented.web !== st.locus.web) {
+        st.loop = [];
+        st.trail = [];
+        st.throughLine = '';
+        st.throughLineAt = tick;
+        // And the conversation it answers from starts here: its last answer,
+        // about the old work, was given again word for word.
+        st.talkFrom = tick;
+        for (const h of held(world)) if (!h.scratch) letGo(world, h.id, tick);
+      }
       if (st.locus.focus && st.locus.focus !== oriented.focus) st.left = [...st.left.filter(id => id !== st.locus.focus), st.locus.focus].slice(-LEFT_SIZE);
       st.locus = oriented;
       world.focusWeb(oriented.web);
@@ -163,7 +192,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     const baseSources = [
       ...(st.locus.focus ? [{ id: st.locus.focus, weight: 1 }] : []),
       ...heldNow.map(h => ({ id: h.id, weight: h.a })),
-      ...sources(world, tick),
+      ...sources(world, tick, { talking }),
       // In a conversation, what it is about pulls hardest; what it told them it would look at, harder.
       ...(talking
         ? [...(st.conversation.topic || []).map(id => ({ id, weight: 1.2 })), ...(st.conversation.promised || []).map(id => ({ id, weight: 1.4 }))]
@@ -174,7 +203,7 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
     world.focusWeb(st.locus.web);
     const view = buildView(world, st.locus, activation, { tick });
 
-    const extra = extras(world, st.locus);
+    const extra = extras(world, st.locus, { talking });
     // The moment's context, fixed as it begins: every call of the moment shares
     // it, so Apple's model reads it once (mind/budget.js, afmClient.js). What
     // changes within the moment (what was said, its thought, a notice, the
@@ -241,10 +270,14 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
       const said = unanswered[unanswered.length - 1];
       const r = await answer(world, mind, {
         text: said,
-        history: [...st.talk, ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))],
+        // Only the conversation of late: asked "what have you found so far?",
+        // it repeated its answer to "what have you learned so far?" from four
+        // thousand moments before.
+        history: [...st.talk.filter(x => tick - (x.tick ?? tick) <= TALK_FRESH && (x.tick ?? tick) >= (st.talkFrom || 0)), ...unanswered.slice(0, -1).map(t => ({ who: 'person', text: t }))],
         context,
         thought: thought || '',
         focus: st.locus.focus,
+        request: asked ? { ...asked, at: world.graph(st.locus.web)?.name || null } : null,
         system: promptSpace.talk
       });
       reply = r.text || null;
@@ -265,8 +298,9 @@ export async function* runLife({ world, mind, promptSpace = DEFAULT_PROMPT_SPACE
         maxWords: 45
       });
       st.conversation.report = false;
-      if (r.text) {
-        reply = r.text;
+      const told = withoutRepeats(r.text);
+      if (told) {
+        reply = told;
         st.conversation.reports++;
         st.talk = [...st.talk, { who: 'druid', text: reply, tick }].slice(-TALK_KEEP * 2);
         st.said = [...st.said, { text: '', tick, answer: reply }].slice(-6);
@@ -477,7 +511,7 @@ function snapshot(st) {
   return {
     tick: st.tick, locus: st.locus, loop: st.loop, recent: st.recent, left: st.left, missing: st.missing, shown: st.shown, writes: st.writes, refused: st.refused, idle: st.idle,
     throughLine: st.throughLine, throughLineAt: st.throughLineAt, said: stillSaid(st.said, st.tick), trail: st.trail,
-    talk: st.talk, lastDid: st.lastDid, lastWrote: st.lastWrote, conversation: st.conversation
+    talk: st.talk, talkFrom: st.talkFrom, lastDid: st.lastDid, lastWrote: st.lastWrote, conversation: st.conversation
   };
 }
 

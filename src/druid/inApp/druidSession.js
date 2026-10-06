@@ -133,7 +133,8 @@ export async function talkTo({ store, promptSpace, backend }, { text, history = 
   const home = [...store.getState().nodePrototypes.values()].find(p => p.semanticMetadata?.druid?.homeOf === HOME_MARK);
   const life = home?.semanticMetadata?.druid?.life || {};
   try {
-    const past = life.talk || history || [];
+    // Only the conversation of late (life.js TALK_FRESH): an exchange from thousands of moments ago is answered again.
+    const past = (life.talk || history || []).filter(x => x.tick == null || (life.tick || 0) - x.tick <= 60);
     const r = await answer(world, createMind({ backend, window }), {
       text,
       history: past,

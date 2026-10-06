@@ -8,7 +8,7 @@
  */
 
 import { runLife } from './life.js';
-import { BASIC_MOVES } from './moves/basic.js';
+import { BASIC_MOVES, newWeb } from './moves/basic.js';
 import { ROLE_MOVES } from './moves/roles.js';
 import { COGNITIVE_MOVES } from './moves/cognitive.js';
 import { TIDY_MOVES } from './moves/tidy.js';
@@ -19,15 +19,15 @@ import { asRequest } from './dialogue.js';
 import { sleep as sleepCycle } from './sleep.js';
 import { nameGate, plausible, sameRelation, curiosity, madeOf, aboutKnowing, onSubject, isQuality, kindOf, category } from './mind/helpers.js';
 import { topLevelWebs, isHome } from './attention.js';
-import { understandGoal } from './names.js';
+import { understandGoal, wordsIn, MAX_NAME_WORDS } from './names.js';
 
 export function druidMoves() {
   return [heed, ...BASIC_MOVES, ...ROLE_MOVES, ...COGNITIVE_MOVES, ...TIDY_MOVES];
 }
 
 /** What the Druid is shown about its goals, plans and the belief in focus. */
-function extrasFor(world, locus) {
-  const lines = [renderRoles(world)];
+function extrasFor(world, locus, { talking = false } = {}) {
+  const lines = [renderRoles(world, { talking })];
   if (locus?.focus && isRole(world, locus.focus, 'belief')) {
     const n = (world.druidOf(locus.focus).evidence || []).length;
     lines.push(`About the belief in focus: ${confidenceWords(confidence(world, locus.focus))} (${n} piece${n === 1 ? '' : 's'} of evidence).`);
@@ -96,7 +96,8 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
   yield* runLife(deps, {
     moves: druidMoves(),
     // The goals it set out with pull at attention, not every smaller goal on the way.
-    sources: (w) => goalsInOrder(w).slice(0, GOALS_ATTENDED).map(id => ({ id, weight: 0.6 })),
+    // In a conversation, only what the person asked for pulls (conversation.js).
+    sources: (w, _tick, { talking = false } = {}) => goalsInOrder(w).filter(g => !talking || w.druidOf(g).fromPerson).slice(0, GOALS_ATTENDED).map(id => ({ id, weight: 0.6 })),
     isOpenGoal: (id) => openGoals(world).includes(id),
     episodeType: (w) => roleType(w, 'episode'),
     extendCtx: async (w) => ({ roles: roles ? { home: await seedRoles(w).then(r => r.home), types: { goal: roleType(w, 'goal'), belief: roleType(w, 'belief'), plan: roleType(w, 'plan') } } : null }),
@@ -115,7 +116,12 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
           notes.push(`They asked you to leave ${understood.awayText} alone, so you gave up your goal "${w.nameOf(g)}".`);
         }
       }
-      const wanted = understood?.ask || asRequest(text);
+      const asked = understood && (understood.kind === 'direction' || understood.kind === 'correction');
+      // A goal is a name, and long names are cut: "Build an understanding of a
+      // submarine sandwich" was kept as "Build an understanding". Too long, and
+      // naming a subject, it is named for the subject.
+      let wanted = understood?.ask || asRequest(text) || (asked && understood.subject ? understandGoal(understood.subject) : null);
+      if (wanted && wordsIn(wanted).length > MAX_NAME_WORDS && understood?.subject) wanted = understandGoal(understood.subject);
       const goalType = roleType(w, 'goal');
       if (wanted && goalType) {
         for (const g of openGoals(w)) if (w.druidOf(g).fromPerson) setGoalStatus(w, g, 'abandoned', tick);
@@ -127,7 +133,20 @@ export async function* createDruid(deps, { roles = true, sleeps = true, resumeFr
           notes.push(`They asked you to ${wanted.charAt(0).toLowerCase()}${wanted.slice(1)}; it is now your goal.`);
         }
       }
-      return notes.join('\n') || null;
+      // Asked to work on something its universe does not hold yet, it starts a
+      // web for it and stands there, as a person opens a fresh page: asked to
+      // work on a submarine sandwich, it had nowhere to turn (The Druid 11).
+      let orient = null;
+      let topic = [];
+      if (asked && understood.newSubject) {
+        const r = await newWeb.run({ world: w, locus: { web: null, focus: null, path: [] }, view: {} }, null, understood.newSubject).catch(() => null);
+        if (r?.ok && r.locus?.web) {
+          orient = r.locus;
+          topic = [w.ownerOf(r.locus.web)].filter(Boolean);
+          notes.push(`You started the web ${w.graph(r.locus.web)?.name} for it.`);
+        }
+      }
+      return { notice: notes.join('\n') || null, ask: wanted || null, orient, topic };
     } : null,
     sleep: sleeps ? (ctx) => sleepCycle(ctx) : null,
     ...opts

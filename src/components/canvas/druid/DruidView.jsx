@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Send, Copy, Check, Eraser, Moon, ArrowDown, Activity, Brain, Target, Scale, BookOpen, Settings, Coffee, BedDouble, MessagesSquare } from 'lucide-react';
+import { Send, Copy, Check, Eraser, Moon, ArrowDown, Activity, Brain, Target, Scale, BookOpen, Settings, Play, Pause, MessagesSquare } from 'lucide-react';
 import { useTheme } from '../../../hooks/useTheme.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import useDruidStore, { sleptLine, watchUniverse } from './druidStore.js';
@@ -263,10 +263,10 @@ export function DruidHeaderActions() {
   };
   return (
     <div className="ai-header-actions">
-      {/* Asleep, a coffee wakes it; awake, the bed puts it to sleep. */}
+      {/* Asleep, play wakes it; awake, pause puts it to sleep. */}
       {status === 'idle' || status === 'starting'
-        ? <PanelIconButton icon={Coffee} size={18} onClick={() => useDruidStore.getState().start()} disabled={status === 'starting'} title={status === 'starting' ? 'Waking…' : 'Wake it'} />
-        : <PanelIconButton icon={BedDouble} size={18} onClick={() => useDruidStore.getState().stop()} disabled={status !== 'living'} title={status === 'living' ? 'Put it to sleep' : 'Falling asleep…'} />}
+        ? <PanelIconButton icon={Play} size={18} onClick={() => useDruidStore.getState().start()} disabled={status === 'starting'} title={status === 'starting' ? 'Waking…' : 'Wake it'} />
+        : <PanelIconButton icon={Pause} size={18} onClick={() => useDruidStore.getState().stop()} disabled={status !== 'living'} title={status === 'living' ? 'Put it to sleep' : 'Falling asleep…'} />}
       {/* Filled while the canvas follows where it looks, as a saved Thing's bookmark is. */}
       <PanelIconButton
         icon={Spotlight}
@@ -390,7 +390,7 @@ function DruidView({ active = true }) {
             {view === 'chat' && <DruidChat stream={stream} status={status} answering={answering} tokens={tokens} />}
             {view === 'moments' && stream.length === 0 && (
               <div style={{ color: tokens.muted, fontSize: 13, textAlign: 'center', padding: '40px 8px', lineHeight: 1.5 }}>
-                Wake it (the cup, above) to watch it think. Talk to it any time, awake or asleep: it answers from what its universe holds, and what you say steers it.
+                Wake it (play, above) to watch it think. Talk to it any time, awake or asleep: it answers from what its universe holds, and what you say steers it.
                 <div style={{ fontSize: 11, marginTop: 12 }}>
                   It lives in the universe that is open and writes into it, so give it one of its own. What it does there is kept here until you clear it.
                 </div>

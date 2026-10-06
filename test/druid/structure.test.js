@@ -198,23 +198,28 @@ describe('a web it started, still empty', () => {
     const web = (await newWeb.run(ctxAt(world, { web: home, focus: null, path: [] }), null, 'Snowflake Formation')).locus.web;
     world.actor = 'druid';
     const asked = [];
-    world.onSubject = async (term, subject) => { asked.push(term); return !/Sword|Shadow|Fabric/.test(term) && subject === 'Snowflake Formation'; };
+    world.onSubject = async (term, subject) => { asked.push(`${term} / ${subject}`); return !/Sword|Shadow|Fabric/.test(term); };
     const bond = await world.createThing(web, 'Bond breaks');
     expect(bond.ok).toBe(true);
     const inside = world.ensureInside(bond.id);
     // Druid Test 10: in a stage of a snowflake forming, Sword of Shadows and Fabric Types.
+    // Refused when it fits neither the subject nor what it goes inside.
     expect((await world.createThing(inside, 'Sword of Shadows')).error).toMatch(/nothing to do with Snowflake Formation/);
     expect((await world.createThing(inside, 'Fabric Types')).error).toMatch(/nothing to do with Snowflake Formation/);
     // Its own terse names share a word with where they go, and are not asked.
     expect((await world.createThing(inside, 'Bond weakens')).ok).toBe(true);
     expect((await world.createThing(inside, 'Ice crystal')).ok).toBe(true);
-    expect(asked).toEqual(['Bond breaks', 'Sword of Shadows', 'Fabric Types', 'Ice crystal']);
+    expect(asked).toEqual(['Bond breaks / Snowflake Formation', 'Sword of Shadows / Snowflake Formation', 'Sword of Shadows / Bond breaks', 'Fabric Types / Snowflake Formation', 'Fabric Types / Bond breaks', 'Ice crystal / Snowflake Formation']);
+    // A part of a part fits what it goes inside, if not the whole subject (The Druid 11: Leaf, of Lettuce, of a Submarine sandwich).
+    world.onSubject = async (term, subject) => !(term === 'Pearl' && subject === 'Snowflake Formation');
+    expect((await world.createThing(inside, 'Pearl')).ok).toBe(true);
     // A word one drift brought in does not vouch for the next.
     world.onSubject = async () => true;
     await world.createThing(inside, 'Shadow');
-    world.onSubject = async (term) => { asked.push(term); return false; };
+    world.onSubject = async () => false;
     expect((await world.createThing(inside, 'Shadow puppet')).error).toMatch(/nothing to do with/);
   });
+
 });
 
 describe('plans hold steps, and nothing is put away into Home', () => {

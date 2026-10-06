@@ -44,8 +44,38 @@ export const REPORTS_PER_TURN = 2;
 
 const clip = (t, n) => { const x = String(t || '').replace(/\s+/g, ' ').trim(); return x.length > n ? `${x.slice(0, n - 1)}…` : x; };
 
-const DIRECT = /^(?:please\s+|now\s+|ok(?:ay)?,?\s+|so\s+|then\s+)?(?:go|look|stop|think|tell|explain|find|show|make|focus|work|try|open|connect|describe|name|keep|forget|drop|leave|come|get|start|read|build|map|study|explore|figure|learn|take|turn|move|add|write|check|see|consider|zoom|return)\b|^(?:can|could|would|will) you\b|^(?:i want you to|i'd like you to|let'?s)\b/i;
+const DIRECT = /^(?:please\s+|now\s+|ok(?:ay)?,?\s+|so\s+|then\s+)?(?:go|look|stop|think|tell|explain|find|show|make|focus|work|try|open|connect|describe|name|keep|forget|drop|leave|come|get|start|read|build|map|study|explore|figure|learn|take|turn|move|add|write|check|see|consider|zoom|return|do|switch|begin)\b|^(?:can|could|would|will) you\b|^(?:i want you to|i'd like you to|let'?s)\b/i;
+/** Saying again what they meant: "I'm saying submarine sandwich", "I meant the brain". */
+const MEANT = /\b(?:i'?m saying|i said|i mean|i meant|i'?m talking about|i was talking about)\s+(?:the\s+|a\s+|an\s+)?([^.,;:!?]+)/i;
 const CORRECT = /\b(?:you'?re|you are)\s+(?:drifting|wandering|off|lost|rambling|stuck)|\bthat'?s (?:not|wrong)|\bno[,.]|\bnot (?:that|what i)|\bwrong\b|\bstop\b|\bdon'?t\b|\benough\b|\bget back\b|\bgo back\b/i;
+/**
+ * Asking it to do some work, however politely, is a request, question mark or
+ * not: "can you start working on a submarine sandwich?" was taken as a
+ * question, answered from the quantum computing it was in, and changed
+ * nothing (The Druid 11, 2026-10-06). Asking it to say something ("can you
+ * tell me", "could you explain") stays a question.
+ */
+const ASK_TO_DO = /^(?:please\s+|so\s+|ok(?:ay)?,?\s+)?(?:can|could|would|will) you\s+(?:please\s+)?(?:go|look|start|work|think|find|make|focus|build|map|study|explore|figure|learn|research|open|try|dig|read|keep|stop|move|turn|switch|begin|get|leave|drop)\b/i;
+/** The subject a request names: "start working on a submarine sandwich" → Submarine sandwich. */
+const SUBJECT = /\b(?:start(?:ing)?\s+(?:working\s+on|on|thinking\s+about|looking\s+into|to\s+(?:understand|learn\s+about|explore)|with)|work(?:ing)?\s+on|think(?:ing)?\s+about|look(?:ing)?\s+(?:into|at)|explor(?:e|ing)|learn(?:ing)?\s+about|understand(?:ing)?|build(?:ing)?\s+(?:an?\s+)?(?:understanding|picture|map|web)\s+of|figure\s+out|study(?:ing)?|focus(?:ing)?\s+on|research(?:ing)?|go\s+(?:back\s+)?to|switch\s+to|turn\s+to|move\s+on\s+to|tell\s+me\s+about)\s+(?:the\s+|a\s+|an\s+|some\s+)?([^.,;:!?]+)/i;
+/** Asking it to say something, not to do something: a question, however it is put. */
+const SAY_TO = /^(?:please\s+)?(?:(?:can|could|would|will) you\s+(?:please\s+)?)?(?:tell|explain|show|remind)\b/i;
+/** A question without its question mark: "what do you believe". */
+const ASKING = /^(?:so\s+|and\s+|ok(?:ay)?,?\s+)?(?:what|how|why|who|where|when|which|do you|did you|are you|have you|is it|is there)\b/i;
+const VAGUE = /^(that|this|it|them|something|anything|stuff|things?|more|everything|what\b.*)$/i;
+
+/** The subject a request or question names, in a few words, if it names one plainly. */
+export function subjectOf(text) {
+  const m = MEANT.exec(String(text || '')) || SUBJECT.exec(String(text || ''));
+  if (!m) return null;
+  // Where it is kept is not part of it: "the sub sandwich web" is a sub sandwich.
+  const s = m[1].split(/\s+(?:and|so|because|then|but|instead|now|please|for me|like|again|how|what|why|where|when|which|who)\b/i)[0].trim()
+    .replace(/\s+(?:web|webs|universe|topic|thing|stuff)$/i, '').trim();
+  const words = s.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 5 || VAGUE.test(s)) return null;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 const AWAY = /\b(?:stop (?:thinking|talking|working|looking)?\s*(?:about|on|at)?|don'?t (?:think|talk|work|look)\s+(?:about|on|at)|no more|enough (?:about|of)|forget about|leave|drop|away from|instead of|not)\s+([^.;:!?]+)/gi;
 
 /**
@@ -55,7 +85,7 @@ const AWAY = /\b(?:stop (?:thinking|talking|working|looking)?\s*(?:about|on|at)?
  * clauses that hold one ("Go look at Branch tip" over "What does Time have to
  * do with a snowflake?").
  *
- * @returns {{ kind: 'question'|'direction'|'correction'|'telling', toward: string, away: string }}
+ * @returns {{ kind: 'question'|'direction'|'correction'|'telling', toward: string, away: string, subject: string|null }}
  */
 export function parseSaid(text) {
   const t = String(text || '').trim();
@@ -68,11 +98,11 @@ export function parseSaid(text) {
   const directed = clauses.filter(c => DIRECT.test(c) || /\?$/.test(c));
   const ordered = [...clauses.filter(c => DIRECT.test(c)), ...clauses.filter(c => !DIRECT.test(c))];
   const toward = ordered.map(strip).filter(c => /[a-z]/i.test(c) && !/^(stop|don'?t|no|not)\b/i.test(c)).join(' ');
-  const kind = CORRECT.test(t) ? 'correction'
-    : clauses.some(c => DIRECT.test(c) && !/\?$/.test(c)) ? 'direction'
-      : /\?\s*$/.test(t) || directed.some(c => /\?$/.test(c)) ? 'question'
+  const kind = CORRECT.test(t) || MEANT.test(t) ? 'correction'
+    : clauses.some(c => !SAY_TO.test(c) && ((DIRECT.test(c) && !/\?$/.test(c)) || ASK_TO_DO.test(c))) ? 'direction'
+      : /\?\s*$/.test(t) || directed.some(c => /\?$/.test(c)) || clauses.some(c => SAY_TO.test(c) || ASKING.test(c)) ? 'question'
         : 'telling';
-  return { kind, toward, away: awayText };
+  return { kind, toward, away: awayText, subject: subjectOf(toward || t) };
 }
 
 /**
@@ -83,12 +113,14 @@ export function parseSaid(text) {
  * @param {Object} world
  * @param {Object} mind
  * @param {string} text
- * @returns {Promise<{ kind, toward: string[], away: string[], ask: string|null, awayText: string }>}
+ * @returns {Promise<{ kind, toward: string[], away: string[], ask: string|null, awayText: string, subject: string|null, newSubject: string|null }>}
  */
 export async function understand(world, mind, text) {
   const said = parseSaid(text);
   const away = said.away ? namedIn(world, said.away) : [];
-  const toward = said.toward ? namedIn(world, said.toward).filter(id => !away.includes(id)) : [];
+  // The subject it names, when there is one, before the rest of its words.
+  const bySubject = said.subject ? namedIn(world, said.subject, 1) : [];
+  const toward = [...new Set([...bySubject, ...(said.toward ? namedIn(world, said.toward) : [])])].filter(id => !away.includes(id));
   let ask = null;
   if ((said.kind === 'direction' || said.kind === 'correction') && mind?.helper) {
     // Not a fill: what they want often says their words back, and a fill that does is thrown out.
@@ -103,7 +135,8 @@ export async function understand(world, mind, text) {
     const a = String(r?.value || '').trim().replace(/^["']|["'.]+$/g, '');
     if (a && a.split(/\s+/).length <= 12) ask = a.charAt(0).toUpperCase() + a.slice(1);
   }
-  return { kind: said.kind, toward, away, ask, awayText: said.away };
+  // A subject the universe does not hold yet: for a request, a web is started for it (druid.js onHeard).
+  return { kind: said.kind, toward, away, ask, awayText: said.away, subject: said.subject, newSubject: said.subject && !bySubject.length ? said.subject : null };
 }
 
 /** Whether it is in a conversation now. */

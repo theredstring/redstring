@@ -312,7 +312,12 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
       const subject = topicOf(graphId);
       const said = wordsIn(lower(name)).some(w => api.personWords?.has(w));
       if (subject && lower(subject) !== lower(name) && !said && !sharesWordWith(name, graphId) && (await api.onSubject(name, subject).catch(() => null)) === false) {
-        return { ok: false, error: `"${name}" has nothing to do with ${subject}; keep to ${subject}` };
+        // A part of a part is seldom named in explaining the whole subject
+        // (Leaf, of Lettuce, of a Submarine sandwich): it stays when it fits
+        // what it goes inside. Drift fits neither.
+        const whole = ownerOf(graphId) ? nameOf(ownerOf(graphId)) : null;
+        const fitsWhole = whole && lower(whole) !== lower(subject) && (await api.onSubject(name, whole).catch(() => null)) !== false;
+        if (!fitsWhole) return { ok: false, error: `"${name}" has nothing to do with ${subject}; keep to ${subject}` };
       }
     }
     const clash = findThing(name);

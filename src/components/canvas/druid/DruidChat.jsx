@@ -131,7 +131,7 @@ function DruidChat({ stream, status, answering, tokens }) {
         <Clover size={96} strokeWidth={1} color="var(--canvas-text-muted)" style={{ marginBottom: 16 }} />
         <div style={{ color: 'var(--canvas-text-muted)', fontSize: 14 }}>What shall we talk about?</div>
         <div style={{ color: tokens.muted, fontSize: 11, lineHeight: 1.5, marginTop: 10, maxWidth: 240 }}>
-          Talk to it awake or asleep: it answers from what its universe holds. Wake it with the cup above to watch it work.
+          Talk to it awake or asleep: it answers from what its universe holds. Wake it with the play button above to watch it work.
         </div>
       </div>
     );

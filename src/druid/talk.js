@@ -83,6 +83,28 @@ export function knownAbout(world, id) {
   return lines.join('\n');
 }
 
+/**
+ * A reply with its repeats taken out. A small model loops: "I will look at the
+ * web that connects Sub, Sandwich, and Gathering." three times in one reply
+ * (2026-10-06). A sentence much like one before it in the reply is dropped.
+ */
+export function withoutRepeats(text) {
+  const sentences = String(text || '').match(/[^.!?]+[.!?]*\s*/g) || [];
+  const kept = [];
+  const words = (x) => new Set(tokenize(x));
+  for (const s of sentences) {
+    const w = words(s);
+    const same = kept.some(k => {
+      const kw = words(k);
+      if (!w.size || !kw.size) return s.trim().toLowerCase() === k.trim().toLowerCase();
+      const shared = [...w].filter(x => kw.has(x)).length;
+      return shared / Math.min(w.size, kw.size) >= 0.8;
+    });
+    if (!same) kept.push(s);
+  }
+  return kept.join('').trim();
+}
+
 /** The conversation as the prompt shows it: the last few exchanges. */
 export function renderTalk(history = []) {
   const recent = history.slice(-TALK_KEEP * 2);
@@ -100,6 +122,7 @@ export function renderTalk(history = []) {
  * @param {Array}  [talk.history] [{ who: 'person'|'druid', text }], oldest first, not including this
  * @param {Object} [talk.context] the moment's context ({ system, wm, view, loop }), when it is living
  * @param {string} [talk.thought] what it is thinking now, when living
+ * @param {Object} [talk.request] { ask, note, at }: they asked it to do something, this moment (conversation.js)
  * @param {string[]} [talk.thoughts] its last thoughts, when asleep
  * @param {string} [talk.throughLine]
  * @param {string} [talk.focus]  what it was looking at
@@ -107,7 +130,7 @@ export function renderTalk(history = []) {
  * @param {string} [talk.system] who it is when it talks (prompt space)
  * @returns {Promise<{ ok, text, error?, about: string[] }>}
  */
-export async function answer(world, mind, { text, history = [], context = null, thought = '', thoughts = [], throughLine = '', focus = null, doing = '', system = DEFAULT_PROMPT_SPACE.talk } = {}) {
+export async function answer(world, mind, { text, history = [], context = null, thought = '', thoughts = [], request = null, throughLine = '', focus = null, doing = '', system = DEFAULT_PROMPT_SPACE.talk } = {}) {
   const named = namedIn(world, text);
   const about = named.length ? named : (focus && world.proto(focus) ? [focus] : []);
   const known = about.map(id => knownAbout(world, id)).filter(Boolean).join('\n');
@@ -115,6 +138,12 @@ export async function answer(world, mind, { text, history = [], context = null, 
     ? `What your universe holds about what they mention:\n${known}`
     : 'Your universe holds nothing yet about what they mention.';
   const said = `They say to you now: "${clip(text, 400)}"`;
+  // Asked to do something, it says yes and what it will do first: told only
+  // what it was doing, it described its quantum computing to a person who had
+  // asked it to start on a submarine sandwich (The Druid 11, 2026-10-06).
+  const taking = request?.ask
+    ? `They are asking you to ${request.ask.charAt(0).toLowerCase()}${request.ask.slice(1)}. It is now your goal, ahead of your own${request.at ? `, and you have turned to ${request.at}` : ''}. Tell them plainly that you will, and what you will do first.`
+    : '';
   let r;
   if (context) {
     // Within its moment: the context it thinks in, so it answers from where it
@@ -123,7 +152,7 @@ export async function answer(world, mind, { text, history = [], context = null, 
       ...context,
       dialogue: [renderTalk(history), thought && `What you are thinking now: ${thought}`].filter(Boolean).join('\n'),
       notice: '',
-      question: [system, view, `${said}\nAnswer them as yourself, in two or three plain sentences of your own, from what you are doing and thinking and what your universe holds; do not read out what you see. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
+      question: [system, view, taking ? `${said}\n${taking}` : `${said}\nAnswer them as yourself, in two or three plain sentences of your own, from what you are doing and thinking and what your universe holds; do not read out what you see. If it holds nothing about it, say so, and say what you would look into.`].filter(Boolean).join('\n\n'),
       maxWords: 60
     });
   } else {
@@ -141,14 +170,15 @@ export async function answer(world, mind, { text, history = [], context = null, 
       view,
       loop: renderTalk(history),
       notice: '',
-      question: `${said}\nAnswer them as yourself, in two or three plain sentences. Speak from what your universe holds; if it holds nothing about it, say so, and say what you would look into.`,
+      question: `${said}\nAnswer them as yourself, in two or three plain sentences of your own: no metaphors, no poetry. Speak from what your universe holds; if it holds nothing about it, say so, and say what you would look into.`,
       maxWords: 60
     });
   }
   const blocked = /guardrailViolation/.test(r.error || '');
+  const reply = withoutRepeats(r.text);
   return {
-    ok: !!r.text,
-    text: r.text || (blocked ? "(Apple's model would not answer that.)" : ''),
+    ok: !!reply,
+    text: reply || (blocked ? "(Apple's model would not answer that.)" : ''),
     ...(r.error ? { error: r.error } : {}),
     about: about.map(id => world.nameOf(id))
   };
