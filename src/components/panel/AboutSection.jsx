@@ -521,15 +521,13 @@ const IdentifierRow = ({
 
   // Narrow, the group gets its own line at the bottom of the row, with a wider
   // gap since it is no longer squeezed for width and each button needs to be
-  // its own target. Pulled left by the buttons' 6px padding so the first icon
-  // lines up with the text above it.
+  // its own target. Its left edge is the text's left edge.
   const actions = (
     <div style={{
       display: 'flex',
-      gap: isUltraSlim ? 12 : 2,
+      gap: isUltraSlim ? 10 : 2,
       flexShrink: 0,
-      marginTop: isUltraSlim ? 8 : 0,
-      marginLeft: isUltraSlim ? -6 : 0
+      marginTop: isUltraSlim ? 8 : 0
     }}>
       {/* Only the three standing authorities can be searched. A DOI or a
           bare URL has no directory to look it up in, so that row keeps the

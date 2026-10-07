@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, laz
 import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
+import { PANEL_OVERLAY_MIN_WIDTH } from './utils/canvas/panelWidth.js';
 import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, Network, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History, MoreHorizontal } from 'lucide-react';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
@@ -361,11 +362,9 @@ const ItemTypes = {
  * - Image is scaled horizontally with "objectFit: contain."
  * - The circle around X has a fade‑in transition on hover.
  */
-// How narrow the user is allowed to drag a panel. Lowered from 80 now that the
-// right panel's sections have a low-width layout to fall back on — the floor
-// existed to stop the panel reaching widths its contents couldn't survive, and
-// that's less of what it is protecting against than it was.
-const MIN_PANEL_WIDTH = 64;
+// How narrow the user is allowed to drag a panel: the same floor PanelResizers
+// enforces during a drag, so a stored or clamped width never undercuts it.
+const MIN_PANEL_WIDTH = PANEL_OVERLAY_MIN_WIDTH;
 const INITIAL_PANEL_WIDTH = 250; // Match NodeCanvas default
 // Width at or below which the panel's sections switch to their low-width
 // (stacked/compact) layout. Tracked live during a resize drag, not just on

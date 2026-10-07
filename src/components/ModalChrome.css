@@ -190,6 +190,12 @@
   padding-bottom: 2px;
 }
 
+/* Slider rows draw no hairline, so a row that follows one has no line above it.
+   This puts the row-weight line back on top where the seam needs one. */
+.settings-row--ruled {
+  border-top: 1px solid var(--rs-modal-hairline);
+}
+
 .settings-row--attached + .settings-slider-row {
   padding-top: 2px;
 }

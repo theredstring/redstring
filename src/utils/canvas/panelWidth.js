@@ -3,7 +3,8 @@ import { EXCLUSIVE_PANEL_MODE_THRESHOLD } from '../../constants.js';
 /** Side-panel width helpers (moved from NodeCanvas in P2.12). */
 
 export const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
-export const PANEL_OVERLAY_MIN_WIDTH = 150;
+// How narrow the user can drag a side panel. Shared with Panel.jsx.
+export const PANEL_OVERLAY_MIN_WIDTH = 180;
 /** Width a panel opens at before the user has resized it (Panel's INITIAL_PANEL_WIDTH). */
 export const DEFAULT_PANEL_WIDTH = 250;
 

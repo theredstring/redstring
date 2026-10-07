@@ -295,7 +295,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setEdgeGlowIntensity?.(v)}
             />
           </div>
-          <div className="settings-row">
+          <div className="settings-row settings-row--ruled">
             <div className="settings-row-label">Lifted Thing Shadow</div>
             <OptionGroup
               options={[
