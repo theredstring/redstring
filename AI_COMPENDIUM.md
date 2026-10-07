@@ -35,6 +35,7 @@ Find your task below and read only the listed files — in order. This is the fa
 | **Understand core architecture** | `CLAUDE.md`, `README.md` (§Architecture section) |
 | **Work with the Wizard / MCP** | `documentation/ai-agent-mcp/AI_INTEGRATION_GUIDE.md`, `documentation/ai-agent-mcp/REDSTRING_MCP_SYSTEM_PROMPT.md`, then `documentation/ai-agent-mcp/AGENTIC_ARCHITECTURE.md` (historical — explains the pipeline shape) |
 | **Replace a heuristic with a small constrained model call** | `documentation/ai-agent-mcp/ONE_SHOT_CALLS.md` (current — the design contract and every wired call site), then `documentation/ai-agent-mcp/SMALL_MODEL_ROADMAP.md` (future-intent — the remaining backlog). Note this is *not* the Wizard's agent loop |
+| **Train Redstring's small model (the Druid and the wizard)** | `documentation/ai-agent-mcp/DRUID_TRAINING.md` (paused — the decisions, measurements and where it stopped), then `training/druid/README.md` (how to run each step) |
 | **Call MCP tools from an external client** | `documentation/ai-agent-mcp/MCP_TOOLS_QUICK_REFERENCE.md`, `documentation/ai-agent-mcp/MCP_SETUP_GUIDE.md` |
 | **Use Redstring headless (no browser: CLI, workspaces, universes, GitHub)** | `documentation/core-system/HEADLESS.md` (current — the CLI, workspace/universe model, `redstring init`, pull/push) |
 | **Read or write `.redstring` files** | `documentation/data-format/redstring-format-spec.md` (legacy-canonical — migration code is derived from this), `documentation/data-format/REDSTRING_FORMAT_VERSIONING.md` |

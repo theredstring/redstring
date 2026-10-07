@@ -14,6 +14,9 @@ and each trains its own adapter (LoRA) on the same base model, so the Druid
 can't learn tool calling habits and the wizard can't learn the Druid's voice.
 Each role is judged by its own benchmark.
 
+Why it is built this way, what was measured, and where the work stopped:
+[`documentation/ai-agent-mcp/DRUID_TRAINING.md`](../../documentation/ai-agent-mcp/DRUID_TRAINING.md).
+
 ## Why this can work
 
 The Druid splits its thinking into hundreds of tiny, structured calls

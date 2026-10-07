@@ -16,7 +16,7 @@
  * What it is asked to judge is structure and truth, never obedience: a
  * choice is good for what it builds, and taking up what a person asked is
  * good, as finishing a step nearly done can be (the Druid's temperament is not
- * trained in; see documentation/druid/TRAINING.md).
+ * trained in; see documentation/ai-agent-mcp/DRUID_TRAINING.md).
  */
 
 import { classify, rewardFor } from './rewards.js';
