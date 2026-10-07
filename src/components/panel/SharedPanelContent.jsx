@@ -11,6 +11,7 @@ import SemanticEditor from '../SemanticEditor.jsx';
 import ConnectionBrowser from '../ConnectionBrowser.jsx';
 import StandardDivider from '../StandardDivider.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
 import PanelImage, { PanelImageShimmer } from '../shared/PanelImage.jsx';
 import AboutSection from './AboutSection.jsx';
@@ -486,11 +487,74 @@ const getWikipediaSection = async (pageTitle, sectionId) => {
   return null;
 };
 
+/**
+ * One candidate article on a disambiguation page.
+ *
+ * Lit with the pie hover PanelIconButton uses (#DEDADA, maroon ring) but not
+ * its grow: these are full-width rows in a scroll box, where a scale would
+ * clip against its edges. Like PopoverOption, the ring is 1.5px on top of a
+ * border that turns maroon, so together they read as the usual 3px without
+ * the text shifting.
+ */
+const WikipediaPageOption = ({ option, disabled, onClick }) => {
+  const tokens = usePanelCardTokens();
+  const [isHovered, setIsHovered] = useState(false);
+  const accent = tokens.theme.accent.primary;
+  const lit = isHovered && !disabled;
+
+  return (
+    <button
+      type="button"
+      data-nav="item"
+      onClick={onClick}
+      disabled={disabled}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onBlur={() => setIsHovered(false)}
+      style={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        padding: '7px 9px',
+        marginBottom: '6px',
+        border: `1.5px solid ${lit ? accent : tokens.hairline}`,
+        borderRadius: '8px',
+        background: lit ? '#DEDADA' : 'transparent',
+        boxShadow: lit ? `0 0 0 1.5px ${accent}` : 'none',
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        fontFamily: "'EmOne', sans-serif",
+        transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease'
+      }}
+    >
+      <span style={{
+        display: 'block',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        color: lit ? accent : tokens.brand,
+        marginBottom: option.snippet ? '2px' : 0
+      }}>
+        {option.title}
+      </span>
+      {option.snippet && (
+        <span style={{
+          display: 'block',
+          fontSize: '11px',
+          lineHeight: 1.35,
+          color: lit ? accent : tokens.muted,
+          opacity: lit ? 0.85 : 1
+        }}>
+          {option.snippet}
+        </span>
+      )}
+    </button>
+  );
+};
+
 // Wikipedia Enrichment Component
 const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingChange }) => {
   const theme = useTheme();
   const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
-  const accentBgLight = theme.darkMode ? 'rgba(192,145,145,0.1)' : 'rgba(139,0,0,0.05)';
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [showDisambiguation, setShowDisambiguation] = useState(false);
@@ -679,71 +743,34 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
       )}
 
       {showDisambiguation && searchResult?.type === 'disambiguation' && (
-        <div style={{
-          marginTop: '8px',
-          padding: '12px',
-          border: `1px solid ${accentColor}`,
-          borderRadius: '6px',
-          background: accentBgLight
-        }}>
-          <div style={{
-            fontSize: '11px',
-            color: accentColor,
-            fontFamily: "'EmOne', sans-serif",
-            fontWeight: 'bold',
-            marginBottom: '8px'
-          }}>
-            Multiple Wikipedia pages found ({searchResult.options.length}):
-          </div>
+        <PanelCard
+          title={`Multiple Wikipedia pages found (${searchResult.options.length})`}
+          style={{ marginTop: '8px', marginBottom: 0 }}
+        >
+          {/* 3px of padding inside the scroll box so a hovered row's ring isn't
+              clipped by it. */}
           <div style={{
             maxHeight: '300px',
             overflowY: 'auto',
-            marginBottom: '8px'
+            padding: '3px',
+            margin: '-3px -3px 7px'
           }}>
             {searchResult.options.map((option, index) => (
-              <div
+              <WikipediaPageOption
                 key={index}
+                option={option}
+                disabled={isSearching}
                 onClick={() => handleDisambiguationSelect(option)}
-                style={{
-                  padding: '6px',
-                  marginBottom: '4px',
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  background: theme.canvas.bg,
-                  fontSize: '10px',
-                  fontFamily: "'EmOne', sans-serif",
-                  transition: 'background 0.15s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = accentBgLight}
-                onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
-              >
-                <div style={{ fontWeight: 'bold', color: accentColor, marginBottom: '2px' }}>
-                  {option.title}
-                </div>
-                <div style={{ color: theme.canvas.textSecondary, lineHeight: '1.3' }}>
-                  {option.snippet}
-                </div>
-              </div>
+              />
             ))}
           </div>
-          <button
+          <PanelIconButton
+            label="Cancel"
+            labelFontSize={11}
+            variant="outline"
             onClick={() => setShowDisambiguation(false)}
-            style={{
-              marginTop: '6px',
-              padding: '4px 8px',
-              border: `1px solid ${theme.canvas.border}`,
-              borderRadius: '3px',
-              background: 'transparent',
-              color: theme.canvas.textSecondary,
-              fontSize: '9px',
-              cursor: 'pointer',
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            Cancel
-          </button>
-        </div>
+          />
+        </PanelCard>
       )}
 
     </div>
