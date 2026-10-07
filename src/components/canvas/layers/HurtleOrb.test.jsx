@@ -18,8 +18,16 @@ describe('hurtleFrame', () => {
 
   it('starts at the node as a 1 px dot under it, and ends on the tab faded out', () => {
     expect(hurtleFrame(f, 0)).toMatchObject({ x: 100, y: 500, size: 1, zIndex: 500, opacity: 1 });
-    expect(hurtleFrame(f, 1)).toMatchObject({ x: 640, y: 25, size: 1, zIndex: 5000 });
+    expect(hurtleFrame(f, 1)).toMatchObject({ x: 640, y: 25, size: 1, zIndex: 10500 });
     expect(hurtleFrame(f, 1).opacity).toBeCloseTo(0);
+  });
+
+  it('stays over the side panels (10000): from a panel button from the start, and on landing', () => {
+    const fromPanel = flightAt(0, { fromPanel: true });
+    expect(hurtleFrame(fromPanel, 0).zIndex).toBe(10500);
+    expect(hurtleFrame(fromPanel, 0.5).zIndex).toBe(15000);
+    expect(hurtleFrame(fromPanel, 0.9).zIndex).toBe(10500);
+    expect(hurtleFrame(f, 0.9).zIndex).toBe(10500);
   });
 
   it('balloons to 1.9x the orb size mid-flight, over the header', () => {

@@ -115,6 +115,7 @@ export function startHurtleFromPanelWith(ctx, nodeId, targetGraphId, definitionN
     targetPos: getHeaderTabTarget(),
     nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
     orbSize: orbSize, // Use calculated, zoom-dependent size
+    fromPanel: true,
   };
 
   setHurtleFlight(animationData);

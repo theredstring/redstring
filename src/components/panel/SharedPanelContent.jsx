@@ -1591,6 +1591,15 @@ const SharedPanelContent = ({
         )}
       </div>
 
+      {/* Ultra slim: the Thing's buttons under its title, above the type row,
+          so they never run into the type's own buttons */}
+      {isUltraSlim && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px', marginBottom: '16px' }}>
+          {actionButtons}
+          {secondaryButtons}
+        </div>
+      )}
+
       {/* Type Section - under title */}
       {(() => {
         // Get the type name and color
@@ -1606,10 +1615,11 @@ const SharedPanelContent = ({
         }
 
         // Open the type in the panel and expand its definition: the same pair
-        // Web Definitions uses, here acting on the type. 12px apart and clear of
-        // the type pill so each stays its own touch target.
+        // Web Definitions uses, here acting on the type, spaced as it spaces
+        // them. Beside the type pill when the panel has room, under it when it
+        // doesn't.
         const typeButtons = typeActionsAvailable && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <PanelIconButton
               icon={NotebookText}
               onClick={onOpenTypeInPanel}
@@ -1630,7 +1640,7 @@ const SharedPanelContent = ({
             marginBottom: isUltraSlim ? '16px' : '12px'
           }}>
             {isUltraSlim ? (
-              // Ultra slim layout: "Is a" on top, type button below, icons at bottom
+              // Ultra slim layout: "Is a" on top, type button below, its buttons under that
               <>
                 <div style={{
                   marginBottom: '6px',
@@ -1666,51 +1676,57 @@ const SharedPanelContent = ({
                   >
                     {typeName}
                   </button>
-                  {typeButtons}
+                  {typeButtons && <div style={{ marginTop: '10px' }}>{typeButtons}</div>}
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px', marginLeft: '2px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>{actionButtons}</div>
-                  <div style={{ display: 'flex', gap: '8px' }}>{secondaryButtons}</div>
-                </div>
               </>
             ) : (
-              // Normal layout: "Is a" and type button inline
+              // Normal layout: "Is a" and type button inline, the type's buttons
+              // to their right, wrapping under them when the row runs out
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px',
-                minWidth: '120px',
-                whiteSpace: 'nowrap'
+                flexWrap: 'wrap',
+                // 14px plus the icon button's own 6px padding puts the first icon
+                // as far from the pill as the two icons are from each other
+                columnGap: '14px',
+                rowGap: '10px'
               }}>
-                <span style={{
-                  fontSize: '0.9rem',
-                  color: theme.canvas.textSecondary,
-                  fontFamily: "'EmOne', sans-serif"
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  whiteSpace: 'nowrap'
                 }}>
-                  Is {getArticleFor(typeName)}
-                </span>
-                <button
-                  onClick={() => onTypeSelect && onTypeSelect(nodeData.id)}
-                  style={{
-                    backgroundColor: typeColor,
-                    color: getTextColor(typeColor, theme.darkMode),
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '5px 8px 3px 8px',
-                    fontSize: '0.8rem',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    fontFamily: "'EmOne', sans-serif",
-                    outline: 'none',
-                    marginLeft: '6px'
-                  }}
-                >
-                  {typeName}
-                </button>
+                  <span style={{
+                    fontSize: '0.9rem',
+                    color: theme.canvas.textSecondary,
+                    fontFamily: "'EmOne', sans-serif"
+                  }}>
+                    Is {getArticleFor(typeName)}
+                  </span>
+                  <button
+                    onClick={() => onTypeSelect && onTypeSelect(nodeData.id)}
+                    style={{
+                      backgroundColor: typeColor,
+                      color: getTextColor(typeColor, theme.darkMode),
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '5px 8px 3px 8px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      fontFamily: "'EmOne', sans-serif",
+                      outline: 'none',
+                      marginLeft: '6px'
+                    }}
+                  >
+                    {typeName}
+                  </button>
+                </div>
+                {typeButtons}
               </div>
             )}
-            {!isUltraSlim && typeButtons}
           </div>
         );
       })()}

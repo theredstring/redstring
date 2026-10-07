@@ -12,6 +12,7 @@
  *     startTime, duration,          // performance.now() ms
  *     startPos, targetPos,          // viewport px (the orb is position:fixed)
  *     orbSize, nodeColor,
+ *     fromPanel,                    // launched from a panel button
  *     ...                           // anything else is passed back to onLand
  *   }
  *
@@ -28,6 +29,9 @@ import { createDetentTrack } from '../../../services/haptics.js';
 // middle crossings ~37 ms apart and silently drop one.
 const HURTLE_DETENT_STEP = 0.25;
 
+// Between the side panels (10000) and the header (11000).
+const HURTLE_OVER_PANELS_Z = 10500;
+
 /**
  * The orb at `progress` (0→1): centre, diameter, z-index and opacity. Pure, so
  * the flight's shape can be tested without a browser.
@@ -43,7 +47,11 @@ export function hurtleFrame(flight, progress) {
   const peak = flight.orbSize * 1.9;
   const size = Math.max(1, Math.round(1 + (peak - 1) * Math.sin(progress * Math.PI)));
   // Under the (elevated) node first, then over the header, then just under it.
-  const zIndex = progress < 0.45 ? 500 : progress < 0.85 ? 15000 : 5000;
+  // Always over the panels (10000) otherwise: one launched from a panel button
+  // starts above it rather than under the node, and the landing stays above
+  // them under the header (11000).
+  const zIndex = progress < 0.45 ? (flight.fromPanel ? HURTLE_OVER_PANELS_Z : 500)
+    : progress < 0.85 ? 15000 : HURTLE_OVER_PANELS_Z;
   // Fades out over the last 10%.
   const opacity = progress > 0.9 ? 1 - (progress - 0.9) * 10 : 1;
   return { eased, x, y, size, zIndex, opacity };
