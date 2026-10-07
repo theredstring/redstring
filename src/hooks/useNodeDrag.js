@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
@@ -11,6 +11,7 @@ import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
 import { glyphQuadAt } from '../services/labelSpriteCache.js';
+import { collectDragOwnedEdges, dragNodeIdsOf } from '../components/canvas/edges/dragOwnedEdges.js';
 import {
   computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
@@ -427,65 +428,19 @@ export const useNodeDrag = ({
     // data record. updateEdgesInDOM runs per frame; without this, it would
     // call querySelectorAll 4-5 times per edge per frame and rebuild an O(N)
     // edge index from edgesRef every frame — the dominant cost of group drag.
-    const edgesByNode = edgesByNodeIdRef.current;
-    const affectedEdgeIds = new Set();
-    nodeIdSet.forEach(nodeId => {
-      const edges = edgesByNode.get(nodeId);
-      if (edges) edges.forEach(eid => affectedEdgeIds.add(eid));
-    });
-
-    // A dragged member can resize its containing thing-group, which moves the
-    // group's outer box. External connections attach to the group's ANCHOR (not
-    // the dragged member), so cache the anchor's edges too — otherwise they only
-    // re-clip against the new box on drop, lagging the live resize.
-    const groupsByNodeForCache = groupsByNodeIdRef.current;
-    const groupsByIdForCache = groupsByIdRef?.current;
-    // Anchors whose effective position moves this drag (fed into the Lombardi
-    // two-hop pass below as if they were dragged nodes too) — an anchor's
-    // neighbours re-fan from its box moving exactly like they would from the
-    // anchor itself being dragged.
-    const movedAnchorIds = new Set();
-    if (groupsByIdForCache) {
-      nodeIdSet.forEach(nodeId => {
-        const groups = groupsByNodeForCache.get(nodeId);
-        if (!groups) return;
-        groups.forEach(({ groupId }) => {
-          const anchorId = groupsByIdForCache.get(groupId)?.anchorInstanceId;
-          if (!anchorId || nodeIdSet.has(anchorId)) return;
-          movedAnchorIds.add(anchorId);
-          const anchorEdges = edgesByNode.get(anchorId);
-          if (anchorEdges) anchorEdges.forEach(eid => affectedEdgeIds.add(eid));
-        });
-      });
-    }
-
+    //
+    // Which connections those are — dragged nodes', moved group anchors', and
+    // Lombardi's two-hop fan — is collectDragOwnedEdges, shared with the
+    // renderer so the connections drawn in the drag's form are exactly the
+    // ones rewritten here. See dragOwnedEdges.js.
     const allEdges = edgesRef.current;
-
-    // LOMBARDI IS NOT LOCAL. Every other routing style recomputes an edge from
-    // its own two endpoints, so caching the dragged node's edges is enough.
-    // Lombardi's perfect-angular-resolution fan is a per-NODE solve over that
-    // node's bearings — so moving one node re-solves the fan at each of its
-    // NEIGHBOURS, which moves every edge those neighbours touch, two hops out.
-    // Without this the two-hop edges freeze mid-drag and snap on drop. A moved
-    // group anchor counts as a moved node here too (see movedAnchorIds above) —
-    // otherwise a connection landing on the anchor could shift without the
-    // NEXT connection out reacting, exactly the two-hop gap this set exists to
-    // close, just one indirection removed.
-    const lombardiExtraEdgeIds = new Set();
-    if (enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi') {
-      const movedIds = movedAnchorIds.size > 0 ? new Set([...nodeIdSet, ...movedAnchorIds]) : nodeIdSet;
-      const neighbors = new Set();
-      for (let i = 0; i < allEdges.length; i++) {
-        const e = allEdges[i];
-        if (movedIds.has(e.sourceId)) neighbors.add(e.destinationId);
-        if (movedIds.has(e.destinationId)) neighbors.add(e.sourceId);
-      }
-      neighbors.forEach(id => {
-        const es = edgesByNode.get(id);
-        if (es) es.forEach(eid => { if (!affectedEdgeIds.has(eid)) lombardiExtraEdgeIds.add(eid); });
-      });
-      lombardiExtraEdgeIds.forEach(eid => affectedEdgeIds.add(eid));
-    }
+    const { edgeIds: affectedEdgeIds, lombardiExtraEdgeIds } = collectDragOwnedEdges(nodeIdSet, {
+      edgesByNode: edgesByNodeIdRef.current,
+      groupsByNode: groupsByNodeIdRef.current,
+      groupsById: groupsByIdRef?.current,
+      allEdges,
+      lombardi: enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi',
+    });
     dragLombardiExtraEdgeIdsRef.current = lombardiExtraEdgeIds;
 
     const edgeDataIndex = new Map();
@@ -708,15 +663,7 @@ export const useNodeDrag = ({
   // snapshots this hook restores on drag end.
   useLayoutEffect(() => {
     if (!draggingNodeInfo) return;
-    const ids = [];
-    if (draggingNodeInfo.relativeOffsets) {
-      ids.push(draggingNodeInfo.primaryId);
-      Object.keys(draggingNodeInfo.relativeOffsets).forEach(id => ids.push(id));
-    } else if (draggingNodeInfo.instanceId) {
-      ids.push(draggingNodeInfo.instanceId);
-    } else if (draggingNodeInfo.memberOffsets) {
-      draggingNodeInfo.memberOffsets.forEach(m => ids.push(m.id));
-    }
+    const ids = dragNodeIdsOf(draggingNodeInfo);
     if (ids.length > 0) cacheDOMElements(ids);
   }, [draggingNodeInfo, cacheDOMElements, settledZoomLevel, settledPanOffset]);
 
@@ -3089,9 +3036,26 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   const isDragging = !!draggingNodeInfo;
 
+  // The connections this drag rewrites, for the renderer: those are drawn in
+  // the drag's form and every other one keeps its settled form. Computed in
+  // render, from the same draggingNodeInfo the drag-start render sees, so the
+  // first frame of a drag already draws them in the form the re-cache above
+  // collects. See dragOwnedEdges.js.
+  const dragOwnedEdgeIds = useMemo(() => (draggingNodeInfo
+    ? collectDragOwnedEdges(dragNodeIdsOf(draggingNodeInfo), {
+      edgesByNode: edgesByNodeIdRef.current,
+      groupsByNode: groupsByNodeIdRef.current,
+      groupsById: groupsByIdRef?.current,
+      allEdges: edgesRef.current,
+      lombardi: enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi',
+    }).edgeIds
+    : null
+  ), [draggingNodeInfo]); // eslint-disable-line react-hooks/exhaustive-deps -- refs, read at drag start like the re-cache
+
   return {
     // State
     draggingNodeInfo,
+    dragOwnedEdgeIds,
     draggingNodeInfoRef,
     dragPhaseRef,
     isAnimatingZoomRef,

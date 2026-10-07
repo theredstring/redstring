@@ -73,6 +73,7 @@ export function renderConnectionEdge(edge, ctx) {
     curvedLabelQuantum,
     darkMode,
     draggingNodeInfo,
+    dragOwnedEdgeIds,
     edgeCurveInfo,
     edgePrototypesMap,
     edgeTouchHandlers,
@@ -111,6 +112,13 @@ export function renderConnectionEdge(edge, ctx) {
     textSettings,
     visibleNodeIds,
   } = ctx;
+
+  // Whether a drag in progress rewrites THIS connection each frame. Only those
+  // are drawn in the drag's form (no cached label placement, live <text> labels
+  // it can re-cut); every other connection stands still and keeps its settled
+  // form. Without the set, assume the drag owns everything, which is the old
+  // and always-safe answer. See dragOwnedEdges.js for why it matters.
+  const draggedHere = !!draggingNodeInfo && (dragOwnedEdgeIds ? dragOwnedEdgeIds.has(edge.id) : true);
 
   let sourceNode = nodeById.get(edge.sourceId);
   let destNode = nodeById.get(edge.destinationId);
@@ -1453,7 +1461,7 @@ export function renderConnectionEdge(edge, ctx) {
           // the anchors a drag needs to hold its placement.
           const labelSignature = `${orthoRouting.pathD}|${connectionName}|${connectionFontSize}|${connectionLabelTruncate ? 1 : 0}|${labelCrossingIndex?.generation ?? 0}`;
           const cached = placedLabelsRef.current.get(edge.id);
-          if (cached && cached.position && cached.signature === labelSignature && !draggingNodeInfo) {
+          if (cached && cached.position && cached.signature === labelSignature && !draggedHere) {
             // The truncation rides on the cache entry alongside the
             // placement. It is a function of the same geometry the
             // signature already covers (pathD), so a hit means the cut is
@@ -1603,19 +1611,22 @@ export function renderConnectionEdge(edge, ctx) {
         // attributes on the ones already mounted — nothing a per-frame DOM
         // writer can reach.
         //
-        // So sprites stand down for the length of a node drag, and the labels
-        // ride it in the form that can follow their connections. This is the
+        // So sprites stand down for the length of a node drag on the
+        // connections the drag moves, and those labels ride it in the form that
+        // can follow their connections. This is the
         // regression that made truncation look static: sprites landed after the
         // truncation work and quietly took the re-cut path out from under it
         // (retruncateLabel in useNodeDrag returns immediately without a <text>),
         // leaving every label frozen at its pre-drag cut until the drop.
         //
-        // It costs nothing where sprites earn their keep. A graph big enough to
-        // want them holds its labels DOWN for the whole drag — see the move-fade
-        // hold in NodeCanvas — so there is nothing on screen to draw in either
-        // form; below that threshold <text> is what the canvas drew before
-        // sprites existed. With truncation off there is no re-cut to miss, so
-        // the sprites stay.
+        // ONLY those connections (draggedHere). It once applied to every label
+        // on screen, on the theory that a big graph holds its labels down for
+        // the drag anyway — but that hold follows the move-fade setting, which
+        // is off by default. So every render that landed mid-drag (culling
+        // mounting what the drag zoom-out revealed, the zoom settle) redrew
+        // the whole canvas's labels as stroked <text>, which is what choked the
+        // drag zoom-out. A connection the drag does not move has no re-cut to
+        // miss. With truncation off there is none anywhere, so the sprites stay.
         //
         // Read by the rotation bucket immediately below as well as by the
         // sprite lookups further down, and it has to be the same answer in both
@@ -1624,7 +1635,7 @@ export function renderConnectionEdge(edge, ctx) {
         // (curvedGlyphQuantum), not at the exact ones a sprite would take, or
         // every glyph twitches at the moment of lift.
         const labelSpritesUsableNow = labelSpritesEnabled
-          && !(connectionLabelTruncate && draggingNodeInfo);
+          && !(connectionLabelTruncate && draggedHere);
         // Sprites take EXACT angles. The rotation bucket exists purely
         // to bound glyph-atlas keys, and a sprite mints none — rotating
         // an <image> is a transform on a bitmap, not a re-rasterisation

@@ -823,18 +823,42 @@ html.dark-mode .ai-attachment-remove {
 .ai-context-usage {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 4px;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   background: none;
   border: none;
-  border-radius: 4px;
+  /* A circle, growing under the cursor the way the panel's icon buttons do */
+  border-radius: 50%;
   font: inherit;
   cursor: pointer;
-  transition: background 0.15s ease;
+  /* PanelIconButton's hover, which is the pie bubble's: same timing */
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
-.ai-context-usage:hover:not(:disabled) {
-  background: rgba(38, 0, 0, 0.06);
+/* The pie bubble's hover, as every panel icon button has it: light grey with a
+   maroon ring, in both themes, and the ring inside it goes maroon */
+.ai-context-usage:hover:not(:disabled),
+.ai-context-usage:focus-visible:not(:disabled) {
+  background-color: #DEDADA;
+  box-shadow: 0 0 0 3px maroon;
+  transform: scale(1.1);
+  outline: none;
+}
+
+.ai-context-usage:hover:not(:disabled) .ai-context-ring-track,
+.ai-context-usage:focus-visible:not(:disabled) .ai-context-ring-track {
+  stroke: rgba(128, 0, 0, 0.2);
+}
+
+.ai-context-usage:hover:not(:disabled) .ai-context-ring-fill:not(.warning):not(.critical),
+.ai-context-usage:focus-visible:not(:disabled) .ai-context-ring-fill:not(.warning):not(.critical) {
+  stroke: maroon;
+}
+
+.ai-context-usage:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .ai-context-usage:disabled {
@@ -842,12 +866,23 @@ html.dark-mode .ai-attachment-remove {
   cursor: default;
 }
 
-html.dark-mode .ai-context-usage:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-}
-
 .ai-context-ring {
   display: block;
+  transform-origin: 50% 50%;
+}
+
+/* One full turn when a compaction lands */
+.ai-context-ring.sweeping {
+  animation: ai-context-ring-sweep 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes ai-context-ring-sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-context-ring.sweeping { animation: none; }
 }
 
 .ai-context-ring-track,
@@ -874,11 +909,13 @@ html.dark-mode .ai-context-usage:hover:not(:disabled) {
   stroke: #b42318;
 }
 
-html.dark-mode .ai-context-ring-track {
+html.dark-mode .ai-context-usage:not(:hover):not(:focus-visible) .ai-context-ring-track,
+html.dark-mode .ai-context-usage:disabled .ai-context-ring-track {
   stroke: rgba(255, 255, 255, 0.14);
 }
 
-html.dark-mode .ai-context-ring-fill {
+html.dark-mode .ai-context-usage:not(:hover):not(:focus-visible) .ai-context-ring-fill:not(.warning):not(.critical),
+html.dark-mode .ai-context-usage:disabled .ai-context-ring-fill:not(.warning):not(.critical) {
   stroke: rgba(255, 255, 255, 0.55);
 }
 

@@ -27,7 +27,9 @@
   stroke: black;
 }
 
-.node.dragging>.node-background {
+/* Lifted Thing Shadow, 'fancy'. 'fast' is drawn as rects in Node.jsx and 'off'
+   draws nothing; see LIFTED_THING_SHADOW_MODES in colorUtils. */
+.node.dragging[data-lift-shadow="fancy"]>.node-background {
   /* Use node-background directly for filter */
   filter: drop-shadow(0px 8px 10px rgba(0, 0, 0, 0.4));
 }
@@ -93,6 +95,11 @@
   /* Touch-specific drag feedback */
   .node.dragging {
     transform: scale(1.05);
+  }
+
+  /* Only 'fancy' gets the deeper touch shadow, and on the whole node: 'fast'
+     and 'off' must not pay for a filter here either. */
+  .node.dragging[data-lift-shadow="fancy"] {
     filter: drop-shadow(0px 12px 20px rgba(0, 0, 0, 0.5));
   }
 

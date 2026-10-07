@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import useCanvasUIStore from './canvasUIStore.js';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches, current, isDraft } from 'immer';
-import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity } from '../utils/colorUtils.js';
+import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity, LIFTED_THING_SHADOW_MODES, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 
 // Global listener for patches, used by middleware to capture changes from actions
 let patchListener = null;
@@ -183,6 +183,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {boolean} connectionLabelSprites - Whether connection labels are drawn as pre-rasterised bitmaps rather than live stroked <text>. On costs a little crispness between zoom buckets and buys most of the per-frame label cost back.
  * @property {number} edgeGlowIntensity - Multiplier on how strongly those flares read: their size and opacity together, over whatever appearance `edgeGlowMode` picked.
  * @property {string} edgeGlowMode - `'off'|'fast'|'fancy'|'adaptive'` — how the flares that ride the viewport border pointing at off-screen Things are drawn. `'adaptive'` picks between the other two by how many Things the open web holds.
+ * @property {string} liftedThingShadow - `'off'|'fast'|'fancy'` — the shadow under a Thing lifted by a drag: none, stacked low-alpha rects, or a blurred drop-shadow filter.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
  * @property {number} hoverPreviewSize - Scale multiplier for hover preview cards.
@@ -1922,6 +1923,14 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return DEFAULT_EDGE_GLOW_MODE;
       } catch (_) {
         return DEFAULT_EDGE_GLOW_MODE;
+      }
+    })(),
+    liftedThingShadow: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_lifted_thing_shadow');
+        return LIFTED_THING_SHADOW_MODES.includes(saved) ? saved : DEFAULT_LIFTED_THING_SHADOW;
+      } catch (_) {
+        return DEFAULT_LIFTED_THING_SHADOW;
       }
     })(),
     edgeGlowIntensity: (() => {
@@ -7209,6 +7218,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.edgeGlowMode = mode;
       try {
         localStorage.setItem('redstring_edge_glow_mode', mode);
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets the shadow under a Thing lifted by a drag. One of
+     * LIFTED_THING_SHADOW_MODES; anything else is ignored rather than written.
+     * Persists to localStorage.
+     * @param {'off'|'fast'|'fancy'} mode
+     */
+    setLiftedThingShadow: (mode) => set(produce((draft) => {
+      if (!LIFTED_THING_SHADOW_MODES.includes(mode)) return;
+      draft.liftedThingShadow = mode;
+      try {
+        localStorage.setItem('redstring_lifted_thing_shadow', mode);
       } catch (_) { }
     })),
 

@@ -2219,6 +2219,11 @@ const LeftAIView = ({ compact = false,
    * array (see compactConversation.js) — so a compacted conversation still knows
    * what it was building.
    */
+  // The ring sweeps once when a compaction lands, so the click visibly did something.
+  const [ringSweeping, setRingSweeping] = React.useState(false);
+  const ringSweepTimerRef = React.useRef(null);
+  React.useEffect(() => () => clearTimeout(ringSweepTimerRef.current), []);
+
   const runCompaction = React.useCallback(({ source } = {}) => {
     if (isProcessingRef.current) {
       addMessage('system', 'Cannot compact while a run is in progress — stop it first.');
@@ -2240,6 +2245,9 @@ const LeftAIView = ({ compact = false,
     )));
 
     // The summary's divider in the transcript says it happened; no notice.
+    clearTimeout(ringSweepTimerRef.current);
+    setRingSweeping(true);
+    ringSweepTimerRef.current = setTimeout(() => setRingSweeping(false), 600);
     console.log('[Wizard] Compacted conversation', {
       source, summarized: result.summarizedCount, before: result.tokensBefore, after: result.tokensAfter
     });
@@ -4692,7 +4700,7 @@ const LeftAIView = ({ compact = false,
                   aria-label={`${contextUsage.percent}% of context used${compactable ? ', click to compact' : ''}`}
                 >
                   {/* A ring that fills clockwise from the top; no number. */}
-                  <svg className="ai-context-ring" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <svg className={`ai-context-ring${ringSweeping ? ' sweeping' : ''}`} width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                     <circle className="ai-context-ring-track" cx="8" cy="8" r="6" />
                     <circle
                       className={`ai-context-ring-fill${contextUsage.percent >= 80 ? ' warning' : ''}${contextUsage.percent >= 95 ? ' critical' : ''}`}

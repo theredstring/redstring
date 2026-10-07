@@ -6,7 +6,7 @@ import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hov
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
 import { getNodeDimensions, getDefinitionDescription } from './utils.js'; // Import needed for node dims
 import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
-import { getTextColor } from './utils/colorUtils.js';
+import { getTextColor, DEFAULT_LIFTED_THING_SHADOW, LIFTED_THING_SHADOW_FAST_LAYERS } from './utils/colorUtils.js';
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { isValidColor } from './ai/palettes.js';
 import { ChevronLeft, ChevronRight, Trash2, Expand, ArrowUpFromDot, PackageOpen } from 'lucide-react'; // Import navigation icons, trash, expand, and package-open
@@ -69,6 +69,9 @@ const Node = ({
 }) => {
   const theme = useTheme();
   const textSettings = useGraphStore(state => state.textSettings);
+  // Only the dragged Thing ever draws a shadow, so every other node reads null
+  // here and a change of setting re-renders just the one that is lifted.
+  const liftShadow = useGraphStore(state => isDragging ? (state.liftedThingShadow ?? DEFAULT_LIFTED_THING_SHADOW) : null);
   // Effective node scale = global node-size scope × this instance's per-instance size.
   // Both the box geometry and the label font derive from it, so a resized instance grows
   // as a coherent whole (kept in lock-step with getNodeDimensions, which folds in the
@@ -394,6 +397,7 @@ const Node = ({
     <g
       className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''}`}
       data-instance-id={instanceId}
+      data-lift-shadow={liftShadow || undefined}
       data-has-context-menu="true"
       /* Disable default touch gestures on node group */
       style={isDragging ? {
@@ -492,6 +496,26 @@ const Node = ({
           </mask>
         )}
       </defs>
+
+      {/* Lifted shadow, 'fast': stacked rects under the background, offset
+          down and grown a little each. Plain fills, no filter, so it paints
+          inline rather than through an offscreen surface. 'fancy' is a CSS
+          filter on the background instead — see Node.css. */}
+      {liftShadow === 'fast' && LIFTED_THING_SHADOW_FAST_LAYERS.map(({ dy, spread, alpha }, i) => (
+        <rect
+          key={`lift-shadow-${i}`}
+          className="node-lift-shadow"
+          x={nodeX + 6 - spread}
+          y={nodeY + 6 - spread + dy}
+          width={currentWidth - 12 + spread * 2}
+          height={currentHeight - 12 + spread * 2}
+          rx={Math.max(0, effCornerRadius - 6) + spread}
+          ry={Math.max(0, effCornerRadius - 6) + spread}
+          fill="black"
+          fillOpacity={alpha}
+          pointerEvents="none"
+        />
+      ))}
 
       {/* Background Rect - Use absolute coords */}
       <rect

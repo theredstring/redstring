@@ -402,6 +402,37 @@ export const resolveEdgeGlowQuality = (mode, nodeCount) => {
 };
 
 /**
+ * The shadow under a Thing while it is lifted by a drag.
+ *
+ * - 'off': no shadow; the lift scale alone says the Thing is up.
+ * - 'fast': a few stacked rounded rects at low fill-opacity under the Thing's
+ *   background. Stepped rather than truly blurred, and painted inline with the
+ *   node: no filter, so no offscreen surface.
+ * - 'fancy': a CSS drop-shadow filter on the background rect, which is how the
+ *   lift looked before this setting existed. A real blur, and a filter surface
+ *   re-rasterised every frame the drag-zoom rescales the canvas.
+ *
+ * 'fast' is the default. A filter on a group box was what flickered big webs
+ * out of raster memory during a group drag (see groupElements), and the fast
+ * shadow reads as a lift without paying for one.
+ */
+export const LIFTED_THING_SHADOW_MODES = ['off', 'fast', 'fancy'];
+export const DEFAULT_LIFTED_THING_SHADOW = 'fast';
+
+/**
+ * The 'fast' shadow's layers, in canvas units: each one is the background rect
+ * moved down by `dy` and grown by `spread` on every side. Their alphas stack
+ * toward the middle, so the edge steps off softly instead of ending in a line.
+ * Sized against the fancy filter's drop-shadow(0 8px 10px rgba(0,0,0,0.4)).
+ */
+export const LIFTED_THING_SHADOW_FAST_LAYERS = [
+  { dy: 8, spread: 1, alpha: 0.1 },
+  { dy: 8, spread: 3.5, alpha: 0.1 },
+  { dy: 8, spread: 6.5, alpha: 0.1 },
+  { dy: 8, spread: 10, alpha: 0.08 },
+];
+
+/**
  * Returns the { fill, stroke } pair for a connection label. Both are drawn from
  * the connection's own hue — one near-white, one near-black — so the halo is
  * always the opposite lightness of the glyph fill.

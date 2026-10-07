@@ -9,7 +9,7 @@ import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
 import { useShellPreference, setShellPreference } from '../hooks/useMobileLandscapeShell.js';
-import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX } from '../utils/colorUtils.js';
+import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 import './ModalChrome.css';
 
 /**
@@ -180,6 +180,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelSprites = useGraphStore(s => s.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
   const edgeGlowMode = useGraphStore(s => s.edgeGlowMode) ?? DEFAULT_EDGE_GLOW_MODE;
   const edgeGlowIntensity = useGraphStore(s => s.edgeGlowIntensity) ?? DEFAULT_EDGE_GLOW_INTENSITY;
+  const liftedThingShadow = useGraphStore(s => s.liftedThingShadow) ?? DEFAULT_LIFTED_THING_SHADOW;
   const darkMode = useGraphStore(s => s.darkMode);
   // Lives outside the store on purpose — the shell decision has to be correct
   // before React mounts. See hooks/useMobileLandscapeShell.js.
@@ -291,6 +292,18 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix="x"
               disabled={edgeGlowMode === 'off'}
               onChange={(v) => useGraphStore.getState().setEdgeGlowIntensity?.(v)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Lifted Thing Shadow</div>
+            <OptionGroup
+              options={[
+                { label: 'Off', value: 'off' },
+                { label: 'Fast', value: 'fast' },
+                { label: 'Fancy', value: 'fancy' }
+              ]}
+              value={liftedThingShadow}
+              onChange={(v) => useGraphStore.getState().setLiftedThingShadow?.(v)}
             />
           </div>
           <div className="settings-row settings-row--attached">

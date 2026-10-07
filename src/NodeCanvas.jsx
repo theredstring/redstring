@@ -3297,7 +3297,7 @@ function NodeCanvas() {
     curveSpacing,
     curvedLabelQuantum,
     darkMode,
-    draggingNodeInfo,
+    draggingNodeInfo, dragOwnedEdgeIds: nodeDrag.dragOwnedEdgeIds,
     edgeCurveInfo,
     edgePrototypesMap,
     edgeTouchHandlers,
