@@ -180,6 +180,7 @@
     "@electron/fuses": "^1.8.0",
     "@eslint/js": "^9.9.0",
     "@playwright/test": "^1.63.0",
+    "@redstring/apple-model": "file:native/afm-bridge",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

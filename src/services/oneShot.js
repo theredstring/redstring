@@ -205,10 +205,11 @@ async function defaultResolveModelConfig() {
   try {
     const info = await apiKeyManager.getAPIKeyInfo();
     if (!info || !info.hasKey) return null;
-    if (!_allowCloudProviders && info.provider !== 'local') return null;
+    const onDevice = info.provider === 'local' || info.provider === 'apple';
+    if (!_allowCloudProviders && !onDevice) return null;
     const apiKey = await apiKeyManager.getAPIKey();
     // Local providers use the 'local' placeholder / may need no key.
-    if (!apiKey && info.provider !== 'local') return null;
+    if (!apiKey && !onDevice) return null;
     return {
       apiKey: apiKey || '',
       provider: info.provider,

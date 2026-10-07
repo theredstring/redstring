@@ -5,6 +5,7 @@
 
 import { debugLogSync } from '../utils/debugLogger.js';
 import { isVolatileContextMessage } from './requestMessages.js';
+import { streamApple } from '../services/appleModel.js';
 
 /**
  * Get default config if not provided
@@ -412,7 +413,7 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
 
   // Local/small models (LM Studio, Ollama, llama.cpp, etc.) need honest schemas and
   // a low temperature for reliable native tool-calling.
-  const isLocal = provider === 'local' || /localhost|127\.0\.0\.1/.test(endpoint || '');
+  const isLocal = provider === 'local' || provider === 'apple' || /localhost|127\.0\.0\.1/.test(endpoint || '');
 
   // Temperature: 0.7 for cloud, 0.1 for local/small. The wizard profile always sends
   // 0.7 (AISection hardcodes it — there is no temperature control in the AI settings UI),
@@ -444,6 +445,9 @@ export async function* streamLLM(messages, tools = [], config = {}, signal = nul
     yield* streamAnthropic(normalizedMessages, normalizedTools, { endpoint, model: config.model, apiKey, maxTokens: config.maxTokens }, signal);
   } else if (provider === 'google') {
     yield* streamGemini(normalizedMessages, normalizedTools, { model: config.model, apiKey, temperature, maxTokens }, signal);
+  } else if (provider === 'apple') {
+    // Apple's on-device model: chat only, its window can't hold the tools.
+    yield* streamApple(normalizedMessages, normalizedTools, { maxTokens: config.maxTokens, temperature: config.temperature ?? 0.7 });
   } else if (provider === 'cohere') {
     throw new Error('Cohere isn\'t supported by the Wizard. Use OpenRouter to reach Cohere models, or pick another provider.');
   } else {

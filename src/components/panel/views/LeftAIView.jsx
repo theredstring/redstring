@@ -663,10 +663,18 @@ const LeftAIView = ({ compact = false,
   // Kept only so the trigger's chevron can point at an open menu — the menu
   // itself is the global context menu, which owns its own dismissal.
   const [showModeMenu, setShowModeMenu] = React.useState(false);
+  // Apple's on-device model can only chat: the Wizard's tools don't fit its
+  // window (services/appleModel.js). Chosen in Settings, the panel goes to Chat.
+  const appleActive = apiKeyInfo?.provider === 'apple';
+  React.useEffect(() => {
+    if (appleActive) setViewModeState(m => (m === 'wizard' ? 'chat' : m));
+  }, [appleActive]);
   const openModeMenu = React.useCallback((e) => {
     setShowModeMenu(true);
     showContextMenuForElement(e.currentTarget, [
-      { value: 'wizard', label: 'The Wizard' },
+      appleActive
+        ? { value: 'wizard', label: "The Wizard (not on Apple's model)", disabled: true }
+        : { value: 'wizard', label: 'The Wizard' },
       // The Druid, a small local model living in the open universe; shown
       // while Settings › Debug › The Druid is on (src/druid/).
       ...(debugConfig.isDruidEnabled() ? [{ value: 'druid', label: 'The Druid' }] : []),
@@ -674,9 +682,10 @@ const LeftAIView = ({ compact = false,
     ].map((opt) => ({
       label: opt.label,
       active: viewMode === opt.value,
-      action: () => setViewMode(opt.value),
+      disabled: opt.disabled,
+      action: opt.disabled ? undefined : () => setViewMode(opt.value),
     })), { onClose: () => setShowModeMenu(false) });
-  }, [viewMode, setViewMode]);
+  }, [viewMode, setViewMode, appleActive]);
   // Chooser for the Wizard's Plan/Goal mode. A chooser, not a toggle: a lone
   // icon could not say whether it showed the mode you were in or the one a
   // click would take you to. The pill names the current mode; the menu shows

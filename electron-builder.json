@@ -29,6 +29,12 @@
     "loadBrowserProcessSpecificV8Snapshot": false
   },
   "mac": {
+    "extraResources": [
+      {
+        "from": "native/afm-bridge/.build/release/afm-bridge",
+        "to": "afm-bridge"
+      }
+    ],
     "entitlements": "entitlements.mac.plist",
     "entitlementsInherit": "entitlements.mac.plist",
     "hardenedRuntime": true,

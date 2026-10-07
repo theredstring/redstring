@@ -109,7 +109,7 @@ describe('backends in the app', () => {
   it("says plainly when Apple's model is unavailable", async () => {
     const electron = { druid: { afm: async () => ({ available: false, reason: 'appleIntelligenceNotEnabled' }) } };
     await expect(backendFor({ mind: 'afm' }, electron)).rejects.toThrow(/unavailable: appleIntelligenceNotEnabled/);
-    await expect(backendFor({ mind: 'afm' }, {})).rejects.toThrow(/desktop app/);
+    await expect(backendFor({ mind: 'afm' }, {})).rejects.toThrow(/Mac app or the iPhone and iPad app/);
   });
 });
 

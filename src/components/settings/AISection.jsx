@@ -9,6 +9,7 @@ import { getProviderLabel } from '../../services/modelCatalog.js';
 import debugConfig from '../../utils/debugConfig.js';
 import { useWizardMode } from '../../hooks/useWizardMode.js';
 import { WIZARD_MODE_OPTIONS } from '../../wizard/wizardMode.js';
+import { appleModelHealth, unavailableReason, APPLE_LABEL, APPLE_MODEL_ID } from '../../services/appleModel.js';
 import './AISection.css';
 // Installs the one-time "who receives what" consent in front of every AI request.
 import '../../ai/aiConsentPrompt.js';
@@ -55,6 +56,10 @@ const AISection = () => {
   const theme = useTheme();
   const [apiKey, setApiKey] = useState('');
   const [provider, setProvider] = useState('openrouter');
+  // Apple's on-device model, offered where this device has it (services/appleModel.js).
+  const [apple, setApple] = useState(null);
+  // Runs on this machine or device: no key, no hosted model list.
+  const onDevice = provider === 'local' || provider === 'apple';
   const [customProviderName, setCustomProviderName] = useState('');
   const [endpoint, setEndpoint] = useState('');
   const [model, setModel] = useState('');
@@ -162,12 +167,21 @@ const AISection = () => {
     }
   };
 
+  useEffect(() => {
+    let live = true;
+    appleModelHealth().then(h => { if (live) setApple(h); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+
   const handleProviderChange = (newProvider) => {
     setProvider(newProvider);
     setSelectedPreset(null);
     setConnectionTestResult(null);
     setUseCustomModel(false);
-    if (newProvider !== 'custom') {
+    if (newProvider === 'apple') {
+      setEndpoint('');
+      setModel(APPLE_MODEL_ID);
+    } else if (newProvider !== 'custom') {
       const defaultEndpoint = apiKeyManager.getDefaultEndpoint(newProvider);
       const defaultModel = apiKeyManager.getDefaultModel(newProvider);
       setEndpoint(defaultEndpoint);
@@ -256,7 +270,7 @@ const AISection = () => {
 
     try {
       let keyToStore = apiKey.trim();
-      if (!keyToStore && provider !== 'local') {
+      if (!keyToStore && !onDevice) {
         if (isEditingExisting && !allowKeyEdit) {
           keyToStore = await apiKeyManager.getAPIKey();
           if (!keyToStore) {
@@ -269,15 +283,15 @@ const AISection = () => {
         throw new Error('Invalid API key');
       }
 
-      if (provider === 'local' && !keyToStore) {
-        keyToStore = 'local';
+      if (onDevice && !keyToStore) {
+        keyToStore = provider;
       }
 
       const finalProvider = provider === 'custom' ? customProviderName : provider;
 
       await apiKeyManager.storeAPIKey(keyToStore, finalProvider, {
-        endpoint: endpoint.trim(),
-        model: model.trim(),
+        endpoint: provider === 'apple' ? '' : endpoint.trim(),
+        model: provider === 'apple' ? APPLE_MODEL_ID : model.trim(),
         settings: {
           temperature: 0.7,
           max_tokens: 8192,
@@ -536,6 +550,7 @@ const AISection = () => {
                 </option>
               ))}
               <option value="local">Local LLM Server</option>
+              {(apple?.available || provider === 'apple') && <option value="apple">{APPLE_LABEL}</option>}
             </select>
           </div>
 
@@ -554,6 +569,16 @@ const AISection = () => {
                 disabled={isLoading}
                 className="modal-input"
               />
+            </div>
+          )}
+
+          {/* Apple's on-device model */}
+          {provider === 'apple' && (
+            <div className="settings-row-description" style={{ padding: '8px 0', lineHeight: 1.5 }}>
+              {"Runs on this device with Apple's own model: nothing leaves it, and there is no key. "
+                + "It can chat with you about your universe, but it can't build or edit: its window is "
+                + "too small for the Wizard's tools. The Druid can use it too, in its own settings."}
+              {apple && !apple.available && <div style={{ marginTop: 6 }}>{unavailableReason(apple)}</div>}
             </div>
           )}
 
@@ -676,7 +701,7 @@ const AISection = () => {
           )}
 
           {/* Model Selection (non-local providers) */}
-          {provider !== 'local' && (
+          {!onDevice && (
             <div className="settings-row">
               <div className="settings-row-label">
                 Model
@@ -773,7 +798,7 @@ const AISection = () => {
           )}
 
           {/* Advanced Settings */}
-          {showAdvanced && provider !== 'local' && (
+          {showAdvanced && !onDevice && (
             <>
               <div className="settings-section-subtitle">Advanced</div>
               <div className="settings-row">
@@ -794,7 +819,7 @@ const AISection = () => {
             </>
           )}
 
-          {provider !== 'local' && !showAdvanced && (
+          {!onDevice && !showAdvanced && (
             <div className="settings-row">
               <div className="settings-row-label"></div>
               <PanelIconButton
@@ -808,7 +833,7 @@ const AISection = () => {
           )}
 
           {/* API Key Input */}
-          {provider !== 'local' && (
+          {!onDevice && (
             <div className="settings-row">
               <div className="settings-row-label">
                 API Key
@@ -915,7 +940,7 @@ const AISection = () => {
               labelFontSize={12}
               variant="solid"
               onClick={handleSubmit}
-              disabled={isLoading || ((provider !== 'local') && !apiKey.trim() && !(isEditingExisting && !allowKeyEdit))}
+              disabled={isLoading || (!onDevice && !apiKey.trim() && !(isEditingExisting && !allowKeyEdit))}
               style={{ padding: '8px 20px' }}
             />
           </div>

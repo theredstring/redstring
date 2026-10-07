@@ -16,6 +16,7 @@ def capacitor_pods
   pod 'CapacitorBrowser', :path => '../../node_modules/@capacitor/browser'
   pod 'CapacitorFilesystem', :path => '../../node_modules/@capacitor/filesystem'
   pod 'CapacitorHaptics', :path => '../../node_modules/@capacitor/haptics'
+  pod 'RedstringAppleModel', :path => '../../native/afm-bridge'
 end
 
 target 'App' do

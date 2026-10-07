@@ -52,7 +52,7 @@ export async function callLLM({
   signal = null
 }) {
   // Local providers may not require API keys
-  if (!apiKey && provider !== 'local' && provider !== 'openai') {
+  if (!apiKey && provider !== 'local' && provider !== 'apple' && provider !== 'openai') {
     throw new Error('API key is required');
   }
 

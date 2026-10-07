@@ -3,7 +3,8 @@
  *
  *   afm(request)   Apple's on-device model through native/afm-bridge, spawned
  *                  once and spoken to over stdio (no port, nothing else can
- *                  reach it). Built in a checkout; not shipped in a packaged app.
+ *                  reach it). Shipped in the Mac app's Resources; in a checkout,
+ *                  built with swift build. Used by the Druid and the Wizard's chat.
  *   chat(endpoint, body)
  *                  a chat-completions call to a model server on this machine
  *                  (LM Studio), made here because the renderer's fetch would
@@ -105,8 +106,15 @@ function createDruidBridge({ executable }) {
 }
 
 /** Where the helper is built in a checkout (the app's own folder in development). */
-function defaultBridgePath(appPath) {
-  return process.env.DRUID_AFM_BRIDGE || path.join(appPath, 'native', 'afm-bridge', '.build', 'release', 'afm-bridge');
+/**
+ * Where the helper is: in a packaged app, its Resources (electron-builder.json
+ * extraResources); in a checkout, where `swift build` leaves it.
+ */
+function defaultBridgePath(appPath, resourcesPath = process.resourcesPath) {
+  if (process.env.DRUID_AFM_BRIDGE) return process.env.DRUID_AFM_BRIDGE;
+  const shipped = resourcesPath ? path.join(resourcesPath, 'afm-bridge') : null;
+  if (shipped && fs.existsSync(shipped)) return shipped;
+  return path.join(appPath, 'native', 'afm-bridge', '.build', 'release', 'afm-bridge');
 }
 
 module.exports = { createDruidBridge, defaultBridgePath };

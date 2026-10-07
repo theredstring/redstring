@@ -1,0 +1,12 @@
+{
+  "name": "@redstring/apple-model",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Apple's on-device language model for Redstring: a Mac helper (afm-bridge) and an iOS Capacitor plugin (AppleModel), sharing one core.",
+  "license": "MIT",
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

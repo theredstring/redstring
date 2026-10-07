@@ -122,6 +122,16 @@ jobs:
       - name: Bundle agent server
         run: npm run bundle:agent
 
+      # Apple's on-device model, for the Druid and the Wizard's chat
+      # (native/afm-bridge). Shipped in the app's Resources (electron-builder.json
+      # extraResources) and signed and notarized with it. Apple silicon only, as
+      # the model is: on an Intel Mac the app reports it unavailable. If this
+      # fails, the build goes on without it and the option just isn't offered.
+      - name: Build Apple model helper (macOS)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: swift build -c release --package-path native/afm-bridge
+
       # electron-builder directly (no third-party wrapper action). Uploads to
       # the tag's GitHub release, which electron-builder creates as a draft.
       - name: Build and publish (macOS)
@@ -160,6 +170,24 @@ jobs:
         run: npx electron-builder --linux --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # When the Apple model helper was built, it must be in every Mac app and
+      # signed with it: a helper left out or unsigned would only show up as the
+      # option silently missing, or failing notarization next time.
+      - name: Assert the Apple model helper is shipped and signed (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f native/afm-bridge/.build/release/afm-bridge ]; then
+            echo "::warning::The Apple model helper was not built; this release has no Apple Intelligence option on the Mac."
+            exit 0
+          fi
+          for APP in $(find dist-electron -maxdepth 2 -name 'Redstring.app' -type d); do
+            HELPER="$APP/Contents/Resources/afm-bridge"
+            if [ ! -f "$HELPER" ]; then echo "::error::$HELPER is missing"; exit 1; fi
+            codesign --verify --strict --verbose=2 "$HELPER"
+          done
 
       # The fuses are what make the packaged app refuse ELECTRON_RUN_AS_NODE,
       # NODE_OPTIONS, --inspect and a swapped app.asar. Check the binaries that

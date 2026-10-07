@@ -153,7 +153,7 @@ class APIKeyManager {
    * 'large' = cloud models with full wizard capabilities.
    */
   _computeModelTier(provider, endpoint, model) {
-    if (provider === 'local') return 'small';
+    if (provider === 'local' || provider === 'apple') return 'small';
     if (/localhost|127\.0\.0\.1/.test(endpoint || '')) return 'small';
     if (/gemma|phi[^a-z]|llama[-\s]?\d|qwen[-\s]?\d+b|mistral[-\s]?\d+b|deepseek|falcon/i.test(model || '')) return 'small';
     return 'large';

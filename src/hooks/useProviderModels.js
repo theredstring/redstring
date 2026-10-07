@@ -31,7 +31,7 @@ export function useProviderModels(provider, apiKey, endpoint, selectedModel) {
   const forceRef = useRef(false);
 
   useEffect(() => {
-    if (!provider || provider === 'custom') {
+    if (!provider || provider === 'custom' || provider === 'apple') {
       setModels([]);
       setIsLive(false);
       setNeedsKey(false);

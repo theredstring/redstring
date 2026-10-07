@@ -16,6 +16,8 @@ PODS:
     - Capacitor
   - IONFilesystemLib (1.1.2)
   - KeychainSwift (21.0.0)
+  - RedstringAppleModel (1.0.0):
+    - Capacitor
 
 DEPENDENCIES:
   - "AparajitaCapacitorSecureStorage (from `../../node_modules/@aparajita/capacitor-secure-storage`)"
@@ -25,6 +27,7 @@ DEPENDENCIES:
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - RedstringAppleModel (from `../../native/afm-bridge`)
 
 SPEC REPOS:
   trunk:
@@ -46,6 +49,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/filesystem"
   CapacitorHaptics:
     :path: "../../node_modules/@capacitor/haptics"
+  RedstringAppleModel:
+    :path: "../../native/afm-bridge"
 
 SPEC CHECKSUMS:
   AparajitaCapacitorSecureStorage: 502bff73187cf9d0164459458ccf47ec65d5895a
@@ -57,7 +62,8 @@ SPEC CHECKSUMS:
   CapacitorHaptics: 1b145fa83c622e5383a3bac04ea81e2514f0b0f5
   IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
   KeychainSwift: 4a71a45c802fd9e73906457c2dcbdbdc06c9419d
+  RedstringAppleModel: dbbe392cdd33383110176940f7d567e0078b914a
 
-PODFILE CHECKSUM: 289e01a110a0925fd89a27c7f0ee04cd249feb44
+PODFILE CHECKSUM: 8eda132b4b67be19793134a2a2fdeb0d09095d17
 
 COCOAPODS: 1.17.0

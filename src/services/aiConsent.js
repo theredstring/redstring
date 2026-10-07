@@ -29,7 +29,8 @@ const PROVIDER_LABELS = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   google: 'Google (Gemini)',
-  cohere: 'Cohere'
+  cohere: 'Cohere',
+  apple: 'Apple Intelligence (on this device)'
 };
 
 // Providers the Wizard reaches without a configurable endpoint.
@@ -54,7 +55,8 @@ export function describeAIProvider(provider, endpoint) {
   const name = String(provider || 'openrouter').toLowerCase();
   const resolved = resolveEndpoint(name, endpoint) || endpoint || '';
   const host = safeHost(resolved) || DEFAULT_HOSTS[name] || '';
-  const isLocal = name === 'local' || (host !== '' && isLoopbackHost(host));
+  // Apple's on-device model never leaves the device, like a local server.
+  const isLocal = name === 'local' || name === 'apple' || (host !== '' && isLoopbackHost(host));
   const label = PROVIDER_LABELS[name] || (host ? host : String(provider || 'the configured provider'));
   return { key: `${name}@${host || 'default'}`, label, host, isLocal };
 }

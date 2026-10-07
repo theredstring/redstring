@@ -24,7 +24,7 @@ const SHOWN = 150;
 const AT_BOTTOM_PX = 48;
 
 const MINDS = [
-  { value: 'afm', label: 'Apple', title: "Apple's on-device model (the desktop app)" },
+  { value: 'afm', label: 'Apple', title: "Apple's on-device model (the Mac app, or the iPhone and iPad app)" },
   { value: 'openai', label: 'LM Studio', title: 'A model loaded in LM Studio on this computer' }
 ];
 
