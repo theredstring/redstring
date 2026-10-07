@@ -14,7 +14,7 @@ import { createWorld } from '../world.js';
 import { createMind } from '../mind/createMind.js';
 import { openaiCompatible } from '../mind/backends.js';
 import { afmClient, assertAvailable } from '../mind/afmClient.js';
-import { appleModelTransport } from '../../services/appleModel.js';
+import { appleModelTransport, askHealth } from '../../services/appleModel.js';
 import { createDruid } from '../druid.js';
 import { ensureHome, HOME_MARK } from '../roles.js';
 import { answer, TALK_KEEP } from '../talk.js';
@@ -39,7 +39,7 @@ export async function backendFor({ mind, endpoint, model }, electron = globalThi
     // The Mac app's helper, or the iPhone and iPad app's plugin (services/appleModel.js).
     const send = appleModelTransport(electron);
     if (!send) throw new Error("Apple's on-device model needs the Mac app or the iPhone and iPad app.");
-    const health = await send({ op: 'health' });
+    const health = await askHealth(send);
     assertAvailable(health);
     return afmClient(send, health);
   }

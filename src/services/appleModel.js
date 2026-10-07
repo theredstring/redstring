@@ -21,11 +21,22 @@ export const APPLE_LABEL = 'Apple Intelligence (on this device)';
 
 let pluginPromise = null;
 
-/** The AppleModel plugin on iOS, or null anywhere else. */
+/**
+ * The AppleModel plugin on iOS, or null anywhere else.
+ *
+ * Capacitor's plugin object is a Proxy that turns any property into a native
+ * method call, `then` included, so it must never resolve a promise or be
+ * awaited: the promise would call the plugin's "then", which never answers,
+ * and waking the Druid on an iPad waited forever (2026-10-07). It is kept
+ * inside a plain object instead.
+ */
 function iosPlugin() {
   const cap = globalThis.Capacitor;
   if (!cap?.isNativePlatform?.() || cap.getPlatform?.() !== 'ios') return null;
-  pluginPromise ||= import('@capacitor/core').then(({ registerPlugin }) => registerPlugin('AppleModel'));
+  pluginPromise ||= import('@capacitor/core').then(({ registerPlugin }) => {
+    const plugin = registerPlugin('AppleModel');
+    return { send: (args) => plugin.send(args) };
+  });
   return pluginPromise;
 }
 
@@ -39,6 +50,21 @@ export function appleModelTransport(electron = globalThis.window?.electron) {
   const plugin = iosPlugin();
   if (plugin) return async (req) => (await plugin).send({ request: req });
   return null;
+}
+
+/** How long a health check may take before the model counts as not answering. */
+const HEALTH_MS = 15000;
+
+/**
+ * Ask whether the model is there, giving up after HEALTH_MS: a check that
+ * never answers must not leave the Druid waking, or Settings waiting, forever.
+ */
+export function askHealth(send, ms = HEALTH_MS) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(send({ op: 'health' })).finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Apple's on-device model didn't answer.")), ms); })
+  ]);
 }
 
 /** Why the model can't be used, in words for the person. */
@@ -64,7 +90,7 @@ export async function appleModelHealth({ fresh = false, electron } = {}) {
   // Not remembered: there is nothing to ask yet (the iOS bridge may not be up).
   if (!send) return { available: false, reason: 'noTransport' };
   try {
-    const h = await send({ op: 'health' });
+    const h = await askHealth(send);
     healthCache = { available: !!h?.available, reason: h?.reason || null, contextSize: h?.contextSize || 4096 };
   } catch (err) {
     healthCache = { available: false, reason: null, error: err?.message || String(err) };

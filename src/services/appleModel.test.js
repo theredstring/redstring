@@ -1,11 +1,17 @@
 // @vitest-environment node
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
+// Like Capacitor's own: a Proxy that makes every property a native call,
+// `then` included, and a method the plugin doesn't have never answers.
 vi.mock('@capacitor/core', () => ({
-  registerPlugin: (name) => ({ send: async ({ request }) => ({ ok: true, via: name, op: request.op, available: true, contextSize: 4096 }) })
+  registerPlugin: (name) => new Proxy({}, {
+    get: (_, prop) => (prop === 'send'
+      ? async ({ request }) => ({ ok: true, via: name, op: request.op, available: true, contextSize: 4096 })
+      : () => new Promise(() => {}))
+  })
 }));
 
-const { appleModelTransport, appleModelHealth, fitChat, streamApple, unavailableReason } = await import('./appleModel.js');
+const { appleModelTransport, appleModelHealth, askHealth, fitChat, streamApple, unavailableReason } = await import('./appleModel.js');
 const { estimateTokens } = await import('../wizard/tokenEstimate.js');
 
 /** A stand-in for the Mac app's helper, answering the way afm-bridge does. */
@@ -31,6 +37,11 @@ describe("Apple's on-device model", () => {
 
     globalThis.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android' };
     expect(appleModelTransport({})).toBeNull();
+  });
+
+  it('gives up on a health check that never answers', async () => {
+    await expect(askHealth(() => new Promise(() => {}), 20)).rejects.toThrow(/didn't answer/);
+    expect(await askHealth(async () => ({ available: true }), 20)).toEqual({ available: true });
   });
 
   it('says why it is unavailable, in plain words', async () => {
