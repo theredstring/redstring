@@ -10,8 +10,9 @@ import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacemen
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
-import { glyphQuadAt } from '../services/labelSpriteCache.js';
+import { glyphQuadAt, peekLabelSprite, peekNearbyLabelSprite, requestLabelSprite } from '../services/labelSpriteCache.js';
 import { collectDragOwnedEdges, dragNodeIdsOf } from '../components/canvas/edges/dragOwnedEdges.js';
+import { placeGroupLiftShadow } from '../components/canvas/groups/groupLiftShadow.js';
 import {
   computeGroupLayout,
   GROUP_LAYOUT_CONSTANTS,
@@ -131,9 +132,117 @@ const writeGlyphSpriteLayers = (layers, glyphs) => {
   return wrote;
 };
 
+// STRAIGHT SPRITE RE-CUTS
+//
+// A straight label drawn as a bitmap re-cuts by swapping the bitmap: the cut is
+// part of the sprite's key, so the new cut is a different sprite, and moving
+// to it is four attributes on the <image>. When that sprite has not been baked
+// yet it is requested and the old one stays up until it lands — a cut a few
+// frames late, against the alternative of drawing the dragged node's every
+// label as two stroked <text>s for the whole drag. Labels come from connection
+// TYPES, so the cuts a drag can ask for are prefixes of a handful of names and
+// the bakery sees each one once.
+//
+// Swaps are written behind React's back, so the drop has to put React's commit
+// back before React diffs against it (restoreSpriteLabel), exactly as it does
+// for the <text> forms. What React committed is kept here, per <image>, with
+// the wrapper's text + appearance it belonged to.
+//
+// React re-rendering a swapped label is the dangerous case, because it is NOT
+// safe to assume its commit is then what is on screen. React writes only the
+// props that changed between ITS renders, and a bitmap's box is in canvas
+// units, so a resolution change (the drag zoom-out's settle) or a sprite
+// landing from the bakery rewrites `href` and leaves `width` alone: the uncut
+// name's bitmap, squeezed into the box of the cut the drag last drew. So a
+// label React has touched — its `href` is no longer the one the drag wrote, or
+// its text or appearance moved — is rewritten whole, bitmap and box together,
+// from what React now says it shows (reconcileSpriteSwap). That runs after
+// every commit during a drag, not only on the next frame, so a still pointer
+// cannot leave the squeeze standing.
+const spriteSwaps = new WeakMap();
+const SPRITE_IMAGE_ATTRS = ['href', 'x', 'y', 'width', 'height'];
+const spriteBaseOf = (g) => `${g.getAttribute('data-label-text')}|${g.getAttribute('data-sprite-spec')}`;
+const spriteSpecOf = (g) => {
+  try { return JSON.parse(g.getAttribute('data-sprite-spec')); } catch { return null; }
+};
+
+/** Write one sprite into an <image>: the bitmap and its box, always together. */
+const writeSpriteImage = (img, sprite) => {
+  // The same box the settled render draws a sprite in — see the straight
+  // sprite in renderConnectionEdge.
+  img.setAttribute('href', sprite.href);
+  img.setAttribute('x', -sprite.width / 2);
+  img.setAttribute('y', -sprite.height / 2 + sprite.centerOffsetY);
+  img.setAttribute('width', sprite.width);
+  img.setAttribute('height', sprite.height);
+};
+
+/**
+ * Bring an <image> the drag swapped back in line with what React now renders
+ * for its wrapper, found the way the render finds it: the exact sprite, else
+ * the nearest bucket.
+ */
+const writeCommittedSprite = (g, img) => {
+  const spec = spriteSpecOf(g);
+  const text = g.getAttribute('data-label-text');
+  if (!spec || !text) return;
+  const sprite = peekLabelSprite({ ...spec, text }) || peekNearbyLabelSprite({ ...spec, text });
+  if (sprite) writeSpriteImage(img, sprite);
+};
+
+/**
+ * If React has rewritten a swapped label since the drag last did, drop the
+ * swap and redraw the label whole from React's commit. Returns whether a swap
+ * is still standing.
+ */
+const reconcileSpriteSwap = (g, img) => {
+  const swap = img && spriteSwaps.get(img);
+  if (!swap) return false;
+  if (swap.base === spriteBaseOf(g) && img.getAttribute('href') === swap.drawnHref) return true;
+  spriteSwaps.delete(img);
+  writeCommittedSprite(g, img);
+  return false;
+};
+
+const recutSpriteLabel = (entry, span) => {
+  const { spriteWrapper: g, spriteImage: img, labelFullText, labelFontSize } = entry;
+  if (!g || !img || !labelFullText || !(labelFontSize > 0) || !Number.isFinite(span)) return;
+  let swap = reconcileSpriteSwap(g, img) ? spriteSwaps.get(img) : null;
+  const committed = g.getAttribute('data-label-text');
+  const next = truncateEdgeLabel(labelFullText, labelFontSize, span * LABEL_TRUNCATE_FILL);
+  if (next === (swap ? swap.shown : committed)) return;
+  if (swap && next === committed) { restoreSpriteLabel(g, img); return; }
+  const spec = spriteSpecOf(g);
+  if (!spec) return;
+  const sprite = peekLabelSprite({ ...spec, text: next });
+  if (!sprite) { requestLabelSprite({ ...spec, text: next }); return; }
+  if (!swap) {
+    swap = { base: spriteBaseOf(g), orig: SPRITE_IMAGE_ATTRS.map(a => img.getAttribute(a)) };
+    spriteSwaps.set(img, swap);
+  }
+  swap.shown = next;
+  swap.drawnHref = sprite.href;
+  writeSpriteImage(img, sprite);
+};
+
+/** Put React's committed bitmap back on a sprite label the drag re-cut. */
+const restoreSpriteLabel = (g, img) => {
+  if (!reconcileSpriteSwap(g, img)) return;
+  const swap = spriteSwaps.get(img);
+  spriteSwaps.delete(img);
+  SPRITE_IMAGE_ATTRS.forEach((a, i) => {
+    if (swap.orig[i] === null) img.removeAttribute(a);
+    else img.setAttribute(a, swap.orig[i]);
+  });
+};
+
 const retruncateLabel = (entry, span) => {
   const { labelText, labelTexts, labelFullText, labelFontSize } = entry;
-  if (!labelText || !labelFullText || !Number.isFinite(span)) return entry.labelAdvances;
+  if (!labelText) {
+    recutSpriteLabel(entry, span);
+    return entry.labelAdvances;
+  }
+  if (!labelFullText || !Number.isFinite(span)) return entry.labelAdvances;
 
   const next = truncateEdgeLabel(labelFullText, labelFontSize, span * LABEL_TRUNCATE_FILL);
   if (next !== labelText.textContent) {
@@ -515,9 +624,17 @@ export const useNodeDrag = ({
         // through.
         const spriteText = labelSpriteHost?.getAttribute('data-label-text');
         const spriteFontSize = parseFloat(labelSpriteHost?.getAttribute('data-label-font-size'));
+        // A straight sprite re-cuts by swapping its bitmap (recutSpriteLabel).
+        // Its uncut name is only rendered with the truncate setting on, so its
+        // absence again means there is nothing to re-cut.
+        const straightSprite = labelSprites[0] || null;
         return {
           labelText: null,
           labelTexts: [],
+          spriteWrapper: straightSprite,
+          spriteImage: straightSprite?.querySelector('image') || null,
+          labelFullText: straightSprite?.getAttribute('data-label-full') || null,
+          labelFontSize: straightSprite ? spriteFontSize : undefined,
           labelSprites,
           labelGlyphLayers,
           labelSpriteHost,
@@ -614,6 +731,10 @@ export const useNodeDrag = ({
           el,
           type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
           directRects: Array.from(el.querySelectorAll(':scope > rect')),
+          // The lifted group's shadow, when it has one (groupLiftShadow.js).
+          shadowBox: el.querySelector(':scope > [data-group-shadow="box"]'),
+          shadowOutline: el.querySelector(':scope > [data-group-shadow="outline"]'),
+          shadowPill: el.querySelector(':scope > [data-group-shadow="pill"]'),
           labelRect,
           labelText,
           labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
@@ -666,6 +787,16 @@ export const useNodeDrag = ({
     const ids = dragNodeIdsOf(draggingNodeInfo);
     if (ids.length > 0) cacheDOMElements(ids);
   }, [draggingNodeInfo, cacheDOMElements, settledZoomLevel, settledPanOffset]);
+
+  // After every commit during a drag, square up any re-cut sprite label React
+  // has just written over, before it paints squeezed. See STRAIGHT SPRITE
+  // RE-CUTS. Runs after the re-cache above, so it reads the live elements.
+  useLayoutEffect(() => {
+    if (!draggingNodeInfoRef.current) return;
+    dragEdgeElsRef.current.forEach(els => els.forEach(({ spriteWrapper, spriteImage }) => {
+      if (spriteWrapper) reconcileSpriteSwap(spriteWrapper, spriteImage);
+    }));
+  });
 
   // ---------------------------------------------------------------------------
   // Compute Position Updates (pure math, no side effects)
@@ -1121,7 +1252,7 @@ export const useNodeDrag = ({
         // For an arc it costs a sample of the curve (routedLabelSpan reads
         // visibleRange), which is not worth spending per frame on labels that
         // are never re-cut.
-        const labelSpan = edgeEls.some(e => e.labelText && e.labelFullText)
+        const labelSpan = edgeEls.some(e => e.labelFullText && (e.labelText || e.spriteImage))
           ? routedLabelSpan(routing)
           : NaN;
 
@@ -1695,6 +1826,7 @@ export const useNodeDrag = ({
             sub.directRects[0].setAttribute('width', rectW);
             sub.directRects[0].setAttribute('height', rectH);
           }
+          placeGroupLiftShadow(sub.shadowOutline, { x: rectX, y: rectY, w: rectW, h: rectH });
           if (sub.labelRect) {
             sub.labelRect.setAttribute('x', labelX);
             sub.labelRect.setAttribute('y', labelY);
@@ -1706,6 +1838,10 @@ export const useNodeDrag = ({
             const lcy = labelY + groupLabelHeight / 2;
             const liftMatrix = liftMatrixFor(lcx, lcy);
             applyLiftMatrix(sub.labelRect, liftMatrix);
+            if (sub.shadowPill) {
+              placeGroupLiftShadow(sub.shadowPill, { x: labelX, y: labelY, w: groupLabelWidth, h: groupLabelHeight });
+              applyLiftMatrix(sub.shadowPill, liftMatrix);
+            }
             sub.labelRect.style.transform = '';
             sub.labelRect.style.transformBox = '';
             sub.labelRect.style.transformOrigin = '';
@@ -1725,6 +1861,7 @@ export const useNodeDrag = ({
             sub.directRects[0].setAttribute('width', rectW);
             sub.directRects[0].setAttribute('height', nodeGroupRect.h);
           }
+          placeGroupLiftShadow(sub.shadowBox, { x: rectX, y: nodeGroupRect.y, w: rectW, h: nodeGroupRect.h });
           // rect[1] is the interior fill, rect[2] the grid repainted over it —
           // same geometry, so resize them together or the grid patch detaches
           // from the interior it's meant to cover.
@@ -2234,7 +2371,10 @@ export const useNodeDrag = ({
     // Not gated on labelTouched: the text is rewritten by both the routed and
     // the straight per-frame paths, and only the routed one sets that flag.
     dragEdgeElsRef.current.forEach(els => {
-      els.forEach(({ labelTexts, labelSprites, labelGlyphLayers, labelTouched }) => {
+      els.forEach(({ labelTexts, labelSprites, labelGlyphLayers, labelTouched, spriteWrapper, spriteImage }) => {
+        // A straight sprite the drag re-cut gets React's bitmap back, for the
+        // reason `data-label-text` does below. See STRAIGHT SPRITE RE-CUTS.
+        if (spriteWrapper) restoreSpriteLabel(spriteWrapper, spriteImage);
         labelTexts?.forEach(t => {
           if (labelTouched?.current) applyLabelFrame(t, t.getAttribute('data-label-frame'));
           const committed = t.getAttribute('data-label-text');

@@ -6715,14 +6715,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     /**
      * Opens or activates a node tab in the right panel for the given prototype.
      *
-     * If a tab for this node already exists, activates it. Otherwise appends a new tab.
-     * All other tabs are deactivated. Also ensures the right panel is expanded so the
-     * navigated-to node is visible.
+     * If a tab for this node already exists, activates it. Otherwise appends a new tab,
+     * or, with `afterActive`, puts it just right of the tab you were on (a Thing's type
+     * opened from its page lands beside that page). All other tabs are deactivated.
+     * Also ensures the right panel is expanded so the navigated-to node is visible.
      *
      * @param {string} nodeId - Prototype ID to open in the panel.
      * @param {string} [nodeNameFallback='Node Details'] - Tab title fallback if prototype name is absent.
+     * @param {{ afterActive?: boolean }} [options]
      */
-    openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details') => navSet('tab_open', produce((draft) => {
+    openRightPanelNodeTab: (nodeId, nodeNameFallback = 'Node Details', { afterActive = false } = {}) => navSet('tab_open', produce((draft) => {
       // Find prototype data to get the title
       const prototypeData = draft.nodePrototypes.get(nodeId);
       if (!prototypeData) {
@@ -6735,6 +6737,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         tab.type === 'node' && tab.nodeId === nodeId
       );
 
+      const activeIndex = draft.rightPanelTabs.findIndex(tab => tab.isActive);
+
       // Set all tabs to inactive
       draft.rightPanelTabs.forEach(tab => { tab.isActive = false; });
 
@@ -6743,12 +6747,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         draft.rightPanelTabs[existingTabIndex].isActive = true;
       } else {
         // Create new tab
-        draft.rightPanelTabs.push({
+        const newTab = {
           type: 'node',
           nodeId,
           title: prototypeData.name || nodeNameFallback,
           isActive: true
-        });
+        };
+        if (afterActive && activeIndex > -1) {
+          draft.rightPanelTabs.splice(activeIndex + 1, 0, newTab);
+        } else {
+          draft.rightPanelTabs.push(newTab);
+        }
       }
 
       // Ensure the right panel is open so the navigated-to node is visible.

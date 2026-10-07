@@ -450,7 +450,7 @@ const PanelContentWrapper = memo(({
   const typeDefinitionId = getCurrentDefinitionId(typePrototype);
 
   const handleOpenTypeInPanel = () => {
-    if (typePrototype) storeActions.openRightPanelNodeTab(typePrototype.id, typePrototype.name);
+    if (typePrototype) storeActions.openRightPanelNodeTab(typePrototype.id, typePrototype.name, { afterActive: true });
   };
 
   const handleExpandType = (event) => {

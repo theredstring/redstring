@@ -1611,9 +1611,13 @@ export function renderConnectionEdge(edge, ctx) {
         // attributes on the ones already mounted — nothing a per-frame DOM
         // writer can reach.
         //
-        // So sprites stand down for the length of a node drag on the
+        // So CURVED sprites stand down for the length of a node drag on the
         // connections the drag moves, and those labels ride it in the form that
-        // can follow their connections. This is the
+        // can follow their connections. A STRAIGHT sprite does not have to: its
+        // re-cut is one bitmap for another, which the drag swaps in by
+        // rewriting the <image> (recutSpriteLabel in useNodeDrag). Measured on a
+        // 20-node complete web, holding the dragged node's straight labels as
+        // stroked <text> was half of everything rasterised during the drag. This is the
         // regression that made truncation look static: sprites landed after the
         // truncation work and quietly took the re-cut path out from under it
         // (retruncateLabel in useNodeDrag returns immediately without a <text>),
@@ -1635,7 +1639,7 @@ export function renderConnectionEdge(edge, ctx) {
         // (curvedGlyphQuantum), not at the exact ones a sprite would take, or
         // every glyph twitches at the moment of lift.
         const labelSpritesUsableNow = labelSpritesEnabled
-          && !(connectionLabelTruncate && draggedHere);
+          && !(connectionLabelTruncate && draggedHere && labelGlyphAdvances);
         // Sprites take EXACT angles. The rotation bucket exists purely
         // to bound glyph-atlas keys, and a sprite mints none — rotating
         // an <image> is a transform on a bitmap, not a re-rasterisation
@@ -1950,6 +1954,16 @@ export function renderConnectionEdge(edge, ctx) {
                 data-connection-label="1"
                 data-label-sprite="1"
                 data-label-frame={labelFrame}
+                {...(connectionLabelTruncate ? {
+                  /* What a drag needs to re-cut this label as a bitmap: the
+                     uncut name, the cut React drew, and the appearance to
+                     look the new cut's sprite up with. See recutSpriteLabel
+                     in useNodeDrag. */
+                  'data-label-full': connectionName,
+                  'data-label-text': displayName,
+                  'data-label-font-size': connectionFontSize,
+                  'data-sprite-spec': JSON.stringify(spriteAppearance),
+                } : null)}
                 transform={`translate(${labelRenderX} ${labelRenderY}) rotate(${adjustedAngle})`}
                 style={{ pointerEvents: 'none' }}
               >

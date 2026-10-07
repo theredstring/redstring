@@ -3512,7 +3512,7 @@ function NodeCanvas() {
   const draggingGroupId = draggingNodeInfo?.groupId ?? null;
   const groupElements = useMemo(() => buildGroupElements({
     groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, editingGroupId, tempGroupName,
-    theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers,
+    theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers, liftedThingShadow: useGraphStore.getState().liftedThingShadow,
   }), [groupLayouts, groupStructure, draggingGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
 
   // Publish the layout to the refs the rest of the canvas reads (drag, gamepad,

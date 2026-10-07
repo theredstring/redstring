@@ -14,13 +14,41 @@
  */
 import { GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { getTextColor, blendColors } from '../../../utils/colorUtils.js';
+import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from './groupLiftShadow.js';
 
 // Node-group interiors take this much of the group colour over the canvas.
 export const NODE_GROUP_INTERIOR_TINT = 0.07;
 
+/**
+ * A lifted group's shadow, fast form only — see groupLiftShadow.js. Plain
+ * fills and strokes in their own <g>, so the drag's `:scope > rect` lookups of
+ * the box's own rects never see them, and it moves them via
+ * placeGroupLiftShadow.
+ * @param {'box'|'outline'|'pill'} kind
+ */
+function groupLiftShadow(kind, box, cornerR, transform) {
+  return (
+    <g data-group-shadow={kind} pointerEvents="none" transform={transform}>
+      {GROUP_LIFT_SHADOW_LAYERS.map((layer, i) => {
+        const r = groupLiftShadowRect(kind, box, layer);
+        const common = {
+          key: i, ...r, 'data-dy': layer.dy, 'data-spread': layer.spread,
+        };
+        return kind === 'outline' ? (
+          <rect {...common} rx={cornerR} ry={cornerR} fill="none" stroke="black"
+            strokeOpacity={layer.alpha} strokeWidth={12 + layer.spread * 2} strokeDasharray="16 12" />
+        ) : (
+          <rect {...common} rx={cornerR + layer.spread} ry={cornerR + layer.spread}
+            fill="black" fillOpacity={layer.alpha} />
+        );
+      })}
+    </g>
+  );
+}
+
 export function buildGroupElements({
   groupLayouts, groupDepths, draggingGroupId, editingGroupId, tempGroupName,
-  theme, gridActive, gridPatternId, groupEditInputRef, handlers,
+  theme, gridActive, gridPatternId, groupEditInputRef, handlers, liftedThingShadow,
 }) {
   const { entries: groupEntries, groupCount, groupLabelScale, groupLabelFontSize } = groupLayouts;
   const ngBackgroundsByDepth = new Map();
@@ -66,6 +94,7 @@ export function buildGroupElements({
     const labelLines = label.lines?.length ? label.lines : [labelText];
     const labelLineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
     const isGroupDragging = draggingGroupId === group.id;
+    const showLiftShadow = isGroupDragging && groupLiftShadowOn(liftedThingShadow);
 
     const nodeGroupColor = effectiveGroupColor;
 
@@ -93,13 +122,13 @@ export function buildGroupElements({
       ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
       : '';
 
-    // No drop-shadow on the lift. A filter on these <g>s makes the rasterizer
-    // paint the whole group box into an offscreen surface and blur it, and the
-    // drag rewrites the box's rects every frame (while drag-zoom rescales it),
-    // so that surface — screen-sized or larger when zoomed in — was allocated
-    // anew per frame and flickered big webs out of raster memory. The orbit
-    // hit the same wall through group opacity; see OrbitOverlay. The 1.05
-    // scale is the lift.
+    // No drop-shadow FILTER on the lift. A filter on these <g>s makes the
+    // rasterizer paint the whole group box into an offscreen surface and blur
+    // it, and the drag rewrites the box's rects every frame (while drag-zoom
+    // rescales it), so that surface — screen-sized or larger when zoomed in —
+    // was allocated anew per frame and flickered big webs out of raster memory.
+    // The orbit hit the same wall through group opacity; see OrbitOverlay. The
+    // shadow is drawn as plain rects instead (groupLiftShadow).
     const groupStyle = {
       transform: groupTransform,
       transformOrigin: `${centerX}px ${centerY}px`,
@@ -215,6 +244,7 @@ export function buildGroupElements({
       // connections that don't have an endpoint inside it. See edgeZSlotFor.
       pushBackgroundAtDepth(groupDepth,
         <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
+          {showLiftShadow && groupLiftShadow('box', { x: rectX, y: nodeGroupRectY, w: rectW, h: nodeGroupRectH }, nodeGroupCornerR)}
           {/* Colored band is purely decorative — pointer-events:none lets
               connections routing under it stay clickable. Selection happens
               via the title label. The interior is canvas: handleCanvasClick
@@ -264,6 +294,8 @@ export function buildGroupElements({
       // in or it renders behind opaque paint and vanishes.
       const regularElement = (
         <g key={group.id} className="group" data-group-id={group.id} style={groupStyle}>
+          {showLiftShadow && groupLiftShadow('outline', { x: rectX, y: rectY, w: rectW, h: rectH }, nodeGroupCornerR)}
+          {showLiftShadow && groupLiftShadow('pill', { x: labelX, y: labelY, w: labelWidth, h: labelHeight }, 20 * groupLabelScale, groupLiftTransform)}
           <rect x={rectX} y={rectY} width={rectW} height={rectH}
             rx={nodeGroupCornerR} ry={nodeGroupCornerR}
             fill="none" stroke={strokeColor} strokeWidth={12}
