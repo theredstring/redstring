@@ -1531,6 +1531,11 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   // disagree about what "too much history" means.
   const historyMessages = [];
   let historyTokens = 0;
+  // A compaction summary (marked `pinned`, see compactConversation.js) stands
+  // for everything before it. It is the oldest entry, so the newest-first trim
+  // below would drop it first and compacting would amount to forgetting.
+  const pinnedHead = eligibleHistory[0]?.pinned ? eligibleHistory.shift() : null;
+  if (pinnedHead) historyTokens += estimateObjectTokens(pinnedHead.content);
   for (let i = eligibleHistory.length - 1; i >= 0; i--) {
     const msg = eligibleHistory[i];
     const cost = estimateObjectTokens(msg.content) + estimateObjectTokens(msg.tool_calls);
@@ -1544,7 +1549,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       tool_calls: msg.role === 'assistant' ? msg.tool_calls : undefined
     });
   }
-  if (historyMessages.length < eligibleHistory.length) {
+  if (pinnedHead) historyMessages.unshift({ role: 'user', content: pinnedHead.content });
+  if (historyMessages.length - (pinnedHead ? 1 : 0) < eligibleHistory.length) {
     console.error(`[AgentLoop] History trimmed to ${historyMessages.length}/${eligibleHistory.length} messages (~${historyTokens} tokens).`);
   }
 

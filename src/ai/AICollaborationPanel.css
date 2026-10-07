@@ -813,11 +813,17 @@ html.dark-mode .ai-attachment-remove {
 /* Context Usage Indicator */
 /* Now a button (click to compact), so the default button chrome has to go —
    it should still read as the quiet status meter it was. */
+/* The mode pill and the context ring, kept together */
+.ai-wizard-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .ai-context-usage {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
   padding: 2px 4px;
   background: none;
   border: none;
@@ -832,56 +838,48 @@ html.dark-mode .ai-attachment-remove {
 }
 
 .ai-context-usage:disabled {
+  /* Still the meter; there's just nothing to compact, or a run holds it */
   cursor: default;
-  opacity: 0.5;
 }
 
 html.dark-mode .ai-context-usage:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.ai-context-usage-bar {
-  width: 48px;
-  height: 4px;
-  background: rgba(38, 0, 0, 0.10);
-  border-radius: 2px;
-  overflow: hidden;
+.ai-context-ring {
+  display: block;
 }
 
-.ai-context-usage-fill {
-  height: 100%;
-  background: rgba(38, 0, 0, 0.25);
-  border-radius: 2px;
-  transition: width 0.3s ease;
+.ai-context-ring-track,
+.ai-context-ring-fill {
+  fill: none;
+  stroke-width: 2.5;
 }
 
-.ai-context-usage-fill.warning {
-  background: #c47a00;
+.ai-context-ring-track {
+  stroke: rgba(38, 0, 0, 0.12);
 }
 
-.ai-context-usage-fill.critical {
-  background: #b42318;
+.ai-context-ring-fill {
+  stroke: rgba(38, 0, 0, 0.45);
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s ease;
 }
 
-.ai-context-usage-label {
-  font-family: 'EmOne', sans-serif;
-  font-size: 10px;
-  font-weight: 600;
-  color: rgba(38, 0, 0, 0.40);
-  min-width: 24px;
-  text-align: right;
+.ai-context-ring-fill.warning {
+  stroke: #c47a00;
 }
 
-html.dark-mode .ai-context-usage-bar {
-  background: rgba(255, 255, 255, 0.12);
+.ai-context-ring-fill.critical {
+  stroke: #b42318;
 }
 
-html.dark-mode .ai-context-usage-fill {
-  background: rgba(255, 255, 255, 0.35);
+html.dark-mode .ai-context-ring-track {
+  stroke: rgba(255, 255, 255, 0.14);
 }
 
-html.dark-mode .ai-context-usage-label {
-  color: rgba(255, 255, 255, 0.45);
+html.dark-mode .ai-context-ring-fill {
+  stroke: rgba(255, 255, 255, 0.55);
 }
 
 /* Input Container */
@@ -1082,7 +1080,12 @@ html.dark-mode .ai-send-button:disabled {
     gap: 8px;
   }
 }
-/* A Thing dragged over the Wizard, about to be pinned to its context */
-.ai-collaboration-panel.ai-pin-drop-over {
-  box-shadow: inset 0 0 0 2px maroon;
+
+/* A Thing held over the Wizard: the chip it will become, where it will land */
+.ai-context-chip-ghost {
+  opacity: 0.5;
+  /* The border is the fill's colour; the dashed edge sits just outside it */
+  outline: 1.5px dashed;
+  outline-offset: 2px;
+  pointer-events: none;
 }

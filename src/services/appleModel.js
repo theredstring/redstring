@@ -132,25 +132,37 @@ export function fitChat(messages, { window = 4096, maxTokens = 512 } = {}) {
   return { system: sys, user };
 }
 
+/** An error written for the person: the chat shows it as it is. */
+const said = (message) => Object.assign(new Error(message), { userFacing: true });
+
+/** What a failed answer means, in plain words. */
+function failureText(r) {
+  const e = String(r?.error || '');
+  if (e === 'guardrailViolation') return "Apple's model declined to answer that.";
+  if (e === 'exceededContextWindowSize') return "That was too long for Apple's model. Try a shorter question.";
+  if (r?.available === false) return unavailableReason(r);
+  // The system's model service stuck (seen on a Mac after days awake); a restart clears it.
+  if (/ModelManagerError|1026/.test(e)) return "Apple's model isn't responding on this device right now. Restarting the device usually fixes it.";
+  return `Apple's model couldn't answer (${e || 'no reply'}).`;
+}
+
 /**
  * The Wizard's provider stream for Apple's model: plain text only, one chunk.
  * Tools can't fit in its window, so a request that brings tools is refused.
  */
 export async function* streamApple(messages, tools = [], { maxTokens = 512, temperature = 0.7, electron } = {}) {
   if (tools?.length) {
-    throw new Error("Apple's on-device model can only chat. To build or edit with the Wizard, pick another provider in Settings › AI.");
+    throw said("Apple's on-device model can only chat. To build or edit with the Wizard, pick another provider in Settings › AI.");
   }
   const send = appleModelTransport(electron);
-  if (!send) throw new Error("Apple's on-device model needs the Mac app or the iPhone and iPad app.");
-  const health = await appleModelHealth({ electron });
-  if (!health.available) throw new Error(unavailableReason(health));
+  if (!send) throw said("Apple's on-device model needs the Mac app or the iPhone and iPad app.");
+  let health;
+  try { health = await appleModelHealth({ electron }); } catch (err) { throw said(err?.message || "Apple's on-device model didn't answer."); }
+  if (!health.available) throw said(health.error ? failureText(health) : unavailableReason(health));
   const answer = Math.min(Number(maxTokens) || 512, 1024);
   const { system, user } = fitChat(messages, { window: health.contextSize || 4096, maxTokens: answer });
-  const r = await send({ op: 'complete', system, user, maxTokens: answer, temperature });
-  if (!r?.ok) {
-    if (r?.error === 'guardrailViolation') throw new Error("Apple's model declined to answer that.");
-    if (r?.available === false) throw new Error(unavailableReason(r));
-    throw new Error(`Apple's model couldn't answer (${r?.error || 'no reply'}).`);
-  }
+  let r;
+  try { r = await send({ op: 'complete', system, user, maxTokens: answer, temperature }); } catch (err) { throw said(failureText({ error: err?.message || String(err) })); }
+  if (!r?.ok) throw said(failureText(r));
   yield { type: 'text', content: String(r.content || '') };
 }

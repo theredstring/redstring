@@ -9,6 +9,7 @@ import MultipleChoiceOverlay from '../../../ai/components/MultipleChoiceOverlay.
 import PlanCard from '../../../ai/components/PlanCard.jsx';
 import GoalCard from '../../../ai/components/GoalCard.jsx';
 import ThinkingBlock from '../../../ai/components/ThinkingBlock.jsx';
+import CompactionDivider from '../../../ai/components/CompactionDivider.jsx';
 import SteeringBlock from '../../../ai/components/SteeringBlock.jsx';
 import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { bridgeFetch, bridgeEventSource, getBridgeBaseUrl } from '../../../services/bridgeConfig.js';
@@ -40,11 +41,11 @@ import { queueThumbnailFetch } from '../../../services/imageCache.js';
 import headSvg from '../../../assets/svg/wizard/head.svg';
 import { getFileCategory, isTabularFile, readFileAsDataUrl, readFileAsText, readPdfAsText, readTabularFile, buildContentBlocks, SUPPORTED_IMAGE_TYPES, SUPPORTED_DOC_TYPES, MAX_FILE_SIZE } from '../../../ai/fileAttachmentUtils.js';
 import { getAllTabularData, clearTabularData } from '../../../services/tabularDataStore.js';
-import { estimateTokens, estimateObjectTokens, MAX_TOOL_RESULT_CHARS, CHARS_PER_TOKEN } from '../../../wizard/tokenEstimate.js';
-import { compactConversation } from '../../../wizard/compactConversation.js';
+import { estimateTokens, estimateObjectTokens } from '../../../wizard/tokenEstimate.js';
+import { compactConversation, canCompact, projectHistory, estimateHistoryTokens, isCompactionSummary } from '../../../wizard/compactConversation.js';
 import { WIZARD_SYSTEM_PROMPT } from '../../../services/agent/WizardPrompt.js';
 import { useWizardMode } from '../../../hooks/useWizardMode.js';
-import { readWizardMode, wizardModeLabel, WIZARD_MODE_GOAL, WIZARD_MODE_OPTIONS } from '../../../wizard/wizardMode.js';
+import { readWizardMode, wizardModeLabel, wizardModeShortLabel, WIZARD_MODE_GOAL, WIZARD_MODE_OPTIONS } from '../../../wizard/wizardMode.js';
 import { renderGoalText } from '../../../wizard/tools/declareGoal.js';
 // The agent loop, its tools, the LLM client and Wikipedia enrichment all run in
 // this process now. None of these reach a server.
@@ -70,8 +71,6 @@ const wizardErrorText = (error, provider) => (isConsentDeclined(error)
   ? `Nothing was sent. The Wizard needs your OK before sending to ${error?.provider || provider || 'your AI provider'}.`
   : `Error: ${error?.message}`);
 
-// Per-result ceiling expressed in tokens, for the context meter.
-const MAX_TOOL_RESULT_TOKENS = Math.ceil(MAX_TOOL_RESULT_CHARS / CHARS_PER_TOKEN);
 // Tool schemas are fetched from the bridge; until that lands, fall back to a
 // measured snapshot (45 tools ≈ 52.5k chars) so the meter isn't wildly optimistic
 // on first paint. Replaced by the live measurement as soon as the fetch returns.
@@ -696,16 +695,17 @@ const LeftAIView = ({ compact = false,
   // both and marks the active one.
   const [showWizardModeMenu, setShowWizardModeMenu] = React.useState(false);
   const wizardModeMenuRef = React.useRef(null);
-  // The chooser is right-aligned only while it shares a row with the chips. A
-  // lone pill pushed to the far right of its own wrapped row reads as detached;
-  // left-aligned it reads as the next item in the stack. CSS cannot tell
-  // whether a flex item wrapped, so measure: the pill's top against the bar's
-  // first item, re-checked whenever the bar resizes.
+  // The mode pill and the context ring are one group, right-aligned only while
+  // it shares a row with the chips. A lone group pushed to the far right of its
+  // own wrapped row reads as detached; left-aligned it reads as the next item
+  // in the stack. CSS cannot tell whether a flex item wrapped, so measure: the
+  // group's top against the bar's first item, re-checked whenever the bar resizes.
   const contextBarRef = React.useRef(null);
+  const wizardControlsRef = React.useRef(null);
   const [wizardModeWrapped, setWizardModeWrapped] = React.useState(false);
   React.useLayoutEffect(() => {
     const bar = contextBarRef.current;
-    const pill = wizardModeMenuRef.current;
+    const pill = wizardControlsRef.current;
     if (!bar || !pill || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
       const first = bar.firstElementChild;
@@ -876,19 +876,35 @@ const LeftAIView = ({ compact = false,
 
   // Drop the universal dragged node (the panel's, a list's, a header tab's
   // after its hold) on the Wizard to pin it. A tab's drag carries its web.
-  const [{ isPinDropOver }, pinDropRef] = useDrop(() => ({
+  const [{ isPinDropOver, pinDropItem }, pinDropRef] = useDrop(() => ({
     accept: 'spawnable_node',
     canDrop: (item) => viewMode === 'wizard' && !!(item?.prototypeId || item?.nodeId),
     drop: (item) => {
       addContextPin(item.prototypeId || item.nodeId, item.graphId || null);
       return { pinnedToWizard: true };
     },
-    collect: (monitor) => ({ isPinDropOver: monitor.isOver() && monitor.canDrop() })
+    collect: (monitor) => {
+      const isPinDropOver = monitor.isOver() && monitor.canDrop();
+      return { isPinDropOver, pinDropItem: isPinDropOver ? monitor.getItem() : null };
+    }
   }), [viewMode, addContextPin]);
 
+  // What the drop will add: a ghost of the chip it becomes, in the row where
+  // it will land.
+  const pinDropPreview = useGraphStore(s => {
+    const id = pinDropItem?.prototypeId || pinDropItem?.nodeId;
+    const thing = id ? s.nodePrototypes.get(id) : null;
+    if (!thing) return null;
+    const webName = pinDropItem.graphId ? s.graphs.get(pinDropItem.graphId)?.name : null;
+    return `${webName || thing.name || 'Thing'}\u0000${thing.color || NODE_DEFAULT_COLOR}`;
+  });
+  const pinDropAlreadyIn = !!pinDropItem && contextItems.some(i => (
+    i.type === 'thing'
+    && i.id === (pinDropItem.prototypeId || pinDropItem.nodeId)
+    && (i.graphId || null) === (pinDropItem.graphId || null)
+  ));
+
   // Context window usage estimation
-  // Keyed by the block objects themselves, so entries disappear with the blocks.
-  const objectTokenCacheRef = React.useRef(new WeakMap());
 
   // The real size of the graph header, reported by the agent loop on its usage
   // events. Rebuilding the header here to measure it would mean re-walking every
@@ -929,22 +945,6 @@ const LeftAIView = ({ compact = false,
       return 128000;
     };
 
-    // Tool args/results are re-measured on EVERY streaming delta (this memo's
-    // deps include `messages`, which is replaced per SSE event). Re-stringifying
-    // a large read-only result — readGraph on a big web, findDuplicates on a big
-    // universe — hundreds of times a second froze the panel, which is why the
-    // stop button stopped responding mid-run. Measure each object once and
-    // remember it; the estimate is a rough /4 anyway.
-    const measureCached = (obj) => {
-      if (!obj) return 0;
-      if (typeof obj !== 'object') return estimateObjectTokens(obj);
-      const cached = objectTokenCacheRef.current.get(obj);
-      if (cached !== undefined) return cached;
-      const size = estimateObjectTokens(obj);
-      objectTokenCacheRef.current.set(obj, size);
-      return size;
-    };
-
     const model = apiKeyInfo?.model || '';
     const contextWindow = getContextWindow(model);
 
@@ -957,36 +957,11 @@ const LeftAIView = ({ compact = false,
     // instead of silently eating the user's headroom.
     const systemPromptTokens = staticPromptTokens;
 
-    // Estimate conversation history tokens
-    let conversationTokens = 0;
-    for (const msg of messages) {
-      conversationTokens += estimateTokens(msg.content || '');
-      if (msg.contentBlocks) {
-        for (const block of msg.contentBlocks) {
-          if (block.type === 'tool_call') {
-            conversationTokens += estimateTokens(block.name || '') + measureCached(block.args);
-            // Measure what the MODEL received, not what the UI kept. Results are
-            // capped by sanitizeResultForLLM before they enter the conversation,
-            // so charging the meter for the full uncapped object (an all-graphs
-            // inspectWorkspace dump, say) reports context that was never sent.
-            conversationTokens += Math.min(measureCached(block.result), MAX_TOOL_RESULT_TOKENS);
-          }
-        }
-      }
-      // Estimate tokens for sent attachments
-      const attachments = msg.metadata?.attachments;
-      if (attachments) {
-        for (const att of attachments) {
-          if (att.category === 'image') {
-            conversationTokens += 1000; // ~1000 tokens per image for vision models
-          } else if (att.category === 'document') {
-            conversationTokens += att.extractedTextLength
-              ? Math.ceil(att.extractedTextLength / 4)
-              : 500; // fallback for messages stored before this fix
-          }
-        }
-      }
-    }
+    // The conversation as the next ask will send it: prose and attached files,
+    // from the newest summary on (projectHistory). Tool calls and their results
+    // stay in the panel and are never resent, so counting them here made the
+    // meter climb on context that compacting could not touch.
+    const conversationTokens = estimateHistoryTokens(projectHistory(messages));
 
     // Estimate tokens for pending attachments (we have full data for these)
     let pendingTokens = 0;
@@ -1023,10 +998,13 @@ const LeftAIView = ({ compact = false,
   // "How full is the context" is only half the question — the other half is
   // "with what". A percentage that can only be watched climbing is not
   // actionable; a split that names the biggest consumer is.
+  // Whether clicking the meter would fold anything in; it can't be clicked when not.
+  const compactable = React.useMemo(() => canCompact(messages), [messages]);
+
   const contextUsageTooltip = React.useMemo(() => {
     const k = (n) => `${Math.round(n / 100) / 10}k`;
     const lines = [
-      `~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens used`,
+      `${contextUsage.percent}% of context: ~${contextUsage.totalUsed.toLocaleString()} / ${contextUsage.contextWindow.toLocaleString()} tokens`,
       '',
       `System prompt + tool definitions: ${k(contextUsage.systemPromptTokens)}  (fixed, cached after the first call)`,
       `Graph context: ${k(contextUsage.graphContextTokens)}  (rebuilt every step)`,
@@ -1049,9 +1027,11 @@ const LeftAIView = ({ compact = false,
       }
     }
 
-    lines.push('', 'Click to compact this conversation — your plan is preserved.');
+    lines.push('', compactable
+      ? 'Click to compact: earlier messages are summarized for The Wizard. Nothing leaves the conversation, and your plan is kept.'
+      : 'Nothing to compact yet.');
     return lines.join('\n');
-  }, [contextUsage, costBreakdown]);
+  }, [contextUsage, costBreakdown, compactable]);
 
 
   // Auto-sync context chips with active graph
@@ -2248,7 +2228,8 @@ const LeftAIView = ({ compact = false,
     const current = messagesRef.current;
     const result = compactConversation(current);
     if (!result.compacted) {
-      addMessage('system', 'Nothing to compact yet — this conversation is still short.');
+      // The meter can't be clicked then; only a typed /compact gets here.
+      if (source === 'command') addMessage('system', 'Nothing to compact yet.');
       return;
     }
 
@@ -2258,15 +2239,10 @@ const LeftAIView = ({ compact = false,
       c.id === targetConvId ? { ...c, messages: result.messages } : c
     )));
 
-    const saved = result.tokensBefore - result.tokensAfter;
-    const pct = result.tokensBefore > 0 ? Math.round((saved / result.tokensBefore) * 100) : 0;
+    // The summary's divider in the transcript says it happened; no notice.
     console.log('[Wizard] Compacted conversation', {
       source, summarized: result.summarizedCount, before: result.tokensBefore, after: result.tokensAfter
     });
-    addMessage('system',
-      `Compacted ${result.summarizedCount} earlier message${result.summarizedCount !== 1 ? 's' : ''} `
-      + `— freed roughly ${saved.toLocaleString()} tokens (${pct}%). Your plan is unaffected.`
-    );
   }, [addMessage]);
 
   const handleSendMessage = async (overrideInput, sendOptions) => {
@@ -2673,17 +2649,9 @@ const LeftAIView = ({ compact = false,
       // when this handler was captured, so a fresh Ask The Wizard tab would
       // send the previous tab's history to the model. handleSendMessage passes
       // a snapshot taken from the ref before the ask was appended.
-      const recentMessages = (askOptions?.history ?? messagesRef.current ?? []).slice(-10).map(msg => ({
-        // A compaction summary IS the earlier conversation — it has to survive
-        // into history or compacting would amount to deleting the transcript.
-        // AgentLoop drops role:'system' entries (they're context annotations, and
-        // graph context already rides in the system prompt), so the summary is
-        // sent as a user-role message instead.
-        role: msg.metadata?.kind === 'compaction-summary'
-          ? 'user'
-          : msg.sender === 'user' ? 'user' : msg.sender === 'ai' ? 'assistant' : 'system',
-        content: msg.metadata?.contentBlocksForHistory || msg.content
-      }));
+      // From the newest compaction summary on, the summary first: it IS the
+      // earlier conversation (wizard/compactConversation.js).
+      const recentMessages = projectHistory(askOptions?.history ?? messagesRef.current ?? []);
 
       // Prepend a hidden context line about the current active graph so the LLM
       // always knows what the user is looking at (including after refreshes)
@@ -3391,7 +3359,8 @@ const LeftAIView = ({ compact = false,
       console.error('[AI Collaboration] Question handling failed:', error);
       addMessage('ai', isConsentDeclined(error)
         ? wizardErrorText(error, apiKeyInfo?.provider)
-        : (error.message?.includes('API key') ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.'), {}, targetConversationId);
+        // An error written for the person (Apple's model says why it can't answer) is shown as it is.
+        : ((error.userFacing || error.message?.includes('API key')) ? error.message : 'I encountered an error while processing your question. Please try again or check your bridge connection.'), {}, targetConversationId);
     }
   };
 
@@ -3769,7 +3738,7 @@ const LeftAIView = ({ compact = false,
   );
 
   return (
-    <div className={`ai-collaboration-panel${isPinDropOver ? ' ai-pin-drop-over' : ''}`} ref={pinDropRef}>
+    <div className="ai-collaboration-panel" ref={pinDropRef}>
       <div className="ai-panel-header">
         {!compact ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gridColumn: '1 / -1' }}>
@@ -4142,6 +4111,10 @@ const LeftAIView = ({ compact = false,
             {active && messages.map((message, idx) => {
               const prevMessage = idx > 0 ? messages[idx - 1] : null;
               const isNewSection = prevMessage && prevMessage.sender !== message.sender;
+
+              if (isCompactionSummary(message)) {
+                return <CompactionDivider key={message.id} message={message} />;
+              }
 
               // Programmatic Ask The Wizard actions render as a compact right-aligned card
               // visually identical to the AI's tool-call cards (just on the user side).
@@ -4585,7 +4558,7 @@ const LeftAIView = ({ compact = false,
                     setShowAddThing(false);
                   }}
                   title="Add a Thing"
-                  subtitle="The Wizard gets its bio, its webs and its connections"
+                  subtitle="The Wizard will know its Webs and other info."
                   leftPanelExpanded={leftPanelExpanded}
                   rightPanelExpanded={rightPanelExpanded}
                   searchOnly={true}
@@ -4652,69 +4625,85 @@ const LeftAIView = ({ compact = false,
                 <span className="ai-context-chip-toggle">{item.enabled ? '×' : '+'}</span>
               </button>
             ))}
-            {messages.length > 0 && (
-              // Clicking the meter compacts the conversation. The meter is where
-              // the user already looks when they feel the session getting heavy,
-              // so it is the natural place to act on it; /compact does the same.
-              <button
-                type="button"
-                className="ai-context-usage"
-                disabled={isProcessing}
-                onClick={() => runCompaction({ source: 'meter' })}
-                title={contextUsageTooltip}
-                // In the narrow panel the mode chooser sits left, so the meter
-                // moves after it visually to keep its right-hand spot.
-                style={compact ? { order: 1 } : undefined}
-              >
-                <div className="ai-context-usage-bar">
-                  <div
-                    className={`ai-context-usage-fill${contextUsage.percent >= 80 ? ' warning' : ''}${contextUsage.percent >= 95 ? ' critical' : ''}`}
-                    style={{ width: `${contextUsage.percent}%` }}
-                  />
-                </div>
-                <span className="ai-context-usage-label">{contextUsage.percent}%</span>
-              </button>
-            )}
-
-            {/* Wizard mode chooser: last in the bar, right-aligned, menu opens upward.
-                A chooser rather than a toggle — the pill names the mode in effect and
-                the menu shows both with the active one marked. In the narrow panel it
-                sits left instead and the menu grows rightward, so it can never be
+            {isPinDropOver && pinDropPreview && !pinDropAlreadyIn && (() => {
+              const [name, color] = pinDropPreview.split('\u0000');
+              return (
+                <span
+                  className="ai-context-chip active ai-context-chip-ghost"
+                  style={{ backgroundColor: color, color: getTextColor(color), borderColor: color, outlineColor: color }}
+                  aria-hidden="true"
+                >
+                  <span className="ai-context-chip-label">{name}</span>
+                </span>
+              );
+            })()}
+            {/* Wizard mode chooser and context ring, one group: last in the bar,
+                right-aligned, the chooser's menu opening upward. A chooser rather
+                than a toggle — the pill names the mode in effect and the menu shows
+                both with the active one marked. In the narrow panel the group sits
+                left instead and the menu grows rightward, so it can never be
                 clipped by the left edge of the screen. */}
             <div
-              ref={wizardModeMenuRef}
-              style={{
-                position: 'relative',
-                display: 'inline-flex',
-                marginLeft: (compact || wizardModeWrapped || messages.length > 0) ? 0 : 'auto'
-              }}
+              ref={wizardControlsRef}
+              className="ai-wizard-controls"
+              style={{ marginLeft: (compact || wizardModeWrapped) ? 0 : 'auto' }}
             >
-              <PanelIconButton
-                icon={wizardMode === WIZARD_MODE_GOAL ? Target : ListChecks}
-                size={12}
-                label={wizardModeLabel(wizardMode)}
-                labelFontSize={11}
-                variant="outline"
-                active={showWizardModeMenu}
-                onClick={(e) => {
-                  setShowWizardModeMenu(true);
-                  showContextMenuForElement(e.currentTarget, WIZARD_MODE_OPTIONS.map(opt => ({
-                    label: opt.label,
-                    icon: opt.value === WIZARD_MODE_GOAL ? <Target size={14} /> : <ListChecks size={14} />,
-                    title: opt.value === WIZARD_MODE_GOAL
-                      ? 'The Wizard declares a goal and what would satisfy it before building; the turn ends on a verdict.'
-                      : 'The Wizard writes a step plan; the turn ends when every step is settled.',
-                    active: wizardMode === opt.value,
-                    action: () => setWizardMode(opt.value),
-                  })), {
-                    prefer: 'above',
-                    align: (compact || wizardModeWrapped) ? 'left' : 'right',
-                    onClose: () => setShowWizardModeMenu(false),
-                  });
-                }}
-                title={`Wizard mode: ${wizardModeLabel(wizardMode)}. Click to choose how a turn ends.`}
-                style={{ padding: '2px 8px' }}
-              />
+              <div
+                ref={wizardModeMenuRef}
+                style={{ position: 'relative', display: 'inline-flex' }}
+              >
+                <PanelIconButton
+                  icon={wizardMode === WIZARD_MODE_GOAL ? Target : ListChecks}
+                  size={12}
+                  label={wizardModeShortLabel(wizardMode)}
+                  labelFontSize={11}
+                  variant="outline"
+                  active={showWizardModeMenu}
+                  onClick={(e) => {
+                    setShowWizardModeMenu(true);
+                    showContextMenuForElement(e.currentTarget, WIZARD_MODE_OPTIONS.map(opt => ({
+                      label: opt.label,
+                      icon: opt.value === WIZARD_MODE_GOAL ? <Target size={14} /> : <ListChecks size={14} />,
+                      title: opt.value === WIZARD_MODE_GOAL
+                        ? 'The Wizard declares a goal and what would satisfy it before building; the turn ends on a verdict.'
+                        : 'The Wizard writes a step plan; the turn ends when every step is settled.',
+                      active: wizardMode === opt.value,
+                      action: () => setWizardMode(opt.value),
+                    })), {
+                      prefer: 'above',
+                      align: (compact || wizardModeWrapped) ? 'left' : 'right',
+                      onClose: () => setShowWizardModeMenu(false),
+                    });
+                  }}
+                  title={`Wizard mode: ${wizardModeLabel(wizardMode)}. Click to choose how a turn ends.`}
+                  style={{ padding: '2px 8px' }}
+                />
+              </div>
+              {messages.length > 0 && (
+                // Clicking the meter compacts the conversation. The meter is where
+                // the user already looks when they feel the session getting heavy,
+                // so it is the natural place to act on it; /compact does the same.
+                <button
+                  type="button"
+                  className="ai-context-usage"
+                  disabled={isProcessing || !compactable}
+                  onClick={() => runCompaction({ source: 'meter' })}
+                  title={contextUsageTooltip}
+                  aria-label={`${contextUsage.percent}% of context used${compactable ? ', click to compact' : ''}`}
+                >
+                  {/* A ring that fills clockwise from the top; no number. */}
+                  <svg className="ai-context-ring" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                    <circle className="ai-context-ring-track" cx="8" cy="8" r="6" />
+                    <circle
+                      className={`ai-context-ring-fill${contextUsage.percent >= 80 ? ' warning' : ''}${contextUsage.percent >= 95 ? ' critical' : ''}`}
+                      cx="8" cy="8" r="6"
+                      pathLength="100"
+                      strokeDasharray={`${Math.max(contextUsage.percent, 2)} 100`}
+                      transform="rotate(-90 8 8)"
+                    />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
 

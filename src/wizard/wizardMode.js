@@ -67,3 +67,8 @@ export function wizardModeLabel(value) {
   const mode = normalizeWizardMode(value);
   return WIZARD_MODE_OPTIONS.find(o => o.value === mode)?.label || 'Plan Based';
 }
+
+/** The mode's name on the pill, where "Based" is implied: "Goal", "Plan". */
+export function wizardModeShortLabel(value) {
+  return wizardModeLabel(value).replace(/\s*Based$/i, '');
+}

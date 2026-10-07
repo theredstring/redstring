@@ -1753,7 +1753,7 @@ export const useNodeDrag = ({
             sub.labelRect.setAttribute('y', labelY);
             // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
             // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
-            // which — combined with the drag drop-shadow filter — clips the stroke. Clear any
+            // which — combined with the drop-shadow filter the drag used to carry — clipped the stroke. Clear any
             // stale CSS transform so it can't fight the attribute.
             const lcx = labelX + groupLabelWidth / 2;
             const lcy = labelY + groupLabelHeight / 2;
@@ -1797,7 +1797,7 @@ export const useNodeDrag = ({
             sub.labelRect.setAttribute('y', labelY);
             // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
             // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
-            // which — combined with the drag drop-shadow filter — clips the stroke. Clear any
+            // which — combined with the drop-shadow filter the drag used to carry — clipped the stroke. Clear any
             // stale CSS transform so it can't fight the attribute.
             const lcx = labelX + groupLabelWidth / 2;
             const lcy = labelY + groupLabelHeight / 2;

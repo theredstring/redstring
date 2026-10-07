@@ -84,6 +84,12 @@ describe("Apple's on-device model", () => {
     await appleModelHealth({ fresh: true, electron: declined });
     await expect(drain(streamApple([{ role: 'user', content: 'x' }], [], { electron: declined }))).rejects.toThrow(/declined to answer/);
 
+    const stuck = { druid: { afm: async (req) => (req.op === 'health' ? { available: true, contextSize: 4096 } : { ok: false, error: 'Error Domain=ModelManagerServices.ModelManagerError Code=1026 "(null)"' }) } };
+    await appleModelHealth({ fresh: true, electron: stuck });
+    const err = await drain(streamApple([{ role: 'user', content: 'x' }], [], { electron: stuck })).catch(e => e);
+    expect(err.message).toMatch(/Restarting the device usually fixes it/);
+    expect(err.userFacing).toBe(true);
+
     const off = { druid: { afm: async () => ({ ok: true, available: false, reason: 'modelNotReady' }) } };
     await appleModelHealth({ fresh: true, electron: off });
     await expect(drain(streamApple([{ role: 'user', content: 'x' }], [], { electron: off }))).rejects.toThrow(/still downloading/);

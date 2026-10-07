@@ -93,19 +93,25 @@ export function buildGroupElements({
       ? `translate(${centerX}, ${centerY}) scale(${groupScale}) translate(${-centerX}, ${-centerY})`
       : '';
 
+    // No drop-shadow on the lift. A filter on these <g>s makes the rasterizer
+    // paint the whole group box into an offscreen surface and blur it, and the
+    // drag rewrites the box's rects every frame (while drag-zoom rescales it),
+    // so that surface — screen-sized or larger when zoomed in — was allocated
+    // anew per frame and flickered big webs out of raster memory. The orbit
+    // hit the same wall through group opacity; see OrbitOverlay. The 1.05
+    // scale is the lift.
     const groupStyle = {
       transform: groupTransform,
       transformOrigin: `${centerX}px ${centerY}px`,
       transition: isGroupDragging ? 'none' : 'transform 0.2s ease-out',
-      filter: isGroupDragging ? 'drop-shadow(0px 8px 16px rgba(0,0,0,0.3))' : 'none'
     };
 
     const groupDepth = groupDepths.get(group.id) ?? 0;
 
     // Lift-scale for the title pill + text while dragging: an explicit
     // centered matrix on the `transform` ATTRIBUTE (local user space), NOT
-    // CSS transform-box:fill-box (which + the drag drop-shadow filter clips
-    // the pill stroke). Both share this so the text pops with the pill.
+    // CSS transform-box:fill-box (which, with the drop-shadow filter the drag
+    // used to carry, clipped the pill stroke). Both share this so the text pops with the pill.
     // During an active drag the pivot is re-centered per-frame in useNodeDrag.
     const groupLiftCx = labelX + labelWidth / 2;
     const groupLiftCy = labelY + labelHeight / 2;
