@@ -1,6 +1,7 @@
 import React from 'react';
 import { sanitizeHtml } from '../../../utils/sanitizeHtml.js';
-import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Flag, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine, Target, ListChecks } from 'lucide-react';
+import { Bot, Key, Settings, RotateCcw, Undo2, Send, User, Square, Copy, Flag, Brain, Wrench, Plus, X, ChevronDown, Paperclip, FileText, XCircle, ArrowRightToLine, Target, ListChecks, LayoutGrid } from 'lucide-react';
+import { useDrop } from 'react-dnd';
 import * as fileStorage from '../../../store/fileStorage.js';
 import mcpClient from '../../../services/mcpClient.js';
 import apiKeyManager from '../../../services/apiKeyManager.js';
@@ -17,6 +18,9 @@ import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import WizardActionChip from '../../wizard/WizardActionChip.jsx';
+import ContextPinChip from '../../wizard/ContextPinChip.jsx';
+import UnifiedSelector from '../../../UnifiedSelector.jsx';
+import { onWizardEntitiesCreated, mergeCreatedEntities } from '../../../services/wizardCreatedEntities.js';
 import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import useGraphStore from '../../../store/graphStore.js';
@@ -847,10 +851,40 @@ const LeftAIView = ({ compact = false,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showAttachMenu]);
 
-  // Persistent context items (Cursor-style @ chips)
+  // Persistent context items (Cursor-style @ chips): the current web, then the
+  // Things pinned to the conversation, dragged in or picked with Add Thing. A
+  // pin is { type: 'thing', id: prototypeId, graphId? }; graphId is the web a
+  // header tab was dragged in from. Pins are named live by ContextPinChip.
   const [contextItems, setContextItems] = React.useState([
     { type: 'activeGraph', id: null, label: 'Active Graph', enabled: true }
   ]);
+  const [showAddThing, setShowAddThing] = React.useState(false);
+  // The Add Thing picker centres itself between the panels.
+  const leftPanelExpanded = useGraphStore(s => s.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore(s => s.rightPanelExpanded);
+  const addContextPin = React.useCallback((prototypeId, graphId = null) => {
+    if (!prototypeId || !useGraphStore.getState().nodePrototypes.has(prototypeId)) return;
+    setContextItems(prev => (
+      prev.some(i => i.type === 'thing' && i.id === prototypeId && (i.graphId || null) === (graphId || null))
+        ? prev
+        : [...prev, { type: 'thing', id: prototypeId, graphId: graphId || null, enabled: true }]
+    ));
+  }, []);
+  const removeContextItem = React.useCallback((idx) => {
+    setContextItems(prev => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  // Drop the universal dragged node (the panel's, a list's, a header tab's
+  // after its hold) on the Wizard to pin it. A tab's drag carries its web.
+  const [{ isPinDropOver }, pinDropRef] = useDrop(() => ({
+    accept: 'spawnable_node',
+    canDrop: (item) => viewMode === 'wizard' && !!(item?.prototypeId || item?.nodeId),
+    drop: (item) => {
+      addContextPin(item.prototypeId || item.nodeId, item.graphId || null);
+      return { pinnedToWizard: true };
+    },
+    collect: (monitor) => ({ isPinDropOver: monitor.isOver() && monitor.canDrop() })
+  }), [viewMode, addContextPin]);
 
   // Context window usage estimation
   // Keyed by the block objects themselves, so entries disappear with the blocks.
@@ -1027,7 +1061,7 @@ const LeftAIView = ({ compact = false,
         return {
           ...item,
           id: activeGraphId || null,
-          label: activeGraphExists ? `${activeGraphName || 'Unnamed'} (Web)` : 'No Active Web',
+          label: activeGraphExists ? (activeGraphName || 'Unnamed') : 'No Active Web',
           color: activeGraphExists ? activeGraphColor : null
         };
       }
@@ -1910,6 +1944,35 @@ const LeftAIView = ({ compact = false,
     useGraphStore.getState().revertWizardAction(id);
     upsertToolCall({ id, isUndone: true });
   }, [upsertToolCall]);
+
+  // What each applied tool call made, by real id, onto its own block — so its
+  // card can show and open it (ToolCallCard → wizard/EntityRows.jsx). Found by
+  // id across every message rather than through upsertToolCall, which only
+  // looks at the last AI message: a held change is applied on confirmation,
+  // after newer messages, and would have grown a phantom card there.
+  React.useEffect(() => onWizardEntitiesCreated(({ toolCallId, conversationId, created }) => {
+    const attach = (msgs) => {
+      if (!Array.isArray(msgs)) return msgs;
+      let changed = false;
+      const next = msgs.map(m => {
+        const blocks = m?.contentBlocks;
+        if (!Array.isArray(blocks)) return m;
+        const i = blocks.findIndex(b => b.type === 'tool_call' && b.id === toolCallId);
+        if (i < 0) return m;
+        changed = true;
+        const updated = [...blocks];
+        updated[i] = { ...blocks[i], created: mergeCreatedEntities(blocks[i].created, created) };
+        return { ...m, contentBlocks: updated };
+      });
+      return changed ? next : msgs;
+    };
+    setConversations(prev => prev.map(c => {
+      if (conversationId && c.id !== conversationId) return c;
+      const msgs = attach(c.messages);
+      return msgs === c.messages ? c : { ...c, messages: msgs };
+    }));
+    setMessages(prev => attach(prev));
+  }), []);
   React.useEffect(() => {
     const handler = (e) => {
       const items = Array.isArray(e.detail) ? e.detail : [];
@@ -2697,6 +2760,8 @@ const LeftAIView = ({ compact = false,
           return {
             id: g.id,
             name: g.name,
+            // A web's bio, for every definition after a Thing's first
+            description: g.description || '',
             instances: instancesArray,
             edgeIds: g.edgeIds || [],
             definingNodeIds: Array.isArray(g.definingNodeIds) ? g.definingNodeIds : [],
@@ -2731,6 +2796,16 @@ const LeftAIView = ({ compact = false,
                 edge.definitionNodeIds.forEach(id => protoIds.add(id));
               }
             });
+            // The Thing each web defines, which may be placed nowhere.
+            (g.definingNodeIds || []).forEach(id => protoIds.add(id));
+          });
+
+          // Pinned Things, then the type of everything so far: the context
+          // names a Thing's type, and a type is rarely placed on a web.
+          contextItems.forEach(item => { if (item.type === 'thing' && item.id) protoIds.add(item.id); });
+          Array.from(protoIds).forEach(id => {
+            const typeId = nodePrototypesMap.get(id)?.typeNodeId;
+            if (typeId) protoIds.add(typeId);
           });
 
           return Array.from(protoIds)
@@ -2742,6 +2817,7 @@ const LeftAIView = ({ compact = false,
                 name: proto.name || '',
                 color: proto.color || '',
                 description: proto.description || '',
+                typeNodeId: proto.typeNodeId || null,
                 definitionGraphIds: Array.isArray(proto.definitionGraphIds) ? proto.definitionGraphIds : []
               };
             })
@@ -2847,7 +2923,9 @@ const LeftAIView = ({ compact = false,
       const agentEvents = runWizardInProcess({
         message: question,
         graphState,
-        contextItems: contextItems.filter(item => item.enabled),
+        // All of them: the header reads each one's `enabled`. Filtering the
+        // switched-off ones out made the current web's chip read as on.
+        contextItems,
         conversationHistory: recentMessages,
         tabularData,
         apiKey,
@@ -3691,7 +3769,7 @@ const LeftAIView = ({ compact = false,
   );
 
   return (
-    <div className="ai-collaboration-panel">
+    <div className={`ai-collaboration-panel${isPinDropOver ? ' ai-pin-drop-over' : ''}`} ref={pinDropRef}>
       <div className="ai-panel-header">
         {!compact ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gridColumn: '1 / -1' }}>
@@ -4152,6 +4230,7 @@ const LeftAIView = ({ compact = false,
                               executionTime={block.executionTime}
                               isUndone={block.isUndone}
                               onUndo={handleToolCallUndo}
+                              created={block.created}
                             />
                           );
                         }
@@ -4475,7 +4554,43 @@ const LeftAIView = ({ compact = false,
                   >
                     <Paperclip size={14} color="maroon" /> Add Files or Photos
                   </button>
+                  {viewMode === 'wizard' && (
+                    <button
+                      className="ai-attach-menu-item"
+                      onClick={() => { setShowAddThing(true); setShowAttachMenu(false); }}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        width: '100%', padding: '8px 12px',
+                        background: 'none', border: 'none',
+                        color: 'maroon',
+                        fontSize: '0.85rem', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold',
+                        cursor: 'pointer', textAlign: 'left',
+                        transition: 'background-color 0.1s ease',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(128, 0, 0, 0.1)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    >
+                      <LayoutGrid size={14} color="maroon" /> Add Thing
+                    </button>
+                  )}
                 </div>
+              )}
+              {showAddThing && (
+                <UnifiedSelector
+                  mode="node-selection"
+                  isVisible={true}
+                  onClose={() => setShowAddThing(false)}
+                  onNodeSelect={(node) => {
+                    addContextPin(node?.id);
+                    setShowAddThing(false);
+                  }}
+                  title="Add a Thing"
+                  subtitle="The Wizard gets its bio, its webs and its connections"
+                  leftPanelExpanded={leftPanelExpanded}
+                  rightPanelExpanded={rightPanelExpanded}
+                  searchOnly={true}
+                  gridTitle="All Things"
+                />
               )}
             </div>
 
@@ -4510,8 +4625,14 @@ const LeftAIView = ({ compact = false,
               </span>
             ))}
 
-            {/* Existing context chips */}
-            {contextItems.map((item, idx) => (
+            {/* Context chips: the current web, then pinned Things */}
+            {contextItems.map((item, idx) => item.type === 'thing' ? (
+              <ContextPinChip
+                key={`pin-${item.id}-${item.graphId || ''}`}
+                pin={item}
+                onRemove={() => removeContextItem(idx)}
+              />
+            ) : (
               <button
                 key={item.type + idx}
                 className={`ai-context-chip ${item.enabled ? 'active' : 'disabled'}`}

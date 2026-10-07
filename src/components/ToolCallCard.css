@@ -101,6 +101,52 @@
   white-space: nowrap;
 }
 
+/* What the call made. Indented to the tool name: the header's 10px padding,
+   the 18px status icon and its 8px gap. */
+.tool-created-entities {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 10px 8px 36px;
+  min-width: 0;
+}
+
+.entity-row {
+  display: flex;
+  align-items: center;
+  /* 14px plus the icon button's own padding, as the type row spaces its pill */
+  gap: 14px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.entity-row-rep {
+  display: inline-flex;
+  min-width: 0;
+}
+
+.entity-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tool-created-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--canvas-text-muted);
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tool-created-toggle:hover {
+  color: var(--canvas-text);
+}
+
 .tool-call-details {
   padding: 8px 10px;
   border-top: 1px solid var(--canvas-border);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X, Ban } from 'lucide-react';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
+import CreatedEntities from './wizard/EntityRows.jsx';
 import './ToolCallCard.css';
 
 const TOOL_DISPLAY_LABELS = {
@@ -71,7 +72,7 @@ const TOOL_DISPLAY_LABELS = {
     sketchGraph: 'Sketching web',
 };
 
-const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo }) => {
+const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo, created }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
     const [displayStatus, setDisplayStatus] = useState(status);
@@ -394,6 +395,13 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                     )}
                 </div>
             </div>
+
+            {/* What the call made, by real id (services/wizardCreatedEntities.js),
+                drawn as the control panel draws it, with the type row's open
+                buttons. Under the header, lined up with the tool's name. */}
+            {created && !isUndone && displayStatus !== 'running' && (
+                <CreatedEntities created={created} />
+            )}
 
             {isExpanded && (
                 <div className="tool-call-details">

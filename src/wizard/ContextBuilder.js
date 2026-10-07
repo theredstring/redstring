@@ -55,6 +55,22 @@ const DESC_CHAR_LIMIT = 60;
 /** Cap on the name-only roster of graphs that didn't make a richer tier. */
 const ROSTER_LIMIT = 12;
 
+/** The current web's defining Thing gets this much of its bio. */
+const DEFINER_BIO_CHAR_LIMIT = 160;
+
+/**
+ * Token budget for what the user pinned, on top of CONTEXT_TOKEN_BUDGET. Pins
+ * are the user saying "this is what I mean", so they are worth real room, but
+ * a dozen of them must not crowd out the conversation: each pin is fitted to
+ * its share and steps down a detail ladder when it doesn't fit.
+ */
+export const PINNED_CONTEXT_TOKEN_BUDGET = 4000;
+
+const trimText = (text, limit) => {
+  const t = String(text || '').trim().replace(/\s+/g, ' ');
+  return t.length > limit ? `${t.substring(0, limit)}...` : t;
+};
+
 // Detail levels, richest first. Demotion walks down this list.
 const DETAIL = {
   FULL: 'full',       // names + types + descriptions, edge triplets, groups
@@ -291,6 +307,10 @@ export function buildContext(graphState) {
     if (definingNodes.length > 0) {
       context += `\n⚡ This web is a DEFINITION GRAPH for: ${definingNodes.map(p => p.name).join(', ')}`;
       context += '\n   (You are inside a node, viewing/editing what it is made of)';
+      // The Thing a web defines is what the web is about; its bio is the
+      // cheapest statement of that there is.
+      const definerBio = trimText(definingNodes[0]?.description, DEFINER_BIO_CHAR_LIMIT);
+      if (definerBio) context += `\n   ${definingNodes[0].name}: ${definerBio}`;
 
       // The most common failure mode is re-adding nodes that already exist as
       // siblings elsewhere. Scoped to OPEN graphs: those are the ones the user is
@@ -557,10 +577,13 @@ export function buildPersistentContextHeader(graphState, contextItems = []) {
   // Check if 'activeGraph' context is enabled (defaults to true if no items specified)
   const activeGraphItem = contextItems.find(item => item.type === 'activeGraph');
   const includeActiveGraph = !activeGraphItem || activeGraphItem.enabled !== false;
+  const pinned = buildPinnedContext(graphState, contextItems.filter(item => item.type === 'thing' && item.enabled !== false), {
+    activeShown: includeActiveGraph
+  });
 
   if (includeActiveGraph) {
     // Use the full buildContext which includes Environment Snapshot framing
-    return buildContext(graphState);
+    return buildContext(graphState) + pinned;
   }
 
   // Active graph context is disabled — provide minimal info
@@ -575,5 +598,175 @@ export function buildPersistentContextHeader(graphState, contextItems = []) {
     context += '\n\nNo webs yet - perfect time to create one!';
   }
 
-  return context;
+  return context + pinned;
+}
+
+/**
+ * The Things the user pinned to the conversation (dragged in, or picked with
+ * Add Thing), each with what makes it that Thing: its type, its bio, the webs
+ * that define it, where it is placed, and its connections across the universe.
+ * A pin dragged in from a web's tab carries that web as `graphId`, and that web
+ * is the one shown in full.
+ *
+ * @param {Object} graphState
+ * @param {Array<{id:string, graphId?:string}>} pins
+ * @param {Object} [opts]
+ * @param {boolean} [opts.activeShown] - the current web is already in the
+ *   header, so a pin on it says so instead of repeating it
+ * @param {number} [opts.budget]
+ * @returns {string} '' when nothing is pinned
+ */
+export function buildPinnedContext(graphState, pins = [], { activeShown = true, budget = PINNED_CONTEXT_TOKEN_BUDGET } = {}) {
+  if (!graphState || !Array.isArray(pins) || pins.length === 0) return '';
+  const { graphs = [], nodePrototypes = [], edges = [], activeGraphId } = graphState;
+
+  const protoMap = new Map();
+  for (const proto of nodePrototypes) if (proto?.id) protoMap.set(proto.id, proto);
+  const graphMap = new Map();
+  for (const g of graphs) if (g?.id) graphMap.set(g.id, g);
+
+  const unique = [];
+  const seen = new Set();
+  for (const pin of pins) {
+    const key = `${pin?.id}|${pin?.graphId || ''}`;
+    if (!pin?.id || seen.has(key) || !protoMap.has(pin.id)) continue;
+    seen.add(key);
+    unique.push(pin);
+  }
+  if (unique.length === 0) return '';
+
+  // Universe-wide indexes, built once for every pin: where each instance lives
+  // and what it is called, and which edges touch it.
+  const instanceInfo = new Map();
+  const placementsByProto = new Map();
+  for (const g of graphs) {
+    for (const inst of getInstances(g)) {
+      if (!inst?.id) continue;
+      const nm = inst.name || protoMap.get(inst.prototypeId)?.name || '';
+      instanceInfo.set(inst.id, { name: nm, prototypeId: inst.prototypeId, graphName: g.name || 'Unnamed' });
+      if (inst.prototypeId) {
+        if (!placementsByProto.has(inst.prototypeId)) placementsByProto.set(inst.prototypeId, new Set());
+        placementsByProto.get(inst.prototypeId).add(g.id);
+      }
+    }
+  }
+  const edgesById = new Map();
+  for (const e of edges) if (e?.id) edgesById.set(e.id, e);
+  const edgesByGraph = new Map();
+  for (const g of graphs) {
+    if (!g?.id) continue;
+    edgesByGraph.set(g.id, (Array.isArray(g.edgeIds) ? g.edgeIds : []).map(id => edgesById.get(id)).filter(Boolean));
+  }
+  const renderCtx = { protoMap, edgesByGraph };
+
+  const connectionsOf = (protoId) => {
+    const lines = [];
+    for (const e of edges) {
+      const src = instanceInfo.get(e.sourceId || e.source);
+      const dst = instanceInfo.get(e.destinationId || e.targetId || e.target);
+      if (!src || !dst) continue;
+      if (src.prototypeId !== protoId && dst.prototypeId !== protoId) continue;
+      lines.push(`    - ${src.name} --[${resolveEdgeType(e, protoMap)}]--> ${dst.name} (in "${src.graphName}")`);
+    }
+    return lines;
+  };
+
+  // Richest first; a pin steps down until it fits its share.
+  const LEVELS = [
+    { bio: 600, focus: DETAIL.FULL, connections: 20, placements: 8 },
+    { bio: 200, focus: DETAIL.MEDIUM, connections: 8, placements: 4 },
+    { bio: 80, focus: DETAIL.LIGHT, connections: 0, placements: 0 },
+    { bio: 0, focus: DETAIL.NAME, connections: 0, placements: 0 }
+  ];
+
+  const renderPin = (pin, level) => {
+    const proto = protoMap.get(pin.id);
+    const typeName = proto.typeNodeId ? protoMap.get(proto.typeNodeId)?.name : null;
+    const definitionIds = (Array.isArray(proto.definitionGraphIds) ? proto.definitionGraphIds : []).filter(id => graphMap.has(id));
+    const focusId = pin.graphId && graphMap.has(pin.graphId) ? pin.graphId : definitionIds[0] || null;
+    const focus = focusId ? graphMap.get(focusId) : null;
+
+    const out = [];
+    out.push(pin.graphId && focus
+      ? `Web "${focus.name || 'Unnamed'}", defining the Thing "${proto.name}"${typeName ? ` [Type: ${typeName}]` : ''}`
+      : `Thing "${proto.name}"${typeName ? ` [Type: ${typeName}]` : ''}`);
+
+    // The panel's rule (getDefinitionDescription in utils.js): the first
+    // definition's bio is kept on the Thing, a later one's on its own web.
+    const focusIsFirst = !focusId || definitionIds[0] === focusId;
+    const bioSource = focusIsFirst
+      ? (proto.description || focus?.description)
+      : (focus?.description || proto.description);
+    const bio = level.bio > 0 ? trimText(bioSource, level.bio) : '';
+    if (bio) out.push(`  Bio: ${bio}`);
+
+    if (definitionIds.length > 0) {
+      const defs = definitionIds.map(id => {
+        const g = graphMap.get(id);
+        return `"${g.name || 'Unnamed'}" (${getInstances(g).length} Things, ${(edgesByGraph.get(id) || []).length} Connections)`;
+      });
+      out.push(`  Defined by ${definitionIds.length === 1 ? 'the web' : `${definitionIds.length} webs`}: ${defs.join(', ')}`);
+    } else if (!pin.graphId) {
+      out.push('  No web defines it yet.');
+    }
+
+    if (focus && level.focus !== DETAIL.NAME) {
+      if (activeShown && focusId === activeGraphId) {
+        out.push(`  "${focus.name}" is the current web, shown in full above.`);
+      } else if (getInstances(focus).length > 0) {
+        const rendered = renderGraph(focus, level.focus, renderCtx)
+          .split('\n').map(line => `  ${line}`).join('\n');
+        out.push(rendered);
+      }
+    }
+
+    if (level.placements > 0) {
+      const placed = Array.from(placementsByProto.get(pin.id) || [])
+        .filter(id => id !== focusId)
+        .map(id => `"${graphMap.get(id)?.name || 'Unnamed'}"`);
+      if (placed.length > 0) {
+        const more = placed.length - level.placements;
+        out.push(`  Placed in: ${placed.slice(0, level.placements).join(', ')}${more > 0 ? ` (+${more} more)` : ''}`);
+      }
+    }
+
+    const conns = connectionsOf(pin.id);
+    if (conns.length > 0) {
+      if (level.connections > 0) {
+        const more = conns.length - level.connections;
+        out.push(`  Connections across the universe (${conns.length}):`);
+        out.push(...conns.slice(0, level.connections));
+        if (more > 0) out.push(`    (+${more} more: call getNodeContext for all of them)`);
+      } else {
+        out.push(`  ${conns.length} connection${conns.length !== 1 ? 's' : ''} across the universe (call getNodeContext to read them)`);
+      }
+    }
+    return out.join('\n');
+  };
+
+  const blocks = [];
+  let remaining = budget;
+  let reduced = 0;
+  unique.forEach((pin, i) => {
+    const share = Math.floor(remaining / (unique.length - i));
+    let chosen = null;
+    for (let li = 0; li < LEVELS.length; li++) {
+      chosen = renderPin(pin, LEVELS[li]);
+      if (estimateTokens(chosen) <= share) {
+        if (li > 0) reduced++;
+        break;
+      }
+      if (li === LEVELS.length - 1) reduced++;
+    }
+    blocks.push(chosen);
+    remaining = Math.max(0, remaining - estimateTokens(chosen));
+  });
+
+  let out = '\n\n## Pinned by the user';
+  out += '\nThe user put these in this conversation as context. Unless the ask says otherwise, it is about them.';
+  out += `\n\n${blocks.join('\n\n')}`;
+  if (reduced > 0) {
+    out += `\n\n⚠ ${reduced} pinned item${reduced !== 1 ? 's are' : ' is'} shown at reduced detail for space — call readGraph or getNodeContext for the rest.`;
+  }
+  return out;
 }

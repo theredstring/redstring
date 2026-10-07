@@ -1082,3 +1082,7 @@ html.dark-mode .ai-send-button:disabled {
     gap: 8px;
   }
 }
+/* A Thing dragged over the Wizard, about to be pinned to its context */
+.ai-collaboration-panel.ai-pin-drop-over {
+  box-shadow: inset 0 0 0 2px maroon;
+}

@@ -42,6 +42,11 @@ export function runCanvasCommand(name, ...args) {
   return fn ? fn(...args) : undefined;
 }
 
+/** Whether a canvas is mounted to handle `name`. */
+export function hasCanvasCommand(name) {
+  return handlers.has(name);
+}
+
 /**
  * Register `commands` for as long as the calling component is mounted.
  *

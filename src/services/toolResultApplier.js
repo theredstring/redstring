@@ -37,6 +37,7 @@ import { attachOneShotOutcome } from './oneShot.js';
 import { sanitizeColor } from '../utils/safeColor.js';
 import { normalizeIdentifier } from '../wizard/tools/linkIdentifier.js';
 import { classifyForConfirmation, holdForConfirmation, takePending } from './wizardConfirmationGate.js';
+import { snapshotEntityMaps, diffCreatedEntities, hasCreatedEntities, notifyWizardEntitiesCreated } from './wizardCreatedEntities.js';
 
 // Part B — structure-review follow-through. The most recent build's group/fold
 // suggestions (with their one-shot callIds) are held here; when the user's next
@@ -1002,7 +1003,23 @@ export function resolveHeldWizardChanges(ids, allow) {
   }
 }
 
-export function applyToolResultToStore(toolName, rawResult, toolCallId, conversationId, { confirmed = false } = {}) {
+// Applies a result and records what it made, by real store id, for the call's
+// card (wizardCreatedEntities.js). Writes are synchronous, so the store after
+// the apply is the whole of what the call did; a held change makes nothing here
+// and is recorded when its confirmation applies it.
+export function applyToolResultToStore(toolName, rawResult, toolCallId, conversationId, options = {}) {
+  const before = toolCallId ? snapshotEntityMaps(useGraphStore.getState()) : null;
+  try {
+    return applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conversationId, options);
+  } finally {
+    if (before) {
+      const created = diffCreatedEntities(before, snapshotEntityMaps(useGraphStore.getState()));
+      if (hasCreatedEntities(created)) notifyWizardEntitiesCreated({ toolCallId, conversationId, created });
+    }
+  }
+}
+
+function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conversationId, { confirmed = false } = {}) {
   console.log('[Wizard] applyToolResultToStore called:', toolName, 'action:', rawResult?.action, 'hasSpec:', !!rawResult?.spec);
   if (!rawResult || rawResult.error) {
     console.warn('[Wizard] applyToolResultToStore: skipping — no result or error:', rawResult?.error);
