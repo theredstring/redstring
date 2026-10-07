@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch, Sparkles } from 'lucide-react';
+import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch, Sparkles, NotebookText } from 'lucide-react';
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -1258,6 +1258,13 @@ const SharedPanelContent = ({
   onNavigateDefinition,
   onTypeSelect,
 
+  // The type row's buttons (see PanelContentWrapper). No open handler means
+  // the type is this Thing itself.
+  typeActionsAvailable = false,
+  onOpenTypeInPanel,
+  onExpandType,
+  typeExpandDisabled = false,
+
   // Web Definitions (see PanelContentWrapper)
   definitionGraphIds = [],
   definitionIndex = 0,
@@ -1598,6 +1605,26 @@ const SharedPanelContent = ({
           console.error(`[TypeRenderingBug] typePrototype:`, typePrototype);
         }
 
+        // Open the type in the panel and expand its definition: the same pair
+        // Web Definitions uses, here acting on the type. 12px apart and clear of
+        // the type pill so each stays its own touch target.
+        const typeButtons = typeActionsAvailable && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '10px' }}>
+            <PanelIconButton
+              icon={NotebookText}
+              onClick={onOpenTypeInPanel}
+              disabled={!onOpenTypeInPanel}
+              title={onOpenTypeInPanel ? `Open ${typeName} in panel` : 'This is its tab'}
+            />
+            <PanelIconButton
+              icon={ArrowUpFromDot}
+              onClick={typeExpandDisabled ? undefined : onExpandType}
+              disabled={typeExpandDisabled}
+              title={typeExpandDisabled ? `${typeName}'s Web is open` : `Expand ${typeName}'s definition`}
+            />
+          </div>
+        );
+
         return (
           <div style={{
             marginBottom: isUltraSlim ? '16px' : '12px'
@@ -1639,6 +1666,7 @@ const SharedPanelContent = ({
                   >
                     {typeName}
                   </button>
+                  {typeButtons}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px', marginLeft: '2px' }}>
@@ -1682,6 +1710,7 @@ const SharedPanelContent = ({
                 </button>
               </div>
             )}
+            {!isUltraSlim && typeButtons}
           </div>
         );
       })()}

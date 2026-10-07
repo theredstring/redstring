@@ -325,17 +325,17 @@ const PanelContentWrapper = memo(({
     storeActions.openRightPanelNodeTab(nodeId);
   };
 
-  const handleExpandNode = (event) => {
-    const nodeId = nodeData?.id;
+  // Opens a Thing's definition on the canvas, making one first if it has none.
+  // `graphIdToOpen` is the definition to open when it has some.
+  const expandThing = (thing, graphIdToOpen, event) => {
+    const nodeId = thing?.id;
     if (!nodeId) return;
 
     // Get the icon's bounding rectangle for the hurtle animation
     const iconRect = event.currentTarget.getBoundingClientRect();
 
     // Same logic as PieMenu expand but using hurtle animation from panel
-    if (nodeData.definitionGraphIds && nodeData.definitionGraphIds.length > 0) {
-      // Node has existing definition(s) - open the one Web Definitions is showing
-      const graphIdToOpen = shownDefinitionId || nodeData.definitionGraphIds[0];
+    if (thing.definitionGraphIds && thing.definitionGraphIds.length > 0) {
       if (onStartHurtleAnimationFromPanel) {
         onStartHurtleAnimationFromPanel(nodeId, graphIdToOpen, nodeId, iconRect);
       } else if (storeActions?.openGraphTabAndBringToTop) {
@@ -432,10 +432,29 @@ const PanelContentWrapper = memo(({
     }
   };
 
+  // Expand opens the definition Web Definitions is showing.
+  const handleExpandNode = (event) => {
+    expandThing(nodeData, shownDefinitionId || definitionGraphIds[0], event);
+  };
+
   const handleTypeSelect = (nodeId) => {
     if (onTypeSelect) {
       onTypeSelect(nodeId);
     }
+  };
+
+  // The type row's own buttons. An untyped Thing reads "Is a Thing", so the
+  // buttons act on the base Thing.
+  const typeId = nodeData?.typeNodeId || 'base-thing-prototype';
+  const typePrototype = nodePrototypes?.get(typeId) || null;
+  const typeDefinitionId = getCurrentDefinitionId(typePrototype);
+
+  const handleOpenTypeInPanel = () => {
+    if (typePrototype) storeActions.openRightPanelNodeTab(typePrototype.id, typePrototype.name);
+  };
+
+  const handleExpandType = (event) => {
+    expandThing(typePrototype, typeDefinitionId, event);
   };
 
   if (!nodeData) {
@@ -474,6 +493,10 @@ const PanelContentWrapper = memo(({
         onOpenNode={handleOpenNode}
         onExpandNode={handleExpandNode}
         onTypeSelect={handleTypeSelect}
+        typeActionsAvailable={!!typePrototype}
+        onOpenTypeInPanel={typePrototype && typePrototype.id !== nodeData.id ? handleOpenTypeInPanel : undefined}
+        onExpandType={handleExpandType}
+        typeExpandDisabled={!!typeDefinitionId && typeDefinitionId === activeGraphId}
         definitionGraphIds={definitionGraphIds}
         definitionIndex={definitionIndex}
         currentDefinitionId={currentDefinitionId}
