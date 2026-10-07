@@ -523,6 +523,10 @@ const WikipediaPageOption = ({ option, disabled, onClick }) => {
         boxShadow: lit ? `0 0 0 1.5px ${accent}` : 'none',
         cursor: disabled ? 'wait' : 'pointer',
         opacity: disabled ? 0.6 : 1,
+        // Snippets can carry long unbroken strings (bare links) that would
+        // otherwise run past the card's edge.
+        minWidth: 0,
+        overflow: 'hidden',
         fontFamily: "'EmOne', sans-serif",
         transition: 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease'
       }}
@@ -532,7 +536,10 @@ const WikipediaPageOption = ({ option, disabled, onClick }) => {
         fontSize: '12px',
         fontWeight: 'bold',
         color: lit ? accent : tokens.brand,
-        marginBottom: option.snippet ? '2px' : 0
+        marginBottom: option.snippet ? '2px' : 0,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
       }}>
         {option.title}
       </span>
@@ -542,7 +549,10 @@ const WikipediaPageOption = ({ option, disabled, onClick }) => {
           fontSize: '11px',
           lineHeight: 1.35,
           color: lit ? accent : tokens.muted,
-          opacity: lit ? 0.85 : 1
+          opacity: lit ? 0.85 : 1,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
         }}>
           {option.snippet}
         </span>
