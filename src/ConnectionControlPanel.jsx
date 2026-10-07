@@ -2,6 +2,7 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import UnifiedBottomControlPanel from './UnifiedBottomControlPanel';
 import useGraphStore from './store/graphStore.js';
 import { CONNECTION_DEFAULT_COLOR } from './constants';
+import { projectGraphView } from './core/openDefinitions.js';
 
 const ConnectionControlPanel = ({
   selectedEdge,
@@ -27,14 +28,12 @@ const ConnectionControlPanel = ({
 }) => {
   const edgePrototypesMap = useGraphStore((state) => state.edgePrototypes);
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
-  const graphsMap = useGraphStore((state) => state.graphs);
-  const activeGraphId = useGraphStore((state) => state.activeGraphId);
-  
-  // Get instances from the active graph
-  const instances = useMemo(() => {
-    if (!activeGraphId || !graphsMap) return null;
-    return graphsMap.get(activeGraphId)?.instances;
-  }, [activeGraphId, graphsMap]);
+  // The active web as viewed: a connection inside an open Thing group has ends
+  // that live in the definition web, projected in at view positions, so the raw
+  // graph's instances would miss them and the triplet would come up empty.
+  const instances = useGraphStore((state) => (
+    state.activeGraphId ? projectGraphView(state, state.activeGraphId)?.instances ?? null : null
+  ));
 
   // Orient a connection so the endpoint that sits further LEFT on the canvas is
   // shown on the left of the control panel. Two connections pointing opposite

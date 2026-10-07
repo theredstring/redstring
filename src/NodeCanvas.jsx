@@ -95,7 +95,8 @@ import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex, computeEdgeCurv
 import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
 import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
-import { runConnectionEdgePan, writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
+import { writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
+import { runConnectionEdgePan, runMarqueeEdgePan } from './components/canvas/input/edgePan.js';
 import { fitOrbitInView } from './components/canvas/orbit/orbitData.js';
 import { flushAnchorPositions } from './components/canvas/groups/anchorFlush.js';
 import { resolveStoreActions } from './components/canvas/data/storeActions.js';
@@ -1114,15 +1115,7 @@ function NodeCanvas() {
     }
   }, [draggingNodeInfo]);
 
-  // ---------------------------------------------------------------------------
-  // Edge-pan while drawing a connection — mirrors the node-drag edge-pan in
-  // useNodeDrag, but targets `drawingConnectionFrom`. Works for both mouse and
-  // touch because `mousePositionRef` is updated by document-level mousemove
-  // AND by handleMouseMove (which the touch hook invokes via window
-  // pointermove during a connection draw). Keyboard-safe: bails out during an
-  // active zoom animation and only reacts to pointer proximity to the edge,
-  // so keyboard pan/zoom inputs still drive the canvas independently.
-  // ---------------------------------------------------------------------------
+  // Edge-pan while drawing a connection (input/edgePan.js, shared with the marquee).
   const drawingConnectionFromRef = useRef(null);
   useEffect(() => { drawingConnectionFromRef.current = drawingConnectionFrom; }, [drawingConnectionFrom]);
 
@@ -2560,6 +2553,10 @@ function NodeCanvas() {
     setSelectionStart(null);
     return final;
   };
+  useEffect(() => runMarqueeEdgePan({ // edge-pan while box-selecting (input/edgePan.js)
+    selectionStart, selectionStartRef, isMouseDown, mouseMoved, containerRef, updateMarquee, isAnimatingZoomRef, mousePositionRef,
+    viewportBoundsRef, panOffsetRef, zoomLevelRef, canvasSizeRef, viewportSizeRef, setPanOffset,
+  }), [!!selectionStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check if a client-space point hits a thing group's title area, returns the group or null
   const findGroupTitleAtPoint = (clientX, clientY) => {

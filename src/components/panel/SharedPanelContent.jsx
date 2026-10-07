@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, ExternalLink, Trash2, Bookmark, TextSearch, Sparkles, NotebookText } from 'lucide-react';
+import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, Trash2, Bookmark, TextSearch, Sparkles, NotebookText } from 'lucide-react';
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -20,10 +20,11 @@ import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
 import useDoubleTap from '../../hooks/useDoubleTap.js';
 import useGraphStore from "../../store/graphStore.js";
-import useImageCache, { queueThumbnailFetch, cancelThumbnailFetch } from '../../services/imageCache.js';
+import useImageCache, { cancelThumbnailFetch } from '../../services/imageCache.js';
 import { linkedWikipediaTitle } from '../../services/conceptEnrichment.js';
 import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.js';
-import { openExternalUrl, safeImageSrc } from '../../utils/safeUrl.js';
+import { safeImageSrc } from '../../utils/safeUrl.js';
+import { setWikipediaImage } from '../../services/wikipediaImage.js';
 
 // Helper function to determine the correct article ("a" or "an")
 const getArticleFor = (word) => {
@@ -493,7 +494,6 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState(null);
   const [showDisambiguation, setShowDisambiguation] = useState(false);
-  const [showImageOptions, setShowImageOptions] = useState(false);
 
   const handleWikipediaSearch = async () => {
     console.log(`[Wikipedia Images] 🚀 TRIGGERED: Wikipedia search for "${nodeData.name}"`);
@@ -611,65 +611,8 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
     console.log(`[Wikipedia Images] ✅ applyWikipediaData complete`);
   };
 
-  const setWikipediaImageFromUrl = async (rawImageUrl, precomputedDims = null) => {
-    // Only a web or raster-image URL becomes the node's picture.
-    const imageUrl = safeImageSrc(rawImageUrl);
-    if (!imageUrl || !nodeData?.id) return;
-    try {
-      // Compute aspect ratio. Prefer caller-provided dimensions; otherwise load via
-      // <img> tag which bypasses CORS for dimension reads (naturalWidth/Height).
-      let aspectRatio = 1;
-      if (precomputedDims && precomputedDims.width > 0 && precomputedDims.height > 0) {
-        aspectRatio = precomputedDims.height / precomputedDims.width;
-      } else {
-        try {
-          const img = await new Promise((resolve, reject) => {
-            const i = new Image();
-            i.onload = () => resolve(i);
-            i.onerror = () => reject(new Error('image load failed'));
-            i.src = imageUrl;
-          });
-          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            aspectRatio = img.naturalHeight / img.naturalWidth;
-          }
-          img.src = '';
-        } catch (err) {
-          console.warn('[Wikipedia] Could not compute aspect ratio, using 1:1', err);
-        }
-      }
-
-      // Store the Wikipedia URL in semanticMetadata (not a data URL in the main store).
-      // Clear any legacy imageSrc/thumbnailSrc so NodeCanvas's imageCache override activates.
-      // imageRef goes too: a Wikipedia image replaces whatever was here, and a
-      // surviving ref would keep pointing the panel at the previous picture.
-      //
-      // Metadata is read live from the store: `nodeData` is this render's copy, and
-      // applyWikipediaData has just written wikipediaUrl/Title/Enriched ahead of this
-      // call — spreading the stale copy silently dropped them.
-      const liveMetadata = useGraphStore.getState().nodePrototypes.get(nodeData.id)?.semanticMetadata
-        ?? nodeData.semanticMetadata;
-      await onUpdateNode({
-        imageSrc: null,
-        thumbnailSrc: null,
-        imageRef: null,
-        imageRefExt: null,
-        imageAspectRatio: aspectRatio,
-        semanticMetadata: {
-          ...(liveMetadata || {}),
-          wikipediaThumbnail: imageUrl,
-          imageAspectRatio: aspectRatio
-        }
-      });
-
-      // Invalidate any stale blob URL so the new URL is fetched.
-      useImageCache.getState().clearImage(nodeData.id);
-
-      // Populate the imageCache (separate store that NodeCanvas subscribes to).
-      queueThumbnailFetch(nodeData.id, imageUrl, aspectRatio, nodeData.name || '');
-    } catch (error) {
-      console.warn('[Wikipedia] Failed to set image from URL:', error);
-    }
-  };
+  // The article's main image: pageData's thumbnail when it has no original.
+  const setWikipediaImageFromUrl = (imageUrl) => setWikipediaImage(nodeData?.id, { url: imageUrl }, onUpdateNode);
 
   const handleDisambiguationSelect = async (option) => {
     console.log(`[Wikipedia Images] 🔀 User selected disambiguation option: "${option.title}"`);
@@ -803,245 +746,6 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
         </div>
       )}
 
-      {isAlreadyLinked && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          marginTop: '8px',
-          fontSize: '10px',
-          color: accentColor,
-          fontFamily: "'EmOne', sans-serif"
-        }}>
-          <BookOpen size={10} />
-          <span>Wikipedia linked</span>
-          <button
-            onClick={() => openExternalUrl(nodeData.semanticMetadata.wikipediaUrl)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
-              padding: '2px 4px',
-              border: `1px solid ${accentColor}`,
-              borderRadius: '3px',
-              background: 'transparent',
-              color: accentColor,
-              fontSize: '8px',
-              cursor: 'pointer',
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            <ExternalLink size={8} />
-            View
-          </button>
-          <button
-            onClick={() => {
-              // If there are additional images, show options; otherwise set directly
-              const hasAdditionalImages = nodeData.semanticMetadata?.wikipediaAdditionalImages?.length > 0;
-              if (hasAdditionalImages) {
-                setShowImageOptions(!showImageOptions);
-              } else {
-                const imgUrl = nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail;
-                setWikipediaImageFromUrl(imgUrl);
-              }
-            }}
-            disabled={!(nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
-              padding: '2px 4px',
-              border: `1px solid ${accentColor}`,
-              borderRadius: '3px',
-              background: 'transparent',
-              color: accentColor,
-              fontSize: '8px',
-              cursor: (nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) ? 'pointer' : 'not-allowed',
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            {nodeData.semanticMetadata?.wikipediaAdditionalImages?.length > 0 ? 'Choose image ▾' : 'Set as image'}
-          </button>
-          <button
-            onClick={async () => {
-              // Remove Wikipedia data from node
-              const updates = {
-                semanticMetadata: {
-                  ...nodeData.semanticMetadata,
-                  wikipediaUrl: undefined,
-                  wikipediaTitle: undefined,
-                  wikipediaEnriched: undefined,
-                  wikipediaEnrichedAt: undefined,
-                  wikipediaThumbnail: undefined,
-                  wikipediaOriginalImage: undefined,
-                  wikipediaAdditionalImages: undefined
-                }
-              };
-
-              // Also remove Wikipedia link from externalLinks
-              const currentExternalLinks = nodeData.externalLinks || [];
-              const filteredLinks = currentExternalLinks.filter(link =>
-                typeof link === 'string' ?
-                  !link.includes('wikipedia.org') :
-                  !link.url?.includes('wikipedia.org')
-              );
-
-              if (filteredLinks.length !== currentExternalLinks.length) {
-                updates.externalLinks = filteredLinks;
-              }
-
-              await onUpdateNode(updates);
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '2px',
-              padding: '2px 4px',
-              border: `1px solid ${theme.canvas.textSecondary}`,
-              borderRadius: '3px',
-              background: 'transparent',
-              color: theme.canvas.textSecondary,
-              fontSize: '8px',
-              cursor: 'pointer',
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            Unlink
-          </button>
-        </div>
-      )}
-
-      {/* Image selection dropdown */}
-      {showImageOptions && nodeData.semanticMetadata?.wikipediaAdditionalImages && (
-        <div style={{
-          marginTop: '8px',
-          padding: '8px',
-          border: `1px solid ${accentColor}`,
-          borderRadius: '6px',
-          background: accentBgLight
-        }}>
-          <div style={{
-            fontSize: '10px',
-            color: accentColor,
-            fontFamily: "'EmOne', sans-serif",
-            fontWeight: 'bold',
-            marginBottom: '6px'
-          }}>
-            Choose an image from Wikipedia:
-          </div>
-          <div style={{
-            maxHeight: '200px',
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '6px'
-          }}>
-            {/* Main image first */}
-            {(nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail) && (
-              <div
-                onClick={() => {
-                  const imgUrl = nodeData.semanticMetadata?.wikipediaOriginalImage || nodeData.semanticMetadata?.wikipediaThumbnail;
-                  setWikipediaImageFromUrl(imgUrl);
-                  setShowImageOptions(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '4px',
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  background: theme.canvas.bg,
-                  transition: 'background 0.15s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = accentBgLight}
-                onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
-              >
-                <img
-                  src={safeImageSrc(nodeData.semanticMetadata?.wikipediaThumbnail || nodeData.semanticMetadata?.wikipediaOriginalImage) || undefined}
-                  alt="Main"
-                  style={{
-                    width: '60px',
-                    height: '60px',
-                    objectFit: 'cover',
-                    borderRadius: '3px'
-                  }}
-                />
-                <span style={{
-                  fontSize: '9px',
-                  fontFamily: "'EmOne', sans-serif",
-                  color: accentColor,
-                  fontWeight: 'bold'
-                }}>
-                  Main image
-                </span>
-              </div>
-            )}
-            {/* Additional images */}
-            {nodeData.semanticMetadata.wikipediaAdditionalImages.map((img, index) => (
-              <div
-                key={index}
-                onClick={() => {
-                  setWikipediaImageFromUrl(img.url, { width: img.width, height: img.height });
-                  setShowImageOptions(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '4px',
-                  border: `1px solid ${theme.canvas.border}`,
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  background: theme.canvas.bg,
-                  transition: 'background 0.15s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = accentBgLight}
-                onMouseLeave={(e) => e.currentTarget.style.background = theme.canvas.bg}
-              >
-                <img
-                  src={safeImageSrc(img.thumbnail || img.url) || undefined}
-                  alt={`Image ${index + 1}`}
-                  style={{
-                    width: '60px',
-                    height: '60px',
-                    objectFit: 'cover',
-                    borderRadius: '3px'
-                  }}
-                  onError={(e) => {
-                    // Hide image on error
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-                <span style={{
-                  fontSize: '9px',
-                  fontFamily: "'EmOne', sans-serif",
-                  color: theme.canvas.textSecondary
-                }}>
-                  Image {index + 1}
-                </span>
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={() => setShowImageOptions(false)}
-            style={{
-              marginTop: '6px',
-              padding: '4px 8px',
-              border: `1px solid ${theme.canvas.border}`,
-              borderRadius: '3px',
-              background: 'transparent',
-              color: theme.canvas.textSecondary,
-              fontSize: '9px',
-              cursor: 'pointer',
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
     </div>
   );
 };

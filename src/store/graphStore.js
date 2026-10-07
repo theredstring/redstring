@@ -200,7 +200,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
  * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
- * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
+ * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, marqueeEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
  * @property {Object} gamepadSettings - Game controller settings: `{ scheme, crosshairScale,
  *   zoomSensitivity, panSensitivity, panelResizeSensitivity,
@@ -2093,6 +2093,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const nodeDragEdgePanEnabled = ndepRaw === null ? true : ndepRaw === 'true';
         const cdepRaw = localStorage.getItem('redstring_connection_draw_edge_pan_enabled');
         const connectionDrawEdgePanEnabled = cdepRaw === null ? true : cdepRaw === 'true';
+        const mepRaw = localStorage.getItem('redstring_marquee_edge_pan_enabled');
+        const marqueeEdgePanEnabled = mepRaw === null ? true : mepRaw === 'true';
         const glideRaw = localStorage.getItem('redstring_mouse_glide_enabled');
         const glideEnabled = glideRaw === null ? true : glideRaw === 'true';
         // Versioned key: the default moved from 0.1 to the 0.5 midpoint and the
@@ -2108,9 +2110,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         let nodeLiftDelay = liftDelayRaw !== null ? parseFloat(liftDelayRaw) : 250;
         if (!Number.isFinite(nodeLiftDelay)) nodeLiftDelay = 250;
         nodeLiftDelay = Math.max(50, Math.min(1000, nodeLiftDelay));
-        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay };
+        return { middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, marqueeEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay };
       } catch (_) {
-        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.5, nodeLiftDelay: 250 };
+        return { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, marqueeEdgePanEnabled: true, glideEnabled: true, glideStrength: 0.5, nodeLiftDelay: 250 };
       }
     })(),
 
@@ -7777,6 +7779,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.mouseSettings.connectionDrawEdgePanEnabled = !draft.mouseSettings.connectionDrawEdgePanEnabled;
       try {
         localStorage.setItem('redstring_connection_draw_edge_pan_enabled', String(draft.mouseSettings.connectionDrawEdgePanEnabled));
+      } catch (_) { }
+    })),
+
+    /** Toggles edge-pan-while-box-selecting. Persists to localStorage. */
+    toggleMarqueeEdgePan: () => set(produce((draft) => {
+      if (!draft.mouseSettings) draft.mouseSettings = { middleMouseZoomEnabled: false, nodeDragEdgePanEnabled: true, connectionDrawEdgePanEnabled: true, marqueeEdgePanEnabled: true };
+      draft.mouseSettings.marqueeEdgePanEnabled = draft.mouseSettings.marqueeEdgePanEnabled === false;
+      try {
+        localStorage.setItem('redstring_marquee_edge_pan_enabled', String(draft.mouseSettings.marqueeEdgePanEnabled));
       } catch (_) { }
     })),
 

@@ -1,5 +1,5 @@
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check, Binoculars } from 'lucide-react';
+import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check, Binoculars, ImagePlus } from 'lucide-react';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
@@ -13,7 +13,8 @@ import {
   STANDARD_KINDS
 } from '../../utils/externalIdentifiers.js';
 import { resolveOrigin } from '../../utils/nodeOrigin.js';
-import { safeExternalHref, openExternalUrl } from '../../utils/safeUrl.js';
+import { safeExternalHref, openExternalUrl, safeImageSrc } from '../../utils/safeUrl.js';
+import { wikipediaImageChoices, setWikipediaImage } from '../../services/wikipediaImage.js';
 import { searchIdentifiers, describeIdentifier } from '../../services/identifierSearch.js';
 import {
   LINK_STATES,
@@ -33,6 +34,9 @@ import {
 } from './aboutCopy.js';
 
 const FONT = "'EmOne', sans-serif";
+
+// Below this section width an identifier row's buttons move under it.
+const ROW_STACK_WIDTH = 360;
 
 /**
  * What other systems call this subject, and where those names came from.
@@ -268,6 +272,95 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
 };
 
 /**
+ * One of the linked article's pictures, as a tile. Lit like PopoverOption: the
+ * pie-menu ring and a lift, scaled 1.04 because a tile is small enough to take
+ * it. The picture in use keeps the ring and a check.
+ */
+const ImageTile = ({ image, isCurrent, onClick }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const src = safeImageSrc(image.thumbnail) || safeImageSrc(image.url);
+  if (!src || failed) return null;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onBlur={() => setIsHovered(false)}
+      aria-pressed={isCurrent}
+      title={isCurrent ? 'In use' : 'Use this picture'}
+      style={{
+        position: 'relative',
+        padding: 0,
+        aspectRatio: '1',
+        border: '1.5px solid maroon',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: '#FFFFFF',
+        cursor: 'pointer',
+        transform: isHovered ? 'scale(1.04)' : 'scale(1)',
+        boxShadow: isHovered
+          ? '0 0 0 1.5px maroon, 0 4px 12px rgba(0,0,0,0.3)'
+          : (isCurrent ? '0 0 0 1.5px maroon' : 'none'),
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease'
+      }}
+    >
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+      />
+      {isCurrent && (
+        <span style={{
+          position: 'absolute',
+          top: 4,
+          right: 4,
+          display: 'flex',
+          padding: 2,
+          borderRadius: '50%',
+          background: 'maroon',
+          color: '#FFFFFF'
+        }}>
+          <Check size={12} strokeWidth={3} />
+        </span>
+      )}
+    </button>
+  );
+};
+
+/** The linked article's pictures, to choose the Thing's from. */
+const ImageChooser = ({ anchor, images, currentUrl, onPick, onDismiss, triggerRef }) => (
+  <AnchoredPopoverBox
+    position={anchor}
+    direction="down-left"
+    width={280}
+    estimatedHeight={300}
+    onDismiss={onDismiss}
+    triggerRef={triggerRef}
+    ariaLabel="Choose image"
+  >
+    <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Choose image</div>
+    {/* Three across fits the popover's narrowest (the viewport less 24px on a
+        phone) and still leaves each tile big enough to tell pictures apart.
+        The 4px of padding is room for a hovered tile's ring. */}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, padding: 4 }}>
+      {images.map(image => (
+        <ImageTile
+          key={image.url}
+          image={image}
+          isCurrent={image.url === currentUrl}
+          onClick={() => onPick(image)}
+        />
+      ))}
+    </div>
+  </AnchoredPopoverBox>
+);
+
+/**
  * How strongly this match is claimed, as the control that changes it.
  *
  * The state used to be static text with a separate chevron button beside the
@@ -364,11 +457,16 @@ const IdentifierRow = ({
   onCloseMenu,
   onSetState,
   onRemove,
-  onPick
+  onPick,
+  // The linked Wikipedia row only: the article's pictures, and the one in use.
+  images = null,
+  currentImageUrl = null,
+  onChooseImage
 }) => {
   const info = useIdentifierDescription(url);
   const chipRef = useRef(null);
   const searchRef = useRef(null);
+  const imageRef = useRef(null);
 
   const { authority: derivedAuthority, identifier, href, isEntity } = url
     ? identifierFromUrl(url)
@@ -406,11 +504,10 @@ const IdentifierRow = ({
    * The state chip and the action group, held as values because where they go
    * changes with the width.
    *
-   * Wide, the actions sit to the right of the text and the chip hangs under it.
-   * Narrow, a three-button group and an identifier competing for the same line
-   * leaves the identifier about forty pixels, so the two swap axes: the text
-   * gets the full width and the chip and the actions share a footer line under
-   * it. Same parts, same order, one fewer column.
+   * The chip always hangs under the text. Wide, the actions sit to the right
+   * of the text. Narrow, a button group and an identifier competing for the
+   * same line leaves the identifier about forty pixels, so the actions move to
+   * the bottom of the row, left-aligned, and the text gets the full width.
    */
   const stateChip = url ? (
     <StateChip
@@ -419,12 +516,21 @@ const IdentifierRow = ({
       tokens={tokens}
       isOpen={openHere === 'state'}
       onToggle={toggle('state')}
-      style={isUltraSlim ? { marginTop: 0 } : undefined}
     />
   ) : null;
 
+  // Narrow, the group gets its own line at the bottom of the row, with a wider
+  // gap since it is no longer squeezed for width and each button needs to be
+  // its own target. Pulled left by the buttons' 6px padding so the first icon
+  // lines up with the text above it.
   const actions = (
-    <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+    <div style={{
+      display: 'flex',
+      gap: isUltraSlim ? 12 : 2,
+      flexShrink: 0,
+      marginTop: isUltraSlim ? 8 : 0,
+      marginLeft: isUltraSlim ? -6 : 0
+    }}>
       {/* Only the three standing authorities can be searched. A DOI or a
           bare URL has no directory to look it up in, so that row keeps the
           two buttons that do mean something. */}
@@ -437,6 +543,18 @@ const IdentifierRow = ({
           onClick={toggle('picker')}
           title={url ? `Find a different ${authority} match` : `Find this on ${authority}`}
           ariaExpanded={openHere === 'picker'}
+          ariaHasPopup="dialog"
+        />
+      )}
+      {images?.length > 0 && (
+        <PanelIconButton
+          ref={imageRef}
+          icon={ImagePlus}
+          size={14}
+          active={openHere === 'image'}
+          onClick={toggle('image')}
+          title="Choose image"
+          ariaExpanded={openHere === 'image'}
           ariaHasPopup="dialog"
         />
       )}
@@ -539,26 +657,13 @@ const IdentifierRow = ({
             </div>
           )}
 
-          {!isUltraSlim && stateChip}
+          {stateChip}
         </div>
 
         {!isUltraSlim && actions}
       </div>
 
-      {isUltraSlim && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          marginTop: 6
-        }}>
-          {/* An empty span rather than a conditional, so the actions stay
-              pinned right on an unfilled slot instead of sliding left. */}
-          {stateChip || <span />}
-          {actions}
-        </div>
-      )}
+      {isUltraSlim && actions}
 
       {openHere === 'state' && (
         <StateChooser
@@ -566,6 +671,17 @@ const IdentifierRow = ({
           current={state}
           triggerRef={chipRef}
           onPick={(next) => { onSetState(url, next); onCloseMenu(); }}
+          onDismiss={onCloseMenu}
+        />
+      )}
+
+      {openHere === 'image' && (
+        <ImageChooser
+          anchor={openMenu.anchor}
+          images={images}
+          currentUrl={currentImageUrl}
+          triggerRef={imageRef}
+          onPick={(image) => { onChooseImage(image); onCloseMenu(); }}
           onDismiss={onCloseMenu}
         />
       )}
@@ -767,6 +883,22 @@ const ProvenanceRows = ({ nodeData, isHomeTab, graphData, tokens, isUltraSlim })
 const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = null, isUltraSlim = false }) => {
   const tokens = usePanelCardTokens();
 
+  // The identifier rows stack before the rest of the panel does: up to four
+  // buttons beside an identifier squeeze it well above the panel's ultra-slim
+  // width, so they go by this section's own width as well.
+  const sectionRef = useRef(null);
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => {
+      setIsNarrow(entry.contentRect.width < ROW_STACK_WIDTH);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const stackRows = isUltraSlim || isNarrow;
+
   // One menu for the whole section: {key, type, anchor} or null. Held here
   // rather than per-row so opening any one closes any other.
   const [openMenu, setOpenMenu] = useState(null);
@@ -891,6 +1023,20 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
     });
   }, [nodeData, onNodeUpdate, detachUrl]);
 
+  // The linked article's pictures belong to its row, and only while it is the
+  // article the Thing is linked to.
+  const wikipediaUrl = nodeData?.semanticMetadata?.wikipediaUrl;
+  const wikipediaCanonical = wikipediaUrl ? canonicalizeLink(wikipediaUrl) : null;
+  const wikipediaImages = useMemo(
+    () => wikipediaImageChoices(nodeData?.semanticMetadata),
+    [nodeData?.semanticMetadata]
+  );
+  const currentImageUrl = wikipediaImages[0]?.url || null;
+
+  const handleChooseImage = useCallback((image) => {
+    if (nodeData?.id) setWikipediaImage(nodeData.id, image, onNodeUpdate);
+  }, [nodeData?.id, onNodeUpdate]);
+
   // The three standing slots first, then anything else the Thing carries.
   const rows = useMemo(() => [
     ...slots.map(slot => ({ ...slot, isSlot: true })),
@@ -904,7 +1050,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
     // Two cards, the same container language Semantic Web is built from, so the
     // panel reads as one system rather than as two sections that happen to sit
     // near each other.
-    <div style={{ marginRight: 15, fontFamily: FONT }}>
+    <div ref={sectionRef} style={{ marginRight: 15, fontFamily: FONT }}>
       <PanelCard
         title="Known Elsewhere As"
         icon={Link2}
@@ -929,7 +1075,7 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
               state={stateOf(row.url)}
               nodeName={nodeData?.name || ''}
               tokens={tokens}
-              isUltraSlim={isUltraSlim}
+              isUltraSlim={stackRows}
               isLast={index === rows.length - 1}
               openMenu={openMenu}
               onToggleMenu={setOpenMenu}
@@ -937,6 +1083,9 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
               onSetState={handleSetState}
               onRemove={handleRemove}
               onPick={handlePick}
+              {...(row.url && wikipediaCanonical && canonicalizeLink(row.url) === wikipediaCanonical
+                ? { images: wikipediaImages, currentImageUrl, onChooseImage: handleChooseImage }
+                : {})}
             />
           );
         })}

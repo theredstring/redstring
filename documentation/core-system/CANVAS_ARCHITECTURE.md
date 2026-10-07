@@ -142,7 +142,7 @@ Use a command, not a new window event or a callback prop threaded through NodeCa
 | `data/` | Canvas nodes and dimensions, culling, active-graph data upkeep, back-to-civilization visibility, the store action bag |
 | `edges/` | Whole-graph edge geometry, label budgets, the create/delete animations (`edgeTransitions.js`, mounted by `EdgeTransitionLayer` at the end of EdgeLayer) |
 | `groups/` | Group layouts as data, group elements, group input, the anchor flush, the box morph (`boxMorph.js`) |
-| `input/` | Pointer handlers, connection drawing, edge input, controller targets |
+| `input/` | Pointer handlers, connection drawing, edge-pan (connection draw and marquee), edge input, controller targets |
 | `layers/`, `hosts/` | As above |
 | `menus/` | Context-menu builders |
 | `orbit/` | Semantic orbit: data, actions, constants, the hook, its layers |

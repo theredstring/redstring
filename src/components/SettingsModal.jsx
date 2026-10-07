@@ -143,6 +143,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const middleMouseZoomEnabled = useGraphStore(s => s.mouseSettings?.middleMouseZoomEnabled ?? false);
   const nodeDragEdgePanEnabled = useGraphStore(s => s.mouseSettings?.nodeDragEdgePanEnabled ?? true);
   const connectionDrawEdgePanEnabled = useGraphStore(s => s.mouseSettings?.connectionDrawEdgePanEnabled ?? true);
+  const marqueeEdgePanEnabled = useGraphStore(s => s.mouseSettings?.marqueeEdgePanEnabled ?? true);
   const mouseGlideEnabled = useGraphStore(s => s.mouseSettings?.glideEnabled ?? true);
   const touchGlideEnabled = useGraphStore(s => s.touchSettings?.glideEnabled ?? true);
   const trackpadZoomSensitivity = useGraphStore(s => s.touchSettings?.trackpadZoomSensitivity ?? 0.5);
@@ -986,6 +987,16 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!connectionDrawEdgePanEnabled}
               onChange={() => useGraphStore.getState().toggleConnectionDrawEdgePan?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Edge Pan While Box Selecting
+              <div className="settings-row-description">Automatically pan the canvas when the pointer reaches the viewport edge while dragging a selection box.</div>
+            </div>
+            <Toggle
+              checked={!!marqueeEdgePanEnabled}
+              onChange={() => useGraphStore.getState().toggleMarqueeEdgePan?.()}
             />
           </div>
 
