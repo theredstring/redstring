@@ -191,3 +191,69 @@ test('F42d by mouse: an Open Webs row dragged past its neighbour swaps with it',
 
   await expect.poll(() => openOrder(page)).toEqual([b, a, ...rest]);
 });
+
+/** Press on `from` and move to `to` a frame at a time, button held. */
+async function mouseDragTo(page, from, to, steps = 12) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let i = 1; i <= steps; i += 1) {
+    await page.mouse.move(from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps);
+    await nextFrames(page, 1);
+  }
+}
+
+// Drags run on pointer events (bootApp.jsx) so that the wheel works mid-drag:
+// a native drag gave the page no wheel events at all.
+test('F42f by mouse: the wheel scrolls Open Webs mid-drag, and the drop lands where it scrolled to', async ({ page }) => {
+  await openFixture(page, 'small');
+  const order = await openWebs(page, 14);
+  await showOpenWebsList(page);
+  const scroller = page.locator('.panel-content').filter({ has: page.locator('h2', { hasText: 'Open Webs' }) });
+  const area = await box(scroller);
+  const rowA = await box(page.locator(`.panel-content [data-graph-id="${order[0]}"]`));
+  const mid = { x: rowA.cx, y: area.y + area.height / 2 };
+
+  await mouseDragTo(page, { x: rowA.cx, y: rowA.cy }, mid);
+  const before = await scroller.evaluate((el) => el.scrollTop);
+  for (let i = 0; i < 20; i += 1) {
+    await page.mouse.wheel(0, 300);
+    await nextFrames(page, 1);
+  }
+  await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(before + 1500);
+  await page.mouse.up();
+
+  // Dropped among the later rows, not near the top where the drag began.
+  await expect.poll(async () => (await openOrder(page)).indexOf(order[0])).toBeGreaterThan(5);
+});
+
+test('F42g by mouse: a drag let go on its own row does not also click it', async ({ page }) => {
+  await openFixture(page, 'small');
+  const [a, b] = await openWebs(page, 3);
+  await showOpenWebsList(page);
+  const rowB = await box(page.locator(`.panel-content [data-graph-id="${b}"]`));
+  expect(await storeEval(page, (st) => st.activeGraphId)).toBe(a);
+
+  await mouseDragTo(page, { x: rowB.cx, y: rowB.y + 30 }, { x: rowB.cx, y: rowB.y + 60 });
+  await page.mouse.up();
+  await nextFrames(page, 3);
+
+  expect(await storeEval(page, (st) => st.activeGraphId)).toBe(a);
+  // And a plain click afterwards still clicks.
+  await page.mouse.click(rowB.cx, rowB.y + 30);
+  await expect.poll(() => storeEval(page, (st) => st.activeGraphId)).toBe(b);
+});
+
+test('F42h by mouse: an Open Webs row dropped on the canvas puts its Thing there', async ({ page }) => {
+  await openFixture(page, 'small');
+  const [, b] = await openWebs(page, 3);
+  await showOpenWebsList(page);
+  const count = () => storeEval(page, (st) => st.graphs.get(st.activeGraphId).instances.size);
+  const before = await count();
+  const rowB = await box(page.locator(`.panel-content [data-graph-id="${b}"]`));
+  const canvas = await box(page.locator('.canvas-area'));
+
+  await mouseDragTo(page, { x: rowB.cx, y: rowB.y + 30 }, { x: canvas.cx + 150, y: canvas.cy + 120 }, 20);
+  await page.mouse.up();
+
+  await expect.poll(count).toBe(before + 1);
+});

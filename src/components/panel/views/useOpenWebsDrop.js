@@ -86,6 +86,9 @@ export function useOpenWebsDrop(listRef) {
   // while the finger is still). Null once the drag is past the list's edge:
   // the scroll carries on there, but a drop wouldn't land, so no ghost.
   const overItemRef = useRef(null);
+  // Where the pointer last hovered the list, for the same reason: a wheel
+  // scroll moves the rows under it without a hover.
+  const lastHoverYRef = useRef(null);
 
   const setSlot = useCallback((next) => {
     if (slotRef.current === next) return;
@@ -150,16 +153,21 @@ export function useOpenWebsDrop(listRef) {
   });
   const stopAutoScroll = edgeScroll.stop;
 
-  // Any scroll of the list — the wheel, a trackpad, a finger pan — shows the
-  // same thumb the drag's scroll does, in place of the panel's own (Panel.css
-  // steps it aside), so the list reads the same however it is moved.
+  // The wheel (or a trackpad) scrolling the list mid-drag: the rows move under
+  // a pointer that hasn't, so the slot is measured again, and the thumb shows
+  // as it does for the drag's own scroll.
   useEffect(() => {
     const scroller = listRef.current?.closest('.panel-content');
     if (!scroller) return undefined;
-    const onScroll = () => edgeScroll.indicate();
+    const onScroll = () => {
+      const item = overItemRef.current;
+      if (!item || lastHoverYRef.current == null) return;
+      setSlot(slotAt(lastHoverYRef.current, item));
+      edgeScroll.indicate();
+    };
     scroller.addEventListener('scroll', onScroll, { passive: true });
     return () => scroller.removeEventListener('scroll', onScroll);
-  }, [listRef, edgeScroll]);
+  }, [listRef, edgeScroll, setSlot, slotAt]);
 
   const [{ dropItem }, drop] = useDrop(() => ({
     accept: SPAWNABLE_NODE,
@@ -169,6 +177,7 @@ export function useOpenWebsDrop(listRef) {
       const offset = monitor.getClientOffset();
       if (!offset) return;
       overItemRef.current = item;
+      lastHoverYRef.current = offset.y;
       edgeScroll.update(offset);
       setSlot(slotAt(offset.y, item));
     },

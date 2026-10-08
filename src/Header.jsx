@@ -213,6 +213,13 @@ const Header = ({
   const activeTabRef = useRef(null);
   const recenterTimeoutRef = useRef(null);
   const isProgrammaticScroll = useRef(false);
+  // The dragged item while it is over the strip, so the caret can follow tabs
+  // scrolling under a pointer that has stopped moving (touch sends no hovers
+  // while the finger is still). Null once the drag is out over the buttons:
+  // the scroll carries on there, but a drop wouldn't land, so no caret.
+  // Also read by the scroll handler below: a wheel scroll mid-drag must not arm
+  // the idle recentre, which would yank the strip out from under the drag.
+  const overItemRef = useRef(null);
   const [activeTabMaxWidth, setActiveTabMaxWidth] = useState('220px');
 
   // The scrollable tabs container reserves nothing on either side.
@@ -392,10 +399,6 @@ const Header = ({
   }, []);
 
   // Scroll event handler with 3-second timeout to recenter
-  // The drag scroller (set up further down, with the reorder drop), reached
-  // through a ref so a user's own scroll can show the same position thumb.
-  const tabEdgeScrollRef = useRef(null);
-
   const handleTabsScroll = useCallback(() => {
     // Detents first, and deliberately ahead of the programmatic-scroll guard:
     // the recenter animation writes scrollLeft frame by frame, so its scroll
@@ -413,11 +416,8 @@ const Header = ({
 
     // Ignore programmatic scrolls
     if (isProgrammaticScroll.current) return;
-
-    // The user's own scroll (wheel, trackpad, a finger flicking the strip)
-    // shows where in the strip they are, as a drag's scroll does: the strip
-    // has no scrollbar of its own. Not the recentre, which isn't theirs.
-    tabEdgeScrollRef.current?.indicate();
+    // Nor a wheel turning the strip mid-drag (see overItemRef).
+    if (overItemRef.current) return;
 
     // Clear existing timeout
     if (recenterTimeoutRef.current) {
@@ -809,11 +809,9 @@ const Header = ({
   // state updater — StrictMode runs updaters twice, and a double tick is audible.
   const [dropTargetId, setDropTargetId] = useState(null);
   const dropTargetRef = useRef(null);
-  // The dragged item while it is over the strip, so the caret can follow tabs
-  // scrolling under a pointer that has stopped moving (touch sends no hovers
-  // while the finger is still). Null once the drag is out over the buttons:
-  // the scroll carries on there, but a drop wouldn't land, so no caret.
-  const overItemRef = useRef(null);
+  // Where the pointer last hovered the strip: a wheel scroll moves the tabs
+  // under it without a hover.
+  const lastHoverXRef = useRef(null);
 
   const setDropTarget = useCallback((next) => {
     if (dropTargetRef.current === next) return;
@@ -897,7 +895,6 @@ const Header = ({
       setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
     },
   });
-  tabEdgeScrollRef.current = tabEdgeScroll;
   const stopTabAutoScroll = tabEdgeScroll.stop;
 
   // A drag is a reorder only if it started on a web that is still open.
@@ -916,6 +913,7 @@ const Header = ({
       const offset = monitor.getClientOffset();
       if (!offset) return;
       overItemRef.current = item;
+      lastHoverXRef.current = offset.x;
       tabEdgeScroll.update(offset);
       setDropTarget(computeDropTargetId(offset.x, item.graphId));
     },
@@ -948,6 +946,22 @@ const Header = ({
     overItemRef.current = null;
     setDropTarget(null);
   }, [isReorderOver, setDropTarget]);
+
+  // The wheel turning the strip mid-drag (handleTabsWheel maps it to a
+  // sideways scroll): the tabs move under a pointer that hasn't, so the caret's
+  // slot is measured again, and the thumb shows as for the drag's own scroll.
+  useEffect(() => {
+    const strip = tabsScrollContainerRef.current;
+    if (!strip) return undefined;
+    const onScroll = () => {
+      const item = overItemRef.current;
+      if (!item || lastHoverXRef.current == null) return;
+      setDropTarget(computeDropTargetId(lastHoverXRef.current, item.graphId));
+      tabEdgeScroll.indicate();
+    };
+    strip.addEventListener('scroll', onScroll, { passive: true });
+    return () => strip.removeEventListener('scroll', onScroll);
+  }, [imagesLoaded, setDropTarget, computeDropTargetId, tabEdgeScroll]);
 
   /** Attaches the wheel listener and the reorder drop target to the same node. */
   const attachTabsContainer = useCallback((node) => {
