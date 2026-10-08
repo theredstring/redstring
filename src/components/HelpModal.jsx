@@ -231,6 +231,14 @@ const HelpModal = ({ isVisible, onClose }) => {
             <li><strong>Browser Cache:</strong> Temporary storage (not persistent)</li>
           </ul>
 
+          <h3 style={{ color: headingColor }}>What is a .redstring File?</h3>
+          <p>
+            A <strong>.redstring</strong> file holds one whole Universe: every Thing, Web, connection
+            and definition in it. Under the hood it's just a <strong>JSON-LD</strong> file, plain JSON
+            with linked-data context, so you can open it in any text editor, read it with standard
+            JSON-LD and RDF tools, and keep it in version control like any other text file.
+          </p>
+
           <h3 style={{ color: headingColor }}>Managing Universes</h3>
           <p>
             Click the <strong>Globe icon</strong> in the left panel to:
