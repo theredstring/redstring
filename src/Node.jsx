@@ -758,7 +758,7 @@ const Node = ({
               height={innerNetworkHeight}
               rx={22 * effNodeScale}
               ry={22 * effNodeScale}
-              fill={theme.canvas.bg}
+              fill={theme.surface.bg}
             />
 
             {hasAnyDefinitions ? (

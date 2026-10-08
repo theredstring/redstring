@@ -160,7 +160,7 @@ export function buildGroupElements({
         onTouchCancel={() => handlers.titleTouchCancel(entry)}
       >
         <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20 * groupLabelScale} ry={20 * groupLabelScale}
-          fill={isNodeGroup ? "none" : theme.canvas.bg}
+          fill={isNodeGroup ? "none" : theme.surface.bg}
           stroke={isNodeGroup ? "none" : strokeColor}
           strokeWidth={isNodeGroup ? 0 : 6 * groupLabelScale}
           pointerEvents="all"
@@ -197,7 +197,7 @@ export function buildGroupElements({
                   fontFamily: 'EmOne, sans-serif',
                   fontWeight: 'bold',
                   lineHeight: `${labelLineHeight}px`,
-                  color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode),
+                  color: isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.surface.bg, theme.darkMode),
                   backgroundColor: 'transparent',
                   border: 'none', outline: 'none',
                   padding: 0, resize: 'none', overflow: 'hidden',
@@ -209,7 +209,7 @@ export function buildGroupElements({
           </foreignObject>
         ) : (
           <text x={labelX + labelWidth / 2} y={labelY + labelHeight / 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-            fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.canvas.bg, theme.darkMode)}
+            fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.surface.bg, theme.darkMode)}
             fontWeight="bold" stroke="none" strokeWidth={0}
             paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
             transform={groupLiftTransform}
@@ -231,7 +231,7 @@ export function buildGroupElements({
     );
 
     if (isNodeGroup) {
-      const innerCanvasFill = blendColors(theme.canvas.bg, nodeGroupColor, NODE_GROUP_INTERIOR_TINT);
+      const innerCanvasFill = blendColors(theme.surface.bg, nodeGroupColor, NODE_GROUP_INTERIOR_TINT);
       const innerCanvasRect = {
         x: rectX + GROUP_SPACING.innerCanvasBorder,
         y: innerCanvasY,

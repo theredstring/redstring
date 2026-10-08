@@ -101,6 +101,33 @@ export function getTheme(isDark) {
   return isDark ? DARK_THEME : LIGHT_THEME;
 }
 
+/**
+ * The canvas surface: the ground the web is drawn on (canvas background, grid,
+ * group tabs, expanded-Thing previews). 'auto' follows the light/dark theme;
+ * any other choice recolors only the surface, so panels and chrome keep the theme.
+ */
+export const CANVAS_COLORS = ['auto', 'blueprint'];
+
+const BLUEPRINT_SURFACE = {
+  light: { bg: '#1E8CCD', gridLine: '#A6D3EF', dot: '#E3EDF8' },
+  dark: { bg: '#113A7F', gridLine: '#6A88BD', dot: '#C9D9EC' },
+};
+
+/**
+ * @param {string} canvasColor - One of CANVAS_COLORS.
+ * @param {boolean} isDark - Whether dark mode is active.
+ * @returns {{ bg: string, gridLine: string, dot: string }}
+ */
+export function getCanvasSurface(canvasColor, isDark) {
+  if (canvasColor === 'blueprint') return BLUEPRINT_SURFACE[isDark ? 'dark' : 'light'];
+  const theme = getTheme(isDark);
+  return {
+    bg: theme.canvas.bg,
+    gridLine: isDark ? '#716C6C' : '#979090',
+    dot: theme.canvas.textPrimary,
+  };
+}
+
 // Backwards compatibility - keep existing exports
 export const DARK_MODE_BG_COLOR = DARK_THEME.canvas.bg; // #2E2A2A
 export const LIGHT_MODE_BG_COLOR = LIGHT_THEME.canvas.bg;

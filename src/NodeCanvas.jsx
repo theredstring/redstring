@@ -3534,7 +3534,7 @@ function NodeCanvas() {
             flexGrow: 1,
             position: 'relative',
             overflow: 'hidden',
-            backgroundColor: theme.canvas.bg,
+            backgroundColor: theme.surface.bg,
             touchAction: 'none',
           }}
           // Event handlers uncommented
@@ -3582,8 +3582,8 @@ function NodeCanvas() {
                   {showClusterHulls && <ClusterHullsLayer nodes={hydratedNodes} edges={edges} />}
                   {gridActive && (
                     <GridLayer
-                      gridSize={gridSize} appearance={gridAppearance} darkMode={theme.darkMode}
-                      dotColor={theme.canvas.textPrimary} canvasSize={canvasSize} patternId={gridPatternId}
+                      gridSize={gridSize} appearance={gridAppearance} lineColor={theme.surface.gridLine}
+                      dotColor={theme.surface.dot} canvasSize={canvasSize} patternId={gridPatternId}
                     />
                   )}
 

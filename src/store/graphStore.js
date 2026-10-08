@@ -44,6 +44,7 @@ import {
   collectDescendantGroupIds,
 } from '../services/groupLayout.js';
 import { debugLogSync } from '../utils/debugLogger.js';
+import { CANVAS_COLORS } from '../utils/themeColors.js';
 import {
   mapOpenDefinitions,
   resolveOwner,
@@ -173,6 +174,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {boolean} rightPanelExpanded - Whether the right panel is open.
  * @property {string} inputMode - `'mouse'|'touch'` — current interaction modality (session-only).
  * @property {boolean} darkMode - Dark theme enabled.
+ * @property {'auto'|'blueprint'} canvasColor - Canvas surface color; 'auto' follows darkMode.
  * @property {number} connectionLabelSize - Multiplier for connection label text size.
  * @property {boolean} showConnectionNames - Whether connection labels are visible on the canvas.
  * @property {string} connectionLabelColorMode - `'light'|'connection'|'theme'` — what decides a connection label's fill/halo pair: always the light half, the connection's own color, or the app theme.
@@ -1949,6 +1951,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return saved === 'true';
       } catch (_) {
         return false;
+      }
+    })(),
+    // What the canvas surface is drawn in: 'auto' follows dark mode, 'blueprint'
+    // is a blue ground (utils/themeColors.js getCanvasSurface).
+    canvasColor: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_canvas_color');
+        return CANVAS_COLORS.includes(saved) ? saved : 'auto';
+      } catch (_) {
+        return 'auto';
       }
     })(),
     showHoverPreview: (() => {
@@ -7375,6 +7387,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           console.warn('[toggleDarkMode] Failed to save to workspace config:', err);
         });
       }
+    },
+
+    /**
+     * Sets the canvas surface color, independent of dark mode. Persists to localStorage.
+     * @param {'auto'|'blueprint'} value
+     */
+    setCanvasColor: (value) => {
+      if (!CANVAS_COLORS.includes(value)) {
+        console.warn(`[setCanvasColor] Invalid value: ${value}`);
+        return;
+      }
+      if (get().canvasColor === value) return;
+      set(produce((draft) => { draft.canvasColor = value; }));
+      try { localStorage.setItem('redstring_canvas_color', value); } catch (_) { }
     },
 
     // ─── INPUT & LAYOUT SETTINGS ─────────────────────────────────────────────────

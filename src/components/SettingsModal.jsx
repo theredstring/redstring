@@ -183,6 +183,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const edgeGlowIntensity = useGraphStore(s => s.edgeGlowIntensity) ?? DEFAULT_EDGE_GLOW_INTENSITY;
   const liftedThingShadow = useGraphStore(s => s.liftedThingShadow) ?? DEFAULT_LIFTED_THING_SHADOW;
   const darkMode = useGraphStore(s => s.darkMode);
+  const canvasColor = useGraphStore(s => s.canvasColor ?? 'auto');
   // Lives outside the store on purpose — the shell decision has to be correct
   // before React mounts. See hooks/useMobileLandscapeShell.js.
   const shellPreference = useShellPreference();
@@ -253,6 +254,20 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={!!darkMode}
               onChange={() => useGraphStore.getState().toggleDarkMode?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Canvas Color
+              <div className="settings-row-description">Grid recommended for Blueprint.</div>
+            </div>
+            <OptionGroup
+              options={[
+                { label: 'Auto', value: 'auto' },
+                { label: 'Blueprint', value: 'blueprint' }
+              ]}
+              value={canvasColor}
+              onChange={(v) => useGraphStore.getState().setCanvasColor?.(v)}
             />
           </div>
           <div className="settings-row">

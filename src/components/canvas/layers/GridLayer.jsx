@@ -16,11 +16,10 @@ const LINE_WIDTH_PX = 0.75;
 // 10px, and full-strength lines covered about 15% of the canvas).
 const FULL_STRENGTH_CELL_PX = 100;
 
-export const GridLayer = memo(function GridLayer({ gridSize, appearance, darkMode, dotColor, canvasSize, patternId }) {
+export const GridLayer = memo(function GridLayer({ gridSize, appearance, lineColor, dotColor, canvasSize, patternId }) {
   const groupRef = useRef(null);
   const linePathRef = useRef(null);
   const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
-  const lineColor = darkMode ? "#716C6C" : "#979090";
   // The appearance setting picks the look in both modes —
   // 'lattice' → lines, 'dot' → dots. Hover mode used to force
   // dots regardless, which meant the grid that appeared under
