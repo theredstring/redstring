@@ -57,3 +57,28 @@ test('F20c the Open Webs list follows the store', async ({ page }) => {
   await storeEval(page, (st, id) => st.updateGraph(id, (d) => { d.name = 'Renamed In Store'; }), activeId);
   await expect(page.locator(`[data-graph-id="${activeId}"]`)).toHaveAttribute('title', 'Renamed In Store');
 });
+
+test('F20d double-clicking an Open Webs row opens its Info in the right panel', async ({ page }) => {
+  await openFixture(page, 'small');
+  // A web that is open but not the active one, so the first click also switches to it.
+  const webId = await storeEval(page, (st) => {
+    st.openRightPanelNodeTab([...st.nodePrototypes.keys()][0]);
+    window.useGraphStore.getState().setRightPanelExpanded(false);
+    const other = [...st.graphs.keys()].find((id) => id !== st.activeGraphId);
+    st.openGraphTab(other);
+    window.useGraphStore.getState().setActiveGraph(st.activeGraphId);
+    return other;
+  });
+  await openLeftView(page, 'grid');
+
+  // On the web drawn inside the card, not its title band.
+  const row = page.locator(`.panel-content [data-graph-id="${webId}"]`);
+  // dblclick waits for the row to hold still: the panel slides in first.
+  const b = await row.boundingBox();
+  await row.dblclick({ position: { x: b.width / 2, y: b.height * 0.6 } });
+  await expect.poll(() => storeEval(page, (st) => ({
+    expanded: st.rightPanelExpanded,
+    tab: st.rightPanelTabs.find((t) => t.isActive)?.type ?? null,
+    active: st.activeGraphId,
+  }))).toEqual({ expanded: true, tab: 'home', active: webId });
+});

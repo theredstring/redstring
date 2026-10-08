@@ -1,14 +1,10 @@
 import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpFromDot, ChevronLeft, ChevronRight, NotebookText, Plus, Trash2 } from 'lucide-react';
-import { NODE_DEFAULT_COLOR } from '../../constants.js';
-import { getNodeDimensions, getDefinitionDescription } from '../../utils.js';
-import { getTextColor } from '../../utils/colorUtils';
-import { buildNodeFontString, wrapTextToLines } from '../../services/textMeasurement.js';
-import { LABEL_FONT_SIZE_BASE, LABEL_LINE_HEIGHT_BASE } from '../../utils/nodeLabelStyle.js';
+import { getDefinitionDescription } from '../../utils.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import useGraphStore from '../../store/graphStore.js';
 import useDoubleTap from '../../hooks/useDoubleTap.js';
-import InnerNetwork from '../../InnerNetwork.jsx';
+import WebCard from '../webPreview/WebCard.jsx';
 import { projectGraphView, viewEdges } from '../../core/openDefinitions.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 
@@ -16,19 +12,11 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 // while skimming.
 const DESCRIPTION_CLAMP_LINES = 3;
 
-// Node.jsx: the label container's vertical padding and the background rect's inset.
-const LABEL_PADDING_V = 34;
-const FRAME_INSET = 6;
-
 /**
- * One definition drawn as the canvas draws a Thing in the decompose preview:
- * the same geometry (getNodeDimensions in preview mode) under a viewBox, so the
- * frame, the title band and the Web keep the proportions they have on the canvas.
- * The description is left out here; the section shows it underneath.
+ * One definition drawn as the canvas draws a Thing in the decompose preview
+ * (WebCard). The description is left out here; the section shows it underneath.
  */
 const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
-  const theme = useTheme();
-  const textSettings = useGraphStore((s) => s.textSettings);
   // Narrow selectors: the graph object itself changes on every pan and zoom of
   // that graph, its instances and edge list only when its contents do. Read as
   // viewed, like the canvas: a Thing opened in place inside this Web shows its
@@ -61,100 +49,18 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
   const deferredEdges = useDeferredValue(edges);
   const deferredGroups = useDeferredValue(groups);
 
-  const nodeScale = textSettings?.nodeScale ?? 1;
   const title = (typeof webName === 'string' && webName.trim()) ? webName.trim() : nodeName;
 
-  const geometry = useMemo(() => {
-    // Sized by the Thing's name, as the canvas sizes it, whatever the title says.
-    const dims = getNodeDimensions({ name: nodeName }, true, null);
-    const unexpanded = getNodeDimensions({ name: nodeName }, false, null);
-    const fontScale = (textSettings?.fontSize ?? 1) * nodeScale;
-    const fontSize = LABEL_FONT_SIZE_BASE * fontScale;
-    const lineHeight = LABEL_LINE_HEIGHT_BASE * fontScale * (textSettings?.lineSpacing ?? 1);
-    const wrapWidth = unexpanded.currentWidth - 2 * unexpanded.scaledPadding;
-    const maxLines = Math.max(1, Math.floor((dims.textAreaHeight - 2 * LABEL_PADDING_V * nodeScale) / lineHeight));
-    let lines = wrapTextToLines(title, wrapWidth, buildNodeFontString({ ...textSettings, fontSize: fontScale }));
-    if (lines.length === 0) lines = [title];
-    if (lines.length > maxLines) {
-      lines = lines.slice(0, maxLines);
-      lines[maxLines - 1] = `${lines[maxLines - 1].replace(/\s+\S*$/, '')}…`;
-    }
-    return { dims, fontSize, lineHeight, lines };
-  }, [nodeName, title, textSettings, nodeScale]);
-
-  const { dims, fontSize, lineHeight, lines } = geometry;
-  const width = dims.currentWidth;
-  const height = dims.currentHeight;
-  const inner = {
-    x: dims.scaledPadding,
-    y: dims.textAreaHeight,
-    w: dims.innerNetworkWidth,
-    h: dims.innerNetworkHeight,
-    r: 22 * nodeScale
-  };
-  const color = nodeColor || NODE_DEFAULT_COLOR;
-  const textColor = getTextColor(color, theme.darkMode);
-  const titleCenterY = dims.textAreaHeight / 2;
-
+  // Sized by the Thing's name, as the canvas sizes it, whatever the title says.
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      width="100%"
-      style={{ display: 'block', height: 'auto', aspectRatio: `${width} / ${height}` }}
-      role="img"
-      aria-label={title}
-    >
-      <rect
-        x={FRAME_INSET}
-        y={FRAME_INSET}
-        width={width - FRAME_INSET * 2}
-        height={height - FRAME_INSET * 2}
-        rx={dims.scaledCornerRadius - FRAME_INSET}
-        ry={dims.scaledCornerRadius - FRAME_INSET}
-        fill={color}
-      />
-      {lines.map((line, i) => (
-        <text
-          key={i}
-          x={width / 2}
-          y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontFamily="'EmOne', sans-serif"
-          fontWeight="bold"
-          fontSize={fontSize}
-          fill={textColor}
-        >
-          {line}
-        </text>
-      ))}
-      <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} rx={inner.r} ry={inner.r} fill={theme.canvas.bg} />
-      {deferredNodes.length > 0 ? (
-        <g transform={`translate(${inner.x}, ${inner.y})`}>
-          <InnerNetwork
-            nodes={deferredNodes}
-            edges={deferredEdges}
-            groups={deferredGroups}
-            width={inner.w}
-            height={inner.h}
-            padding={14 * nodeScale}
-          />
-        </g>
-      ) : (
-        <text
-          x={inner.x + inner.w / 2}
-          y={inner.y + inner.h / 2}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontFamily="'EmOne', sans-serif"
-          fontWeight="bold"
-          fontSize={36 * nodeScale}
-          fill={theme.canvas.textSecondary}
-        >
-          This Web is empty.
-        </text>
-      )}
-    </svg>
+    <WebCard
+      nodes={deferredNodes}
+      edges={deferredEdges}
+      groups={deferredGroups}
+      title={title}
+      sizingName={nodeName}
+      color={nodeColor}
+    />
   );
 };
 

@@ -524,7 +524,6 @@ const Panel = memo(
     const updateNode = storeActions?.updateNode;
     const updateGraph = storeActions?.updateGraph;
     const closeGraph = storeActions?.closeGraph;
-    const toggleGraphExpanded = storeActions?.toggleGraphExpanded;
     const toggleSavedNode = storeActions?.toggleSavedNode;
     const setActiveDefinitionNode = storeActions?.setActiveDefinitionNode;
     const createAndAssignGraphDefinition = storeActions?.createAndAssignGraphDefinition;
@@ -557,9 +556,6 @@ const Panel = memo(
     //
     // Current individual subscriptions (KEEP THESE - they're the optimized pattern):
     const openGraphIds = useGraphStore(state => state.openGraphIds);
-
-    // <<< Select expanded state reactively >>>
-    const expandedGraphIds = useGraphStore(state => state.expandedGraphIds); // <<< Select the Set
 
     // <<< ADD BACK: Select last created ID reactively >>>
     const lastCreatedGraphId = useGraphStore(state => state.lastCreatedGraphId);
@@ -1829,10 +1825,8 @@ const Panel = memo(
             panelWidth={panelWidth}
             listContainerRef={listContainerRef}
             activeGraphId={activeGraphId}
-            expandedGraphIds={expandedGraphIds}
             handleGridItemClick={handleGridItemClick}
             closeGraph={closeGraph}
-            toggleGraphExpanded={toggleGraphExpanded}
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
             storeActions={storeActions}

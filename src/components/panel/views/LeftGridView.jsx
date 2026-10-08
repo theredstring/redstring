@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
@@ -6,13 +6,12 @@ import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useGraphStore from '../../../store/graphStore.js';
-import { NODE_DEFAULT_COLOR, NODE_HEIGHT } from '../../../constants';
+import { NODE_DEFAULT_COLOR } from '../../../constants';
 import { projectGraphView, viewEdges } from '../../../core/openDefinitions.js';
-import { getTextColor } from '../../../utils/colorUtils';
 import { DROP_AT_END, describeDropGhost, useOpenWebsDrop } from './useOpenWebsDrop.js';
 
-// Each open web with its nodes and edges, for the list and its previews.
-// Subscribed here rather than in Panel (P2.09): the previews need positions,
+// Each open web with its nodes and edges, for the list and its cards.
+// Subscribed here rather than in Panel (P2.09): the cards need positions,
 // so this follows every node move, but only while the Open Webs tab is open.
 // Each web is read as viewed, like the canvas: a Thing opened in place shows its
 // definition's nodes inside its box, not a single node.
@@ -21,14 +20,26 @@ function useOpenGraphsForList() {
   const graphsMap = useGraphStore(state => state.graphs);
   const nodePrototypesMap = useGraphStore(state => state.nodePrototypes);
   const edgesMap = useGraphStore(state => state.edges);
+  // id -> the inputs and entry it was last built from. projectGraphView and
+  // viewEdges hand back the same objects for a web that hasn't changed, so an
+  // unchanged web keeps its entry and its memoized row skips the render: a
+  // node dragged on the canvas redraws its own web's card, not every card.
+  const lastRef = useRef(new Map());
   return useMemo(() => {
+    const state = { graphs: graphsMap, nodePrototypes: nodePrototypesMap, edges: edgesMap };
+    const last = lastRef.current;
+    const next = new Map();
     // Dedupe: list entries are keyed by graph id, so a repeated entry would
     // produce two children with the same React key.
-    return [...new Set(openGraphIds)].map(id => {
-      const state = { graphs: graphsMap, nodePrototypes: nodePrototypesMap, edges: edgesMap };
+    const list = [...new Set(openGraphIds)].map(id => {
       const graphData = projectGraphView(state, id);
       if (!graphData) return null;
       const edgesInView = viewEdges(state, id);
+      const prev = last.get(id);
+      if (prev && prev.graphData === graphData && prev.edgesInView === edgesInView && prev.nodePrototypes === nodePrototypesMap) {
+        next.set(id, prev);
+        return prev.entry;
+      }
 
       // Derive color from the defining node
       const definingNodeId = graphData.definingNodeIds?.[0];
@@ -49,56 +60,35 @@ function useOpenGraphsForList() {
       }).filter(Boolean);
 
       const edges = edgeIds.map(edgeId => edgesInView.get(edgeId)).filter(Boolean);
-      return { ...graphData, color: graphColor, nodes, edges };
+      const entry = { ...graphData, color: graphColor, nodes, edges };
+      next.set(id, { graphData, edgesInView, nodePrototypes: nodePrototypesMap, entry });
+      return entry;
     }).filter(Boolean);
+    lastRef.current = next;
+    return list;
   }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
 }
 
 /**
- * Where a drop on the list will land: a collapsed row of the web it becomes,
- * half-faded with a dashed edge like the Wizard's pin ghost. Not a
- * `data-graph-id` row, so slot measuring skips it.
+ * Where a drop on the list will land: the header strip's insertion caret,
+ * laid across the list, opening a gap between the rows it falls between. Not a
+ * `data-graph-id` row, so slot measuring skips it. In the panel's text colour:
+ * the header's pale grey reads on its maroon, not on the panel.
  */
-const DropGhostRow = ({ name, color }) => (
+const DropCaret = ({ color }) => (
   <div
     aria-hidden="true"
     style={{
       width: '100%',
-      height: NODE_HEIGHT,
-      margin: '5px 0',
-      borderRadius: '12px',
-      boxSizing: 'border-box',
+      height: '4px',
+      // A clear gap either side, so the line reads between two cards.
+      margin: '18px 0',
+      borderRadius: '2px',
       backgroundColor: color,
-      color: getTextColor(color),
-      opacity: 0.5,
-      outline: `1.5px dashed ${color}`,
-      outlineOffset: '2px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      userSelect: 'none',
+      boxShadow: '0 0 8px rgba(0,0,0,0.35)',
       pointerEvents: 'none',
     }}
-  >
-    {/* The collapsed row's title, style for style (GraphListItem), so a long
-        name truncates the same way. Its own block: an ellipsis needs one,
-        and text loose in a flex box only overflows. */}
-    <div
-      style={{
-        fontWeight: 'bold',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        padding: '10px',
-        textAlign: 'center',
-        width: '100%',
-        boxSizing: 'border-box',
-        fontFamily: "'EmOne', sans-serif",
-      }}
-    >
-      {name}
-    </div>
-  </div>
+  />
 );
 
 // Internal Left Grid View (Open Webs)
@@ -106,10 +96,8 @@ const LeftGridView = ({
   panelWidth,
   listContainerRef,
   activeGraphId,
-  expandedGraphIds,
   handleGridItemClick,
   closeGraph,
-  toggleGraphExpanded,
   leftPanelExpanded,
   rightPanelExpanded,
   storeActions,
@@ -117,11 +105,19 @@ const LeftGridView = ({
 }) => {
   const theme = useTheme();
   const openGraphsForList = useOpenGraphsForList();
+  // Double-click a web: the right panel's Info tab (index 0, always there),
+  // opening the panel if it is closed. The first click of the pair has already
+  // made the web active, so Info is about this web.
+  const openWebInfo = useCallback((graphId) => {
+    const st = useGraphStore.getState();
+    if (st.activeGraphId !== graphId) st.setActiveGraph(graphId);
+    st.activateRightPanelTab(0);
+    st.setRightPanelExpanded(true);
+  }, []);
   // Drop a Thing to open its web at that slot, or a web's row or header tab to
-  // move it there. The ghost row previews the result.
+  // move it there. The caret marks where it lands.
   const { drop, dropItem, slot } = useOpenWebsDrop(listContainerRef);
-  const ghost = slot !== null ? describeDropGhost(dropItem) : null;
-  const ghostRow = ghost ? <DropGhostRow key="__drop-ghost__" name={ghost.name} color={ghost.color} /> : null;
+  const caret = slot !== null && describeDropGhost(dropItem) ? <DropCaret key="__drop-caret__" color={theme.canvas.textPrimary} /> : null;
   // Context menu options for open webs tab
   const getTabContextMenuOptions = () => [
     {
@@ -187,23 +183,22 @@ const LeftGridView = ({
         ref={listContainerRef}
         style={{ paddingLeft: '5px', paddingRight: '5px' }}
       >
-        {/* One flat keyed list, so the ghost slides between rows without
+        {/* One flat keyed list, so the caret slides between rows without
             remounting them (an array per row would key them by index). */}
         {openGraphsForList.flatMap((graph) => [
-          ...(slot === graph.id && ghostRow ? [ghostRow] : []),
+          ...(slot === graph.id && caret ? [caret] : []),
           <GraphListItem
             key={graph.id}
             graphData={graph}
             panelWidth={panelWidth}
             isActive={graph.id === activeGraphId}
-            isExpanded={expandedGraphIds.has(graph.id)}
             onClick={handleGridItemClick}
             onClose={closeGraph}
-            onToggleExpand={toggleGraphExpanded}
+            onDoubleClick={openWebInfo}
             onContextMenu={handleItemContextMenu}
           />
-        ]).concat(slot === DROP_AT_END && ghostRow ? [ghostRow] : [])}
-        {openGraphsForList.length === 0 && !ghostRow && (
+        ]).concat(slot === DROP_AT_END && caret ? [caret] : [])}
+        {openGraphsForList.length === 0 && !caret && (
           <div style={{ color: theme.canvas.textSecondary, textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No webs currently open.</div>
         )}
       </div>

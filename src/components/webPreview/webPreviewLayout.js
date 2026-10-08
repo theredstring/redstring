@@ -2,9 +2,10 @@
  * A web laid out for a preview, the way the canvas lays it out: node boxes,
  * groups (services/groupLayout.js), Thing-group anchors as their title pills,
  * and every connection's resting geometry in the user's connection style
- * (utils/canvas/settledConnection.js). Shared by GraphPreview (the Open Webs
- * list) and InnerNetwork (a definition in the right panel, and a node's
- * decomposition preview on the canvas), so the two can't drift apart.
+ * (utils/canvas/settledConnection.js). Drawn by InnerNetwork (a node's
+ * decomposition preview on the canvas, and through WebCard a definition in the
+ * right panel and an expanded Open Webs row); the canvas parity test checks it
+ * against the canvas.
  *
  * Everything is in world units; each preview fits it into its own box.
  */

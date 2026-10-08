@@ -117,7 +117,6 @@ test('F39 the Open Webs list draws a Thing opened in place as its box, not as on
     const s = window.useGraphStore.getState();
     s.setLeftPanelExpanded(true);
     ui.getState().openLeftPanelView('grid');
-    if (!s.expandedGraphIds.has(w)) s.toggleGraphExpanded(w);
   }, WEB);
 
   // The thumbnail draws Alpha's shell (a filled, undashed rect in Alpha's colour)
@@ -125,9 +124,11 @@ test('F39 the Open Webs list draws a Thing opened in place as its box, not as on
   const thumbnail = page.locator(`[data-graph-id="${WEB}"] svg`).first();
   await expect(thumbnail).toBeVisible();
   const drawn = await thumbnail.evaluate((svg, alphaColor) => {
-    const rects = [...svg.querySelectorAll('rect')];
+    // The Web itself, inside the card's frame and well (WebCard).
+    const rects = [...svg.querySelectorAll('g rect')];
     const shell = rects.find(r => r.getAttribute('fill') === alphaColor && r.getAttribute('rx') === '24' && !r.getAttribute('stroke-dasharray'));
-    const nodeRects = rects.filter(r => r.getAttribute('rx') === '56');
+    // InnerNetwork's node background: the canvas's 56 corner, less its 6 inset.
+    const nodeRects = rects.filter(r => r.getAttribute('rx') === '50');
     return { shell: !!shell, nodes: nodeRects.length };
   }, await storeEval(page, (st) => st.nodePrototypes.get('p-alpha').color));
   const expectedNodes = await storeEval(page, (st, w) => {

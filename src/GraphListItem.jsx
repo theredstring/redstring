@@ -1,17 +1,21 @@
-import React, { useState, useCallback, useMemo, useEffect, forwardRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useDeferredValue, forwardRef } from 'react';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
 import { NODE_HEIGHT } from './constants'; // Assuming we use this height
-import GraphPreview from './GraphPreview'; // <<< Import GraphPreview
+import WebCard, { useWebCardCornerRadius } from './components/webPreview/WebCard.jsx';
 import { XCircle } from 'lucide-react'; // <<< Import XCircle
 import { useDrag } from 'react-dnd';
 import { haptic } from './services/haptics.js';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import useGraphStore from './store/graphStore.js';
-import { getTextColor } from './utils/colorUtils';
+import useDoubleTap from './hooks/useDoubleTap.js';
 // import './GraphListItem.css'; // We'll create this later
 
 const SPAWNABLE_NODE = 'spawnable_node';
+const ACTIVE_BORDER = 12;
+// How far outside the visible list a card still draws its web, so a scroll
+// finds it already drawn.
+const NEAR_VIEW_MARGIN_PX = 400;
 
 const GraphListItem = forwardRef(({
   graphData,
@@ -20,8 +24,6 @@ const GraphListItem = forwardRef(({
   onClick,
   onDoubleClick,
   onClose, // <<< Add onClose prop
-  isExpanded, // <<< Receive isExpanded prop
-  onToggleExpand, // <<< Receive onToggleExpand prop
   onContextMenu
 }, ref) => {
   const theme = useTheme();
@@ -64,18 +66,11 @@ const GraphListItem = forwardRef(({
     preview(getEmptyImage(), { captureDraggingState: true });
   }, [preview]);
 
-  // <<< Remove Log for isActive/isExpanded prop >>>
-  // useEffect(() => {
-  //   console.log(`[GraphListItem ${graphData.id}] Received isActive: ${isActive}, isExpanded: ${isExpanded}`);
-  // }, [isActive, isExpanded, graphData.id]);
-
+  // Double-click (or double-tap): open this web in the right panel.
   const handleDoubleClick = useCallback(() => {
-    // <<< Remove Log for double click >>>
-    // console.log(`[GraphListItem ${graphData.id}] handleDoubleClick called, calling onToggleExpand.`);
-    onToggleExpand?.(graphData.id);
-    // Potentially call onDoubleClick prop if needed for other actions
-    // onDoubleClick?.(graphData.id); 
-  }, [graphData.id, onToggleExpand]); // <<< Add dependencies
+    onDoubleClick?.(graphData.id);
+  }, [graphData.id, onDoubleClick]);
+  const doubleTap = useDoubleTap(handleDoubleClick);
 
   const handleClick = useCallback(() => {
     // Matches HeaderGraphTab: only a real switch gets a haptic.
@@ -86,56 +81,61 @@ const GraphListItem = forwardRef(({
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
   const handleMouseLeave = useCallback(() => setIsHovered(false), []);
 
-  // Calculate actual item width (needed for height animation)
-  const currentItemWidth = useMemo(() => {
-    // Subtracting 5px for the parent container's right padding
-    return panelWidth ? panelWidth - 5 : NODE_HEIGHT; // Fallback to NODE_HEIGHT if panelWidth undefined?
-  }, [panelWidth]);
+  // Before the first measure, roughly the row's width (the list's 5px right padding).
+  const fallbackWidth = panelWidth ? panelWidth - 5 : NODE_HEIGHT;
 
-  const previewSize = Math.max(1, (currentItemWidth - 20) * 0.85);
+  // The row IS the web's card (WebCard, as a definition shows in the right
+  // panel): the card sets its height, and the row's corners stay concentric
+  // with the card's frame, inside the active row's border too.
+  const rowRef = useRef(null);
+  const border = isActive ? ACTIVE_BORDER : 0;
+  const cardSizingName = definingNodeName || graphData.name;
+  const radius = useWebCardCornerRadius(rowRef, cardSizingName, { border, fallbackWidth });
+
+  // A card far out of view keeps its frame but not its web: the DOM and the
+  // memory stay bounded by what is near the screen, however many webs are open.
+  const [nearView, setNearView] = useState(false);
+  useLayoutEffect(() => {
+    const el = rowRef.current;
+    if (!el) return undefined;
+    // Measured now, so a card on screen draws its web in the first paint.
+    const r = el.getBoundingClientRect();
+    setNearView(r.bottom > -NEAR_VIEW_MARGIN_PX && r.top < window.innerHeight + NEAR_VIEW_MARGIN_PX);
+    if (typeof IntersectionObserver === 'undefined') { setNearView(true); return undefined; }
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearView(entry.isIntersecting),
+      // Only up and down count: the panel slides in sideways, and a card
+      // mid-slide must not blank out.
+      { rootMargin: `${NEAR_VIEW_MARGIN_PX}px 100%` },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // The web on show can be the one being dragged on the canvas; let the
+  // canvas frame win, as the right panel's card does.
+  const nodes = useDeferredValue(graphData.nodes);
+  const edges = useDeferredValue(graphData.edges);
+  const groups = useDeferredValue(graphData.groups);
 
   const itemStyle = useMemo(() => ({
     width: '100%',
-    height: isExpanded ? currentItemWidth : NODE_HEIGHT,
     backgroundColor: graphData.color || 'maroon',
-    color: getTextColor(graphData.color || 'maroon'),
     margin: '5px 0',
-    borderRadius: '12px',
+    borderRadius: `${radius}px`,
     boxSizing: 'border-box',
     cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'column',
-    border: isActive ? '12px solid black' : 'none',
-    transition: 'height 0.2s ease, border 0.2s ease',
-    alignItems: 'center',
-    justifyContent: isExpanded ? 'flex-start' : 'center',
-    paddingTop: isExpanded ? '10px' : '0',
-    paddingLeft: isExpanded ? '10px' : '0',
-    paddingRight: isExpanded ? '10px' : '0',
-    paddingBottom: isExpanded ? '15px' : '0',
+    border: isActive ? `${ACTIVE_BORDER}px solid black` : 'none',
+    transition: 'border 0.2s ease, border-radius 0.2s ease',
     position: 'relative',
     opacity: isDragging ? 0.5 : 1,
-  }), [isExpanded, currentItemWidth, graphData.color, isActive, isDragging]);
-
-  const previewContainerStyle = useMemo(() => ({
-    width: '85%',
-    maxHeight: isExpanded ? '80%' : '0px',
-    opacity: isExpanded ? 1 : 0,
-    marginTop: '0',
-    marginBottom: '0',
-    backgroundColor: theme.canvas.bg,
-    borderRadius: '4px',
-    overflow: 'hidden',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'max-height 0.2s ease, opacity 0.2s ease',
-  }), [isExpanded, theme.canvas.bg]);
+  }), [radius, graphData.color, isActive, isDragging]);
 
   return (
     <div
       ref={(node) => {
         drag(node);
+        rowRef.current = node;
         if (typeof ref === 'function') {
           ref(node);
         } else if (ref) {
@@ -145,6 +145,7 @@ const GraphListItem = forwardRef(({
       style={itemStyle}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      {...doubleTap}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onContextMenu={onContextMenu ? (e) => onContextMenu(e, graphData.id) : undefined}
@@ -152,44 +153,15 @@ const GraphListItem = forwardRef(({
       data-nav="item"
       data-graph-id={graphData.id}
     >
-      {/* Graph Name - Add padding here */}
-      <div
-        style={{
-          fontWeight: 'bold',
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          padding: isExpanded ? '5px 10px' : '10px',
-          textAlign: 'center',
-          width: '100%',
-          boxSizing: 'border-box',
-          // FIX: Remove auto margins when expanded
-          marginTop: isExpanded ? '0' : 'auto',
-          marginBottom: isExpanded ? '10px' : 'auto',
-          userSelect: 'none',
-          fontFamily: "'EmOne', sans-serif",
-        }}
-      >
-        {graphData.name}
-      </div>
-
-      {/* Conditional Preview Area - Animate container directly */}
-      <div style={previewContainerStyle}>
-        {/* <div style={previewWrapperStyle}> REMOVE Wrapper */}
-        {/* Render the actual preview only when expanded to avoid rendering cost? */}
-        {isExpanded && (
-          <GraphPreview
-            nodes={graphData.nodes}
-            edges={graphData.edges}
-            groups={graphData.groups}
-            // Rendered pixel size (85% of the padded item), square as it has
-            // always drawn. The preview fits its viewBox to this.
-            width={previewSize}
-            height={previewSize}
-          />
-        )}
-        {/* </div> */}
-      </div>
+      <WebCard
+        nodes={nodes}
+        edges={edges}
+        groups={groups}
+        title={graphData.name}
+        sizingName={cardSizingName}
+        color={graphData.color}
+        drawWeb={nearView}
+      />
 
       {/* Add Close Button Conditionally */}
       {isActive && (
@@ -226,33 +198,14 @@ const GraphListItem = forwardRef(({
 
 GraphListItem.displayName = 'GraphListItem';
 
-const areGraphListItemPropsEqual = (prevProps, nextProps) => {
-  // For collapsed items, panelWidth has no visual effect — skip re-render
-  if (!prevProps.isExpanded && !nextProps.isExpanded) {
-    if (
-      prevProps.graphData === nextProps.graphData &&
-      prevProps.isActive === nextProps.isActive &&
-      prevProps.onClick === nextProps.onClick &&
-      prevProps.onClose === nextProps.onClose &&
-      prevProps.onDoubleClick === nextProps.onDoubleClick &&
-      prevProps.onToggleExpand === nextProps.onToggleExpand &&
-      prevProps.onContextMenu === nextProps.onContextMenu
-    ) {
-      return true; // Props equal, skip re-render
-    }
-  }
-  // For expanded items or when non-panelWidth props changed, shallow compare all
-  return (
-    prevProps.graphData === nextProps.graphData &&
-    prevProps.panelWidth === nextProps.panelWidth &&
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.isExpanded === nextProps.isExpanded &&
-    prevProps.onClick === nextProps.onClick &&
-    prevProps.onClose === nextProps.onClose &&
-    prevProps.onDoubleClick === nextProps.onDoubleClick &&
-    prevProps.onToggleExpand === nextProps.onToggleExpand &&
-    prevProps.onContextMenu === nextProps.onContextMenu
-  );
-};
+const areGraphListItemPropsEqual = (prevProps, nextProps) => (
+  prevProps.graphData === nextProps.graphData &&
+  prevProps.panelWidth === nextProps.panelWidth &&
+  prevProps.isActive === nextProps.isActive &&
+  prevProps.onClick === nextProps.onClick &&
+  prevProps.onClose === nextProps.onClose &&
+  prevProps.onDoubleClick === nextProps.onDoubleClick &&
+  prevProps.onContextMenu === nextProps.onContextMenu
+);
 
 export default React.memo(GraphListItem, areGraphListItemPropsEqual);

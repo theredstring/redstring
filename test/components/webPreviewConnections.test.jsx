@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import useGraphStore from '../../src/store/graphStore.js';
 import { installCanvasStubs, teardownCanvasStubs } from '../../src/test-utils/canvasHarness.jsx';
-import GraphPreview from '../../src/GraphPreview.jsx';
+import WebCard from '../../src/components/webPreview/WebCard.jsx';
 import InnerNetwork from '../../src/InnerNetwork.jsx';
 
-// Both web previews draw connections in the user's connection style. The
+// Web previews draw connections in the user's connection style. The
 // geometry itself is checked against the canvas in
-// src/NodeCanvas.previewParity.test.jsx; this checks the two components draw
+// src/NodeCanvas.previewParity.test.jsx; this checks the components draw
 // it: a curved parallel pair, routed paths and the arrowheads.
 
 const prototypes = new Map([
@@ -30,7 +30,7 @@ const setStyle = (routingStyle) => useGraphStore.setState((s) => ({
 }));
 
 const renderBoth = () => [
-  render(<GraphPreview nodes={nodes} edges={edges} width={200} height={120} />).container,
+  render(<WebCard nodes={nodes} edges={edges} title="Web" color="#800000" />).container,
   render(<svg><InnerNetwork nodes={nodes} edges={edges} width={200} height={120} padding={4} /></svg>).container,
 ];
 
