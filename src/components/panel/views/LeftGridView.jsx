@@ -272,7 +272,21 @@ const LeftGridView = ({
   const openGraphs = useOpenGraphsForList();
   const [view, setView] = useOpenWebsView();
   const openGraphsForList = useMemo(() => sortOpenWebs(openGraphs, view.sort), [openGraphs, view.sort]);
-  const columns = view.columns === 'auto' ? autoColumns(panelWidth) : view.columns;
+  // Auto width follows the list's own width, measured: the panel only commits
+  // its width when a resize drag ends, and the columns should change mid-drag.
+  // Kept as the column count, so a drag re-renders only when it crosses one.
+  const [measuredAutoColumns, setMeasuredAutoColumns] = useState(null);
+  const isAutoWidth = view.columns === 'auto';
+  useLayoutEffect(() => {
+    const el = listContainerRef.current;
+    if (!isAutoWidth || !el || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => setMeasuredAutoColumns(autoColumns(el.clientWidth));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isAutoWidth, listContainerRef]);
+  const columns = isAutoWidth ? (measuredAutoColumns ?? autoColumns(panelWidth)) : view.columns;
   const isGrid = columns > 1;
   const isOpenOrder = view.sort === 'open';
   // Read by the row menu at click time, so its handler can stay stable.
