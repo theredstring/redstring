@@ -27,6 +27,7 @@ import logo6 from './assets/redstring_button/header_logo_6.svg';
 import logo7 from './assets/redstring_button/header_logo_7.svg';
 import { requestRefresh } from './components/canvas/dialogs/refresh.js';
 import { useEdgeAutoScroll } from './hooks/useEdgeAutoScroll.js';
+import { getAppViewportSize } from './utils/appViewport.js';
 
 // The one drag type in the app. A header tab's drag is the SAME gesture that
 // spawns a Thing on the canvas — the tab carries a prototype, and where you let
@@ -174,6 +175,23 @@ const Header = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const hamburgerWrapperRef = useRef(null);
+  // The hamburger column has to fit between the header and the TypeList. The
+  // footer sits on a higher layer than the whole header (20000 vs 11000), so a
+  // column that ran past it was cut off — a phone in landscape has room for
+  // about five buttons, not nine. Measured, so the column can wrap instead.
+  const typeListOpen = useGraphStore(s => s.typeListMode !== 'closed');
+  const [appViewportHeight, setAppViewportHeight] = useState(() => getAppViewportSize().height);
+  useEffect(() => {
+    if (!isExclusivePanelMode) return;
+    const update = () => setAppViewportHeight(getAppViewportSize().height);
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.removeEventListener('orientationchange', update);
+    };
+  }, [isExclusivePanelMode]);
   const [currentLogoIndex, setCurrentLogoIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
@@ -1157,6 +1175,44 @@ const Header = ({
     );
   }
 
+  // The hamburger's column, top-down from the button.
+  const hamburgerActions = [
+    // Order is deliberate and reads top-down from the hamburger: the
+    // thing you came to do (add), the thing you came to keep
+    // (bookmark), then the two you may need repeatedly, then the rest.
+    // This is the primary surface on a phone, so the top of the column
+    // is the part that has to be right.
+    //
+    // Settings is NOT here: it has its own button at the left edge of
+    // the header, opposite the hamburger. It is the one thing in this
+    // column you reach for without already being in the middle of
+    // something, so it does not belong behind a tap.
+    { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
+    { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
+    { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
+    { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
+    { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
+    { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
+    // The right-click menu, for devices that have no right button. It
+    // holds Auto Layout, Snap to Grid, Condense, Merge and Paste — a
+    // whole surface a phone otherwise cannot reach. NodeCanvas opens it
+    // at the centre of the viewport, as though the click landed there.
+    { key: 'canvas-menu', Icon: MousePointerClick, iconSize: 20, strokeWidth: 2.5, title: 'Canvas Menu', onClick: () => window.dispatchEvent(new CustomEvent('redstring:open-canvas-context-menu')) },
+    // A reload, the old File → Refresh (it asks first; see
+    // canvas/dialogs/refresh.js). Down here with the canvas menu because
+    // both are ways out rather than things you came to do.
+    { key: 'refresh', Icon: RefreshCw, iconSize: 20, strokeWidth: 2.5, title: 'Refresh', onClick: () => requestRefresh() },
+    { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
+  ];
+  // When the room below the header runs out, the column wraps into a second
+  // one to its LEFT (it hangs off the right edge), still reading top-down and
+  // then right-to-left. Rows are balanced across the columns so a nine-item
+  // list splits 5 + 4 rather than 8 + 1.
+  const hamburgerRoom = appViewportHeight - HEADER_HEIGHT - (typeListOpen ? HEADER_HEIGHT : 0);
+  const hamburgerFit = Math.max(1, Math.floor(hamburgerRoom / HEADER_HEIGHT));
+  const hamburgerColumns = Math.ceil(hamburgerActions.length / hamburgerFit);
+  const hamburgerRows = Math.ceil(hamburgerActions.length / hamburgerColumns);
+
   return (
     <header
       ref={headerRef}
@@ -1753,42 +1809,20 @@ const Header = ({
             position: 'absolute',
             right: 0,
             top: `${HEADER_HEIGHT}px`,
-            width: `${HEADER_HEIGHT}px`,
+            width: `${hamburgerColumns * HEADER_HEIGHT}px`,
+            height: `${hamburgerRows * HEADER_HEIGHT}px`,
             display: 'flex',
             flexDirection: 'column',
+            // wrap-reverse puts the first column at the right edge, under the
+            // button, and lays any further ones out leftward.
+            flexWrap: 'wrap-reverse',
+            alignContent: 'flex-start',
             alignItems: 'center',
             pointerEvents: isHamburgerOpen ? 'auto' : 'none',
             zIndex: 10003,
           }}
         >
-          {[
-            // Order is deliberate and reads top-down from the hamburger: the
-            // thing you came to do (add), the thing you came to keep
-            // (bookmark), then the two you may need repeatedly, then the rest.
-            // This is the primary surface on a phone, so the top of the column
-            // is the part that has to be right.
-            //
-            // Settings is NOT here: it has its own button at the left edge of
-            // the header, opposite the hamburger. It is the one thing in this
-            // column you reach for without already being in the middle of
-            // something, so it does not belong behind a tap.
-            { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
-            { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
-            { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
-            { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
-            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
-            { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
-            // The right-click menu, for devices that have no right button. It
-            // holds Auto Layout, Snap to Grid, Condense, Merge and Paste — a
-            // whole surface a phone otherwise cannot reach. NodeCanvas opens it
-            // at the centre of the viewport, as though the click landed there.
-            { key: 'canvas-menu', Icon: MousePointerClick, iconSize: 20, strokeWidth: 2.5, title: 'Canvas Menu', onClick: () => window.dispatchEvent(new CustomEvent('redstring:open-canvas-context-menu')) },
-            // A reload, the old File → Refresh (it asks first; see
-            // canvas/dialogs/refresh.js). Down here with the canvas menu because
-            // both are ways out rather than things you came to do.
-            { key: 'refresh', Icon: RefreshCw, iconSize: 20, strokeWidth: 2.5, title: 'Refresh', onClick: () => requestRefresh() },
-            { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
-          ].map((action, idx, arr) => {
+          {hamburgerActions.map((action, idx, arr) => {
             const delay = isHamburgerOpen ? `${idx * 25}ms` : `${(arr.length - 1 - idx) * 25}ms`;
             return (
               <div
