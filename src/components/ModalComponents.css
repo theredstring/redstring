@@ -69,12 +69,12 @@
 }
 
 .alpha-modal-content::-webkit-scrollbar-track {
-  background: var(--rs-scrollbar-track);
+  background: transparent;
   border-radius: 4px;
 }
 
 .alpha-modal-content::-webkit-scrollbar-thumb {
-  background-color: var(--rs-scrollbar-rest);
+  background-color: var(--rs-scrollbar);
   border-radius: 4px;
   border: 6px solid transparent;
   background-clip: content-box;
@@ -91,10 +91,10 @@
 /* Firefox scrollbar */
 .alpha-modal-content {
   scrollbar-width: thin;
-  scrollbar-color: var(--rs-scrollbar-rest) var(--rs-scrollbar-track);
+  scrollbar-color: var(--rs-scrollbar) transparent;
   transition: scrollbar-color 0.3s ease;
 }
 
 .alpha-modal-content.scrolling {
-  scrollbar-color: var(--rs-scrollbar) var(--rs-scrollbar-track);
+  scrollbar-color: var(--rs-scrollbar) transparent;
 }

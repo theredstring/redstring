@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useDrop } from 'react-dnd';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
@@ -10,6 +11,8 @@ import { performUndo, performRedo } from './store/historyActions.js';
 import HeaderGraphTab from './HeaderGraphTab';
 import { showContextMenu } from './components/GlobalContextMenu';
 import { getOpenWebContextMenuOptions } from './components/openWebContextMenu.jsx';
+import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
+import { middleClickHandlers } from './utils/middleClick.js';
 import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { haptic, createDetentTrack } from './services/haptics.js';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from './utils/debugUnlock.js';
@@ -803,6 +806,18 @@ const Header = ({
     showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'right'));
   }, []);
 
+  // Middle-clicking a tab asks before closing its web.
+  const [pendingCloseGraphId, setPendingCloseGraphId] = useState(null);
+  const pendingCloseName = pendingCloseGraphId
+    ? (headerGraphs.find(g => g.id === pendingCloseGraphId)?.name || 'this web')
+    : '';
+  const confirmCloseWeb = useCallback(() => {
+    const { openGraphIds, graphs, closeGraphs } = useGraphStore.getState();
+    if (!openGraphIds.includes(pendingCloseGraphId)) return;
+    const name = graphs.get(pendingCloseGraphId)?.name || 'web';
+    closeGraphs([pendingCloseGraphId], { label: `Close "${name}"` });
+  }, [pendingCloseGraphId]);
+
   // The tab the drop caret currently sits in front of, DROP_AT_END for the far
   // right slot, or null when no reorderable drag is over the strip. Mirrored in
   // a ref so the slot-crossing haptic fires from the event rather than from a
@@ -1402,6 +1417,7 @@ const Header = ({
                   style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}
                   // Mid-rename the field owns right-click (cut/paste etc).
                   onContextMenu={isEditing ? undefined : (e) => handleWebTabContextMenu(e, graph.id)}
+                  {...(isEditing ? {} : middleClickHandlers(() => setPendingCloseGraphId(graph.id)))}
                 >
                   <HeaderGraphTab
                     graph={{
@@ -1460,6 +1476,7 @@ const Header = ({
                 data-header-tab-id={graph.id}
                 style={{ display: 'inline-block', flexShrink: 0 }}
                 onContextMenu={(e) => handleWebTabContextMenu(e, graph.id)}
+                {...middleClickHandlers(() => setPendingCloseGraphId(graph.id))}
               >
                 <HeaderGraphTab
                   graph={graph}
@@ -1851,6 +1868,17 @@ const Header = ({
           })}
         </div>
       </div>
+      )}
+      {pendingCloseGraphId && createPortal(
+        <ConfirmDialog
+          isOpen
+          onClose={() => setPendingCloseGraphId(null)}
+          onConfirm={confirmCloseWeb}
+          title="Close Web?"
+          message={`Close "${pendingCloseName}"? You can undo this.`}
+          confirmLabel="Close"
+        />,
+        document.body
       )}
     </header>
   );

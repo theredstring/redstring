@@ -7,6 +7,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import { getTextColor, hexToHsl, hslToHex } from '../../utils/colorUtils';
 import { showContextMenu } from '../GlobalContextMenu.jsx';
 import { rightPanelTabKey } from '../../utils/rightPanelTabs.js';
+import { middleClickHandlers } from '../../utils/middleClick.js';
 
 const ItemTypes = {
   TAB: 'tab'
@@ -117,6 +118,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         transition: 'background-color 0.2s ease, color 0.2s ease, opacity 0.1s ease'
       }}
       onClick={() => activateTabAction(index)}
+      {...middleClickHandlers(() => closeTabAction(rightPanelTabKey(tab)))}
       onContextMenu={(e) => {
         if (typeof getContextMenuOptions !== 'function') return;
         e.preventDefault();

@@ -35,8 +35,8 @@
 
   /* The app-wide scrollbar pair (index.css), stated here so .modal-dark can
      flip it for a modal on its own. */
-  --rs-modal-scroll-track: rgba(139, 0, 0, 0.05);
-  --rs-modal-scroll-thumb: rgba(139, 0, 0, 0.15);
+  --rs-modal-scroll-track: transparent;
+  --rs-modal-scroll-thumb: #8B0000;
   --rs-modal-scroll-thumb-hover: #8B0000;
 
   /* The header/footer band: the surface with a little shadow in it. Stated as a
@@ -75,8 +75,8 @@
   --rs-modal-border: #6a6464;
   --rs-modal-hairline: rgba(255, 255, 255, 0.1);
 
-  --rs-modal-scroll-track: rgba(192, 145, 145, 0.05);
-  --rs-modal-scroll-thumb: rgba(192, 145, 145, 0.2);
+  --rs-modal-scroll-track: transparent;
+  --rs-modal-scroll-thumb: #C09191;
   --rs-modal-scroll-thumb-hover: #C09191;
 
   --rs-modal-sunken: rgba(222, 218, 218, 0.05);
@@ -120,11 +120,6 @@
 .modal-scroll:hover::-webkit-scrollbar-thumb {
   background-color: var(--rs-modal-scroll-thumb-hover);
   border-width: 4px;
-}
-
-/* Chromium reads scrollbar-color, not the -webkit- rule above. */
-.modal-scroll:hover {
-  scrollbar-color: var(--rs-modal-scroll-thumb-hover) var(--rs-modal-scroll-track);
 }
 
 /* ========== Sidebar navigation ========== */

@@ -17,7 +17,7 @@ import { safeImageSrc } from './utils/safeUrl.js';
 import { projectGraphView, viewEdges } from './core/openDefinitions.js';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
-const DESCRIPTION_MAX_LINES = 3; // Matches utils.js's cap on descriptionAreaHeight
+const DESCRIPTION_MAX_LINES = 1; // Matches utils.js's cap on descriptionAreaHeight
 
 // Accept dimensions and other props
 // Expect plain node data object
@@ -859,8 +859,7 @@ const Node = ({
               fontWeight: 'normal',
               lineHeight: `${33 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale}px`,
               textAlign: 'center',
-              wordWrap: 'break-word',
-              overflowWrap: 'break-word',
+              whiteSpace: 'nowrap',
               overflow: 'hidden'
             }}
           >

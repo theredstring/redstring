@@ -102,6 +102,7 @@ const SourcesSection = ({
                     backgroundColor: theme.canvas.inactive,
                     maxHeight: 160,
                     overflowY: 'auto',
+                    overflowX: 'hidden',
                     padding: 6
                   }}
                 >

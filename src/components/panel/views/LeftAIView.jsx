@@ -24,6 +24,7 @@ import UnifiedSelector from '../../../UnifiedSelector.jsx';
 import { onWizardEntitiesCreated, mergeCreatedEntities } from '../../../services/wizardCreatedEntities.js';
 import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
+import { middleClickHandlers } from '../../../utils/middleClick.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import { applyToolResultToStore, collectApplyFailures, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
@@ -832,6 +833,8 @@ const LeftAIView = ({ compact = false,
   const [isHydrated, setIsHydrated] = React.useState(!fileStorage.isElectron());
   const [chatUndoMessageId, setChatUndoMessageId] = React.useState(null);
   const [isChatUndoOpen, setIsChatUndoOpen] = React.useState(false);
+  // The tab a middle-click asked to close, waiting on the confirm dialog.
+  const [pendingCloseConversationId, setPendingCloseConversationId] = React.useState(null);
 
   // File/image attachment state (per-message, never in Zustand)
   const [pendingAttachments, setPendingAttachments] = React.useState([]);
@@ -3914,6 +3917,12 @@ const LeftAIView = ({ compact = false,
               data-has-context-menu="true"
               onClick={() => handleTabSwitch(conv.id)}
               onDoubleClick={() => handleTabDoubleClick(conv.id, conv.title)}
+              {...middleClickHandlers(() => {
+                // Same rule as the close button: the last tab stays.
+                if (editingTabId !== conv.id && visibleConversations.length > 1) {
+                  setPendingCloseConversationId(conv.id);
+                }
+              })}
               onContextMenu={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -4082,6 +4091,14 @@ const LeftAIView = ({ compact = false,
           message="Are you sure you want to revert to this point? All subsequent actions will be undone, and the conversation will be restored."
           confirmLabel="Revert"
           variant="danger"
+        />
+        <ConfirmDialog
+          isOpen={!!pendingCloseConversationId}
+          onClose={() => setPendingCloseConversationId(null)}
+          onConfirm={() => handleCloseConversation(pendingCloseConversationId)}
+          title="Close Conversation?"
+          message={`Close "${conversations.find(c => c.id === pendingCloseConversationId)?.title || 'this conversation'}"? A closed conversation can't be reopened.`}
+          confirmLabel="Close"
         />
         {/* Open while anything is held; the scrim doesn't dismiss it, since
             leaving it undecided would leave the Wizard's changes in limbo. */}

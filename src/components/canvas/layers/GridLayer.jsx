@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useLayoutEffect, useRef } from 'react';
 import { getClusterGeometries } from '../../../services/graphLayoutService.js';
 
 /**
@@ -9,7 +9,16 @@ import { getClusterGeometries } from '../../../services/graphLayoutService.js';
  *
  * Memoized on primitives and canvasSize, so a NodeCanvas render doesn't touch it.
  */
+const LINE_WIDTH_PX = 0.75;
+// Below this on-screen cell size the lines fade in proportion to it, so zooming
+// out keeps the grid's overall weight steady instead of packing ever more
+// constant-width lines into the view (at the 0.05 zoom floor a 200 cell is
+// 10px, and full-strength lines covered about 15% of the canvas).
+const FULL_STRENGTH_CELL_PX = 100;
+
 export const GridLayer = memo(function GridLayer({ gridSize, appearance, darkMode, dotColor, canvasSize, patternId }) {
+  const groupRef = useRef(null);
+  const linePathRef = useRef(null);
   const dotR = Math.min(6, Math.max(3, gridSize * 0.06));
   const lineColor = darkMode ? "#716C6C" : "#979090";
   // The appearance setting picks the look in both modes —
@@ -17,8 +26,36 @@ export const GridLayer = memo(function GridLayer({ gridSize, appearance, darkMod
   // dots regardless, which meant the grid that appeared under
   // a drag didn't match the one the setting describes.
   const useDots = appearance === 'dot';
+
+  // Lattice lines stay LINE_WIDTH_PX on screen at every zoom. This can't be
+  // vector-effect="non-scaling-stroke": Chromium rasterises a pattern tile once
+  // and doesn't redo it when an ancestor transform changes, so the width was
+  // fixed at whatever zoom the grid first drew at and then scaled with the
+  // camera (at zoom 0.1 a line came out 0.075px wide, i.e. the grid vanished
+  // on zoom out). The camera writes the content group's transform directly,
+  // never through React, so this follows that attribute and sets the width in
+  // world units; changing the path also makes Chromium redraw the tile. The
+  // same pass sets the fade (FULL_STRENGTH_CELL_PX).
+  useLayoutEffect(() => {
+    const path = linePathRef.current;
+    const camera = groupRef.current?.parentNode;
+    if (!path || !camera?.transform) return undefined;
+    let lastZoom = null;
+    const sync = () => {
+      const zoom = camera.transform.baseVal.consolidate()?.matrix.a || 1;
+      if (zoom === lastZoom) return; // a pan doesn't change the width
+      lastZoom = zoom;
+      path.setAttribute('stroke-width', String(LINE_WIDTH_PX / zoom));
+      path.setAttribute('stroke-opacity', String(Math.min(1, (gridSize * zoom) / FULL_STRENGTH_CELL_PX)));
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(camera, { attributes: true, attributeFilter: ['transform'] });
+    return () => observer.disconnect();
+  }, [useDots, gridSize]);
+
   return (
-    <g className="grid-overlay" pointerEvents="none">
+    <g ref={groupRef} className="grid-overlay" pointerEvents="none">
       <defs>
         {useDots ? (
           <pattern
@@ -45,11 +82,11 @@ export const GridLayer = memo(function GridLayer({ gridSize, appearance, darkMod
             patternUnits="userSpaceOnUse"
           >
             <path
+              ref={linePathRef}
               d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
               fill="none"
               stroke={lineColor}
-              strokeWidth="0.75"
-              vectorEffect="non-scaling-stroke"
+              // stroke-width and stroke-opacity are written by the effect above, per zoom.
             />
           </pattern>
         )}

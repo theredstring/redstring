@@ -71,8 +71,8 @@ body {
 
 /* Scrollbar colours, one pair for the whole app: the default red on light, and
    the lighter rose of that red on dark, the same pair as the outline buttons in
-   the right panel (Pull from Wikipedia at rest). `-rest` is the faint thumb a
-   scroll region shows before it is hovered or scrolled.
+   the right panel (Pull from Wikipedia at rest). Always this colour: no faint
+   resting state, no dimming while dragging.
 
    The root scrollbar-color is inherited, so every scroll region without its own
    styling picks the pair up. In Chromium a non-auto scrollbar-color also turns
@@ -80,15 +80,11 @@ body {
    say scrollbar-width: thin themselves; their -webkit- rules remain for Safari. */
 :root {
   --rs-scrollbar: #8B0000;
-  --rs-scrollbar-rest: rgba(139, 0, 0, 0.15);
-  --rs-scrollbar-track: rgba(139, 0, 0, 0.05);
   scrollbar-color: var(--rs-scrollbar) transparent;
 }
 
 html.dark-mode {
   --rs-scrollbar: #C09191;
-  --rs-scrollbar-rest: rgba(192, 145, 145, 0.2);
-  --rs-scrollbar-track: rgba(192, 145, 145, 0.05);
 }
 
 /* Ensure all interactive elements allow text selection where needed */

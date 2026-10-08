@@ -11,9 +11,12 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import TripletPreview from './TripletPreview.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './CompactConnectionRow.jsx';
+import TypeStatementDialog, { isTypeStatement } from './TypeStatementDialog.jsx';
 import {
-  conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, placeConnections, revealInstances, existingInstanceFor
+  conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, placeConnections, revealInstances, existingInstanceFor,
+  ensureConceptPrototype
 } from '../../services/semanticPlacement.js';
+import { THING_PROTOTYPE_ID } from '../../wizard/tools/utils/abstractionSpec.js';
 import { haptic } from '../../services/haptics.js';
 
 const PAGE = 20;
@@ -32,7 +35,8 @@ const SOURCE_NAMES = { wikidata: 'Wikidata', dbpedia: 'DBpedia' };
  * in the Web the row links to it instead (a link icon, not a +). A row the Web
  * already says shows a check, which takes you to it. "Add all" brings in every
  * connection the list holds (or every one the filter matches) at once, after
- * saying how many.
+ * saying how many. An outgoing "instance of" or "subclass of" asks first
+ * whether its other end becomes the Thing's type, the connection, or both.
  *
  * @param {Object} props
  * @param {Object} props.seed - a prototype or a discovered concept
@@ -49,6 +53,8 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const [hoveredId, setHoveredId] = useState(null);
   // The "add all" being asked about: { statements, added, linked }.
   const [bulk, setBulk] = useState(null);
+  // The "instance of" / "subclass of" row being asked about, with what the dialog states.
+  const [typeAsk, setTypeAsk] = useState(null);
 
   const activeGraphId = useGraphStore((s) => s.activeGraphId);
   // What's in the Web, not where it sits: a drag must not redraw every row.
@@ -124,9 +130,9 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   });
 
   const add = (c) => {
-    if (!activeGraphId || !anchor) return;
+    if (!activeGraphId || !anchor) return null;
     haptic('nodeSpawn', { force: true });
-    placeConcept({
+    return placeConcept({
       graphId: activeGraphId,
       concept: c.other,
       anchorInstanceId: anchor.id,
@@ -134,6 +140,47 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
       direction: c.direction,
       provenance: provenanceOf(c)
     });
+  };
+
+  // A row's + or link. A statement of what the seed is asks first, unless its
+  // other end is already the seed's type and only the connection is left to add.
+  const onAdd = (c) => {
+    const seedProto = seedProtoId ? nodePrototypes.get(seedProtoId) : null;
+    const typeProto = protoFor(c.other);
+    if (!seedProto || !isTypeStatement(c) || (typeProto && seedProto.typeNodeId === typeProto.id)) {
+      add(c);
+      return;
+    }
+    // The type may not loop back: the other end can't already be a kind of the seed.
+    let typeBlocked = false;
+    for (let id = typeProto?.id, seen = new Set(); id && !seen.has(id); id = nodePrototypes.get(id)?.typeNodeId) {
+      if (id === seedProto.id) { typeBlocked = true; break; }
+      seen.add(id);
+    }
+    const currentType = seedProto.typeNodeId && seedProto.typeNodeId !== THING_PROTOTYPE_ID
+      ? nodePrototypes.get(seedProto.typeNodeId)
+      : null;
+    setTypeAsk({
+      c,
+      currentTypeName: currentType?.name || null,
+      typeBlocked
+    });
+  };
+
+  const applyTypeChoice = (choice) => {
+    const c = typeAsk?.c;
+    if (!c || !seedProtoId) return;
+    const st = useGraphStore.getState();
+    const run = () => {
+      // The type is the Thing the connection reached, when there is one.
+      const placed = choice !== 'type' ? add(c) : null;
+      if (choice === 'web') return;
+      if (choice === 'type') haptic('nodeSpawn', { force: true });
+      st.setNodeType(seedProtoId, placed?.prototypeId || ensureConceptPrototype(c.other));
+    };
+    const label = choice === 'web' ? `Added ${c.other.name}` : `Made ${c.other.name} the type of ${seedName}`;
+    if (typeof st.withHistoryTransaction === 'function') st.withHistoryTransaction(label, run);
+    else run();
   };
 
   // Everything the list holds that the Web doesn't say yet, counted into new
@@ -316,14 +363,14 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                   <PanelIconButton
                     icon={Link2}
                     size={17}
-                    onClick={() => add(c)}
+                    onClick={() => onAdd(c)}
                     title={`Connect to ${c.other.name}, already in this web, by "${c.predicate}"`}
                   />
                 ) : canAdd ? (
                   <PanelIconButton
                     icon={Plus}
                     size={18}
-                    onClick={() => add(c)}
+                    onClick={() => onAdd(c)}
                     title={`Add ${c.other.name} beside ${seedName}, connected by "${c.predicate}"`}
                   />
                 ) : null}
@@ -400,6 +447,18 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
           details="One undo takes them all back out."
           confirmLabel={`Add ${bulk.pending.length}`}
           variant="info"
+        />,
+        document.body
+      )}
+      {typeAsk && createPortal(
+        <TypeStatementDialog
+          seedName={seedName}
+          typeName={typeAsk.c.other.name}
+          predicate={typeAsk.c.predicate}
+          currentTypeName={typeAsk.currentTypeName}
+          typeBlocked={typeAsk.typeBlocked}
+          onChoose={applyTypeChoice}
+          onClose={() => setTypeAsk(null)}
         />,
         document.body
       )}

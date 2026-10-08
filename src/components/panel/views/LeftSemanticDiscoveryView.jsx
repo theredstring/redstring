@@ -1715,7 +1715,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                 clips at its own: 8px of room, pulled back out so the cards stay
                 lined up. */}
             {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
-              <div className="discovered-concepts" style={{ flex: 1, overflow: 'auto', margin: '0 -8px', padding: `4px 8px ${resultsBottomClearance}px` }}>
+              <div className="discovered-concepts" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', margin: '0 -8px', padding: `4px 8px ${resultsBottomClearance}px` }}>
                 <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                   Discovered Concepts ({discoveredConcepts.length})
                 </div>
@@ -1755,7 +1755,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
             {/* Loading indicator for regular search */}
             {isSearching && !expandingNodeId && discoveredConcepts.length === 0 && (
-              <div className="semantic-search-loading" style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: '20px' }}>
+              <div className="semantic-search-loading" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: '20px' }}>
                 <div style={{
                   width: '32px',
                   height: '32px',
@@ -1789,7 +1789,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
             {/* Loading indicator for semantic expansion */}
             {isSearching && expandingNodeId && semanticExpansionResults.length === 0 && (
-              <div className="semantic-expansion-loading" style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+              <div className="semantic-expansion-loading" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
                 <div style={{
                   fontSize: '24px',
                   marginBottom: '8px',
@@ -1818,7 +1818,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
             {/* Semantic Expansion Results - Ghost Node Halo */}
             {semanticExpansionResults.length > 0 && expandingNodeId && (
-              <div className="semantic-expansion-halo" style={{ flex: 1, overflow: 'auto', paddingBottom: resultsBottomClearance }}>
+              <div className="semantic-expansion-halo" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: resultsBottomClearance }}>
                 <div style={{ marginBottom: '12px', fontSize: '12px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                   ⭐ Semantic Expansion ({semanticExpansionResults.length} related concepts)
                 </div>
@@ -1910,7 +1910,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
 
         {viewMode === 'history' && (
-          <div className="search-history-view" style={{ flex: 1, overflow: 'auto', paddingBottom: resultsBottomClearance }}>
+          <div className="search-history-view" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: resultsBottomClearance }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <div style={{ fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
                 Discovery History ({searchHistory.length})

@@ -372,7 +372,7 @@ html.dark-mode .ai-tab.active {
 }
 
 .ai-messages::-webkit-scrollbar-thumb {
-  background: var(--rs-scrollbar-rest);
+  background: var(--rs-scrollbar);
   border-radius: 3px;
 }
 

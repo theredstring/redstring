@@ -183,6 +183,8 @@ header .editable-title-input {
 .panel-content {
   flex-grow: 1; /* Allow content area to fill remaining space */
   overflow-y: auto; /* Allow content to scroll */
+  overflow-x: hidden; /* Vertical only: otherwise x computes to auto and iOS rubber-bands sideways */
+  overscroll-behavior-x: none;
 }
 
 /* Custom scrollbar styling */
@@ -191,12 +193,12 @@ header .editable-title-input {
 }
 
 .panel-content::-webkit-scrollbar-track {
-  background: var(--rs-scrollbar-track); /* Very subtle track background for hover target */
+  background: transparent;
   border-radius: 4px;
 }
 
 .panel-content::-webkit-scrollbar-thumb {
-  background-color: var(--rs-scrollbar-rest); /* Faint until hovered or scrolled */
+  background-color: var(--rs-scrollbar);
   border-radius: 4px;
   border: 6px solid transparent; /* Create visual 8px thumb with larger hitbox */
   background-clip: content-box;
@@ -207,21 +209,21 @@ header .editable-title-input {
 /* Scrollbar fade effect for Firefox */
 .panel-content {
   scrollbar-width: thin;
-  scrollbar-color: var(--rs-scrollbar-rest) var(--rs-scrollbar-track);
+  scrollbar-color: var(--rs-scrollbar) transparent;
   transition: scrollbar-color 0.3s ease;
 }
 
 /* JavaScript-based hover detection using class */
 .panel-content.hovering-scrollbar::-webkit-scrollbar-thumb,
 .panel-content.scrolling::-webkit-scrollbar-thumb {
-  background-color: var(--rs-scrollbar); /* Full colour on hover or scroll */
+  background-color: var(--rs-scrollbar);
   border-width: 4px; /* Expand to 12px visual width */
 }
 
 /* Firefox hover states */
 .panel-content.hovering-scrollbar,
 .panel-content.scrolling {
-  scrollbar-color: var(--rs-scrollbar) var(--rs-scrollbar-track);
+  scrollbar-color: var(--rs-scrollbar) transparent;
 }
 
 /* While a drag edge-scrolls the panel it draws its own position thumb

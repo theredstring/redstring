@@ -3974,14 +3974,19 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       borderRadius: 12,
       border: '1px solid #260000',
       height: '100%',
-      overflow: 'auto'
+      overflowY: 'auto',
+      overflowX: 'hidden'
     }
     : {
       background: 'transparent',
       padding: 15,
       paddingBottom: 30 + bottomSafeArea, // Total ~100px
       height: '100%',
-      overflowY: 'auto'
+      overflowY: 'auto',
+      // overflow-y alone computes overflow-x to auto, which lets iOS
+      // rubber-band the list sideways; touch-action on a parent can't stop it.
+      overflowX: 'hidden',
+      overscrollBehaviorX: 'none'
     };
 
   const isUniverseImportMode = pendingRepoAttachment?.mode === 'import';

@@ -36,6 +36,9 @@ function PanelResizers({ controlRef }) {
   const rightResizerElRef = useRef(null);
   const [isHoveringLeftResizer, setIsHoveringLeftResizer] = useState(false);
   const [isHoveringRightResizer, setIsHoveringRightResizer] = useState(false);
+  // The side being dragged, as state so the bar lights for the whole drag
+  // whatever drives it (mouse, finger, controller); set once per drag, not per frame.
+  const [heldSide, setHeldSide] = useState(null);
   const [resizersVisible, setResizersVisible] = useState(false);
   // Track latest widths in refs to avoid stale closures in global listeners
   const leftWidthRef = useRef(leftPanelWidth);
@@ -78,20 +81,16 @@ function PanelResizers({ controlRef }) {
   const MIN_WIDTH = PANEL_OVERLAY_MIN_WIDTH;
 
   const beginDrag = (side, clientX) => {
-    // The hover flag is what lights the bar. A mouse sets it on mouseenter, but a
-    // touch has no hover (and preventDefault suppresses the emulated mouse
-    // events), so the drag asserts it; endDrag clears it.
     if (side === 'left') {
       isDraggingLeft.current = true;
       dragStartXRef.current = clientX;
       startWidthRef.current = leftWidthRef.current;
-      setIsHoveringLeftResizer(true);
     } else {
       isDraggingRight.current = true;
       dragStartXRef.current = clientX;
       startWidthRef.current = rightWidthRef.current;
-      setIsHoveringRightResizer(true);
     }
+    setHeldSide(side);
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';
     // Prevent page overscroll while resizing
@@ -147,9 +146,7 @@ function PanelResizers({ controlRef }) {
         window.dispatchEvent(new CustomEvent('panelWidthChanged', { detail: { side, width: widthRef.current } }));
       } catch { }
     }
-    // Clear any hover state at the end of a drag (helps on touch devices)
-    setIsHoveringLeftResizer(false);
-    setIsHoveringRightResizer(false);
+    setHeldSide(null);
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
     try { document.body.style.overscrollBehavior = ''; } catch { }
@@ -172,9 +169,8 @@ function PanelResizers({ controlRef }) {
    * (dragging right widens the left panel and narrows the right one) stays
    * where it already lives instead of being restated.
    *
-   * `isHovering*Resizer` is set for the duration so the bar shows itself held
-   * — the controller has no pointer to hover with, so the look has to be
-   * asserted rather than arrived at.
+   * `heldSide` is set for the duration, so the bar shows itself held the same
+   * way it does under a pointer drag.
    */
   // The gamepad's handle (and NodeCanvas's "is a resize in progress" check).
   controlRef.current = {
@@ -185,12 +181,11 @@ function PanelResizers({ controlRef }) {
       if (side === 'left') {
         startWidthRef.current = leftWidthRef.current;
         isDraggingLeft.current = true;
-        setIsHoveringLeftResizer(true);
       } else {
         startWidthRef.current = rightWidthRef.current;
         isDraggingRight.current = true;
-        setIsHoveringRightResizer(true);
       }
+      setHeldSide(side);
     },
     /** @param {number} pointerDx px the virtual cursor moved this frame */
     by: (side, pointerDx) => {
@@ -242,8 +237,8 @@ function PanelResizers({ controlRef }) {
       boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
       transition: 'background-color 120ms ease, opacity 160ms ease'
     };
-    const leftActive = isDraggingLeft.current || isHoveringLeftResizer;
-    const rightActive = isDraggingRight.current || isHoveringRightResizer;
+    const leftActive = heldSide === 'left' || isHoveringLeftResizer;
+    const rightActive = heldSide === 'right' || isHoveringRightResizer;
     const baseColor = (active) => darkMode ? `rgba(151,144,144,${active ? 1 : 0.18})` : `rgba(38,0,0,${active ? 1 : 0.18})`;
     const fadeOpacity = resizersVisible ? 1 : 0;
     const leftWrapperLeft = resizerOffset(leftPanelWidth);
@@ -292,8 +287,8 @@ function PanelResizers({ controlRef }) {
               e.stopPropagation();
             }
           }}
-          onMouseEnter={() => setIsHoveringLeftResizer(true)}
-          onMouseLeave={() => setIsHoveringLeftResizer(false)}
+          onPointerEnter={() => setIsHoveringLeftResizer(true)}
+          onPointerLeave={() => setIsHoveringLeftResizer(false)}
         >
           <div style={{ ...handleVisualCommon, backgroundColor: baseColor(leftActive), opacity: leftCollapsed ? 0 : fadeOpacity }} />
         </div>
@@ -334,8 +329,8 @@ function PanelResizers({ controlRef }) {
               e.stopPropagation();
             }
           }}
-          onMouseEnter={() => setIsHoveringRightResizer(true)}
-          onMouseLeave={() => setIsHoveringRightResizer(false)}
+          onPointerEnter={() => setIsHoveringRightResizer(true)}
+          onPointerLeave={() => setIsHoveringRightResizer(false)}
         >
           <div style={{ ...handleVisualCommon, backgroundColor: baseColor(rightActive), opacity: rightCollapsed ? 0 : fadeOpacity }} />
         </div>
