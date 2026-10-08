@@ -180,7 +180,7 @@ const FileAccessModal = ({
           alignItems: 'center',
           gap: 4,
           flexShrink: 0,
-          color: allowed ? theme.accent.primary : theme.canvas.textSecondary,
+          color: allowed ? theme.canvas.brandText : theme.canvas.textSecondary,
           fontWeight: allowed ? 600 : 400
         })}>
           <StatusIcon size={13} />
@@ -234,7 +234,7 @@ const FileAccessModal = ({
         }}>
           <div ref={contentRef} style={{ margin: 'auto 0', width: '100%' }}>
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <h2 style={text(isCompact ? '1.2rem' : '1.45rem', { margin: '0 0 8px 0', color: theme.accent.primary, fontWeight: 600 })}>
+              <h2 style={text(isCompact ? '1.2rem' : '1.45rem', { margin: '0 0 8px 0', color: theme.canvas.brandText, fontWeight: 600 })}>
                 {loaded ? 'Let Redstring back into your files' : `Reopen ${universeName}`}
               </h2>
               <p style={text(isCompact ? '0.8rem' : '0.88rem', { margin: 0, opacity: 0.8, lineHeight: 1.45 })}>
