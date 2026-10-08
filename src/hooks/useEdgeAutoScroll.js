@@ -21,7 +21,10 @@ import { createEdgeScrollIndicator } from '../utils/edgeScrollIndicator.js';
  *   across the scroll axis the drag must stay within; defaults to the scroller's rect.
  * @param {Object} [options.indicator] - Draws the scroll position while it
  *   runs: createEdgeScrollIndicator's options, less `axis`. Fixed at mount.
- * @returns {{ update: (clientOffset: {x: number, y: number}) => void, stop: () => void }}
+ * @returns {{ update: (clientOffset: {x: number, y: number}) => void, stop: () => void,
+ *   indicate: () => void }} `indicate` shows the same thumb for a scroll that
+ *   isn't the drag's — the wheel, a trackpad, a finger pan — so every way of
+ *   scrolling the surface reads the same.
  */
 export function useEdgeAutoScroll(options) {
   const optionsRef = useRef(options);
@@ -46,14 +49,18 @@ export function useEdgeAutoScroll(options) {
       return axis === 'x' ? { lo: rect.left, hi: rect.right } : { lo: rect.top, hi: rect.bottom };
     };
 
+    const indicate = () => {
+      const el = optionsRef.current.getElement();
+      if (indicator && el) indicator.show(el, visibleBounds(el));
+    };
+
     const scroller = createEdgeAutoScroll({
       ...optionsRef.current,
       getElement: () => optionsRef.current.getElement(),
       getBounds: () => optionsRef.current.getBounds?.() || null,
       onScroll: (pointer) => {
         optionsRef.current.onScroll?.(pointer);
-        const el = optionsRef.current.getElement();
-        if (indicator && el) indicator.show(el, visibleBounds(el));
+        indicate();
       },
       onStop: () => optionsRef.current.onStop?.(),
     });
@@ -95,6 +102,7 @@ export function useEdgeAutoScroll(options) {
         scroller.update(along(offset));
       },
       stop,
+      indicate,
       destroy() {
         stop();
         indicator?.destroy();

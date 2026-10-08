@@ -392,6 +392,10 @@ const Header = ({
   }, []);
 
   // Scroll event handler with 3-second timeout to recenter
+  // The drag scroller (set up further down, with the reorder drop), reached
+  // through a ref so a user's own scroll can show the same position thumb.
+  const tabEdgeScrollRef = useRef(null);
+
   const handleTabsScroll = useCallback(() => {
     // Detents first, and deliberately ahead of the programmatic-scroll guard:
     // the recenter animation writes scrollLeft frame by frame, so its scroll
@@ -409,6 +413,11 @@ const Header = ({
 
     // Ignore programmatic scrolls
     if (isProgrammaticScroll.current) return;
+
+    // The user's own scroll (wheel, trackpad, a finger flicking the strip)
+    // shows where in the strip they are, as a drag's scroll does: the strip
+    // has no scrollbar of its own. Not the recentre, which isn't theirs.
+    tabEdgeScrollRef.current?.indicate();
 
     // Clear existing timeout
     if (recenterTimeoutRef.current) {
@@ -888,6 +897,7 @@ const Header = ({
       setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
     },
   });
+  tabEdgeScrollRef.current = tabEdgeScroll;
   const stopTabAutoScroll = tabEdgeScroll.stop;
 
   // A drag is a reorder only if it started on a web that is still open.

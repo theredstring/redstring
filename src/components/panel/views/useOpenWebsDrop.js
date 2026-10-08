@@ -150,6 +150,17 @@ export function useOpenWebsDrop(listRef) {
   });
   const stopAutoScroll = edgeScroll.stop;
 
+  // Any scroll of the list — the wheel, a trackpad, a finger pan — shows the
+  // same thumb the drag's scroll does, in place of the panel's own (Panel.css
+  // steps it aside), so the list reads the same however it is moved.
+  useEffect(() => {
+    const scroller = listRef.current?.closest('.panel-content');
+    if (!scroller) return undefined;
+    const onScroll = () => edgeScroll.indicate();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [listRef, edgeScroll]);
+
   const [{ dropItem }, drop] = useDrop(() => ({
     accept: SPAWNABLE_NODE,
     canDrop: (item) => isOpenWebDrag(item) || !!describeDropGhost(item),
