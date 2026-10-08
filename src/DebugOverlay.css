@@ -15,20 +15,7 @@
   width: 10px;
 }
 
-.debug-overlay::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.2);
-}
-
 .debug-overlay::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 5px;
-}
-
-.debug-overlay::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-
-/* Firefox scrollbar styles */
-.debug-overlay {
-  scrollbar-width: thin;
+  border-radius: 999px;
+  border: none;
 }

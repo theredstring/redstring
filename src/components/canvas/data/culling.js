@@ -36,18 +36,20 @@ export const ENABLE_CULLING = (() => {
   }
 })();
 
-/** One culling pass (see the header). `ctx` carries NodeCanvas's refs and setters. */
-export function runCullingPass(ctx) {
+/**
+ * One culling pass (see the header). `ctx` carries NodeCanvas's refs and setters.
+ * Coalesced into the next animation frame, unless `now`: a web just switched to
+ * needs its visible set in the commit that draws it, or the frame it is first
+ * painted in still holds the old web's set and draws nothing.
+ */
+export function runCullingPass(ctx, { now = false } = {}) {
   const {
     cullingRafIdRef, zoomPerfRef, glowUpdateRef, ENABLE_CULLING, nodesRef, edgesRef, visibleNodeIdsRef,
     setVisibleNodeIds, visibleEdgesRef, setVisibleEdges, viewportSizeRef, canvasSizeRef, draggingNodeInfoRef,
     isAnimatingZoomRef, panOffsetRef, zoomLevelRef, cullPruneRef, isViewMovingRef, cullGuardRectRef,
     baseDimsByIdRef, nodeByIdRef,
   } = ctx;
-  if (cullingRafIdRef.current != null) return;
-
-  cullingRafIdRef.current = requestAnimationFrame(() => {
-    cullingRafIdRef.current = null;
+  const pass = () => {
     const perfOn = typeof window !== 'undefined' && window.__zoomPerf;
     const perfStart = perfOn ? performance.now() : 0;
     const perfDone = () => {
@@ -337,5 +339,21 @@ export function runCullingPass(ctx) {
       return commitEdges;
     });
     } finally { perfDone(); }
+  };
+
+  if (now) {
+    // A full recompute, in this commit, in place of any pass already queued.
+    if (cullingRafIdRef.current != null) {
+      cancelAnimationFrame(cullingRafIdRef.current);
+      cullingRafIdRef.current = null;
+    }
+    cullPruneRef.current = true;
+    pass();
+    return;
+  }
+  if (cullingRafIdRef.current != null) return;
+  cullingRafIdRef.current = requestAnimationFrame(() => {
+    cullingRafIdRef.current = null;
+    pass();
   });
 }

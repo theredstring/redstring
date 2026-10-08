@@ -90,28 +90,15 @@
   gap: 16px;
   padding: 16px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .force-sim-body::-webkit-scrollbar {
   width: 20px;
 }
 
-.force-sim-body::-webkit-scrollbar-track {
-  background: var(--rs-modal-scroll-track);
-  border-radius: 4px;
-}
-
 .force-sim-body::-webkit-scrollbar-thumb {
-  background-color: var(--rs-modal-scroll-thumb);
-  border-radius: 4px;
+  border-radius: 999px;
   border: 6px solid transparent;
-  background-clip: padding-box;
-}
-
-.force-sim-body:hover::-webkit-scrollbar-thumb {
-  background-color: var(--rs-modal-scroll-thumb-hover);
-  border-width: 4px;
 }
 
 /* --- Stats box --- */

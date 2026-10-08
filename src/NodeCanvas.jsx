@@ -1715,9 +1715,9 @@ function NodeCanvas() {
     return map;
   }, [edges]);
 
-  // Refs for DOM-bypass drag: sync latest values (refs declared earlier, before useNodeDrag)
-  useEffect(() => { nodeByIdRef.current = nodeById; }, [nodeById]);
-  useEffect(() => { baseDimsByIdRef.current = baseDimsById; }, [baseDimsById]);
+  // Refs for DOM-bypass drag and the view restore's cull; layout effects, so they're fresh for it.
+  useLayoutEffect(() => { nodeByIdRef.current = nodeById; }, [nodeById]);
+  useLayoutEffect(() => { baseDimsByIdRef.current = baseDimsById; }, [baseDimsById]);
   useEffect(() => { edgeCurveInfoRef.current = edgeCurveInfo; }, [edgeCurveInfo]);
   useEffect(() => { edgesByNodeIdRef.current = edgesByNodeId; }, [edgesByNodeId]);
   // visibleNodeIdsRef / visibleEdgesRef are owned exclusively by runCulling() —
@@ -1727,8 +1727,8 @@ function NodeCanvas() {
   // ref to frame N+1, clobbering the newer value with a stale one and
   // breaking hysteresis on the next tick (cause of whole-graph flicker
   // during zoom on large graphs).
-  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
-  useEffect(() => { edgesRef.current = edges; }, [edges]);
+  useLayoutEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useLayoutEffect(() => { edgesRef.current = edges; }, [edges]);
 
   // Owned by debugConfig rather than by this component: the switch now lives in
   // the Settings modal, which is nowhere near here.
@@ -2457,7 +2457,7 @@ function NodeCanvas() {
   // snapping the view back whenever any graph mutation changes the graphsMap ref.
   useLayoutEffect(() => restoreViewForGraph({
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform,
+    canvasSize, transform, runCulling,
   }), [activeGraphId, viewportSize, canvasSize]);
 
   // Track when panning/zooming operations are active

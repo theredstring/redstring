@@ -33,12 +33,6 @@
   --rs-modal-border: #979090;
   --rs-modal-hairline: rgba(38, 0, 0, 0.1);
 
-  /* The app-wide scrollbar colours (index.css), stated here for the -webkit-
-     rules (Safari); .modal-dark flips the app-wide pair below too. */
-  --rs-modal-scroll-track: transparent;
-  --rs-modal-scroll-thumb: rgba(139, 0, 0, 0.1);
-  --rs-modal-scroll-thumb-hover: #8B0000;
-
   /* The header/footer band: the surface with a little shadow in it. Stated as a
      relationship rather than a colour because canvas.border, which these used
      to use, is a step DOWN from the canvas in light mode and a sixty-point step
@@ -75,10 +69,7 @@
   --rs-modal-border: #6a6464;
   --rs-modal-hairline: rgba(255, 255, 255, 0.1);
 
-  --rs-modal-scroll-track: transparent;
-  --rs-modal-scroll-thumb: rgba(192, 145, 145, 0.15);
-  --rs-modal-scroll-thumb-hover: #C09191;
-  /* A dark modal over the light app keeps the dark scrollbar pair. */
+  /* A dark modal over the light app keeps the dark scrollbar pair (index.css). */
   --rs-scrollbar: #C09191;
   --rs-scrollbar-faint: rgba(192, 145, 145, 0.15);
 
@@ -99,29 +90,13 @@
 
 /* One class for every scrolling region in these modals. Help used to inject
    this same block twice as a <style> string, once per theme. */
-.modal-scroll {
-  scrollbar-width: thin;
-}
-
 .modal-scroll::-webkit-scrollbar {
   width: 20px;
 }
 
-.modal-scroll::-webkit-scrollbar-track {
-  background: var(--rs-modal-scroll-track);
-  border-radius: 4px;
-}
-
 .modal-scroll::-webkit-scrollbar-thumb {
-  background-color: var(--rs-modal-scroll-thumb);
-  border-radius: 4px;
+  border-radius: 999px;
   border: 6px solid transparent;
-  background-clip: padding-box;
-}
-
-.modal-scroll:hover::-webkit-scrollbar-thumb {
-  background-color: var(--rs-modal-scroll-thumb-hover);
-  border-width: 4px;
 }
 
 /* ========== Sidebar navigation ========== */

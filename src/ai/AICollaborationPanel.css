@@ -359,10 +359,7 @@ html.dark-mode .ai-tab.active {
   background: var(--canvas-bg);
 }
 
-.ai-messages {
-  scrollbar-width: thin;
-}
-
+/* Scrollbar size; colour and state are index.css, for every scrollbar. */
 .ai-messages::-webkit-scrollbar {
   width: 6px;
 }
@@ -372,12 +369,8 @@ html.dark-mode .ai-tab.active {
 }
 
 .ai-messages::-webkit-scrollbar-thumb {
-  background: var(--rs-scrollbar-faint);
-  border-radius: 3px;
-}
-
-.ai-messages::-webkit-scrollbar-thumb:hover {
-  background: var(--rs-scrollbar);
+  border-radius: 999px;
+  border: none;
 }
 
 .ai-message {

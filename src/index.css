@@ -75,10 +75,14 @@ body {
 
    One state for every scrollbar: faint at rest, full while its region scrolls,
    while the pointer is on the bar, and while the bar is held for a drag. The
-   state is kept by utils/scrollbarActivity.js on [data-rs-scrollbar]. Regions
-   don't set scrollbar-color themselves; set on every element, not inherited,
-   so a nested scroller keeps its own state. In Chromium a non-auto
-   scrollbar-color turns off ::-webkit-scrollbar rules, which remain for Safari. */
+   state is kept by utils/scrollbarActivity.js on [data-rs-scrollbar].
+
+   One drawing system too: the custom -webkit- bar, which is entirely ours.
+   Regions only set its size. They must not set scrollbar-color or
+   scrollbar-width (other than none): in Chromium either one swaps the custom
+   bar for the native one, which on macOS is an overlay that fades in and out
+   on its own timer, a second state machine fighting this one. The standard
+   properties are kept for Firefox alone. */
 :root {
   --rs-scrollbar: #8B0000;
   --rs-scrollbar-faint: rgba(139, 0, 0, 0.1);
@@ -89,18 +93,36 @@ html.dark-mode {
   --rs-scrollbar-faint: rgba(192, 145, 145, 0.15);
 }
 
-* {
-  scrollbar-color: var(--rs-scrollbar-faint) transparent;
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
 }
 
-[data-rs-scrollbar="active"] {
-  scrollbar-color: var(--rs-scrollbar) transparent;
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-/* The fade, at no specificity: a region with a transition of its own keeps it
-   (and loses only the fade). */
-:where([data-rs-scrollbar]) {
-  transition: scrollbar-color 0.3s ease;
+::-webkit-scrollbar-thumb {
+  background-color: var(--rs-scrollbar-faint);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 999px;
+}
+
+[data-rs-scrollbar="active"]::-webkit-scrollbar-thumb {
+  background-color: var(--rs-scrollbar);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rs-scrollbar-faint) transparent;
+  }
+
+  [data-rs-scrollbar="active"] {
+    scrollbar-color: var(--rs-scrollbar) transparent;
+  }
 }
 
 /* Ensure all interactive elements allow text selection where needed */

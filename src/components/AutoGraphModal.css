@@ -260,27 +260,14 @@
   }
 }
 
-/* Scrollbar styling for modal content */
-.autograph-modal-content {
-  scrollbar-width: thin;
-}
-
+/* Scrollbar size; colour and state are index.css, for every scrollbar. */
 .autograph-modal-content::-webkit-scrollbar {
   width: 10px;
 }
 
-.autograph-modal-content::-webkit-scrollbar-track {
-  background: var(--rs-modal-scroll-track);
-  border-radius: 5px;
-}
-
 .autograph-modal-content::-webkit-scrollbar-thumb {
-  background: var(--rs-modal-scroll-thumb);
-  border-radius: 5px;
-}
-
-.autograph-modal-content::-webkit-scrollbar-thumb:hover {
-  background: var(--rs-modal-scroll-thumb-hover);
+  border-radius: 999px;
+  border: none;
 }
 
 .autograph-info-box {

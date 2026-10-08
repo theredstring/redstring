@@ -12,9 +12,9 @@
 const ATTR = 'data-rs-scrollbar';
 // How long after the last scroll event a region still counts as scrolling.
 const SCROLL_LINGER_MS = 800;
-// Overlay scrollbars (macOS "show when scrolling") take no layout width, so
-// the bar is taken to be at least this wide along the edge it sits on.
-const MIN_BAR_PX = 16;
+// A bar that takes no layout width (an overlay bar, in Firefox on macOS) is
+// taken to be this wide along the edge it sits on.
+const OVERLAY_BAR_PX = 16;
 
 const states = new WeakMap();
 
@@ -44,8 +44,8 @@ const isOnScrollbar = (el, x, y) => {
   if (el === root) {
     const cs = getComputedStyle(root);
     if (cs.overflow === 'hidden' || cs.overflow === 'clip') return false;
-    const barY = Math.max(window.innerWidth - root.clientWidth, MIN_BAR_PX);
-    const barX = Math.max(window.innerHeight - root.clientHeight, MIN_BAR_PX);
+    const barY = (window.innerWidth - root.clientWidth) || OVERLAY_BAR_PX;
+    const barX = (window.innerHeight - root.clientHeight) || OVERLAY_BAR_PX;
     return (root.scrollHeight > root.clientHeight && x >= window.innerWidth - barY)
       || (root.scrollWidth > root.clientWidth && y >= window.innerHeight - barX);
   }
@@ -58,12 +58,12 @@ const isOnScrollbar = (el, x, y) => {
   const bt = parseFloat(cs.borderTopWidth) || 0;
   const bb = parseFloat(cs.borderBottomWidth) || 0;
   if (scrollsY(el, cs)) {
-    const bar = Math.max(el.offsetWidth - el.clientWidth - bl - br, MIN_BAR_PX);
+    const bar = (el.offsetWidth - el.clientWidth - bl - br) || OVERLAY_BAR_PX;
     const right = r.right - br;
     if (x >= right - bar && x <= right) return true;
   }
   if (scrollsX(el, cs)) {
-    const bar = Math.max(el.offsetHeight - el.clientHeight - bt - bb, MIN_BAR_PX);
+    const bar = (el.offsetHeight - el.clientHeight - bt - bb) || OVERLAY_BAR_PX;
     const bottom = r.bottom - bb;
     if (y >= bottom - bar && y <= bottom) return true;
   }
