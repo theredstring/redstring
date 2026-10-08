@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef, useDeferredValue, forwardRef } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef, useDeferredValue, forwardRef } from 'react';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
 import { NODE_HEIGHT } from './constants'; // Assuming we use this height
@@ -13,9 +13,6 @@ import useDoubleTap from './hooks/useDoubleTap.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 const ACTIVE_BORDER = 12;
-// How far outside the visible list a card still draws its web, so a scroll
-// finds it already drawn.
-const NEAR_VIEW_MARGIN_PX = 400;
 
 const GraphListItem = forwardRef(({
   graphData,
@@ -24,7 +21,11 @@ const GraphListItem = forwardRef(({
   onClick,
   onDoubleClick,
   onClose, // <<< Add onClose prop
-  onContextMenu
+  onContextMenu,
+  // False for a card far out of the list's view (LeftGridView): it keeps its
+  // frame but not its web, so the DOM and the memory stay bounded by what is
+  // near the screen, however many webs are open.
+  drawWeb = true,
 }, ref) => {
   const theme = useTheme();
   // The following line seems to be out of context as 'node' is not defined in this component.
@@ -92,26 +93,6 @@ const GraphListItem = forwardRef(({
   const cardSizingName = definingNodeName || graphData.name;
   const radius = useWebCardCornerRadius(rowRef, cardSizingName, { border, fallbackWidth });
 
-  // A card far out of view keeps its frame but not its web: the DOM and the
-  // memory stay bounded by what is near the screen, however many webs are open.
-  const [nearView, setNearView] = useState(false);
-  useLayoutEffect(() => {
-    const el = rowRef.current;
-    if (!el) return undefined;
-    // Measured now, so a card on screen draws its web in the first paint.
-    const r = el.getBoundingClientRect();
-    setNearView(r.bottom > -NEAR_VIEW_MARGIN_PX && r.top < window.innerHeight + NEAR_VIEW_MARGIN_PX);
-    if (typeof IntersectionObserver === 'undefined') { setNearView(true); return undefined; }
-    const observer = new IntersectionObserver(
-      ([entry]) => setNearView(entry.isIntersecting),
-      // Only up and down count: the panel slides in sideways, and a card
-      // mid-slide must not blank out.
-      { rootMargin: `${NEAR_VIEW_MARGIN_PX}px 100%` },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   // The web on show can be the one being dragged on the canvas; let the
   // canvas frame win, as the right panel's card does.
   const nodes = useDeferredValue(graphData.nodes);
@@ -160,7 +141,7 @@ const GraphListItem = forwardRef(({
         title={graphData.name}
         sizingName={cardSizingName}
         color={graphData.color}
-        drawWeb={nearView}
+        drawWeb={drawWeb}
       />
 
       {/* Add Close Button Conditionally */}
@@ -202,6 +183,7 @@ const areGraphListItemPropsEqual = (prevProps, nextProps) => (
   prevProps.graphData === nextProps.graphData &&
   prevProps.panelWidth === nextProps.panelWidth &&
   prevProps.isActive === nextProps.isActive &&
+  prevProps.drawWeb === nextProps.drawWeb &&
   prevProps.onClick === nextProps.onClick &&
   prevProps.onClose === nextProps.onClose &&
   prevProps.onDoubleClick === nextProps.onDoubleClick &&

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
@@ -69,6 +69,50 @@ function useOpenGraphsForList() {
   }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
 }
 
+// How far outside the list's view a card still draws its web, so a scroll
+// finds it already drawn.
+const NEAR_VIEW_MARGIN_PX = 400;
+
+/**
+ * The ids of the rows within NEAR_VIEW_MARGIN_PX of the list's scroll view,
+ * measured on scroll and resize. Vertical only, against the scroller itself:
+ * the panel slides in sideways and is clipped while it does, and a card
+ * mid-slide must not blank out.
+ */
+function useRowsNearView(listRef, rowCount) {
+  const [nearIds, setNearIds] = useState(() => new Set());
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return undefined;
+    const scroller = list.closest('.panel-content') || list.parentElement;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const view = scroller.getBoundingClientRect();
+      const next = new Set();
+      for (const row of list.querySelectorAll('[data-graph-id]')) {
+        const r = row.getBoundingClientRect();
+        if (r.bottom > view.top - NEAR_VIEW_MARGIN_PX && r.top < view.bottom + NEAR_VIEW_MARGIN_PX) {
+          next.add(row.dataset.graphId);
+        }
+      }
+      setNearIds(prev => (prev.size === next.size && [...next].every(id => prev.has(id)) ? prev : next));
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    measure();
+    scroller.addEventListener('scroll', schedule, { passive: true });
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(schedule) : null;
+    observer?.observe(scroller);
+    observer?.observe(list);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      scroller.removeEventListener('scroll', schedule);
+      observer?.disconnect();
+    };
+  }, [listRef, rowCount]);
+  return nearIds;
+}
+
 /**
  * Where a drop on the list will land: the header strip's insertion caret,
  * laid across the list, opening a gap between the rows it falls between. Not a
@@ -105,6 +149,7 @@ const LeftGridView = ({
 }) => {
   const theme = useTheme();
   const openGraphsForList = useOpenGraphsForList();
+  const nearIds = useRowsNearView(listContainerRef, openGraphsForList.length);
   // Double-click a web: the right panel's Info tab (index 0, always there),
   // opening the panel if it is closed. The first click of the pair has already
   // made the web active, so Info is about this web.
@@ -195,6 +240,7 @@ const LeftGridView = ({
             onClick={handleGridItemClick}
             onClose={closeGraph}
             onDoubleClick={openWebInfo}
+            drawWeb={nearIds.has(graph.id)}
             onContextMenu={handleItemContextMenu}
           />
         ]).concat(slot === DROP_AT_END && caret ? [caret] : [])}
