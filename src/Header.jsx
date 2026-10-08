@@ -1355,6 +1355,10 @@ const Header = ({
           gap: '10px',
           overflowX: 'auto',
           overflowY: 'hidden',
+          // The strip is always placed by code (centring, drag scroll), and the
+          // drop caret opening a gap is exactly what anchoring would "correct",
+          // fighting the caret under a still finger. See useOpenWebsDrop.
+          overflowAnchor: 'none',
           paddingLeft: '50vw',
         }}
       >

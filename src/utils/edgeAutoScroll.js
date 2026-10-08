@@ -116,6 +116,9 @@ export function edgeScrollDepth(pointer, bounds, screen, zones = EDGE_SCROLL_DEF
  *   visible span on the axis, when something covers part of it; defaults to its rect.
  * @param {(pointer: number) => void} [options.onScroll] - After each step that moved the scroller.
  * @param {() => void} [options.onStop] - On stop, only if this run scrolled at all.
+ * @param {Object|((bounds: {lo: number, hi: number}) => Object)} [options.zones] -
+ *   As EDGE_SCROLL_DEFAULTS.zones, or a function of the visible span, read
+ *   every frame, for zones sized to the scroller.
  * @returns {{ update: (clientPos: number) => void, stop: () => void }}
  */
 export function createEdgeAutoScroll({ getElement, axis, getBounds, onScroll, onStop, zones, ...speedOpts }) {
@@ -124,7 +127,8 @@ export function createEdgeAutoScroll({ getElement, axis, getBounds, onScroll, on
   let lastTime = 0;
   let velocity = 0;
   // Distance owed but not yet applied: a slow scroll moves less than the
-  // browser's scroll step per frame, so it banks until the step lands.
+  // browser's scroll step per frame, so it banks (under a pixel) until the
+  // step lands.
   let carry = 0;
   let scrolled = false;
 
@@ -140,21 +144,29 @@ export function createEdgeAutoScroll({ getElement, axis, getBounds, onScroll, on
       bounds = axis === 'x' ? { lo: rect.left, hi: rect.right } : { lo: rect.top, hi: rect.bottom };
     }
     const screen = { lo: 0, hi: axis === 'x' ? window.innerWidth : window.innerHeight };
-    const { dir, depth } = edgeScrollDepth(pointer, bounds, screen, zones);
+    const { dir, depth } = edgeScrollDepth(
+      pointer, bounds, screen, typeof zones === 'function' ? zones(bounds) : zones,
+    );
     velocity = stepEdgeScrollVelocity(velocity, dir * edgeScrollTargetSpeed(depth, speedOpts), dt, speedOpts);
     if (velocity === 0) carry = 0;
 
     if (velocity !== 0) {
       carry += velocity * dt / 1000;
       const before = axis === 'x' ? el.scrollLeft : el.scrollTop;
-      // Fractional, and the remainder kept from what actually moved: the
-      // browser rounds to its own step (a device pixel, or a whole one), and
-      // rounding here as well made slow scrolls stutter.
-      if (axis === 'x') el.scrollLeft = before + carry; else el.scrollTop = before + carry;
+      const wanted = before + carry;
+      // Fractional: the browser rounds to its own step (a device pixel, or a
+      // whole one), and rounding here as well made slow scrolls stutter.
+      if (axis === 'x') el.scrollLeft = wanted; else el.scrollTop = wanted;
       const after = axis === 'x' ? el.scrollLeft : el.scrollTop;
       const max = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+      // Bank only what rounding kept back. Anything larger was someone else —
+      // scroll anchoring holding the view still as the drop ghost moves to a
+      // new slot — and must not be owed back: "correcting" it moved the ghost
+      // again, which anchoring answered again, and the list leapt a row a frame
+      // to its end.
+      const shortfall = wanted - after;
+      carry = Math.abs(shortfall) < 1 ? shortfall : 0;
       if (after !== before) {
-        carry -= after - before;
         scrolled = true;
         onScroll?.(pointer);
       } else if ((velocity < 0 && after <= 0) || (velocity > 0 && after >= max - 1)) {

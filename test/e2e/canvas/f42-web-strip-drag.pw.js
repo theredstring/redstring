@@ -124,6 +124,52 @@ test.describe('by touch', () => {
     await ts.end([]);
     await expect(scroller).not.toHaveAttribute('data-edge-autoscrolling');
   });
+
+  // Regression: as the list scrolled under a still finger the ghost moved to a
+  // new slot, the browser's scroll anchoring shifted the view to compensate,
+  // a different row was then under the finger, and the list leapt a row a
+  // frame to its top. Each frame's step must stay a scroll, not a jump.
+  test('F42e dragging up toward the top of a scrolled Open Webs scrolls, never leaps', async ({ page }) => {
+    await openFixture(page, 'small');
+    await openWebs(page, 20);
+    await showOpenWebsList(page);
+    const scroller = page.locator('.panel-content').filter({ has: page.locator('h2', { hasText: 'Open Webs' }) });
+    await scroller.evaluate((el) => { el.scrollTop = 3000; });
+    await nextFrames(page, 2);
+    const start = await scroller.evaluate((el) => el.scrollTop);
+    await scroller.evaluate((el) => {
+      window.__steps = [];
+      let prev = el.scrollTop;
+      const tick = () => {
+        window.__steps.push(el.scrollTop - prev);
+        prev = el.scrollTop;
+        if (window.__steps.length < 240) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    const area = await box(scroller);
+    const rows = await page.locator('.panel-content [data-graph-id]').evaluateAll((els) => els
+      .map((e) => e.getBoundingClientRect().toJSON())
+      .filter((r) => r.top > 200 && r.bottom < innerHeight));
+    const from = { x: rows[0].x + rows[0].width / 2, y: rows[0].y + 40 };
+    const to = { x: from.x, y: area.y + 90 };
+
+    const ts = await touchscreen(page);
+    await ts.start([from]);
+    await page.waitForTimeout(TOUCH_DRAG_DELAY_MS + 80);
+    for (let i = 1; i <= 20; i += 1) {
+      await ts.move([{ x: from.x, y: from.y + ((to.y - from.y) * i) / 20 }]);
+      await nextFrames(page, 1);
+    }
+    await page.waitForTimeout(1500);
+    const steps = await page.evaluate(() => window.__steps);
+    await ts.end([]);
+
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBeLessThan(start);
+    // The Open Webs ceiling is 1200 px/s: ~20 px a frame, at most ~80 on a
+    // frame the page dropped.
+    expect(Math.max(...steps.map(Math.abs))).toBeLessThan(90);
+  });
 });
 
 test('F42d by mouse: an Open Webs row dragged past its neighbour swaps with it', async ({ page }) => {

@@ -122,12 +122,21 @@ export function useOpenWebsDrop(listRef) {
 
   // Scrolls the panel when a drag is held at its top or bottom, and keeps
   // scrolling past them (over the panel's tabs, below the window) for as long
-  // as the drag stays in the panel's column. The top barely reaches inside:
-  // the heading is up there, and a drag on its way to the first slot shouldn't
-  // set the list moving.
+  // as the drag stays in the panel's column.
+  //
+  // Quicker and reaching further in than the shared default: an open row is
+  // ~245px tall, so the header strip's pace and narrow zones crawl here. Each
+  // zone is a fifth of the panel's height (80-160px) inside the edge, plus the
+  // reach past it. It still rises from rest every time it starts.
   const edgeScroll = useEdgeAutoScroll({
     axis: 'y',
-    zones: { start: { inside: 16, outside: 64 }, end: { inside: 40, outside: 56 } },
+    zones: ({ lo, hi }) => {
+      const inside = Math.max(80, Math.min(160, (hi - lo) * 0.2));
+      return { start: { inside, outside: 64 }, end: { inside, outside: 56 } };
+    },
+    maxSpeed: 1200,
+    accel: 1500,
+    decel: 7000,
     getElement: () => listRef.current?.closest('.panel-content') || null,
     // Stands in for the panel's own thumb while the drag scrolls it (Panel.css
     // steps that one aside), in the panel's text colour so it reads in both themes.
@@ -186,6 +195,19 @@ export function useOpenWebsDrop(listRef) {
     overItemRef.current = null;
     setSlot(null);
   }, [dropItem, setSlot]);
+
+  // No scroll anchoring while the ghost can exist. Anchoring holds the view
+  // still when content above it changes, and the ghost moving to a new slot is
+  // such a change: the view shifts, a different row is under the still
+  // pointer, the ghost moves again, and the list leapt a row a frame to its
+  // end. Set on the element directly: React leaves a style it doesn't manage.
+  useEffect(() => {
+    if (!dropItem) return undefined;
+    const scroller = listRef.current?.closest('.panel-content');
+    if (!scroller) return undefined;
+    scroller.style.overflowAnchor = 'none';
+    return () => { scroller.style.overflowAnchor = ''; };
+  }, [dropItem, listRef]);
 
   return { drop, dropItem, slot: dropItem ? slot : null };
 }
