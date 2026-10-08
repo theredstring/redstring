@@ -9,10 +9,10 @@ import { buildShellCutoutPath } from '../../services/groupLayout.js';
 import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints } from '../../utils/canvas/nodeHitbox.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
-import { computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
+import { bundleFrameSign, computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, parallelLaneRank, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
 import { DEFAULT_TIP_INSET, POLY_TIP, calculateParallelEdgePath, getCurveBorderCrossings, getCurvedArrowPlacement, getTrimmedBezierPath } from '../../utils/canvas/parallelEdgeUtils.js';
 import SelfLoopEdge from './SelfLoopEdge.jsx';
-import { LABEL_TRUNCATE_FILL, chooseRoutedLabelPlacement, estimateTextWidth, labelBoundsFor, labelFrameToken, routedLabelSpan, straightLabelTransform } from '../../utils/canvas/edgeLabelPlacement.js';
+import { LABEL_TRUNCATE_FILL, chooseRoutedLabelPlacement, estimateTextWidth, labelBoundsFor, labelFrameToken, placeBundledLabel, routedLabelSpan, straightLabelTransform } from '../../utils/canvas/edgeLabelPlacement.js';
 
 /**
  * renderConnectionEdge — the renderer for a single connection.
@@ -1481,11 +1481,24 @@ export function renderConnectionEdge(edge, ctx) {
                 routedLabelSpan(orthoRouting) * LABEL_TRUNCATE_FILL
               );
             }
-            const placement = chooseRoutedLabelPlacement(
-              orthoRouting, displayName, nodes, visibleNodeIds,
-              baseDimsById, placedLabelsRef.current, connectionFontSize,
-              edge.id, selectedInstanceIds, labelObstacleOptions
-            );
+            // A Lombardi bundle's labels skip avoidance and stack at the
+            // middle together. See placeBundledLabel.
+            const bundleInfo = orthoRouting.kind === 'lombardi' ? edgeCurveInfo.get(edge.id) : null;
+            const placement = (bundleInfo?.totalInPair ?? 1) > 1
+              ? placeBundledLabel(
+                orthoRouting,
+                parallelLaneRank(bundleInfo),
+                bundleFrameSign(
+                  { x: sourceNode.x + sNodeDims.currentWidth / 2, y: sourceNode.y + sNodeDims.currentHeight / 2 },
+                  { x: destNode.x + eNodeDims.currentWidth / 2, y: destNode.y + eNodeDims.currentHeight / 2 }
+                ),
+                lombardiLaneSpacing, connectionFontSize
+              )
+              : chooseRoutedLabelPlacement(
+                orthoRouting, displayName, nodes, visibleNodeIds,
+                baseDimsById, placedLabelsRef.current, connectionFontSize,
+                edge.id, selectedInstanceIds, labelObstacleOptions
+              );
             const stabilized = stabilizeLabelPosition(edge.id, placement.x, placement.y, placement.angle || 0);
             midX = stabilized.x;
             midY = stabilized.y;

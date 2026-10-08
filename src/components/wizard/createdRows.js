@@ -88,6 +88,8 @@ export function resolveRows(created, state) {
       id: edgeId,
       typeId: type ? typeId : null,
       name: type?.name || edge.name || 'Connection',
+      subjectId: subject.id,
+      objectId: object.id,
       subject: subject.name || 'Thing',
       object: object.name || 'Thing',
       subjectColor: subject.color || NODE_DEFAULT_COLOR,
@@ -105,7 +107,7 @@ export function resolveRows(created, state) {
 // every frame).
 export const rowsSignature = (rows) => rows.map(r => [
   r.key, r.name, r.thingName, r.thingId, r.color, r.webOpen ? 1 : 0, r.subject, r.object, r.subjectColor, r.objectColor,
-  r.connectionColor, r.arrowsToward ? Array.from(r.arrowsToward).join('+') : '', r.typeId
+  r.connectionColor, r.arrowsToward ? Array.from(r.arrowsToward).join('+') : '', r.typeId, r.subjectId, r.objectId
 ].join('|')).join('\n');
 
 /**

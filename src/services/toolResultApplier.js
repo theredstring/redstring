@@ -1009,11 +1009,21 @@ export function resolveHeldWizardChanges(ids, allow) {
 // and is recorded when its confirmation applies it.
 export function applyToolResultToStore(toolName, rawResult, toolCallId, conversationId, options = {}) {
   const before = toolCallId ? snapshotEntityMaps(useGraphStore.getState()) : null;
+  // A composition builds INTO a web that already exists (buildComposition's
+  // apply branch below): that web is its top level, so it leads the record and
+  // the card draws it first, holding what the call put in it.
+  const compositionWebId = toolName === 'buildComposition'
+    ? (rawResult?.graphId || useGraphStore.getState().activeGraphId || null)
+    : null;
   try {
     return applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conversationId, options);
   } finally {
     if (before) {
-      const created = diffCreatedEntities(before, snapshotEntityMaps(useGraphStore.getState()));
+      const after = snapshotEntityMaps(useGraphStore.getState());
+      const created = diffCreatedEntities(before, after);
+      if (hasCreatedEntities(created) && compositionWebId && after.graphs?.has?.(compositionWebId)) {
+        created.webs = [compositionWebId, ...created.webs.filter(id => id !== compositionWebId)];
+      }
       if (hasCreatedEntities(created)) notifyWizardEntitiesCreated({ toolCallId, conversationId, created });
     }
   }

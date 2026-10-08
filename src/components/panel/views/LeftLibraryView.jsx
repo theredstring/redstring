@@ -82,14 +82,18 @@ const LeftLibraryView = ({
   return (
     <div
       className="panel-content-inner"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+      // min-height, not height: a sticky header only sticks within its parent,
+      // so the parent has to grow with the list.
+      style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         showContextMenu(e.clientX, e.clientY, getTabContextMenuOptions());
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+      {/* Sticky: stays put while the list scrolls under it. Bleeds over the
+          wrapper's padding so nothing shows above or beside it. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 16px', backgroundColor: theme.canvas.bg }}>
         <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Saved Things
         </h2>

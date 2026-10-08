@@ -100,7 +100,21 @@ test('F20e "To Current Web" shows once the current web scrolls away, and brings 
 
   await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
   await expect(pillFade).toHaveCSS('opacity', '1');
+  // The current web is above: the arrow points up.
+  await expect(pill.locator('svg.lucide-arrow-up')).toHaveCount(1);
   await pill.click();
   await expect(row).toBeInViewport({ ratio: 0.5 });
   await expect(pillFade).toHaveCSS('opacity', '0');
+
+  // Make the last web current and scroll back to the top: now it is below.
+  const lastId = await storeEval(page, (st) => {
+    const ids = st.openGraphIds;
+    st.setActiveGraph(ids[ids.length - 1]);
+    return ids[ids.length - 1];
+  });
+  await scroller.evaluate((el) => { el.scrollTop = 0; });
+  await expect(pillFade).toHaveCSS('opacity', '1');
+  await expect(pill.locator('svg.lucide-arrow-down')).toHaveCount(1);
+  await pill.click();
+  await expect(page.locator(`.panel-content [data-graph-id="${lastId}"]`)).toBeInViewport({ ratio: 0.5 });
 });

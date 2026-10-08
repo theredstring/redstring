@@ -19,7 +19,7 @@ import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import ToolCallCard from '../../ToolCallCard.jsx';
 import WizardActionChip from '../../wizard/WizardActionChip.jsx';
-import ContextPinChip from '../../wizard/ContextPinChip.jsx';
+import ContextPinChip, { ActiveWebChip } from '../../wizard/ContextPinChip.jsx';
 import UnifiedSelector from '../../../UnifiedSelector.jsx';
 import { onWizardEntitiesCreated, mergeCreatedEntities } from '../../../services/wizardCreatedEntities.js';
 import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
@@ -4631,24 +4631,15 @@ const LeftAIView = ({ compact = false,
                 onRemove={() => removeContextItem(idx)}
               />
             ) : (
-              <button
+              <ActiveWebChip
                 key={item.type + idx}
-                className={`ai-context-chip ${item.enabled ? 'active' : 'disabled'}`}
-                style={item.color && item.enabled ? {
-                  backgroundColor: item.color,
-                  color: getTextColor(item.color),
-                  borderColor: item.color,
-                } : undefined}
-                onClick={() => {
+                item={item}
+                onToggle={() => {
                   setContextItems(prev => prev.map((ci, i) =>
                     i === idx ? { ...ci, enabled: !ci.enabled } : ci
                   ));
                 }}
-                title={item.enabled ? `Click to exclude ${item.label} from context` : `Click to include ${item.label} in context`}
-              >
-                <span className="ai-context-chip-label">{item.label}</span>
-                <span className="ai-context-chip-toggle">{item.enabled ? '×' : '+'}</span>
-              </button>
+              />
             ))}
             {isPinDropOver && pinDropPreview && !pinDropAlreadyIn && (() => {
               const [name, color] = pinDropPreview.split('\u0000');

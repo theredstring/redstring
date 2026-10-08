@@ -127,6 +127,19 @@
   margin-top: 0;
 }
 
+/* A drawing you can pick up: no text selection, no native image drag */
+.entity-drag {
+  display: inline-flex;
+  flex-direction: column;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.entity-web .entity-drag {
+  display: block;
+}
+
 .entity-row {
   display: flex;
   align-items: center;
@@ -134,6 +147,23 @@
   gap: 14px;
   max-width: 100%;
   min-width: 0;
+}
+
+/* Narrow connections stack, so thin rules set each one apart: above every
+   one, and under the last */
+.entity-row-compact {
+  border-top: 1px solid var(--canvas-border);
+  padding-top: 6px;
+  align-self: stretch;
+  /* The buttons go under the three Things, not beside them */
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.entity-row-compact:not(:has(+ .entity-row-compact)) {
+  border-bottom: 1px solid var(--canvas-border);
+  padding-bottom: 6px;
 }
 
 .entity-row-rep {
@@ -148,6 +178,7 @@
   align-items: stretch;
   gap: 8px;
   max-width: 100%;
+  margin-top: 8px;
   margin-bottom: 4px;
 }
 

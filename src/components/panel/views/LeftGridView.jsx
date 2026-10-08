@@ -1,6 +1,6 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Merge, Plus, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
@@ -82,14 +82,15 @@ const sameIds = (a, b) => a.size === b.size && [...b].every(id => a.has(id));
 
 /**
  * The ids of the rows within NEAR_VIEW_MARGIN_PX of the list's scroll view
- * (`nearIds`) and of those actually showing (`inViewIds`), measured on scroll
- * and resize. Vertical only, against the scroller itself: the panel slides in
+ * (`nearIds`), of those actually showing (`inViewIds`) and of those below the
+ * view (`belowIds`), measured on scroll and resize. Vertical only, against the scroller itself: the panel slides in
  * sideways and is clipped while it does, and a card mid-slide must not blank
  * out.
  */
 function useRowsNearView(listRef, rowCount) {
   const [nearIds, setNearIds] = useState(() => new Set());
   const [inViewIds, setInViewIds] = useState(() => new Set());
+  const [belowIds, setBelowIds] = useState(() => new Set());
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return undefined;
@@ -100,14 +101,17 @@ function useRowsNearView(listRef, rowCount) {
       const view = scroller.getBoundingClientRect();
       const near = new Set();
       const inView = new Set();
+      const below = new Set();
       for (const row of list.querySelectorAll('[data-graph-id]')) {
         const r = row.getBoundingClientRect();
         const id = row.dataset.graphId;
         if (r.bottom > view.top - NEAR_VIEW_MARGIN_PX && r.top < view.bottom + NEAR_VIEW_MARGIN_PX) near.add(id);
         if (r.bottom > view.top + IN_VIEW_MIN_PX && r.top < view.bottom - IN_VIEW_MIN_PX) inView.add(id);
+        else if (r.top >= view.bottom - IN_VIEW_MIN_PX) below.add(id);
       }
       setNearIds(prev => (sameIds(prev, near) ? prev : near));
       setInViewIds(prev => (sameIds(prev, inView) ? prev : inView));
+      setBelowIds(prev => (sameIds(prev, below) ? prev : below));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
@@ -121,7 +125,7 @@ function useRowsNearView(listRef, rowCount) {
       observer?.disconnect();
     };
   }, [listRef, rowCount]);
-  return { nearIds, inViewIds };
+  return { nearIds, inViewIds, belowIds };
 }
 
 /**
@@ -184,10 +188,12 @@ const LeftGridView = ({
 }) => {
   const theme = useTheme();
   const openGraphsForList = useOpenGraphsForList();
-  const { nearIds, inViewIds } = useRowsNearView(listContainerRef, openGraphsForList.length);
+  const { nearIds, inViewIds, belowIds } = useRowsNearView(listContainerRef, openGraphsForList.length);
   const overlayHost = usePanelOverlayHost(listContainerRef);
   // "To Current Web" shows while the active web's card is scrolled out of view.
   const showToCurrent = !!activeGraphId && openGraphsForList.some(g => g.id === activeGraphId) && !inViewIds.has(activeGraphId);
+  // Points the way the list will scroll to get there.
+  const ToCurrentArrow = belowIds.has(activeGraphId) ? ArrowDown : ArrowUp;
   const scrollToCurrent = useCallback(() => {
     const list = listContainerRef.current;
     const row = list?.querySelector(`[data-graph-id="${CSS.escape(activeGraphId)}"]`);
@@ -244,7 +250,9 @@ const LeftGridView = ({
         showContextMenu(e.clientX, e.clientY, getTabContextMenuOptions());
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      {/* Sticky: stays put while the list scrolls under it. Bleeds over the
+          wrapper's padding so nothing shows above or beside it. */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 16px', backgroundColor: theme.canvas.bg }}>
         <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Open Webs
         </h2>
@@ -320,7 +328,7 @@ const LeftGridView = ({
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToCurrent(); } }}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
           >
-            <ArrowUp size={16} color="maroon" strokeWidth={2.5} />
+            <ToCurrentArrow size={16} color="maroon" strokeWidth={2.5} />
             <span className="back-to-civilization-text">To Current Web</span>
           </div>
         </div>,

@@ -1780,7 +1780,9 @@ const Panel = memo(
       } else if (leftViewActive === 'federation') {
         // Git-Native Federation view
         panelContent = (
-          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowX: 'hidden', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}>
+          // No right padding: UniverseManager scrolls itself and pads its own
+          // content, so the wrapper's would sit outside its scrollbar.
+          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingRight: 0, overflowX: 'hidden', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}>
             <UniverseManager />
           </div>
         );

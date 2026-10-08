@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useDrag } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
 import { NotebookText, ArrowUpFromDot } from 'lucide-react';
 import UniversalNodeRenderer from '../../UniversalNodeRenderer';
 import TripletPreview from '../connections/TripletPreview.jsx';
+import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from '../connections/CompactConnectionRow.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { DefinitionCard, DefinitionDescription } from '../panel/WebDefinitionsSection.jsx';
 import useGraphStore from '../../store/graphStore.js';
@@ -10,6 +13,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import { layoutNodeChips, panelListTextFor } from '../../utils/connectionPreview.js';
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
 import { resolveRows, rowsSignature } from './createdRows.js';
+import useSpawnableDrag from './useSpawnableDrag.js';
 import {
   openThingInPanel,
   openWebInPanel,
@@ -85,21 +89,124 @@ const updateWebDescription = (thingId, graphId, description) => {
 };
 
 /**
- * A Web the call made, as the right panel's Web Definitions shows one: its two
- * buttons, the Web drawn live (it changes as the Web does, like Open Webs), and
- * its description under it.
+ * A Web the call made, as the right panel's Web Definitions shows one: the Web
+ * drawn live (it changes as the Web does, like Open Webs), its two buttons under
+ * it, then its description.
  */
+/** The Web's card, dragged as Open Webs drags one: the Thing it defines, with the Web. */
+const DraggableWebCard = ({ row }) => {
+  const [drag, isDragging] = useSpawnableDrag({ prototypeId: row.thingId, nodeName: row.thingName, graphId: row.id });
+  return (
+    <div ref={drag} className="entity-drag" style={{ opacity: isDragging ? 0.5 : 1, cursor: row.thingId ? 'grab' : undefined }}>
+      <DefinitionCard graphId={row.id} nodeName={row.thingName} nodeColor={row.color} />
+    </div>
+  );
+};
+
+/** A Thing's chip, dragged as any Thing in a panel list is. */
+const DraggableThingChip = ({ row, maxWidth }) => {
+  const [drag, isDragging] = useSpawnableDrag({ prototypeId: row.id, nodeName: row.name });
+  return (
+    <div ref={drag} className="entity-drag" style={{ opacity: isDragging ? 0.5 : 1, cursor: 'grab' }}>
+      <ThingChip id={row.id} name={row.name} color={row.color} definitionGraphIds={row.definitionGraphIds} maxWidth={maxWidth} />
+    </div>
+  );
+};
+
+/**
+ * A connection too narrow for a triplet, as the semantic list draws one but
+ * three Things down: both ends, and the connection between them as the Thing
+ * that defines it. Each picks up as itself.
+ */
+const DraggableCompactConnection = ({ row }) => {
+  const [dragSubject, draggingSubject] = useSpawnableDrag({ prototypeId: row.subjectId, nodeName: row.subject });
+  const [dragObject, draggingObject] = useSpawnableDrag({ prototypeId: row.objectId, nodeName: row.object });
+  const [dragType, draggingType] = useSpawnableDrag({ prototypeId: row.typeId, nodeName: row.name });
+  const pillStyle = (dragging) => ({ cursor: 'grab', opacity: dragging ? 0.5 : 1, userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' });
+  const toward = row.arrowsToward;
+  return (
+    <CompactConnectionRow
+      subjectName={row.subject}
+      subjectColor={row.subjectColor}
+      predicate={row.name}
+      otherName={row.object}
+      otherColor={row.objectColor}
+      direction={toward.has('object') && toward.has('subject') ? 'both'
+        : toward.has('object') ? 'out'
+          : toward.has('subject') ? 'in' : 'none'}
+      subjectPill={{ ref: dragSubject, style: pillStyle(draggingSubject) }}
+      otherPill={{ ref: dragObject, style: pillStyle(draggingObject) }}
+      predicatePill={{
+        color: row.connectionColor || NODE_DEFAULT_COLOR,
+        ref: dragType,
+        style: row.typeId ? pillStyle(draggingType) : undefined
+      }}
+    />
+  );
+};
+
+/**
+ * A connection's triplet, picked up by the part you grab: the left third is
+ * its subject, the middle the Thing that defines the connection, the right
+ * third its object. One SVG draws all three, so the part is read from the
+ * pointer rather than from the boxes.
+ */
+const DraggableTriplet = ({ row, width }) => {
+  const sideRef = useRef('subject');
+  const [{ isDragging }, drag, preview] = useDrag(() => ({
+    type: 'spawnable_node',
+    item: () => {
+      if (sideRef.current === 'object') return { prototypeId: row.objectId, nodeName: row.object };
+      if (sideRef.current === 'type') return { prototypeId: row.typeId, nodeName: row.name };
+      return { prototypeId: row.subjectId, nodeName: row.subject };
+    },
+    canDrag: () => !!(sideRef.current === 'object' ? row.objectId
+      : sideRef.current === 'type' ? row.typeId : row.subjectId),
+    collect: (monitor) => ({ isDragging: !!monitor.isDragging() })
+  }), [row.subjectId, row.objectId, row.typeId, row.subject, row.object, row.name]);
+  useEffect(() => { preview(getEmptyImage(), { captureDraggingState: true }); }, [preview]);
+
+  const pickSide = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.touches?.[0]?.clientX ?? e.clientX;
+    const at = (x - rect.left) / Math.max(1, rect.width);
+    sideRef.current = at < 1 / 3 ? 'subject' : at > 2 / 3 ? 'object' : 'type';
+  };
+
+  return (
+    <div
+      ref={drag}
+      className="entity-drag"
+      onPointerDown={pickSide}
+      onMouseDown={pickSide}
+      onTouchStart={pickSide}
+      style={{ cursor: 'grab', opacity: isDragging ? 0.5 : 1 }}
+    >
+      <TripletPreview
+        subject={row.subject}
+        predicate={row.name}
+        object={row.object}
+        subjectColor={row.subjectColor}
+        objectColor={row.objectColor}
+        connectionColor={row.connectionColor}
+        arrowsToward={row.arrowsToward}
+        containerWidth={width}
+      />
+    </div>
+  );
+};
+
 const WebEntity = ({ row, width, expanded, onOverflowChange }) => {
   const thing = useGraphStore(s => (row.thingId ? s.nodePrototypes.get(row.thingId) || null : null));
   return (
     <div className="entity-web" style={{ width: Math.min(width, WEB_CARD_MAX_WIDTH) }}>
+      <DraggableWebCard row={row} />
       <EntityActions
         name={row.name}
         onOpenInPanel={() => openWebInPanel(row.id)}
         onOpenWeb={(e) => openWebOnCanvas(row.id, e)}
         webOpen={row.webOpen}
       />
-      <DefinitionCard graphId={row.id} nodeName={row.thingName} nodeColor={row.color} />
       <DefinitionDescription
         graphId={row.id}
         thing={thing}
@@ -117,18 +224,15 @@ const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
   const repWidth = Math.max(140, width - ACTIONS_WIDTH);
   if (row.kind === 'connection') {
     return (
-      <div className="entity-row">
+      <div className={`entity-row${repWidth < COMPACT_CONNECTIONS_BELOW ? ' entity-row-compact' : ''}`}>
         <div className="entity-row-rep">
-          <TripletPreview
-            subject={row.subject}
-            predicate={row.name}
-            object={row.object}
-            subjectColor={row.subjectColor}
-            objectColor={row.objectColor}
-            connectionColor={row.connectionColor}
-            arrowsToward={row.arrowsToward}
-            containerWidth={repWidth}
-          />
+          {repWidth < COMPACT_CONNECTIONS_BELOW ? (
+            // Too narrow for a readable triplet: the semantic list's compact
+            // row, with both ends, since a card implies neither.
+            <DraggableCompactConnection row={row} />
+          ) : (
+            <DraggableTriplet row={row} width={repWidth} />
+          )}
         </div>
         <EntityActions
           name={row.name}
@@ -142,7 +246,7 @@ const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
   return (
     <div className="entity-row">
       <div className="entity-row-rep">
-        <ThingChip id={row.id} name={row.name} color={row.color} definitionGraphIds={row.definitionGraphIds} maxWidth={repWidth} />
+        <DraggableThingChip row={row} maxWidth={repWidth} />
       </div>
       <EntityActions
         name={row.name}

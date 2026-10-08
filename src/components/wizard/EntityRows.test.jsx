@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent, act } from '@testing-library/react';
+import { render as rtlRender, fireEvent, act } from '@testing-library/react';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
 import useGraphStore from '../../store/graphStore.js';
 import CreatedEntities from './EntityRows.jsx';
+
+// The cards are drag sources, as they are inside the app's DndProvider.
+const withDnd = (ui) => <DndProvider backend={HTML5Backend}>{ui}</DndProvider>;
+const render = (ui) => {
+  const utils = rtlRender(withDnd(ui));
+  return { ...utils, rerender: (next) => utils.rerender(withDnd(next)) };
+};
 
 vi.mock('../../services/haptics.js', () => ({ haptic: vi.fn() }));
 // jsdom has no canvas to measure text with.

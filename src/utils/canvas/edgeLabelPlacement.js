@@ -1334,8 +1334,55 @@ export const chooseRoutedLabelPlacement = (
             baseDimsById, placedLabels, fontSize, edgeId, selectedNodeIds, options)
 );
 
+/**
+ * A Lombardi BUNDLE member's label: the middle of its visible run, stacked with
+ * its siblings across the bundle. No obstacle avoidance.
+ *
+ * The members of a bundle are one relation drawn several times, so their names
+ * belong together, side by side at the middle, the way the straight style draws
+ * them at each curve's apex. Run through the avoidance placer they did not stay
+ * there: a tilted label's bounding box is far taller than the label, so two
+ * siblings a lane apart registered as colliding and the second slid off toward
+ * one end, and against a group box the slide could take it most of the way to
+ * the other group.
+ *
+ * Each label sits on its own lane when the lanes are at least a label apart.
+ * Closer than that (a small multi-connection spacing, or a bow too shallow to
+ * draw, which collapses the bundle onto one line) the labels are pushed outward
+ * to `step` apart so they never print over each other.
+ *
+ * `rank` is parallelLaneRank; `frameSign` is bundleFrameSign of the bundle's
+ * chord, so a straight member stacks to the side its arc would bow toward.
+ */
+export const placeBundledLabel = (routing, rank, frameSign, laneSpacing, fontSize = 24) => {
+    const step = Math.max(laneSpacing || 0, fontSize * (LABEL_BOX_LINE_HEIGHT + 0.25));
+    if (routing?.arc) {
+        const arc = routing.arc;
+        const t = arcRangeParam(routing.visibleRange, 0.5);
+        const at = arcPointAt(arc, t);
+        // The arc already bows |rank|·laneSpacing outward from the bundle's
+        // centre line; positive offsets move away from the circle's centre,
+        // which is the outward side of the bow.
+        const offset = Math.abs(rank) * Math.max(0, step - (laneSpacing || 0));
+        const nx = (at.x - arc.cx) / arc.radius;
+        const ny = (at.y - arc.cy) / arc.radius;
+        return {
+            x: at.x + nx * offset,
+            y: at.y + ny * offset,
+            angle: at.angle,
+            anchor: { t, offset, bowSign: Math.sign(arc.delta ?? 0) },
+        };
+    }
+    // A straight member lies ON the centre line, so the whole stack is offset.
+    // anchorOnPolyline's offset runs along (-dy, dx), the side a positive bow
+    // leaves toward (see lombardiArcFor).
+    const offset = rank * frameSign * step;
+    const points = labelPolylineOf(routing);
+    return { ...anchorOnPolyline(points, 0.5, offset), anchor: { t: 0.5, offset } };
+};
+
 // Main label placement orchestrator
-export const chooseLabelPlacement = (pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()) => {
+export const chooseLabelPlacement =(pathPoints, connectionName, nodes, visibleNodeIds, baseDimsById, placedLabels, fontSize = 24, edgeId = null, selectedNodeIds = new Set()) => {
     const obstacles = getVisibleObstacleRects(nodes, visibleNodeIds, baseDimsById, 18, selectedNodeIds);
     const textWidth = estimateTextWidth(connectionName, fontSize);
     const textHeight = fontSize * 1;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, XCircle, ArrowRightToLine, ArrowDownToLine } from 'lucide-react';
+import { X, XCircle, ArrowRightToLine, ArrowDownToLine, NotebookText, ArrowUpFromDot } from 'lucide-react';
 import useGraphStore from '../store/graphStore.js';
 
 /**
@@ -18,17 +18,41 @@ import useGraphStore from '../store/graphStore.js';
  * @returns {Array} Options for showContextMenu.
  */
 export const getOpenWebContextMenuOptions = (graphId, direction = 'below') => {
-  const { openGraphIds, graphs, closeGraphs } = useGraphStore.getState();
+  const { openGraphIds, graphs, closeGraphs, activeGraphId } = useGraphStore.getState();
   const index = openGraphIds.indexOf(graphId);
   if (index === -1) return [];
 
-  const name = graphs.get(graphId)?.name || 'web';
+  const graph = graphs.get(graphId);
+  const name = graph?.name || 'web';
   const others = openGraphIds.filter(id => id !== graphId);
   const after = openGraphIds.slice(index + 1);
   const afterLabel = direction === 'right' ? 'to the right' : 'below';
   const afterMenuLabel = direction === 'right' ? 'to the Right' : 'Below';
 
   return [
+    {
+      label: 'Open in Canvas',
+      icon: <ArrowUpFromDot size={14} />,
+      disabled: activeGraphId === graphId,
+      action: () => useGraphStore.getState().setActiveGraph(graphId)
+    },
+    {
+      // The Thing this web defines, as the canvas's Open in Panel does; a web
+      // no Thing defines falls back to its Info tab.
+      label: 'Open in Panel',
+      icon: <NotebookText size={14} />,
+      action: () => {
+        const st = useGraphStore.getState();
+        const definingNodeId = graph?.definingNodeIds?.[0];
+        if (definingNodeId && st.nodePrototypes.has(definingNodeId)) {
+          st.openRightPanelNodeTab(definingNodeId, name);
+        } else {
+          if (st.activeGraphId !== graphId) st.setActiveGraph(graphId);
+          st.activateRightPanelTab(0);
+        }
+        if (!useGraphStore.getState().rightPanelExpanded) st.setRightPanelExpanded(true);
+      }
+    },
     {
       label: 'Close Web',
       icon: <X size={14} />,
