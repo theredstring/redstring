@@ -1,4 +1,6 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { useDrag } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
 import './TypeList.css';
 import { HEADER_HEIGHT, NODE_DEFAULT_COLOR } from './constants';
 import NodeType from './NodeType'; // Import NodeType
@@ -88,6 +90,31 @@ const selectAvailableConnectionTypes = (state) => {
   if (connectionTypes.length > 0) return connectionTypes;
   const baseConnectionPrototype = state.edgePrototypes.get('base-connection-prototype');
   return baseConnectionPrototype ? [baseConnectionPrototype] : [];
+};
+
+const SPAWNABLE_NODE = 'spawnable_node';
+
+// Any item in the list drags out onto the canvas as a thing: a new instance of
+// its prototype, drawn by SpawningNodeDragLayer and placed by the canvas drop.
+// The base "Connection" is an edge prototype with no node behind it, so it
+// stays put.
+const DraggableTypeItem = ({ prototypeId, name, children }) => {
+  const [{ isDragging }, drag, preview] = useDrag(() => ({
+    type: SPAWNABLE_NODE,
+    item: { prototypeId, nodeName: name },
+    canDrag: () => useGraphStore.getState().nodePrototypes.has(prototypeId),
+    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+  }), [prototypeId, name]);
+
+  useEffect(() => {
+    preview(getEmptyImage(), { captureDraggingState: true });
+  }, [preview]);
+
+  return (
+    <div ref={drag} style={{ flexShrink: 0, opacity: isDragging ? 0.5 : 1 }}>
+      {children}
+    </div>
+  );
 };
 
 const TypeList = () => {
@@ -389,13 +416,13 @@ const TypeList = () => {
               
               {/* Show available type nodes for the current graph */}
               {availableTypeNodes.map(prototype => (
-                <div key={prototype.id} style={{ flexShrink: 0 }}> {/* Prevent shrinking */}
+                <DraggableTypeItem key={prototype.id} prototypeId={prototype.id} name={prototype.name}>
                   <NodeType 
                     name={prototype.name} 
                     color={prototype.color} 
                     onClick={() => handleNodeTypeClick(prototype)} 
                   />
-                </div>
+                </DraggableTypeItem>
               ))}
             </>
           )}
@@ -419,13 +446,13 @@ const TypeList = () => {
 
               {/* Show all node instances in the current graph */}
               {availableComponents.map(component => (
-                <div key={component.instanceId} style={{ flexShrink: 0 }}>
+                <DraggableTypeItem key={component.instanceId} prototypeId={component.prototypeId} name={component.name}>
                   <NodeType
                     name={component.name}
                     color={component.color}
                     onClick={() => handleComponentClick(component)}
                   />
-                </div>
+                </DraggableTypeItem>
               ))}
               {availableComponents.length === 0 && (
                 <div style={{
@@ -460,13 +487,13 @@ const TypeList = () => {
               
               {/* Show available connection types for the current graph */}
               {availableConnectionTypes.map(prototype => (
-                <div key={prototype.id} style={{ flexShrink: 0 }}> {/* Prevent shrinking */}
+                <DraggableTypeItem key={prototype.id} prototypeId={prototype.id} name={prototype.name}>
                   <EdgeType 
                     name={prototype.name} 
                     color={prototype.color} 
                     onClick={() => handleEdgeTypeClick(prototype)} 
                   />
-                </div>
+                </DraggableTypeItem>
               ))}
             </>
           )}

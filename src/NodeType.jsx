@@ -11,7 +11,7 @@ const NodeType = ({ name, color = '#800000', onClick }) => {
       style={{
         backgroundColor: color,
         color: getTextColor(color, theme.darkMode), // Dynamic color based on node color
-        borderRadius: '4px',
+        borderRadius: '10px',
         minWidth: '60px', // Changed to minWidth for better scaling
         height: '32px',
         display: 'flex',

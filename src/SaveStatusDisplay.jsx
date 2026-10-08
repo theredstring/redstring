@@ -5,6 +5,7 @@ import saveCoordinator from './services/SaveCoordinator';
 import { resolveSaveStatus } from './utils/saveStatus.js';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
+import { useTheme } from './hooks/useTheme.js';
 import { persistentAuth } from './services/persistentAuth.js';
 import { vlog } from './utils/verboseLog.js';
 
@@ -58,6 +59,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
   const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
   const typeListMode = useGraphStore(state => state.typeListMode);
   const darkMode = useGraphStore(state => state.darkMode);
+  const theme = useTheme();
   
   const viewportBounds = useViewportBounds(
     leftPanelExpanded,
@@ -270,7 +272,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         fontFamily: "'EmOne', sans-serif",
         fontWeight: 'bold',
         textShadow: (() => {
-          const strokeColor = darkMode ? '#3F3A3A' : '#BDB5B5';
+          const strokeColor = theme.surface.bg; // Canvas color stroke
           return `
           -2px -2px 0 ${strokeColor},
            0   -2px 0 ${strokeColor},
