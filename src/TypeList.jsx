@@ -317,13 +317,13 @@ const TypeList = () => {
           alignItems: 'center',
           justifyContent: 'center',
           background: headerBg,
-          border: '2px solid ' + (theme.canvas?.bg || '#BDB5B5'), // Canvas color stroke
+          border: '2px solid ' + (theme.surface?.bg || '#BDB5B5'), // Canvas color stroke
           borderRadius: '50%',
           padding: 0,
           cursor: 'pointer',
           color: '#EFE8E5',
           zIndex: 20000, // Higher than panels (10000)
-          boxShadow: '0 0 0 3px ' + (theme.canvas?.bg || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
+          boxShadow: '0 0 0 3px ' + (theme.surface?.bg || '#BDB5B5') + ', 0 2px 5px rgba(0, 0, 0, 0.2)',
           opacity: toggleIdle ? TOGGLE_IDLE_OPACITY : 1,
           // Slow fade out when idle, quick fade back in on hover/interaction
           transition: `background-color 0.2s ease, color 0.2s ease, opacity ${toggleIdle ? '0.8s' : '0.15s'} ease`
