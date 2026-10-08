@@ -18,6 +18,7 @@ import {
   conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, placeStatement, placeConnections, revealInstances, existingInstanceFor,
   ensureConceptPrototype
 } from '../../services/semanticPlacement.js';
+import titleCaseName from '../../utils/titleCaseName.js';
 import { THING_PROTOTYPE_ID } from '../../wizard/tools/utils/abstractionSpec.js';
 import { haptic } from '../../services/haptics.js';
 
@@ -181,21 +182,22 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   };
 
   // A row's +, link or drop. A statement of what the seed is asks first, unless
-  // its other end is already the seed's type and only the connection is left to add.
+  // its other end is already the seed's type and only the connection is left to
+  // add — asked too when the seed isn't a Thing yet (a concept just discovered).
   const onAdd = (c, at = null) => {
     const seedProto = seedProtoId ? nodePrototypes.get(seedProtoId) : null;
     const typeProto = protoFor(c.other);
-    if (!seedProto || !isTypeStatement(c) || (typeProto && seedProto.typeNodeId === typeProto.id)) {
+    if (!isTypeStatement(c) || (seedProto && typeProto && seedProto.typeNodeId === typeProto.id)) {
       add(c, at);
       return;
     }
     // The type may not loop back: the other end can't already be a kind of the seed.
     let typeBlocked = false;
     for (let id = typeProto?.id, seen = new Set(); id && !seen.has(id); id = nodePrototypes.get(id)?.typeNodeId) {
-      if (id === seedProto.id) { typeBlocked = true; break; }
+      if (seedProto && id === seedProto.id) { typeBlocked = true; break; }
       seen.add(id);
     }
-    const currentType = seedProto.typeNodeId && seedProto.typeNodeId !== THING_PROTOTYPE_ID
+    const currentType = seedProto?.typeNodeId && seedProto.typeNodeId !== THING_PROTOTYPE_ID
       ? nodePrototypes.get(seedProto.typeNodeId)
       : null;
     setTypeAsk({
@@ -208,18 +210,26 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
 
   const applyTypeChoice = (choice) => {
     const c = typeAsk?.c;
-    if (!c || !seedProtoId) return;
+    if (!c) return;
     const st = useGraphStore.getState();
     const run = () => {
       // The type is the Thing the connection reached, when there is one.
       const placed = choice !== 'type' ? add(c, typeAsk.at) : null;
       if (choice === 'web') return;
       if (choice === 'type') haptic('nodeSpawn', { force: true });
-      st.setNodeType(seedProtoId, placed?.prototypeId || ensureConceptPrototype(c.other));
+      // A seed not yet a Thing is made one here (adding it above already did).
+      const typedId = seedProtoId || ensureConceptPrototype(seed);
+      const typeId = placed?.prototypeId || ensureConceptPrototype(c.other);
+      // A type reads as a name: "City", not the semantic web's "city". Acronyms
+      // and any capital already there keep their shape.
+      const typeName = useGraphStore.getState().nodePrototypes.get(typeId)?.name;
+      const titled = titleCaseName(typeName);
+      if (titled && titled !== typeName) st.updateNodePrototype(typeId, (p) => { p.name = titled; });
+      st.setNodeType(typedId, typeId);
       // Only the type: the Thing typed comes in alone (where it was dropped),
       // without the statement's other end, when it isn't here already.
-      if (choice === 'type' && activeGraphId && !anchorInstanceFor(activeGraphId, seedProtoId)) {
-        placeConcept({ graphId: activeGraphId, concept: seed, prototypeId: seedProtoId, mode: 'open', at: typeAsk.at });
+      if (choice === 'type' && activeGraphId && !anchorInstanceFor(activeGraphId, typedId)) {
+        placeConcept({ graphId: activeGraphId, concept: seed, prototypeId: typedId, mode: 'open', at: typeAsk.at });
       }
     };
     const label = choice === 'web' ? `Added ${c.other.name}` : `Made ${c.other.name} the type of ${seedName}`;

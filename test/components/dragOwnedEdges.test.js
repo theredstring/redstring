@@ -47,6 +47,20 @@ describe('collectDragOwnedEdges', () => {
     expect([...movedAnchorIds]).toEqual(['g']);
   });
 
+  it("takes in an ancestor group's anchor when the drag's box pass moves it", () => {
+    // G (anchor g, holds b) sits inside H (anchor e) by its anchor alone: H
+    // holds g, not b. Dragging b moves both boxes, so e's connections move too.
+    const over = {
+      groupsByNode: new Map([['b', [{ groupId: 'G' }]], ['g', [{ groupId: 'H' }]]]),
+      groupsById: new Map([['G', { anchorInstanceId: 'g' }], ['H', { anchorInstanceId: 'e' }]]),
+    };
+    const direct = collectDragOwnedEdges(['b'], indexes(over));
+    expect(direct.edgeIds.has('ef')).toBe(false);
+    const { edgeIds, movedAnchorIds } = collectDragOwnedEdges(['b'], indexes({ ...over, affectedGroupIds: ['G', 'H'] }));
+    expect(edgeIds.has('ef')).toBe(true);
+    expect([...movedAnchorIds].sort()).toEqual(['e', 'g']);
+  });
+
   it('reaches two hops out under Lombardi, and only then', () => {
     const plain = collectDragOwnedEdges(['a'], indexes());
     expect(plain.edgeIds.has('bc')).toBe(false);

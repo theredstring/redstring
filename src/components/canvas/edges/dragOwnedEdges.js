@@ -44,12 +44,15 @@ export function dragNodeIdsOf(info) {
  * @param {Map<string, Iterable<string>>} indexes.edgesByNode instance id → edge ids
  * @param {Map<string, Array<{groupId: string}>>} [indexes.groupsByNode] instance id → groups it sits in
  * @param {Map<string, {anchorInstanceId?: string}>} [indexes.groupsById]
+ * @param {Iterable<string>} [indexes.affectedGroupIds] every group whose box the
+ *   drag moves, ancestors included (collectAffectedGroupIds in groupLayout.js).
+ *   Without it, only the dragged nodes' own groups count.
  * @param {Array<{id: string, sourceId: string, destinationId: string}>} indexes.allEdges
  * @param {boolean} indexes.lombardi whether Lombardi routing is active
  * @returns {{ edgeIds: Set<string>, lombardiExtraEdgeIds: Set<string>, movedAnchorIds: Set<string> }}
  *   `edgeIds` includes the Lombardi extras.
  */
-export function collectDragOwnedEdges(nodeIds, { edgesByNode, groupsByNode, groupsById, allEdges, lombardi }) {
+export function collectDragOwnedEdges(nodeIds, { edgesByNode, groupsByNode, groupsById, affectedGroupIds, allEdges, lombardi }) {
   const nodeIdSet = nodeIds instanceof Set ? nodeIds : new Set(nodeIds);
   const edgeIds = new Set();
   nodeIdSet.forEach(nodeId => {
@@ -60,18 +63,26 @@ export function collectDragOwnedEdges(nodeIds, { edgesByNode, groupsByNode, grou
   // A dragged member can resize its containing thing-group, which moves the
   // group's outer box. External connections attach to the group's ANCHOR (not
   // the dragged member), so the anchor's connections move too.
+  //
+  // So does every group ABOVE that one. A group can sit inside another by its
+  // anchor alone (the outer group holds the inner one's Thing, not its
+  // members), and the drag's box pass moves that outer group too. Taking only
+  // the dragged node's own groups here left the outer group's connections out:
+  // never cached, never rewritten, standing at the pre-drag box until the drop.
   const movedAnchorIds = new Set();
-  if (groupsById && groupsByNode) {
+  const addAnchorOf = (groupId) => {
+    const anchorId = groupsById.get(groupId)?.anchorInstanceId;
+    if (!anchorId || nodeIdSet.has(anchorId) || movedAnchorIds.has(anchorId)) return;
+    movedAnchorIds.add(anchorId);
+    const anchorEdges = edgesByNode?.get(anchorId);
+    if (anchorEdges) anchorEdges.forEach(eid => edgeIds.add(eid));
+  };
+  if (groupsById && affectedGroupIds) {
+    for (const groupId of affectedGroupIds) addAnchorOf(groupId);
+  } else if (groupsById && groupsByNode) {
     nodeIdSet.forEach(nodeId => {
       const groups = groupsByNode.get(nodeId);
-      if (!groups) return;
-      groups.forEach(({ groupId }) => {
-        const anchorId = groupsById.get(groupId)?.anchorInstanceId;
-        if (!anchorId || nodeIdSet.has(anchorId)) return;
-        movedAnchorIds.add(anchorId);
-        const anchorEdges = edgesByNode?.get(anchorId);
-        if (anchorEdges) anchorEdges.forEach(eid => edgeIds.add(eid));
-      });
+      if (groups) groups.forEach(({ groupId }) => addAnchorOf(groupId));
     });
   }
 

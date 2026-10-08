@@ -547,6 +547,7 @@ export const useNodeDrag = ({
       edgesByNode: edgesByNodeIdRef.current,
       groupsByNode: groupsByNodeIdRef.current,
       groupsById: groupsByIdRef?.current,
+      affectedGroupIds: collectAffectedGroupIds(nodeIdSet),
       allEdges,
       lombardi: enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi',
     });
@@ -3186,6 +3187,7 @@ export const useNodeDrag = ({
       edgesByNode: edgesByNodeIdRef.current,
       groupsByNode: groupsByNodeIdRef.current,
       groupsById: groupsByIdRef?.current,
+      affectedGroupIds: collectAffectedGroupIds(dragNodeIdsOf(draggingNodeInfo)),
       allEdges: edgesRef.current,
       lombardi: enableAutoRoutingRef.current && routingStyleRef.current === 'lombardi',
     }).edgeIds
