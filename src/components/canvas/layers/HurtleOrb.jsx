@@ -13,6 +13,7 @@
  *     startPos, targetPos,          // viewport px (the orb is position:fixed)
  *     orbSize, nodeColor,
  *     fromPanel,                    // launched from a panel button
+ *     land,                         // optional: NodeCanvas calls it instead of its own landing
  *     ...                           // anything else is passed back to onLand
  *   }
  *

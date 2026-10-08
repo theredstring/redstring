@@ -122,7 +122,10 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              borderBottom: index < displayOptions.length - 1 ? '1px solid rgba(128, 0, 0, 0.2)' : 'none',
+              // `dividerAfter` closes a group of rows (the view menu's columns
+              // above its sorts) with the card's own stroke.
+              borderBottom: index === displayOptions.length - 1 ? 'none'
+                : option.dividerAfter ? '2px solid maroon' : '1px solid rgba(128, 0, 0, 0.2)',
               transition: 'background-color 0.1s ease',
               fontWeight: 'bold'
             }}

@@ -289,11 +289,12 @@ const LeftGridView = ({
     const columnOptions = [
       { columns: 1, label: '1 Wide', icon: <Square size={14} /> },
       { columns: 2, label: '2 Wide', icon: <Columns2 size={14} /> },
-    ].map(opt => ({
+    ].map((opt, i, all) => ({
       label: opt.label,
       icon: opt.icon,
       active: view.columns === opt.columns,
       action: () => setView({ columns: opt.columns }),
+      dividerAfter: i === all.length - 1,
     }));
     const sortOptions = [
       { sort: 'open', label: 'Sort by Open Order', icon: <ListOrdered size={14} /> },
@@ -361,7 +362,7 @@ const LeftGridView = ({
   const handleItemContextMenu = useCallback((e, graphId) => {
     e.preventDefault();
     e.stopPropagation();
-    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'below', shownOrderRef.current));
+    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'below', shownOrderRef.current, e.currentTarget?.getBoundingClientRect?.()));
   }, []);
 
   return (

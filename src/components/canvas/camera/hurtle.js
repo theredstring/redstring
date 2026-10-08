@@ -78,12 +78,18 @@ export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraph
   setHurtleFlight(animationData);
 }
 
-/** Hurtle into a definition from a panel button (the orb starts at the button). */
-export function startHurtleFromPanelWith(ctx, nodeId, targetGraphId, definitionNodeId, startRect) {
+/**
+ * Hurtle into a definition from a panel button (the orb starts at the button).
+ *
+ * `opts.color` flies a web no Thing defines (nodeId null) in that colour;
+ * `opts.land` replaces the landing's openGraphTabAndBringToTop, for an
+ * already-open web that should become active without moving in the strip.
+ */
+export function startHurtleFromPanelWith(ctx, nodeId, targetGraphId, definitionNodeId, startRect, opts = {}) {
   const { containerRef, zoomLevelRef, getHeaderTabTarget, setHurtleFlight } = ctx;
   const currentState = useGraphStore.getState();
-  const nodeData = currentState.nodePrototypes.get(nodeId);
-  if (!nodeData) {
+  const nodeData = nodeId ? currentState.nodePrototypes.get(nodeId) : null;
+  if (!nodeData && !opts.color) {
 
     return;
   }
@@ -113,9 +119,10 @@ export function startHurtleFromPanelWith(ctx, nodeId, targetGraphId, definitionN
     // the container's own left edge entirely — so with the panel this button
     // lives in open, the orb aimed a whole panel-width left of the tab.
     targetPos: getHeaderTabTarget(),
-    nodeColor: nodeData.color || NODE_DEFAULT_COLOR,
+    nodeColor: nodeData?.color || opts.color || NODE_DEFAULT_COLOR,
     orbSize: orbSize, // Use calculated, zoom-dependent size
     fromPanel: true,
+    land: opts.land,
   };
 
   setHurtleFlight(animationData);

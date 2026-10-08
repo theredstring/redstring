@@ -3026,7 +3026,7 @@ function NodeCanvas() {
     // The orb lands and the new graph takes over, which is the same event a tab
     // tap produces — forced past the rate limit so the last detent can't swallow it.
     haptic('graphSwitch', { force: true });
-    storeActions.openGraphTabAndBringToTop(flight.targetGraphId, flight.definitionNodeId);
+    if (flight.land) flight.land(); else storeActions.openGraphTabAndBringToTop(flight.targetGraphId, flight.definitionNodeId);
     setHurtleFlight(null);
   }, [storeActions]);
 

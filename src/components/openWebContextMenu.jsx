@@ -1,6 +1,28 @@
 import React from 'react';
 import { X, XCircle, ArrowRightToLine, ArrowDownToLine, NotebookText, ArrowUpFromDot } from 'lucide-react';
 import useGraphStore from '../store/graphStore.js';
+import { NODE_DEFAULT_COLOR } from '../constants';
+import { runCanvasCommand, hasCanvasCommand } from '../utils/canvas/canvasCommands.js';
+
+/**
+ * Make an open web active by hurtling the orb from `rect` (the row or tab that
+ * was right-clicked) to the header, as every other "open this web" does. It
+ * lands with setActiveGraph rather than the panels' openGraphTabAndBringToTop:
+ * the web is already in the strip, and picking it from the strip's own menu
+ * shouldn't move it.
+ */
+const openOnCanvas = (graphId, rect) => {
+  const st = useGraphStore.getState();
+  const graph = st.graphs.get(graphId);
+  const definingNodeId = graph?.definingNodeIds?.[0];
+  const thingId = definingNodeId && st.nodePrototypes.has(definingNodeId) ? definingNodeId : null;
+  const land = () => useGraphStore.getState().setActiveGraph(graphId);
+  if (rect && hasCanvasCommand('startHurtleFromPanel')) {
+    runCanvasCommand('startHurtleFromPanel', thingId, graphId, thingId, rect, { color: graph?.color || NODE_DEFAULT_COLOR, land });
+  } else {
+    land();
+  }
+};
 
 /**
  * Right-click menu for one open web — the Open Webs list and the header strip.
@@ -18,9 +40,12 @@ import useGraphStore from '../store/graphStore.js';
  * @param {string[]} [shownOrder] - The order the webs are shown in, when it is
  *   not the open order (the Open Webs list sorted by name, say): "below" is
  *   what is below on screen.
+ * @param {DOMRect} [originRect] - The row or tab that was right-clicked, where
+ *   Open in Canvas launches its orb from. Measured at right-click: the menu is
+ *   over it by the time an item is chosen.
  * @returns {Array} Options for showContextMenu.
  */
-export const getOpenWebContextMenuOptions = (graphId, direction = 'below', shownOrder) => {
+export const getOpenWebContextMenuOptions = (graphId, direction = 'below', shownOrder, originRect) => {
   const { openGraphIds, graphs, closeGraphs, activeGraphId } = useGraphStore.getState();
   const order = shownOrder || openGraphIds;
   const index = order.indexOf(graphId);
@@ -38,7 +63,7 @@ export const getOpenWebContextMenuOptions = (graphId, direction = 'below', shown
       label: 'Open in Canvas',
       icon: <ArrowUpFromDot size={14} />,
       disabled: activeGraphId === graphId,
-      action: () => useGraphStore.getState().setActiveGraph(graphId)
+      action: () => openOnCanvas(graphId, originRect)
     },
     {
       // The Thing this web defines, as the canvas's Open in Panel does; a web

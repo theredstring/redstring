@@ -803,7 +803,7 @@ const Header = ({
   const handleWebTabContextMenu = useCallback((e, graphId) => {
     e.preventDefault();
     e.stopPropagation();
-    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'right'));
+    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'right', undefined, e.currentTarget?.getBoundingClientRect?.()));
   }, []);
 
   // Middle-clicking a tab asks before closing its web.
