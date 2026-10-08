@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp, Columns2, ListOrdered, Merge, Palette, Plus, Search, SlidersHorizontal, Square } from 'lucide-react';
+import { ArrowDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp, Columns2, Columns3, LayoutGrid, ListOrdered, Merge, Palette, Plus, Search, SlidersHorizontal, Square } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
@@ -72,10 +72,17 @@ function useOpenGraphsForList() {
   }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
 }
 
-// How the list is laid out: one card a row or two, and in what order. Kept on
+// How the list is laid out: one, two or three cards a row (or as many as fit), and in what order. Kept on
 // this device only; it is how this screen shows the webs, not part of the universe.
 const VIEW_KEY = 'redstring.openWebsView';
 const SORTS = ['open', 'name', 'size', 'color'];
+const COLUMNS = ['auto', 1, 2, 3];
+// Auto width: as many columns as keep each card at least this wide, up to three.
+const AUTO_MIN_CARD_PX = 200;
+const COLUMN_GAP_PX = 16;
+const autoColumns = (panelWidth) => (panelWidth
+  ? Math.max(1, Math.min(3, Math.floor((panelWidth + COLUMN_GAP_PX) / (AUTO_MIN_CARD_PX + COLUMN_GAP_PX))))
+  : 1);
 const DEFAULT_VIEW = { columns: 1, sort: 'open' };
 
 function useOpenWebsView() {
@@ -83,7 +90,7 @@ function useOpenWebsView() {
     try {
       const saved = JSON.parse(globalThis.localStorage?.getItem(VIEW_KEY) || 'null');
       return {
-        columns: saved?.columns === 2 ? 2 : 1,
+        columns: COLUMNS.includes(saved?.columns) ? saved.columns : 1,
         sort: SORTS.includes(saved?.sort) ? saved.sort : 'open',
       };
     } catch { return DEFAULT_VIEW; }
@@ -231,7 +238,7 @@ const DropCaret = ({ color }) => (
 );
 
 /**
- * The caret in two columns: a line across one cell would read as nothing, so
+ * The caret in a grid: a line across one cell would read as nothing, so
  * the slot is an empty card's outline, and the cards after it shift along.
  */
 const GridDropCaret = ({ color }) => (
@@ -265,7 +272,8 @@ const LeftGridView = ({
   const openGraphs = useOpenGraphsForList();
   const [view, setView] = useOpenWebsView();
   const openGraphsForList = useMemo(() => sortOpenWebs(openGraphs, view.sort), [openGraphs, view.sort]);
-  const isGrid = view.columns === 2;
+  const columns = view.columns === 'auto' ? autoColumns(panelWidth) : view.columns;
+  const isGrid = columns > 1;
   const isOpenOrder = view.sort === 'open';
   // Read by the row menu at click time, so its handler can stay stable.
   const shownOrderRef = useRef(null);
@@ -287,8 +295,10 @@ const LeftGridView = ({
 
   const openViewMenu = useCallback((e) => {
     const columnOptions = [
+      { columns: 'auto', label: 'Auto Width', icon: <LayoutGrid size={14} /> },
       { columns: 1, label: '1 Wide', icon: <Square size={14} /> },
       { columns: 2, label: '2 Wide', icon: <Columns2 size={14} /> },
+      { columns: 3, label: '3 Wide', icon: <Columns3 size={14} /> },
     ].map((opt, i, all) => ({
       label: opt.label,
       icon: opt.icon,
@@ -342,7 +352,7 @@ const LeftGridView = ({
   // Drop a Thing to open its web at that slot, or a web's row or header tab to
   // move it there. The caret marks where it lands. Sorted, there are no slots:
   // the sort decides where a web shows, so no caret.
-  const { drop, dropItem, slot } = useOpenWebsDrop(listContainerRef, { ordered: isOpenOrder, columns: view.columns });
+  const { drop, dropItem, slot } = useOpenWebsDrop(listContainerRef, { ordered: isOpenOrder, columns });
   const Caret = isGrid ? GridDropCaret : DropCaret;
   const caret = isOpenOrder && slot !== null && describeDropGhost(dropItem) ? <Caret key="__drop-caret__" color={theme.canvas.textPrimary} /> : null;
   // Context menu options for open webs tab
@@ -431,9 +441,9 @@ const LeftGridView = ({
         // corner and grows on hover; the sticky header would clip it.
         style={{
           paddingTop: '16px', paddingLeft: '5px', paddingRight: '5px',
-          // Two wide: room between the columns for the active card's X, which
+          // A grid: room between the columns for the active card's X, which
           // sits out over its corner.
-          ...(isGrid ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: '16px', alignItems: 'start' } : null)
+          ...(isGrid ? { display: 'grid', gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, columnGap: `${COLUMN_GAP_PX}px`, alignItems: 'start' } : null)
         }}
       >
         {/* One flat keyed list, so the caret slides between rows without
@@ -443,7 +453,7 @@ const LeftGridView = ({
           <GraphListItem
             key={graph.id}
             graphData={graph}
-            panelWidth={isGrid && panelWidth ? (panelWidth - 16) / 2 : panelWidth}
+            panelWidth={isGrid && panelWidth ? (panelWidth - COLUMN_GAP_PX * (columns - 1)) / columns : panelWidth}
             isActive={graph.id === activeGraphId}
             onClick={handleGridItemClick}
             onClose={closeGraph}

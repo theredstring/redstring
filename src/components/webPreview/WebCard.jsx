@@ -11,6 +11,9 @@ import InnerNetwork from '../../InnerNetwork.jsx';
 // Node.jsx: the label container's vertical padding and the background rect's inset.
 const LABEL_PADDING_V = 34;
 const FRAME_INSET = 6;
+// The card's title sits a touch looser than the canvas label: at card size
+// the canvas spacing reads cramped. Truncation still counts canvas lines.
+const CARD_LINE_SPACING = 1.08;
 
 /**
  * The corner radius, in screen px, for an HTML element that holds a WebCard
@@ -70,7 +73,7 @@ const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = tru
       lines = lines.slice(0, maxLines);
       lines[maxLines - 1] = `${lines[maxLines - 1].replace(/\s+\S*$/, '')}…`;
     }
-    return { dims, fontSize, lineHeight, lines };
+    return { dims, fontSize, lineHeight: lineHeight * CARD_LINE_SPACING, lines };
   }, [name, label, textSettings, nodeScale]);
 
   const { dims, fontSize, lineHeight, lines } = geometry;

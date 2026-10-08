@@ -13,6 +13,10 @@ import useDoubleTap from './hooks/useDoubleTap.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 const ACTIVE_BORDER = 12;
+// The card width ACTIVE_BORDER is drawn for: one card a row at the panel's
+// default width. Narrower cards (two or three a row) thin the ring in step.
+const ACTIVE_BORDER_CARD_WIDTH = 245;
+const MIN_ACTIVE_BORDER = 3;
 
 const GraphListItem = forwardRef(({
   graphData,
@@ -92,7 +96,8 @@ const GraphListItem = forwardRef(({
   // panel): the card sets its height, and the row's corners stay concentric
   // with the card's frame, inside the active row's border too.
   const rowRef = useRef(null);
-  const border = isActive ? ACTIVE_BORDER : 0;
+  const activeBorder = Math.round(Math.max(MIN_ACTIVE_BORDER, Math.min(ACTIVE_BORDER, ACTIVE_BORDER * fallbackWidth / ACTIVE_BORDER_CARD_WIDTH)));
+  const border = isActive ? activeBorder : 0;
   const cardSizingName = definingNodeName || graphData.name;
   const radius = useWebCardCornerRadius(rowRef, cardSizingName, { border, fallbackWidth });
 
@@ -112,11 +117,11 @@ const GraphListItem = forwardRef(({
     // Always a solid border, only its width changing: a border that turns to
     // `none` can't animate, so the ring dropped in one frame on the web being
     // left, flashing the panel light.
-    border: `${isActive ? ACTIVE_BORDER : 0}px solid black`,
+    border: `${border}px solid black`,
     transition: 'border 0.2s ease, border-radius 0.2s ease',
     position: 'relative',
     opacity: isDragging ? 0.5 : 1,
-  }), [radius, graphData.color, isActive, isDragging]);
+  }), [radius, graphData.color, border, isDragging]);
 
   return (
     <div
