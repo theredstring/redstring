@@ -83,15 +83,15 @@ const COLUMN_GAP_PX = 16;
 const autoColumns = (panelWidth) => (panelWidth
   ? Math.max(1, Math.min(3, Math.floor((panelWidth + COLUMN_GAP_PX) / (AUTO_MIN_CARD_PX + COLUMN_GAP_PX))))
   : 1);
-const DEFAULT_VIEW = { columns: 1, sort: 'open' };
+const DEFAULT_VIEW = { columns: 'auto', sort: 'open' };
 
 function useOpenWebsView() {
   const [view, setViewState] = useState(() => {
     try {
       const saved = JSON.parse(globalThis.localStorage?.getItem(VIEW_KEY) || 'null');
       return {
-        columns: COLUMNS.includes(saved?.columns) ? saved.columns : 1,
-        sort: SORTS.includes(saved?.sort) ? saved.sort : 'open',
+        columns: COLUMNS.includes(saved?.columns) ? saved.columns : DEFAULT_VIEW.columns,
+        sort: SORTS.includes(saved?.sort) ? saved.sort : DEFAULT_VIEW.sort,
       };
     } catch { return DEFAULT_VIEW; }
   });
