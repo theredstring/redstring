@@ -9,7 +9,7 @@ import useGraphStore from '../../../store/graphStore.js';
 export function restoreViewForGraph(ctx) {
   const {
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform, runCulling,
+    canvasSize, transform,
   } = ctx;
   // If we're dragging a node or animating zoom, DO NOT restore view from store
   // This prevents the "teleportation" where store state overrides our local interaction state
@@ -61,10 +61,6 @@ export function restoreViewForGraph(ctx) {
 
     // Set view to ready immediately - no delay
     setIsViewReady(true);
-
-    // Cull for the restored view now, not next frame: until then the visible
-    // set is the previous web's, and the switch paints one empty frame.
-    runCulling?.({ now: true });
 
   } else if (!activeGraphId) {
     setIsViewReady(true); // No graph, so "ready" to show nothing

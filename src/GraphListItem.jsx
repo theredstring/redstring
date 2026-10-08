@@ -106,7 +106,10 @@ const GraphListItem = forwardRef(({
     borderRadius: `${radius}px`,
     boxSizing: 'border-box',
     cursor: 'pointer',
-    border: isActive ? `${ACTIVE_BORDER}px solid black` : 'none',
+    // Always a solid border, only its width changing: a border that turns to
+    // `none` can't animate, so the ring dropped in one frame on the web being
+    // left, flashing the panel light.
+    border: `${isActive ? ACTIVE_BORDER : 0}px solid black`,
     transition: 'border 0.2s ease, border-radius 0.2s ease',
     position: 'relative',
     opacity: isDragging ? 0.5 : 1,
