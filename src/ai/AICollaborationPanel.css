@@ -1123,3 +1123,17 @@ html.dark-mode .ai-send-button:disabled {
   outline-offset: 2px;
   pointer-events: none;
 }
+
+/* A long Thing's name ends in an ellipsis inside the row rather than running
+   past the panel; the chip's title still carries it whole. */
+.ai-context-chip {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ai-context-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -159,14 +159,17 @@
 
 /* Narrow connections stack, so thin rules set each one apart: above every
    one, and under the last */
+/* Narrow: the buttons go under the drawing, not beside it */
+.entity-row-stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 .entity-row-compact {
   border-top: 1px solid var(--canvas-border);
   padding-top: 6px;
   align-self: stretch;
-  /* The buttons go under the three Things, not beside them */
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
 }
 
 .entity-row-compact:not(:has(+ .entity-row-compact)) {

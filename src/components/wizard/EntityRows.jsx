@@ -221,12 +221,16 @@ const WebEntity = ({ row, width, expanded, onOverflowChange }) => {
 
 const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
   if (row.kind === 'web') return <WebEntity row={row} width={width} expanded={expanded} onOverflowChange={onOverflowChange} />;
-  const repWidth = Math.max(140, width - ACTIONS_WIDTH);
+  // Narrow: the buttons go under the drawing, which then has the whole width,
+  // rather than squeezing in beside it (a chip kept a 140px floor, so a narrow
+  // card pushed its buttons past the edge).
+  const narrow = width - ACTIONS_WIDTH < COMPACT_CONNECTIONS_BELOW;
+  const repWidth = narrow ? Math.max(1, width) : width - ACTIONS_WIDTH;
   if (row.kind === 'connection') {
     return (
-      <div className={`entity-row${repWidth < COMPACT_CONNECTIONS_BELOW ? ' entity-row-compact' : ''}`}>
+      <div className={`entity-row${narrow ? ' entity-row-stacked entity-row-compact' : ''}`}>
         <div className="entity-row-rep">
-          {repWidth < COMPACT_CONNECTIONS_BELOW ? (
+          {narrow ? (
             // Too narrow for a readable triplet: the semantic list's compact
             // row, with both ends, since a card implies neither.
             <DraggableCompactConnection row={row} />
@@ -244,7 +248,7 @@ const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
     );
   }
   return (
-    <div className="entity-row">
+    <div className={`entity-row${narrow ? ' entity-row-stacked' : ''}`}>
       <div className="entity-row-rep">
         <DraggableThingChip row={row} maxWidth={repWidth} />
       </div>
@@ -275,7 +279,13 @@ export const CreatedEntities = ({ created }) => {
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
-    const measure = () => setWidth(el.offsetWidth || 320);
+    // The content box: offsetWidth counts the area's own padding, which sized
+    // every drawing 20px wider than the room it had.
+    const measure = () => {
+      const cs = typeof getComputedStyle === 'function' ? getComputedStyle(el) : null;
+      const pad = cs ? (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0) : 0;
+      setWidth(Math.max(0, (el.clientWidth || 0) - pad) || 320);
+    };
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(measure);

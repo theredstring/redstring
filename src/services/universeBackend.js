@@ -3071,6 +3071,18 @@ class UniverseBackend {
           connectionCount = graphs.reduce((total, g) => total + (Array.isArray(g?.edgeIds) ? g.edgeIds.length : 0), 0);
         }
 
+        // The universe list orders by lastOpened, most recent first. Stamp the
+        // one we're leaving too (a hair earlier than the incoming one) so it
+        // lands second rather than falling back to whenever it was opened —
+        // a universe restored at boot was never stamped at all.
+        const now = Date.now();
+        const outgoing = this.activeUniverseSlug && this.universes.get(this.activeUniverseSlug);
+        if (outgoing) {
+          this.updateUniverse(this.activeUniverseSlug, {
+            metadata: { ...outgoing.metadata, lastOpened: new Date(now - 1).toISOString() }
+          }, { silent: true });
+        }
+
         this.updateUniverse(key, {
           nodeCount,
           connectionCount,
@@ -3080,7 +3092,7 @@ class UniverseBackend {
             nodeCount,
             connectionCount,
             graphCount,
-            lastOpened: new Date().toISOString()
+            lastOpened: new Date(now).toISOString()
           }
         });
       }
