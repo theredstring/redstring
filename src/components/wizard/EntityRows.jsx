@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NotebookText, ArrowUpFromDot } from 'lucide-react';
 import UniversalNodeRenderer from '../../UniversalNodeRenderer';
 import TripletPreview from '../connections/TripletPreview.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { DefinitionCard, DefinitionDescription } from '../panel/WebDefinitionsSection.jsx';
 import useGraphStore from '../../store/graphStore.js';
 import useMobileDetection from '../../hooks/useMobileDetection';
+import { useTheme } from '../../hooks/useTheme.js';
 import { layoutNodeChips, panelListTextFor } from '../../utils/connectionPreview.js';
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
+import { resolveRows, rowsSignature } from './createdRows.js';
 import {
-  connectionThingId,
-  webThingId,
   openThingInPanel,
   openWebInPanel,
   openThingAsWeb,
@@ -20,6 +21,9 @@ import {
  * A Thing, Web or Connection drawn the way the control panel draws it, with the
  * type row's two buttons beside it: open in the panel, open as a web.
  */
+
+/** A made Web's card is no wider than this; the chat column can be. */
+const WEB_CARD_MAX_WIDTH = 340;
 
 /** Room the two buttons take beside a row's drawing. */
 const ACTIONS_WIDTH = 74;
@@ -68,96 +72,48 @@ export const EntityActions = ({ name, onOpenInPanel, onOpenWeb, webOpen = false 
   </div>
 );
 
-const arrowEndsOf = (edge) => {
-  const ends = new Set();
-  const toward = edge?.directionality?.arrowsToward;
-  const has = (id) => (toward instanceof Set ? toward.has(id) : Array.isArray(toward) ? toward.includes(id) : false);
-  if (has(edge?.sourceId)) ends.add('subject');
-  if (has(edge?.destinationId)) ends.add('object');
-  return ends;
+// Where a definition's description is kept: the first's on the Thing, the
+// rest (and a Web no Thing defines) on the Web. As PanelContentWrapper does.
+const updateWebDescription = (thingId, graphId, description) => {
+  const st = useGraphStore.getState();
+  const thing = thingId ? st.nodePrototypes.get(thingId) : null;
+  if (thing && thing.definitionGraphIds?.[0] === graphId) {
+    st.updateNodePrototype(thingId, (draft) => { draft.description = description; });
+  } else {
+    st.updateGraph?.(graphId, (draft) => { draft.description = description; });
+  }
 };
 
 /**
- * Resolve a `created` record against the live store into rows. Anything since
- * deleted, or undone, is simply absent.
+ * A Web the call made, as the right panel's Web Definitions shows one: its two
+ * buttons, the Web drawn live (it changes as the Web does, like Open Webs), and
+ * its description under it.
  */
-function resolveRows(created, state) {
-  const { graphs, nodePrototypes, edges, activeGraphId } = state;
-  const rows = [];
+const WebEntity = ({ row, width, expanded, onOverflowChange }) => {
+  const thing = useGraphStore(s => (row.thingId ? s.nodePrototypes.get(row.thingId) || null : null));
+  return (
+    <div className="entity-web" style={{ width: Math.min(width, WEB_CARD_MAX_WIDTH) }}>
+      <EntityActions
+        name={row.name}
+        onOpenInPanel={() => openWebInPanel(row.id)}
+        onOpenWeb={(e) => openWebOnCanvas(row.id, e)}
+        webOpen={row.webOpen}
+      />
+      <DefinitionCard graphId={row.id} nodeName={row.thingName} nodeColor={row.color} />
+      <DefinitionDescription
+        graphId={row.id}
+        thing={thing}
+        onUpdate={(graphId, description) => updateWebDescription(row.thingId, graphId, description)}
+        compact
+        expanded={expanded}
+        onOverflowChange={onOverflowChange}
+      />
+    </div>
+  );
+};
 
-  for (const graphId of created?.webs || []) {
-    const graph = graphs.get(graphId);
-    if (!graph) continue;
-    const thingId = webThingId(graph, nodePrototypes);
-    const thing = thingId ? nodePrototypes.get(thingId) : null;
-    rows.push({
-      kind: 'web',
-      key: `w:${graphId}`,
-      id: graphId,
-      name: graph.name || thing?.name || 'Web',
-      color: thing?.color || graph.color || NODE_DEFAULT_COLOR,
-      definitionGraphIds: [graphId],
-      webOpen: graphId === activeGraphId
-    });
-  }
-
-  for (const thingId of created?.things || []) {
-    const thing = nodePrototypes.get(thingId);
-    if (!thing) continue;
-    const defs = Array.isArray(thing.definitionGraphIds) ? thing.definitionGraphIds : [];
-    rows.push({
-      kind: 'thing',
-      key: `t:${thingId}`,
-      id: thingId,
-      name: thing.name || 'Thing',
-      color: thing.color || NODE_DEFAULT_COLOR,
-      definitionGraphIds: defs,
-      webOpen: !!defs[0] && defs[0] === activeGraphId
-    });
-  }
-
-  for (const entry of created?.connections || []) {
-    const edgeId = typeof entry === 'string' ? entry : entry?.id;
-    const edge = edgeId ? edges.get(edgeId) : null;
-    if (!edge) continue;
-    const graph = entry?.graphId ? graphs.get(entry.graphId) : null;
-    const instanceOf = (instanceId) => {
-      const inst = graph?.instances?.get?.(instanceId);
-      return inst ? nodePrototypes.get(inst.prototypeId) || null : null;
-    };
-    const subject = instanceOf(edge.sourceId);
-    const object = instanceOf(edge.destinationId);
-    if (!subject || !object) continue;
-    const typeId = connectionThingId(edge);
-    const type = typeId ? nodePrototypes.get(typeId) : null;
-    const typeDefs = Array.isArray(type?.definitionGraphIds) ? type.definitionGraphIds : [];
-    rows.push({
-      kind: 'connection',
-      key: `c:${edgeId}`,
-      id: edgeId,
-      typeId: type ? typeId : null,
-      name: type?.name || edge.name || 'Connection',
-      subject: subject.name || 'Thing',
-      object: object.name || 'Thing',
-      subjectColor: subject.color || NODE_DEFAULT_COLOR,
-      objectColor: object.color || NODE_DEFAULT_COLOR,
-      connectionColor: type?.color || edge.color || subject.color,
-      arrowsToward: arrowEndsOf(edge),
-      webOpen: !!typeDefs[0] && typeDefs[0] === activeGraphId
-    });
-  }
-  return rows;
-}
-
-// Everything a row draws, as one string, so a card re-renders when one of its
-// own entities changes and not on every write to the store (a drag writes
-// every frame).
-const rowsSignature = (rows) => rows.map(r => [
-  r.key, r.name, r.color, r.webOpen ? 1 : 0, r.subject, r.object, r.subjectColor, r.objectColor,
-  r.connectionColor, r.arrowsToward ? Array.from(r.arrowsToward).join('+') : '', r.typeId
-].join('|')).join('\n');
-
-const EntityRow = ({ row, width }) => {
+const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
+  if (row.kind === 'web') return <WebEntity row={row} width={width} expanded={expanded} onOverflowChange={onOverflowChange} />;
   const repWidth = Math.max(140, width - ACTIONS_WIDTH);
   if (row.kind === 'connection') {
     return (
@@ -183,7 +139,6 @@ const EntityRow = ({ row, width }) => {
       </div>
     );
   }
-  const isWeb = row.kind === 'web';
   return (
     <div className="entity-row">
       <div className="entity-row-rep">
@@ -191,13 +146,15 @@ const EntityRow = ({ row, width }) => {
       </div>
       <EntityActions
         name={row.name}
-        onOpenInPanel={isWeb ? () => openWebInPanel(row.id) : () => openThingInPanel(row.id)}
-        onOpenWeb={isWeb ? (e) => openWebOnCanvas(row.id, e) : (e) => openThingAsWeb(row.id, e)}
+        onOpenInPanel={() => openThingInPanel(row.id)}
+        onOpenWeb={(e) => openThingAsWeb(row.id, e)}
         webOpen={row.webOpen}
       />
     </div>
   );
 };
+
+const SECTION_TITLES = { thing: 'Things', connection: 'Connections' };
 
 /** What a Wizard tool call made, under its card. Renders nothing when it's all gone. */
 export const CreatedEntities = ({ created }) => {
@@ -205,6 +162,8 @@ export const CreatedEntities = ({ created }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const rows = useMemo(() => resolveRows(created, useGraphStore.getState()), [created, signature]);
   const [expanded, setExpanded] = useState(false);
+  const [descOverflows, setDescOverflows] = useState(false);
+  const theme = useTheme();
   const ref = useRef(null);
   const [width, setWidth] = useState(320);
   const hasRows = rows.length > 0;
@@ -221,16 +180,44 @@ export const CreatedEntities = ({ created }) => {
   }, [hasRows]);
 
   if (rows.length === 0) return null;
-  const shown = expanded ? rows : rows.slice(0, ROWS_COLLAPSED);
+  // One Show More for the whole card. A call that made a Web shows that Web
+  // first, its description clamped; the pill opens the description and the
+  // rest of what the call made together, rather than one toggle each.
+  const leadsWithWeb = rows[0].kind === 'web';
+  const shown = expanded ? rows : rows.slice(0, leadsWithWeb ? 1 : ROWS_COLLAPSED);
   const hidden = rows.length - shown.length;
+  const showToggle = expanded || hidden > 0 || (leadsWithWeb && descOverflows);
+  const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
+  // Headed by kind, with the count, as the card's detail lists were, once
+  // there is more than one kind to tell apart. A Web's card names itself.
+  const counts = rows.reduce((acc, r) => ({ ...acc, [r.kind]: (acc[r.kind] || 0) + 1 }), {});
+  const headed = Object.keys(counts).length > 1;
 
   return (
     <div className="tool-created-entities" ref={ref} onClick={(e) => e.stopPropagation()}>
-      {shown.map(row => <EntityRow key={row.key} row={row} width={width} />)}
-      {(hidden > 0 || expanded) && rows.length > ROWS_COLLAPSED && (
-        <button type="button" className="tool-created-toggle" onClick={() => setExpanded(v => !v)}>
-          {expanded ? 'Show fewer' : `Show ${hidden} more`}
-        </button>
+      {shown.map((row, i) => (
+        <React.Fragment key={row.key}>
+          {headed && SECTION_TITLES[row.kind] && shown[i - 1]?.kind !== row.kind && (
+            <h4 className="tool-created-heading">{SECTION_TITLES[row.kind]} ({counts[row.kind]})</h4>
+          )}
+          <EntityRow
+            row={row}
+            width={width}
+            expanded={expanded}
+            onOverflowChange={i === 0 ? setDescOverflows : undefined}
+          />
+        </React.Fragment>
+      ))}
+      {showToggle && (
+        // The description's own pill, as Web Definitions draws it.
+        <PanelIconButton
+          label={expanded ? 'Show Less' : 'Show More'}
+          labelFontSize={11}
+          variant="outline"
+          color={accentColor}
+          onClick={() => setExpanded(v => !v)}
+          style={{ borderColor: accentColor }}
+        />
       )}
     </div>
   );

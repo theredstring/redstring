@@ -112,6 +112,21 @@
   min-width: 0;
 }
 
+/* The old detail lists' header, over the drawings that replace them */
+.tool-created-heading {
+  color: var(--canvas-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin: 6px 0 2px 0;
+  font-family: 'EmOne', sans-serif;
+}
+
+.tool-created-heading:first-child {
+  margin-top: 0;
+}
+
 .entity-row {
   display: flex;
   align-items: center;
@@ -126,25 +141,21 @@
   min-width: 0;
 }
 
+/* A made Web, as Web Definitions draws one: buttons, the Web, its description */
+.entity-web {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-width: 100%;
+  margin-bottom: 4px;
+}
+
 .entity-row-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.tool-created-toggle {
-  background: none;
-  border: none;
-  padding: 2px 0;
-  color: var(--canvas-text-muted);
-  font-family: 'EmOne', sans-serif;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.tool-created-toggle:hover {
-  color: var(--canvas-text);
 }
 
 .tool-call-details {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X, Ban } from 'lucide-react';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import CreatedEntities from './wizard/EntityRows.jsx';
+import { useHasCreatedEntities } from './wizard/createdRows.js';
 import './ToolCallCard.css';
 
 const TOOL_DISPLAY_LABELS = {
@@ -74,6 +75,10 @@ const TOOL_DISPLAY_LABELS = {
 
 const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo, created }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    // What the call made, drawn under the header (wizard/EntityRows.jsx). Where
+    // it is, the summary line and the detail lists that named the same Things,
+    // Connections and Web in text are left out.
+    const drawsCreated = useHasCreatedEntities(isUndone ? null : created);
     const [isUndoConfirmOpen, setIsUndoConfirmOpen] = useState(false);
     const [displayStatus, setDisplayStatus] = useState(status);
     const [mountTime] = useState(Date.now());
@@ -390,7 +395,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
 
                         <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}><ChevronDown size={16} /></span>
                     </div>
-                    {getSummaryText() && (
+                    {getSummaryText() && !(drawsCreated && !error) && (
                         <div className="tool-call-summary">{getSummaryText()}</div>
                     )}
                 </div>
@@ -399,7 +404,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             {/* What the call made, by real id (services/wizardCreatedEntities.js),
                 drawn as the control panel draws it, with the type row's open
                 buttons. Under the header, lined up with the tool's name. */}
-            {created && !isUndone && displayStatus !== 'running' && (
+            {drawsCreated && displayStatus !== 'running' && (
                 <CreatedEntities created={created} />
             )}
 
@@ -451,7 +456,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                         </div>
                     )}
 
-                    {result && result.nodesAdded && result.nodesAdded.length > 0 && (
+                    {!drawsCreated && result && result.nodesAdded && result.nodesAdded.length > 0 && (
 
                         <div className="detail-section">
                             <h4>Things Created</h4>
@@ -463,7 +468,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                         </div>
                     )}
 
-                    {result && result.edgesAdded && result.edgesAdded.length > 0 && (
+                    {!drawsCreated && result && result.edgesAdded && result.edgesAdded.length > 0 && (
                         <div className="detail-section">
                             <h4>Connections</h4>
                             <ul className="edge-list">
@@ -482,7 +487,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                         </div>
                     )}
 
-                    {result && typeof result.edgesAdded === 'number' && result.edgesAdded > 0 && (
+                    {!drawsCreated && result && typeof result.edgesAdded === 'number' && result.edgesAdded > 0 && (
                         <div className="detail-section">
                             <h4>Web Expanded</h4>
                             <p>Added {result.nodesAdded} things and {result.edgesAdded} connections. Check the main canvas to see the new entities!</p>

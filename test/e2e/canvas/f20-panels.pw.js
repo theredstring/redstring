@@ -82,3 +82,25 @@ test('F20d double-clicking an Open Webs row opens its Info in the right panel', 
     active: st.activeGraphId,
   }))).toEqual({ expanded: true, tab: 'home', active: webId });
 });
+
+test('F20e "To Current Web" shows once the current web scrolls away, and brings it back', async ({ page }) => {
+  await openFixture(page, 'small');
+  const webId = await storeEval(page, (st) => {
+    for (let i = 0; i < 6; i++) window.useGraphStore.getState().createNewGraph({ name: `Extra Web ${i}` });
+    const s = window.useGraphStore.getState();
+    s.setActiveGraph(s.openGraphIds[0]);
+    return window.useGraphStore.getState().activeGraphId;
+  });
+  await openLeftView(page, 'grid');
+  const pill = page.getByTitle('Scroll to the current web');
+  const pillFade = pill.locator('xpath=..'); // the wrapper that fades it
+  const row = page.locator(`.panel-content [data-graph-id="${webId}"]`);
+  const scroller = page.locator('.panel-content').filter({ has: page.locator('h2', { hasText: 'Open Webs' }) });
+  await expect(row).toBeVisible();
+
+  await scroller.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(pillFade).toHaveCSS('opacity', '1');
+  await pill.click();
+  await expect(row).toBeInViewport({ ratio: 0.5 });
+  await expect(pillFade).toHaveCSS('opacity', '0');
+});

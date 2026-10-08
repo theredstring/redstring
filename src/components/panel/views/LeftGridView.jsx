@@ -1,5 +1,6 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Merge, Plus, Search } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowUp, Merge, Plus, Search } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
@@ -9,6 +10,7 @@ import useGraphStore from '../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
 import { projectGraphView, viewEdges } from '../../../core/openDefinitions.js';
 import { DROP_AT_END, describeDropGhost, useOpenWebsDrop } from './useOpenWebsDrop.js';
+import '../../../BackToCivilization.css';
 
 // Each open web with its nodes and edges, for the list and its cards.
 // Subscribed here rather than in Panel (P2.09): the cards need positions,
@@ -73,14 +75,21 @@ function useOpenGraphsForList() {
 // finds it already drawn.
 const NEAR_VIEW_MARGIN_PX = 400;
 
+// How much of a card has to show before it counts as in view.
+const IN_VIEW_MIN_PX = 40;
+
+const sameIds = (a, b) => a.size === b.size && [...b].every(id => a.has(id));
+
 /**
- * The ids of the rows within NEAR_VIEW_MARGIN_PX of the list's scroll view,
- * measured on scroll and resize. Vertical only, against the scroller itself:
- * the panel slides in sideways and is clipped while it does, and a card
- * mid-slide must not blank out.
+ * The ids of the rows within NEAR_VIEW_MARGIN_PX of the list's scroll view
+ * (`nearIds`) and of those actually showing (`inViewIds`), measured on scroll
+ * and resize. Vertical only, against the scroller itself: the panel slides in
+ * sideways and is clipped while it does, and a card mid-slide must not blank
+ * out.
  */
 function useRowsNearView(listRef, rowCount) {
   const [nearIds, setNearIds] = useState(() => new Set());
+  const [inViewIds, setInViewIds] = useState(() => new Set());
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!list) return undefined;
@@ -89,14 +98,16 @@ function useRowsNearView(listRef, rowCount) {
     const measure = () => {
       frame = 0;
       const view = scroller.getBoundingClientRect();
-      const next = new Set();
+      const near = new Set();
+      const inView = new Set();
       for (const row of list.querySelectorAll('[data-graph-id]')) {
         const r = row.getBoundingClientRect();
-        if (r.bottom > view.top - NEAR_VIEW_MARGIN_PX && r.top < view.bottom + NEAR_VIEW_MARGIN_PX) {
-          next.add(row.dataset.graphId);
-        }
+        const id = row.dataset.graphId;
+        if (r.bottom > view.top - NEAR_VIEW_MARGIN_PX && r.top < view.bottom + NEAR_VIEW_MARGIN_PX) near.add(id);
+        if (r.bottom > view.top + IN_VIEW_MIN_PX && r.top < view.bottom - IN_VIEW_MIN_PX) inView.add(id);
       }
-      setNearIds(prev => (prev.size === next.size && [...next].every(id => prev.has(id)) ? prev : next));
+      setNearIds(prev => (sameIds(prev, near) ? prev : near));
+      setInViewIds(prev => (sameIds(prev, inView) ? prev : inView));
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
     measure();
@@ -110,7 +121,31 @@ function useRowsNearView(listRef, rowCount) {
       observer?.disconnect();
     };
   }, [listRef, rowCount]);
-  return nearIds;
+  return { nearIds, inViewIds };
+}
+
+/**
+ * Where a layer over the list goes: the panel container (the scroller's
+ * parent, which doesn't scroll), and how far up from its bottom the visible
+ * list ends, above the room the panel keeps for the Connections bar.
+ */
+function usePanelOverlayHost(listRef) {
+  const [host, setHost] = useState(null);
+  useLayoutEffect(() => {
+    const scroller = listRef.current?.closest('.panel-content');
+    const container = scroller?.parentElement;
+    if (!container) return undefined;
+    const measure = () => {
+      const bottom = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+      setHost(prev => (prev?.container === container && prev.bottom === bottom ? prev : { container, bottom }));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [listRef]);
+  return host;
 }
 
 /**
@@ -149,7 +184,21 @@ const LeftGridView = ({
 }) => {
   const theme = useTheme();
   const openGraphsForList = useOpenGraphsForList();
-  const nearIds = useRowsNearView(listContainerRef, openGraphsForList.length);
+  const { nearIds, inViewIds } = useRowsNearView(listContainerRef, openGraphsForList.length);
+  const overlayHost = usePanelOverlayHost(listContainerRef);
+  // "To Current Web" shows while the active web's card is scrolled out of view.
+  const showToCurrent = !!activeGraphId && openGraphsForList.some(g => g.id === activeGraphId) && !inViewIds.has(activeGraphId);
+  const scrollToCurrent = useCallback(() => {
+    const list = listContainerRef.current;
+    const row = list?.querySelector(`[data-graph-id="${CSS.escape(activeGraphId)}"]`);
+    const scroller = list?.closest('.panel-content');
+    if (!row || !scroller) return;
+    const r = row.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    // Centred, or its top edge in view when it is taller than the panel.
+    const offset = r.height < view.height ? (view.height - r.height) / 2 : 12;
+    scroller.scrollTo({ top: scroller.scrollTop + (r.top - view.top) - offset, behavior: 'smooth' });
+  }, [listContainerRef, activeGraphId]);
   // Double-click a web: the right panel's Info tab (index 0, always there),
   // opening the panel if it is closed. The first click of the pair has already
   // made the web active, so Info is about this web.
@@ -248,6 +297,35 @@ const LeftGridView = ({
           <div style={{ color: theme.canvas.textSecondary, textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No webs currently open.</div>
         )}
       </div>
+
+      {/* Its own layer over the panel, fixed to the panel's bottom: not in the
+          scrolling list. Styled as Back to Civilization, the canvas's own way back. */}
+      {overlayHost && createPortal(
+        <div style={{
+          position: 'absolute',
+          left: '50%',
+          bottom: overlayHost.bottom + 16,
+          transform: 'translateX(-50%)',
+          zIndex: 2,
+          opacity: showToCurrent ? 1 : 0,
+          pointerEvents: showToCurrent ? 'auto' : 'none',
+          transition: 'opacity 0.15s ease',
+        }}>
+          <div
+            className="back-to-civilization-pill"
+            role="button"
+            tabIndex={showToCurrent ? 0 : -1}
+            title="Scroll to the current web"
+            onClick={scrollToCurrent}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToCurrent(); } }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+          >
+            <ArrowUp size={16} color="maroon" strokeWidth={2.5} />
+            <span className="back-to-civilization-text">To Current Web</span>
+          </div>
+        </div>,
+        overlayHost.container,
+      )}
     </div>
   );
 };

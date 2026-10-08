@@ -16,7 +16,7 @@ const DESCRIPTION_CLAMP_LINES = 3;
  * One definition drawn as the canvas draws a Thing in the decompose preview
  * (WebCard). The description is left out here; the section shows it underneath.
  */
-const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
+export const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
   // Narrow selectors: the graph object itself changes on every pan and zoom of
   // that graph, its instances and edge list only when its contents do. Read as
   // viewed, like the canvas: a Thing opened in place inside this Web shows its
@@ -68,7 +68,17 @@ const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
  * The definition's own description: what this Thing means under this Web. The
  * first definition's is the Thing's description (getDefinitionDescription).
  */
-const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
+export const DefinitionDescription = ({
+  graphId,
+  thing,
+  onUpdate,
+  compact = false,
+  // Controlled from outside (a chat card's one Show More, wizard/EntityRows.jsx):
+  // the caller owns `expanded`, hears whether the clamp hides anything, and
+  // draws the toggle itself.
+  expanded: expandedProp,
+  onOverflowChange
+}) => {
   const theme = useTheme();
   const webDescription = useGraphStore((s) => s.graphs.get(graphId)?.description);
   const description = getDefinitionDescription(thing, graphId, webDescription);
@@ -76,8 +86,11 @@ const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
   const savingRef = useRef(false);
   const editing = draft !== null;
   // Clamped until asked; the card is keyed per definition, so each starts clamped.
-  const [expanded, setExpanded] = useState(false);
+  const [expandedOwn, setExpanded] = useState(false);
+  const controlled = expandedProp !== undefined;
+  const expanded = controlled ? expandedProp : expandedOwn;
   const [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => { onOverflowChange?.(overflows); }, [overflows, onOverflowChange]);
   const textRef = useRef(null);
   const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
 
@@ -111,8 +124,9 @@ const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
     el.style.height = `${Math.max(el.scrollHeight + 4, 40)}px`;
   };
 
+  // `compact`: a chat card's smaller text (wizard/EntityRows.jsx).
   const textStyle = {
-    fontSize: '1.0rem',
+    fontSize: compact ? '0.85rem' : '1.0rem',
     fontFamily: "'EmOne', sans-serif",
     lineHeight: '1.4',
     textAlign: 'left'
@@ -180,8 +194,8 @@ const DefinitionDescription = ({ graphId, thing, onUpdate }) => {
       >
         {description || 'Double-click to describe this definition...'}
       </div>
-      {(overflows || expanded) && (
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+      {!controlled && (overflows || expanded) && (
+        <div style={{ display: 'flex', justifyContent: compact ? 'flex-start' : 'center', marginTop: '10px' }}>
           <PanelIconButton
             label={expanded ? 'Show Less' : 'Show More'}
             labelFontSize={11}

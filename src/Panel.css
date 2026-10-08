@@ -198,6 +198,20 @@ header .editable-title-input {
   min-height: 20px; /* Ensure minimum thumb size for better interaction */
 }
 
+/* Every scroll region inside the left panel gets the panel's own bar, so each
+   thumb sits the same 6px in from its edge, clear enough to grab. Specific
+   enough to beat a region's own size (.ai-messages and the like). */
+.panel-container.left .panel-content ::-webkit-scrollbar {
+  width: 20px;
+  height: 20px;
+}
+
+.panel-container.left .panel-content ::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 6px solid transparent;
+  min-height: 20px;
+}
+
 /* While a drag edge-scrolls the panel it draws its own position thumb
    (utils/edgeScrollIndicator.js); the native one steps aside so the two don't
    double up. More specific than the active rule (index.css), which it beats. */

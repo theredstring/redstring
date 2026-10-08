@@ -51,18 +51,31 @@ beforeEach(() => {
 
 describe('CreatedEntities', () => {
   const created = { webs: ['g-web'], things: ['p-earth'], connections: [{ id: 'e-1', graphId: 'g-web' }] };
+  // The same Thing and Connection, added to a Web the call didn't make.
+  const addedToExisting = { webs: [], things: ['p-earth'], connections: [{ id: 'e-1', graphId: 'g-web' }] };
 
-  it('draws a row per Web, Thing and Connection, each with its two buttons', () => {
-    const { container, getByTitle } = render(<CreatedEntities created={created} />);
-    expect(container.querySelectorAll('.entity-row')).toHaveLength(3);
-    expect(getByTitle('Open Earth in panel')).toBeTruthy();
+  it('draws a made Web as a live card holding what the call put in it', () => {
+    const { container, getByTitle, queryByTitle } = render(<CreatedEntities created={created} />);
+    expect(container.querySelectorAll('.entity-web')).toHaveLength(1);
+    // Earth and the Orbits connection are inside the card, not rows of their own
+    expect(container.querySelectorAll('.entity-row')).toHaveLength(0);
+    expect(queryByTitle('Open Earth in panel')).toBeNull();
     expect(getByTitle('Open Solar System as a Web')).toBeTruthy();
-    // A Connection's buttons act on its type
-    expect(getByTitle('Open Orbits in panel')).toBeTruthy();
+    expect(container.querySelector('svg')).toBeTruthy();
   });
 
-  it('opens a Thing in the panel and a Connection as its type', () => {
+  it('opens a made Web in the panel as its own tab', () => {
+    const openRightPanelGraphTab = vi.fn();
+    act(() => { useGraphStore.setState({ openRightPanelGraphTab, rightPanelExpanded: true }); });
     const { getByTitle } = render(<CreatedEntities created={created} />);
+    fireEvent.click(getByTitle('Open Solar System in panel'));
+    expect(openRightPanelGraphTab).toHaveBeenCalledWith('g-web', 'p-sun');
+  });
+
+  it('draws a row per Thing and Connection added to a Web that already existed', () => {
+    const { container, getByTitle } = render(<CreatedEntities created={addedToExisting} />);
+    expect(container.querySelectorAll('.entity-row')).toHaveLength(2);
+    // A Connection's buttons act on its type
     fireEvent.click(getByTitle('Open Earth in panel'));
     expect(openRightPanelNodeTab).toHaveBeenCalledWith('p-earth', 'Earth');
     fireEvent.click(getByTitle('Open Orbits in panel'));
