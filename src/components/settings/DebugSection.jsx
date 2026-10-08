@@ -162,6 +162,19 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
 
       <div className="settings-row">
         <div className="settings-row-label">
+          Tool Call Details
+          <div className="settings-row-description">
+            A chevron on each Wizard tool call that opens its arguments and raw result. Copy Conversation includes them either way.
+          </div>
+        </div>
+        <Toggle
+          checked={!!settings.showToolCallDetails}
+          onChange={(v) => debugConfig.setToolCallDetailsEnabled(v)}
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-label">
           The Druid
           <div className="settings-row-description">
             A panel for letting a small local model live in the open universe and watching it think.

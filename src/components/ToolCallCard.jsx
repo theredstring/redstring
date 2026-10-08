@@ -3,6 +3,7 @@ import { Undo2, Loader2, CheckCircle2, XCircle, Circle, ChevronDown, X, Ban } fr
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import CreatedEntities from './wizard/EntityRows.jsx';
 import { useHasCreatedEntities } from './wizard/createdRows.js';
+import debugConfig from '../utils/debugConfig.js';
 import './ToolCallCard.css';
 
 const TOOL_DISPLAY_LABELS = {
@@ -75,6 +76,10 @@ const TOOL_DISPLAY_LABELS = {
 
 const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, timestamp, executionTime, isUndone, onUndo, created }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    // The chevron and the raw arguments/result behind it are a debugging aid,
+    // switched on in Settings › Debug. Copy Conversation carries them regardless.
+    const [showDetails, setShowDetails] = useState(() => debugConfig.isToolCallDetailsEnabled());
+    useEffect(() => debugConfig.addListener(cfg => setShowDetails(!!cfg?.showToolCallDetails)), []);
     // What the call made, drawn under the header (wizard/EntityRows.jsx). Where
     // it is, the summary line and the detail lists that named the same Things,
     // Connections and Web in text are left out.
@@ -345,8 +350,8 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
     return (
         <div className={`tool-call-card ${getStatusClass()}`}>
             <div
-                className="tool-call-header"
-                onClick={() => setIsExpanded(!isExpanded)}
+                className={`tool-call-header${showDetails ? '' : ' no-details'}`}
+                onClick={showDetails ? () => setIsExpanded(!isExpanded) : undefined}
             >
                 <div className="tool-icon">{getStatusIcon()}</div>
                 <div className="tool-header-content">
@@ -393,7 +398,9 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                             </div>
                         )}
 
-                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}><ChevronDown size={16} /></span>
+                        {showDetails && (
+                            <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} style={{ marginLeft: (status === 'completed' && result && !error) ? '0' : 'auto' }}><ChevronDown size={16} /></span>
+                        )}
                     </div>
                     {getSummaryText() && !(drawsCreated && !error) && (
                         <div className="tool-call-summary">{getSummaryText()}</div>
@@ -408,7 +415,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                 <CreatedEntities created={created} />
             )}
 
-            {isExpanded && (
+            {showDetails && isExpanded && (
                 <div className="tool-call-details">
                     <div className="tool-raw-name">{toolName}</div>
                     {result && toolName === 'readGraph' && result.nodes && (

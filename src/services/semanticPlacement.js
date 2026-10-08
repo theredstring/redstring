@@ -496,6 +496,7 @@ function groupOf(graphId, instanceId, state) {
  * @param {{x:number,y:number}} [args.origin] - where open-space search starts
  * @param {boolean} [args.reveal=true] - bring it into view if it landed off screen
  * @param {{x:number,y:number}} [args.position] - an exact top-left; skips the search
+ * @param {{x:number,y:number}} [args.at] - a point to centre it on (a drop); skips the search
  * @param {string} [args.prototypeId] - place this existing prototype instead of
  *   finding or making one for `concept`
  * @param {boolean} [args.joinGroup] - join the anchor's group; defaults to
@@ -506,7 +507,7 @@ function groupOf(graphId, instanceId, state) {
  */
 export function placeConcept({
   graphId, concept, mode = 'cluster', anchorInstanceId = null, predicate = null, direction = 'out',
-  provenance = null, origin = null, reveal = true, position = null, prototypeId: givenPrototypeId = null,
+  provenance = null, origin = null, reveal = true, position = null, at = null, prototypeId: givenPrototypeId = null,
   joinGroup = mode === 'cluster', stretches = STRETCHES
 }) {
   const predicateLabel = predicate ? formatPredicate(predicate) : '';
@@ -542,7 +543,9 @@ export function placeConcept({
   const hasAnchor = anchored;
   const center = origin || (hasAnchor ? null : visibleCanvasCenter(graphId, st));
 
-  const topLeft = position || findPlacement({
+  const topLeft = position
+    || (at && { x: at.x - dims.currentWidth / 2, y: at.y - dims.currentHeight / 2 })
+    || findPlacement({
     graphId,
     mode: hasAnchor ? mode : 'open',
     anchorInstanceId: hasAnchor ? anchorInstanceId : null,
@@ -565,7 +568,7 @@ export function placeConcept({
     : null;
 
   // Deferred a frame so the new node is in the view the reveal measures.
-  if (reveal && !position) {
+  if (reveal && !position && !at) {
     const ids = [anchorInstanceId, instanceId].filter(Boolean);
     setTimeout(() => revealInstances(graphId, ids), 0);
   }

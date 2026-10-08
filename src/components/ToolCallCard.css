@@ -22,6 +22,15 @@
   background: var(--canvas-hover);
 }
 
+/* Nothing to open without Settings › Debug › Tool Call Details */
+.tool-call-header.no-details {
+  cursor: default;
+}
+
+.tool-call-header.no-details:hover {
+  background: none;
+}
+
 .tool-icon {
   width: 18px;
   height: 18px;
@@ -101,14 +110,13 @@
   white-space: nowrap;
 }
 
-/* What the call made. Indented to the tool name: the header's 10px padding,
-   the 18px status icon and its 8px gap. */
+/* What the call made, edge to edge inside the card's own padding */
 .tool-created-entities {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  padding: 0 10px 8px 36px;
+  padding: 0 10px 8px 10px;
   min-width: 0;
 }
 

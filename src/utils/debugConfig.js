@@ -19,6 +19,9 @@ const DEBUG_STORAGE_KEYS = {
   // The panel for watching (and starting) the Druid, a small local model that
   // lives in the open universe. See src/druid/inApp/.
   SHOW_DRUID: 'redstring_debug_show_druid',
+  // The chevron on each Wizard tool call that opens its arguments and raw
+  // result. Off: the card shows what the call did, not how.
+  SHOW_TOOL_CALL_DETAILS: 'redstring_debug_show_tool_call_details',
   WIZARD_DESTINATION: 'redstring_wizard_destination'
 };
 
@@ -67,6 +70,7 @@ class DebugConfig {
         showNodeHitboxes: false,
         showDebugOverlay: false,
         showDruid: false,
+        showToolCallDetails: false,
         wizardDestination: 'new'
       };
       this.isInitialized = true;
@@ -85,6 +89,7 @@ class DebugConfig {
         showNodeHitboxes: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_NODE_HITBOXES, false),
         showDebugOverlay: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_DEBUG_OVERLAY, false),
         showDruid: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_DRUID, false),
+        showToolCallDetails: this.getBooleanSetting(DEBUG_STORAGE_KEYS.SHOW_TOOL_CALL_DETAILS, false),
         wizardDestination: storedDestination
       };
 
@@ -130,6 +135,7 @@ class DebugConfig {
         showNodeHitboxes: false,
         showDebugOverlay: false,
         showDruid: false,
+        showToolCallDetails: false,
         wizardDestination: 'new'
       };
       this.isInitialized = true;
@@ -217,6 +223,10 @@ class DebugConfig {
 
   isDruidEnabled() {
     return this.config.showDruid || false;
+  }
+
+  isToolCallDetailsEnabled() {
+    return this.config.showToolCallDetails || false;
   }
 
   // Where the next Ask The Wizard prompt goes: 'new' conversation or add to 'current'.
@@ -313,6 +323,13 @@ class DebugConfig {
     this.notifyListeners();
   }
 
+  // Show/hide the tool-call detail chevron on Wizard cards
+  setToolCallDetailsEnabled(enabled) {
+    this.config.showToolCallDetails = enabled;
+    this.setSetting(DEBUG_STORAGE_KEYS.SHOW_TOOL_CALL_DETAILS, enabled);
+    this.notifyListeners();
+  }
+
   // Set where the next Ask The Wizard prompt goes: 'new' | 'current'
   setWizardDestination(value) {
     const next = WIZARD_DESTINATIONS.includes(value) ? value : 'new';
@@ -334,6 +351,7 @@ class DebugConfig {
         showNodeHitboxes: false,
         showDebugOverlay: false,
         showDruid: false,
+        showToolCallDetails: false,
         wizardDestination: 'new'
       };
       this.notifyListeners();
@@ -354,6 +372,7 @@ class DebugConfig {
         showNodeHitboxes: false,
         showDebugOverlay: false,
         showDruid: false,
+        showToolCallDetails: false,
         wizardDestination: 'new'
       };
 
