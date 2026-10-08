@@ -11,10 +11,10 @@ import { sanitizeColor } from '../../utils/safeColor.js';
 export const COMPACT_CONNECTIONS_BELOW = 340;
 
 /** A Thing at one end, whole: wraps between words, never inside one. */
-const Pill = forwardRef(({ name, color, style }, ref) => {
+const Pill = forwardRef(({ name, color, style, ...handlers }, ref) => {
   const theme = useTheme();
   return (
-    <span ref={ref} style={{
+    <span ref={ref} {...handlers} style={{
       alignSelf: 'flex-start',
       maxWidth: '100%',
       background: sanitizeColor(color, '#8B0000'),
@@ -54,7 +54,8 @@ Pill.displayName = 'CompactConnectionPill';
  *   `direction` is then relative to it
  * @param {string} [props.subjectColor]
  * @param {{ref?:Function, style?:Object}} [props.subjectPill] - for a caller
- *   that makes an end draggable (wizard/EntityRows.jsx); `otherPill` likewise
+ *   that makes an end draggable or openable (wizard/EntityRows.jsx); any other
+ *   keys are handlers for the pill; `otherPill` likewise
  * @param {{ref?:Function, style?:Object}} [props.otherPill]
  * @param {{color:string, ref?:Function, style?:Object}} [props.predicatePill] -
  *   draw the connection as a Thing too (its defining Thing's colour), the
@@ -74,12 +75,10 @@ const CompactConnectionRow = ({
   const leads = direction === 'out' || direction === 'both';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0 }}>
-      {subjectName != null && <Pill name={subjectName} color={subjectColor} ref={subjectPill?.ref} style={subjectPill?.style} />}
+      {subjectName != null && <Pill name={subjectName} color={subjectColor} {...subjectPill} />}
       {predicatePill ? (
         <Pill
-          ref={predicatePill.ref}
-          color={predicatePill.color}
-          style={predicatePill.style}
+          {...predicatePill}
           name={(
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               {points && <ArrowLeft size={12} style={{ flexShrink: 0 }} />}
@@ -95,7 +94,7 @@ const CompactConnectionRow = ({
           {leads && <ArrowRight size={11} style={{ flexShrink: 0 }} />}
         </span>
       )}
-      <Pill name={otherName} color={otherColor} ref={otherPill?.ref} style={otherPill?.style} />
+      <Pill name={otherName} color={otherColor} {...otherPill} />
       {note && <span style={small}>{note}</span>}
     </div>
   );

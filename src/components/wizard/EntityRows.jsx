@@ -14,6 +14,7 @@ import { layoutNodeChips, panelListTextFor } from '../../utils/connectionPreview
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
 import { resolveRows, rowsSignature } from './createdRows.js';
 import useSpawnableDrag from './useSpawnableDrag.js';
+import useDoubleTap from '../../hooks/useDoubleTap.js';
 import {
   openThingInPanel,
   openWebInPanel,
@@ -93,8 +94,17 @@ const updateWebDescription = (thingId, graphId, description) => {
 /** The Web's card, dragged as Open Webs drags one: the Thing it defines, with the Web. */
 const DraggableWebCard = ({ row }) => {
   const [drag, isDragging] = useSpawnableDrag({ prototypeId: row.thingId, nodeName: row.thingName, graphId: row.id });
+  // Double-click opens it in the panel, as an Open Webs card does.
+  const open = () => openWebInPanel(row.id);
+  const doubleTap = useDoubleTap(open);
   return (
-    <div ref={drag} className="entity-drag" style={{ opacity: isDragging ? 0.5 : 1, cursor: row.thingId ? 'grab' : undefined }}>
+    <div
+      ref={drag}
+      className="entity-drag"
+      onDoubleClick={open}
+      {...doubleTap}
+      style={{ opacity: isDragging ? 0.5 : 1, cursor: row.thingId ? 'grab' : undefined }}
+    >
       <DefinitionCard graphId={row.id} nodeName={row.thingName} nodeColor={row.color} />
     </div>
   );
@@ -103,8 +113,16 @@ const DraggableWebCard = ({ row }) => {
 /** A Thing's chip, dragged as any Thing in a panel list is. */
 const DraggableThingChip = ({ row, maxWidth }) => {
   const [drag, isDragging] = useSpawnableDrag({ prototypeId: row.id, nodeName: row.name });
+  const open = () => openThingInPanel(row.id);
+  const doubleTap = useDoubleTap(open);
   return (
-    <div ref={drag} className="entity-drag" style={{ opacity: isDragging ? 0.5 : 1, cursor: 'grab' }}>
+    <div
+      ref={drag}
+      className="entity-drag"
+      onDoubleClick={open}
+      {...doubleTap}
+      style={{ opacity: isDragging ? 0.5 : 1, cursor: 'grab' }}
+    >
       <ThingChip id={row.id} name={row.name} color={row.color} definitionGraphIds={row.definitionGraphIds} maxWidth={maxWidth} />
     </div>
   );
@@ -120,6 +138,13 @@ const DraggableCompactConnection = ({ row }) => {
   const [dragObject, draggingObject] = useSpawnableDrag({ prototypeId: row.objectId, nodeName: row.object });
   const [dragType, draggingType] = useSpawnableDrag({ prototypeId: row.typeId, nodeName: row.name });
   const pillStyle = (dragging) => ({ cursor: 'grab', opacity: dragging ? 0.5 : 1, userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' });
+  // Double-click (or double-tap) a pill to open that Thing in the panel.
+  const openSubject = () => openThingInPanel(row.subjectId);
+  const openObject = () => openThingInPanel(row.objectId);
+  const openType = () => { if (row.typeId) openThingInPanel(row.typeId); };
+  const tapSubject = useDoubleTap(openSubject);
+  const tapObject = useDoubleTap(openObject);
+  const tapType = useDoubleTap(openType);
   const toward = row.arrowsToward;
   return (
     <CompactConnectionRow
@@ -131,12 +156,14 @@ const DraggableCompactConnection = ({ row }) => {
       direction={toward.has('object') && toward.has('subject') ? 'both'
         : toward.has('object') ? 'out'
           : toward.has('subject') ? 'in' : 'none'}
-      subjectPill={{ ref: dragSubject, style: pillStyle(draggingSubject) }}
-      otherPill={{ ref: dragObject, style: pillStyle(draggingObject) }}
+      subjectPill={{ ref: dragSubject, style: pillStyle(draggingSubject), onDoubleClick: openSubject, ...tapSubject }}
+      otherPill={{ ref: dragObject, style: pillStyle(draggingObject), onDoubleClick: openObject, ...tapObject }}
       predicatePill={{
         color: row.connectionColor || NODE_DEFAULT_COLOR,
         ref: dragType,
-        style: row.typeId ? pillStyle(draggingType) : undefined
+        style: row.typeId ? pillStyle(draggingType) : undefined,
+        onDoubleClick: openType,
+        ...tapType
       }}
     />
   );
@@ -163,6 +190,14 @@ const DraggableTriplet = ({ row, width }) => {
   }), [row.subjectId, row.objectId, row.typeId, row.subject, row.object, row.name]);
   useEffect(() => { preview(getEmptyImage(), { captureDraggingState: true }); }, [preview]);
 
+  // Double-click opens the part under the pointer: the same thirds as a drag.
+  const openSide = () => {
+    const id = sideRef.current === 'object' ? row.objectId
+      : sideRef.current === 'type' ? row.typeId : row.subjectId;
+    if (id) openThingInPanel(id);
+  };
+  const doubleTap = useDoubleTap(openSide);
+
   const pickSide = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.touches?.[0]?.clientX ?? e.clientX;
@@ -176,7 +211,9 @@ const DraggableTriplet = ({ row, width }) => {
       className="entity-drag"
       onPointerDown={pickSide}
       onMouseDown={pickSide}
-      onTouchStart={pickSide}
+      onTouchStart={(e) => { pickSide(e); doubleTap.onTouchStart(e); }}
+      onTouchEnd={doubleTap.onTouchEnd}
+      onDoubleClick={(e) => { pickSide(e); openSide(); }}
       style={{ cursor: 'grab', opacity: isDragging ? 0.5 : 1 }}
     >
       <TripletPreview
