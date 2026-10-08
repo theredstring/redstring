@@ -45,7 +45,10 @@ const GraphListItem = forwardRef(({
     type: SPAWNABLE_NODE,
     item: {
       prototypeId: graphData.definingNodeIds?.[0],
-      nodeName: definingNodeName // Include node name for fallback matching
+      nodeName: definingNodeName, // Include node name for fallback matching
+      // The web this row is, as a header tab's drag carries it: dropped back on
+      // this list or the header strip it reorders; on the canvas it spawns.
+      graphId: graphData.id
     },
     canDrag: () => {
       const canDrag = !!graphData.definingNodeIds?.[0];

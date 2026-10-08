@@ -262,7 +262,14 @@ describe('electron/main.cjs', () => {
       const { options } = ctx.fake.calls.forks[0];
       expect(options.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
       expect(options.env.REDSTRING_AGENT_TOKEN).toMatch(/^[0-9a-f]{64}$/);
-      const conn = await ctx.invoke('agent:getConnection', ipcEvent(APP));
+      // Held until the server is listening, so the page's first request
+      // never races its startup.
+      let settled = false;
+      const pending = ctx.invoke('agent:getConnection', ipcEvent(APP)).finally(() => { settled = true; });
+      await new Promise(r => setTimeout(r, 20));
+      expect(settled).toBe(false);
+      ctx.fake.calls.forks[0].child.emit('message', { type: 'agent-listening', port: 3001 });
+      const conn = await pending;
       expect(conn).toEqual({ baseUrl: `http://127.0.0.1:${options.env.REDSTRING_AGENT_PORT}`, token: options.env.REDSTRING_AGENT_TOKEN });
     });
 

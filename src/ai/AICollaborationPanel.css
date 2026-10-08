@@ -359,6 +359,10 @@ html.dark-mode .ai-tab.active {
   background: var(--canvas-bg);
 }
 
+.ai-messages {
+  scrollbar-width: thin;
+}
+
 .ai-messages::-webkit-scrollbar {
   width: 6px;
 }
@@ -368,12 +372,12 @@ html.dark-mode .ai-tab.active {
 }
 
 .ai-messages::-webkit-scrollbar-thumb {
-  background: rgba(38, 0, 0, 0.2);
+  background: var(--rs-scrollbar-rest);
   border-radius: 3px;
 }
 
 .ai-messages::-webkit-scrollbar-thumb:hover {
-  background: rgba(38, 0, 0, 0.3);
+  background: var(--rs-scrollbar);
 }
 
 .ai-message {

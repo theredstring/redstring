@@ -6,8 +6,10 @@ import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useGraphStore from '../../../store/graphStore.js';
-import { NODE_DEFAULT_COLOR } from '../../../constants';
+import { NODE_DEFAULT_COLOR, NODE_HEIGHT } from '../../../constants';
 import { projectGraphView, viewEdges } from '../../../core/openDefinitions.js';
+import { getTextColor } from '../../../utils/colorUtils';
+import { DROP_AT_END, describeDropGhost, useOpenWebsDrop } from './useOpenWebsDrop.js';
 
 // Each open web with its nodes and edges, for the list and its previews.
 // Subscribed here rather than in Panel (P2.09): the previews need positions,
@@ -52,6 +54,53 @@ function useOpenGraphsForList() {
   }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
 }
 
+/**
+ * Where a drop on the list will land: a collapsed row of the web it becomes,
+ * half-faded with a dashed edge like the Wizard's pin ghost. Not a
+ * `data-graph-id` row, so slot measuring skips it.
+ */
+const DropGhostRow = ({ name, color }) => (
+  <div
+    aria-hidden="true"
+    style={{
+      width: '100%',
+      height: NODE_HEIGHT,
+      margin: '5px 0',
+      borderRadius: '12px',
+      boxSizing: 'border-box',
+      backgroundColor: color,
+      color: getTextColor(color),
+      opacity: 0.5,
+      outline: `1.5px dashed ${color}`,
+      outlineOffset: '2px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      userSelect: 'none',
+      pointerEvents: 'none',
+    }}
+  >
+    {/* The collapsed row's title, style for style (GraphListItem), so a long
+        name truncates the same way. Its own block: an ellipsis needs one,
+        and text loose in a flex box only overflows. */}
+    <div
+      style={{
+        fontWeight: 'bold',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        padding: '10px',
+        textAlign: 'center',
+        width: '100%',
+        boxSizing: 'border-box',
+        fontFamily: "'EmOne', sans-serif",
+      }}
+    >
+      {name}
+    </div>
+  </div>
+);
+
 // Internal Left Grid View (Open Webs)
 const LeftGridView = ({
   panelWidth,
@@ -68,6 +117,11 @@ const LeftGridView = ({
 }) => {
   const theme = useTheme();
   const openGraphsForList = useOpenGraphsForList();
+  // Drop a Thing to open its web at that slot, or a web's row or header tab to
+  // move it there. The ghost row previews the result.
+  const { drop, dropItem, slot } = useOpenWebsDrop(listContainerRef);
+  const ghost = slot !== null ? describeDropGhost(dropItem) : null;
+  const ghostRow = ghost ? <DropGhostRow key="__drop-ghost__" name={ghost.name} color={ghost.color} /> : null;
   // Context menu options for open webs tab
   const getTabContextMenuOptions = () => [
     {
@@ -90,7 +144,10 @@ const LeftGridView = ({
 
   return (
     <div
+      ref={drop}
       className="panel-content-inner"
+      // Fills the panel, so a drop below the last row still lands (at the end).
+      style={{ minHeight: '100%' }}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -130,7 +187,10 @@ const LeftGridView = ({
         ref={listContainerRef}
         style={{ paddingLeft: '5px', paddingRight: '5px' }}
       >
-        {openGraphsForList.map((graph) => (
+        {/* One flat keyed list, so the ghost slides between rows without
+            remounting them (an array per row would key them by index). */}
+        {openGraphsForList.flatMap((graph) => [
+          ...(slot === graph.id && ghostRow ? [ghostRow] : []),
           <GraphListItem
             key={graph.id}
             graphData={graph}
@@ -142,8 +202,8 @@ const LeftGridView = ({
             onToggleExpand={toggleGraphExpanded}
             onContextMenu={handleItemContextMenu}
           />
-        ))}
-        {openGraphsForList.length === 0 && (
+        ]).concat(slot === DROP_AT_END && ghostRow ? [ghostRow] : [])}
+        {openGraphsForList.length === 0 && !ghostRow && (
           <div style={{ color: theme.canvas.textSecondary, textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No webs currently open.</div>
         )}
       </div>

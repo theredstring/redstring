@@ -190,4 +190,73 @@ describe('graph tab ordering', () => {
       assert.deepStrictEqual(order(), [c, a, b]);
     });
   });
+
+  // Dropping a Thing on the Open Webs list opens its web AT the slot it was let
+  // go over, not beside the active web.
+  describe('opening a Thing\'s web at a slot', () => {
+    /** A Thing with no definition yet, returning its id. */
+    const makeThing = (name) => {
+      const id = `proto-${name}`;
+      st().addNodePrototype({ id, name, color: '#445566', definitionGraphIds: [] });
+      return id;
+    };
+
+    it('makes a web for a Thing that has none, in front of the web named', () => {
+      resetStore();
+      const [a, b, c] = makeGraphs(3);
+      const thing = makeThing('Dropped');
+
+      const web = st().openThingWebBefore(thing, b);
+
+      assert.ok(web);
+      assert.deepStrictEqual(order(), [a, web, b, c]);
+      assert.deepStrictEqual(st().nodePrototypes.get(thing).definitionGraphIds, [web]);
+      assert.strictEqual(st().activeGraphId, web);
+      assert.strictEqual(st().activeDefinitionNodeId, thing);
+    });
+
+    it('with no anchor it lands in the far slot', () => {
+      resetStore();
+      const [a, b] = makeGraphs(2);
+      const thing = makeThing('Last');
+      st().setActiveGraphTab(a);
+
+      const web = st().openThingWebBefore(thing, null);
+
+      assert.deepStrictEqual(order(), [a, b, web]);
+    });
+
+    it('opens an existing definition rather than making another', () => {
+      resetStore();
+      const [a, b] = makeGraphs(2);
+      const thing = makeThing('Defined');
+      const def = st().createAndAssignGraphDefinitionWithoutActivation(thing);
+
+      const web = st().openThingWebBefore(thing, a);
+
+      assert.strictEqual(web, def);
+      assert.deepStrictEqual(order(), [def, a, b]);
+      assert.deepStrictEqual(st().nodePrototypes.get(thing).definitionGraphIds, [def]);
+    });
+
+    it('moves a web that is already open instead of opening it twice', () => {
+      resetStore();
+      const [a, b] = makeGraphs(2);
+      const thing = makeThing('Open');
+      const def = st().createAndAssignGraphDefinition(thing);
+      assert.deepStrictEqual(order(), [a, b, def]);
+
+      st().openThingWebBefore(thing, a);
+
+      assert.deepStrictEqual(order(), [def, a, b]);
+    });
+
+    it('does nothing for a Thing that does not exist', () => {
+      resetStore();
+      const [a, b] = makeGraphs(2);
+
+      assert.strictEqual(st().openThingWebBefore('proto-missing', a), null);
+      assert.deepStrictEqual(order(), [a, b]);
+    });
+  });
 });

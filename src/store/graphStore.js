@@ -5825,6 +5825,42 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })),
 
     /**
+     * Opens a Thing's web at a chosen slot in the strip and activates it — what
+     * dropping a Thing on the Open Webs list does. The web is the Thing's first
+     * definition; a Thing with none gets one made, as clicking it in the Library
+     * would. A web that is already open moves to the slot rather than opening twice.
+     *
+     * Anchored like `moveGraphTabBefore`, and one write, so the drop is one step.
+     *
+     * @param {string} prototypeId - The Thing whose web to open.
+     * @param {string|null} [beforeGraphId=null] - Open web to land in front of; null appends.
+     * @returns {string|null} The web opened, or null if the Thing was not found.
+     */
+    openThingWebBefore: (prototypeId, beforeGraphId = null) => {
+      const prototype = get().nodePrototypes.get(prototypeId);
+      if (!prototype) return null;
+      const existing = (prototype.definitionGraphIds || []).find(id => get().graphs.has(id)) || null;
+      // Making a definition is an edit (undoable); opening one is navigation.
+      api.setChangeContext(existing ? { type: 'tab_open' } : { type: 'definition_create', prototypeId });
+      let graphId = existing;
+      set(produce((draft) => {
+        if (!graphId) graphId = _createAndAssignGraphDefinition(draft, prototypeId);
+        if (!graphId) return;
+        if (beforeGraphId !== graphId) {
+          const from = draft.openGraphIds.indexOf(graphId);
+          if (from > -1) draft.openGraphIds.splice(from, 1);
+          const at = beforeGraphId ? draft.openGraphIds.indexOf(beforeGraphId) : -1;
+          if (at === -1) draft.openGraphIds.push(graphId);
+          else draft.openGraphIds.splice(at, 0, graphId);
+        }
+        draft.activeGraphId = graphId;
+        draft.activeDefinitionNodeId = prototypeId;
+        draft.expandedGraphIds.add(graphId);
+      }));
+      return graphId;
+    },
+
+    /**
      * Sets the active graph tab without opening or closing any tabs.
      * Requires the graph to already be in `openGraphIds`. Pass `null` to clear.
      *

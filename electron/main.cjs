@@ -104,6 +104,12 @@ const agentPort = (() => {
 
 let agentServerProcess = null;
 
+// Settles when the current agent server is listening (or has exited, or never
+// started). agent:getConnection waits on it, so the renderer's first request
+// doesn't race the server's startup and log ERR_CONNECTION_REFUSED.
+let agentListening = Promise.resolve();
+const AGENT_LISTEN_WAIT_MS = 15000;
+
 // Start the agent server. A utility process (not child_process.fork with
 // ELECTRON_RUN_AS_NODE) so the runAsNode fuse can stay off.
 function startAgentServer() {
@@ -156,6 +162,10 @@ function startAgentServer() {
     return;
   }
   agentServerProcess = child;
+  agentListening = new Promise((resolve) => {
+    child.on('message', (msg) => { if (msg?.type === 'agent-listening') resolve(); });
+    child.once('exit', resolve);
+  });
 
   child.once('spawn', () => {
     console.log('[Electron] Agent server started, pid:', child.pid);
@@ -1262,10 +1272,12 @@ handle('agent:restart', async () => {
 });
 
 // C-6: where the local agent server listens, and the token it requires.
-handle('agent:getConnection', async () => ({
-  baseUrl: `http://127.0.0.1:${agentPort}`,
-  token: agentToken
-}));
+// Answered once the server is listening; capped, so a server that hangs on
+// startup still gets the ordinary failed-request path rather than a stuck page.
+handle('agent:getConnection', async () => {
+  await Promise.race([agentListening, new Promise(r => setTimeout(r, AGENT_LISTEN_WAIT_MS))]);
+  return { baseUrl: `http://127.0.0.1:${agentPort}`, token: agentToken };
+});
 
 // ============================================================
 // The Druid's local models (Settings › Debug › The Druid)

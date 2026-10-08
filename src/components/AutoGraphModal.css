@@ -261,6 +261,11 @@
 }
 
 /* Scrollbar styling for modal content */
+.autograph-modal-content {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rs-modal-scroll-thumb-hover) var(--rs-modal-scroll-track);
+}
+
 .autograph-modal-content::-webkit-scrollbar {
   width: 10px;
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Globe, RefreshCw } from 'lucide-react';
+import { Globe, RefreshCw, Key } from 'lucide-react';
 import UniverseLoadingScreen from '../UniverseLoadingScreen.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
@@ -51,6 +51,12 @@ function UniverseNotLoaded() {
   const mobileLandscapeShell = useMobileLandscapeShell();
   const typeListVisible = typeListMode !== 'closed' && !mobileLandscapeShell;
   const reconnectTarget = useCanvasUIStore(s => s.universeReconnectTarget);
+  // Set by FileAccessHost when the browser locked this universe's own file,
+  // which is then why it couldn't load.
+  const fileAccess = useCanvasUIStore(s => s.fileAccess);
+  const lockedFile = fileAccess?.file?.isSourceOfTruth && fileAccess.file.state !== 'granted'
+    ? fileAccess.file
+    : null;
 
   return (
     <div style={{
@@ -166,7 +172,22 @@ function UniverseNotLoaded() {
           border: `1px solid ${theme.canvas.border}`,
           borderRadius: '8px'
         }}>
-          {reconnectTarget ? (
+          {lockedFile ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+              <div>
+                Your browser locked {lockedFile.name}. Nothing has been changed.
+              </div>
+              <PanelIconButton
+                icon={Key}
+                size={14}
+                label="Allow access"
+                labelFontSize={13}
+                variant="solid"
+                onClick={() => ui().setFileAccessOpen(true)}
+                style={{ pointerEvents: 'auto' }}
+              />
+            </div>
+          ) : reconnectTarget ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
               <div>
                 {reconnectTarget.name} couldn&rsquo;t load from GitHub. Nothing has been changed.

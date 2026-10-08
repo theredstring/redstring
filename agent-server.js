@@ -39,6 +39,9 @@ startWizardServer()
     debugLogSync('agent-server.js:START_OK', 'Wizard started successfully', { port }, 'debug-session', 'C');
     // #endregion
     console.log(`[AgentServer] Wizard service running on port ${port}`);
+    // Electron holds the renderer's first request until this arrives, so the
+    // page never knocks on a port that isn't open yet.
+    process.parentPort?.postMessage({ type: 'agent-listening', port });
   })
   .catch(e => {
     // #region agent log

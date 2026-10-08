@@ -115,6 +115,11 @@
   border-width: 4px;
 }
 
+/* Chromium reads scrollbar-color, not the -webkit- rule above. */
+.force-sim-body:hover {
+  scrollbar-color: var(--rs-modal-scroll-thumb-hover) var(--rs-modal-scroll-track);
+}
+
 /* --- Stats box --- */
 .force-sim-stats-box {
   display: flex;

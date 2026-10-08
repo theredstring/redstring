@@ -2079,7 +2079,12 @@ const Panel = memo(
             transition: transitionStyle, // Animate transform and width
             touchAction: 'manipulation', // Override parent's touch-action: none for reliable tap handling
           }}
-          onTouchStart={(e) => e.stopPropagation()}
+          // No touchstart stopPropagation here. The panel is the canvas's
+          // sibling, not its child, so it shielded the canvas from nothing; what
+          // it did stop was the touch reaching window, where the drag backend
+          // starts a press and switches to touch — so nothing in a panel could
+          // be dragged by finger. The carousel's document listener filters by
+          // target on its own (claimsTouch).
         >
           {/* Resize Handle disabled; handled by NodeCanvas overlay */}
 

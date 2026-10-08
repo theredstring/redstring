@@ -23,12 +23,15 @@ import logo5 from './assets/redstring_button/header_logo_5.svg';
 import logo6 from './assets/redstring_button/header_logo_6.svg';
 import logo7 from './assets/redstring_button/header_logo_7.svg';
 import { requestRefresh } from './components/canvas/dialogs/refresh.js';
+import { useEdgeAutoScroll } from './hooks/useEdgeAutoScroll.js';
 
 // The one drag type in the app. A header tab's drag is the SAME gesture that
 // spawns a Thing on the canvas — the tab carries a prototype, and where you let
 // go decides what that means: over the strip it reorders, over the canvas it
-// spawns. Only tab drags carry a `graphId`, which is how the strip tells the two
-// apart from the panel's saved-node and semantic-concept drags.
+// spawns. Only drags of an open web (a tab, or a row of the left panel's Open
+// Webs list) carry a `graphId`, which is how the strip tells them apart from the
+// panel's saved-node and semantic-concept drags. The Open Webs list reads the
+// same drag the same way; see useOpenWebsDrop.
 const SPAWNABLE_NODE = 'spawnable_node';
 
 // Sentinel for the slot past the last tab. Slots are identified by the tab they
@@ -36,12 +39,24 @@ const SPAWNABLE_NODE = 'spawnable_node';
 // an index here is not an index there. See moveGraphTabBefore.
 const DROP_AT_END = '__end__';
 
-// How close to an edge of the strip a drag has to get before the strip scrolls
-// itself, and how fast it goes at the very edge. Without this a web parked
-// off-screen is unreachable by drag: the strip is 50vw-padded on both sides, and
-// on touch there is no second pointer to scroll it with.
-const TAB_AUTOSCROLL_EDGE_PX = 72;
-const TAB_AUTOSCROLL_MAX_PX_PER_FRAME = 14;
+// The slot a dragged tab already holds: no tab matches it, so no caret shows,
+// and a drop there moves nothing. Not null, so crossing into it still ticks.
+const DROP_AT_HOME = '__home__';
+
+// Where a drag scrolls the strip: a short reach inside each visible edge (the
+// logo-side and button-side controls cover the strip's real ends), and a longer
+// one past it, over the controls, where it runs at full depth. Speeds are in
+// utils/edgeAutoScroll.js. Without this a web parked off-screen is unreachable
+// by drag: the strip is 50vw-padded on both sides, and on touch there is no
+// second pointer to scroll it with.
+const TAB_AUTOSCROLL_ZONES = {
+  start: { inside: 32, outside: 72 },
+  end: { inside: 32, outside: 72 },
+};
+
+// How far below the header a drag can wander and still be scrolling the strip,
+// before it counts as having left for the canvas.
+const TAB_AUTOSCROLL_SLACK_BELOW_PX = 24;
 
 // How long the strip keeps re-centring after something changes the tabs' widths.
 // HeaderGraphTab transitions `all` over 200ms and an active tab's max-width is
@@ -785,7 +800,11 @@ const Header = ({
   // state updater — StrictMode runs updaters twice, and a double tick is audible.
   const [dropTargetId, setDropTargetId] = useState(null);
   const dropTargetRef = useRef(null);
-  const autoScrollRef = useRef({ raf: null, x: null });
+  // The dragged item while it is over the strip, so the caret can follow tabs
+  // scrolling under a pointer that has stopped moving (touch sends no hovers
+  // while the finger is still). Null once the drag is out over the buttons:
+  // the scroll carries on there, but a drop wouldn't land, so no caret.
+  const overItemRef = useRef(null);
 
   const setDropTarget = useCallback((next) => {
     if (dropTargetRef.current === next) return;
@@ -796,50 +815,82 @@ const Header = ({
     setDropTargetId(next);
   }, []);
 
-  /** Which slot a pointer x lands in: the first tab whose midpoint it hasn't passed. */
-  const computeDropTargetId = useCallback((clientX) => {
+  /**
+   * Which slot a pointer x lands in: the first tab whose midpoint it hasn't
+   * passed, or DROP_AT_HOME where the drop would change nothing. The dragged tab
+   * is not a slot of its own — the gaps either side of it are where it already
+   * is — so the caret never opens beside the tab being moved.
+   */
+  const computeDropTargetId = useCallback((clientX, movingId = null) => {
     const container = tabsScrollContainerRef.current;
     if (!container) return DROP_AT_END;
-    for (const el of container.querySelectorAll('[data-header-tab-id]')) {
-      const rect = el.getBoundingClientRect();
-      if (clientX < (rect.left + rect.right) / 2) return el.getAttribute('data-header-tab-id');
+    const tabs = Array.from(container.querySelectorAll('[data-header-tab-id]'));
+    const ids = tabs.map(el => el.getAttribute('data-header-tab-id'));
+    let found = DROP_AT_END;
+    for (let i = 0; i < tabs.length; i += 1) {
+      if (ids[i] === movingId) continue;
+      const rect = tabs[i].getBoundingClientRect();
+      if (clientX < (rect.left + rect.right) / 2) { found = ids[i]; break; }
     }
-    return DROP_AT_END;
+    const at = movingId ? ids.indexOf(movingId) : -1;
+    if (at > -1 && found === (ids[at + 1] ?? DROP_AT_END)) return DROP_AT_HOME;
+    return found;
   }, []);
 
-  const stopTabAutoScroll = useCallback(() => {
-    const raf = autoScrollRef.current.raf;
-    autoScrollRef.current.raf = null;
-    autoScrollRef.current.x = null;
-    if (!raf) return; // never started — don't touch a guard we didn't set
-    cancelAnimationFrame(raf);
-    // Release the programmatic-scroll guard a beat later, once the scroll events
-    // this loop generated have drained — otherwise the next real scroll is eaten.
-    setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
+  // The strip runs edge to edge under the logo and the action buttons, so its
+  // visible ends are their inner edges, not its own. Each layout marks its side
+  // controls with data-header-edge.
+  const getVisibleStripBounds = useCallback(() => {
+    const header = headerRef.current;
+    const strip = tabsScrollContainerRef.current;
+    if (!header || !strip) return null;
+    const rect = strip.getBoundingClientRect();
+    let lo = rect.left;
+    let hi = rect.right;
+    for (const el of header.querySelectorAll('[data-header-edge]')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0) continue;
+      if (el.getAttribute('data-header-edge') === 'left') lo = Math.max(lo, r.right);
+      else hi = Math.min(hi, r.left);
+    }
+    return hi > lo ? { lo, hi } : null;
   }, []);
 
-  const runTabAutoScroll = useCallback(() => {
-    const el = tabsScrollContainerRef.current;
-    const x = autoScrollRef.current.x;
-    if (!el || x == null) { autoScrollRef.current.raf = null; return; }
-
-    const rect = el.getBoundingClientRect();
-    let dx = 0;
-    if (x < rect.left + TAB_AUTOSCROLL_EDGE_PX) {
-      dx = -((rect.left + TAB_AUTOSCROLL_EDGE_PX - x) / TAB_AUTOSCROLL_EDGE_PX);
-    } else if (x > rect.right - TAB_AUTOSCROLL_EDGE_PX) {
-      dx = (x - (rect.right - TAB_AUTOSCROLL_EDGE_PX)) / TAB_AUTOSCROLL_EDGE_PX;
-    }
-    if (dx) {
-      // Flagged programmatic so it neither ticks the scroll detents nor arms the
-      // three-second recenter, which would yank the strip out from under the drag.
+  // Flagged programmatic so it neither ticks the scroll detents nor arms the
+  // three-second recenter, which would yank the strip out from under the drag.
+  // Released a beat after it stops, once the scroll events it generated have
+  // drained — otherwise the next real scroll is eaten.
+  const tabEdgeScroll = useEdgeAutoScroll({
+    axis: 'x',
+    zones: TAB_AUTOSCROLL_ZONES,
+    getElement: () => tabsScrollContainerRef.current,
+    getBounds: getVisibleStripBounds,
+    // The header's full height (the strip itself is only as tall as a tab),
+    // with a little room below before the drag counts as gone to the canvas.
+    getCorridor: () => {
+      const r = headerRef.current?.getBoundingClientRect();
+      return r ? { lo: r.top, hi: r.bottom + TAB_AUTOSCROLL_SLACK_BELOW_PX } : null;
+    },
+    // The strip has no scrollbar of its own, so this is the only sign of where
+    // in it the drag has got to: a thin bar along the header's foot, in the
+    // drop caret's colour, spanning the stretch of strip that is in view.
+    indicator: {
+      color: '#bdb5b5',
+      thickness: 4,
+      getCrossPosition: () => (headerRef.current?.getBoundingClientRect().bottom ?? 0) - 7,
+    },
+    onScroll: (x) => {
       isProgrammaticScroll.current = true;
-      el.scrollLeft += Math.max(-1, Math.min(1, dx)) * TAB_AUTOSCROLL_MAX_PX_PER_FRAME;
-    }
-    autoScrollRef.current.raf = requestAnimationFrame(runTabAutoScroll);
-  }, []);
+      const item = overItemRef.current;
+      if (item) setDropTarget(computeDropTargetId(x, item.graphId));
+    },
+    onStop: () => {
+      setTimeout(() => { isProgrammaticScroll.current = false; }, 50);
+    },
+  });
+  const stopTabAutoScroll = tabEdgeScroll.stop;
 
-  // A drag is a reorder only if it started on a tab of a web that is still open.
+  // A drag is a reorder only if it started on a web that is still open.
   // Everything else riding this drag type (saved Things, semantic concepts) falls
   // through to the canvas, which is the only place it means anything.
   const isReorderDrag = useCallback((item) => {
@@ -854,20 +905,21 @@ const Header = ({
       if (!isReorderDrag(item)) return;
       const offset = monitor.getClientOffset();
       if (!offset) return;
-      autoScrollRef.current.x = offset.x;
-      if (!autoScrollRef.current.raf) {
-        autoScrollRef.current.raf = requestAnimationFrame(runTabAutoScroll);
-      }
-      setDropTarget(computeDropTargetId(offset.x));
+      overItemRef.current = item;
+      tabEdgeScroll.update(offset);
+      setDropTarget(computeDropTargetId(offset.x, item.graphId));
     },
     drop: (item) => {
       stopTabAutoScroll();
+      overItemRef.current = null;
       // The slot the caret was last showing — what the user actually saw when
       // they let go, rather than a fresh measurement of a strip that is about
       // to lose the caret's 14px of gap.
       const target = dropTargetRef.current;
       setDropTarget(null);
       if (!isReorderDrag(item) || target === null) return undefined;
+      // Let go where it already was: nothing moves, but the drop is claimed.
+      if (target === DROP_AT_HOME) return { reordered: false };
       haptic('nodeDrop', { force: true });
       moveGraphTabBefore(item.graphId, target === DROP_AT_END ? null : target);
       // Claimed, so nothing downstream treats this as a spawn.
@@ -876,17 +928,16 @@ const Header = ({
     collect: (monitor) => ({
       isReorderOver: monitor.isOver() && isReorderDrag(monitor.getItem()),
     }),
-  }), [isReorderDrag, computeDropTargetId, setDropTarget, runTabAutoScroll, stopTabAutoScroll, moveGraphTabBefore]);
+  }), [isReorderDrag, computeDropTargetId, setDropTarget, tabEdgeScroll, stopTabAutoScroll, moveGraphTabBefore]);
 
-  // Dragging back out of the strip (or dropping elsewhere) takes the caret and
-  // the auto-scroll with it — react-dnd fires no "leave" of its own.
+  // Dragging back out of the strip takes the caret with it — react-dnd fires no
+  // "leave" of its own. Not the scroll: out over the buttons is where it has to
+  // keep going, and it stops itself when the drag leaves the header or ends.
   useEffect(() => {
     if (isReorderOver) return;
+    overItemRef.current = null;
     setDropTarget(null);
-    stopTabAutoScroll();
-  }, [isReorderOver, setDropTarget, stopTabAutoScroll]);
-
-  useEffect(() => () => stopTabAutoScroll(), [stopTabAutoScroll]);
+  }, [isReorderOver, setDropTarget]);
 
   /** Attaches the wheel listener and the reorder drop target to the same node. */
   const attachTabsContainer = useCallback((node) => {
@@ -1091,7 +1142,7 @@ const Header = ({
           without a z-index here it paints over the logo — the tabs would scroll
           across the top of the button rather than behind it. Same layer as the
           inline action rows; the menu itself sits higher still on its own. */}
-      <div style={{
+      <div data-header-edge="left" style={{
         position: 'relative',
         height: `${HEADER_HEIGHT}px`,
         display: 'flex',
@@ -1175,6 +1226,7 @@ const Header = ({
           exclusive mode these collapse into the hamburger menu. */}
       {!isExclusivePanelMode && (
         <div
+          data-header-edge="left"
           style={{
             position: 'absolute',
             // Anchored next to the logo. This row and the logo share one
@@ -1408,6 +1460,7 @@ const Header = ({
           one across everything, one within this web. */}
       {!isExclusivePanelMode && (
         <div
+          data-header-edge="right"
           style={{
             position: 'absolute',
             right: 0,
@@ -1494,6 +1547,7 @@ const Header = ({
           unfinished. In wide mode Settings is already an inline button. */}
       {isExclusivePanelMode && (
         <div
+          data-header-edge="left"
           className="header-action-btn"
           title="Settings"
           style={{
@@ -1557,6 +1611,7 @@ const Header = ({
       {isExclusivePanelMode && (
       <div
         ref={hamburgerWrapperRef}
+        data-header-edge="right"
         style={{
           position: 'absolute',
           right: 0,

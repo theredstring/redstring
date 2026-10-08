@@ -78,14 +78,19 @@ function PanelResizers({ controlRef }) {
   const MIN_WIDTH = PANEL_OVERLAY_MIN_WIDTH;
 
   const beginDrag = (side, clientX) => {
+    // The hover flag is what lights the bar. A mouse sets it on mouseenter, but a
+    // touch has no hover (and preventDefault suppresses the emulated mouse
+    // events), so the drag asserts it; endDrag clears it.
     if (side === 'left') {
       isDraggingLeft.current = true;
       dragStartXRef.current = clientX;
       startWidthRef.current = leftWidthRef.current;
+      setIsHoveringLeftResizer(true);
     } else {
       isDraggingRight.current = true;
       dragStartXRef.current = clientX;
       startWidthRef.current = rightWidthRef.current;
+      setIsHoveringRightResizer(true);
     }
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'col-resize';

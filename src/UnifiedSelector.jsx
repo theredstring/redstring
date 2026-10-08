@@ -493,9 +493,6 @@ const UnifiedSelector = ({
                     overflowY: 'auto',
                     padding: `${gridInnerPadding}px`,
                     minHeight: 0,
-                    // Custom scrollbar styling
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: `${theme.canvas.bg} transparent`,
                     touchAction: 'pan-y'
                   }}
                   className="unified-selector-scroll"

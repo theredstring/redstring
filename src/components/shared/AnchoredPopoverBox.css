@@ -17,7 +17,7 @@
 .anchored-popover-scroll {
   /* Firefox */
   scrollbar-width: thin;
-  scrollbar-color: maroon transparent;
+  scrollbar-color: var(--rs-scrollbar) transparent;
 }
 
 /* WebKit browsers (Chrome, Safari, Edge) */
@@ -31,13 +31,13 @@
 }
 
 .anchored-popover-scroll::-webkit-scrollbar-thumb {
-  background-color: maroon;
+  background-color: var(--rs-scrollbar);
   border-radius: 4px;
   border: none;
 }
 
 .anchored-popover-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: #a01515;
+  background-color: var(--rs-scrollbar);
 }
 
 .anchored-popover-scroll::-webkit-scrollbar-corner {

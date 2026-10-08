@@ -231,6 +231,12 @@ export function createCanvasUIDefaults() {
     universeReconnect: null,
     universeReconnectTarget: null,
     universeReconnectDismissed: false,
+    // Browser file access lost between sessions (FileAccessHost; the canvas
+    // error card reopens it). `fileAccess` is what readFileAccess() last saw
+    // when something was locked, or null: { slug, universeName, folder, file }.
+    // `fileAccessOpen` is whether the modal is up.
+    fileAccess: null,
+    fileAccessOpen: false,
     // Auto-layout solver progress, or null when nothing is running (P2.06f):
     // { progress: 0..1, nodeCount, estimatedMs }. Written by useGraphLayout,
     // read by the progress indicator in ForceSimHost.
@@ -557,6 +563,8 @@ const useCanvasUIStore = create((set, get) => ({
   setUniverseReconnect: fieldSetter(set, 'universeReconnect'),
   setUniverseReconnectTarget: fieldSetter(set, 'universeReconnectTarget'),
   setUniverseReconnectDismissed: fieldSetter(set, 'universeReconnectDismissed'),
+  setFileAccess: fieldSetter(set, 'fileAccess'),
+  setFileAccessOpen: fieldSetter(set, 'fileAccessOpen'),
   setLayoutProgress: fieldSetter(set, 'layoutProgress'),
   setLeftPanelWidth: fieldSetter(set, 'leftPanelWidth'),
   setRightPanelWidth: fieldSetter(set, 'rightPanelWidth'),

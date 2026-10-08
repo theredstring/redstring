@@ -191,12 +191,12 @@ header .editable-title-input {
 }
 
 .panel-content::-webkit-scrollbar-track {
-  background: rgba(38, 0, 0, 0.05); /* Very subtle track background for hover target */
+  background: var(--rs-scrollbar-track); /* Very subtle track background for hover target */
   border-radius: 4px;
 }
 
 .panel-content::-webkit-scrollbar-thumb {
-  background-color: rgba(38, 0, 0, 0.1); /* Start at 10% opacity as requested */
+  background-color: var(--rs-scrollbar-rest); /* Faint until hovered or scrolled */
   border-radius: 4px;
   border: 6px solid transparent; /* Create visual 8px thumb with larger hitbox */
   background-clip: content-box;
@@ -207,21 +207,36 @@ header .editable-title-input {
 /* Scrollbar fade effect for Firefox */
 .panel-content {
   scrollbar-width: thin;
-  scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+  scrollbar-color: var(--rs-scrollbar-rest) var(--rs-scrollbar-track);
   transition: scrollbar-color 0.3s ease;
 }
 
 /* JavaScript-based hover detection using class */
 .panel-content.hovering-scrollbar::-webkit-scrollbar-thumb,
 .panel-content.scrolling::-webkit-scrollbar-thumb {
-  background-color: #260000; /* Full opacity on hover or scroll */
+  background-color: var(--rs-scrollbar); /* Full colour on hover or scroll */
   border-width: 4px; /* Expand to 12px visual width */
 }
 
 /* Firefox hover states */
 .panel-content.hovering-scrollbar,
 .panel-content.scrolling {
-  scrollbar-color: #260000 rgba(38, 0, 0, 0.1);
+  scrollbar-color: var(--rs-scrollbar) var(--rs-scrollbar-track);
+}
+
+/* While a drag edge-scrolls the panel it draws its own position thumb
+   (utils/edgeScrollIndicator.js); the native one steps aside so the two don't
+   double up. After the hover/scrolling rules above, which it has to beat. */
+.panel-content[data-edge-autoscrolling]::-webkit-scrollbar-thumb,
+.panel-content[data-edge-autoscrolling].scrolling::-webkit-scrollbar-thumb,
+.panel-content[data-edge-autoscrolling].hovering-scrollbar::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+.panel-content[data-edge-autoscrolling],
+.panel-content[data-edge-autoscrolling].scrolling,
+.panel-content[data-edge-autoscrolling].hovering-scrollbar {
+  scrollbar-color: transparent transparent;
 }
 
 /* Hide content elements when panel is collapsed */

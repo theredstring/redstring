@@ -69,12 +69,12 @@
 }
 
 .alpha-modal-content::-webkit-scrollbar-track {
-  background: rgba(38, 0, 0, 0.05);
+  background: var(--rs-scrollbar-track);
   border-radius: 4px;
 }
 
 .alpha-modal-content::-webkit-scrollbar-thumb {
-  background-color: rgba(38, 0, 0, 0.1);
+  background-color: var(--rs-scrollbar-rest);
   border-radius: 4px;
   border: 6px solid transparent;
   background-clip: content-box;
@@ -84,17 +84,17 @@
 
 .alpha-modal-content:hover::-webkit-scrollbar-thumb,
 .alpha-modal-content.scrolling::-webkit-scrollbar-thumb {
-  background-color: #260000;
+  background-color: var(--rs-scrollbar);
   border-width: 4px;
 }
 
 /* Firefox scrollbar */
 .alpha-modal-content {
   scrollbar-width: thin;
-  scrollbar-color: rgba(38, 0, 0, 0.1) rgba(38, 0, 0, 0.05);
+  scrollbar-color: var(--rs-scrollbar-rest) var(--rs-scrollbar-track);
   transition: scrollbar-color 0.3s ease;
 }
 
 .alpha-modal-content.scrolling {
-  scrollbar-color: #260000 rgba(38, 0, 0, 0.1);
+  scrollbar-color: var(--rs-scrollbar) var(--rs-scrollbar-track);
 }

@@ -2,6 +2,8 @@ import React, { Profiler, memo, useCallback, useEffect, useMemo, useRef } from '
 import SaveStatusDisplay from '../../../SaveStatusDisplay';
 import StorageSetupModal from '../../StorageSetupModal.jsx';
 import GitReconnectModal from '../../modals/GitReconnectModal.jsx';
+import FileAccessHost from './FileAccessHost.jsx';
+import { activeLoadBlockedByFileAccess } from '../../../services/fileAccessRecovery.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import * as fileStorage from '../../../store/fileStorage.js';
@@ -51,6 +53,8 @@ function UniverseHost() {
   const setReconnectTarget = useCanvasUIStore(s => s.setUniverseReconnectTarget);
   const reconnectDismissed = useCanvasUIStore(s => s.universeReconnectDismissed), setReconnectDismissed = useCanvasUIStore(s => s.setUniverseReconnectDismissed);
   const reconnect = useCanvasUIStore(s => s.universeReconnect), setReconnect = useCanvasUIStore(s => s.setUniverseReconnect);
+  // FileAccessHost's modal, which the Git one waits behind.
+  const fileAccessOpen = useCanvasUIStore(s => s.fileAccessOpen);
 
   const resolveGitReconnectTarget = useCallback(async () => {
     const { default: universeBackend } = await import('../../../services/universeBackend.js');
@@ -74,8 +78,14 @@ function UniverseHost() {
       return undefined;
     }
     let cancelled = false;
-    resolveGitReconnectTarget().then((target) => {
+    // A local-first universe whose file the browser locked is not a GitHub
+    // problem, even when it also has a repository: FileAccessHost owns it.
+    Promise.all([
+      resolveGitReconnectTarget(),
+      activeLoadBlockedByFileAccess().catch(() => false)
+    ]).then(([gitTarget, lockedLocally]) => {
       if (cancelled) return;
+      const target = lockedLocally ? null : gitTarget;
       setReconnectTarget(target);
       if (target && !reconnectDismissed) {
         setReconnect((open) => open || { mode: 'load', ...target });
@@ -482,8 +492,12 @@ function UniverseHost() {
 
       {/* GitHub reconnect — a Git-backed universe failed to load. Yields to
           onboarding, which owns the screen when it's up. */}
+      {/* Browser file access lost between sessions. Also yields to
+          onboarding; the Git modal waits behind it. */}
+      <FileAccessHost suppressed={showStorageSetupModal} />
+
       <GitReconnectModal
-        isVisible={!!reconnect && !showStorageSetupModal}
+        isVisible={!!reconnect && !showStorageSetupModal && !fileAccessOpen}
         mode={reconnect?.mode || 'load'}
         loaded={!universeLoadingError && !isUniverseLoading}
         onClose={() => {

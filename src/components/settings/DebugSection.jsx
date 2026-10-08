@@ -5,6 +5,7 @@ import { getStorageKey } from '../../utils/storageUtils.js';
 import debugConfig from '../../utils/debugConfig.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import DialogGallery from './DialogGallery.jsx';
+import ModalGallery from './ModalGallery.jsx';
 import PaletteEditor from './PaletteEditor.jsx';
 import DruidWarningDialog from './DruidWarningDialog.jsx';
 
@@ -273,6 +274,18 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
         Opening one here uses stand-in data and changes nothing.
       </div>
       <DialogGallery />
+
+      <hr className="settings-section-divider" />
+
+      <div className="settings-section-subtitle">Modals</div>
+      <div
+        className="settings-row-description"
+        style={{ marginTop: '-4px', marginBottom: '8px', lineHeight: 1.5 }}
+      >
+        The full-screen ones that stand between someone and their universe. Stand-in data again;
+        nothing is asked of the browser.
+      </div>
+      <ModalGallery />
 
       <hr className="settings-section-divider" />
 
