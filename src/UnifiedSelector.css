@@ -2,7 +2,6 @@
 .unified-selector-scroll {
   /* Firefox */
   scrollbar-width: thin;
-  scrollbar-color: var(--rs-scrollbar) transparent;
 }
 
 /* WebKit browsers (Chrome, Safari, Edge) */

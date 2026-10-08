@@ -8,6 +8,7 @@ import './index.css'
 import { DndProvider } from 'react-dnd'
 import { TouchBackend } from 'react-dnd-touch-backend'
 import DragSessionGuards from './components/DragSessionGuards.jsx'
+import { installScrollbarActivity } from './utils/scrollbarActivity.js'
 
 // Initialize debug configuration early
 import './utils/debugConfig.js'
@@ -71,6 +72,9 @@ const dragOptions = {
   // And then move this far, so a held tap (or a click) still clicks.
   touchSlop: 6,
 }
+
+// Every scrollbar's faint/full state (index.css).
+installScrollbarActivity()
 
 const mountApp = () => {
   ReactDOM.createRoot(document.getElementById('root')).render(

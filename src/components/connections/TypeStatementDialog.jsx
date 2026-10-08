@@ -71,6 +71,8 @@ const TypeStatementDialog = ({
       }}
       footer={
         <>
+          {/* The way out, apart from the three ways in. */}
+          <DialogButton label="Cancel" onClick={onClose} style={{ marginRight: 'auto' }} />
           <DialogButton label="Both" disabled={typeBlocked} onClick={() => choose('both')} />
           <DialogButton label="In the Web" onClick={() => choose('web')} />
           <DialogButton label="As the Type" tone="accent" disabled={typeBlocked} onClick={() => choose('type')} />

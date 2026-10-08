@@ -471,10 +471,6 @@ const Panel = memo(
     // From the UI store, not a prop: the memo comparator ignored the prop, so the
     // panel could show a stale definition (B-08, P2.03).
     const nodeDefinitionIndices = useCanvasUIStore(s => s.nodeDefinitionIndices);
-    const [isScrolling, setIsScrolling] = useState(false);
-    const [isHoveringScrollbar, setIsHoveringScrollbar] = useState(false);
-    const scrollTimeoutRef = useRef(null);
-    const scrollbarHoverTimeoutRef = useRef(null);
     panelRenderCount++; // Increment counter
 
     // Get theme colors
@@ -1411,58 +1407,6 @@ const Panel = memo(
       };
     }, [handleResizeMouseMove, handleResizeTouchMove, handleResizeMouseUp]);
 
-    // Scrollbar hover detection
-    const handleScrollbarMouseEnter = useCallback((e) => {
-      // Check if mouse is over the scrollbar area (right edge of the element)
-      const rect = e.currentTarget.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const scrollbarWidth = 20; // Should match CSS scrollbar width
-
-      if (mouseX >= rect.width - scrollbarWidth) {
-        setIsHoveringScrollbar(true);
-        if (scrollbarHoverTimeoutRef.current) {
-          clearTimeout(scrollbarHoverTimeoutRef.current);
-        }
-      }
-    }, []);
-
-    const handleScrollbarMouseMove = useCallback((e) => {
-      // Check if mouse is still over the scrollbar area
-      const rect = e.currentTarget.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const scrollbarWidth = 20; // Should match CSS scrollbar width
-
-      const isOverScrollbar = mouseX >= rect.width - scrollbarWidth;
-
-      if (isOverScrollbar && !isHoveringScrollbar) {
-        setIsHoveringScrollbar(true);
-        if (scrollbarHoverTimeoutRef.current) {
-          clearTimeout(scrollbarHoverTimeoutRef.current);
-        }
-      } else if (!isOverScrollbar && isHoveringScrollbar) {
-        // Start timeout to fade scrollbar after leaving
-        scrollbarHoverTimeoutRef.current = setTimeout(() => {
-          setIsHoveringScrollbar(false);
-        }, 300); // 300ms delay before fading
-      }
-    }, [isHoveringScrollbar]);
-
-    const handleScrollbarMouseLeave = useCallback(() => {
-      // Start timeout to fade scrollbar after leaving the element
-      scrollbarHoverTimeoutRef.current = setTimeout(() => {
-        setIsHoveringScrollbar(false);
-      }, 300); // 300ms delay before fading
-    }, []);
-
-    // Cleanup scrollbar hover timeout on unmount
-    useEffect(() => {
-      return () => {
-        if (scrollbarHoverTimeoutRef.current) {
-          clearTimeout(scrollbarHoverTimeoutRef.current);
-        }
-      };
-    }, []);
-
     // <<< Add Effect to reset animation state after transition >>>
     useEffect(() => {
       let timeoutId = null;
@@ -2313,20 +2257,8 @@ const Panel = memo(
 
           {/* Content Area */}
           <div
-            className={`panel-content ${isScrolling ? 'scrolling' : ''} ${isHoveringScrollbar ? 'hovering-scrollbar' : ''}`}
+            className="panel-content"
             style={{ flex: 1, paddingBottom: effectiveBottomPadding, touchAction: 'pan-y' }}
-            onScroll={() => {
-              setIsScrolling(true);
-              if (scrollTimeoutRef.current) {
-                clearTimeout(scrollTimeoutRef.current);
-              }
-              scrollTimeoutRef.current = setTimeout(() => {
-                setIsScrolling(false);
-              }, 1500);
-            }}
-            onMouseEnter={handleScrollbarMouseEnter}
-            onMouseMove={handleScrollbarMouseMove}
-            onMouseLeave={handleScrollbarMouseLeave}
           >
             {panelContent}
             {/* LeftAIView stays mounted (hidden when not active) to preserve wizard sessions */}

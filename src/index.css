@@ -71,20 +71,36 @@ body {
 
 /* Scrollbar colours, one pair for the whole app: the default red on light, and
    the lighter rose of that red on dark, the same pair as the outline buttons in
-   the right panel (Pull from Wikipedia at rest). Always this colour: no faint
-   resting state, no dimming while dragging.
+   the right panel (Pull from Wikipedia at rest). No track background.
 
-   The root scrollbar-color is inherited, so every scroll region without its own
-   styling picks the pair up. In Chromium a non-auto scrollbar-color also turns
-   off ::-webkit-scrollbar rules underneath it, so regions that want a thin bar
-   say scrollbar-width: thin themselves; their -webkit- rules remain for Safari. */
+   One state for every scrollbar: faint at rest, full while its region scrolls,
+   while the pointer is on the bar, and while the bar is held for a drag. The
+   state is kept by utils/scrollbarActivity.js on [data-rs-scrollbar]. Regions
+   don't set scrollbar-color themselves; set on every element, not inherited,
+   so a nested scroller keeps its own state. In Chromium a non-auto
+   scrollbar-color turns off ::-webkit-scrollbar rules, which remain for Safari. */
 :root {
   --rs-scrollbar: #8B0000;
-  scrollbar-color: var(--rs-scrollbar) transparent;
+  --rs-scrollbar-faint: rgba(139, 0, 0, 0.1);
 }
 
 html.dark-mode {
   --rs-scrollbar: #C09191;
+  --rs-scrollbar-faint: rgba(192, 145, 145, 0.15);
+}
+
+* {
+  scrollbar-color: var(--rs-scrollbar-faint) transparent;
+}
+
+[data-rs-scrollbar="active"] {
+  scrollbar-color: var(--rs-scrollbar) transparent;
+}
+
+/* The fade, at no specificity: a region with a transition of its own keeps it
+   (and loses only the fade). */
+:where([data-rs-scrollbar]) {
+  transition: scrollbar-color 0.3s ease;
 }
 
 /* Ensure all interactive elements allow text selection where needed */
