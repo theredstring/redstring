@@ -26,9 +26,6 @@ import {
  * type row's two buttons beside it: open in the panel, open as a web.
  */
 
-/** A made Web's card is no wider than this; the chat column can be. */
-const WEB_CARD_MAX_WIDTH = 340;
-
 /** Room the two buttons take beside a row's drawing. */
 const ACTIONS_WIDTH = 74;
 /** Rows a card shows before "Show N more". */
@@ -196,10 +193,10 @@ const DraggableTriplet = ({ row, width }) => {
   );
 };
 
-const WebEntity = ({ row, width, expanded, onOverflowChange }) => {
+const WebEntity = ({ row, expanded, onOverflowChange }) => {
   const thing = useGraphStore(s => (row.thingId ? s.nodePrototypes.get(row.thingId) || null : null));
   return (
-    <div className="entity-web" style={{ width: Math.min(width, WEB_CARD_MAX_WIDTH) }}>
+    <div className="entity-web">
       <DraggableWebCard row={row} />
       <EntityActions
         name={row.name}
@@ -220,7 +217,7 @@ const WebEntity = ({ row, width, expanded, onOverflowChange }) => {
 };
 
 const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
-  if (row.kind === 'web') return <WebEntity row={row} width={width} expanded={expanded} onOverflowChange={onOverflowChange} />;
+  if (row.kind === 'web') return <WebEntity row={row} expanded={expanded} onOverflowChange={onOverflowChange} />;
   // Narrow: the buttons go under the drawing, which then has the whole width,
   // rather than squeezing in beside it (a chip kept a 140px floor, so a narrow
   // card pushed its buttons past the edge).

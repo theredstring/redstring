@@ -6814,8 +6814,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
       // Ensure the right panel is open so the navigated-to node is visible.
       // Centralizes the "open panel on double-click navigation" behavior for
-      // all call sites (carousel, canvas nodes, panel lists, etc.).
+      // all call sites (carousel, canvas nodes, panel lists, etc.). While the
+      // panels are exclusive it swaps, as setRightPanelExpanded does: left open
+      // too, NodeCanvas's guard closed the right one again, so an "open in
+      // panel" from the left panel did nothing at narrow widths.
       draft.rightPanelExpanded = true;
+      if (panelsAreExclusive(draft)) draft.leftPanelExpanded = false;
     })),
 
     /**
@@ -6845,7 +6849,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           isActive: true
         });
       }
+      // Swaps while the panels are exclusive, as openRightPanelNodeTab does.
       draft.rightPanelExpanded = true;
+      if (panelsAreExclusive(draft)) draft.leftPanelExpanded = false;
     })),
 
     /**

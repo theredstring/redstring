@@ -33,8 +33,8 @@ export function openThingInPanel(thingId) {
 export function openWebInPanel(graphId) {
   const st = useGraphStore.getState();
   if (!st.graphs.has(graphId)) return;
+  // Opens the right panel itself, swapping with this one at narrow widths.
   st.openRightPanelGraphTab?.(graphId, webThingId(st.graphs.get(graphId), st.nodePrototypes));
-  if (!useGraphStore.getState().rightPanelExpanded) st.setRightPanelExpanded?.(true);
 }
 
 const flyTo = (thingId, graphId, rect) => {
