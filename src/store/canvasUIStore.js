@@ -275,6 +275,8 @@ export function createCanvasUIDefaults() {
     activePieMenuItemForVision: null,
     /** @type {string|null} Node a connection being drawn would attach to on release. */
     connectionDropTargetId: null,
+    /** @type {string|null} Connection a Thing dragged onto the canvas would define on release. */
+    spawnDropEdgeId: null,
 
     // gamepad focus outputs (F-47 #13). 'canvas' is `MODE.CANVAS` in
     // useGamepad; the literal avoids importing a hook module into a store.
@@ -605,6 +607,7 @@ const useCanvasUIStore = create((set, get) => ({
   setHoveredConnectionForVision: fieldSetter(set, 'hoveredConnectionForVision'),
   setActivePieMenuItemForVision: fieldSetter(set, 'activePieMenuItemForVision'),
   setConnectionDropTargetId: fieldSetter(set, 'connectionDropTargetId'),
+  setSpawnDropEdgeId: fieldSetter(set, 'spawnDropEdgeId'),
 
   // gamepad focus
   setGamepadMode: fieldSetter(set, 'gamepadMode'),

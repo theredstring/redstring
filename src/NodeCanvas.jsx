@@ -41,7 +41,7 @@ import { createCameraController } from './components/canvas/camera/cameraControl
 import { createPointerHandlers } from './components/canvas/input/pointerHandlers.js';
 import { runCullingPass, ENABLE_CULLING } from './components/canvas/data/culling.js';
 import { LABEL_ANGLE_QUANTUM, LABEL_ANGLE_QUANTUM_MIN_COUNT, LABEL_ANGLE_QUANTUM_ALWAYS_STYLES, CURVED_LABEL_BUDGET, EMPTY_OBSTACLES, LABEL_CROSSING_BUDGET } from './components/canvas/edges/labelBudgets.js';
-import { handleCanvasDrop } from './components/canvas/actions/canvasDrop.js';
+import { canvasDropSpec } from './components/canvas/actions/canvasDrop.js';
 import { frameInstancesOfPrototype } from './components/canvas/camera/navigateToInstances.js';
 import { buildNodePieMenuPages, buildTargetPieMenuButtons, buildDecomposePanelInfo } from './components/canvas/pie/nodePieButtons.js';
 import { buildCanvasContextMenuOptions, buildNodeContextMenuOptions } from './components/canvas/menus/contextMenus.jsx';
@@ -2306,10 +2306,10 @@ function NodeCanvas() {
 
   const [, drop] = useDrop(() => ({
     accept: SPAWNABLE_NODE,
-    drop: (item, monitor) => handleCanvasDrop({
+    ...canvasDropSpec(() => ({
       activeGraphId, containerRef, clientToCanvasCoordinates, nodePrototypesMap, storeActions, gridMode,
-      snapToGridAnimated, selectedInstanceIds,
-    }, item, monitor),
+      snapToGridAnimated, selectedInstanceIds, findEdgeAtClientPointRef,
+    })),
   }), [activeGraphId, clientToCanvasCoordinates, nodePrototypesMap, storeActions, gridMode, snapToGridAnimated]);
 
   const setCanvasAreaRef = useCallback(node => {

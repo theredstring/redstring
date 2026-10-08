@@ -108,6 +108,7 @@ export function renderConnectionEdge(edge, ctx) {
     selectedEdgeIds,
     selectedInstanceIds,
     showConnectionNames,
+    spawnDropEdgeId,
     storeActions,
     textSettings,
     visibleNodeIds,
@@ -143,7 +144,7 @@ export function renderConnectionEdge(edge, ctx) {
   eAnchorInfo = anchorInfoFacing(eAnchorInfo, sourceNode, sNodeDims);
 
   if (edge.sourceId === edge.destinationId) {
-    const isHovered = !draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id;
+    const isHovered = (!draggingNodeInfo && hoveredEdgeInfo?.edgeId === edge.id) || spawnDropEdgeId === edge.id;
     const isSelected = selectedEdgeId === edge.id || selectedEdgeIds.has(edge.id);
     let selfColor = sourceNode.color || NODE_DEFAULT_COLOR;
     let selfConnectionName = 'Connection';
@@ -250,6 +251,10 @@ export function renderConnectionEdge(edge, ctx) {
   // through this flag — which stays true across the drag — keeps a selected
   // edge's dots tracking the moving node in lockstep with its arrowheads.
   const isActive = isHovered || isSelected;
+  // A Thing dragged over this connection would define it on release: the
+  // glow alone says so, without hover's endpoint dots.
+  const isDropTarget = spawnDropEdgeId === edge.id;
+  const glowOpacity = (isSelected || isDropTarget) ? "0.3" : "0.2";
 
 
 
@@ -668,14 +673,14 @@ export function renderConnectionEdge(edge, ctx) {
       <g clipPath={shellClipId ? `url(#${shellClipId})` : undefined}>
       {/* Main edge line - always same thickness */}
       {/* Glow effect for selected or hovered edge */}
-      {(isSelected || isHovered) && (
+      {(isSelected || isHovered || isDropTarget) && (
         orthoRouting ? (
           <path
             d={orthoPathD}
             fill="none"
             stroke={edgeColor}
             strokeWidth={20 * connectionWidth}
-            opacity={isSelected ? "0.3" : "0.2"}
+            opacity={glowOpacity}
             style={{
               filter: `drop-shadow(0 0 8px ${edgeColor})`
             }}
@@ -687,7 +692,7 @@ export function renderConnectionEdge(edge, ctx) {
             fill="none"
             stroke={edgeColor}
             strokeWidth={20 * connectionWidth}
-            opacity={isSelected ? "0.3" : "0.2"}
+            opacity={glowOpacity}
             style={{
               filter: `drop-shadow(0 0 8px ${edgeColor})`
             }}
@@ -701,7 +706,7 @@ export function renderConnectionEdge(edge, ctx) {
             y2={lineEndY}
             stroke={edgeColor}
             strokeWidth={20 * connectionWidth}
-            opacity={isSelected ? "0.3" : "0.2"}
+            opacity={glowOpacity}
             style={{
               filter: `drop-shadow(0 0 8px ${edgeColor})`
             }}
@@ -1239,7 +1244,7 @@ export function renderConnectionEdge(edge, ctx) {
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* Glow effect for arrow - only when selected or hovered */}
-                {(isSelected || isHovered) && (
+                {(isSelected || isHovered || isDropTarget) && (
                   <polygon
                     points="-18,23 18,23 0,-23"
                     fill={edgeColor}
@@ -1247,7 +1252,7 @@ export function renderConnectionEdge(edge, ctx) {
                     strokeWidth="8"
                     strokeLinejoin="round"
                     strokeLinecap="round"
-                    opacity={isSelected ? "0.3" : "0.2"}
+                    opacity={glowOpacity}
                     style={{
                       filter: `drop-shadow(0 0 6px ${edgeColor})`
                     }}
@@ -1275,7 +1280,7 @@ export function renderConnectionEdge(edge, ctx) {
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 {/* Glow effect for arrow - only when selected or hovered */}
-                {(isSelected || isHovered) && (
+                {(isSelected || isHovered || isDropTarget) && (
                   <polygon
                     points="-18,23 18,23 0,-23"
                     fill={edgeColor}
@@ -1283,7 +1288,7 @@ export function renderConnectionEdge(edge, ctx) {
                     strokeWidth="8"
                     strokeLinejoin="round"
                     strokeLinecap="round"
-                    opacity={isSelected ? "0.3" : "0.2"}
+                    opacity={glowOpacity}
                     style={{
                       filter: `drop-shadow(0 0 6px ${edgeColor})`
                     }}

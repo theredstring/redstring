@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useDragLayer }from 'react-dnd';
 import useGraphStore from './store/graphStore.js';
+import useCanvasUIStore from './store/canvasUIStore.js';
 import { haptic } from './services/haptics.js';
 import Node from './Node.jsx';
 import { getNodeDimensions } from './utils.js';
@@ -51,6 +52,19 @@ const SpawningNodeDragLayer = () => {
         spawnLiftedRef.current = active;
         if (active) haptic('nodeLift');
     }, [isDragging, itemType]);
+
+    // The canvas's drop hover lights the connection a release would define
+    // (spawnDropEdgeId) but never hears the pointer leave, so the glow is put
+    // out here: when the drag ends, or when it moves off the canvas.
+    const pointerX = currentOffset?.x;
+    const pointerY = currentOffset?.y;
+    useEffect(() => {
+        const { spawnDropEdgeId, setSpawnDropEdgeId } = useCanvasUIStore.getState();
+        if (!spawnDropEdgeId) return;
+        const overCanvas = isDragging && pointerX != null
+            && document.elementFromPoint(pointerX, pointerY)?.closest?.('.canvas-area');
+        if (!overCanvas) setSpawnDropEdgeId(null);
+    }, [isDragging, pointerX, pointerY]);
 
     const node = useGraphStore(state => (item?.prototypeId ? state.nodePrototypes.get(item.prototypeId) : null));
 

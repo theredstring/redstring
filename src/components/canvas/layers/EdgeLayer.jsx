@@ -27,6 +27,7 @@ import BoxMorphLayer from './BoxMorphLayer.jsx';
  */
 export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShellsByDepth, nestedRegularGroupsByDepth, edgePerfRef }) {
   const hoveredEdgeInfo = useCanvasUIStore((s) => s.hoveredEdgeInfo);
+  const spawnDropEdgeId = useCanvasUIStore((s) => s.spawnDropEdgeId);
   // --- Connection z-order -------------------------------------------------
   // A connection paints at the level of its DEEPER endpoint — see
   // buildEdgeZSlotIndex / edgeZSlotFor in groupLayout.js for the rule and
@@ -53,7 +54,7 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
     new Set([...edgesBySlot.keys(), ...shellDepths, ...nestedRegularGroupsByDepth.keys()])
   ).sort((a, b) => a - b);
 
-  const edgeRenderCtx = { ...ctx, hoveredEdgeInfo };
+  const edgeRenderCtx = { ...ctx, hoveredEdgeInfo, spawnDropEdgeId };
 
   // Hover-only renders. When NodeCanvas hasn't rendered since this layer's last
   // pass (same ctx object, same edges and slots), the only thing that can have
@@ -62,6 +63,8 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
   // like this. So only the connection losing hover and the one gaining it are
   // re-rendered; every other connection gets back the element it produced last
   // time, and React skips it. Anything else takes the full pass, in order.
+  // The spawn-drop glow (spawnDropEdgeId) is hover by another name and rides
+  // the same shortcut.
   const hoveredId = hoveredEdgeInfo?.edgeId ?? null;
   const lastPassRef = useRef(null);
   const last = lastPassRef.current;
@@ -71,7 +74,8 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
   const elements = new Map();
   const renderEdge = (edge) => {
     let element;
-    if (hoverOnly && edge.id !== hoveredId && edge.id !== last.hoveredId && last.elements.has(edge.id)) {
+    if (hoverOnly && edge.id !== hoveredId && edge.id !== last.hoveredId
+      && edge.id !== spawnDropEdgeId && edge.id !== last.spawnDropEdgeId && last.elements.has(edge.id)) {
       element = last.elements.get(edge.id);
     } else {
       element = renderConnectionEdge(edge, edgeRenderCtx);
@@ -81,7 +85,7 @@ export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShel
   };
   lastPassRef.current = {
     ctx, visibleEdges, edgeZSlots, shells: nodeGroupShellsByDepth, nested: nestedRegularGroupsByDepth,
-    hoveredId, elements,
+    hoveredId, spawnDropEdgeId, elements,
   };
 
   return (
