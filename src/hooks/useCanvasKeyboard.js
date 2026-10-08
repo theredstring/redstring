@@ -340,10 +340,15 @@ export const useCanvasKeyboard = ({
             const panSensitivity = keyboardSettings?.panSensitivity ?? 0.5;
             const currentPanSpeed = KEYBOARD_PAN_SPEED * (panSensitivity * 2) * frameRatio;
 
-            if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) panDx += currentPanSpeed;
-            if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) panDx -= currentPanSpeed;
-            if (keysPressed.current['ArrowUp'] || keysPressed.current['w']) panDy += currentPanSpeed;
-            if (keysPressed.current['ArrowDown'] || keysPressed.current['s']) panDy -= currentPanSpeed;
+            // WASD/arrows do nothing while Cmd/Ctrl is held: there they are
+            // shortcut keys (Cmd+A, Cmd+S, Cmd+W...), never a pan. That covers
+            // a pan key already held when the modifier goes down, too.
+            if (!cmdOrCtrlHeldRef.current) {
+                if (keysPressed.current['ArrowLeft'] || keysPressed.current['a']) panDx += currentPanSpeed;
+                if (keysPressed.current['ArrowRight'] || keysPressed.current['d']) panDx -= currentPanSpeed;
+                if (keysPressed.current['ArrowUp'] || keysPressed.current['w']) panDy += currentPanSpeed;
+                if (keysPressed.current['ArrowDown'] || keysPressed.current['s']) panDy -= currentPanSpeed;
+            }
 
             if (gamepad) {
                 panDx += gamepad.panDx;

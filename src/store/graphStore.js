@@ -1615,6 +1615,8 @@ const saveCoordinatorMiddleware = (config) => {
      * @param {function} fn - Synchronous function performing the writes.
      */
     const withHistoryTransaction = (label, fn, { domain = null } = {}) => {
+      // Nested: the writes join the transaction already open, one undo step.
+      if (historyTxn) return fn();
       flushHistoryBatch(); // close whatever was open
       historyTxn = { id: uuidv4(), label, domain };
       try {

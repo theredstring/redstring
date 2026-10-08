@@ -14,7 +14,7 @@ vi.mock('../../src/services/canvasNavigationService.js', () => ({ navigateToNode
 import useGraphStore from '../../src/store/graphStore.js';
 import { estimateEdgeLabelWidth, resolveEdgeLabelFontSize } from '../../src/services/layoutGeometry.js';
 import {
-  findPrototypeForConcept, ensureConceptPrototype, placeConcept, placeConnections, clustersOf, findPlacement, hasConnection
+  findPrototypeForConcept, ensureConceptPrototype, placeConcept, placeConnections, placeStatement, clustersOf, findPlacement, hasConnection
 } from '../../src/services/semanticPlacement.js';
 import useHistoryStore from '../../src/store/historyStore.js';
 import { performUndo } from '../../src/store/historyActions.js';
@@ -255,5 +255,70 @@ describe('semanticPlacement', () => {
     performUndo();
     expect(st().graphs.get(graphId).instances.size).toBe(instances - 3);
     expect(st().graphs.get(graphId).edgeIds.length).toBe(edges - 3);
+  });
+  describe('one statement, whichever ends are here', () => {
+    const paris = { id: 'p-paris', name: 'Paris' };
+    const instancesOf = (protoId) => [...st().graphs.get(graphId).instances.values()].filter((i) => i.prototypeId === protoId);
+    const centreOf = (inst) => {
+      const box = clustersOf(graphId).boxes.get(inst.id);
+      return { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+    };
+
+    it('with the Thing here, drops the other end where it was let go, joined to the nearest instance', () => {
+      st().addNodeInstance(graphId, 'p-paris', { x: 3000, y: 3000 }, 'i-paris-2');
+      const res = placeStatement({
+        graphId, seed: paris, seedPrototypeId: 'p-paris', concept: concept('France', 'Q142'),
+        predicate: 'country', direction: 'out', at: { x: 3200, y: 3100 }
+      });
+      expect(res.seedInstanceId).toBe('i-paris-2');
+      const placed = st().graphs.get(graphId).instances.get(res.instanceId);
+      const centre = centreOf(placed);
+      expect(centre.x).toBeCloseTo(3200);
+      expect(centre.y).toBeCloseTo(3100);
+      const edge = st().edges.get(res.edgeId);
+      expect([edge.sourceId, edge.destinationId]).toEqual(['i-paris-2', res.instanceId]);
+    });
+
+    it('with both ends here, only links them, wherever it was dropped', () => {
+      const before = st().graphs.get(graphId).instances.size;
+      const res = placeStatement({
+        graphId, seed: paris, seedPrototypeId: 'p-paris', concept: concept('Seine', 'Q1471'),
+        predicate: 'Located Next To Body Of Water', at: { x: 5000, y: 5000 }
+      });
+      expect(res).toMatchObject({ linked: true, instanceId: 'i-seine', seedInstanceId: 'i-paris' });
+      expect(st().graphs.get(graphId).instances.size).toBe(before);
+    });
+
+    it('with only the other end here, brings the Thing in beside it, the statement still reading the right way', () => {
+      const lyon = concept('Lyon', 'Q456');
+      const res = placeStatement({ graphId, seed: lyon, concept: { name: 'Seine' }, predicate: 'Near', direction: 'out' });
+      expect(res.instanceId).toBe('i-seine');
+      expect(res.linked).toBe(true);
+      const lyonInst = st().graphs.get(graphId).instances.get(res.seedInstanceId);
+      expect(st().nodePrototypes.get(lyonInst.prototypeId).name).toBe('Lyon');
+      const edge = st().edges.get(res.edgeId);
+      expect([edge.sourceId, edge.destinationId]).toEqual([res.seedInstanceId, 'i-seine']);
+    });
+
+    it('with neither here, brings both in, joined, as one step to undo', () => {
+      st().flushHistoryBatch();
+      const before = useHistoryStore.getState().history.length;
+      const instances = st().graphs.get(graphId).instances.size;
+      const res = placeStatement({
+        graphId, seed: concept('Lyon', 'Q456'), concept: concept('Rhône', 'Q602'),
+        predicate: 'Located Next To Body Of Water', direction: 'out', at: { x: -4000, y: -4000 }
+      });
+      expect(st().graphs.get(graphId).instances.size).toBe(instances + 2);
+      // The Thing lands at the drop, the other end beside it.
+      const centre = centreOf(st().graphs.get(graphId).instances.get(res.seedInstanceId));
+      expect(centre.x).toBeCloseTo(-4000);
+      const edge = st().edges.get(res.edgeId);
+      expect([edge.sourceId, edge.destinationId]).toEqual([res.seedInstanceId, res.instanceId]);
+      expect(instancesOf(res.prototypeId)).toHaveLength(1);
+
+      expect(useHistoryStore.getState().history.length).toBe(before + 1);
+      performUndo();
+      expect(st().graphs.get(graphId).instances.size).toBe(instances);
+    });
   });
 });

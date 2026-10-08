@@ -32,6 +32,9 @@ const GraphListItem = forwardRef(({
   // However, as per instructions, it is added faithfully. It might cause a runtime error.
   // const Icon = RENDERER_PRESETS[node.prototypeId]?.icon || Circle;
   const [isHovered, setIsHovered] = useState(false);
+  const [isCloseHovered, setIsCloseHovered] = useState(false);
+  // The X unmounts with the active state, so no mouseleave clears its hover.
+  useEffect(() => { if (!isActive) setIsCloseHovered(false); }, [isActive]);
   const nodePrototypes = useGraphStore(state => state.nodePrototypes);
 
   // Get the defining node's name for fallback matching
@@ -149,27 +152,31 @@ const GraphListItem = forwardRef(({
 
       {/* Add Close Button Conditionally */}
       {isActive && (
+        // Light-filled circle on a black disc. Its hover is PanelIconButton's
+        // (the pie bubble's): light gray disc, maroon ring and icon, 1.1 grow.
         <XCircle
           size={24}
+          color={isCloseHovered ? theme.accent.primary : 'black'}
+          fill="#DEDADA"
           style={{
             position: 'absolute',
             top: '0px',
             right: '0px',
-            transform: 'translate(40%, -40%)',
+            transform: `translate(40%, -40%) scale(${isCloseHovered ? 1.1 : 1})`,
             cursor: 'pointer',
-            color: theme.canvas.bg,
-
-            backgroundColor: 'black',
+            backgroundColor: isCloseHovered ? '#DEDADA' : 'black',
+            boxShadow: isCloseHovered ? `0 0 0 3px ${theme.accent.primary}` : 'none',
             borderRadius: '50%',
             padding: '6px',
-            zIndex: 2
+            zIndex: 2,
+            transition: 'transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease'
           }}
           onClick={(e) => {
             e.stopPropagation(); // Prevent triggering item onClick
             onClose?.(graphData.id); // Call onClose prop with graph ID
           }}
-          onMouseEnter={(e) => e.currentTarget.style.color = '#EFE8E5'}
-          onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.bg}
+          onMouseEnter={() => setIsCloseHovered(true)}
+          onMouseLeave={() => setIsCloseHovered(false)}
 
           title="Close Tab"
         />

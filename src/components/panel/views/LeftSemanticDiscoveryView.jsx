@@ -1305,260 +1305,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           </div>
         </div>
 
-        {CATALOG_ENABLED && viewMode === 'catalog' && (
-          <div
-            style={{
-              border: '1px solid rgba(38,0,0,0.18)',
-              borderRadius: 12,
-              padding: '10px 12px',
-              background: 'transparent',
-              marginBottom: 14,
-              boxShadow: '0 6px 18px rgba(0,0,0,0.04)',
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: 12, fontWeight: 'bold', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
-                Wikidata Slice (feeds Orbit & All Things)
-              </div>
-              {catalogLoading && (
-                <div style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.hover, padding: '4px 8px', borderRadius: 10 }}>
-                  Loading…
-                </div>
-              )}
-              <button
-                onClick={handleLoadCatalog}
-                disabled={isSearching || catalogLoading}
-                style={{
-                  background: isSearching || catalogLoading ? theme.canvas.inactive : theme.accent.primary,
-                  color: getTextColor(theme.accent.primary, theme.darkMode),
-                  border: 'none',
-                  borderRadius: 10,
-                  padding: '6px 12px',
-                  fontSize: 11,
-                  minWidth: 140,
-                  cursor: isSearching || catalogLoading ? 'wait' : 'pointer',
-                  boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
-                  opacity: isSearching || catalogLoading ? 0.7 : 1
-                }}
-                title="Load a scoped Wikidata slice into the local catalog"
-              >
-                {catalogLoading ? 'Loading…' : 'Load Wikidata slice'}
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: availableSeedCount > 0 ? theme.canvas.textSecondary : theme.accent.primary, marginTop: -6 }}>
-              {availableSeedCount > 0
-                ? `Available seeds from current graphs: ${availableSeedCount}`
-                : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
-                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Seeds from graph</span>
-                  <span style={{ fontWeight: 'bold' }}>{catalogParams.seedCount}</span>
-                </span>
-                <input
-                  type="range"
-                  min={1}
-                  max={500}
-                  value={catalogParams.seedCount}
-                  onChange={(e) => handleParamChange('seedCount', Number(e.target.value))}
-                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
-                  title="How many current prototypes to seed the slice with"
-                />
-                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Start with top N prototypes from the active web/selection.</span>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
-                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Max depth</span>
-                  <span style={{ fontWeight: 'bold' }}>{catalogParams.maxDepth}</span>
-                </span>
-                <input
-                  type="range"
-                  min={1}
-                  max={3}
-                  value={catalogParams.maxDepth}
-                  onChange={(e) => handleParamChange('maxDepth', Number(e.target.value))}
-                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
-                  title="How many hops away to pull related entities"
-                />
-                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Expansion hops from each seed.</span>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
-                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Entities per level</span>
-                  <span style={{ fontWeight: 'bold' }}>{catalogParams.maxEntitiesPerLevel}</span>
-                </span>
-                <input
-                  type="range"
-                  min={5}
-                  max={50}
-                  value={catalogParams.maxEntitiesPerLevel}
-                  onChange={(e) => handleParamChange('maxEntitiesPerLevel', Number(e.target.value))}
-                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
-                  title="Max related entities collected per hop"
-                />
-                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Per-hop breadth cap.</span>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
-                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Predicate cap</span>
-                  <span style={{ fontWeight: 'bold' }}>{catalogParams.predicateCap}</span>
-                </span>
-                <input
-                  type="range"
-                  min={3}
-                  max={20}
-                  value={catalogParams.predicateCap}
-                  onChange={(e) => handleParamChange('predicateCap', Number(e.target.value))}
-                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
-                  title="Max properties kept per entity"
-                />
-                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Keeps only the top predicates per entity.</span>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
-                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Entity cap</span>
-                  <span style={{ fontWeight: 'bold' }}>{catalogParams.entityCap.toLocaleString()}</span>
-                </span>
-                <input
-                  type="range"
-                  min={500}
-                  max={500000}
-                  step={500}
-                  value={catalogParams.entityCap}
-                  onChange={(e) => handleParamChange('entityCap', Number(e.target.value))}
-                  style={{ accentColor: theme.accent.primary, background: 'transparent' }}
-                  title="Hard stop on total entities ingested"
-                />
-                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Global limit to keep the slice lean.</span>
-              </label>
-              <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
-                <span style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Seed strategy</span>
-                  <span style={{ fontWeight: 'bold' }}>{catalogParams.seedStrategy === 'graph' ? 'From graph' : 'Random primer'}</span>
-                </span>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    onClick={() => handleParamChange('seedStrategy', 'graph')}
-                    style={{
-                      flex: 1,
-                      padding: '6px 8px',
-                      borderRadius: 8,
-                      border: `1px solid ${theme.accent.primary}`,
-                      background: catalogParams.seedStrategy === 'graph' ? theme.accent.primary : 'transparent',
-                      color: catalogParams.seedStrategy === 'graph' ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textPrimary,
-                      cursor: 'pointer',
-                      fontSize: 12
-                    }}
-                    title="Seed from current graph/selection nodes"
-                  >
-                    From graph
-                  </button>
-                  <button
-                    onClick={() => handleParamChange('seedStrategy', 'random')}
-                    style={{
-                      flex: 1,
-                      padding: '6px 8px',
-                      borderRadius: 8,
-                      border: `1px solid ${theme.accent.primary}`,
-                      background: catalogParams.seedStrategy === 'random' ? theme.accent.primary : 'transparent',
-                      color: catalogParams.seedStrategy === 'random' ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textPrimary,
-                      cursor: 'pointer',
-                      fontSize: 12
-                    }}
-                    title="Seed using a random primer when the graph is sparse"
-                  >
-                    Random primer
-                  </button>
-                </div>
-                <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>
-                  Use current web as seeds or let the loader pick a random primer if the graph is empty.
-                </span>
-              </label>
-            </div>
-            <div style={{ fontSize: 11, color: theme.canvas.textSecondary, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <div title="Estimated unique entities ingested">≈ {estimateCatalog.entities.toLocaleString()} entities</div>
-              <div title="Estimated statements stored locally">≈ {estimateCatalog.triples.toLocaleString()} triples</div>
-              <div title="Approximate on-disk footprint">~ {estimateCatalog.sizeMB} MB on disk</div>
-              <div title="Likely results surfaced per search in this slice">~ {estimateCatalog.perSearchResults} results / search</div>
-              {catalogStatus && <div style={{ color: theme.canvas.textPrimary, fontWeight: 'bold' }}>{catalogStatus}</div>}
-            </div>
-            {catalogLoading && (
-              <div style={{ marginTop: 6 }}>
-                <div style={{ height: 8, borderRadius: 10, background: 'rgba(139,0,0,0.15)', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
-                      background: theme.accent.primary,
-                      transition: 'width 0.4s ease',
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-            {(catalogLoading || catalogLog.length > 0) && (
-              <div
-                style={{
-                  marginTop: 8,
-                  border: '1px solid rgba(38,0,0,0.12)',
-                  borderRadius: 10,
-                  padding: '8px 10px',
-                  background: theme.canvas.hover,
-                  maxHeight: 150,
-                  overflow: 'auto'
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 'bold', color: theme.canvas.textPrimary }}>
-                    Import log
-                  </div>
-                  <button
-                    onClick={() => {
-                      const text = catalogLog.map((e) => `${e.ts.toISOString()} - ${e.msg}`).join('\n');
-                      if (text && navigator.clipboard?.writeText) {
-                        navigator.clipboard.writeText(text).catch(() => { });
-                      }
-                    }}
-                    style={{
-                      background: 'transparent',
-                      border: `1px solid ${theme.accent.primary}`,
-                      color: theme.accent.primary,
-                      borderRadius: 8,
-                      padding: '4px 8px',
-                      fontSize: 10,
-                      cursor: 'pointer'
-                    }}
-                    title="Copy import log to clipboard"
-                  >
-                    Copy
-                  </button>
-                </div>
-                {catalogLog.length === 0 && (
-                  <div style={{ fontSize: 11, color: theme.canvas.textSecondary }}>Waiting for events…</div>
-                )}
-                {catalogLog.length > 0 && (
-                  <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {catalogLog.slice().reverse().map((entry, idx) => (
-                      <li
-                        key={`${entry.ts.toISOString()}-${idx}`}
-                        style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.bg, borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
-                      >
-                        <div style={{ fontSize: 10, color: theme.canvas.textSecondary }}>{entry.ts.toLocaleTimeString()}</div>
-                        <div>{entry.msg}</div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         {viewMode === 'discover' && focusedConcept ? (
           <ConceptDetailView
             concept={focusedConcept}
@@ -1584,372 +1330,644 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             onOpenConcept={(next) => openConceptPage(next, { follow: true })}
             onSearch={triggerSearchFromConcept}
           />
-        ) : viewMode === 'discover' && (
-          <>
-            {/* Enhanced Context Display */}
-            {(contexts.panel || contexts.graph || selectedNode) && (
-              <div className="contexts-display" style={{ marginBottom: '16px' }}>
-                {/* One wrapping row of chips. Each is only as wide as its label,
-                    so two short names sit side by side and a long one takes the
-                    row to itself. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
-                  {contexts.panel && (
-                    <QuickSearchChip
-                      color={contexts.panel.nodeData?.color || theme.accent.primary}
-                      label={contexts.panel.nodeName}
-                      busy={isSearching}
-                      title="Quick search from Panel context"
-                      onClick={() => {
-                        const query = contexts.panel.nodeName;
-                        if (query.trim()) {
-                          performSearch(query);
-                        }
-                      }}
-                    />
-                  )}
-
-                  {contexts.graph && (
-                    <QuickSearchChip
-                      color={contexts.graph.nodeData?.color || '#4B0082'}
-                      label={contexts.graph.nodeName}
-                      busy={isSearching}
-                      title="Quick search from Graph context"
-                      onClick={() => {
-                        const query = contexts.graph.nodeName;
-                        if (query.trim()) {
-                          performSearch(query);
-                        }
-                      }}
-                    />
-                  )}
-
-                  {selectedNode && (
-                    <QuickSearchChip
-                      color={(nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'}
-                      label={nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
-                      busy={isSearching}
-                      title="Quick search from Selected"
-                      onClick={() => {
-                        const nodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
-                        if (nodePrototype?.name) {
-                          performSearch(nodePrototype.name);
-                        }
-                      }}
-                    />
-                  )}
+        ) : (
+          // Everything under the title scrolls as one: the quick-search chips,
+          // the search bar and its Concepts / Related toggle go up with the
+          // results, so a short (mobile) panel isn't left with a sliver of list
+          // under a fixed search block. The cards' hover (a 3px ring and a
+          // slight grow) reaches past their edges and this box clips at its
+          // own: 8px of room, pulled back out so everything stays lined up.
+          <div
+            className="semantic-discovery-scroll"
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              margin: '0 -8px',
+              padding: `0 8px ${resultsBottomClearance}px`,
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+          {CATALOG_ENABLED && viewMode === 'catalog' && (
+            <div
+              style={{
+                border: '1px solid rgba(38,0,0,0.18)',
+                borderRadius: 12,
+                padding: '10px 12px',
+                background: 'transparent',
+                marginBottom: 14,
+                boxShadow: '0 6px 18px rgba(0,0,0,0.04)',
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 12, fontWeight: 'bold', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
+                  Wikidata Slice (feeds Orbit & All Things)
                 </div>
-              </div>
-            )}
-
-            {/* Manual Search Bar - Always visible */}
-            <div style={{ marginBottom: '16px' }}>
-              <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
-                Search Semantic Web
-              </div>
-
-              {/* What the search is FOR. Concepts is the default because it
-                  answers the question people actually arrive with — what could
-                  this word mean — and answers it in one round trip.
-                  `active` on the chosen one borrows the pie-menu lit state, so
-                  selected and hovered read as the same visual language. */}
-              <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
-                <PanelIconButton
-                  icon={Circle}
-                  size={15}
-                  label="Concepts"
-                  labelFontSize={11}
-                  variant="outline"
-                  active={searchMode === 'concepts'}
-                  onClick={() => setSearchMode('concepts')}
-                  title="What this could refer to"
-                />
-                <PanelIconButton
-                  icon={Waypoints}
-                  size={15}
-                  label="Related"
-                  labelFontSize={11}
-                  variant="outline"
-                  active={searchMode === 'related'}
-                  onClick={() => setSearchMode('related')}
-                  title="Things connected to it"
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                <input
-                  type="text"
-                  value={manualQuery}
-                  onChange={(e) => setManualQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
-                  // Says what the current mode will actually do with it.
-                  placeholder={searchMode === 'concepts' ? 'Search Anything' : 'Search Related'}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    padding: '9px 16px',
-                    border: `1px solid ${theme.canvas.border}`,
-                    borderRadius: '20px',
-                    fontSize: '13px',
-                    fontFamily: "'EmOne', sans-serif",
-                    background: 'transparent',
-                    color: theme.canvas.textPrimary,
-                    boxSizing: 'border-box',
-                    outline: 'none'
-                  }}
-                />
-                <PanelIconButton
-                  icon={isSearching ? Loader2 : Search}
-                  size={16}
-                  onClick={handleManualSearch}
-                  disabled={isSearching || !manualQuery?.trim()}
-                  title="Search"
-                  className={isSearching ? 'rs-spin' : ''}
-                />
-              </div>
-            </div>
-
-
-
-            {/* Concept Results - Regular Search. The cards' hover (a 3px ring
-                and a slight grow) reaches past their edges, and this scroll box
-                clips at its own: 8px of room, pulled back out so the cards stay
-                lined up. */}
-            {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
-              <div className="discovered-concepts" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', margin: '0 -8px', padding: `4px 8px ${resultsBottomClearance}px` }}>
-                <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                  Discovered Concepts ({discoveredConcepts.length})
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-                  {discoveredConcepts.map((concept, index) => (
-                    <DraggableConceptCard
-                      key={concept.id}
-                      concept={concept}
-                      index={index}
-                      onMaterialize={materializeConcept}
-                      onUnsave={unsaveConcept}
-                      onSelect={setSelectedConcept}
-                      onFocus={(concept) => openConceptPage(concept)}
-                      isSelected={selectedConcept?.id === concept.id}
-                    />
-                  ))}
-                </div>
-
-                {/* Load More Button */}
-                {discoveredConcepts.length >= 10 && canLoadMore && (
-                  <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
-                    <PanelIconButton
-                      icon={isSearching ? Loader2 : ChevronDown}
-                      size={14}
-                      label={isSearching ? 'Loading…' : 'Load More'}
-                      labelPosition="left"
-                      labelFontSize={11}
-                      variant="outline"
-                      onClick={handleLoadMore}
-                      disabled={isSearching}
-                      className={isSearching ? 'rs-spin' : ''}
-                    />
+                {catalogLoading && (
+                  <div style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.hover, padding: '4px 8px', borderRadius: 10 }}>
+                    Loading…
                   </div>
                 )}
+                <button
+                  onClick={handleLoadCatalog}
+                  disabled={isSearching || catalogLoading}
+                  style={{
+                    background: isSearching || catalogLoading ? theme.canvas.inactive : theme.accent.primary,
+                    color: getTextColor(theme.accent.primary, theme.darkMode),
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '6px 12px',
+                    fontSize: 11,
+                    minWidth: 140,
+                    cursor: isSearching || catalogLoading ? 'wait' : 'pointer',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.12)',
+                    opacity: isSearching || catalogLoading ? 0.7 : 1
+                  }}
+                  title="Load a scoped Wikidata slice into the local catalog"
+                >
+                  {catalogLoading ? 'Loading…' : 'Load Wikidata slice'}
+                </button>
               </div>
-            )}
-
-            {/* Loading indicator for regular search */}
-            {isSearching && !expandingNodeId && discoveredConcepts.length === 0 && (
-              <div className="semantic-search-loading" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: '20px' }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  border: `3px solid ${theme.canvas.border}`,
-
-                  borderTop: `3px solid ${theme.accent.primary}`,
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite',
-                  marginBottom: '12px',
-                  flexShrink: 0
-                }} />
-                <div style={{
-                  fontSize: '12px',
-                  color: theme.canvas.textPrimary,
-                  fontFamily: "'EmOne', sans-serif",
-                  fontWeight: 'bold',
-                  marginBottom: '8px'
-                }}>
-                  Searching semantic web...
-                </div>
-                <div style={{
-                  fontSize: '10px',
-                  color: theme.canvas.textSecondary,
-                  fontFamily: "'EmOne', sans-serif",
-                  textAlign: 'center'
-                }}>
-                  {searchProgress || 'Please wait while we find related concepts'}
-                </div>
+              <div style={{ fontSize: 11, color: availableSeedCount > 0 ? theme.canvas.textSecondary : theme.accent.primary, marginTop: -6 }}>
+                {availableSeedCount > 0
+                  ? `Available seeds from current graphs: ${availableSeedCount}`
+                  : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
               </div>
-            )}
-
-            {/* Loading indicator for semantic expansion */}
-            {isSearching && expandingNodeId && semanticExpansionResults.length === 0 && (
-              <div className="semantic-expansion-loading" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-                <div style={{
-                  fontSize: '24px',
-                  marginBottom: '8px',
-                  animation: 'pulse 1.5s ease-in-out infinite'
-                }}>
-                  ⚡
-                </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#228B22',
-                  fontFamily: "'EmOne', sans-serif",
-                  fontWeight: 'bold',
-                  marginBottom: '4px'
-                }}>
-                  Expanding semantic web...
-                </div>
-                <div style={{
-                  fontSize: '10px',
-                  color: theme.canvas.textSecondary,
-                  fontFamily: "'EmOne', sans-serif"
-                }}>
-                  Finding related concepts for {nodePrototypesMap.get(expandingNodeId)?.name}
-                </div>
-              </div>
-            )}
-
-            {/* Semantic Expansion Results - Ghost Node Halo */}
-            {semanticExpansionResults.length > 0 && expandingNodeId && (
-              <div className="semantic-expansion-halo" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: resultsBottomClearance }}>
-                <div style={{ marginBottom: '12px', fontSize: '12px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                  ⭐ Semantic Expansion ({semanticExpansionResults.length} related concepts)
-                </div>
-
-                {/* Expanding Node Info */}
-                <div style={{
-                  marginBottom: '12px',
-                  padding: '8px',
-                  background: 'rgba(34,139,34,0.1)',
-                  borderRadius: '6px',
-                  border: '1px solid rgba(34,139,34,0.2)'
-                }}>
-                  <div style={{ fontSize: '10px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                    Expanding: {nodePrototypesMap.get(expandingNodeId)?.name || 'Selected Node'}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Seeds from graph</span>
+                    <span style={{ fontWeight: 'bold' }}>{catalogParams.seedCount}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={500}
+                    value={catalogParams.seedCount}
+                    onChange={(e) => handleParamChange('seedCount', Number(e.target.value))}
+                    style={{ accentColor: theme.accent.primary, background: 'transparent' }}
+                    title="How many current prototypes to seed the slice with"
+                  />
+                  <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Start with top N prototypes from the active web/selection.</span>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Max depth</span>
+                    <span style={{ fontWeight: 'bold' }}>{catalogParams.maxDepth}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={3}
+                    value={catalogParams.maxDepth}
+                    onChange={(e) => handleParamChange('maxDepth', Number(e.target.value))}
+                    style={{ accentColor: theme.accent.primary, background: 'transparent' }}
+                    title="How many hops away to pull related entities"
+                  />
+                  <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Expansion hops from each seed.</span>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Entities per level</span>
+                    <span style={{ fontWeight: 'bold' }}>{catalogParams.maxEntitiesPerLevel}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={50}
+                    value={catalogParams.maxEntitiesPerLevel}
+                    onChange={(e) => handleParamChange('maxEntitiesPerLevel', Number(e.target.value))}
+                    style={{ accentColor: theme.accent.primary, background: 'transparent' }}
+                    title="Max related entities collected per hop"
+                  />
+                  <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Per-hop breadth cap.</span>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Predicate cap</span>
+                    <span style={{ fontWeight: 'bold' }}>{catalogParams.predicateCap}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={3}
+                    max={20}
+                    value={catalogParams.predicateCap}
+                    onChange={(e) => handleParamChange('predicateCap', Number(e.target.value))}
+                    style={{ accentColor: theme.accent.primary, background: 'transparent' }}
+                    title="Max properties kept per entity"
+                  />
+                  <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Keeps only the top predicates per entity.</span>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Entity cap</span>
+                    <span style={{ fontWeight: 'bold' }}>{catalogParams.entityCap.toLocaleString()}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={500}
+                    max={500000}
+                    step={500}
+                    value={catalogParams.entityCap}
+                    onChange={(e) => handleParamChange('entityCap', Number(e.target.value))}
+                    style={{ accentColor: theme.accent.primary, background: 'transparent' }}
+                    title="Hard stop on total entities ingested"
+                  />
+                  <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>Global limit to keep the slice lean.</span>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>
+                  <span style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Seed strategy</span>
+                    <span style={{ fontWeight: 'bold' }}>{catalogParams.seedStrategy === 'graph' ? 'From graph' : 'Random primer'}</span>
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => handleParamChange('seedStrategy', 'graph')}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        borderRadius: 8,
+                        border: `1px solid ${theme.accent.primary}`,
+                        background: catalogParams.seedStrategy === 'graph' ? theme.accent.primary : 'transparent',
+                        color: catalogParams.seedStrategy === 'graph' ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textPrimary,
+                        cursor: 'pointer',
+                        fontSize: 12
+                      }}
+                      title="Seed from current graph/selection nodes"
+                    >
+                      From graph
+                    </button>
+                    <button
+                      onClick={() => handleParamChange('seedStrategy', 'random')}
+                      style={{
+                        flex: 1,
+                        padding: '6px 8px',
+                        borderRadius: 8,
+                        border: `1px solid ${theme.accent.primary}`,
+                        background: catalogParams.seedStrategy === 'random' ? theme.accent.primary : 'transparent',
+                        color: catalogParams.seedStrategy === 'random' ? getTextColor(theme.accent.primary, theme.darkMode) : theme.canvas.textPrimary,
+                        cursor: 'pointer',
+                        fontSize: 12
+                      }}
+                      title="Seed using a random primer when the graph is sparse"
+                    >
+                      Random primer
+                    </button>
                   </div>
-                  <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginTop: '2px' }}>
-                    Drag concepts to canvas or click to add to library
-                  </div>
-                </div>
-
-                {/* Ghost Node Grid */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
-                  gap: '8px',
-                  marginBottom: '12px'
-                }}>
-                  {semanticExpansionResults.map((concept, index) => (
-                    <GhostSemanticNode
-                      key={concept.id}
-                      concept={concept}
-                      index={index}
-                      onMaterialize={materializeConcept}
-                      onSelect={() => {
-                        // Auto-materialize on selection
-                        materializeConcept(concept);
+                  <span style={{ fontSize: 10, color: theme.canvas.textSecondary }}>
+                    Use current web as seeds or let the loader pick a random primer if the graph is empty.
+                  </span>
+                </label>
+              </div>
+              <div style={{ fontSize: 11, color: theme.canvas.textSecondary, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div title="Estimated unique entities ingested">≈ {estimateCatalog.entities.toLocaleString()} entities</div>
+                <div title="Estimated statements stored locally">≈ {estimateCatalog.triples.toLocaleString()} triples</div>
+                <div title="Approximate on-disk footprint">~ {estimateCatalog.sizeMB} MB on disk</div>
+                <div title="Likely results surfaced per search in this slice">~ {estimateCatalog.perSearchResults} results / search</div>
+                {catalogStatus && <div style={{ color: theme.canvas.textPrimary, fontWeight: 'bold' }}>{catalogStatus}</div>}
+              </div>
+              {catalogLoading && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ height: 8, borderRadius: 10, background: 'rgba(139,0,0,0.15)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
+                        background: theme.accent.primary,
+                        transition: 'width 0.4s ease',
                       }}
                     />
-                  ))}
+                  </div>
                 </div>
-
-                {/* Controls */}
-                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                  <button
-                    onClick={() => {
-                      // Clear expansion results
-                      setSemanticExpansionResults([]);
-                      setExpandingNodeId(null);
-                    }}
-                    style={{
-                      padding: '6px 12px',
-                      border: `1px solid ${theme.canvas.textSecondary}`,
-                      borderRadius: '4px',
-                      background: 'transparent',
-                      color: theme.canvas.textSecondary,
-                      fontSize: '10px',
-                      cursor: 'pointer',
-                      fontFamily: "'EmOne', sans-serif"
-                    }}
-                  >
-                    Clear Expansion
-                  </button>
-                  <button
-                    onClick={() => {
-                      // Materialize all concepts
-                      semanticExpansionResults.forEach(concept => materializeConcept(concept));
-                      setSemanticExpansionResults([]);
-                      setExpandingNodeId(null);
-                    }}
-                    style={{
-                      padding: '6px 12px',
-                      border: '1px solid #228B22',
-                      borderRadius: '4px',
-                      background: '#228B22',
-                      color: getTextColor(theme.accent.primary, theme.darkMode),
-                      fontSize: '10px',
-                      cursor: 'pointer',
-                      fontFamily: "'EmOne', sans-serif",
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    Add All to Library
-                  </button>
+              )}
+              {(catalogLoading || catalogLog.length > 0) && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    border: '1px solid rgba(38,0,0,0.12)',
+                    borderRadius: 10,
+                    padding: '8px 10px',
+                    background: theme.canvas.hover,
+                    maxHeight: 150,
+                    overflow: 'auto'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ fontSize: 11, fontWeight: 'bold', color: theme.canvas.textPrimary }}>
+                      Import log
+                    </div>
+                    <button
+                      onClick={() => {
+                        const text = catalogLog.map((e) => `${e.ts.toISOString()} - ${e.msg}`).join('\n');
+                        if (text && navigator.clipboard?.writeText) {
+                          navigator.clipboard.writeText(text).catch(() => { });
+                        }
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: `1px solid ${theme.accent.primary}`,
+                        color: theme.accent.primary,
+                        borderRadius: 8,
+                        padding: '4px 8px',
+                        fontSize: 10,
+                        cursor: 'pointer'
+                      }}
+                      title="Copy import log to clipboard"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  {catalogLog.length === 0 && (
+                    <div style={{ fontSize: 11, color: theme.canvas.textSecondary }}>Waiting for events…</div>
+                  )}
+                  {catalogLog.length > 0 && (
+                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {catalogLog.slice().reverse().map((entry, idx) => (
+                        <li
+                          key={`${entry.ts.toISOString()}-${idx}`}
+                          style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.bg, borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
+                        >
+                          <div style={{ fontSize: 10, color: theme.canvas.textSecondary }}>{entry.ts.toLocaleTimeString()}</div>
+                          <div>{entry.msg}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-              </div>
-            )}
-          </>
-        )}
-
-
-        {viewMode === 'history' && (
-          <div className="search-history-view" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: resultsBottomClearance }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <div style={{ fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                Discovery History ({searchHistory.length})
-              </div>
-              {searchHistory.length > 0 && (
-                <PanelIconButton
-                  icon={Trash2}
-                  size={15}
-                  onClick={handleClearHistory}
-                  title="Clear all history"
-                />
               )}
             </div>
-            {searchHistory.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '12px', fontFamily: "'EmOne', sans-serif" }}>
-                No discoveries yet. Searches and the pages you open show up here.
+          )}
+
+            {viewMode === 'discover' && (
+            <>
+              {/* Enhanced Context Display */}
+              {(contexts.panel || contexts.graph || selectedNode) && (
+                <div className="contexts-display" style={{ marginBottom: '16px' }}>
+                  {/* One wrapping row of chips. Each is only as wide as its label,
+                      so two short names sit side by side and a long one takes the
+                      row to itself. */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                    {contexts.panel && (
+                      <QuickSearchChip
+                        color={contexts.panel.nodeData?.color || theme.accent.primary}
+                        label={contexts.panel.nodeName}
+                        busy={isSearching}
+                        title="Quick search from Panel context"
+                        onClick={() => {
+                          const query = contexts.panel.nodeName;
+                          if (query.trim()) {
+                            performSearch(query);
+                          }
+                        }}
+                      />
+                    )}
+
+                    {contexts.graph && (
+                      <QuickSearchChip
+                        color={contexts.graph.nodeData?.color || '#4B0082'}
+                        label={contexts.graph.nodeName}
+                        busy={isSearching}
+                        title="Quick search from Graph context"
+                        onClick={() => {
+                          const query = contexts.graph.nodeName;
+                          if (query.trim()) {
+                            performSearch(query);
+                          }
+                        }}
+                      />
+                    )}
+
+                    {selectedNode && (
+                      <QuickSearchChip
+                        color={(nodePrototypesMap.get(selectedNode.prototypeId)?.color) || '#228B22'}
+                        label={nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
+                        busy={isSearching}
+                        title="Quick search from Selected"
+                        onClick={() => {
+                          const nodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
+                          if (nodePrototype?.name) {
+                            performSearch(nodePrototype.name);
+                          }
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Search Bar - Always visible */}
+              <div style={{ marginBottom: '16px' }}>
+                <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
+                  Search Semantic Web
+                </div>
+
+                {/* What the search is FOR. Concepts is the default because it
+                    answers the question people actually arrive with — what could
+                    this word mean — and answers it in one round trip.
+                    `active` on the chosen one borrows the pie-menu lit state, so
+                    selected and hovered read as the same visual language. */}
+                <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
+                  <PanelIconButton
+                    icon={Circle}
+                    size={15}
+                    label="Concepts"
+                    labelFontSize={11}
+                    variant="outline"
+                    active={searchMode === 'concepts'}
+                    onClick={() => setSearchMode('concepts')}
+                    title="What this could refer to"
+                  />
+                  <PanelIconButton
+                    icon={Waypoints}
+                    size={15}
+                    label="Related"
+                    labelFontSize={11}
+                    variant="outline"
+                    active={searchMode === 'related'}
+                    onClick={() => setSearchMode('related')}
+                    title="Things connected to it"
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={manualQuery}
+                    onChange={(e) => setManualQuery(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
+                    // Says what the current mode will actually do with it.
+                    placeholder={searchMode === 'concepts' ? 'Search Anything' : 'Search Related'}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      padding: '9px 16px',
+                      border: `1px solid ${theme.canvas.border}`,
+                      borderRadius: '20px',
+                      fontSize: '13px',
+                      fontFamily: "'EmOne', sans-serif",
+                      background: 'transparent',
+                      color: theme.canvas.textPrimary,
+                      boxSizing: 'border-box',
+                      outline: 'none'
+                    }}
+                  />
+                  <PanelIconButton
+                    icon={isSearching ? Loader2 : Search}
+                    size={16}
+                    onClick={handleManualSearch}
+                    disabled={isSearching || !manualQuery?.trim()}
+                    title="Search"
+                    className={isSearching ? 'rs-spin' : ''}
+                  />
+                </div>
               </div>
-            ) : (
-              searchHistory.map(historyItem => (
-                <HistoryItem
-                  key={historyItem.id}
-                  item={historyItem}
-                  onDelete={handleDeleteHistoryItem}
-                  onOpen={(item) => {
-                    if (item.kind === 'concept') {
-                      openConceptPage(item.concept);
-                      return;
-                    }
-                    // Back to that search's results — off any concept page that
-                    // was open, or the list would change unseen beneath it.
-                    setFocusedConcept(null);
-                    setNavigationStack([]);
-                    setManualQuery(item.query);
-                    setDiscoveredConcepts(item.concepts || []);
-                    setViewMode('discover');
-                  }}
-                />
-              ))
-            )}
+
+
+
+              {/* Concept Results - Regular Search */}
+              {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
+                <div className="discovered-concepts">
+                  <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                    Discovered Concepts ({discoveredConcepts.length})
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                    {discoveredConcepts.map((concept, index) => (
+                      <DraggableConceptCard
+                        key={concept.id}
+                        concept={concept}
+                        index={index}
+                        onMaterialize={materializeConcept}
+                        onUnsave={unsaveConcept}
+                        onSelect={setSelectedConcept}
+                        onFocus={(concept) => openConceptPage(concept)}
+                        isSelected={selectedConcept?.id === concept.id}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Load More Button */}
+                  {discoveredConcepts.length >= 10 && canLoadMore && (
+                    <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+                      <PanelIconButton
+                        icon={isSearching ? Loader2 : ChevronDown}
+                        size={14}
+                        label={isSearching ? 'Loading…' : 'Load More'}
+                        labelPosition="left"
+                        labelFontSize={11}
+                        variant="outline"
+                        onClick={handleLoadMore}
+                        disabled={isSearching}
+                        className={isSearching ? 'rs-spin' : ''}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Loading indicator for regular search */}
+              {isSearching && !expandingNodeId && discoveredConcepts.length === 0 && (
+                <div className="semantic-search-loading" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', padding: '20px' }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
+                    border: `3px solid ${theme.canvas.border}`,
+
+                    borderTop: `3px solid ${theme.accent.primary}`,
+                    borderRadius: '50%',
+                    animation: 'spin 1s linear infinite',
+                    marginBottom: '12px',
+                    flexShrink: 0
+                  }} />
+                  <div style={{
+                    fontSize: '12px',
+                    color: theme.canvas.textPrimary,
+                    fontFamily: "'EmOne', sans-serif",
+                    fontWeight: 'bold',
+                    marginBottom: '8px'
+                  }}>
+                    Searching semantic web...
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    color: theme.canvas.textSecondary,
+                    fontFamily: "'EmOne', sans-serif",
+                    textAlign: 'center'
+                  }}>
+                    {searchProgress || 'Please wait while we find related concepts'}
+                  </div>
+                </div>
+              )}
+
+              {/* Loading indicator for semantic expansion */}
+              {isSearching && expandingNodeId && semanticExpansionResults.length === 0 && (
+                <div className="semantic-expansion-loading" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                  <div style={{
+                    fontSize: '24px',
+                    marginBottom: '8px',
+                    animation: 'pulse 1.5s ease-in-out infinite'
+                  }}>
+                    ⚡
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#228B22',
+                    fontFamily: "'EmOne', sans-serif",
+                    fontWeight: 'bold',
+                    marginBottom: '4px'
+                  }}>
+                    Expanding semantic web...
+                  </div>
+                  <div style={{
+                    fontSize: '10px',
+                    color: theme.canvas.textSecondary,
+                    fontFamily: "'EmOne', sans-serif"
+                  }}>
+                    Finding related concepts for {nodePrototypesMap.get(expandingNodeId)?.name}
+                  </div>
+                </div>
+              )}
+
+              {/* Semantic Expansion Results - Ghost Node Halo */}
+              {semanticExpansionResults.length > 0 && expandingNodeId && (
+                <div className="semantic-expansion-halo">
+                  <div style={{ marginBottom: '12px', fontSize: '12px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                    ⭐ Semantic Expansion ({semanticExpansionResults.length} related concepts)
+                  </div>
+
+                  {/* Expanding Node Info */}
+                  <div style={{
+                    marginBottom: '12px',
+                    padding: '8px',
+                    background: 'rgba(34,139,34,0.1)',
+                    borderRadius: '6px',
+                    border: '1px solid rgba(34,139,34,0.2)'
+                  }}>
+                    <div style={{ fontSize: '10px', color: '#228B22', fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                      Expanding: {nodePrototypesMap.get(expandingNodeId)?.name || 'Selected Node'}
+                    </div>
+                    <div style={{ fontSize: '9px', color: theme.canvas.textSecondary, marginTop: '2px' }}>
+                      Drag concepts to canvas or click to add to library
+                    </div>
+                  </div>
+
+                  {/* Ghost Node Grid */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+                    gap: '8px',
+                    marginBottom: '12px'
+                  }}>
+                    {semanticExpansionResults.map((concept, index) => (
+                      <GhostSemanticNode
+                        key={concept.id}
+                        concept={concept}
+                        index={index}
+                        onMaterialize={materializeConcept}
+                        onSelect={() => {
+                          // Auto-materialize on selection
+                          materializeConcept(concept);
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Controls */}
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    <button
+                      onClick={() => {
+                        // Clear expansion results
+                        setSemanticExpansionResults([]);
+                        setExpandingNodeId(null);
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        border: `1px solid ${theme.canvas.textSecondary}`,
+                        borderRadius: '4px',
+                        background: 'transparent',
+                        color: theme.canvas.textSecondary,
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        fontFamily: "'EmOne', sans-serif"
+                      }}
+                    >
+                      Clear Expansion
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Materialize all concepts
+                        semanticExpansionResults.forEach(concept => materializeConcept(concept));
+                        setSemanticExpansionResults([]);
+                        setExpandingNodeId(null);
+                      }}
+                      style={{
+                        padding: '6px 12px',
+                        border: '1px solid #228B22',
+                        borderRadius: '4px',
+                        background: '#228B22',
+                        color: getTextColor(theme.accent.primary, theme.darkMode),
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                        fontFamily: "'EmOne', sans-serif",
+                        fontWeight: 'bold'
+                      }}
+                    >
+                      Add All to Library
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {viewMode === 'history' && (
+            <div className="search-history-view">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                  Discovery History ({searchHistory.length})
+                </div>
+                {searchHistory.length > 0 && (
+                  <PanelIconButton
+                    icon={Trash2}
+                    size={15}
+                    onClick={handleClearHistory}
+                    title="Clear all history"
+                  />
+                )}
+              </div>
+              {searchHistory.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: theme.canvas.textSecondary, fontSize: '12px', fontFamily: "'EmOne', sans-serif" }}>
+                  No discoveries yet. Searches and the pages you open show up here.
+                </div>
+              ) : (
+                searchHistory.map(historyItem => (
+                  <HistoryItem
+                    key={historyItem.id}
+                    item={historyItem}
+                    onDelete={handleDeleteHistoryItem}
+                    onOpen={(item) => {
+                      if (item.kind === 'concept') {
+                        openConceptPage(item.concept);
+                        return;
+                      }
+                      // Back to that search's results — off any concept page that
+                      // was open, or the list would change unseen beneath it.
+                      setFocusedConcept(null);
+                      setNavigationStack([]);
+                      setManualQuery(item.query);
+                      setDiscoveredConcepts(item.concepts || []);
+                      setViewMode('discover');
+                    }}
+                  />
+                ))
+              )}
+            </div>
+          )}
           </div>
         )}
       </div>

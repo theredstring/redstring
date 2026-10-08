@@ -1,13 +1,14 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, Merge, Plus, Search } from 'lucide-react';
+import { ArrowDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp, Columns2, ListOrdered, Merge, Palette, Plus, Search, SlidersHorizontal, Square } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
-import { showContextMenu } from '../../GlobalContextMenu.jsx';
+import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
+import { hexToHsl } from '../../../utils/colorUtils.js';
 import { projectGraphView, viewEdges } from '../../../core/openDefinitions.js';
 import { DROP_AT_END, describeDropGhost, useOpenWebsDrop } from './useOpenWebsDrop.js';
 import '../../../BackToCivilization.css';
@@ -70,6 +71,61 @@ function useOpenGraphsForList() {
     return list;
   }, [openGraphIds, graphsMap, nodePrototypesMap, edgesMap]);
 }
+
+// How the list is laid out: one card a row or two, and in what order. Kept on
+// this device only; it is how this screen shows the webs, not part of the universe.
+const VIEW_KEY = 'redstring.openWebsView';
+const SORTS = ['open', 'name', 'size', 'color'];
+const DEFAULT_VIEW = { columns: 1, sort: 'open' };
+
+function useOpenWebsView() {
+  const [view, setViewState] = useState(() => {
+    try {
+      const saved = JSON.parse(globalThis.localStorage?.getItem(VIEW_KEY) || 'null');
+      return {
+        columns: saved?.columns === 2 ? 2 : 1,
+        sort: SORTS.includes(saved?.sort) ? saved.sort : 'open',
+      };
+    } catch { return DEFAULT_VIEW; }
+  });
+  const setView = useCallback((patch) => {
+    setViewState((prev) => ({ ...prev, ...patch }));
+  }, []);
+  useEffect(() => {
+    try { globalThis.localStorage?.setItem(VIEW_KEY, JSON.stringify(view)); } catch { /* per-device convenience only */ }
+  }, [view]);
+  return [view, setView];
+}
+
+// Hue for the colour sort; greys (and anything unreadable) go last, light to dark.
+const hueKey = (color) => {
+  try {
+    const { h, s, l } = hexToHsl(color || NODE_DEFAULT_COLOR);
+    if (!Number.isFinite(h)) return [2, 0];
+    return s < 10 ? [1, 100 - l] : [0, h];
+  } catch { return [2, 0]; }
+};
+
+const nameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
+// The webs in the order the view shows them. Every sort is stable, so ties
+// keep the open order.
+function sortOpenWebs(list, sort) {
+  if (sort === 'name') return [...list].sort((a, b) => nameCollator.compare(a.name || '', b.name || ''));
+  if (sort === 'size') return [...list].sort((a, b) => b.nodes.length - a.nodes.length);
+  if (sort === 'color') {
+    const keys = new Map(list.map(g => [g.id, hueKey(g.color)]));
+    return [...list].sort((a, b) => {
+      const ka = keys.get(a.id);
+      const kb = keys.get(b.id);
+      return ka[0] - kb[0] || ka[1] - kb[1];
+    });
+  }
+  return list;
+}
+
+// Below this the header's buttons drop under the title rather than beside it.
+const HEADER_WIDE_PX = 260;
 
 // How far outside the list's view a card still draws its web, so a scroll
 // finds it already drawn.
@@ -174,6 +230,25 @@ const DropCaret = ({ color }) => (
   />
 );
 
+/**
+ * The caret in two columns: a line across one cell would read as nothing, so
+ * the slot is an empty card's outline, and the cards after it shift along.
+ */
+const GridDropCaret = ({ color }) => (
+  <div
+    aria-hidden="true"
+    style={{
+      alignSelf: 'stretch',
+      minHeight: '80px',
+      margin: '5px 0',
+      borderRadius: '12px',
+      border: `3px dashed ${color}`,
+      boxSizing: 'border-box',
+      pointerEvents: 'none',
+    }}
+  />
+);
+
 // Internal Left Grid View (Open Webs)
 const LeftGridView = ({
   panelWidth,
@@ -187,7 +262,56 @@ const LeftGridView = ({
   onOpenSearch,
 }) => {
   const theme = useTheme();
-  const openGraphsForList = useOpenGraphsForList();
+  const openGraphs = useOpenGraphsForList();
+  const [view, setView] = useOpenWebsView();
+  const openGraphsForList = useMemo(() => sortOpenWebs(openGraphs, view.sort), [openGraphs, view.sort]);
+  const isGrid = view.columns === 2;
+  const isOpenOrder = view.sort === 'open';
+  // Read by the row menu at click time, so its handler can stay stable.
+  const shownOrderRef = useRef(null);
+  shownOrderRef.current = isOpenOrder ? null : openGraphsForList.map(g => g.id);
+
+  // Whether the title and its buttons fit on one line. The panel is
+  // user-resizable, so this is measured rather than assumed.
+  const headerRef = useRef(null);
+  const [isHeaderWide, setIsHeaderWide] = useState(true);
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const measure = () => setIsHeaderWide(el.clientWidth >= HEADER_WIDE_PX);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const openViewMenu = useCallback((e) => {
+    const columnOptions = [
+      { columns: 1, label: '1 Wide', icon: <Square size={14} /> },
+      { columns: 2, label: '2 Wide', icon: <Columns2 size={14} /> },
+    ].map(opt => ({
+      label: opt.label,
+      icon: opt.icon,
+      active: view.columns === opt.columns,
+      action: () => setView({ columns: opt.columns }),
+    }));
+    const sortOptions = [
+      { sort: 'open', label: 'Sort by Open Order', icon: <ListOrdered size={14} /> },
+      { sort: 'name', label: 'Sort by Name', icon: <ArrowDownAZ size={14} /> },
+      { sort: 'size', label: 'Sort by Most Things', icon: <ArrowDownWideNarrow size={14} /> },
+      { sort: 'color', label: 'Sort by Color', icon: <Palette size={14} /> },
+    ].map(opt => ({
+      label: opt.label,
+      icon: opt.icon,
+      active: view.sort === opt.sort,
+      action: () => setView({ sort: opt.sort }),
+    }));
+    showContextMenuForElement(e.currentTarget, [...columnOptions, ...sortOptions], {
+      // Hangs from whichever edge the button sits against.
+      align: isHeaderWide ? 'right' : 'left',
+    });
+  }, [view, setView, isHeaderWide]);
+
   const { nearIds, inViewIds, belowIds } = useRowsNearView(listContainerRef, openGraphsForList.length);
   const overlayHost = usePanelOverlayHost(listContainerRef);
   // "To Current Web" shows while the active web's card is scrolled out of view.
@@ -215,9 +339,11 @@ const LeftGridView = ({
     st.setRightPanelExpanded(true);
   }, []);
   // Drop a Thing to open its web at that slot, or a web's row or header tab to
-  // move it there. The caret marks where it lands.
-  const { drop, dropItem, slot } = useOpenWebsDrop(listContainerRef);
-  const caret = slot !== null && describeDropGhost(dropItem) ? <DropCaret key="__drop-caret__" color={theme.canvas.textPrimary} /> : null;
+  // move it there. The caret marks where it lands. Sorted, there are no slots:
+  // the sort decides where a web shows, so no caret.
+  const { drop, dropItem, slot } = useOpenWebsDrop(listContainerRef, { ordered: isOpenOrder, columns: view.columns });
+  const Caret = isGrid ? GridDropCaret : DropCaret;
+  const caret = isOpenOrder && slot !== null && describeDropGhost(dropItem) ? <Caret key="__drop-caret__" color={theme.canvas.textPrimary} /> : null;
   // Context menu options for open webs tab
   const getTabContextMenuOptions = () => [
     {
@@ -235,7 +361,7 @@ const LeftGridView = ({
   const handleItemContextMenu = useCallback((e, graphId) => {
     e.preventDefault();
     e.stopPropagation();
-    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'below'));
+    showContextMenu(e.clientX, e.clientY, getOpenWebContextMenuOptions(graphId, 'below', shownOrderRef.current));
   }, []);
 
   return (
@@ -252,11 +378,23 @@ const LeftGridView = ({
     >
       {/* Sticky: stays put while the list scrolls under it. Bleeds over the
           wrapper's padding so nothing shows above or beside it. */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 16px', backgroundColor: theme.canvas.bg }}>
+      <div
+        ref={headerRef}
+        style={{
+          display: 'flex',
+          flexDirection: isHeaderWide ? 'row' : 'column',
+          justifyContent: isHeaderWide ? 'space-between' : undefined,
+          alignItems: isHeaderWide ? 'center' : 'flex-start',
+          gap: isHeaderWide ? '12px' : '8px',
+          position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 16px', backgroundColor: theme.canvas.bg
+        }}
+      >
         <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
           Open Webs
         </h2>
-        <div style={{ display: 'flex', gap: '4px' }}>
+        {/* Under the title, pulled left by the buttons' own padding so the
+            first icon lines up with the title's first letter. */}
+        <div style={{ display: 'flex', gap: '4px', marginLeft: isHeaderWide ? 0 : '-6px' }}>
           <PanelIconButton
             icon={Search}
             size={20}
@@ -273,7 +411,12 @@ const LeftGridView = ({
             onClick={() => window.dispatchEvent(new Event('redstring:new-web'))}
             title="Create New Thing with Graph Definition"
           />
-
+          <PanelIconButton
+            icon={SlidersHorizontal}
+            size={20}
+            onClick={openViewMenu}
+            title="View"
+          />
         </div>
       </div>
 
@@ -283,7 +426,14 @@ const LeftGridView = ({
           like the other left tabs, so it gets the same styled scrollbar. */}
       <div
         ref={listContainerRef}
-        style={{ paddingLeft: '5px', paddingRight: '5px' }}
+        // Top room for the active card's X, which sits up over the card's
+        // corner and grows on hover; the sticky header would clip it.
+        style={{
+          paddingTop: '16px', paddingLeft: '5px', paddingRight: '5px',
+          // Two wide: room between the columns for the active card's X, which
+          // sits out over its corner.
+          ...(isGrid ? { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: '16px', alignItems: 'start' } : null)
+        }}
       >
         {/* One flat keyed list, so the caret slides between rows without
             remounting them (an array per row would key them by index). */}
@@ -292,7 +442,7 @@ const LeftGridView = ({
           <GraphListItem
             key={graph.id}
             graphData={graph}
-            panelWidth={panelWidth}
+            panelWidth={isGrid && panelWidth ? (panelWidth - 16) / 2 : panelWidth}
             isActive={graph.id === activeGraphId}
             onClick={handleGridItemClick}
             onClose={closeGraph}
@@ -302,7 +452,7 @@ const LeftGridView = ({
           />
         ]).concat(slot === DROP_AT_END && caret ? [caret] : [])}
         {openGraphsForList.length === 0 && !caret && (
-          <div style={{ color: theme.canvas.textSecondary, textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No webs currently open.</div>
+          <div style={{ gridColumn: '1 / -1', color: theme.canvas.textSecondary, textAlign: 'center', marginTop: '20px', fontFamily: "'EmOne', sans-serif" }}>No webs currently open.</div>
         )}
       </div>
 

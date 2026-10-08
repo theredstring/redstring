@@ -546,14 +546,14 @@ export function placeConcept({
   const topLeft = position
     || (at && { x: at.x - dims.currentWidth / 2, y: at.y - dims.currentHeight / 2 })
     || findPlacement({
-    graphId,
-    mode: hasAnchor ? mode : 'open',
-    anchorInstanceId: hasAnchor ? anchorInstanceId : null,
-    origin: center,
-    size: { w: dims.currentWidth, h: dims.currentHeight },
-    predicateLabel,
-    stretches
-  }, st);
+      graphId,
+      mode: hasAnchor ? mode : 'open',
+      anchorInstanceId: hasAnchor ? anchorInstanceId : null,
+      origin: center,
+      size: { w: dims.currentWidth, h: dims.currentHeight },
+      predicateLabel,
+      stretches
+    }, st);
 
   const instanceId = `instance-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
   st.addNodeInstance(graphId, prototypeId, topLeft, instanceId);
@@ -617,6 +617,82 @@ export function placeConnections({ graphId, anchorInstanceId, statements, label 
 }
 
 /**
+ * Bring one statement about a Thing into a Web, whichever of its ends are
+ * already here, as one step to undo:
+ *  - the Thing here: the other end is placed beside it, or linked to when it's
+ *    here too;
+ *  - only the other end here: the Thing is placed beside that, joined to it;
+ *  - neither: the Thing goes into open space, the other end beside it.
+ *
+ * Dropped at a point, the end being placed lands there (with neither here,
+ * the Thing does), and an end already here is the instance nearest the drop.
+ *
+ * @param {Object} args
+ * @param {string} args.graphId
+ * @param {Object} args.seed - the Thing the statement is about (a prototype or a concept)
+ * @param {string} [args.seedPrototypeId] - the prototype standing for it, if known
+ * @param {Object} args.concept - the statement's other end
+ * @param {string} args.predicate
+ * @param {'out'|'in'} [args.direction] - 'out': seed → predicate → concept
+ * @param {Object} [args.provenance]
+ * @param {string} [args.anchorInstanceId] - the seed's instance to hang it off, unless dropped
+ * @param {{x:number,y:number}} [args.at] - the canvas point it was dropped at
+ * @param {string} [args.label] - the undo entry's name
+ * @returns {{ prototypeId, instanceId, edgeId, linked: boolean, seedInstanceId }|null}
+ *   the other end as placeConcept gives it, and the seed's instance
+ */
+export function placeStatement({
+  graphId, seed, seedPrototypeId = null, concept, predicate, direction = 'out', provenance = null,
+  anchorInstanceId = null, at = null, label = null
+}) {
+  const st = useGraphStore.getState();
+  const instances = st.graphs.get(graphId)?.instances;
+  if (!instances) return null;
+  const seedProtoId = seedPrototypeId || findPrototypeForConcept(seed, st.nodePrototypes)?.id || null;
+  // A drop lands where it's let go: it doesn't join a group it wasn't dropped in.
+  const joinGroup = !at;
+  let result = null;
+
+  const run = () => {
+    const seedInstances = instancesOfPrototype(graphId, seedProtoId, st);
+    const nearestSeed = at && seedInstances.reduce((best, inst) => (
+      !best || (inst.x - at.x) ** 2 + (inst.y - at.y) ** 2 < (best.x - at.x) ** 2 + (best.y - at.y) ** 2 ? inst : best
+    ), null);
+    const seedInst = nearestSeed?.id
+      || seedInstances.find((inst) => inst.id === anchorInstanceId)?.id
+      || seedInstances[0]?.id
+      || null;
+    if (seedInst) {
+      const placed = placeConcept({ graphId, concept, anchorInstanceId: seedInst, predicate, direction, provenance, at, joinGroup });
+      result = { ...placed, seedInstanceId: seedInst };
+      return;
+    }
+
+    const otherInst = instanceForConcept(graphId, concept, at, st);
+    if (otherInst) {
+      // Hung off the other end, the statement reads the other way round.
+      const placed = placeConcept({
+        graphId, concept: seed, prototypeId: seedProtoId, anchorInstanceId: otherInst, predicate,
+        direction: direction === 'in' ? 'out' : 'in', provenance, at, joinGroup
+      });
+      const prototypeId = useGraphStore.getState().graphs.get(graphId).instances.get(otherInst).prototypeId;
+      result = { prototypeId, instanceId: otherInst, edgeId: placed.edgeId, linked: true, seedInstanceId: placed.instanceId };
+      return;
+    }
+
+    const seedPlaced = placeConcept({ graphId, concept: seed, prototypeId: seedProtoId, mode: 'open', at, reveal: false });
+    if (!seedPlaced.instanceId) return;
+    const placed = placeConcept({ graphId, concept, anchorInstanceId: seedPlaced.instanceId, predicate, direction, provenance });
+    result = { ...placed, seedInstanceId: seedPlaced.instanceId };
+  };
+
+  const name = label || `Added ${concept?.name || 'connection'}`;
+  if (typeof st.withHistoryTransaction === 'function') st.withHistoryTransaction(name, run);
+  else run();
+  return result;
+}
+
+/**
  * The instance in this Web that already stands for a concept, nearest the
  * anchor and never the anchor itself; null when there isn't one.
  *
@@ -628,16 +704,25 @@ export function placeConnections({ graphId, anchorInstanceId, statements, label 
  * @param {string} [prototypeId] - the prototype already chosen for the concept, if any
  */
 export function existingInstanceFor(graphId, concept, anchorInstanceId, state = useGraphStore.getState(), prototypeId = null) {
-  const instances = state.graphs.get(graphId)?.instances;
-  const anchor = instances?.get(anchorInstanceId);
+  const anchor = state.graphs.get(graphId)?.instances?.get(anchorInstanceId);
   if (!anchor) return null;
+  return instanceForConcept(graphId, concept, anchor, state, prototypeId, anchorInstanceId);
+}
+
+/**
+ * The instance in this Web standing for a concept (by URI, failing that by
+ * name), nearest a point; null when there isn't one.
+ */
+function instanceForConcept(graphId, concept, near, state, prototypeId = null, skipInstanceId = null) {
+  const instances = state.graphs.get(graphId)?.instances;
+  if (!instances) return null;
   const byUri = (prototypeId && state.nodePrototypes.get(prototypeId)) || findPrototypeForConcept(concept, state.nodePrototypes);
   const name = lower(concept?.name);
   const nearest = (match) => {
     let best = null; let bestD = Infinity;
     instances.forEach((inst, id) => {
-      if (id === anchorInstanceId || !match(inst)) return;
-      const d = (inst.x - anchor.x) ** 2 + (inst.y - anchor.y) ** 2;
+      if (id === skipInstanceId || !match(inst)) return;
+      const d = near ? (inst.x - near.x) ** 2 + (inst.y - near.y) ** 2 : 0;
       if (d < bestD) { bestD = d; best = id; }
     });
     return best;

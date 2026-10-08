@@ -11,7 +11,8 @@ export const useKeyboardShortcuts = () => {
     // non-modifier keys while Meta is held, so a RAF loop reading these would
     // see them as "still down" after the user let go. We work around that with
     // a per-key heartbeat timer below.
-    const MOVEMENT_KEYS = ['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+    const PAN_KEYS = ['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+    const MOVEMENT_KEYS = [...PAN_KEYS, ' '];
     const clearMovementKeys = () => {
       for (const k of MOVEMENT_KEYS) keysPressed.current[k] = false;
     };
@@ -64,6 +65,12 @@ export const useKeyboardShortcuts = () => {
       if (!isTextInput) {
         // Normalize single-character keys to lowercase so Shift+W stores as 'w'
         const key = e.key && e.key.length === 1 ? e.key.toLowerCase() : e.key;
+
+        // A pan key pressed with Cmd/Ctrl down is a shortcut, not a pan. Don't
+        // record it at all, so it can't linger as "held" (macOS swallows its
+        // keyup) and start a pan once the modifier is let go.
+        if ((e.metaKey || e.ctrlKey) && PAN_KEYS.includes(key)) return;
+
         keysPressed.current[key] = true;
 
         // When Meta/Ctrl goes down, start heartbeats for any movement keys

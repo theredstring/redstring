@@ -72,8 +72,14 @@ export function describeDropGhost(item) {
  *
  * @param {React.RefObject<HTMLElement>} listRef - The element whose direct
  *   children are the rows (each carrying `data-graph-id`).
+ * @param {Object} [options]
+ * @param {boolean} [options.ordered=true] - Whether the list shows the open
+ *   order. A sorted list has no slots: a Thing still opens (at the end of the
+ *   open order, shown wherever the sort puts it), a moved web stays put.
+ * @param {number} [options.columns=1] - Cards per row. In a grid the slot is
+ *   found in reading order, across a row before down to the next.
  */
-export function useOpenWebsDrop(listRef) {
+export function useOpenWebsDrop(listRef, { ordered = true, columns = 1 } = {}) {
   const moveGraphTabBefore = useGraphStore(s => s.moveGraphTabBefore);
   const openThingWebBefore = useGraphStore(s => s.openThingWebBefore);
 
@@ -88,7 +94,7 @@ export function useOpenWebsDrop(listRef) {
   const overItemRef = useRef(null);
   // Where the pointer last hovered the list, for the same reason: a wheel
   // scroll moves the rows under it without a hover.
-  const lastHoverYRef = useRef(null);
+  const lastHoverRef = useRef(null);
 
   const setSlot = useCallback((next) => {
     if (slotRef.current === next) return;
@@ -103,17 +109,24 @@ export function useOpenWebsDrop(listRef) {
    * gaps either side of it are the place it already holds, so no ghost stands
    * beside the faded original. The ghost is not a row either.
    */
-  const slotAt = useCallback((clientY, item) => {
+  const slotAt = useCallback((clientX, clientY, item) => {
+    const movingId = isOpenWebDrag(item) ? item.graphId : null;
+    if (!ordered) return movingId ? HOME_SLOT : DROP_AT_END;
     const list = listRef.current;
     if (!list) return DROP_AT_END;
-    const movingId = isOpenWebDrag(item) ? item.graphId : null;
     const rows = Array.from(list.querySelectorAll(':scope > [data-graph-id]'));
     const ids = rows.map(el => el.getAttribute('data-graph-id'));
     let found = DROP_AT_END;
     for (let i = 0; i < rows.length; i += 1) {
       if (ids[i] === movingId) continue;
       const rect = rows[i].getBoundingClientRect();
-      if (clientY < (rect.top + rect.bottom) / 2) { found = ids[i]; break; }
+      // One column: in front of the first card whose midpoint is below the
+      // pointer. A grid: the first card on a lower row, or on the pointer's
+      // row with its midpoint to the right.
+      const before = columns > 1
+        ? clientY < rect.top || (clientY <= rect.bottom && clientX < (rect.left + rect.right) / 2)
+        : clientY < (rect.top + rect.bottom) / 2;
+      if (before) { found = ids[i]; break; }
     }
     if (movingId) {
       const at = ids.indexOf(movingId);
@@ -121,7 +134,7 @@ export function useOpenWebsDrop(listRef) {
       if (found === home) return HOME_SLOT;
     }
     return found;
-  }, [listRef]);
+  }, [listRef, ordered, columns]);
 
   // Scrolls the panel when a drag is held at its top or bottom, and keeps
   // scrolling past them (over the panel's tabs, below the window) for as long
@@ -148,7 +161,7 @@ export function useOpenWebsDrop(listRef) {
       thickness: 6,
     },
     onScroll: (y) => {
-      if (overItemRef.current) setSlot(slotAt(y, overItemRef.current));
+      if (overItemRef.current) setSlot(slotAt(lastHoverRef.current?.x ?? 0, y, overItemRef.current));
     },
   });
   const stopAutoScroll = edgeScroll.stop;
@@ -161,8 +174,9 @@ export function useOpenWebsDrop(listRef) {
     if (!scroller) return undefined;
     const onScroll = () => {
       const item = overItemRef.current;
-      if (!item || lastHoverYRef.current == null) return;
-      setSlot(slotAt(lastHoverYRef.current, item));
+      const at = lastHoverRef.current;
+      if (!item || !at) return;
+      setSlot(slotAt(at.x, at.y, item));
       edgeScroll.indicate();
     };
     scroller.addEventListener('scroll', onScroll, { passive: true });
@@ -177,16 +191,16 @@ export function useOpenWebsDrop(listRef) {
       const offset = monitor.getClientOffset();
       if (!offset) return;
       overItemRef.current = item;
-      lastHoverYRef.current = offset.y;
+      lastHoverRef.current = offset;
       edgeScroll.update(offset);
-      setSlot(slotAt(offset.y, item));
+      setSlot(slotAt(offset.x, offset.y, item));
     },
     drop: (item, monitor) => {
       stopAutoScroll();
       overItemRef.current = null;
       // The slot the ghost was showing when they let go — what they saw.
       const offset = monitor.getClientOffset();
-      const target = slotRef.current ?? (offset ? slotAt(offset.y, item) : DROP_AT_END);
+      const target = slotRef.current ?? (offset ? slotAt(offset.x, offset.y, item) : DROP_AT_END);
       setSlot(null);
       const before = target === DROP_AT_END ? null : target;
       if (isOpenWebDrag(item)) {

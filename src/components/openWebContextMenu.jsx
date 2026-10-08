@@ -15,17 +15,21 @@ import useGraphStore from '../store/graphStore.js';
  *
  * @param {string} graphId - The web that was right-clicked.
  * @param {'below'|'right'} direction - How the strip is laid out where it was clicked.
+ * @param {string[]} [shownOrder] - The order the webs are shown in, when it is
+ *   not the open order (the Open Webs list sorted by name, say): "below" is
+ *   what is below on screen.
  * @returns {Array} Options for showContextMenu.
  */
-export const getOpenWebContextMenuOptions = (graphId, direction = 'below') => {
+export const getOpenWebContextMenuOptions = (graphId, direction = 'below', shownOrder) => {
   const { openGraphIds, graphs, closeGraphs, activeGraphId } = useGraphStore.getState();
-  const index = openGraphIds.indexOf(graphId);
-  if (index === -1) return [];
+  const order = shownOrder || openGraphIds;
+  const index = order.indexOf(graphId);
+  if (index === -1 || !openGraphIds.includes(graphId)) return [];
 
   const graph = graphs.get(graphId);
   const name = graph?.name || 'web';
   const others = openGraphIds.filter(id => id !== graphId);
-  const after = openGraphIds.slice(index + 1);
+  const after = order.slice(index + 1).filter(id => openGraphIds.includes(id));
   const afterLabel = direction === 'right' ? 'to the right' : 'below';
   const afterMenuLabel = direction === 'right' ? 'to the Right' : 'Below';
 

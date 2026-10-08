@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useDrag } from 'react-dnd';
+import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2, ListPlus } from 'lucide-react';
 import useGraphStore from '../../store/graphStore.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
@@ -13,7 +15,7 @@ import TripletPreview from './TripletPreview.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './CompactConnectionRow.jsx';
 import TypeStatementDialog, { isTypeStatement } from './TypeStatementDialog.jsx';
 import {
-  conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, placeConnections, revealInstances, existingInstanceFor,
+  conceptUris, findPrototypeForConcept, anchorInstanceFor, placeConcept, placeStatement, placeConnections, revealInstances, existingInstanceFor,
   ensureConceptPrototype
 } from '../../services/semanticPlacement.js';
 import { THING_PROTOTYPE_ID } from '../../wizard/tools/utils/abstractionSpec.js';
@@ -26,14 +28,46 @@ const lower = (s) => (typeof s === 'string' ? s.trim().toLowerCase() : '');
 const SOURCE_NAMES = { wikidata: 'Wikidata', dbpedia: 'DBpedia' };
 
 /**
+ * A row as a drag: the universal dragged node, wearing whichever end lands
+ * under the pointer (`begin` decides as the drag starts). Let go on the canvas,
+ * `onDropAt` gets the canvas point; anywhere else that takes a Thing (a Web in
+ * the list, the Wizard), the end it wears is what's dropped.
+ */
+const DraggableStatement = ({ begin, onDropAt, disabled, style, children, ...rest }) => {
+  const [{ isDragging }, drag, preview] = useDrag(() => ({
+    type: 'spawnable_node',
+    item: begin,
+    canDrag: () => !disabled,
+    end: (item, monitor) => {
+      const result = monitor.getDropResult();
+      if (result?.canvasPoint) onDropAt(result.canvasPoint);
+    },
+    collect: (monitor) => ({ isDragging: !!monitor.isDragging() })
+  }), [begin, onDropAt, disabled]);
+
+  useEffect(() => {
+    preview(getEmptyImage(), { captureDraggingState: true });
+  }, [preview]);
+
+  return (
+    <div ref={drag} style={{ ...style, opacity: isDragging ? 0.5 : 1 }} {...rest}>
+      {children}
+    </div>
+  );
+};
+
+/**
  * What the semantic web says about a Thing, as connections you can bring in.
  *
  * Each row is the statement drawn as the canvas would draw it. When the Thing
  * is in the open Web, a row's + adds the other end beside it — with room for
  * the connection's label, clear of what's there where it can be — joined by
  * that connection, the same add the orbit does. When the other end is already
- * in the Web the row links to it instead (a link icon, not a +). A row the Web
- * already says shows a check, which takes you to it. "Add all" brings in every
+ * in the Web the row links to it instead (a link icon, not a +). When the
+ * Thing isn't in the Web, the + brings it in with the connection: beside the
+ * other end when that's here, otherwise both, in open space. A row the Web
+ * already says shows a check, which takes you to it. A row dragged onto the
+ * canvas does the same, the end being placed landing where it's let go. "Add all" brings in every
  * connection the list holds (or every one the filter matches) at once, after
  * saying how many. An outgoing "instance of" or "subclass of" asks first
  * whether its other end becomes the Thing's type, the connection, or both.
@@ -129,26 +163,30 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
     retrieved_at: new Date().toISOString()
   });
 
-  const add = (c) => {
-    if (!activeGraphId || !anchor) return null;
+  // `at`: the canvas point a drag let go at.
+  const add = (c, at = null) => {
+    if (!activeGraphId) return null;
     haptic('nodeSpawn', { force: true });
-    return placeConcept({
+    return placeStatement({
       graphId: activeGraphId,
+      seed,
+      seedPrototypeId: seedProtoId,
       concept: c.other,
-      anchorInstanceId: anchor.id,
       predicate: c.predicate,
       direction: c.direction,
-      provenance: provenanceOf(c)
+      provenance: provenanceOf(c),
+      anchorInstanceId: anchor?.id || null,
+      at
     });
   };
 
-  // A row's + or link. A statement of what the seed is asks first, unless its
-  // other end is already the seed's type and only the connection is left to add.
-  const onAdd = (c) => {
+  // A row's +, link or drop. A statement of what the seed is asks first, unless
+  // its other end is already the seed's type and only the connection is left to add.
+  const onAdd = (c, at = null) => {
     const seedProto = seedProtoId ? nodePrototypes.get(seedProtoId) : null;
     const typeProto = protoFor(c.other);
     if (!seedProto || !isTypeStatement(c) || (typeProto && seedProto.typeNodeId === typeProto.id)) {
-      add(c);
+      add(c, at);
       return;
     }
     // The type may not loop back: the other end can't already be a kind of the seed.
@@ -162,6 +200,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
       : null;
     setTypeAsk({
       c,
+      at,
       currentTypeName: currentType?.name || null,
       typeBlocked
     });
@@ -173,10 +212,15 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
     const st = useGraphStore.getState();
     const run = () => {
       // The type is the Thing the connection reached, when there is one.
-      const placed = choice !== 'type' ? add(c) : null;
+      const placed = choice !== 'type' ? add(c, typeAsk.at) : null;
       if (choice === 'web') return;
       if (choice === 'type') haptic('nodeSpawn', { force: true });
       st.setNodeType(seedProtoId, placed?.prototypeId || ensureConceptPrototype(c.other));
+      // Only the type: the Thing typed comes in alone (where it was dropped),
+      // without the statement's other end, when it isn't here already.
+      if (choice === 'type' && activeGraphId && !anchorInstanceFor(activeGraphId, seedProtoId)) {
+        placeConcept({ graphId: activeGraphId, concept: seed, prototypeId: seedProtoId, mode: 'open', at: typeAsk.at });
+      }
     };
     const label = choice === 'web' ? `Added ${c.other.name}` : `Made ${c.other.name} the type of ${seedName}`;
     if (typeof st.withHistoryTransaction === 'function') st.withHistoryTransaction(label, run);
@@ -218,6 +262,23 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
     });
   };
 
+  // The end a row's drag wears: the one the drop places. With the seed here,
+  // the other end; with only the other end here, the seed; with neither, the
+  // seed, which lands at the drop with the other end beside it.
+  const dragItemFor = (c) => () => {
+    const st = useGraphStore.getState();
+    const seedHere = !!(activeGraphId && seedProtoId && anchorInstanceFor(activeGraphId, seedProtoId, null, st));
+    const end = seedHere ? c.other : seed;
+    const endProtoId = seedHere ? findPrototypeForConcept(c.other, st.nodePrototypes)?.id : seedProtoId;
+    return {
+      semanticStatement: true,
+      prototypeId: endProtoId || null,
+      nodeName: end.name,
+      nodeColor: end.color,
+      ...(endProtoId ? {} : { needsMaterialization: true, conceptData: end })
+    };
+  };
+
   const addSeed = () => {
     if (!activeGraphId) return;
     haptic('nodeSpawn', { force: true });
@@ -227,6 +288,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const small = { fontSize: '12px', fontFamily: "'EmOne', sans-serif", color: theme.canvas.textSecondary, lineHeight: 1.4 };
   const sources = [...new Set(connections.map((c) => SOURCE_NAMES[c.provider] || c.provider))].join(' · ');
   const tripletWidth = Math.max(160, width - ACTION_COLUMN - 8);
+  // Whether the seed is here for rows to hang off; without it, a row brings it in too.
   const canAdd = !!anchor;
   // Below this a triplet's names truncate to a few letters; rows go compact.
   const compact = width > 0 && width < COMPACT_CONNECTIONS_BELOW;
@@ -236,12 +298,12 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
-      {/* Why the rows can't be added yet, and the way to fix it, beneath. */}
+      {/* The seed isn't here: adding a row brings it in, or it can come alone. */}
       {!canAdd && connections.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '10px', marginBottom: '14px' }}>
           <span style={small}>
             {activeGraphId
-              ? `${seedName} isn't in this web yet. Add it to bring its connections in.`
+              ? `${seedName} isn't in this web yet. Adding a connection brings it in too.`
               : 'Open a web to bring these connections in.'}
           </span>
           {activeGraphId && offerAddSeed && (
@@ -318,7 +380,10 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
               onMouseEnter={() => setHoveredId(c.id)}
               onMouseLeave={() => setHoveredId((id) => (id === c.id ? null : id))}
             >
-              <div
+              <DraggableStatement
+                begin={dragItemFor(c)}
+                onDropAt={(at) => onAdd(c, at)}
+                disabled={!activeGraphId || !!presentId}
                 data-semantic-row={c.other.name}
                 onClick={onOpen ? () => onOpen(c.other) : undefined}
                 title={c.other.description ? `${c.other.name}: ${c.other.description}` : `${c.subject} → ${c.predicate} → ${c.object}`}
@@ -327,7 +392,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                   minWidth: 0,
                   padding: '4px',
                   borderRadius: '10px',
-                  cursor: onOpen ? 'pointer' : 'default',
+                  cursor: onOpen ? 'pointer' : activeGraphId && !presentId ? 'grab' : 'default',
                   background: onOpen && hoveredId === c.id ? theme.canvas.hover : 'transparent',
                   transition: 'background-color 0.15s ease'
                 }}
@@ -350,7 +415,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     containerWidth={tripletWidth}
                   />
                 )}
-              </div>
+              </DraggableStatement>
               <div style={{ width: `${ACTION_COLUMN}px`, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
                 {presentId ? (
                   <PanelIconButton
@@ -366,12 +431,14 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     onClick={() => onAdd(c)}
                     title={`Connect to ${c.other.name}, already in this web, by "${c.predicate}"`}
                   />
-                ) : canAdd ? (
+                ) : activeGraphId ? (
                   <PanelIconButton
                     icon={Plus}
                     size={18}
                     onClick={() => onAdd(c)}
-                    title={`Add ${c.other.name} beside ${seedName}, connected by "${c.predicate}"`}
+                    title={canAdd
+                      ? `Add ${c.other.name} beside ${seedName}, connected by "${c.predicate}"`
+                      : `Add ${seedName} and its connection to ${c.other.name}, "${c.predicate}"`}
                   />
                 ) : null}
               </div>

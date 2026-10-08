@@ -2,7 +2,8 @@
  * Dropping a spawnable Thing onto the canvas (react-dnd `drop`), moved verbatim
  * from NodeCanvas's useDrop spec: semantic concepts become saved prototypes
  * (B-16), existing prototypes get an instance at the drop point, snapped to the
- * grid when it is on.
+ * grid when it is on. A semantic connection returns its drop point for the
+ * list it came from to place.
  */
 import { haptic } from '../../../services/haptics.js';
 import useGraphStore from '../../../store/graphStore.js';
@@ -19,6 +20,12 @@ export function handleCanvasDrop(ctx, item, monitor) {
 
   const offset = monitor.getClientOffset();
   if (!offset || !containerRef.current) return;
+
+  // A connection from a Semantic Web list: the row that started the drag
+  // places it (it may ask first), so the drop only says where it landed.
+  if (item.semanticStatement) {
+    return { graphId: activeGraphId, canvasPoint: clientToCanvasCoordinates(offset.x, offset.y) };
+  }
 
   // After the guards that can abort the drop, so a spawn that doesn't land
   // stays silent. Forced past the rate limit: react-dnd can deliver this in
