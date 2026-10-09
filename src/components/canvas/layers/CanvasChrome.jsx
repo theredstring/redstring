@@ -10,6 +10,7 @@ import BackToCivilization from '../../../BackToCivilization.jsx';
 import DownloadAppPill from '../../../DownloadAppPill.jsx';
 import PanelResizers from '../PanelResizers.jsx';
 import ZoomBar from './ZoomBar.jsx';
+import useGraphStore from '../../../store/graphStore.js';
 
 export default function CanvasChrome({ ctx }) {
   const {
@@ -18,8 +19,17 @@ export default function CanvasChrome({ ctx }) {
     shouldShowBackToCivilization, backToCivilizationDelayComplete, handleBackToCivilizationClick, canvasSize,
     viewportSize, enableClustering, clusterAnalysis, showStorageSetupModal, nodeControlPanelShouldShow,
     nodeControlPanelVisible, connectionControlPanelShouldShow, connectionControlPanelVisible,
-    abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef,
+    abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef, isViewReady,
   } = ctx;
+
+  // Chrome that is placed against the web (the off-screen glows, the zoom bar)
+  // waits for one: a universe loaded, a web open, and its view restored, which
+  // is also when the canvas has its real size. Mounting earlier placed them
+  // against a layout that was still settling (no universe, panels not yet
+  // where they will be) and showed them there.
+  const showingWeb = useGraphStore(state =>
+    !!state.activeGraphId && state.isUniverseLoaded && !state.isUniverseLoading && state.hasUniverseFile);
+  const webReady = showingWeb && !!isViewReady;
 
   // A bottom control panel centres on the same strip above the TypeList.
   const bottomPanelUp =
@@ -30,7 +40,7 @@ export default function CanvasChrome({ ctx }) {
   return (
     <Profiler id="CanvasChrome" onRender={onRenderProbe}>
       {/* Edge glow indicators for off-screen nodes */}
-      {edgeGlowMode !== 'off' && (
+      {edgeGlowMode !== 'off' && webReady && (
         <EdgeGlowIndicator
           nodes={hydratedNodes}
           baseDimensionsById={baseDimsById}
@@ -72,7 +82,7 @@ export default function CanvasChrome({ ctx }) {
 
       {/* Zoom bar (Settings › Display). At the bottom it steps aside while a
           bottom control panel holds that strip. */}
-      <ZoomBar ctx={ctx} bottomStripTaken={bottomPanelUp} />
+      <ZoomBar ctx={ctx} ready={webReady} bottomStripTaken={bottomPanelUp} />
 
       {/* Overlay panel resizers (outside panels) */}
       <PanelResizers controlRef={panelResizeControlRef} />

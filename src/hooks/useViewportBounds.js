@@ -16,14 +16,51 @@ import useCanvasUIStore from '../store/canvasUIStore.js';
  *
  * Listens to window resize; the panel widths are canvasUIStore's committed
  * widths (P2.12), which PanelResizers keeps in step with panelWidthChanged.
+ *
+ * `{ live: true }` follows a panel resize as it happens instead: chrome that
+ * sits against a panel's edge (the zoom bar, the off-screen glows) moves with
+ * the drag rather than jumping when it ends. It costs a render per drag frame,
+ * so it is opt-in. `resizing` is true while such a drag is under way.
  */
-export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typeListVisible = false) => {
+export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typeListVisible = false, { live = false } = {}) => {
   // The committed panel widths, from canvasUIStore (P2.12). Updated when a
   // resize ends, not per drag frame, so consumers don't re-render mid-drag.
   // (This hook kept its own copy with a 280 px fallback, 30 px wider than the
   // panels' real 250 on a fresh profile: B-15.)
-  const leftWidth = useCanvasUIStore(s => s.leftPanelWidth);
-  const rightWidth = useCanvasUIStore(s => s.rightPanelWidth);
+  const committedLeftWidth = useCanvasUIStore(s => s.leftPanelWidth);
+  const committedRightWidth = useCanvasUIStore(s => s.rightPanelWidth);
+
+  // Live mode: the width a drag has reached, per side, until the drag commits.
+  // PanelResizers sends panelWidthChanging every frame of a drag (pointer or
+  // controller), then writes the store and sends panelWidthChanged, which
+  // hands back to the committed width in the same render.
+  const [liveWidths, setLiveWidths] = useState(null);
+  useEffect(() => {
+    if (!live) return undefined;
+    const onChanging = (e) => {
+      const { side, width } = e?.detail || {};
+      if ((side !== 'left' && side !== 'right') || typeof width !== 'number') return;
+      setLiveWidths(prev => (prev?.[side] === width ? prev : { ...prev, [side]: width }));
+    };
+    const onChanged = (e) => {
+      const side = e?.detail?.side;
+      setLiveWidths(prev => {
+        if (!prev || prev[side] == null) return prev;
+        const next = { ...prev };
+        delete next[side];
+        return Object.keys(next).length ? next : null;
+      });
+    };
+    window.addEventListener('panelWidthChanging', onChanging);
+    window.addEventListener('panelWidthChanged', onChanged);
+    return () => {
+      window.removeEventListener('panelWidthChanging', onChanging);
+      window.removeEventListener('panelWidthChanged', onChanged);
+    };
+  }, [live]);
+  const leftWidth = liveWidths?.left ?? committedLeftWidth;
+  const rightWidth = liveWidths?.right ?? committedRightWidth;
+  const resizing = !!liveWidths;
   // The padded app box, not the raw window — see utils/appViewport.js.
   const [windowSize, setWindowSize] = useState(() => {
     const { width, height } = getAppViewportSize();
@@ -76,9 +113,10 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
       bottomReserved: typeListHeight,
       leftHandleSpace: 0, // No handle space needed in flexbox layout
       rightHandleSpace: 0,
-      isExclusiveMode
+      isExclusiveMode,
+      resizing,
     };
-  }, [leftWidth, rightWidth, windowSize, typeListHeight, headerHeight, leftExpanded, rightExpanded]);
+  }, [leftWidth, rightWidth, windowSize, typeListHeight, headerHeight, leftExpanded, rightExpanded, resizing]);
 
   return bounds;
 };

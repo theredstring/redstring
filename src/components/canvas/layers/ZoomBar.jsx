@@ -74,23 +74,24 @@ const NEAR_PX = 64;
 // How long the bar stays awake after an interaction ends.
 const LINGER_MS = 1200;
 
-export default function ZoomBar({ ctx, bottomStripTaken }) {
+export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
   const {
     zoomLevel, zoomLevelRef, panOffsetRef, animateCanvasView, MIN_ZOOM, viewportSize, canvasSize,
   } = ctx;
   const leftPanelExpanded = useGraphStore(state => state.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(state => state.rightPanelExpanded);
   const typeListMode = useGraphStore(state => state.typeListMode);
-  // Only over a web: not on the universe screens or the empty-web prompt.
-  const showingWeb = useGraphStore(state =>
-    !!state.activeGraphId && state.isUniverseLoaded && !state.isUniverseLoading && state.hasUniverseFile);
-  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListMode !== 'closed');
+  // Live: the bar rides a panel's edge through a resize drag, not after it.
+  const viewportBounds = useViewportBounds(
+    leftPanelExpanded, rightPanelExpanded, typeListMode !== 'closed', { live: true });
   const showZoomBar = useGraphStore(state => state.showZoomBar !== false);
   const position = useGraphStore(state => state.zoomBarPosition ?? DEFAULT_ZOOM_BAR_POSITION);
   const vertical = position !== 'bottom';
   // Only the bottom position shares its strip with the bottom control panels.
   const suppressed = !!bottomStripTaken && !vertical;
-  const shown = showingWeb && showZoomBar;
+  // `ready` is CanvasChrome's gate: a web on screen with its view restored, so
+  // the bar first appears where it belongs rather than moving there.
+  const shown = !!ready && showZoomBar;
   // Default-node maroon on light; on dark, the theme's light red for brand
   // marks on the dark canvas, where the maroon all but disappears; on
   // blueprint, light or dark, where any red fights the blue, the app's
@@ -371,7 +372,7 @@ export default function ZoomBar({ ctx, bottomStripTaken }) {
   return (
     <div
       ref={barRef}
-      className={`zoom-bar ${vertical ? 'is-vertical' : 'is-bottom'}${awake ? ' is-awake' : ''}${suppressed ? ' is-suppressed' : ''}${dragging ? ' is-dragging' : ''}`}
+      className={`zoom-bar ${vertical ? 'is-vertical' : 'is-bottom'}${awake ? ' is-awake' : ''}${suppressed ? ' is-suppressed' : ''}${dragging ? ' is-dragging' : ''}${viewportBounds.resizing ? ' is-panel-resizing' : ''}`}
       style={{ ...place, '--zoom-bar-color': color }}
       {...shield}
     >

@@ -166,8 +166,10 @@ const EdgeGlowIndicator = ({
   const typeListMode = useGraphStore(state => state.typeListMode);
   const typeListVisible = typeListMode !== 'closed';
 
-  // Use the panel-based viewport bounds for positioning the overlay
-  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
+  // Use the panel-based viewport bounds for positioning the overlay. Live, so
+  // the glows hold to a panel's edge through a resize drag instead of jumping
+  // when it ends.
+  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible, { live: true });
 
   // The container's own rect, measured OUT of band.
   //
@@ -219,9 +221,18 @@ const EdgeGlowIndicator = ({
     };
     measure();
     window.addEventListener('resize', measure);
+    // And whenever the container itself changes size for any other reason
+    // (layout still settling on load, a panel's width arriving late), so the
+    // glows never keep a stale rect.
+    const el = containerRef?.current;
+    const observer = (el && typeof ResizeObserver !== 'undefined')
+      ? new ResizeObserver(() => measure())
+      : null;
+    observer?.observe(el);
     return () => {
       if (retry) cancelAnimationFrame(retry);
       window.removeEventListener('resize', measure);
+      observer?.disconnect();
     };
     // Panel/type-list toggles resize the container without firing `resize`.
   }, [containerRef, leftPanelExpanded, rightPanelExpanded, typeListVisible, viewportBounds]);

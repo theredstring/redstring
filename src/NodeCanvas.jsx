@@ -3386,7 +3386,7 @@ function NodeCanvas() {
     shouldShowBackToCivilization, backToCivilizationDelayComplete, handleBackToCivilizationClick, canvasSize,
     viewportSize, enableClustering, clusterAnalysis, showStorageSetupModal, nodeControlPanelShouldShow,
     nodeControlPanelVisible, connectionControlPanelShouldShow, connectionControlPanelVisible,
-    abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef, animateCanvasView, MIN_ZOOM,
+    abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef, animateCanvasView, MIN_ZOOM, isViewReady,
   };
 
   // CanvasHud's inputs (moved JSX, wave 6).
