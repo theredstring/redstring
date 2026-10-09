@@ -21,6 +21,13 @@
  *    That is the only place the import draws connections: a web is the inside
  *    of its Thing, so nothing is put in a web that isn't part of it.
  *
+ *  - A Thing with more specific kinds gets a second sort of web: its kinds.
+ *    A kind is a subset of the set its Thing names, so this is composition
+ *    too, of the set rather than of the object; it's what makes a source that
+ *    is only a tree of kinds (Mondo, most of ChEBI) walkable by opening Things.
+ *    Every direct kind inside the slice is placed, whichever parent is its type.
+ *    A Thing with parts opens to its parts first; its kinds are the second web.
+ *
  *  - Every other relation (has role, is conjugate acid of, ...) is kept on the
  *    Thing as data, with nothing lost, until there is a web it belongs in.
  *
@@ -41,6 +48,7 @@ export const importIds = {
   source: (sourceKey) => uuidv5(`source|${sourceKey}`, IMPORT_NAMESPACE),
   folderWeb: (sourceKey) => uuidv5(`folder|${sourceKey}`, IMPORT_NAMESPACE),
   compositionWeb: (sourceKey, wholeIri) => uuidv5(`composition|${sourceKey}|${wholeIri}`, IMPORT_NAMESPACE),
+  kindsWeb: (sourceKey, iri) => uuidv5(`kinds|${sourceKey}|${iri}`, IMPORT_NAMESPACE),
   instance: (graphId, thingId) => uuidv5(`instance|${graphId}|${thingId}`, IMPORT_NAMESPACE),
   edge: (graphId, s, p, o) => uuidv5(`edge|${graphId}|${s}|${p}|${o}`, IMPORT_NAMESPACE),
 };
@@ -58,6 +66,24 @@ export function localName(iri) {
 const titleCase = (str) => String(str || '')
   .replace(/([a-z])([A-Z])/g, '$1 $2')
   .replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
+
+const MINOR_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'by', 'for', 'from', 'in', 'into', 'of', 'on', 'or', 'the', 'to', 'via', 'with']);
+
+/**
+ * "disease of cellular proliferation" → "Disease of Cellular Proliferation".
+ * Only words written all in lower case change, so names whose case carries
+ * meaning (pH, mRNA, BRCA1, alpha-D-glucose, (2S)-...) are left as they are.
+ */
+export function titleCaseName(str) {
+  let first = true;
+  return String(str || '').replace(/\S+/g, (w) => {
+    const isFirst = first;
+    first = false;
+    if (!/^[a-z][^A-Z]*$/.test(w)) return w;
+    if (!isFirst && MINOR_WORDS.has(w)) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  });
+}
 
 
 /**
@@ -104,10 +130,12 @@ function depthsInSlice(index, iris) {
  * @param {Object} [options]
  * @param {string} [options.sourceName] - shown when the ontology has no title (e.g. the file name)
  * @param {string} [options.importedAt] - ISO time recorded on the source Thing only
+ * @param {boolean} [options.titleCase=true] - Title Case names; false keeps the source's own labels
+ * @param {boolean} [options.kindsWebs=true] - give each Thing with more specific kinds a web of them
  * @returns {Object} the plan
  */
 export function buildImportPlan(index, slice, options = {}) {
-  const { sourceName = null, importedAt = null } = options;
+  const { sourceName = null, importedAt = null, titleCase: useTitleCase = true, kindsWebs = true } = options;
   const iris = slice.iris;
   const ontology = index.ontology || {};
   const sourceKey = ontology.iri || `file:${sourceName || 'ontology'}`;
@@ -161,6 +189,7 @@ export function buildImportPlan(index, slice, options = {}) {
 
   const relationLabel = (property) => {
     const label = index.properties.get(property)?.label || index.terms.get(property)?.label;
+    if (!useTitleCase) return label || localName(property);
     return titleCase(label || localName(property));
   };
 
@@ -191,6 +220,26 @@ export function buildImportPlan(index, slice, options = {}) {
     });
   }
 
+  // ── Kinds ─────────────────────────────────────────────────────────────────
+  const kindsOf = new Map(); // iri → its direct, more specific kinds in the slice
+  if (kindsWebs) {
+    for (const iri of sortedIris) {
+      for (const p of index.terms.get(iri)?.parents || []) {
+        if (p === iri || !iris.has(p)) continue;
+        let list = kindsOf.get(p);
+        if (!list) { list = []; kindsOf.set(p, list); }
+        list.push(iri); // sortedIris order, so each list is already sorted
+      }
+    }
+  }
+  const kindsWebList = [...kindsOf.keys()].sort().map((iri) => ({
+    id: importIds.kindsWeb(sourceKey, iri),
+    kind: 'kinds',
+    whole: iri,
+    members: [...new Set(kindsOf.get(iri))],
+    connections: [],
+  }));
+
   // ── The folder ────────────────────────────────────────────────────────────
   let folderMembers;
   if (slice.roots && slice.roots.length > 0) {
@@ -210,10 +259,14 @@ export function buildImportPlan(index, slice, options = {}) {
   const things = sortedIris.map((iri) => {
     const term = index.terms.get(iri);
     const type = typeOf.get(iri) || null;
+    const label = term.label || localName(iri);
+    const name = useTitleCase ? titleCaseName(label) : label;
     return {
       iri,
       id: importIds.thing(iri),
-      name: term.label || localName(iri),
+      name,
+      // The source's own label, kept when the name differs from it.
+      label: name !== label ? label : null,
       description: term.definition || '',
       kind: term.kind,
       typeIri: type,
@@ -231,6 +284,7 @@ export function buildImportPlan(index, slice, options = {}) {
       deprecated: term.deprecated,
       replacedBy: term.replacedBy,
       compositionWebId: partsOf.has(iri) ? importIds.compositionWeb(sourceKey, iri) : null,
+      kindsWebId: kindsOf.has(iri) ? importIds.kindsWeb(sourceKey, iri) : null,
     };
   });
 
@@ -256,16 +310,21 @@ export function buildImportPlan(index, slice, options = {}) {
       roots: slice.roots || [],
     },
     things,
-    webs,
+    webs: [...webs, ...kindsWebList],
     relationTypes: [...relationTypes.values()].sort((a, b) => (a.iri < b.iri ? -1 : 1)),
     report: {
       things: things.length,
       typed: typeOf.size,
       compositionWebs: webs.length,
+      kindsWebs: kindsWebList.length,
       connections: connectionCount,
       relationTypes: relationTypes.size,
       relationsKeptAsData: things.reduce((n, t) => n + t.relations.length, 0),
       folderMembers: folderMembers.length,
+      // Every Thing placed in a web, the folder included: with the Things, what sets the file's size.
+      placements: folderMembers.length
+        + webs.reduce((n, w) => n + w.members.length, 0)
+        + kindsWebList.reduce((n, w) => n + w.members.length, 0),
       missingRoots: slice.missingRoots || [],
       ambiguousRoots: slice.ambiguousRoots || [],
       slice: slice.counts || {},

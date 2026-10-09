@@ -110,6 +110,7 @@ export function buildUniverseState(plan) {
       iri: thing.iri,
       source: source.id,
       kind: thing.kind,
+      ...(thing.label ? { label: thing.label } : {}),
       ...(thing.synonyms.length ? { synonyms: thing.synonyms } : {}),
       ...(thing.xrefs.length ? { xrefs: thing.xrefs } : {}),
       ...(thing.otherParents.length ? { otherParents: thing.otherParents } : {}),
@@ -123,7 +124,7 @@ export function buildUniverseState(plan) {
       description: thing.description,
       color: NODE_DEFAULT_COLOR,
       typeNodeId: thing.typeIri ? thingIdOf.get(thing.typeIri) : null,
-      definitionGraphIds: thing.compositionWebId ? [thing.compositionWebId] : [],
+      definitionGraphIds: [thing.compositionWebId, thing.kindsWebId].filter(Boolean),
       externalLinks: identity.externalLinks,
       ...(thing.equivalents.length ? { equivalentClasses: thing.equivalents } : {}),
       semanticMetadata: {
@@ -169,7 +170,9 @@ export function buildUniverseState(plan) {
     const web = newWeb({
       id: plannedWeb.id,
       name: wholeName,
-      description: `The parts of ${wholeName}, from ${source.title}.`,
+      description: plannedWeb.kind === 'kinds'
+        ? `The kinds of ${wholeName}, from ${source.title}.`
+        : `The parts of ${wholeName}, from ${source.title}.`,
       definingId: wholeId,
     });
     const memberIds = plannedWeb.members.map((iri) => thingIdOf.get(iri)).filter(Boolean);

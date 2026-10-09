@@ -8507,12 +8507,31 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         }
       });
 
-      // Add prototypes that are being used as types by other prototypes
+      // Add prototypes that are being used as types by other prototypes.
+      // An imported Thing's type is kept only while that Thing is live (the
+      // fixpoint below), or every class above every leaf of a removed import
+      // would keep itself alive.
       for (const prototype of draft.nodePrototypes.values()) {
-        if (prototype.typeNodeId) {
+        if (prototype.typeNodeId && !prototype.semanticMetadata?.ontology?.source) {
           referencedPrototypeIds.add(prototype.typeNodeId);
         }
       }
+
+      // An imported Thing placed in its general Thing's web of kinds is there to
+      // be browsed to, not because that Thing is made of it in a way that keeps
+      // it: it lives by its source, or by a web of somebody's own. Otherwise one
+      // live Thing would keep its whole subtree, and through its type, the
+      // subtrees beside it (formats/ontology/plan.js).
+      const isImportedKindIn = (graph, prototype) => {
+        const ontology = prototype?.semanticMetadata?.ontology;
+        if (!ontology?.source || !Array.isArray(graph?.definingNodeIds)) return false;
+        return graph.definingNodeIds.some((definingId) => {
+          if (prototype.typeNodeId === definingId) return true;
+          const definingIri = draft.nodePrototypes.get(definingId)?.semanticMetadata?.ontology?.iri;
+          return !!definingIri && Array.isArray(ontology.otherParents)
+            && ontology.otherParents.some((p) => p?.iri === definingIri);
+        });
+      };
 
       // Add prototypes that back node-groups (groups with linkedNodePrototypeId)
       draft.graphs.forEach(graph => {
@@ -8546,6 +8565,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             if (defGraph && defGraph.instances) {
               defGraph.instances.forEach(instance => {
                 if (!referencedPrototypeIds.has(instance.prototypeId)) {
+                  if (isImportedKindIn(defGraph, draft.nodePrototypes.get(instance.prototypeId))) return;
                   referencedPrototypeIds.add(instance.prototypeId);
                   addDefinitionPrototypes(instance.prototypeId); // Recurse
                 }
@@ -8646,6 +8666,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             }
             continue;
           }
+          const importedType = prototype.semanticMetadata?.ontology?.source ? prototype.typeNodeId : null;
+          if (importedType && !referencedPrototypeIds.has(importedType) && draft.nodePrototypes.has(importedType)) {
+            keepWithWebs(importedType);
+            chainGrew = true;
+          }
           if (!prototype.abstractionChains) continue;
           for (const chain of Object.values(prototype.abstractionChains)) {
             if (!Array.isArray(chain)) continue;
@@ -8670,6 +8695,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         console.log(`[Store cleanupOrphanedData] Removing orphaned prototype: ${prototypeId}`);
         draft.nodePrototypes.delete(prototypeId);
       });
+
+      // A web that stays can still hold a Thing that just went: an imported kind
+      // in a kept web of kinds. Its placement goes with it (and Step 5 then
+      // takes any connection that touched it).
+      if (orphanedPrototypes.length > 0) {
+        const removed = new Set(orphanedPrototypes);
+        for (const graphId of referencedGraphIds) {
+          const graph = draft.graphs.get(graphId);
+          if (!graph?.instances) continue;
+          for (const [instanceId, instance] of graph.instances) {
+            if (!instance?.isGroupAnchor && removed.has(instance?.prototypeId)) graph.instances.delete(instanceId);
+          }
+        }
+      }
 
       // Step 4: Remove orphaned graphs (and their instances/edges)
       const orphanedGraphs = [];

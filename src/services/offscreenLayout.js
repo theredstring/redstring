@@ -15,11 +15,71 @@ import { withEmptyGroupPlaceholders } from './groupLayout.js';
  */
 export function applyOffscreenLayout(graphId) {
   const st = useGraphStore.getState();
+  const updates = computeOffscreenLayout(graphId, st);
+  if (!updates) return;
+  st.updateMultipleNodeInstancePositions(graphId, updates, {
+    finalize: true, source: 'auto-layout', algorithm: 'force-directed', historyLabel: 'Auto layout'
+  });
+}
+
+/**
+ * Lay out webs of a universe state that isn't in the store yet (an import
+ * about to be merged), writing positions straight onto its instances. The
+ * store's layout and text settings still apply. One store update per web is
+ * what made laying out thousands of small webs slow, and this makes none.
+ *
+ * @param {Object} state - a deserialized universe state (Maps of graphs, prototypes, edges)
+ * @param {string[]} graphIds - the webs to lay out
+ * @param {Object} [options]
+ * @param {Function} [options.onProgress] - (done, total), every `yieldEvery` webs
+ * @param {number} [options.yieldEvery=50] - webs between yields to the UI
+ * @returns {Promise<number>} how many webs were laid out (or had nothing to place)
+ */
+export async function layOutStateWebs(state, graphIds, { onProgress = null, yieldEvery = 50 } = {}) {
+  const st = useGraphStore.getState();
+  const view = {
+    ...st,
+    graphs: state.graphs,
+    nodePrototypes: state.nodePrototypes,
+    edges: state.edges || new Map(),
+    edgePrototypes: state.edgePrototypes || new Map(),
+  };
+  let laidOut = 0;
+  for (let i = 0; i < graphIds.length; i++) {
+    const graph = state.graphs.get(graphIds[i]);
+    try {
+      const updates = computeOffscreenLayout(graphIds[i], view);
+      if (updates && graph?.instances) {
+        for (const { instanceId, x, y } of updates) {
+          const instance = graph.instances.get(instanceId);
+          if (instance) { instance.x = x; instance.y = y; }
+        }
+      }
+      laidOut++;
+    } catch (e) {
+      console.warn('[offscreenLayout] Layout failed for', graphIds[i], e);
+    }
+    if (i % yieldEvery === yieldEvery - 1) {
+      onProgress?.(i + 1, graphIds.length);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  return laidOut;
+}
+
+/**
+ * The layout applyOffscreenLayout would write, as instance position updates,
+ * or null when the web has nothing to place.
+ *
+ * @param {string} graphId
+ * @param {Object} st - store state, or a view of one (graphs, nodePrototypes, edges, settings)
+ */
+export function computeOffscreenLayout(graphId, st) {
   const graph = st.graphs.get(graphId);
-  if (!graph) return;
+  if (!graph) return null;
 
   const instances = Array.from(graph.instances?.values() || []);
-  if (instances.length === 0) return;
+  if (instances.length === 0) return null;
 
   const nodeSpacing = FORCE_LAYOUT_DEFAULTS.nodeSpacing || 140;
 
@@ -134,7 +194,7 @@ export function applyOffscreenLayout(graphId) {
     lombardiCurvature: st.autoLayoutSettings?.lombardiCurvature ?? 1.0,
   });
 
-  if (!updates || updates.length === 0) return;
+  if (!updates || updates.length === 0) return null;
 
   // Recenter so the bounding box center lands at (0, 0) — the canvas center
   // (NodeCanvas world coordinates span ±50000 around the origin)
@@ -165,7 +225,5 @@ export function applyOffscreenLayout(graphId) {
     });
   }
 
-  st.updateMultipleNodeInstancePositions(graphId, updates, {
-    finalize: true, source: 'auto-layout', algorithm: 'force-directed', historyLabel: 'Auto layout'
-  });
+  return updates;
 }

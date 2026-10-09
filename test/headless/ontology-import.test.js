@@ -83,7 +83,16 @@ describe('redstring import', () => {
     expect(out.wrote).toBe(file);
     const pack = JSON.parse(fs.readFileSync(file, 'utf8'));
     const names = Object.values(pack.prototypeSpace.prototypes).map((p) => p['skos:prefLabel'] || p.name);
-    expect(names).toEqual(expect.arrayContaining(['cat', 'Garfield', 'Zoo Ontology']));
+    expect(names).toEqual(expect.arrayContaining(['Cat', 'Garfield', 'Zoo Ontology']));
+  });
+
+  it('--keep-labels keeps the source\'s own labels', () => {
+    const file = path.join(tmp, 'zoo-labels.redstring');
+    cli('import', ZOO_OWL, '--keep-labels', '--out', file);
+    const pack = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const names = Object.values(pack.prototypeSpace.prototypes).map((p) => p['skos:prefLabel'] || p.name);
+    expect(names).toEqual(expect.arrayContaining(['cat', 'Garfield']));
+    expect(names).not.toContain('Cat');
   });
 
   it('merges into the workspace\'s active universe, and a second run adds nothing', () => {

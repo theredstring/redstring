@@ -26,7 +26,7 @@
  * handler reads the CURRENT store at call time.
  */
 import { NODE_DEFAULT_COLOR } from '../constants.js';
-import { applyOffscreenLayout } from './offscreenLayout.js';
+import { applyOffscreenLayout, layOutStateWebs } from './offscreenLayout.js';
 import { vlog } from '../utils/verboseLog.js';
 
 // Coerce a raw id (string or wrapping object) to a string id. Pure — safe in
@@ -781,12 +781,17 @@ export function createStoreActions({
               const { importFromRedstring } = await import('../formats/redstringFormat.js');
               const doc = typeof packJson === 'string' ? JSON.parse(packJson) : packJson;
               const { storeState } = importFromRedstring(doc);
+              // New webs are laid out before the merge, in one pass over the pack;
+              // webs already here that gain Things (a wider slice of a source
+              // already here) are laid out after, since their new Things have no place yet.
+              const here = useGraphStore.getState().graphs;
+              const fresh = [...storeState.graphs.keys()].filter((gid) => !here.has(gid));
+              let laidOut = await layOutStateWebs(storeState, fresh);
               const report = useGraphStore.getState().mergeUniverseState(storeState, {
                 foldSameAs: options.foldSameAs !== false,
               });
               if (!report) return { success: false, error: 'The pack could not be merged into this universe.' };
-              let laidOut = 0;
-              for (const gid of report.addedGraphIds || []) {
+              for (const gid of report.grownGraphIds || []) {
                 try { applyOffscreenLayout(gid); laidOut++; } catch (e) { console.error('[mergeRedstringPack] Layout failed for', gid, e); }
               }
               return {

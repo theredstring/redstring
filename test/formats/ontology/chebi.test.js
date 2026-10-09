@@ -60,9 +60,9 @@ describe('ChEBI LITE slice', () => {
     const names = [];
     let cur = state.nodePrototypes.get(importIds.thing(WATER));
     while (cur) { names.push(cur.name); cur = state.nodePrototypes.get(cur.typeNodeId); }
-    expect(names[0]).toBe('water');
-    expect(names[1]).toBe('oxygen hydride');
-    expect(names[names.length - 1]).toBe('chemical entity');
+    expect(names[0]).toBe('Water');
+    expect(names[1]).toBe('Oxygen Hydride');
+    expect(names[names.length - 1]).toBe('Chemical Entity');
   });
 
   it('importing the same slice twice produces no duplicates', () => {

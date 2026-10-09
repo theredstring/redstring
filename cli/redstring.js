@@ -77,6 +77,8 @@ const { values: flags, positionals } = parseArgs({
     depth: { type: 'string' },
     namespace: { type: 'string', multiple: true },
     'include-deprecated': { type: 'boolean' },
+    'keep-labels': { type: 'boolean' },
+    'no-kinds': { type: 'boolean' },
     'dry-run': { type: 'boolean' },
     json: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
@@ -658,14 +660,14 @@ async function main() {
 
     case 'import': {
       const file = sub;
-      if (!file) die('import <ontology file> [--root <term>]... [--depth <n>] [--namespace <iri-prefix>]... [--include-deprecated] [--out <pack.redstring>] [--dry-run]');
+      if (!file) die('import <ontology file> [--root <term>]... [--depth <n>] [--namespace <iri-prefix>]... [--include-deprecated] [--keep-labels] [--no-kinds] [--out <pack.redstring>] [--dry-run]');
       const built = await buildOntologyPack(path.resolve(file));
       const { report } = built;
       if (report.missingRoots.length) die(`no term matches ${report.missingRoots.map((r) => `"${r}"`).join(', ')}`);
       const summary = {
         source: report.source,
         things: report.things,
-        webs: report.compositionWebs + 1,
+        webs: report.compositionWebs + report.kindsWebs + 1,
         connections: report.connections,
         relationTypes: report.relationTypes,
         relationsKeptAsData: report.relationsKeptAsData,
@@ -677,12 +679,10 @@ async function main() {
         // A standalone pack: lay its webs out in a one-shot store, then write it.
         const { createHeadlessStore } = await import(path.join(ROOT, 'src/headless/createHeadlessStore.js'));
         const { useGraphStore } = await createHeadlessStore();
-        const { applyOffscreenLayout } = await import(path.join(ROOT, 'src/services/offscreenLayout.js'));
+        const { layOutStateWebs } = await import(path.join(ROOT, 'src/services/offscreenLayout.js'));
         const { exportToRedstring } = await import(path.join(ROOT, 'src/formats/redstringFormat.js'));
+        await layOutStateWebs(built.state, [...built.state.graphs.keys()]);
         useGraphStore.getState().loadUniverseFromFile(built.state);
-        for (const gid of built.state.graphs.keys()) {
-          try { applyOffscreenLayout(gid); } catch (e) { console.error(`layout failed for ${gid}: ${e.message}`); }
-        }
         const target = path.resolve(flags.out);
         fs.writeFileSync(target, JSON.stringify(exportToRedstring(useGraphStore.getState())));
         return out({ wrote: target, ...summary });
@@ -744,6 +744,8 @@ async function buildOntologyPack(file) {
     depth,
     namespaces: [].concat(flags.namespace || []),
     includeDeprecated: !!flags['include-deprecated'],
+    titleCase: !flags['keep-labels'],
+    kindsWebs: !flags['no-kinds'],
     importedAt: new Date().toISOString(),
   });
 }
@@ -786,7 +788,10 @@ Graph (operate on the active universe):
 Ontologies (OWL/RDF-XML, Turtle, N-Triples, N-Quads, TriG, JSON-LD, OBO Graphs JSON; .gz ok):
   import <file> [--root <IRI|CURIE|label>]... [--depth <n|all>]
                 [--namespace <iri-prefix>]... [--include-deprecated] [--dry-run]
-                        merge an ontology (or a slice of it) into the active universe
+                [--keep-labels] [--no-kinds]
+                        merge an ontology (or a slice of it) into the active universe;
+                        names are Title Cased unless --keep-labels, and each Thing
+                        opens to its more specific kinds unless --no-kinds
   import <file> ... --out <pack.redstring>
                         write it as a standalone universe (a pack) instead
 

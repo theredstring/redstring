@@ -41,9 +41,10 @@ test('F43 an ontology slice imports into the open universe and opens its folder 
   });
   expect(after.size).toBeGreaterThan(before);
   expect(after.activeName).toBe('Zoo Ontology');
-  expect(after.names).toEqual(['cat']);
+  expect(after.names).toEqual(['Cat']);
   expect(after.catLinks).toEqual(['http://example.org/zoo/Cat']);
-  expect(after.catWebs).toBe(1);
+  // Its parts, and its kinds (Garfield, Kitten).
+  expect(after.catWebs).toBe(2);
   await expect(page.locator('g.node').filter({ hasText: 'cat' }).first()).toBeVisible();
 });
 

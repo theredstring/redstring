@@ -108,7 +108,9 @@ export function namespaceOf(iri) {
  *
  * @param {Object} index
  * @param {Object} [options] - slice options (roots, depth, namespaces,
- *   includeDeprecated, includeAncestors, includePartners) plus importedAt
+ *   includeDeprecated, includeAncestors, includePartners) plus importedAt and
+ *   titleCase (default true; false keeps the source's own labels) and
+ *   kindsWebs (default true; false leaves kinds on the carousel only)
  * @returns {{slice: Object, plan: Object, state: Object, report: Object}}
  */
 export function planImport(index, options = {}) {
@@ -116,6 +118,8 @@ export function planImport(index, options = {}) {
   const plan = buildImportPlan(index, slice, {
     sourceName: index.sourceName || null,
     importedAt: options.importedAt || null,
+    titleCase: options.titleCase !== false,
+    kindsWebs: options.kindsWebs !== false,
   });
   const state = buildUniverseState(plan);
   return { slice, plan, state, report: { ...plan.report, source: { title: plan.source.title, iri: plan.source.iri, license: plan.source.license, version: plan.source.version } } };

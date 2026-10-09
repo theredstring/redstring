@@ -292,6 +292,7 @@ export function mergeUniverses(base, incoming, options = {}) {
     closeMatchCandidates: [],  // [{baseId, incomingId, baseName, incomingName}]
     addedGraphIds:        [],
     mergedGraphIds:       [],  // same ID on both sides → contents unioned
+    grownGraphIds:        [],  // of those, the ones the union added Things to
     addedEdgeIds:         [],
   };
 
@@ -404,8 +405,11 @@ export function mergeUniverses(base, incoming, options = {}) {
   for (const [gid, graph] of (incoming.graphs || new Map())) {
     const remapped = remapGraph(remap, graph);
     if (merged.graphs.has(gid)) {
-      merged.graphs.set(gid, mergeGraph(merged.graphs.get(gid), remapped));
+      const before = merged.graphs.get(gid);
+      const union = mergeGraph(before, remapped);
+      merged.graphs.set(gid, union);
       report.mergedGraphIds.push(gid);
+      if ((union.instances?.size || 0) > (before.instances?.size || 0)) report.grownGraphIds.push(gid);
     } else {
       merged.graphs.set(gid, remapped);
       report.addedGraphIds.push(gid);

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { indexOntology } from '../../../src/formats/ontology/importOntology.js';
 import { computeSlice, resolveTermRef, searchTerms } from '../../../src/formats/ontology/slice.js';
-import { buildImportPlan, importIds, localName } from '../../../src/formats/ontology/plan.js';
+import { buildImportPlan, importIds, localName, titleCaseName } from '../../../src/formats/ontology/plan.js';
 
 const FIXTURES = path.resolve(__dirname, '../../fixtures/ontology');
 const Z = 'http://example.org/zoo/';
@@ -17,7 +17,7 @@ beforeAll(async () => {
   zoo = await indexOntology({ source: fs.readFileSync(path.join(FIXTURES, 'zoo.ttl'), 'utf8'), fileName: 'zoo.ttl' });
 });
 
-const plan = (options = {}) => buildImportPlan(zoo, computeSlice(zoo, options), { sourceName: 'zoo' });
+const plan = (options = {}, planOptions = {}) => buildImportPlan(zoo, computeSlice(zoo, options), { sourceName: 'zoo', ...planOptions });
 const thing = (p, local) => p.things.find((t) => t.iri === z(local));
 
 describe('finding the roots', () => {
@@ -127,14 +127,15 @@ describe('the plan', () => {
 
   it('makes a composition web for each whole, holding its parts', () => {
     const p = plan({ roots: ['cat'], depth: 0 });
-    expect(p.webs).toHaveLength(1);
-    expect(p.webs[0]).toMatchObject({ whole: z('Cat'), members: [z('Paw'), z('Tail'), z('Whisker')] });
-    expect(thing(p, 'Cat').compositionWebId).toBe(p.webs[0].id);
+    const parts = p.webs.filter((w) => w.kind === 'composition');
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toMatchObject({ whole: z('Cat'), members: [z('Paw'), z('Tail'), z('Whisker')] });
+    expect(thing(p, 'Cat').compositionWebId).toBe(parts[0].id);
   });
 
   it('draws only relations between parts, inside the whole\'s web', () => {
     const p = plan({ roots: ['cat'], depth: 0 });
-    expect(p.webs[0].connections).toEqual([{ source: z('Paw'), property: z('adjacentTo'), target: z('Tail') }]);
+    expect(p.webs.find((w) => w.kind === 'composition').connections).toEqual([{ source: z('Paw'), property: z('adjacentTo'), target: z('Tail') }]);
     expect(p.relationTypes).toEqual([{ iri: z('adjacentTo'), id: importIds.thing(z('adjacentTo')), name: 'Adjacent To' }]);
   });
 
@@ -174,5 +175,73 @@ describe('the plan', () => {
   it('uses the IRI\'s local name when a term has no label', () => {
     expect(localName('http://e.org/some_thing')).toBe('some thing');
     expect(localName('http://e.org/x#Frag')).toBe('Frag');
+  });
+});
+
+describe('names', () => {
+  it('Title Cases names by default and keeps the source\'s label alongside', () => {
+    const cat = thing(plan(), 'Cat');
+    expect(cat).toMatchObject({ name: 'Cat', label: 'cat' });
+    // Already capitalised: nothing to keep.
+    expect(thing(plan(), 'Garfield')).toMatchObject({ name: 'Garfield', label: null });
+  });
+
+  it('keeps the source\'s own labels when Title Case is off', () => {
+    const p = plan({}, { titleCase: false });
+    expect(thing(p, 'Cat')).toMatchObject({ name: 'cat', label: null });
+    expect(thing(p, 'Cat').relations.find((r) => r.target === z('Predator')).propertyLabel).toBe('has role');
+  });
+
+  it('changes only words written all in lower case', () => {
+    expect(titleCaseName('disease of cellular proliferation')).toBe('Disease of Cellular Proliferation');
+    expect(titleCaseName('of mice and men')).toBe('Of Mice and Men');
+    expect(titleCaseName('hereditary disease, non-human animal')).toBe('Hereditary Disease, Non-human Animal');
+    expect(titleCaseName('BRCA1-related cancer')).toBe('BRCA1-related Cancer');
+    expect(titleCaseName('pH indicator')).toBe('pH Indicator');
+    expect(titleCaseName('alpha-D-glucose')).toBe('alpha-D-glucose');
+    expect(titleCaseName('(2S)-2-aminopropanoic acid')).toBe('(2S)-2-aminopropanoic Acid');
+    expect(titleCaseName('')).toBe('');
+  });
+});
+
+describe('webs of kinds', () => {
+  const kindsOf = (p, local) => p.webs.find((w) => w.kind === 'kinds' && w.whole === z(local));
+
+  it('gives each Thing with more specific kinds a web holding all of them', () => {
+    const p = plan();
+    expect(kindsOf(p, 'Mammal').members).toEqual([z('Cat'), z('Dog')]);
+    // Cat's type is Mammal, but it's a kind of Pet too, so it's in both.
+    expect(kindsOf(p, 'Pet').members).toEqual([z('Cat')]);
+    expect(kindsOf(p, 'Cat').members).toEqual([z('Garfield'), z('Kitten')]);
+    expect(kindsOf(p, 'Cat').connections).toEqual([]);
+    expect(thing(p, 'Mammal').kindsWebId).toBe(kindsOf(p, 'Mammal').id);
+    // A leaf has none.
+    expect(thing(p, 'Garfield').kindsWebId).toBe(null);
+    expect(kindsOf(p, 'Garfield')).toBeUndefined();
+  });
+
+  it('holds only kinds inside the slice', () => {
+    const p = plan({ roots: ['dog'], depth: 0 });
+    // Mammal arrives as Dog's ancestor; Cat isn't in this slice.
+    expect(kindsOf(p, 'Mammal').members).toEqual([z('Dog')]);
+  });
+
+  it('derives the web\'s ID from the source and the Thing, like every other ID', () => {
+    expect(kindsOf(plan({ roots: ['cat'] }), 'Mammal').id).toBe(kindsOf(plan({ roots: ['dog'] }), 'Mammal').id);
+    expect(kindsOf(plan(), 'Mammal').id).toBe(importIds.kindsWeb('http://example.org/zoo.owl', z('Mammal')));
+  });
+
+  it('can be left out, keeping kinds on the carousel only', () => {
+    const p = plan({}, { kindsWebs: false });
+    expect(p.webs.every((w) => w.kind === 'composition')).toBe(true);
+    expect(p.things.every((t) => t.kindsWebId === null)).toBe(true);
+    expect(p.report.kindsWebs).toBe(0);
+  });
+
+  it('counts every placement in a web, for the size estimate', () => {
+    const p = plan();
+    const inWebs = p.webs.reduce((n, w) => n + w.members.length, 0);
+    expect(p.report.placements).toBe(inWebs + p.source.folderMembers.length);
+    expect(plan({}, { kindsWebs: false }).report.placements).toBeLessThan(p.report.placements);
   });
 });

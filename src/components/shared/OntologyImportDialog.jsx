@@ -17,11 +17,13 @@ import { ACCEPTED_EXTENSIONS } from '../../formats/ontology/parseRdf.js';
 const LARGE_IMPORT = 20000;
 
 /**
- * Roughly what an import adds to the universe file, per Thing. Measured on all of
- * ChEBI LITE (218,728 Things → 405 MB of .redstring), so a fair upper bound for an
- * ontology with definitions and many relations.
+ * Roughly what an import adds to the universe file: per Thing, and per Thing
+ * placed in a web. Measured on all of Mondo (32,135 Things → 69 MB; its 46,736
+ * placements in webs of kinds → 53 MB more) and ChEBI LITE (about 1.9 KB a Thing).
  */
-const BYTES_PER_THING = 1900;
+const BYTES_PER_THING = 2150;
+const BYTES_PER_PLACEMENT = 1150;
+const estimatedBytes = (report) => (report.things * BYTES_PER_THING) + ((report.placements || 0) * BYTES_PER_PLACEMENT);
 
 const DEPTHS = [
   { label: 'Just these', value: 0 },
@@ -90,6 +92,8 @@ export function OntologyImportDialog({ onClose, save }) {
   const [depth, setDepth] = useState(Infinity);
   const [includeDeprecated, setIncludeDeprecated] = useState(false);
   const [onlyMainNamespace, setOnlyMainNamespace] = useState(false);
+  const [titleCase, setTitleCase] = useState(true);
+  const [kindsWebs, setKindsWebs] = useState(true);
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
 
@@ -103,7 +107,9 @@ export function OntologyImportDialog({ onClose, save }) {
     depth,
     includeDeprecated,
     namespaces: onlyMainNamespace && mainNamespace ? [mainNamespace] : [],
-  }), [roots, depth, includeDeprecated, onlyMainNamespace, mainNamespace]);
+    titleCase,
+    kindsWebs,
+  }), [roots, depth, includeDeprecated, onlyMainNamespace, mainNamespace, titleCase, kindsWebs]);
 
   const readFile = useCallback(async (file) => {
     if (!file) return;
@@ -292,9 +298,26 @@ export function OntologyImportDialog({ onClose, save }) {
           )}
 
           <DialogCheckbox
+            checked={titleCase}
+            onChange={setTitleCase}
+            label="Title Case names"
+            description="Off keeps the source's own labels"
+            align="start"
+            style={{ fontSize: '0.8rem' }}
+          />
+          <DialogCheckbox
+            checked={kindsWebs}
+            onChange={setKindsWebs}
+            label="Webs of kinds"
+            description="Open a Thing to see its more specific kinds"
+            align="start"
+            style={{ fontSize: '0.8rem' }}
+          />
+          <DialogCheckbox
             checked={includeDeprecated}
             onChange={setIncludeDeprecated}
             label="Include deprecated terms"
+            align="start"
             style={{ fontSize: '0.8rem' }}
           />
           {mixedNamespaces && mainNamespace && (
@@ -303,19 +326,20 @@ export function OntologyImportDialog({ onClose, save }) {
               onChange={setOnlyMainNamespace}
               label={`Only ${shortId(`${mainNamespace}0`).replace(/:0$/, '')} terms`}
               description={mainNamespace}
+              align="start"
               style={{ fontSize: '0.8rem' }}
             />
           )}
 
           {preview && !preview.error && (
             <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
-              {fmt(preview.things)} things · {fmt(preview.compositionWebs + 1)} webs · {fmt(preview.connections)} connections
+              {fmt(preview.things)} things · {fmt(preview.compositionWebs + (preview.kindsWebs || 0) + 1)} webs · {fmt(preview.connections)} connections
               {preview.slice?.ancestors ? ` · includes ${fmt(preview.slice.ancestors)} less specific terms` : ''}
             </div>
           )}
           {preview?.things > LARGE_IMPORT && (
             <DialogNote>
-              {`Large import: about ${fmt(Math.round((preview.things * BYTES_PER_THING) / 1e6))} MB more in the universe file, and every save writes all of it.`}
+              {`Large import: about ${fmt(Math.round(estimatedBytes(preview) / 1e6))} MB more in the universe file, and every save writes all of it.`}
             </DialogNote>
           )}
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>

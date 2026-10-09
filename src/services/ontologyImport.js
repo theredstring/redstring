@@ -17,7 +17,7 @@
  */
 
 import useGraphStore from '../store/graphStore.js';
-import { applyOffscreenLayout } from './offscreenLayout.js';
+import { applyOffscreenLayout, layOutStateWebs } from './offscreenLayout.js';
 import { createOntologyHandlers } from '../formats/ontology/ontologyHandlers.js';
 
 const canUseWorker = () => typeof window !== 'undefined' && typeof Worker === 'function';
@@ -78,8 +78,6 @@ export function createOntologyImportSession() {
   };
 }
 
-const yieldToUi = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 /**
  * Merge a built import into the open universe, lay out its new webs and save.
  *
@@ -95,21 +93,23 @@ export async function applyOntologyImport(built, { save = null, onProgress = nul
     try { await save(); } catch (e) { console.warn('[OntologyImport] Save before import failed (continuing):', e); }
   }
 
+  // Webs this import brings in are laid out before the merge, in the built
+  // state itself, so thousands of them cost one store update rather than one
+  // each. A web that was already here keeps the arrangement somebody may have
+  // given it, unless the import adds Things to it (a wider slice of the same
+  // source): those have no place in it yet, so it's laid out again after.
+  const here = useGraphStore.getState().graphs;
+  const fresh = [...built.state.graphs.keys()].filter((gid) => !here.has(gid));
+  let laidOut = await layOutStateWebs(built.state, fresh, {
+    onProgress: (done, total) => onProgress?.({ phase: 'layout', done, total }),
+  });
+
   onProgress?.({ phase: 'merge' });
   const report = useGraphStore.getState().mergeUniverseState(built.state, { foldSameAs: true });
   if (!report) throw new Error('The import could not be merged into this universe.');
 
-  // Only webs this import brought in are laid out. A web that was already here
-  // (a re-import, or a second slice of the same ontology) keeps the arrangement
-  // somebody may have given it.
-  const added = report.addedGraphIds || [];
-  let laidOut = 0;
-  for (let i = 0; i < added.length; i++) {
-    try { applyOffscreenLayout(added[i]); laidOut++; } catch (e) { console.warn('[OntologyImport] Layout failed for', added[i], e); }
-    if (i % 20 === 19) {
-      onProgress?.({ phase: 'layout', done: i + 1, total: added.length });
-      await yieldToUi();
-    }
+  for (const gid of report.grownGraphIds || []) {
+    try { applyOffscreenLayout(gid); laidOut++; } catch (e) { console.warn('[OntologyImport] Layout failed for', gid, e); }
   }
 
   if (save) {

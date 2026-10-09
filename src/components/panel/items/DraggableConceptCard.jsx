@@ -113,20 +113,6 @@ const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize
       flexShrink: 0,
       alignItems: 'center'
     }}>
-      {origin && (
-        <PanelIconButton
-          icon={Cable}
-          size={18}
-          color={ink}
-          active={linked}
-          disabled={!linked && !linkable}
-          style={buttonStyle}
-          onClick={handleLinkToggle}
-          title={linked
-            ? `Linked: this is ${originProto.name}. Unlink`
-            : linkable ? linkActionTitle(concept, originProto) : 'Nothing to link: no identifier on the semantic web'}
-        />
-      )}
       <PanelIconButton
         icon={Search}
         size={18}
@@ -145,6 +131,20 @@ const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize
         onClick={handleSaveToggle}
         title={isBookmarked ? `Saved to your Library. Unsave "${concept.name}"` : `Save "${concept.name}" to your Library`}
       />
+      {originProto && (
+        <PanelIconButton
+          icon={Cable}
+          size={18}
+          color={ink}
+          active={linked}
+          disabled={!linked && !linkable}
+          style={buttonStyle}
+          onClick={handleLinkToggle}
+          title={linked
+            ? `Linked: this is ${originProto.name}. Unlink`
+            : linkable ? linkActionTitle(concept, originProto) : 'Nothing to link: no identifier on the semantic web'}
+        />
+      )}
     </div>
   );
 

@@ -69,7 +69,9 @@ const build = (options = {}) => {
 describe('the built universe', () => {
   it('has one Thing per term plus the source, keyed by IRI-derived IDs', () => {
     const { state } = build();
-    expect(state.nodePrototypes.get(id('Cat'))).toMatchObject({ name: 'cat', typeNodeId: id('Mammal') });
+    expect(state.nodePrototypes.get(id('Cat'))).toMatchObject({ name: 'Cat', typeNodeId: id('Mammal') });
+    // The source's own label is kept beside the Title Cased name.
+    expect(state.nodePrototypes.get(id('Cat')).semanticMetadata.ontology.label).toBe('cat');
     expect(state.nodePrototypes.get(id('Garfield'))).toMatchObject({ name: 'Garfield', typeNodeId: id('Cat') });
   });
 
@@ -101,13 +103,24 @@ describe('the built universe', () => {
     expect(state.graphs.get(folderWebId).description).toMatch(/^Folder:/);
   });
 
+  it('opens a Thing to its parts first, then to its kinds', () => {
+    const { state } = build();
+    const cat = state.nodePrototypes.get(id('Cat'));
+    const [parts, kinds] = cat.definitionGraphIds.map((g) => state.graphs.get(g));
+    expect(parts.description).toBe('The parts of Cat, from Zoo Ontology.');
+    expect(kinds.description).toBe('The kinds of Cat, from Zoo Ontology.');
+    expect(kinds.definingNodeIds).toEqual([id('Cat')]);
+    const names = [...kinds.instances.values()].map((i) => state.nodePrototypes.get(i.prototypeId).name).sort();
+    expect(names).toEqual(['Garfield', 'Kitten']);
+  });
+
   it('draws composition as the whole\'s web, with relations between parts as connections', () => {
     const { state } = build({ roots: ['cat'], depth: 0 });
     const cat = state.nodePrototypes.get(id('Cat'));
     const web = state.graphs.get(cat.definitionGraphIds[0]);
     expect(web.definingNodeIds).toEqual([id('Cat')]);
     const members = [...web.instances.values()].map((i) => state.nodePrototypes.get(i.prototypeId).name).sort();
-    expect(members).toEqual(['paw', 'tail', 'whisker']);
+    expect(members).toEqual(['Paw', 'Tail', 'Whisker']);
     expect(web.edgeIds).toHaveLength(1);
     const edge = state.edges.get(web.edgeIds[0]);
     expect(edge).toMatchObject({ name: 'Adjacent To', definitionNodeIds: [importIds.thing(Z + 'adjacentTo')] });
@@ -146,7 +159,7 @@ describe('importing into a universe', () => {
     const st = useGraphStore.getState();
     expect(result.addedPrototypeIds.length).toBe(built.state.nodePrototypes.size);
     expect(result.laidOut).toBe(built.state.graphs.size);
-    expect(st.nodePrototypes.get(id('Cat')).name).toBe('cat');
+    expect(st.nodePrototypes.get(id('Cat')).name).toBe('Cat');
     expect(st.openGraphIds).toContain(built.folderWebId);
     expect(st.savedNodeIds.has(built.sourceId)).toBe(true);
   });
@@ -175,11 +188,27 @@ describe('importing into a universe', () => {
     expect(report.addedPrototypeIds).toEqual([id('Dog')]);
     const st = useGraphStore.getState();
     const names = [...st.nodePrototypes.values()].map((p) => p.name);
-    expect(names.filter((n) => n === 'mammal')).toHaveLength(1);
+    expect(names.filter((n) => n === 'Mammal')).toHaveLength(1);
     // Both roots now sit in the one folder web.
     const folder = st.graphs.get(build().folderWebId);
     const members = [...folder.instances.values()].map((i) => st.nodePrototypes.get(i.prototypeId).name).sort();
-    expect(members).toEqual(['cat', 'dog']);
+    expect(members).toEqual(['Cat', 'Dog']);
+  });
+
+  it('a wider slice adds its kinds to a web of kinds already here, and lays it out again', async () => {
+    await applyOntologyImport(build({ roots: ['cat'], depth: 0 }));
+    const mammalKinds = importIds.kindsWeb('http://example.org/zoo.owl', Z + 'Mammal');
+    const kindNames = () => {
+      const st = useGraphStore.getState();
+      return [...st.graphs.get(mammalKinds).instances.values()].map((i) => st.nodePrototypes.get(i.prototypeId).name).sort();
+    };
+    expect(kindNames()).toEqual(['Cat']);
+    const report = await applyOntologyImport(build({ roots: ['dog'], depth: 0 }));
+    expect(report.grownGraphIds).toContain(mammalKinds);
+    expect(kindNames()).toEqual(['Cat', 'Dog']);
+    // Laid out again, so Dog isn't left on top of Cat at the plan's grid spot.
+    const spots = [...useGraphStore.getState().graphs.get(mammalKinds).instances.values()].map((i) => `${Math.round(i.x)},${Math.round(i.y)}`);
+    expect(new Set(spots).size).toBe(2);
   });
 
   it('two different sources merge on the IRI they share', async () => {
@@ -189,8 +218,8 @@ describe('importing into a universe', () => {
     expect(report.dedupedIds).toContain(id('Cat'));
     const cat = useGraphStore.getState().nodePrototypes.get(id('Cat'));
     // The universe it landed in keeps its name for the Thing; the other source's is kept too.
-    expect(cat.name).toBe('cat');
-    expect(cat._preserved.merge.name).toBe('domestic cat');
+    expect(cat.name).toBe('Cat');
+    expect(cat._preserved.merge.name).toBe('Domestic Cat');
     // Each source's account of what a cat is made of survives, as two definitions.
     expect(cat.definitionGraphIds).toHaveLength(2);
   });
@@ -209,7 +238,7 @@ describe('importing into a universe', () => {
     expect(st.nodePrototypes.get('my-cat').description).toBe('Mine.');
     // Garfield's type and the composition web both now point at the user's Thing.
     expect(st.nodePrototypes.get(id('Paw'))).toBeTruthy();
-    const web = [...st.graphs.values()].find((g) => g.name === 'cat');
+    const web = [...st.graphs.values()].find((g) => g.name === 'Cat');
     expect(web.definingNodeIds).toEqual(['my-cat']);
   });
 
@@ -259,6 +288,36 @@ describe('what keeps imported Things alive', () => {
     expect(st.nodePrototypes.has(id('Tail'))).toBe(true);
     // Tail's type is kept because Tail uses it.
     expect(st.nodePrototypes.has(id('BodyPart'))).toBe(true);
+  });
+
+  it('a kept Thing does not keep its whole subtree through its web of kinds', async () => {
+    const built = build();
+    await applyOntologyImport(built);
+    // The user puts Mammal in a web of their own, then removes the source.
+    useGraphStore.setState((s) => {
+      const graphs = new Map(s.graphs);
+      graphs.set('mine', {
+        id: 'mine', name: 'Mine', description: '', instances: new Map([['i', { id: 'i', prototypeId: id('Mammal'), x: 0, y: 0, scale: 1 }]]),
+        groups: new Map(), edgeIds: [], definingNodeIds: [],
+      });
+      const saved = new Set(s.savedNodeIds);
+      saved.delete(built.sourceId);
+      return { graphs, openGraphIds: ['mine'], savedNodeIds: saved };
+    });
+    useGraphStore.getState().cleanupOrphanedData();
+    const st = useGraphStore.getState();
+    // Mammal and the Things above it stay, so its carousel still reads.
+    expect(st.nodePrototypes.has(id('Mammal'))).toBe(true);
+    expect(st.nodePrototypes.has(id('Animal'))).toBe(true);
+    // Its kinds, and theirs, go with the source.
+    for (const gone of ['Cat', 'Dog', 'Garfield', 'Kitten', 'Pet', 'Tail']) expect(st.nodePrototypes.has(id(gone)), gone).toBe(false);
+    // Mammal's web of kinds stays, as its inside, but empty: no placement of a removed Thing.
+    const kinds = st.graphs.get(importIds.kindsWeb('http://example.org/zoo.owl', Z + 'Mammal'));
+    expect(kinds).toBeTruthy();
+    expect(kinds.instances.size).toBe(0);
+    for (const g of st.graphs.values()) {
+      for (const inst of g.instances?.values() || []) expect(st.nodePrototypes.has(inst.prototypeId)).toBe(true);
+    }
   });
 });
 
