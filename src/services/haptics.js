@@ -343,6 +343,31 @@ const RECIPES = {
   gridSnap: {
     [HapticTier.TAPTIC]: { tick: true }
   },
+  /**
+   * The zoom bar's thumb is taken hold of, or let go. Both a tick: the slider
+   * is a small control handled often, so picking it up and putting it down are
+   * barely-there marks rather than the lift/drop pair a node gets.
+   */
+  sliderGrab: {
+    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.BASIC]: { vibrate: 5 }
+  },
+  sliderRelease: {
+    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.BASIC]: { vibrate: 5 }
+  },
+  /**
+   * One detent as the dragged zoom-bar thumb crosses a notch, the same eighths
+   * of the track the zoom icons step to.
+   *
+   * It carries a BASIC recipe for the reason carouselDetent does: the lattice
+   * is bounded. The whole track holds eight notches, so even a full sweep is a
+   * short burst, not a stream.
+   */
+  zoomDetent: {
+    [HapticTier.TAPTIC]: { tick: true },
+    [HapticTier.BASIC]: { vibrate: 5 }
+  },
   /** An edge is selected. A tick — the same class of act as tapping a node. */
   edgeSelect: {
     [HapticTier.TAPTIC]: { tick: true },

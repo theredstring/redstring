@@ -19,12 +19,17 @@
  * - lingering: the LINGER_MS after an interaction ends, so a tap on a touch
  *   screen (which has no hover) doesn't vanish under the finger.
  * Keyboard focus wakes it too (CSS, :focus-visible).
+ *
+ * Haptics (touch devices only; there is no engine elsewhere): the icons give a
+ * light impact on press. The thumb ticks when taken hold of and let go, and
+ * ticks once per notch it is dragged across, the same eighths the icons step
+ * to.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ZoomIn, ZoomOut, EyeOff } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
-import { haptic } from '../../../services/haptics.js';
+import { haptic, createDetentTrack } from '../../../services/haptics.js';
 import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { DARK_THEME } from '../../../utils/themeColors.js';
@@ -106,6 +111,8 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
   const barRef = useRef(null);
   const trackRef = useRef(null);
   const draggingRef = useRef(false);
+  const detentRef = useRef(null);
+  if (!detentRef.current) detentRef.current = createDetentTrack('zoomDetent', 1);
   const [dragging, setDragging] = useState(false);
   const [pressing, setPressing] = useState(false);
   const [near, setNear] = useState(false);
@@ -287,6 +294,11 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
   }, [suppressed, shown, endHold]);
   useEffect(() => endHold, [endHold]);
 
+  // The detent lattice is floored, so notch k ticks as the thumb crosses k
+  // either way and the top end (8) ticks on arrival. The bottom end would sit
+  // inside notch 0's cell and never tick, so it gets a cell of its own.
+  const detentValue = (t) => (t <= 0 ? -0.5 : t * STEPS);
+
   // Along the track: left to right lying down, bottom to top standing up.
   const tFromPointer = (e) => {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -304,8 +316,11 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
     draggingRef.current = true;
     pendingStepRef.current = null;
     setDragging(true);
+    haptic('sliderGrab');
     const t = tFromPointer(e);
     if (t == null) return;
+    // Seeded where the press lands, so jumping the thumb there doesn't tick.
+    detentRef.current.reset(detentValue(t));
     placeThumb(t);
     // A press away from the thumb travels there at step speed; the drag that
     // follows takes over from wherever the camera has got to.
@@ -316,6 +331,7 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
     if (!draggingRef.current) return;
     const t = tFromPointer(e);
     if (t == null) return;
+    detentRef.current.update(detentValue(t));
     placeThumb(t);
     zoomTo(fromT(t), DRAG_MS);
   };
@@ -324,6 +340,8 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
     if (!draggingRef.current) return;
     draggingRef.current = false;
     setDragging(false);
+    // Forced: a notch crossed just before letting go must not swallow it.
+    haptic('sliderRelease', { force: true });
     e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
 
