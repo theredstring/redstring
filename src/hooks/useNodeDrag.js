@@ -24,20 +24,11 @@ import {
 import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, truncateEdgeLabel } from '../services/textMeasurement.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
 import { haptic } from '../services/haptics.js';
+import { createFrameClock } from '../components/canvas/camera/frameClock.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
 const DRAG_ZOOM_ANIMATION_DURATION = 250; // ms
-// The drag-zoom clock starts at the first frame the animation draws, set back
-// by one frame so that frame already moves. Stamping it when the animation is
-// asked for instead breaks on a big web: the lift or drop that asks runs long
-// inside a frame, rAF then hands the first step that frame's (earlier) start
-// time, elapsed comes out negative, and easeOutCubic turns a negative progress
-// into a large overshoot backwards. On a 500 MB universe the drop's first frame
-// painted the web at zoom -0.29, a one-frame flicker of a tiny mirrored web.
-// Starting at the first frame also keeps a lift that stalled before its first
-// frame from jumping most of the way out in one step.
-const DRAG_ZOOM_FIRST_FRAME_MS = 1000 / 60;
 // Additive zoom-out floor — keeps the drag-zoom feeling substantial when
 // already zoomed out. Pure multiplicative shrinkage approaches DRAG_ZOOM_MIN
 // asymptotically, so each drag at low zoom does almost nothing. The additive
@@ -2143,7 +2134,7 @@ export const useNodeDrag = ({
 
     zoomAnimationRef.current = {
       active: true,
-      startTime: null, // set by the first step; see DRAG_ZOOM_FIRST_FRAME_MS
+      clock: createFrameClock(), // frame time, not wall time; see frameClock.js
       startZoom,
       targetZoom,
       startPan,
@@ -2158,8 +2149,7 @@ export const useNodeDrag = ({
       const state = zoomAnimationRef.current;
       if (!state.active) return;
 
-      if (state.startTime === null) state.startTime = now - DRAG_ZOOM_FIRST_FRAME_MS;
-      const elapsed = now - state.startTime;
+      const elapsed = state.clock(now);
       const progress = Math.min(1, elapsed / DRAG_ZOOM_ANIMATION_DURATION);
       const t = 1 - Math.pow(1 - progress, 3); // easeOutCubic
 
@@ -2211,7 +2201,7 @@ export const useNodeDrag = ({
 
     zoomAnimationRef.current = {
       active: true,
-      startTime: null, // set by the first step; see DRAG_ZOOM_FIRST_FRAME_MS
+      clock: createFrameClock(), // frame time, not wall time; see frameClock.js
       startZoom,
       targetZoom,
       startPan,
@@ -2225,8 +2215,7 @@ export const useNodeDrag = ({
       const state = zoomAnimationRef.current;
       if (!state.active) return;
 
-      if (state.startTime === null) state.startTime = now - DRAG_ZOOM_FIRST_FRAME_MS;
-      const elapsed = now - state.startTime;
+      const elapsed = state.clock(now);
       const progress = Math.min(1, elapsed / DRAG_ZOOM_ANIMATION_DURATION);
       const t = 1 - Math.pow(1 - progress, 3); // easeOutCubic
 
@@ -2510,7 +2499,9 @@ export const useNodeDrag = ({
       ? pending.zoomRestore
       : null;
 
-    const start = performance.now();
+    // The same frame clock the restore runs on, so the fallback below can't
+    // finish ahead of a restore that a busy main thread has slowed down.
+    const clock = createFrameClock();
     const finish = () => {
       dropRafRef.current = null;
       // Hand the node back to React's natural (transform-free) render and
@@ -2521,14 +2512,15 @@ export const useNodeDrag = ({
         el.style.transition = '';
       });
     };
-    const step = () => {
+    const step = (now) => {
+      const elapsed = clock(now);
       let done;
       if (zr) {
         // Progress = how far the live zoom has traveled toward its target,
         // clamped; the clock term takes over if the zoom stalls.
         const z = zoomLevelRef.current;
         const zoomP = (z - zr.fromZoom) / (zr.toZoom - zr.fromZoom);
-        const clockP = (performance.now() - start) / (DRAG_ZOOM_ANIMATION_DURATION + 100);
+        const clockP = elapsed / (DRAG_ZOOM_ANIMATION_DURATION + 100);
         const p = Math.min(1, Math.max(zoomP, clockP, 0));
         targets.forEach(({ el, cx, cy, fromScale }) => {
           // Lerp the node's on-screen scale factor (zoom × liftScale) from its
@@ -2542,7 +2534,7 @@ export const useNodeDrag = ({
         });
         done = p >= 1;
       } else {
-        const t = Math.min(1, (performance.now() - start) / DROP_DURATION);
+        const t = Math.min(1, elapsed / DROP_DURATION);
         const eased = 1 - Math.pow(1 - t, 3); // ease-out
         targets.forEach(({ el, cx, cy, fromScale }) => {
           const scale = fromScale + (1 - fromScale) * eased;
