@@ -2,16 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Library, FileInput, X } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import Dialog, { DialogButton, DialogCard, DialogCheckbox, DialogInput, DialogNote, DialogOption } from './Dialog.jsx';
-import { createOntologyImportSession, applyOntologyImport, openImportedFolder } from '../../services/ontologyImport.js';
+import {
+  createOntologyImportSession, applyOntologyImport, openImportedFolder, prepareNewUniverseFile, importIntoNewUniverse,
+} from '../../services/ontologyImport.js';
 import { ACCEPTED_EXTENSIONS } from '../../formats/ontology/parseRdf.js';
 
 /**
  * Import an ontology file (OWL, Turtle, N-Triples, JSON-LD, OBO Graphs JSON)
- * into the open universe.
+ * into the open universe, or into a new universe with its own file.
  *
  * pick → reading → configure → working → result. Reading and planning happen
  * in a worker (services/ontologyImport.js); only the final merge touches the
- * store. Opened by the `openOntologyImport` window event, from the File menu.
+ * store. Opened by the `openOntologyImport` window event, from the File menu
+ * and the Universes panel; `detail.destination: 'new'` starts on a new universe.
  */
 
 const LARGE_IMPORT = 20000;
@@ -82,7 +85,9 @@ const Spinner = ({ text }) => {
   );
 };
 
-export function OntologyImportDialog({ onClose, save }) {
+const baseName = (name) => String(name || '').replace(/\.(gz)$/i, '').replace(/\.[^.]+$/, '').trim();
+
+export function OntologyImportDialog({ onClose, save, currentUniverseName = null, initialDestination = 'current' }) {
   const theme = useTheme();
   const sessionRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -103,8 +108,14 @@ export function OntologyImportDialog({ onClose, save }) {
   const [kindsWebs, setKindsWebs] = useState(true);
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
+  const [destination, setDestination] = useState(initialDestination);
+  const [newName, setNewName] = useState('');
+  const [createdName, setCreatedName] = useState(null);
 
   useEffect(() => () => { sessionRef.current?.dispose(); sessionRef.current = null; }, []);
+
+  // With no universe open, a new one is the only place an import can go.
+  useEffect(() => { if (currentUniverseName === false) setDestination('new'); }, [currentUniverseName]);
 
   const mainNamespace = summary?.namespaces?.[0]?.prefix || null;
   const mixedNamespaces = (summary?.namespaces?.length || 0) > 1;
@@ -131,6 +142,7 @@ export function OntologyImportDialog({ onClose, save }) {
       const s = await session.index(file, setProgress);
       if (sessionRef.current !== session) return;
       setSummary(s);
+      setNewName((prev) => prev || s?.ontology?.title || s?.sourceName || baseName(file.name) || 'Ontology');
       setPhase('configure');
     } catch (e) {
       if (sessionRef.current !== session) return;
@@ -168,10 +180,27 @@ export function OntologyImportDialog({ onClose, save }) {
   }, [options, phase]);
 
   const runImport = async () => {
+    const intoNew = destination === 'new';
+    const name = newName.trim();
+    let file = null;
+    if (intoNew) {
+      // First, while the click still counts: a browser opens its save dialog
+      // only straight from one.
+      try {
+        file = await prepareNewUniverseFile(name);
+      } catch (e) {
+        setError(`Could not make the file for ${name}: ${e.message}`);
+        setPhase('error');
+        return;
+      }
+      if (!file) return; // cancelled the save dialog
+    }
     setPhase('working');
     try {
       const built = await sessionRef.current.build(options);
-      const report = await applyOntologyImport(built, { save });
+      const report = intoNew
+        ? await importIntoNewUniverse(built, { name, file, onCreated: () => setCreatedName(name) })
+        : await applyOntologyImport(built, { save });
       setResult(report);
       setPhase('result');
     } catch (e) {
@@ -200,7 +229,7 @@ export function OntologyImportDialog({ onClose, save }) {
             label={thingCount ? `Import ${fmt(thingCount)} ${thingCount === 1 ? 'thing' : 'things'}` : 'Import'}
             tone="accent"
             icon={Library}
-            disabled={!thingCount}
+            disabled={!thingCount || (destination === 'new' && !newName.trim())}
             onClick={runImport}
           />
         </>
@@ -250,6 +279,31 @@ export function OntologyImportDialog({ onClose, save }) {
             title={summary.ontology?.title || summary.sourceName || fileName}
             meta={`${fmt(summary.terms)} terms${summary.deprecated ? ` · ${fmt(summary.deprecated)} deprecated` : ''}${summary.ontology?.license ? ` · ${summary.ontology.license.replace(/^https?:\/\//, '')}` : ''}`}
           />
+
+          <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
+            Add to
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {currentUniverseName !== false && (
+              <DialogButton
+                label={currentUniverseName || 'This universe'}
+                tone={destination === 'current' ? 'primary' : 'neutral'}
+                onClick={() => setDestination('current')}
+              />
+            )}
+            <DialogButton
+              label="New universe"
+              tone={destination === 'new' ? 'primary' : 'neutral'}
+              onClick={() => setDestination('new')}
+            />
+          </div>
+          {destination === 'new' && (
+            <DialogInput
+              value={newName}
+              placeholder="Universe name"
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          )}
 
           <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
             Start from
@@ -350,7 +404,9 @@ export function OntologyImportDialog({ onClose, save }) {
             </DialogNote>
           )}
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-            {"Added to this universe; nothing here is removed. Undo can't take an import back, so the universe is saved first."}
+            {destination === 'new'
+              ? 'A new universe with its own .redstring file. The universe you have open is saved and left as it is.'
+              : "Added to this universe; nothing here is removed. Undo can't take an import back, so the universe is saved first."}
           </div>
         </>
       )}
@@ -359,9 +415,14 @@ export function OntologyImportDialog({ onClose, save }) {
 
       {phase === 'result' && result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {result.universeSlug && (
+            <div style={{ fontSize: '0.85rem', color: theme.canvas.textSecondary, marginBottom: 4 }}>
+              {`Now open: ${createdName}`}
+            </div>
+          )}
           <Row label="Things added" value={result.addedPrototypeIds?.length ?? 0} />
-          <Row label="Things already here" value={result.dedupedIds?.length ?? 0} />
-          <Row label="Things matched by link" value={result.mergedIds?.length ?? 0} />
+          {!result.universeSlug && <Row label="Things already here" value={result.dedupedIds?.length ?? 0} />}
+          {!result.universeSlug && <Row label="Things matched by link" value={result.mergedIds?.length ?? 0} />}
           <Row label="Webs added" value={result.addedGraphIds?.length ?? 0} />
           <Row label="Connections added" value={result.addedEdgeIds?.length ?? 0} />
         </div>
@@ -371,7 +432,9 @@ export function OntologyImportDialog({ onClose, save }) {
         <div style={{ fontSize: '0.85rem', color: theme.canvas.textPrimary, lineHeight: 1.5 }}>
           {error}
           <div style={{ marginTop: 8, color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
-            The universe was not changed.
+            {createdName
+              ? `${createdName} was made, but the import did not finish in it. The universe you had open was not changed.`
+              : 'The universe was not changed.'}
           </div>
         </div>
       )}
@@ -386,9 +449,23 @@ export function OntologyImportDialog({ onClose, save }) {
 export default function OntologyImportHost() {
   const [openCount, setOpenCount] = useState(0);
   const [open, setOpen] = useState(false);
+  const [destination, setDestination] = useState('current');
+  // null while looking it up, false when no universe is open.
+  const [currentUniverseName, setCurrentUniverseName] = useState(null);
 
   useEffect(() => {
-    const onOpen = () => { setOpenCount((n) => n + 1); setOpen(true); };
+    const onOpen = (event) => {
+      setDestination(event?.detail?.destination === 'new' ? 'new' : 'current');
+      setCurrentUniverseName(null);
+      setOpenCount((n) => n + 1);
+      setOpen(true);
+      import('../../services/universeBackend.js')
+        .then(({ default: universeBackend }) => {
+          const active = universeBackend.getActiveUniverse?.();
+          setCurrentUniverseName(active ? (active.name || active.slug) : false);
+        })
+        .catch(() => {});
+    };
     window.addEventListener('openOntologyImport', onOpen);
     return () => window.removeEventListener('openOntologyImport', onOpen);
   }, []);
@@ -399,5 +476,13 @@ export default function OntologyImportHost() {
   }, []);
 
   if (!open) return null;
-  return <OntologyImportDialog key={openCount} onClose={() => setOpen(false)} save={save} />;
+  return (
+    <OntologyImportDialog
+      key={openCount}
+      onClose={() => setOpen(false)}
+      save={save}
+      currentUniverseName={currentUniverseName}
+      initialDestination={destination}
+    />
+  );
 }

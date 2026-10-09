@@ -213,9 +213,15 @@ const UniversesList = ({
     window.dispatchEvent(new CustomEvent('redstring:open-external-link'));
   };
 
-  // Same dialog as File > Import Ontology: an ontology merges into the open universe.
+  // Same dialog as File > Import Ontology: it asks whether the ontology goes into
+  // the open universe or a new one, starting on the open one from Load and on a
+  // new one from New.
   const handleImportOntologyClick = () => {
     window.dispatchEvent(new Event('openOntologyImport'));
+  };
+
+  const handleNewFromOntologyClick = () => {
+    window.dispatchEvent(new CustomEvent('openOntologyImport', { detail: { destination: 'new' } }));
   };
 
   const handleNewFromFileClick = () => {
@@ -245,6 +251,7 @@ const UniversesList = ({
   const openNewMenu = (e) => showContextMenuForElement(e.currentTarget, [
     { label: 'New from Local File', icon: <FileText size={14} />, action: handleNewFromFileClick },
     { label: 'New from Repository', icon: <Github size={14} />, action: handleNewFromRepoClick },
+    { label: 'New from Ontology...', icon: <Library size={14} />, action: handleNewFromOntologyClick },
   ], { align: isHeaderSlim ? 'left' : 'right' });
 
   // Most-recently-opened first. `lastOpenedAt` is already stamped by

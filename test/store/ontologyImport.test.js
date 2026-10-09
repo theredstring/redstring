@@ -3,13 +3,13 @@
  * re-importing, overlapping sources, the file round trip, what keeps imported
  * Things alive, and the carousel ladder their linked types make.
  */
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import useGraphStore from '../../src/store/graphStore.js';
 import { importOntologyText, indexOntology, planImport } from '../../src/formats/ontology/importOntology.js';
 import { importIds } from '../../src/formats/ontology/plan.js';
-import { applyOntologyImport, createOntologyImportSession } from '../../src/services/ontologyImport.js';
+import { applyOntologyImport, createOntologyImportSession, importIntoNewUniverse } from '../../src/services/ontologyImport.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 import { canonicalizeLink, resolveLinkState, LINK_STATES } from '../../src/formats/linkState.js';
 import { mergeUniverses } from '../../src/formats/mergeUniverses.js';
@@ -269,6 +269,53 @@ describe('importing into a universe', () => {
     const twice = mergeUniverses(once, state);
     expect(twice.report.addedPrototypeIds).toHaveLength(0);
     expect(twice.merged.nodePrototypes.size).toBe(once.nodePrototypes.size);
+  });
+});
+
+// A stand-in backend: making a universe opens it empty, as the real one does.
+const backend = vi.hoisted(() => ({ calls: [], slug: 'new-universe' }));
+vi.mock('../../src/services/universeBackend.js', () => {
+  const universeBackend = {
+    saveActiveUniverse: async () => { backend.calls.push(['save', useGraphStore.getState().nodePrototypes.size]); },
+    createUniverse: async (name, options) => {
+      backend.calls.push(['create', name, options]);
+      resetStore();
+      return { slug: backend.slug, name };
+    },
+    setFileHandle: async (slug, handle) => { backend.calls.push(['link', slug, handle]); },
+  };
+  return { default: universeBackend, universeBackend };
+});
+
+describe('importing into a new universe', () => {
+  beforeEach(() => { resetStore(); backend.calls = []; });
+
+  it('saves the open universe, makes and links the new one, and imports into it', async () => {
+    await applyOntologyImport(build({ roots: ['dog'], depth: 0 }));
+    const openBefore = useGraphStore.getState().nodePrototypes.size;
+    const built = build({ roots: ['cat'], depth: 0 });
+    const created = [];
+    const result = await importIntoNewUniverse(built, {
+      name: 'Zoo', file: { handle: '/tmp/Zoo.redstring', gitOnly: false }, onCreated: (slug) => created.push(slug),
+    });
+
+    expect(backend.calls[0]).toEqual(['save', openBefore]);
+    expect(backend.calls[1]).toEqual(['create', 'Zoo', { enableGit: false, enableLocal: true }]);
+    expect(backend.calls[2]).toEqual(['link', 'new-universe', '/tmp/Zoo.redstring']);
+    expect(backend.calls.slice(3).map((c) => c[0])).toEqual(['save', 'save']);
+    expect(created).toEqual(['new-universe']);
+    expect(result.universeSlug).toBe('new-universe');
+
+    const st = useGraphStore.getState();
+    expect(st.nodePrototypes.size).toBe(built.state.nodePrototypes.size);
+    expect(st.nodePrototypes.has(id('Dog'))).toBe(false);
+    expect(result.dedupedIds || []).toHaveLength(0);
+  });
+
+  it('keeps a universe with no local file in Git, and links nothing', async () => {
+    await importIntoNewUniverse(build({ roots: ['cat'], depth: 0 }), { name: 'Zoo', file: { handle: null, gitOnly: true } });
+    expect(backend.calls.find((c) => c[0] === 'create')[2]).toEqual({ enableGit: true, enableLocal: false });
+    expect(backend.calls.some((c) => c[0] === 'link')).toBe(false);
   });
 });
 

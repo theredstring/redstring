@@ -16,7 +16,7 @@ async function importCat(page) {
   await expect(dialog.getByText('Zoo Ontology')).toBeVisible({ timeout: 15_000 });
   await expect(dialog.getByText(/16 terms/)).toBeVisible();
 
-  await dialog.getByRole('textbox').fill('cat');
+  await dialog.getByPlaceholder(/^Search terms/).fill('cat');
   await dialog.getByRole('radio', { name: /^cat/ }).first().click();
   const importButton = dialog.getByRole('button', { name: /^Import \d+ things$/ });
   await expect(importButton).toBeVisible();

@@ -1,6 +1,6 @@
 /**
  * Ontology import in the app: a worker session to read and plan, and the step
- * that folds the result into the open universe.
+ * that folds the result into the open universe or a new one.
  *
  *   const session = createOntologyImportSession();
  *   const summary = await session.index(file, onProgress);
@@ -9,6 +9,9 @@
  *   const built   = await session.build({ roots, depth });
  *   const result  = await applyOntologyImport(built);
  *   session.dispose();
+ *
+ * Into a new universe instead: prepareNewUniverseFile(name) on the click, then
+ * importIntoNewUniverse(built, { name, file }) in place of applyOntologyImport.
  *
  * The merge goes through mergeUniverseState, the same additive path as merging
  * two universes, so an import never removes anything and importing the same
@@ -19,6 +22,10 @@
 import useGraphStore from '../store/graphStore.js';
 import { applyOffscreenLayout, layOutStateWebs } from './offscreenLayout.js';
 import { createOntologyHandlers } from '../formats/ontology/ontologyHandlers.js';
+import { exportToRedstring } from '../formats/redstringFormat.js';
+import { isElectron, pickSaveLocation, writeFile } from '../utils/fileAccessAdapter.js';
+import { isCapacitor } from '../utils/capacitorAdapter.js';
+import { createFileInWorkspace } from './workspaceFolderService.js';
 
 const canUseWorker = () => typeof window !== 'undefined' && typeof Worker === 'function';
 
@@ -116,6 +123,75 @@ export async function applyOntologyImport(built, { save = null, onProgress = nul
     try { await save(); } catch (e) { console.warn('[OntologyImport] Save after import failed:', e); }
   }
   return { ...report, laidOut, folderWebId: built.folderWebId, sourceId: built.sourceId };
+}
+
+/**
+ * Make the file a new universe will live in, as File > New does: in the
+ * workspace folder when there is one, otherwise where the person picks. A
+ * browser opens its save dialog only straight from a click, so the Import
+ * button calls this before anything is built.
+ *
+ * On iOS the app keeps its own Universes folder, and a browser without file
+ * access keeps universes in Git, so there is no file to make: `handle` is null.
+ *
+ * @param {string} name - the new universe's name
+ * @returns {Promise<{ handle, gitOnly: boolean }|null>} null when the person cancels
+ */
+export async function prepareNewUniverseFile(name) {
+  if (isCapacitor()) return { handle: null, gitOnly: false };
+  if (!isElectron() && (typeof window === 'undefined' || !('showSaveFilePicker' in window))) {
+    return { handle: null, gitOnly: true };
+  }
+
+  const suggestedName = `${name}.redstring`;
+  const empty = { graphs: new Map(), nodePrototypes: new Map(), edges: new Map(), viewport: { x: 0, y: 0, zoom: 1 } };
+  const content = JSON.stringify(exportToRedstring(empty), null, 2);
+
+  let handle = await createFileInWorkspace(suggestedName, content, { overwrite: false });
+  if (!handle) {
+    try {
+      handle = await pickSaveLocation({ suggestedName });
+    } catch (e) {
+      // The browser cancels with AbortError; Electron's dialog returns no path.
+      if (e?.name === 'AbortError' || (isElectron() && /no path/i.test(e?.message || ''))) return null;
+      throw e;
+    }
+    await writeFile(handle, content);
+  }
+  return { handle, gitOnly: false };
+}
+
+/**
+ * Save the open universe, make a new one, link the file prepareNewUniverseFile
+ * made and import into it. The new universe is left open.
+ *
+ * @param {Object} built - from session.build()
+ * @param {Object} options
+ * @param {string} options.name - the new universe's name
+ * @param {Object} options.file - from prepareNewUniverseFile
+ * @param {Function} [options.onCreated] - (slug) once the universe exists, before the import
+ * @param {Function} [options.onProgress] - as applyOntologyImport
+ * @returns {Promise<Object>} applyOntologyImport's report plus { universeSlug }
+ */
+export async function importIntoNewUniverse(built, { name, file, onCreated = null, onProgress = null }) {
+  if (!built?.state) throw new Error('Nothing to import.');
+  const { default: universeBackend } = await import('./universeBackend.js');
+
+  try { await universeBackend.saveActiveUniverse(); } catch (e) { console.warn('[OntologyImport] Save of the open universe failed (continuing):', e); }
+
+  const created = await universeBackend.createUniverse(name, file?.gitOnly
+    ? { enableGit: true, enableLocal: false }
+    : { enableGit: false, enableLocal: true });
+  const slug = created?.slug;
+  if (!slug) throw new Error('Could not make the new universe.');
+  if (file?.handle) {
+    await universeBackend.setFileHandle(slug, file.handle, { suppressNotification: true });
+  }
+  window.dispatchEvent(new CustomEvent('redstring:universe-created', { detail: { slug } }));
+  onCreated?.(slug);
+
+  const report = await applyOntologyImport(built, { save: () => universeBackend.saveActiveUniverse(), onProgress });
+  return { ...report, universeSlug: slug };
 }
 
 /** Bring the import's folder web forward. */
