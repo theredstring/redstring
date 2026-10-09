@@ -17,6 +17,8 @@
  */
 
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
+import { createSaveMirrorSender } from './saveMirror.js';
+import { msSinceCameraMoved } from './cameraActivity.js';
 import { userDataCounts } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
@@ -28,12 +30,42 @@ import { vlog } from '../utils/verboseLog.js';
 // post-interaction cooldown (not this debounce) are what keep a write off a drag.
 const DEBOUNCE_MS = 1000;
 
+/**
+ * What the save worker receives of a Thing: auto-enriched Wikipedia images are
+ * left out (they're re-fetchable, and kept as URLs in the image cache). Only
+ * when we have the thumbnail URL: a user-uploaded photo, even on a node that
+ * was once auto-enriched, has no wikipediaThumbnail and must be kept, or the
+ * save writes null over it.
+ */
+const stripReFetchableImages = (key, value) => {
+  if (key !== 'nodePrototypes' || !value) return value;
+  if (value.semanticMetadata?.autoEnriched && value.semanticMetadata?.wikipediaThumbnail) {
+    const { imageSrc, thumbnailSrc, ...rest } = value;
+    return rest;
+  }
+  return value;
+};
+
 // A change that only switched webs (see NAVIGATION_CHANGE_TYPES in graphStore)
 // waits this long on a Git-backed universe before it starts a save, or rides
 // along with the next real edit, whichever comes first. Clicking between webs
 // otherwise rewrote the whole universe on every click. A universe whose local
 // file is the source of truth saves it straight away, as before.
 const NAVIGATION_SAVE_DELAY_MS = 3000;
+
+// On a big universe every save rewrites a big file, so a change that only
+// switched webs (NAVIGATION_CHANGE_TYPES in graphStore) waits until nothing has
+// happened for this long, whatever the universe is saved to. An edit saves on
+// the normal schedule and takes a waiting switch with it, and closing or
+// hiding the app writes it straight away. Moving Things is an edit: a drop
+// saves as soon as it settles.
+const SETTLE_SAVE_DELAY_MS = 10000;
+
+// How long the camera must be still before a due save is handed over.
+const CAMERA_QUIET_MS = 300;
+
+// Things plus webs at which a universe counts as big for SETTLE_SAVE_DELAY_MS.
+export const LARGE_UNIVERSE_SIZE = 5000;
 
 // How often the load-gate watchdog re-checks a token that hasn't settled. It
 // is NOT a deadline on loading — a slow load releases normally via `finally`,
@@ -64,7 +96,7 @@ class SaveCoordinator {
     this.lastState = null;
     this.lastChangeContext = {};
     this.saveTimer = null; // Single timer for all changes
-    this.navigationTimer = null; // A waiting web switch; see NAVIGATION_SAVE_DELAY_MS
+    this.navigationTimer = null; // A waiting web switch; see NAVIGATION_SAVE_DELAY_MS, SETTLE_SAVE_DELAY_MS
 
     // CRITICAL data-loss guard: do NOT save anything until we have observed at
     // least one explicit `load` change context. Otherwise, when the universe
@@ -501,6 +533,8 @@ class SaveCoordinator {
 
     // Initialize Save Worker
     try {
+      // A new worker holds no copy of the universe yet.
+      this.mirrorSender?.reset();
       this.saveWorker = new Worker(new URL('./save.worker.js', import.meta.url), { type: 'module' });
       this.saveWorker.onmessage = this.handleWorkerMessage.bind(this);
       this.saveWorker.onerror = (event) => {
@@ -509,6 +543,7 @@ class SaveCoordinator {
         // whatever state we have, then drop the worker (we'll keep using the
         // main thread until the next page load).
         console.warn('[SaveCoordinator] Save worker error event:', event?.message || event);
+        this.mirrorSender?.reset();
         this._handleWorkerStall('error event');
         try { this.saveWorker?.terminate?.(); } catch { /* noop */ }
         this.saveWorker = null;
@@ -536,7 +571,7 @@ class SaveCoordinator {
    * @param {MessageEvent} e - Worker message event with `{ type, hash, jsonString, redstringData, success, error }`.
    */
   handleWorkerMessage(e) {
-    const { type, hash, jsonString, redstringData, success, error } = e.data;
+    const { type, hash, jsonBytes, jsonString, success, error, code } = e.data;
 
     if (this.workerSentAt) {
       this.lastWorkerMs = Date.now() - this.workerSentAt;
@@ -557,8 +592,10 @@ class SaveCoordinator {
       // Check if hash changed
       if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
         this.pendingHash = hash;
-        this.pendingString = jsonString; // Store the pre-serialized string
-        this.pendingRedstringData = redstringData; // Store the pre-computed object
+        // The file, pre-serialized: UTF-8 bytes from the worker (a string
+        // from an older one). Every writer takes either.
+        this.pendingString = jsonBytes || jsonString;
+        this.pendingRedstringData = null;
         // Record which state snapshot this serialization came from, so
         // executeSave never writes an older serialization on behalf of a
         // newer state (local file and Git would silently diverge).
@@ -580,7 +617,21 @@ class SaveCoordinator {
         // over a file that was already up to date.
         this.isDirty = false;
       }
+    } else if (type === 'prime-failed') {
+      // Nothing was saving; the next save simply sends the whole state.
+      this.mirrorSender?.reset();
+      return;
+    } else if (type === 'error' && code === 'no-mirror') {
+      // The worker had no copy to apply a change list to (it restarted).
+      // Send it the whole state again.
+      this.mirrorSender?.reset();
+      if (!this.nextStateToProcess && this.lastState) this.nextStateToProcess = this.lastState;
+      this.workerDirty = false;
+      this.sendToWorker();
+      return;
     } else if (type === 'error') {
+      // Its copy may be half-updated; the next message must be whole.
+      this.mirrorSender?.reset();
       // The worker threw while serializing/hashing (e.g. a deterministic
       // exportToRedstring failure on some state shape). Without recovery the
       // change is stranded — no dirty flag, no retry. Fall back to the
@@ -601,6 +652,57 @@ class SaveCoordinator {
     } else if (this.awaitingWorker && type === 'save_processed') {
       this.awaitingWorker = false;
       if (!this.hasUnsavedChanges()) this.notifyStatus('info', 'No changes to save');
+    }
+  }
+
+  /**
+   * The message that brings the save worker's copy of the universe up to
+   * `state`: the whole state the first time, then only what changed.
+   * @private
+   */
+  _workerMessageFor(state) {
+    // Extract ONLY the persisted data properties for the worker. Two reasons:
+    // (1) the store contains functions (actions) that would throw
+    // DataCloneError on postMessage; (2) the set of forwarded keys must EXACTLY
+    // match what the serializer persists — deriving it from PERSISTED_STORE_KEYS
+    // guarantees a new persisted field can't be silently dropped here (the bug
+    // that erased wizardPlansByConversation on every autosave). Carry
+    // _universeSlug through so downstream identity guards work.
+    const cleanState = { _universeSlug: state._universeSlug };
+    for (const key of PERSISTED_STORE_KEYS) {
+      cleanState[key] = state[key];
+    }
+    // Read by exportToRedstring though not store data of their own: each web's
+    // live pan and zoom, and fields quarantined from a newer format. The local
+    // file write uses this string, so it must match a main-thread export.
+    cleanState.graphViews = state.graphViews;
+    cleanState._preserved = state._preserved;
+
+    // The worker keeps its own copy, so after the first message only the
+    // Things, webs and connections that changed are cloned across (see
+    // saveMirror.js). Auto-enriched Wikipedia images are stripped on the way:
+    // structured clone copies all data to the worker heap, and base64 data
+    // URLs (100KB-5MB each) cause OOM in both the main thread and worker.
+    // User-uploaded images (no autoEnriched flag) are preserved for save.
+    if (!this.mirrorSender) this.mirrorSender = createSaveMirrorSender(stripReFetchableImages);
+    return this.mirrorSender.build(cleanState);
+  }
+
+  /**
+   * Give the save worker its copy of a universe that just loaded, so the
+   * first save after opening sends only a change, not the whole universe
+   * (about 0.4 s of a frozen app at 32,000 Things, on the first edit). The
+   * copy goes while the app is still settling from the load, and the worker
+   * neither exports nor replies.
+   * @private
+   */
+  _primeWorker(state) {
+    if (!this.saveWorker || !state || !this.isEnabled) return;
+    try {
+      this.saveWorker.postMessage({ type: 'prime', ...this._workerMessageFor(state), userDomain: null });
+    } catch (e) {
+      console.warn('[SaveCoordinator] Could not give the save worker its copy:', e);
+      this.mirrorSender?.reset();
     }
   }
 
@@ -634,44 +736,7 @@ class SaveCoordinator {
 
     this.workerProcessing = true;
 
-    // Extract ONLY the persisted data properties for the worker. Two reasons:
-    // (1) the store contains functions (actions) that would throw
-    // DataCloneError on postMessage; (2) the set of forwarded keys must EXACTLY
-    // match what the serializer persists — deriving it from PERSISTED_STORE_KEYS
-    // guarantees a new persisted field can't be silently dropped here (the bug
-    // that erased wizardPlansByConversation on every autosave). Carry
-    // _universeSlug through so downstream identity guards work.
-    const cleanState = { _universeSlug: this.nextStateToProcess._universeSlug };
-    for (const key of PERSISTED_STORE_KEYS) {
-      cleanState[key] = this.nextStateToProcess[key];
-    }
-    // Read by exportToRedstring though not store data of their own: each web's
-    // live pan and zoom, and fields quarantined from a newer format. The local
-    // file write uses this string, so it must match a main-thread export.
-    cleanState.graphViews = this.nextStateToProcess.graphViews;
-    cleanState._preserved = this.nextStateToProcess._preserved;
-
-    // Strip imageSrc/thumbnailSrc from auto-enriched nodePrototypes before postMessage —
-    // structured clone copies all data to the worker heap, and base64 data URLs
-    // (100KB-5MB each) cause OOM in both the main thread and worker.
-    // User-uploaded images (no autoEnriched flag) are preserved for save.
-    const nodePrototypes = cleanState.nodePrototypes;
-    if (nodePrototypes && typeof nodePrototypes.entries === 'function') {
-      const cleanPrototypes = new Map();
-      for (const [id, proto] of nodePrototypes) {
-        // Strip only genuinely re-fetchable Wikipedia images (auto-enriched
-        // AND we have the thumbnail URL). A user-uploaded photo — even on a
-        // node that was once auto-enriched — has no wikipediaThumbnail and
-        // must be kept, or the save writes null over it.
-        if (proto.semanticMetadata?.autoEnriched && proto.semanticMetadata?.wikipediaThumbnail) {
-          const { imageSrc, thumbnailSrc, ...rest } = proto;
-          cleanPrototypes.set(id, rest);
-        } else {
-          cleanPrototypes.set(id, proto);
-        }
-      }
-      cleanState.nodePrototypes = cleanPrototypes;
-    }
+    const message = this._workerMessageFor(this.nextStateToProcess);
 
     // Capture state and start the watchdog BEFORE postMessage. If postMessage
     // throws (DataCloneError from unserializable state, worker channel closed,
@@ -700,7 +765,7 @@ class SaveCoordinator {
     try {
       this.saveWorker.postMessage({
         type: 'process_save',
-        state: cleanState,
+        ...message,
         userDomain: null
       });
     } catch (postErr) {
@@ -865,6 +930,10 @@ class SaveCoordinator {
         }
         // Now we have a real loaded baseline — saves are safe from this point.
         this.hasLoadedFromFile = true;
+        // The worker's copy, while the load is still settling (see _primeWorker).
+        setTimeout(() => {
+          if (this.nextStateToProcess === newState) this._primeWorker(newState);
+        }, 0);
         if (this._loggedLoadErrorGuard) this._loggedLoadErrorGuard = false;
         // Capture the data baseline we just loaded so we can detect a
         // catastrophic shrinkage on subsequent saves.
@@ -1024,6 +1093,15 @@ class SaveCoordinator {
         return;
       }
 
+      // Only switched webs, on a big universe, with nothing else in flight:
+      // hold it until nothing has happened for a while. Each switch restarts
+      // the wait. Like the Git wait below, it re-enters as an ordinary change,
+      // so every guard above applies then.
+      if (changeContext.navigationOnly === true && this._isLargeUniverse(newState) && this._pipelineIdle()) {
+        this._holdForSettle(newState, changeContext);
+        return;
+      }
+
       // Only switched webs, on a Git-backed universe, with nothing else in
       // flight: hold it. When the wait ends it re-enters here as an ordinary
       // change, so every guard above applies to it then, not just now.
@@ -1091,9 +1169,46 @@ class SaveCoordinator {
   _navigationMayWait() {
     const engine = this.gitSyncEngine;
     if (!engine || engine.sourceOfTruth === 'local') return false;
-    const pipelineBusy = !!(this.workerTimer || this.workerProcessing || this.awaitingWorker
-      || this.saveTimer || this.isSaving || this.isDirty || this.pendingHash !== null);
-    return !pipelineBusy;
+    return this._pipelineIdle();
+  }
+
+  /**
+   * Nothing is on its way to the file: no change waiting on the worker, no
+   * write scheduled or running. A change that may wait only waits then;
+   * otherwise it joins the save already coming.
+   * @private
+   */
+  _pipelineIdle() {
+    return !(this.workerTimer || this.workerProcessing || this.awaitingWorker
+      || this.saveTimer || this._cameraWaitTimer || this.isSaving || this.isDirty || this.pendingHash !== null);
+  }
+
+  /**
+   * Hold a web switch on a big universe until nothing has happened for
+   * SETTLE_SAVE_DELAY_MS. Each call restarts the wait. When it ends, the state
+   * re-enters onStateChange as an ordinary change and saves. While it waits,
+   * nothing counts as unsaved (like the Git web-switch wait): the indicator
+   * stays quiet, and flush() writes it if the app closes or hides.
+   * @private
+   */
+  _holdForSettle(state, context = null) {
+    this.nextStateToProcess = state;
+    if (context) this.lastChangeContext = context;
+    if (this.navigationTimer) clearTimeout(this.navigationTimer);
+    this.navigationTimer = setTimeout(() => {
+      this.navigationTimer = null;
+      const latest = this.nextStateToProcess;
+      if (latest) this.onStateChange(latest, { type: 'navigation_settled' });
+    }, SETTLE_SAVE_DELAY_MS);
+  }
+
+  /**
+   * Whether a universe is big enough that web switches wait
+   * (LARGE_UNIVERSE_SIZE, SETTLE_SAVE_DELAY_MS).
+   * @private
+   */
+  _isLargeUniverse(state) {
+    return ((state?.nodePrototypes?.size || 0) + (state?.graphs?.size || 0)) >= LARGE_UNIVERSE_SIZE;
   }
 
   /**
@@ -1172,6 +1287,19 @@ class SaveCoordinator {
       return;
     }
     
+    // Nor while the camera is moving (panning, zooming, WASD): hand the write
+    // over once it has been still for a moment. Closing the app doesn't wait
+    // on this; flush() writes directly.
+    const sinceCameraMoved = msSinceCameraMoved();
+    if (sinceCameraMoved < CAMERA_QUIET_MS) {
+      if (this._cameraWaitTimer) clearTimeout(this._cameraWaitTimer);
+      this._cameraWaitTimer = setTimeout(() => {
+        this._cameraWaitTimer = null;
+        this.executeSave();
+      }, CAMERA_QUIET_MS - sinceCameraMoved);
+      return;
+    }
+
     // We need either a pending string (from worker) or a lastState (fallback)
     if (!this.pendingString && !this.lastState) return;
 
@@ -1471,6 +1599,7 @@ class SaveCoordinator {
     }
 
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    if (this._cameraWaitTimer) { clearTimeout(this._cameraWaitTimer); this._cameraWaitTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
     // A waiting web switch is written now, with everything else.
     if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
@@ -1935,6 +2064,7 @@ class SaveCoordinator {
    */
   cancelPendingSaves() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+    if (this._cameraWaitTimer) { clearTimeout(this._cameraWaitTimer); this._cameraWaitTimer = null; }
     if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
     if (this.workerWatchdogTimer) { clearTimeout(this.workerWatchdogTimer); this.workerWatchdogTimer = null; }
@@ -1965,6 +2095,8 @@ class SaveCoordinator {
    *   change is waiting to be hashed.
    */
   hasUnsavedChanges() {
+    // A move or web switch waiting out its delay doesn't count: the indicator
+    // doesn't say "Saving..." for it, and closing or hiding the app writes it.
     return this.isDirty || (this.pendingHash !== null) || this.awaitingWorker;
   }
 

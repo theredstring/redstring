@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from 'react';
+import { markCameraMoved } from '../services/cameraActivity.js';
 
 /**
  * useCanvasTransform — DOM-bypass pan/zoom for NodeCanvas.
@@ -60,6 +61,8 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
   // anywhere else since. Together they decide whether a settle has anything to
   // publish; see commitSettled.
   const lastSettledRef = useRef({ x: 0, y: 0, zoom: 1 });
+  // What applyTransform last wrote, so a re-apply of the same view isn't a move.
+  const lastAppliedRef = useRef({ x: NaN, y: NaN, zoom: NaN });
   const movedSinceSettleRef = useRef(false);
 
   // Consumer-supplied callback fired synchronously on every pan/zoom mutation.
@@ -227,6 +230,12 @@ export function useCanvasTransform(svgRef, contentGroupRef, canvasSize, overlayG
     const s = lastSettledRef.current;
     if (!Object.is(p.x, s.x) || !Object.is(p.y, s.y) || !Object.is(z, s.zoom)) {
       movedSinceSettleRef.current = true;
+    }
+    // Saves wait for the camera to be still (services/cameraActivity.js).
+    const applied = lastAppliedRef.current;
+    if (!Object.is(p.x, applied.x) || !Object.is(p.y, applied.y) || !Object.is(z, applied.zoom)) {
+      lastAppliedRef.current = { x: p.x, y: p.y, zoom: z };
+      markCameraMoved();
     }
     const cs = canvasSize;
     const tx = p.x - cs.offsetX * z;

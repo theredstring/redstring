@@ -110,6 +110,14 @@ describe('electron/main.cjs', () => {
       const paths = await ctx.invoke('storage:getPaths', ev);
       await ctx.invoke('file:write', ev, path.join(paths.files, 'x.json'), '1');
     });
+
+    it('writes UTF-8 bytes as well as text (autosave sends bytes), and nothing else', async () => {
+      const ev = ipcEvent(APP);
+      const inDocs = path.join(ctx.documents, 'Redstring', 'bytes.redstring');
+      await ctx.invoke('file:write', ev, inDocs, new TextEncoder().encode('{"ok":"é"}'));
+      expect((await ctx.invoke('file:read', ev, inDocs)).content).toBe('{"ok":"é"}');
+      await expect(ctx.invoke('file:write', ev, inDocs, { not: 'text' })).rejects.toThrow(/string or bytes/);
+    });
   });
 
   describe('dialog approvals (S-20)', () => {

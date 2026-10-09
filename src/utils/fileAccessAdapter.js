@@ -199,7 +199,7 @@ export const serializeHandleWrite = (handle, operation) => {
 /**
  * Write file contents
  * @param {FileHandle|string} fileHandleOrPath - Browser: FileHandle, Electron: file path or FileHandle
- * @param {string} content - Content to write
+ * @param {string|Uint8Array} content - Content to write: text, or its UTF-8 bytes
  * @returns {Promise<void>}
  */
 export const writeFile = async (fileHandleOrPath, content) => {
@@ -207,7 +207,9 @@ export const writeFile = async (fileHandleOrPath, content) => {
     throw new Error('writeFile: no file handle or path provided');
   }
   if (isCapacitorHandle(fileHandleOrPath)) {
-    await serializeStringWrite(fileHandleOrPath, () => capWriteTextFile(fileHandleOrPath, content));
+    // The native side writes text; autosave may hand over UTF-8 bytes.
+    const text = content instanceof Uint8Array ? new TextDecoder().decode(content) : content;
+    await serializeStringWrite(fileHandleOrPath, () => capWriteTextFile(fileHandleOrPath, text));
     return;
   }
   if (isElectron() && typeof fileHandleOrPath === 'string') {

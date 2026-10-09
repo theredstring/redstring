@@ -895,8 +895,12 @@ const fileWriteChains = new Map();
 
 handle('file:write', async (event, filePath, content) => {
   const safePath = assertAccessAllowed(filePath, 'file:write');
-  if (typeof content !== 'string') {
-    throw new Error('Failed to write file: content must be a string');
+  // Text, or UTF-8 bytes: autosave sends bytes, which cross IPC as one copy of
+  // a buffer instead of a string the renderer has to serialize (hundreds of
+  // milliseconds of a frozen window for a big universe).
+  const isBytes = content instanceof Uint8Array;
+  if (typeof content !== 'string' && !isBytes) {
+    throw new Error('Failed to write file: content must be a string or bytes');
   }
   const prior = fileWriteChains.get(safePath) || Promise.resolve();
   const writeOp = prior.catch(() => { /* prior failure doesn't block this write */ }).then(async () => {
@@ -905,7 +909,7 @@ handle('file:write', async (event, filePath, content) => {
     // the original survives until the rename. Before renaming, rotate the
     // current file to .bak so every save leaves one recovery point.
     const tmpPath = `${safePath}.${process.pid}.tmp`;
-    await fs.writeFile(tmpPath, content, 'utf-8');
+    await fs.writeFile(tmpPath, content, isBytes ? undefined : 'utf-8');
     try {
       await fs.copyFile(safePath, `${safePath}.bak`);
     } catch (bakError) {
