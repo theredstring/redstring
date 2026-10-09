@@ -151,7 +151,7 @@
     "jose": "^5.9.6",
     "jsonld": "^9.0.0",
     "jsonwebtoken": "^9.0.2",
-    "lucide-react": "^0.454.0",
+    "lucide-react": "^1.48.0",
     "n3": "^1.26.0",
     "node-fetch": "^3.3.2",
     "papaparse": "^5.5.3",
