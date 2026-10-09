@@ -84,6 +84,7 @@ describe('electron/main.cjs', () => {
       await ctx.invoke('storage:getAll', ev, 'fileHandles');
       await ctx.invoke('storage:getItem', ev, 'fileHandles', 'evil');
       await expect(ctx.invoke('file:read', ev, secret)).rejects.toThrow(/not approved/);
+      await expect(ctx.invoke('file:readBytes', ev, secret)).rejects.toThrow(/not approved/);
     });
 
     it('rejects traversal and reserved store names', async () => {
@@ -100,6 +101,8 @@ describe('electron/main.cjs', () => {
       await expect(ctx.invoke('file:write', ev, approvalsFile, '{"files":["/etc/passwd"]}')).rejects.toThrow(/not approved/);
       await expect(ctx.invoke('file:write', ev, path.join(ctx.userData, 'RedstringData', 'fileHandles.json'), '{}')).rejects.toThrow(/not approved/);
       await expect(ctx.invoke('file:read', ev, path.join(ctx.userData, 'secrets', 'x.secret'))).rejects.toThrow(/not approved/);
+      await expect(ctx.invoke('file:readBytes', ev, path.join(ctx.userData, 'secrets', 'x.secret'))).rejects.toThrow(/not approved/);
+      await expect(ctx.invoke('file:readBytes', ev, approvalsFile)).rejects.toThrow(/not approved/);
     });
 
     it('the documents folder and the dedicated files folder stay writable', async () => {
@@ -117,6 +120,16 @@ describe('electron/main.cjs', () => {
       await ctx.invoke('file:write', ev, inDocs, new TextEncoder().encode('{"ok":"é"}'));
       expect((await ctx.invoke('file:read', ev, inDocs)).content).toBe('{"ok":"é"}');
       await expect(ctx.invoke('file:write', ev, inDocs, { not: 'text' })).rejects.toThrow(/string or bytes/);
+    });
+
+    it('reads a file back as its exact bytes, never as text (a universe can be too big for a string)', async () => {
+      const ev = ipcEvent(APP);
+      const inDocs = path.join(ctx.documents, 'Redstring', 'read-bytes.redstring');
+      const written = new TextEncoder().encode('{"name":"α-D-glucose 🧬"}');
+      await ctx.invoke('file:write', ev, inDocs, written);
+      const { bytes } = await ctx.invoke('file:readBytes', ev, inDocs);
+      expect(ArrayBuffer.isView(bytes)).toBe(true);
+      expect([...bytes]).toEqual([...written]);
     });
   });
 

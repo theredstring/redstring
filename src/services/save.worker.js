@@ -3,13 +3,15 @@
  * Handles heavy serialization and hashing off the main thread.
  *
  * It keeps its own copy of the universe, updated by changes (saveMirror.js).
- * The file goes back as UTF-8 bytes in a transferred buffer, which costs the
- * main thread nothing to receive.
+ * The file is built as UTF-8 bytes a piece at a time (universeBytes.js), and
+ * goes back in a transferred buffer, which costs the main thread nothing to
+ * receive.
  */
 
 import { exportToRedstring } from '../formats/redstringFormat.js';
 import { generateStateHash } from './saveHash.js';
 import { applySaveMessage } from './saveMirror.js';
+import { serializeRedstring } from '../formats/universeBytes.js';
 
 let mirror = null;
 
@@ -42,9 +44,9 @@ self.onmessage = (e) => {
       mirror = applied;
 
       const redstringData = exportToRedstring(mirror, userDomain);
-      const jsonString = JSON.stringify(redstringData, null, 2);
+      // Built a piece at a time, never as one string; compact when large.
+      const jsonBytes = serializeRedstring(redstringData);
       const hash = generateStateHash(mirror);
-      const jsonBytes = new TextEncoder().encode(jsonString);
 
       // Only the bytes go back, transferred rather than copied.
       self.postMessage({

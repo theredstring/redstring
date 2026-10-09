@@ -18,6 +18,7 @@ import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
+import { serializeRedstring, parseRedstringBytes, bytesToTextIfSmall, isBlankBytes } from '../formats/universeBytes.js';
 import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { decideSlotConflict } from './slotConflictDecision.js';
@@ -54,6 +55,7 @@ import {
   pickFile,
   pickSaveLocation,
   readFile,
+  readFileBytes,
   writeFile,
   fileExists,
   getFileIdentifier,
@@ -152,6 +154,12 @@ export function isSameGitTarget(a, b) {
   const fileB = fileKey(b);
   return !!(repoA && repoB && fileA && fileB && repoA === repoB && fileA === fileB);
 }
+
+/** A finished universe file handed over by autosave: non-empty bytes, or (from an older caller) text. */
+const isUsableSerializedFile = (data) => {
+  if (typeof data === 'string') return data.length > 0;
+  return Object.prototype.toString.call(data) === '[object Uint8Array]' && data.length > 0;
+};
 
 class UniverseBackend {
   constructor() {
@@ -3500,10 +3508,10 @@ class UniverseBackend {
         message.includes('denied');
     };
 
-    const jsonString = JSON.stringify(redstringData, null, 2);
+    const fileContent = serializeRedstring(redstringData);
     try {
       await ensurePermission();
-      await writeFile(fileHandle, jsonString);
+      await writeFile(fileHandle, fileContent);
 
       try {
         // Only touch metadata for browser FileHandles; path-handle platforms
@@ -3700,6 +3708,7 @@ class UniverseBackend {
    * @param {string} rawText - the exact original file contents
    * @param {Object} parsedData - JSON.parse(rawText), used only for version detection
    */
+  /** `rawText`: the original file, as text or as bytes. */
   async backupBeforeMigrationIfNeeded(universe, fileHandle, rawText, parsedData) {
     try {
       const validation = validateFormatVersion(parsedData);
@@ -3762,7 +3771,9 @@ class UniverseBackend {
       await new Promise((resolve, reject) => {
         const tx = db.transaction(['backups'], 'readwrite');
         const store = tx.objectStore('backups');
-        store.put({ key, slug, version: detectedVersion, timestamp, content: rawText });
+        // Text, as always, unless the original is too big to hold as text.
+        const content = typeof rawText === 'string' ? rawText : (bytesToTextIfSmall(rawText) ?? rawText);
+        store.put({ key, slug, version: detectedVersion, timestamp, content });
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
@@ -5790,7 +5801,7 @@ class UniverseBackend {
     }
 
     // Electron/Capacitor: fileHandle is a path string, Browser: FileHandle object
-    let text;
+    let bytes;
     try {
       if (usesPathHandles()) {
         // Check if file exists first
@@ -5806,7 +5817,8 @@ class UniverseBackend {
         }
       }
 
-      text = await readFile(fileHandle);
+      // As bytes: a big universe is more than one string can hold.
+      bytes = await readFileBytes(fileHandle);
     } catch (error) {
       const name = String(error?.name || '');
       const message = String(error?.message || '');
@@ -5832,17 +5844,16 @@ class UniverseBackend {
       throw createLocalFileError(LOCAL_FILE_ERROR.MISSING, 'Failed to read the linked local file.');
     }
 
-    if (!text || text.trim() === '') {
-      return null;
-    }
-
     try {
-      const redstringData = JSON.parse(text);
+      // A big file is parsed a slice at a time (formats/universeBytes.js);
+      // empty or blank comes back null.
+      const redstringData = await parseRedstringBytes(bytes);
+      if (redstringData === null) return null;
       // Format-backup invariant (P0.5/D4): before any import or migration reshapes the
       // data, preserve the original bytes of any older-than-current file. Local files have
       // no other safety net (git keeps history, browser storage keeps revisions; a freshly
       // opened local file does not). Best-effort — must never block the load.
-      await this.backupBeforeMigrationIfNeeded(universe, fileHandle, text, redstringData);
+      await this.backupBeforeMigrationIfNeeded(universe, fileHandle, bytes, redstringData);
       const importResult = importFromRedstring(redstringData);
       const { storeState } = importResult;
       try {
@@ -6898,12 +6909,13 @@ class UniverseBackend {
       }
     }
 
-    // Autosave hands over the worker's string for this exact state (the
-    // coordinator drops it when the state has moved on); everything else
-    // serializes here.
-    const jsonString = typeof serializedData === 'string' && serializedData
+    // Autosave hands over the worker's file for this exact state, as bytes
+    // (the coordinator drops it when the state has moved on); everything else
+    // serializes here, a piece at a time, never as one string
+    // (formats/universeBytes.js). Text from an older caller still works.
+    const fileContent = isUsableSerializedFile(serializedData)
       ? serializedData
-      : JSON.stringify(exportToRedstring(storeState), null, 2);
+      : serializeRedstring(exportToRedstring(storeState));
 
     // 2. Get file handle
     let handle = this.fileHandles.get(universeSlug);
@@ -6959,10 +6971,10 @@ class UniverseBackend {
           //    non-empty existing file — that combination is exactly the
           //    "new empty universe overwrites old data file" wipe.
           try {
-            const existingText = await readFile(handle);
-            if (existingText && existingText.trim()) {
+            const existingBytes = await readFileBytes(handle);
+            if (existingBytes && !isBlankBytes(existingBytes)) {
               let fileSlug = null;
-              try { fileSlug = JSON.parse(existingText)?.metadata?.universeSlug || null; } catch { /* unparseable — treated below */ }
+              try { fileSlug = (await parseRedstringBytes(existingBytes))?.metadata?.universeSlug || null; } catch { /* unparseable — treated below */ }
               const hasPriorSaveForAdoption = !!(universe?.metadata?.lastSaved || universe?.metadata?.lastSync || universe?.localFile?.lastSaved);
               if (fileSlug && fileSlug !== universeSlug) {
                 umWarn(`[FileHandles] ✗ Refusing to adopt workspace file "${fileName}": it belongs to universe "${fileSlug}", not "${universeSlug}"`);
@@ -6997,7 +7009,7 @@ class UniverseBackend {
         } else {
           umLog(`[FileHandles] Creating file in workspace: ${fileName}`);
           // Use overwrite: false to prevent clobbering if our previous check failed falsely
-          handle = await createFileInWorkspace(fileName, jsonString, { overwrite: false });
+          handle = await createFileInWorkspace(fileName, fileContent, { overwrite: false });
           // createFileInWorkspace already wrote the content
           umLog(`[FileHandles] ✓ Created file in workspace: ${fileName}`);
         }
@@ -7038,7 +7050,7 @@ class UniverseBackend {
     // pay nothing.
     if (!allowEmpty && isEffectivelyEmpty(storeState)) {
       const verdict = await checkDestinationBeforeEmptyWrite({
-        readDestination: () => readFile(handle),
+        readDestination: () => readFileBytes(handle),
         label: fileName
       });
       if (!verdict.safe) {
@@ -7050,7 +7062,7 @@ class UniverseBackend {
 
     try {
       // Use the unified file access adapter
-      await writeFile(handle, jsonString);
+      await writeFile(handle, fileContent);
 
       // Update last accessed time in persistence
       try {

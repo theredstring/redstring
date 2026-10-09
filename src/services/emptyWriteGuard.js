@@ -22,6 +22,9 @@
 
 import { getRedstringStats } from '../formats/redstringFormat.js';
 import { countUserPrototypes, isRecognizedShape } from '../formats/userDataCounts.js';
+import { parseRedstringBytes, isBlankBytes } from '../formats/universeBytes.js';
+
+const isBytes = (value) => ArrayBuffer.isView(value) && value.BYTES_PER_ELEMENT === 1;
 
 /**
  * Does this snapshot hold nothing the user made?
@@ -77,8 +80,8 @@ function statsOfContent(content) {
  * Decide whether an empty write may proceed, by reading the destination.
  *
  * @param {Object} params
- * @param {Function} params.readDestination - `async () => content` (string or
- *   parsed object). Should THROW when the destination is absent or unreadable;
+ * @param {Function} params.readDestination - `async () => content` (string,
+ *   bytes, or parsed object). Should THROW when the destination is absent or unreadable;
  *   `isNotFound` separates the two.
  * @param {Function} [params.isNotFound] - `(error) => boolean`. Defaults to
  *   `isConfirmedNotFound` (structured codes only, never message text).
@@ -112,6 +115,20 @@ export async function checkDestinationBeforeEmptyWrite({
       `[emptyWriteGuard] Refusing empty write to ${label}: destination unreadable (${error?.message || error})`
     );
     return { safe: false, reason: 'destination-unreadable', error };
+  }
+
+  // A destination read as bytes (a local file can be too big for a string):
+  // parsed the same way a load parses it.
+  if (isBytes(content)) {
+    if (isBlankBytes(content)) {
+      content = '';
+    } else {
+      try {
+        content = await parseRedstringBytes(content);
+      } catch {
+        return { safe: false, reason: 'destination-unparseable', destination: { nodeCount: null, graphCount: null, unparseable: true } };
+      }
+    }
   }
 
   const stats = statsOfContent(content);

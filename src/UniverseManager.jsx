@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
-import { isElectron, pickFile, pickSaveLocation, readFile, writeFile } from './utils/fileAccessAdapter.js';
+import { isElectron, pickFile, pickSaveLocation, readFileBytes, writeFile } from './utils/fileAccessAdapter.js';
+import { parseRedstringBytes, isBlankBytes } from './formats/universeBytes.js';
 import { isCapacitor, usesPathHandles, usesDeviceFlowAuth } from './utils/capacitorAdapter.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.js';
@@ -1119,9 +1120,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setLoading(true);
       const fileName = file.name.replace('.redstring', '');
 
-      // Read and parse file, then import via redstringFormat
-      const text = await file.text();
-      const parsedData = JSON.parse(text);
+      // Read and parse file, then import via redstringFormat. As bytes: a big
+      // universe is more than one string can hold (formats/universeBytes.js).
+      const parsedData = await parseRedstringBytes(new Uint8Array(await file.arrayBuffer()));
+      if (parsedData === null) {
+        throw new Error(`The selected file "${file.name}" is empty.`);
+      }
 
       const formatModule = await import('./formats/redstringFormat.js');
       const { importFromRedstring, validateFormatVersion } = formatModule;
@@ -2996,8 +3000,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             }
           } else if (importFromRedstring) {
             try {
-              const fileText = await existingFile.text();
-              const parsed = JSON.parse(fileText);
+              const parsed = await parseRedstringBytes(new Uint8Array(await existingFile.arrayBuffer()));
               const imported = importFromRedstring(parsed);
               const metrics = computeStoreMetrics(imported.storeState);
               metadata.nodeCount = metrics.nodeCount;
@@ -3256,11 +3259,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         }
       }
 
-      // Read file content using adapter
-      const fileContent = await readFile(fileHandle);
-      umLog('[UniverseManager] File content read, length:', fileContent.length);
+      // Read file content using adapter, as bytes: a big universe is more
+      // than one string can hold (formats/universeBytes.js).
+      const fileBytes = await readFileBytes(fileHandle);
+      umLog('[UniverseManager] File content read, bytes:', fileBytes.length);
 
-      if (!fileContent || fileContent.trim() === '') {
+      if (!fileBytes || isBlankBytes(fileBytes)) {
         throw new Error(`The selected file "${fileName}" is empty. The file may be corrupted or not saved properly. Please check the file and try again.`);
       }
 
@@ -3269,7 +3273,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
       let parsedData;
       try {
-        parsedData = JSON.parse(fileContent);
+        parsedData = await parseRedstringBytes(fileBytes);
       } catch (parseError) {
         throw new Error(`Invalid JSON in file: ${parseError.message}. The file may be corrupted or not a valid .redstring file.`);
       }

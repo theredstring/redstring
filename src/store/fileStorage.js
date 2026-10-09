@@ -7,7 +7,8 @@
 import { exportToRedstring, importFromRedstring } from '../formats/redstringFormat.js';
 import { v4 as uuidv4 } from 'uuid';
 import { CONNECTION_DEFAULT_COLOR } from '../constants.js';
-import { isElectron, pickFile, pickSaveLocation, readFile, writeFile, serializeHandleWrite } from '../utils/fileAccessAdapter.js';
+import { isElectron, pickFile, pickSaveLocation, readFile, readFileBytes, writeFile, serializeHandleWrite } from '../utils/fileAccessAdapter.js';
+import { parseRedstringBytes, isBlankBytes, serializeRedstring } from '../formats/universeBytes.js';
 
 // Re-export these for use by other modules (e.g., LeftAIView.jsx)
 export { isElectron, readFile, writeFile };
@@ -669,13 +670,13 @@ export const openUniverseFile = async () => {
     }
 
     try {
-      const text = await file.text();
-      if (!text || text.trim() === '') {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (isBlankBytes(bytes)) {
         throw new Error('The selected file is empty (0 bytes).');
       }
       let jsonData;
       try {
-        jsonData = JSON.parse(text);
+        jsonData = await parseRedstringBytes(bytes);
       } catch (parseError) {
         console.error('[FileStorage] JSON parse error (fallback):', parseError);
         throw new Error(`Invalid JSON in universe file: ${parseError.message}.`);
@@ -724,17 +725,18 @@ export const openUniverseFile = async () => {
       await storeFileHandle(handle);
     }
 
-    // Read the file using adapter
-    const text = await readFile(handle);
+    // Read the file using adapter, as bytes: a big universe is more than one
+    // string can hold (formats/universeBytes.js).
+    const bytes = await readFileBytes(handle);
 
     // Validate file content
-    if (!text || text.trim() === '') {
+    if (!bytes || isBlankBytes(bytes)) {
       throw new Error('The selected file is empty (0 bytes). This can happen if the file was never saved to or got corrupted. Please create a new universe or choose a different file.');
     }
 
     let jsonData;
     try {
-      jsonData = JSON.parse(text);
+      jsonData = await parseRedstringBytes(bytes);
     } catch (parseError) {
       console.error('[FileStorage] JSON parse error:', parseError);
       throw new Error(`Invalid JSON in universe file: ${parseError.message}. The file may be corrupted.`);
@@ -815,16 +817,16 @@ export const autoConnectToUniverse = async (options = {}) => {
   if (fileRestored && fileHandle) {
     try {
       const file = await fileHandle.getFile();
-      const text = await file.text();
+      const bytes = new Uint8Array(await file.arrayBuffer());
 
       // Validate file content
-      if (!text || text.trim() === '') {
+      if (isBlankBytes(bytes)) {
         throw new Error('Stored file is empty');
       }
 
       let jsonData;
       try {
-        jsonData = JSON.parse(text);
+        jsonData = await parseRedstringBytes(bytes);
       } catch (parseError) {
         throw new Error(`Invalid JSON in stored file: ${parseError.message}`);
       }
@@ -872,16 +874,16 @@ export const autoConnectToUniverse = async (options = {}) => {
       try {
         await storeFileHandle(foundFile);
         const file = await foundFile.getFile();
-        const text = await file.text();
+        const bytes = new Uint8Array(await file.arrayBuffer());
 
         // Validate file content
-        if (!text || text.trim() === '') {
+        if (isBlankBytes(bytes)) {
           throw new Error('Found file is empty');
         }
 
         let jsonData;
         try {
-          jsonData = JSON.parse(text);
+          jsonData = await parseRedstringBytes(bytes);
         } catch (parseError) {
           throw new Error(`Invalid JSON in found file: ${parseError.message}`);
         }
@@ -1006,15 +1008,15 @@ export const saveToFile = async (storeState, showSuccess = true, options = {}) =
       return true;
     } else if (fileHandle) {
       // Save to local file handle
-      let jsonString;
+      let jsonString; // the file: bytes, or (from an older caller) text
 
-      if (preSerialized && serializedData) {
-        // Use pre-computed string from worker
+      if (preSerialized && serializedData && serializedData.length > 0) {
+        // Use the worker's file
         jsonString = serializedData;
       } else {
-        // Fallback to main thread processing
+        // Fallback to main thread processing, a piece at a time (formats/universeBytes.js)
         const redstringData = exportToRedstring(storeState);
-        jsonString = JSON.stringify(redstringData, null, 2);
+        jsonString = serializeRedstring(redstringData);
       }
 
       // Serialize against other writes to the same handle — the chunked loop
@@ -1027,7 +1029,7 @@ export const saveToFile = async (storeState, showSuccess = true, options = {}) =
         // Write in chunks to avoid blocking the main thread during large file writes
         const CHUNK_SIZE = 64 * 1024; // 64KB chunks
         for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
-          const chunk = jsonString.slice(i, i + CHUNK_SIZE);
+          const chunk = typeof jsonString === 'string' ? jsonString.slice(i, i + CHUNK_SIZE) : jsonString.subarray(i, i + CHUNK_SIZE);
           await writable.write(chunk);
           // Yield to main thread between chunks to prevent blocking
           if (i + CHUNK_SIZE < jsonString.length) {
@@ -1275,10 +1277,10 @@ export const openRecentFile = async (recentFileEntry) => {
       throw new Error('File object is invalid - missing size property.');
     }
 
-    // Read file content
+    // Read file content, as bytes (formats/universeBytes.js)
     let content;
     try {
-      content = await file.text();
+      content = new Uint8Array(await file.arrayBuffer());
     } catch (readError) {
       console.error('[FileStorage] Error reading file content:', readError);
       throw new Error('Failed to read file content. The file may be corrupted or inaccessible.');
@@ -1287,7 +1289,8 @@ export const openRecentFile = async (recentFileEntry) => {
     // Parse JSON
     let data;
     try {
-      data = JSON.parse(content);
+      data = await parseRedstringBytes(content);
+      if (data === null) throw new SyntaxError('the file is empty');
     } catch (parseError) {
       console.error('[FileStorage] Error parsing file JSON:', parseError);
       throw new Error('File contains invalid JSON data.');

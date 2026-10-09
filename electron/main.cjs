@@ -887,6 +887,20 @@ handle('file:read', async (event, filePath) => {
   }
 });
 
+// The file as bytes, never as text: a universe file can be bigger than the
+// longest string JavaScript can hold (about 536 million characters), and long
+// before that a window can't hold one. The renderer parses the bytes a slice
+// at a time (src/formats/universeBytes.js).
+handle('file:readBytes', async (event, filePath) => {
+  try {
+    const safePath = assertAccessAllowed(filePath, 'file:readBytes');
+    const buffer = await fs.readFile(safePath);
+    return { bytes: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength), path: safePath };
+  } catch (error) {
+    throw new Error(`Failed to read file: ${error.message} `);
+  }
+});
+
 // Serialize writes per target path. Two concurrent writes to the same file
 // (autosave racing a force-save) would otherwise interleave truncation, and
 // an out-of-order completion could leave an older snapshot as the final

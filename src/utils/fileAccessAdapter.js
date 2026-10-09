@@ -161,6 +161,40 @@ export const readFile = async (fileHandleOrPath) => {
   throw new Error(`readFile: unsupported handle/path (got ${typeof fileHandleOrPath})`);
 };
 
+/**
+ * Read a file's contents as bytes, without ever holding them as one string
+ * where the platform allows: a universe file can be too big for a string
+ * (formats/universeBytes.js parses the bytes). Capacitor reads text through
+ * its bridge either way, so there the text is encoded; mobile files stay
+ * small (its other read paths cap them at 25 MB).
+ *
+ * @param {FileHandle|string} fileHandleOrPath
+ * @returns {Promise<Uint8Array>}
+ */
+export const readFileBytes = async (fileHandleOrPath) => {
+  if (!fileHandleOrPath) {
+    throw new Error('readFileBytes: no file handle or path provided');
+  }
+  if (isCapacitorHandle(fileHandleOrPath)) {
+    return new TextEncoder().encode(await capReadTextFile(fileHandleOrPath));
+  }
+  if (isElectron() && typeof fileHandleOrPath === 'string') {
+    const fsApi = window.electron.fileSystem;
+    // A window reloaded onto an older preload (main and preload change only on
+    // restart) has no bytes channel yet: read text as before.
+    if (typeof fsApi.readFileBytes !== 'function') {
+      return new TextEncoder().encode((await fsApi.readFile(fileHandleOrPath)).content);
+    }
+    const result = await fsApi.readFileBytes(fileHandleOrPath);
+    return result.bytes;
+  }
+  if (fileHandleOrPath && typeof fileHandleOrPath.getFile === 'function') {
+    const file = await fileHandleOrPath.getFile();
+    return new Uint8Array(await file.arrayBuffer());
+  }
+  throw new Error(`readFileBytes: unsupported handle/path (got ${typeof fileHandleOrPath})`);
+};
+
 // Capacitor handles are strings, so they can't key a WeakMap — chain them by
 // value instead. Same ordering guarantee as serializeHandleWrite below.
 const stringWriteChains = new Map();

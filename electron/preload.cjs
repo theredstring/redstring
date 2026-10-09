@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electron', {
     pickFolder: (options) => ipcRenderer.invoke('file:pickFolder', options),
     saveAs: (options) => ipcRenderer.invoke('file:saveAs', options),
     readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
+    readFileBytes: (filePath) => ipcRenderer.invoke('file:readBytes', filePath),
     writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
     deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
     fileExists: (filePath) => ipcRenderer.invoke('file:exists', filePath),

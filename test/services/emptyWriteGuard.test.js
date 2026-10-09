@@ -143,6 +143,20 @@ describe('checkDestinationBeforeEmptyWrite', () => {
     expect(result.reason).toBe('destination-unparseable');
   });
 
+  it('reads a destination given as bytes the same way (a local file can be too big for text)', async () => {
+    const bytes = (text) => new TextEncoder().encode(text);
+    const withData = await checkDestinationBeforeEmptyWrite({ readDestination: async () => bytes(JSON.stringify(fileDoc(518, 59))) });
+    expect(withData).toMatchObject({ safe: false, reason: 'destination-has-data' });
+    expect(withData.destination.nodeCount).toBe(518);
+    for (const content of ['', '  \n ', JSON.stringify(fileDoc(0, 0))]) {
+      expect((await checkDestinationBeforeEmptyWrite({ readDestination: async () => bytes(content) })).safe).toBe(true);
+    }
+    const broken = await checkDestinationBeforeEmptyWrite({ readDestination: async () => bytes('{ truncated') });
+    expect(broken).toMatchObject({ safe: false, reason: 'destination-unparseable' });
+    const notRedstring = await checkDestinationBeforeEmptyWrite({ readDestination: async () => bytes('{"encoding":"base64"}') });
+    expect(notRedstring.safe).toBe(false);
+  });
+
   it('refuses when the caller cannot read its own destination', async () => {
     const result = await checkDestinationBeforeEmptyWrite({});
     expect(result).toEqual({ safe: false, reason: 'no-destination-reader' });
