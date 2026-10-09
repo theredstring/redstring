@@ -4,6 +4,7 @@ import {
   DEFAULT_EDGE_GLOW_MODE,
   EDGE_GLOW_FANCY_MAX_COUNT,
   EDGE_GLOW_FAST_MAX_COUNT,
+  EDGE_GLOW_FANCY_MAX_UNIVERSE_COUNT,
   EDGE_GLOW_INTENSITY_MIN,
   EDGE_GLOW_INTENSITY_MAX,
   DEFAULT_EDGE_GLOW_INTENSITY,
@@ -26,6 +27,16 @@ describe('resolveEdgeGlowQuality', () => {
     expect(resolveEdgeGlowQuality('adaptive', EDGE_GLOW_FANCY_MAX_COUNT + 1)).toBe('fast');
     expect(resolveEdgeGlowQuality('adaptive', EDGE_GLOW_FAST_MAX_COUNT)).toBe('fast');
     expect(resolveEdgeGlowQuality('adaptive', EDGE_GLOW_FAST_MAX_COUNT + 1)).toBe('off');
+  });
+
+  it('caps adaptive at fast in a large universe, whatever web is open', () => {
+    const big = EDGE_GLOW_FANCY_MAX_UNIVERSE_COUNT + 1;
+    expect(resolveEdgeGlowQuality('adaptive', 10, EDGE_GLOW_FANCY_MAX_UNIVERSE_COUNT)).toBe('fancy');
+    expect(resolveEdgeGlowQuality('adaptive', 10, big)).toBe('fast');
+    expect(resolveEdgeGlowQuality('adaptive', EDGE_GLOW_FAST_MAX_COUNT, big)).toBe('fast');
+    // The universe only takes away the expensive appearance, never the glow.
+    expect(resolveEdgeGlowQuality('adaptive', EDGE_GLOW_FAST_MAX_COUNT + 1, big)).toBe('off');
+    expect(resolveEdgeGlowQuality('fancy', 10, big)).toBe('fancy');
   });
 
   it('never yields a mode name the flare painter cannot draw', () => {

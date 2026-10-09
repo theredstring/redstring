@@ -327,8 +327,9 @@ export const CONNECTION_LABEL_MOVE_FADE_MIN_COUNT = 40;
  * - 'fancy': the gradient plus a blur() over it and a blurred box-shadow around
  *   it, which is how the flares looked before they were cut back for speed.
  *   Softer, deeper, and roughly three times the paint cost per flare.
- * - 'adaptive': 'fancy' up to EDGE_GLOW_FANCY_MAX_COUNT Things, 'fast' up to
- *   EDGE_GLOW_FAST_MAX_COUNT, 'off' beyond that.
+ * - 'adaptive': 'fancy' up to EDGE_GLOW_FANCY_MAX_COUNT Things in the web (and
+ *   only while the universe holds no more than EDGE_GLOW_FANCY_MAX_UNIVERSE_COUNT),
+ *   'fast' up to EDGE_GLOW_FAST_MAX_COUNT, 'off' beyond that.
  *
  * 'adaptive' is the default: the flare count scales with the web, so the point
  * at which the expensive version stops being affordable is a property of the
@@ -347,10 +348,23 @@ export const DEFAULT_EDGE_GLOW_MODE = 'adaptive';
  *
  * The fancy ceiling comes from the measurement recorded in EdgeGlowIndicator:
  * 150 flares of gradient + blur + shadow ran a 30ms p90 against an 8.3ms floor,
- * so the expensive appearance has to stop well below that.
+ * so the expensive appearance has to stop well below that. It used to stop at
+ * 120, which was too close: in use, webs well short of it already felt the
+ * fancy flares, so it steps down at 50 now.
  */
-export const EDGE_GLOW_FANCY_MAX_COUNT = 120;
+export const EDGE_GLOW_FANCY_MAX_COUNT = 50;
 export const EDGE_GLOW_FAST_MAX_COUNT = 800;
+
+/**
+ * The fancy ceiling for the whole universe, in Things (prototypes).
+ *
+ * The flares themselves only cost what the open web costs, but a large universe
+ * leaves less headroom for everything else on the frame, and a small web inside
+ * one should not be the place the expensive appearance comes back. Past this,
+ * 'adaptive' draws 'fast' at most whatever web is open. It never turns the glow
+ * off by itself: that stays a question of the open web.
+ */
+export const EDGE_GLOW_FANCY_MAX_UNIVERSE_COUNT = 1500;
 
 /**
  * How strongly the flares read, as a multiplier over the appearance the mode
@@ -388,15 +402,17 @@ export const clampEdgeGlowIntensity = (value) => {
 
 /**
  * Resolves an EDGE_GLOW_MODES value to the appearance actually drawn: one of
- * 'off', 'fast' or 'fancy'. Only 'adaptive' consults `nodeCount`.
+ * 'off', 'fast' or 'fancy'. Only 'adaptive' consults the counts.
  * @param {string} mode
  * @param {number} nodeCount Things in the open web.
+ * @param {number} [universeCount] Things in the whole universe.
  * @returns {'off'|'fast'|'fancy'}
  */
-export const resolveEdgeGlowQuality = (mode, nodeCount) => {
+export const resolveEdgeGlowQuality = (mode, nodeCount, universeCount = 0) => {
   if (mode === 'fast' || mode === 'fancy') return mode;
   if (mode !== 'adaptive') return 'off';
-  if (nodeCount <= EDGE_GLOW_FANCY_MAX_COUNT) return 'fancy';
+  if (nodeCount <= EDGE_GLOW_FANCY_MAX_COUNT
+    && universeCount <= EDGE_GLOW_FANCY_MAX_UNIVERSE_COUNT) return 'fancy';
   if (nodeCount <= EDGE_GLOW_FAST_MAX_COUNT) return 'fast';
   return 'off';
 };

@@ -153,7 +153,11 @@ const EdgeGlowIndicator = ({
   // nothing ever read.
 }) => {
   const edgeGlowMode = useGraphStore(state => state.edgeGlowMode);
-  const quality = resolveEdgeGlowQuality(edgeGlowMode, nodes?.length ?? 0);
+  // Map size only: re-renders when the universe gains or loses a Thing, not on
+  // every edit to one.
+  const universeCount = useGraphStore(state =>
+    (state.nodePrototypes instanceof Map ? state.nodePrototypes.size : 0));
+  const quality = resolveEdgeGlowQuality(edgeGlowMode, nodes?.length ?? 0, universeCount);
   // Clamped here as well as in the store: this reads whatever is in state,
   // including a value persisted by a build with a different range.
   const strength = clampEdgeGlowIntensity(useGraphStore(state => state.edgeGlowIntensity));
