@@ -43,7 +43,7 @@ describe('preload surface', () => {
       clipboard: ['writeText'],
       github: ['openExternal', 'pollDeviceToken', 'requestDeviceCode'],
       agent: ['getConnection', 'restart', 'status'],
-      lifecycle: ['notifyFlushComplete', 'onFlushBeforeQuit'],
+      lifecycle: ['cancelClose', 'holdClose', 'notifyFlushComplete', 'onFlushBeforeQuit'],
       menu: ['onCommand'],
       updater: ['checkNow', 'checkPending', 'clearCache', 'getDiagnostics', 'installUpdate', 'onDiagnosticsUpdated', 'onDownloadProgress', 'onError', 'onOpenDiagnostics', 'onUpdateAvailable', 'onUpdateNotAvailable', 'onUpdateReady', 'openLog', 'openReleases']
     });

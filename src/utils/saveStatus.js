@@ -37,6 +37,11 @@
  * since nothing was going to start it. It is a thing the user can fix, so
  * it's a CTA (`gitAuthLabel`: 'Reconnect', or 'Link App' when OAuth is on).
  *
+ * `manualSave`: autosave is off for this universe (Settings → Data, or past
+ * Automatic's size limits). Unsaved changes then aren't on their way, so
+ * instead of "Saving..." the indicator offers "Save" (action 'save'), and
+ * holding them isn't a stall.
+ *
  * @returns {{text: string|null, isCTA: boolean}} `text: null` means show
  *   nothing — the honest report for the normal debounce window.
  */
@@ -55,7 +60,8 @@ export const resolveSaveStatus = ({
   hasUnsavedChanges = false,
   isInteracting = false,
   gitBehind = false,
-  universeReady = false
+  universeReady = false,
+  manualSave = false
 } = {}) => {
   if (!hasUniverse) return { text: 'No universe', isCTA: false };
   if (!hasStorage) return { text: 'Connect', isCTA: true };
@@ -69,7 +75,7 @@ export const resolveSaveStatus = ({
 
   // A guard refused the write or it failed (`blockedReason`), or changes have
   // sat unwritten far past the debounce for a reason nobody reported.
-  if (blockedReason || dirtyStalled) {
+  if (blockedReason || (dirtyStalled && !manualSave)) {
     return {
       text: 'Not saved',
       isCTA: true,
@@ -81,7 +87,8 @@ export const resolveSaveStatus = ({
   // Waiting out the debounce: the write is coming. Mid-drag nothing is written
   // until release, so say nothing rather than "Saving..." for the whole drag.
   if (hasUnsavedChanges) {
-    return isInteracting ? { text: null, isCTA: false } : { text: 'Saving...', isCTA: false };
+    if (isInteracting) return { text: null, isCTA: false };
+    return manualSave ? { text: 'Save', isCTA: true, action: 'save', detail: 'Autosave is off for this universe' } : { text: 'Saving...', isCTA: false };
   }
 
   // Local bytes are durable; Git is still catching up. A different and much

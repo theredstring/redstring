@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Save } from 'lucide-react';
 import { HEADER_HEIGHT } from './constants';
 import { universeManagerService } from './services/universeManagerService';
 import saveCoordinator from './services/SaveCoordinator';
@@ -33,6 +34,13 @@ const SaveStatusDisplay = ({ hidden = false }) => {
 
   const openFederation = () => {
     if (!isCTA) return;
+    // Autosave is off and there's something to save: this is the Save button.
+    if (ctaAction === 'save') {
+      setStatusText('Saving...');
+      setIsCTA(false);
+      saveCoordinator.saveNow().catch((error) => console.warn('[SaveStatusDisplay] Save failed:', error));
+      return;
+    }
     try {
       window.dispatchEvent(new CustomEvent(
         ctaAction === 'reconnect' ? 'redstring:open-git-reconnect' : 'redstring:open-federation'
@@ -180,7 +188,10 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           isUnhealthy: engine?.isHealthy === false,
           isPaused: !!engine?.isPaused,
           isLoadingFromRepo,
-          isSaving: coordinatorIsSaving,
+          // A Save the user pressed is saving from the press, through the
+          // worker's pass, to the write.
+          isSaving: coordinatorIsSaving || saveCoordinator.manualSaveRequested === true,
+          manualSave: !saveCoordinator.autoSaveActive(),
           blockedReason: coordinatorHasUnsaved ? saveCoordinator.lastBlockReason : null,
           dirtyStalled,
           hasUnsavedChanges: coordinatorHasUnsaved,
@@ -328,6 +339,22 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         } catch { }
       }}
     >
+      {statusText === 'Save' && (
+        // The text's outline is eight text-shadows in the canvas colour; an
+        // icon takes the same outline as chained drop-shadows, 1px at a time
+        // so it grows 2px all round without gaps.
+        <Save
+          size={16}
+          strokeWidth={2.5}
+          aria-hidden="true"
+          style={{
+            marginRight: 6,
+            flexShrink: 0,
+            filter: ['1px 0', '-1px 0', '1px 0', '-1px 0', '0 1px', '0 -1px', '0 1px', '0 -1px']
+              .map((offset) => `drop-shadow(${offset} 0 ${theme.surface.bg})`).join(' ')
+          }}
+        />
+      )}
       {statusText}
     </div>
   );

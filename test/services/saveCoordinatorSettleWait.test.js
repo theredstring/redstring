@@ -6,10 +6,14 @@
  * switch with it; closing or hiding the app writes it straight away. Moving a
  * Thing is an edit: a drop saves as soon as it settles. A small universe saves
  * switches as it always has.
+ *
+ * A universe this big saves on its own only with Autosave set to Always
+ * (autoSaveMode.js); Automatic leaves it to the user, so these run on Always.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { saveCoordinator, LARGE_UNIVERSE_SIZE } from '../../src/services/SaveCoordinator.js';
 import { markCameraMoved, __resetCameraActivity } from '../../src/services/cameraActivity.js';
+import { setAutoSaveMode } from '../../src/services/autoSaveMode.js';
 
 const SETTLE_MS = 10000;
 // Worker debounce (500) + write debounce (1000) + dispatch, with room to spare.
@@ -58,9 +62,11 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
     saveCoordinator.gitSyncEngine = null;
     saveCoordinator.lastSaveHash = saveCoordinator.generateStateHash(universe());
     __resetCameraActivity();
+    setAutoSaveMode('always');
   });
 
   afterEach(() => {
+    setAutoSaveMode('auto');
     saveCoordinator.cancelPendingSaves();
     vi.clearAllTimers();
     vi.useRealTimers();

@@ -1,15 +1,16 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useSyncExternalStore } from 'react';
 import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
-import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, Bug, X } from 'lucide-react';
+import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, Bug, X, Database } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
 import { useShellPreference, setShellPreference } from '../hooks/useMobileLandscapeShell.js';
 import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
+import { getAutoSaveMode, setAutoSaveMode, subscribeAutoSaveMode, AUTO_SAVE_MAX_ITEMS, AUTO_SAVE_MAX_BYTES } from '../services/autoSaveMode.js';
 import './ModalChrome.css';
 
 /**
@@ -181,6 +182,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const connectionLabelSprites = useGraphStore(s => s.connectionLabelSprites ?? DEFAULT_CONNECTION_LABEL_SPRITES);
   const edgeGlowMode = useGraphStore(s => s.edgeGlowMode) ?? DEFAULT_EDGE_GLOW_MODE;
   const edgeGlowIntensity = useGraphStore(s => s.edgeGlowIntensity) ?? DEFAULT_EDGE_GLOW_INTENSITY;
+  const autoSaveMode = useSyncExternalStore(subscribeAutoSaveMode, getAutoSaveMode);
   const liftedThingShadow = useGraphStore(s => s.liftedThingShadow) ?? DEFAULT_LIFTED_THING_SHADOW;
   const darkMode = useGraphStore(s => s.darkMode);
   const canvasColor = useGraphStore(s => s.canvasColor ?? 'auto');
@@ -235,6 +237,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
     grid: <Grid3x3 size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     connections: <Cable size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     keyboard: <Keyboard size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
+    data: <Database size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     about: <Info size={16} style={{ minWidth: '16px', flexShrink: 0 }} />,
     debug: <Bug size={16} style={{ minWidth: '16px', flexShrink: 0 }} />
   };
@@ -1182,6 +1185,34 @@ const SettingsModal = ({ isVisible, onClose }) => {
               step={0.05}
               onChange={(v) => useGraphStore.getState().setGamepadTuning?.('panelResizeSensitivity', v)}
               suffix=""
+            />
+          </div>
+        </div>
+      )
+    },
+    data: {
+      title: 'Data',
+      content: (
+        <div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Autosave
+              <div className="settings-row-description">
+                {autoSaveMode === 'auto'
+                  ? `Saves on its own while a universe is under ${AUTO_SAVE_MAX_ITEMS.toLocaleString()} Things and webs and ${Math.round(AUTO_SAVE_MAX_BYTES / (1024 * 1024))} MB. Bigger ones wait for you to save.`
+                  : autoSaveMode === 'always'
+                    ? 'Saves on its own after every change, whatever the size.'
+                    : 'Saves only when you save, from the indicator in the corner or the Universes panel.'}
+              </div>
+            </div>
+            <OptionGroup
+              options={[
+                { value: 'auto', label: 'Automatic' },
+                { value: 'always', label: 'Always' },
+                { value: 'off', label: 'Never' }
+              ]}
+              value={autoSaveMode}
+              onChange={setAutoSaveMode}
             />
           </div>
         </div>

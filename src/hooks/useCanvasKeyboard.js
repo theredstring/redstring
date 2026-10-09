@@ -4,6 +4,7 @@ import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import { DEFAULT_KEYBOARD_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { performUndo, performRedo } from '../store/historyActions.js';
+import saveCoordinator from '../services/SaveCoordinator.js';
 import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipboard, applyConnectionClipboard } from '../utils/clipboard';
 import { getNodeDimensions } from '../utils';
 import { isTextEntryActive, isTextEntryTarget } from '../utils/textEntry.js';
@@ -183,6 +184,15 @@ export const useCanvasKeyboard = ({
             const cmdOrCtrl = e.ctrlKey || e.metaKey;
             if (!cmdOrCtrl) return;
 
+            // Cmd+S saves now (the desktop menu's Save sends the same), and
+            // keeps the browser's "save page" dialog away. In a text field too:
+            // there's nothing else it could mean.
+            if (key === 's' && !e.shiftKey && !e.altKey) {
+                e.preventDefault();
+                saveCoordinator.saveNow().catch(() => { /* reported by the indicator */ });
+                return;
+            }
+
             // Cmd+Y is the other conventional redo; it was documented but never wired.
             const isUndoKey = key === 'z' && !e.shiftKey;
             const isRedoKey = (key === 'z' && e.shiftKey) || key === 'y';
@@ -234,6 +244,9 @@ export const useCanvasKeyboard = ({
                     else performUndo();
                     return;
                 }
+                case 'save':
+                    saveCoordinator.saveNow().catch(() => { /* reported by the indicator */ });
+                    return;
                 case 'new-web':
                     // Same selector the header's + opens; NodeCanvas mounts it.
                     window.dispatchEvent(new Event('redstring:new-web'));

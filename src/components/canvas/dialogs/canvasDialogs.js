@@ -3,7 +3,9 @@
  * nodes to this group?" after a drop onto a group, "make a self-loop?" after a
  * connection drawn back onto its own node, and "delete this definition?" from
  * the decompose pie, the bottom panel and the right panel's Web Definitions,
- * and "refresh Redstring?" from every Refresh button (see refresh.js).
+ * "refresh Redstring?" from every Refresh button (see refresh.js), and
+ * "save changes?" before closing or switching with autosave off (see
+ * unsavedChanges.js).
  * The callers open them; CanvasOverlaysHost renders them from this store.
  */
 import { create } from 'zustand';
@@ -13,9 +15,11 @@ export const useCanvasDialogStore = create(() => ({
   selfLoopDialog: null, // { sourceInstanceId, position }
   deleteDefinitionDialog: null, // { prototypeId, graphId } — see deleteDefinition.js
   refreshDialog: null, // { requestedAt } — see refresh.js
+  unsavedChangesDialog: null, // { action, resolve } — see unsavedChanges.js
 }));
 
 export const setAddToGroupDialog = (addToGroupDialog) => useCanvasDialogStore.setState({ addToGroupDialog });
 export const setSelfLoopDialog = (selfLoopDialog) => useCanvasDialogStore.setState({ selfLoopDialog });
 export const setDeleteDefinitionDialog = (deleteDefinitionDialog) => useCanvasDialogStore.setState({ deleteDefinitionDialog });
 export const setRefreshDialog = (refreshDialog) => useCanvasDialogStore.setState({ refreshDialog });
+export const setUnsavedChangesDialog = (unsavedChangesDialog) => useCanvasDialogStore.setState({ unsavedChangesDialog });

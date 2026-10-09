@@ -43,6 +43,7 @@ import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
 import repoDiscoveryCache from './services/repoDiscoveryCache.js';
 import saveCoordinator from './services/SaveCoordinator';
+import { settleUnsavedChanges, hasChangesOnlyASaveKeeps } from './components/canvas/dialogs/unsavedChanges.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import Modal from './components/shared/Modal.jsx';
@@ -1237,9 +1238,15 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleSwitchUniverse = async (slug) => {
     if (slug === serviceState.activeUniverseSlug) return;
 
+    // Autosave off with changes unsaved: Save, Don't Save, or Cancel. Saved
+    // just now or let go, the switch mustn't write this universe again.
+    const unsaved = await settleUnsavedChanges('switch');
+    if (unsaved === 'cancel') return;
+    const saveCurrent = unsaved === 'none' && saveCoordinator.autoSaveActive();
+
     let attemptedPermission = false;
     const attemptSwitch = async () => {
-      await universeManagerService.switchUniverse(slug);
+      await universeManagerService.switchUniverse(slug, { saveCurrent });
       await refreshState();
       scrollPanelToTop();
     };
@@ -3616,6 +3623,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     }
   };
 
+  const handleManualSave = async () => {
+    try {
+      setLoading(true);
+      const saved = await saveCoordinator.saveNow();
+      if (!saved) setError(saveCoordinator.lastBlockReason || 'Save did not finish. Your changes are still here.');
+      await refreshState();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleReloadActive = async () => {
     try {
       setLoading(true);
@@ -4185,6 +4203,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               displayState = 'unsaved';
               displayLabel = 'Unsaved changes';
               displayTone = theme.darkMode ? '#b39ddb' : '#512da8'; // Purple variants
+              if (hasChangesOnlyASaveKeeps()) displayDesc = 'Autosave is off for this universe.';
             } else if (base?.state && base?.label) {
               // Fallback to mapped state
               displayState = base.state;
@@ -4263,7 +4282,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                     icon={Save}
                     label="Save now"
                     variant="solid"
-                    onClick={() => handleForceSave(activeUniverse.slug)}
+                    // Autosave off: the same save as the indicator's, through
+                    // the worker. A guard's refusal still needs Save Now's
+                    // deliberate write to get past it.
+                    onClick={() => (hasChangesOnlyASaveKeeps() && !saveCoordinator.lastBlockReason
+                      ? handleManualSave()
+                      : handleForceSave(activeUniverse.slug))}
                   />
                 )}
                 {lastTime && displayState !== 'saving' && displayState !== 'unsaved' && (

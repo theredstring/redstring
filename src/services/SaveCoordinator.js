@@ -23,6 +23,7 @@ import { userDataCounts } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 import { vlog } from '../utils/verboseLog.js';
+import { getAutoSaveMode, autoSaves, universeItemCount, subscribeAutoSaveMode } from './autoSaveMode.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce.
 // With the 500ms worker debounce, an edit reaches the file about 1.5s later. It
@@ -181,6 +182,24 @@ class SaveCoordinator {
     // Counts as unsaved, so the indicator says "Saving..." the moment an edit
     // or a drop lands rather than half a second later.
     this.awaitingWorker = false;
+
+    // Autosave can be off (Settings → Data, or a universe past Automatic's
+    // limits; autoSaveMode.js). Changes are still noticed and the worker still
+    // builds the file, but executeSave writes only once saveNow() asks.
+    // `lastFileBytes`: the size of the file the worker last built, for
+    // Automatic's limit. `manualSaveRequested`: a saveNow() is under way;
+    // its callers wait in `_manualSaveWaiters` for whether it landed.
+    this.lastFileBytes = 0;
+    this.manualSaveRequested = false;
+    this._manualSaveWaiters = [];
+
+    // Turning autosave back on writes what's waiting.
+    subscribeAutoSaveMode(() => {
+      if (this.isEnabled && (this.isDirty || this.pendingHash !== null) && this.autoSaveActive()) {
+        this.scheduleSave();
+      }
+      this.notifyStatus('info', 'Autosave setting changed');
+    });
 
     // console.log('[SaveCoordinator] Initialized with simple batched saves');
   }
@@ -596,6 +615,10 @@ class SaveCoordinator {
         console.error('[SaveCoordinator] The save worker found stale pieces in its cache. This save was written in full, and it will rebuild every save from now on.', e.data.cacheMismatches.slice(0, 20));
       }
 
+      // The file's size, for Automatic's limit (autoSaveMode.js).
+      const builtBytes = jsonBytes?.byteLength ?? (typeof jsonString === 'string' ? jsonString.length : 0);
+      if (builtBytes > 0) this.lastFileBytes = builtBytes;
+
       // Check if hash changed
       if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
         this.pendingHash = hash;
@@ -617,6 +640,14 @@ class SaveCoordinator {
 
         // Schedule the actual write
         this.scheduleSave();
+      } else if (hash === this.pendingHash && hash !== this.lastSaveHash && (jsonBytes || jsonString)) {
+        // The same content as the change already waiting, from a newer state
+        // (a pan or a web switch since: those don't change the hash but are
+        // written). Keep these bytes, for that newer state, so the write
+        // doesn't rebuild the file on the main thread.
+        this.pendingString = jsonBytes || jsonString;
+        this.pendingRedstringData = null;
+        this.pendingStringState = this.lastState;
       } else if (hash === this.lastSaveHash && this.pendingHash === null && this.isDirty) {
         // The content matches what was last saved (a press that moved nothing,
         // an edit undone). The drag gate marks every interaction dirty, and
@@ -660,6 +691,9 @@ class SaveCoordinator {
       this.awaitingWorker = false;
       if (!this.hasUnsavedChanges()) this.notifyStatus('info', 'No changes to save');
     }
+
+    // A save the user asked for was waiting on this pass.
+    if (this.manualSaveRequested && !this.workerProcessing) this._continueManualSave();
   }
 
   /**
@@ -861,6 +895,7 @@ class SaveCoordinator {
       this.isDirty = true;
       this.scheduleSave();
     }
+    if (this.manualSaveRequested) this._continueManualSave();
   }
 
   /**
@@ -1263,6 +1298,11 @@ class SaveCoordinator {
       vlog('[SaveCoordinator] executeSave deferred: universe load in flight');
       return;
     }
+    // Autosave is off for this universe (autoSaveMode.js): the change stays
+    // unsaved, and the indicator offers Save, until saveNow() asks.
+    if (!this.manualSaveRequested && !this.autoSaveActive(this.lastState)) {
+      return;
+    }
     if (this.isSaving) {
       // A previous save is still in flight. Reschedule rather than silently
       // drop this attempt — otherwise if the prior save is stuck (mobile
@@ -1308,7 +1348,10 @@ class SaveCoordinator {
     }
 
     // We need either a pending string (from worker) or a lastState (fallback)
-    if (!this.pendingString && !this.lastState) return;
+    if (!this.pendingString && !this.lastState) {
+      this._settleManualSave(false);
+      return;
+    }
 
     // Capture values before async operations
     const state = this.lastState;
@@ -1342,11 +1385,15 @@ class SaveCoordinator {
         : 'Much less is here than was last saved, so autosave stopped to be safe. Reload to recover, or press Save Now to keep this version.';
       // Don't clear pending — leave state as-is so a future legitimate save can fire.
       this.isSaving = false;
+      this._settleManualSave(false);
       return;
     }
 
     // Mark as saving immediately
     this.isSaving = true;
+    // This write is the one a waiting saveNow() asked for: it carries the
+    // newest state (_continueManualSave saw to that before calling here).
+    const manualWrite = this.manualSaveRequested;
 
     // Watchdog: force-reset isSaving if the write never settles within the
     // budget. isSaving is now held for the duration of the actual write (so
@@ -1359,6 +1406,7 @@ class SaveCoordinator {
       if (this.isSaving) {
         console.warn('[SaveCoordinator] Watchdog clearing stuck isSaving flag — write did not settle in 30s');
         this.isSaving = false;
+        if (manualWrite) this._settleManualSave(false);
         // The write outcome is unknown, so the state must remain dirty and
         // pending data must stay queued for a retry.
         this.isDirty = true;
@@ -1403,6 +1451,7 @@ class SaveCoordinator {
         if (localOutcome.status === 'saved' || localOutcome.status === 'skipped') {
           // Durable (or local persistence not applicable for this universe).
           this._onSaveConfirmed(state, pendingHash);
+          if (manualWrite) this._settleManualSave(true);
         } else {
           // 'failed' (write error, disconnected handle) or 'blocked' (a
           // data-loss guard refused the write). Either way the data is NOT
@@ -1417,12 +1466,14 @@ class SaveCoordinator {
             this.notifyStatus('error', `Save failed: ${localOutcome.reason}. Changes are kept and will retry.`, { persistent: true });
           }
           // 'blocked' outcomes already emitted their own warning at the guard.
+          if (manualWrite) this._settleManualSave(false);
           this._scheduleRetry();
         }
       } catch (error) {
         console.error('[SaveCoordinator] Save dispatch failed:', error);
         this.isDirty = true;
         this.notifyStatus('error', `Save failed: ${error.message}`);
+        if (manualWrite) this._settleManualSave(false);
         this._scheduleRetry();
       } finally {
         this.isSaving = false;
@@ -1592,6 +1643,10 @@ class SaveCoordinator {
    *   actually exiting: Git changes are force-committed now (no later commit
    *   loop will run). When `false` (tab hidden, still alive) Git changes are
    *   queued through the normal engine loop instead.
+   *
+   * With autosave off (autoSaveMode.js) nothing is written: hiding or closing
+   * the app isn't a save the user asked for. Closing asks first instead
+   * (unsavedChanges.js), and saves through saveNow().
    * @returns {Promise<boolean>} `true` if a write was performed and confirmed.
    */
   async flush(reason = 'flush', { terminal = false } = {}) {
@@ -1602,6 +1657,12 @@ class SaveCoordinator {
     // browser overwrites the file it was in the middle of reading.
     if (this.loadInFlight > 0) {
       console.warn(`[SaveCoordinator] flush(${reason}) skipped: universe load in flight`);
+      return false;
+    }
+
+    // Checked before any timer is cleared: the pipeline carries on as it was.
+    if (!this.autoSaveActive(this.nextStateToProcess || this.lastState)) {
+      vlog(`[SaveCoordinator] flush(${reason}) skipped: autosave is off for this universe`);
       return false;
     }
 
@@ -2088,11 +2149,110 @@ class SaveCoordinator {
     this.awaitingWorker = false;
     this.retryAttempt = 0;
     this.lastBlockReason = null;
+    this._settleManualSave(false);
     // Reset the data-loss guard. The new universe's load needs to happen
     // before saves are allowed again.
     this.hasLoadedFromFile = false;
     this._loggedLoadGuard = false;
     this.dataBaseline = { nodes: 0, graphs: 0 };
+  }
+
+  /**
+   * Whether this universe saves on its own (autoSaveMode.js): the setting,
+   * and for Automatic, the universe's size (Things plus webs, and the bytes
+   * of the file the worker last built).
+   *
+   * @param {Object} [state] - defaults to the newest state the coordinator has
+   * @returns {boolean}
+   */
+  autoSaveActive(state = this.nextStateToProcess || this.lastState) {
+    return autoSaves(getAutoSaveMode(), { items: universeItemCount(state), bytes: this.lastFileBytes });
+  }
+
+  /**
+   * Save now, because the user asked (the indicator's Save, Save Now in the
+   * Universes panel, Cmd+S, "Save" when closing). Works the same whether
+   * autosave is on or off.
+   *
+   * It goes the way an autosave goes, through every guard: the newest state
+   * goes to the worker first if it hasn't yet, so the file written is the
+   * worker's bytes for exactly that state and nothing is rebuilt on the main
+   * thread, and then the write runs without waiting out the debounce.
+   *
+   * @param {Object} [options]
+   * @param {boolean} [options.terminal=false] - the app is closing: commit to
+   *   Git now as well (no later commit loop will run)
+   * @returns {Promise<boolean>} whether the changes are now saved (true when
+   *   there was nothing to save)
+   */
+  async saveNow({ terminal = false } = {}) {
+    if (!this.isEnabled || this.swapInProgress || this.loadInFlight > 0 || !this.hasLoadedFromFile) {
+      return false;
+    }
+    const done = new Promise((resolve) => this._manualSaveWaiters.push(resolve));
+    if (!this.manualSaveRequested) {
+      this.manualSaveRequested = true;
+      this.notifyStatus('info', 'Saving...');
+      // A held web switch is part of what's saved now.
+      if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
+      this._continueManualSave();
+    }
+    const saved = await done;
+    if (saved && terminal && this.gitSyncEngine?.isHealthy?.() && typeof this.gitSyncEngine.forceCommit === 'function') {
+      try {
+        await this.gitSyncEngine.forceCommit(this.lastState);
+      } catch (gitError) {
+        console.warn('[SaveCoordinator] saveNow: Git commit on close failed:', gitError);
+      }
+    }
+    return saved;
+  }
+
+  /**
+   * The next step of a saveNow(): get the newest state through the worker,
+   * then write it. Called again when the worker replies, and while another
+   * write finishes.
+   * @private
+   */
+  _continueManualSave() {
+    if (!this.manualSaveRequested) return;
+    // Its reply calls back here.
+    if (this.workerProcessing) return;
+    // Another write is landing (an autosave, a flush); then this one.
+    if (this.isSaving) {
+      setTimeout(() => this._continueManualSave(), 100);
+      return;
+    }
+    // The newest state hasn't been through the worker (its 500ms wait, a
+    // drag, a pan, a held web switch): send it now. The reply, or the
+    // main-thread path when there is no worker, calls back here.
+    if (this.nextStateToProcess && this.nextStateToProcess !== this.lastState) {
+      if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
+      this.sendToWorker();
+      return;
+    }
+    if (this.isDirty || this.pendingHash !== null) {
+      if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
+      this.isGlobalDragging = false;
+      this.executeSave();
+      return;
+    }
+    // Nothing differs from the last save.
+    this.awaitingWorker = false;
+    this._settleManualSave(true);
+  }
+
+  /**
+   * A saveNow() is over: tell whoever is waiting whether it landed.
+   * @private
+   */
+  _settleManualSave(saved) {
+    if (!this.manualSaveRequested && this._manualSaveWaiters.length === 0) return;
+    this.manualSaveRequested = false;
+    const waiters = this._manualSaveWaiters;
+    this._manualSaveWaiters = [];
+    for (const resolve of waiters) resolve(saved);
+    this.notifyStatus(saved ? 'success' : 'warning', saved ? 'Saved' : 'Save did not finish');
   }
 
   /**

@@ -138,6 +138,10 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.on('app:flush-before-quit', () => callback());
     },
     notifyFlushComplete: () => ipcRenderer.send('app:flush-complete'),
+    // "Save changes?" is up: wait for it, with no deadline.
+    holdClose: () => ipcRenderer.send('app:close-hold'),
+    // They chose Cancel (or the save they chose didn't land): stay open.
+    cancelClose: () => ipcRenderer.send('app:close-cancel'),
   },
 
   // Native application menu → renderer.

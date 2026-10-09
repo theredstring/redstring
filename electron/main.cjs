@@ -541,33 +541,62 @@ function createWindow() {
   // Cmd+Q right after an edit would silently drop it. Intercept the first
   // close, ask the renderer to flush pending saves, then destroy the window
   // once it confirms (or after a timeout so a hung renderer can't block quit).
+  //
+  // With autosave off and changes unsaved, the renderer asks "Save changes?"
+  // first. It sends app:close-hold while the question is up (no deadline:
+  // the person is deciding, and then maybe saving a big file), and
+  // app:close-cancel if they cancel, which keeps the window open.
   let flushCompleted = false;
+  let closeInFlight = null;
   mainWindow.on('close', (event) => {
     if (flushCompleted) return;
     event.preventDefault();
     const win = mainWindow;
-    const finish = () => {
-      flushCompleted = true;
+    // Already asked. A renderer that has crashed since can't answer.
+    if (closeInFlight) {
+      if (win.webContents.isCrashed?.()) closeInFlight.finish();
+      return;
+    }
+    let timeoutId = null;
+    const trusted = (ipcEvent) => isTrustedSender(ipcEvent, { devOrigins: DEV_ORIGINS });
+    const stopWaiting = () => {
+      clearTimeout(timeoutId);
       ipcMain.removeListener('app:flush-complete', onFlushComplete);
+      ipcMain.removeListener('app:close-hold', onHold);
+      ipcMain.removeListener('app:close-cancel', onCancel);
+      closeInFlight = null;
+    };
+    const finish = () => {
+      stopWaiting();
+      flushCompleted = true;
       if (win && !win.isDestroyed()) {
         win.destroy();
       }
     };
-    const timeoutId = setTimeout(() => {
+    timeoutId = setTimeout(() => {
       console.warn('[Electron] Quit flush timed out — closing anyway');
       finish();
     }, 5000);
-    const onFlushComplete = (flushEvent) => {
-      if (!isTrustedSender(flushEvent, { devOrigins: DEV_ORIGINS })) return;
-      clearTimeout(timeoutId);
+    const onFlushComplete = (ipcEvent) => {
+      if (!trusted(ipcEvent)) return;
       finish();
     };
+    const onHold = (ipcEvent) => {
+      if (!trusted(ipcEvent)) return;
+      clearTimeout(timeoutId);
+    };
+    const onCancel = (ipcEvent) => {
+      if (!trusted(ipcEvent)) return;
+      stopWaiting();
+    };
     ipcMain.on('app:flush-complete', onFlushComplete);
+    ipcMain.on('app:close-hold', onHold);
+    ipcMain.on('app:close-cancel', onCancel);
+    closeInFlight = { finish };
     try {
       win.webContents.send('app:flush-before-quit');
     } catch (sendError) {
       console.warn('[Electron] Could not request quit flush:', sendError.message);
-      clearTimeout(timeoutId);
       finish();
     }
   });
@@ -660,6 +689,12 @@ function createMenu() {
           label: 'New Thing',
           accelerator: 'CmdOrCtrl+N',
           click: () => sendMenuCommand('new-web')
+        },
+        {
+          // Saves now, autosave on or off (SaveCoordinator.saveNow).
+          label: 'Save',
+          accelerator: 'CmdOrCtrl+S',
+          click: () => sendMenuCommand('save')
         },
         { type: 'separator' },
         {

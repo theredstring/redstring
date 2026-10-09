@@ -10,6 +10,7 @@ import { isElectron } from './utils/fileAccessAdapter.js';
 import { isCapacitor, registerCapacitorLifecycle, logPlatformDiagnostics } from './utils/capacitorAdapter.js';
 import { warmHaptics } from './services/haptics.js';
 import { saveCoordinator } from './services/SaveCoordinator.js';
+import { hasChangesOnlyASaveKeeps, settleUnsavedChanges } from './components/canvas/dialogs/unsavedChanges.js';
 import { DARK_THEME, LIGHT_THEME } from './utils/themeColors.js';
 import './App.css';
 
@@ -117,12 +118,28 @@ function App() {
       const lifecycle = window.electron?.lifecycle;
       if (!lifecycle?.onFlushBeforeQuit) return;
       lifecycle.onFlushBeforeQuit(async () => {
+        let close = true;
         try {
-          await saveCoordinator.flush('electron-quit', { terminal: true });
+          // Autosave off with changes unsaved: ask (Save, Don't Save,
+          // Cancel). Main waits while the question is up. A preload from
+          // before holdClose existed gives only 5 s, too little to ask, so
+          // that one saves.
+          if (hasChangesOnlyASaveKeeps()) {
+            if (lifecycle.holdClose && lifecycle.cancelClose) {
+              lifecycle.holdClose();
+              const outcome = await settleUnsavedChanges('quit');
+              if (outcome === 'cancel') close = false;
+            } else {
+              await saveCoordinator.saveNow({ terminal: true });
+            }
+          } else {
+            await saveCoordinator.flush('electron-quit', { terminal: true });
+          }
         } catch (error) {
           console.error('[App] Quit flush failed:', error);
         } finally {
-          lifecycle.notifyFlushComplete();
+          if (close) lifecycle.notifyFlushComplete();
+          else lifecycle.cancelClose();
         }
       });
       return;

@@ -20,6 +20,7 @@ import {
 import CanvasConfirmDialog from '../../shared/CanvasConfirmDialog.jsx';
 import DeleteDefinitionDialog from '../dialogs/DeleteDefinitionDialog.jsx';
 import RefreshDialog from '../dialogs/RefreshDialog.jsx';
+import UnsavedChangesDialog from '../dialogs/UnsavedChangesDialog.jsx';
 import WizardHost from '../wizard/WizardHost.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import { queueEdgeTrace } from '../edges/edgeTransitions.js';
@@ -161,6 +162,8 @@ export default function CanvasOverlaysHost({ ctx }) {
 
       {/* "Refresh Redstring?": every Refresh button asks through requestRefresh. */}
       <RefreshDialog />
+      {/* "Save changes?" before closing or switching with autosave off. */}
+      <UnsavedChangesDialog />
 
     </Profiler>
   );
