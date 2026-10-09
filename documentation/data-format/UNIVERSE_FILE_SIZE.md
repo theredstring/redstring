@@ -24,6 +24,15 @@ A `.redstring` file used to be one JavaScript string on its way to and from disk
 - **Mobile** reads files as text through the Capacitor bridge; its other read paths cap files at 25 MB.
 - **The wizard bridge** shares at most 19 MB of state, and a universe too big to share at all is treated as too large rather than retried.
 
-## Next
+## A save rebuilds only what changed
 
-A universe is always exactly one `.redstring` file: no folders, packages or sidecar files (decided 2026-10-09). Making saves cheaper happens inside that: the save worker can keep each Thing's and web's finished bytes and rebuild only what changed, so a save costs what changed plus one fast sequential write, with the same file and the same bytes.
+A universe is always exactly one `.redstring` file: no folders, packages or sidecar files (decided 2026-10-09). Every save still writes the whole file, but for a big universe (written compact) the save worker no longer rebuilds all of it:
+
+- **Finished pieces are kept** (`src/formats/exportCache.js`). `exportToRedstring` builds each Thing, each web (with its connections), each web's layout and each web's summary with a pure function of what it reads, and gives the cache those inputs: the entry itself, plus what crosses in from elsewhere (a Thing's skos:broader links from every chain, its bookmark; a web's viewport, expanded and active flags, and each of its connections with the Things its statements name; a summary's Thing names and connection labels). When every input is the same value as last time (the same object, for objects), the bytes built last time go into the file as they are (`RawJson` in `universeBytes.js`).
+- **Why the same object means unchanged:** the worker's copy of the universe (`saveMirror.js`) replaces an entry only when the store changes it, and the store never edits an entry in place.
+- **The change hash is kept per entry too** (`createStateHashCache` in `saveHash.js`). The hash is now built from a hash of each graph, prototype, edge and edge prototype, so the worker hashes only what changed; with or without the cache, the same state gives the same hash, so the main thread's checks agree with it. Images the file never holds (auto-enriched Wikipedia images) count as absent, so the two also agree on universes with those.
+- **Every tenth save checks everything** (`VERIFY_EVERY` in `save.worker.js`). It rebuilds every piece it would have reused, from the current inputs and with the time the kept copy was built, compares the bytes, and recomputes the hash from scratch. That save is written from the rebuild, so it's right either way. If anything kept was stale, the worker logs it (`[SaveCoordinator] The save worker found stale pieces...`), forgets the cache, and rebuilds every save for the rest of the session.
+- **Timestamps.** A kept Thing's `redstring:lastViewed` and a kept web's layout and summary `computedAt` are the time that piece was last built, not the time of the save. Nothing reads them.
+- **Small universes are untouched:** written pretty-printed by a full build, as before.
+
+On full Mondo (59,029 Things, 47,358 webs), a save after a small edit takes about 1.1 to 1.8 s of worker time instead of about 8.5 s; the first save after a load, and every tenth, build in full. Byte-for-byte equality with a full build is held by tests over long runs of random edits (`test/formats/exportCache.test.js`, `test/services/saveWorkerHandoff.test.js`) and was checked on the Mondo file.
