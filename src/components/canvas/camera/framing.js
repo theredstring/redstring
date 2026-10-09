@@ -7,6 +7,7 @@
 import { lineModeBounds } from '../../../utils/pieMenuLayout.js';
 import { MAX_ZOOM } from '../../../constants';
 import { clampPan } from '../../../utils/canvas/viewportMath.js';
+import { createFrameClock } from './frameClock.js';
 import { getNodeDimensions } from '../../../utils.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
