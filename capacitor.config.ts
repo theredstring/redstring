@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.redstring.app',
+  appId: 'io.redstring.app',
   appName: 'Redstring',
   webDir: 'dist',
   ios: {

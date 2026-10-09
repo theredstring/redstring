@@ -41,5 +41,5 @@ if [ -z "$("$ADB" devices | sed '1d' | grep -w device || true)" ]; then
 fi
 
 "$ADB" install -r "$APK"
-"$ADB" shell monkey -p com.redstring.app -c android.intent.category.LAUNCHER 1 >/dev/null
-echo "Installed and launched com.redstring.app"
+"$ADB" shell monkey -p io.redstring.app -c android.intent.category.LAUNCHER 1 >/dev/null
+echo "Installed and launched io.redstring.app"

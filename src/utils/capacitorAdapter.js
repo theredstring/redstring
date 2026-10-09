@@ -11,7 +11,7 @@
  *            On My iPhone → Redstring → Universes, via UIFileSharingEnabled
  *   Android  Directory.Data      → the app's internal files dir, private to
  *            the app. Earlier versions used Directory.External
- *            (/Android/data/com.redstring.app/files), which other apps could
+ *            (/Android/data/io.redstring.app/files), which other apps could
  *            read on Android 10 and below and which rides along on USB/MTP;
  *            existing files are moved once, losslessly (see
  *            migrateAndroidUniversesToData).

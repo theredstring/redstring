@@ -1,4 +1,4 @@
-package com.redstring.app;
+package io.redstring.app;
 
 import android.os.Build;
 import android.os.Bundle;
