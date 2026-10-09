@@ -568,113 +568,127 @@ const characterizeGraphQuality = (nodeCount, edgeCount) => {
   return { label, score, density: Number(density.toFixed(3)) };
 };
 
-const buildLayoutSnapshot = (graphs) => {
-  const layouts = {};
-  graphs.forEach((graph, graphId) => {
-    const instancesMap = graph?.instances instanceof Map ? graph.instances : new Map();
-    const entries = Array.from(instancesMap.entries());
-    const nodes = {};
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let totalX = 0;
-    let totalY = 0;
-    let counted = 0;
+/**
+ * One web's layout snapshot. A pure function of its arguments, so the save
+ * worker can reuse its bytes while the web is unchanged (exportCache.js).
+ */
+const buildLayoutEntry = (graph, now) => {
+  const instancesMap = graph?.instances instanceof Map ? graph.instances : new Map();
+  const entries = Array.from(instancesMap.entries());
+  const nodes = {};
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let totalX = 0;
+  let totalY = 0;
+  let counted = 0;
 
-    entries.forEach(([instanceId, instance], index) => {
-      if (!instance || typeof instance !== 'object') return;
-      const { x = 0, y = 0, scale = 1, prototypeId = null } = instance;
-      if (index < EXPORT_MAX_LAYOUT_NODES) {
-        nodes[instanceId] = { x, y, scale, prototypeId };
-      }
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-      totalX += x;
-      totalY += y;
-      counted += 1;
-    });
-
-    const edgeCount = Array.isArray(graph?.edgeIds) ? graph.edgeIds.length : 0;
-    const metadata = {
-      nodeCount: entries.length,
-      edgeCount,
-      boundingBox: counted ? { minX, minY, maxX, maxY } : null,
-      centroid: counted ? { x: totalX / counted, y: totalY / counted } : null,
-      computedAt: Date.now(),
-      truncated: entries.length > EXPORT_MAX_LAYOUT_NODES
-    };
-
-    layouts[graphId] = { nodes, metadata };
+  entries.forEach(([instanceId, instance], index) => {
+    if (!instance || typeof instance !== 'object') return;
+    const { x = 0, y = 0, scale = 1, prototypeId = null } = instance;
+    if (index < EXPORT_MAX_LAYOUT_NODES) {
+      nodes[instanceId] = { x, y, scale, prototypeId };
+    }
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+    totalX += x;
+    totalY += y;
+    counted += 1;
   });
-  return layouts;
+
+  const edgeCount = Array.isArray(graph?.edgeIds) ? graph.edgeIds.length : 0;
+  const metadata = {
+    nodeCount: entries.length,
+    edgeCount,
+    boundingBox: counted ? { minX, minY, maxX, maxY } : null,
+    centroid: counted ? { x: totalX / counted, y: totalY / counted } : null,
+    computedAt: now,
+    truncated: entries.length > EXPORT_MAX_LAYOUT_NODES
+  };
+
+  return { nodes, metadata };
 };
 
-const buildGraphSummariesSnapshot = (graphs, nodePrototypes, edges) => {
-  const summaries = {};
-  graphs.forEach((graph, graphId) => {
-    const instancesMap = graph?.instances instanceof Map ? graph.instances : new Map();
-    const instanceEntries = Array.from(instancesMap.entries());
-    const instanceById = new Map(instanceEntries);
+/**
+ * What one web's summary reads from outside the web: its Things' names and its
+ * connections' labels. Gathered on every export; the summary itself is built
+ * only from this and the web, so it can be reused while neither changes.
+ */
+const gatherSummaryInputs = (graph, nodePrototypes, edges) => {
+  const instancesMap = graph?.instances instanceof Map ? graph.instances : new Map();
+  const instanceEntries = Array.from(instancesMap.entries());
+  const instanceById = new Map(instanceEntries);
 
-    const nodes = instanceEntries.slice(0, EXPORT_MAX_LAYOUT_NODES).map(([instanceId, instance]) => ({
-      id: instanceId,
-      prototypeId: instance?.prototypeId || null,
-      name: safePrototypeLabel(nodePrototypes, instance?.prototypeId)
-    }));
+  const nodes = instanceEntries.slice(0, EXPORT_MAX_LAYOUT_NODES).map(([instanceId, instance]) => ({
+    id: instanceId,
+    prototypeId: instance?.prototypeId || null,
+    name: safePrototypeLabel(nodePrototypes, instance?.prototypeId)
+  }));
 
-    const edgeIds = Array.isArray(graph?.edgeIds) ? graph.edgeIds : [];
-    const edgeEntries = edgeIds
-      .map(edgeId => edges.get(edgeId))
-      .filter(Boolean);
+  const edgeIds = Array.isArray(graph?.edgeIds) ? graph.edgeIds : [];
+  const edgeEntries = edgeIds
+    .map(edgeId => edges.get(edgeId))
+    .filter(Boolean);
 
-    const edgesSerialized = edgeEntries.slice(0, EXPORT_MAX_SUMMARY_EDGES).map(edge => {
-      const sourceInstance = instanceById.get(edge.sourceId);
-      const targetInstance = instanceById.get(edge.destinationId);
-      return {
-        id: edge.id,
-        from: edge.sourceId,
-        to: edge.destinationId,
-        type: safePrototypeLabel(nodePrototypes, edge.typeNodeId),
-        sourceLabel: safePrototypeLabel(nodePrototypes, sourceInstance?.prototypeId),
-        targetLabel: safePrototypeLabel(nodePrototypes, targetInstance?.prototypeId)
-      };
-    });
-
-    const quality = characterizeGraphQuality(instanceEntries.length, edgeEntries.length);
-    const textLines = [
-      `Graph: ${graph?.name || 'Untitled'} (${graphId})`,
-      `Nodes (${instanceEntries.length} total${instanceEntries.length > EXPORT_MAX_LAYOUT_NODES ? `, showing ${EXPORT_MAX_LAYOUT_NODES}` : ''}):`
-    ];
-    nodes.forEach(node => {
-      textLines.push(`- ${node.name} [${node.id}]`);
-    });
-
-    textLines.push('', `Edges (${edgeEntries.length} total${edgeEntries.length > EXPORT_MAX_SUMMARY_EDGES ? `, showing ${EXPORT_MAX_SUMMARY_EDGES}` : ''}):`);
-    edgesSerialized.forEach(edge => {
-      const relation = edge.type ? ` (${edge.type})` : '';
-      textLines.push(`- ${edge.sourceLabel} → ${edge.targetLabel}${relation}`);
-    });
-
-    summaries[graphId] = {
-      id: graphId,
-      name: graph?.name || 'New Thing',
-      description: graph?.description || '',
-      nodeCount: instanceEntries.length,
-      edgeCount: edgeEntries.length,
-      density: quality.density,
-      quality: quality.label,
-      score: quality.score,
-      nodes,
-      edges: edgesSerialized,
-      text: textLines.join('\n'),
-      computedAt: Date.now()
+  const edgesSerialized = edgeEntries.slice(0, EXPORT_MAX_SUMMARY_EDGES).map(edge => {
+    const sourceInstance = instanceById.get(edge.sourceId);
+    const targetInstance = instanceById.get(edge.destinationId);
+    return {
+      id: edge.id,
+      from: edge.sourceId,
+      to: edge.destinationId,
+      type: safePrototypeLabel(nodePrototypes, edge.typeNodeId),
+      sourceLabel: safePrototypeLabel(nodePrototypes, sourceInstance?.prototypeId),
+      targetLabel: safePrototypeLabel(nodePrototypes, targetInstance?.prototypeId)
     };
   });
 
-  return summaries;
+  return { nodeCount: instanceEntries.length, edgeCount: edgeEntries.length, nodes, edgesSerialized };
+};
+
+/** Every value a summary's inputs hold, in order: what decides whether it can be reused. */
+const summaryInputValues = (inputs) => {
+  const values = [inputs.nodeCount, inputs.edgeCount];
+  for (const n of inputs.nodes) values.push(n.id, n.prototypeId, n.name);
+  for (const e of inputs.edgesSerialized) values.push(e.id, e.from, e.to, e.type, e.sourceLabel, e.targetLabel);
+  return values;
+};
+
+/** One web's summary, from the web and its gathered inputs only. */
+const buildSummaryEntry = (graph, graphId, inputs, now) => {
+  const { nodeCount, edgeCount, nodes, edgesSerialized } = inputs;
+  const quality = characterizeGraphQuality(nodeCount, edgeCount);
+  const textLines = [
+    `Graph: ${graph?.name || 'Untitled'} (${graphId})`,
+    `Nodes (${nodeCount} total${nodeCount > EXPORT_MAX_LAYOUT_NODES ? `, showing ${EXPORT_MAX_LAYOUT_NODES}` : ''}):`
+  ];
+  nodes.forEach(node => {
+    textLines.push(`- ${node.name} [${node.id}]`);
+  });
+
+  textLines.push('', `Edges (${edgeCount} total${edgeCount > EXPORT_MAX_SUMMARY_EDGES ? `, showing ${EXPORT_MAX_SUMMARY_EDGES}` : ''}):`);
+  edgesSerialized.forEach(edge => {
+    const relation = edge.type ? ` (${edge.type})` : '';
+    textLines.push(`- ${edge.sourceLabel} → ${edge.targetLabel}${relation}`);
+  });
+
+  return {
+    id: graphId,
+    name: graph?.name || 'New Thing',
+    description: graph?.description || '',
+    nodeCount,
+    edgeCount,
+    density: quality.density,
+    quality: quality.label,
+    score: quality.score,
+    nodes,
+    edges: edgesSerialized,
+    text: textLines.join('\n'),
+    computedAt: now
+  };
 };
 
 /**
@@ -809,13 +823,516 @@ export const getRedstringStats = (data) => {
   return { nodeCount, graphCount, connectionCount, instanceCount };
 };
 
+/** The SKOS scheme the universe is, which every Thing is in (P2.4). One per file. */
+const SCHEME_IRI = 'urn:redstring:scheme';
+
+/**
+ * One web, as it's written (without its connections, which the export adds
+ * last). A pure function of its arguments, so the save worker can reuse its
+ * bytes while they're unchanged (exportCache.js).
+ */
+const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
+  // Export instances as positioned individuals with rdf:type relationships
+  const spatialInstances = {};
+  if (graph.instances) {
+    graph.instances.forEach((instance, instanceId) => {
+      spatialInstances[instanceId] = {
+        // RDF Schema typing - instance is an individual
+        "@type": "redstring:Instance",
+        "@id": toIri(instanceId),
+
+        // RDF Schema: this individual belongs to prototype class
+        "rdf:type": { "@id": toIri(instance.prototypeId) },
+        "rdfs:label": instance.name || null, // Don't generate fallback labels
+        "rdfs:comment": instance.description || null,
+
+        // Redstring: this instance is contained within specific graph
+        "redstring:containedIn": { "@id": toIri(graphId) },
+        
+        // Unique spatial positioning data (Redstring's contribution to semantic web)
+        "redstring:spatialContext": {
+          "redstring:xCoordinate": instance.x,
+          "redstring:yCoordinate": instance.y,
+          "redstring:spatialScale": instance.scale
+        },
+        
+        // Visual state properties
+        "redstring:visualProperties": {
+          "redstring:expanded": instance.expanded,
+          "redstring:visible": instance.visible,
+          // Persistent per-instance size multiplier (4.1.0). Distinct from
+          // spatialScale, which is the transient drag-lift register. Emitted only
+          // when non-default (≠ 1) so Medium-sized instances round-trip unchanged.
+          ...(instance.sizeMul != null && instance.sizeMul !== 1
+            ? { "redstring:sizeMultiplier": instance.sizeMul }
+            : {})
+        },
+        
+        // Preserve original prototype reference for internal use
+        "redstring:prototypeId": instance.prototypeId,
+
+        // Group anchor properties (for thing-group connection routing)
+        "redstring:isGroupAnchor": instance.isGroupAnchor || false,
+        "redstring:anchorForGroupId": instance.anchorForGroupId || null,
+
+        // Shown open in place: which of its prototype's definitions, and where that
+        // definition's origin sits relative to this graph (core/openDefinitions.js).
+        // Additive and optional, at the top level so older builds keep it in
+        // _preserved; a build that ignores it just shows the node closed.
+        ...(instance.openDefinition ? {
+          "redstring:openDefinition": {
+            "redstring:definitionIndex": instance.openDefinition.index ?? 0,
+            "redstring:xOffset": instance.openDefinition.offset?.x ?? 0,
+            "redstring:yOffset": instance.openDefinition.offset?.y ?? 0
+          }
+        } : {})
+      };
+      // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+      if (instance._preserved) {
+        spatialInstances[instanceId]._preserved = instance._preserved;
+      }
+    });
+  }
+  
+  const entry = {
+    "@type": "redstring:SpatialGraph",
+    "@id": toIri(graphId),
+    "rdfs:label": graph.name || `Graph ${graphId}`,
+    "rdfs:comment": graph.description || "",
+    
+    // Graph-level properties
+    "redstring:definingNodeIds": graph.definingNodeIds || [],
+    "redstring:edgeIds": graph.edgeIds || [],
+    // Semantic/visual graph fields the store carries (createNewGraph sets
+    // these). Emit only when present so a graph that never had the field
+    // doesn't gain a default on round-trip. color/picture/createdAt/directed
+    // were previously dropped on every save/load cycle.
+    ...(graph.directed !== undefined ? { "redstring:directed": graph.directed !== false } : {}),
+    ...(graph.color != null ? { "redstring:color": graph.color } : {}),
+    ...(graph.picture != null ? { "redstring:picture": graph.picture } : {}),
+    ...(graph.createdAt != null ? { "redstring:createdAt": graph.createdAt } : {}),
+
+    // Viewport state for this graph.
+    //
+    // Live pan/zoom lives in the store's graphViews slice, not on the graph —
+    // see graphViews in graphStore's initial state. The graph's own fields are
+    // whatever was last imported, so they are the fallback for a graph the
+    // user has not moved this session. The emitted shape is unchanged.
+    "redstring:panOffset": (graphView?.panOffset) || graph.panOffset || { x: 0, y: 0 },
+    "redstring:zoomLevel": typeof graphView?.zoomLevel === 'number'
+      ? graphView.zoomLevel
+      : (typeof graph.zoomLevel === 'number' ? graph.zoomLevel : 1.0),
+    
+    // Spatial instances collection
+    "redstring:instances": spatialInstances,
+    
+    // Groups collection with semantic metadata
+    "redstring:groups": (() => {
+      const groupsObj = {};
+      if (graph.groups) {
+        graph.groups.forEach((group, groupId) => {
+          groupsObj[groupId] = {
+            "@type": "redstring:Group",
+            "@id": toIri(groupId),
+            "rdfs:label": group.name,
+            "rdfs:comment": group.description || "",
+            "redstring:color": group.color,
+            "redstring:memberInstanceIds": group.memberInstanceIds || [],
+            "redstring:semanticMetadata": group.semanticMetadata || {},
+            // Node-group properties (for groups that represent nodes)
+            "redstring:linkedNodePrototypeId": group.linkedNodePrototypeId,
+            "redstring:linkedDefinitionIndex": group.linkedDefinitionIndex,
+            "redstring:hasCustomLayout": group.hasCustomLayout,
+            "redstring:anchorInstanceId": group.anchorInstanceId,
+            // What the definition looked like when this copy was opened, so closing it
+            // can tell an edit made here from one made elsewhere. Optional.
+            ...(group.definitionFingerprint ? { "redstring:definitionFingerprint": group.definitionFingerprint } : {}),
+            ...(group.emptyPlaceholderOrigin ? { "redstring:emptyPlaceholderOrigin": group.emptyPlaceholderOrigin } : {}),
+            // RDF-style membership relationships
+            "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
+              "@id": toIri(memberId)
+            }))
+          };
+        });
+      }
+      return groupsObj;
+    })(),
+    
+    // UI state for this graph
+    "redstring:visualProperties": {
+      "redstring:expanded": expanded,
+      "redstring:activeInContext": active
+    }
+  };
+  // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+  if (graph._preserved) {
+    entry._preserved = graph._preserved;
+  }
+  return entry;
+};
+
+/**
+ * One Thing, as it's written. `broader` is its skos:broader links, gathered
+ * from every Thing's chains (broaderLinks), always its last key. A pure
+ * function of its arguments, so the save worker can reuse its bytes while
+ * they're unchanged (exportCache.js).
+ */
+const exportPrototypeEntry = (prototype, id, saved, broader, nowIso) => {
+  const entry = {
+    // RDF Schema typing — prototype is a class AND a SKOS concept (P2.4).
+    // skos:Concept is the load-bearing standards type; the rest is overlay.
+    "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing", "skos:Concept"],
+    "@id": toIri(id),
+
+    // RDF Schema standard properties (W3C compliant) - preserve original
+    "rdfs:label": prototype.name,
+    "rdfs:comment": prototype.description,
+
+    // SKOS concept properties (P2.4) — the register that survives the strip test
+    "skos:prefLabel": prototype.name,
+    "skos:altLabel": prototype.conjugation || undefined,
+    "skos:inScheme": { "@id": SCHEME_IRI },
+
+    // Redstring core properties (NEVER override these)
+    "name": prototype.name,
+    "description": prototype.description,
+    "rdfs:seeAlso": prototype.externalLinks || [],
+    "rdfs:isDefinedBy": { "@id": "https://redstring.io" },
+    
+    // Type hierarchy - automatic rdfs:subClassOf relationships
+    "rdfs:subClassOf": prototype.typeNodeId ?
+      { "@id": toIri(prototype.typeNodeId) } : null,
+    
+    // Sameness ladder (D8/P2.5) is appended after this literal so it can
+    // branch on auto-enrichment. owl:equivalentClass stays as-is.
+    "owl:equivalentClass": prototype.equivalentClasses || [],
+    
+    // Redstring spatial properties (unique contribution to semantic web)
+    "redstring:spatialContext": {
+      "redstring:xCoordinate": prototype.x || 0,
+      "redstring:yCoordinate": prototype.y || 0,
+      "redstring:spatialScale": prototype.scale || 1.0
+    },
+    
+    // Redstring visual properties. Only strip the (large, base64) image when
+    // it's genuinely re-fetchable from Wikipedia — auto-enriched AND we have
+    // the thumbnail URL. Otherwise persist it: dropping a user's image to
+    // save space is only acceptable when we can get it back. Must match the
+    // import-side condition or images round-trip lossily.
+    "redstring:visualProperties": {
+      "redstring:cognitiveColor": prototype.color,
+      "redstring:imageSrc": (prototype.semanticMetadata?.autoEnriched && prototype.semanticMetadata?.wikipediaThumbnail) ? null : prototype.imageSrc,
+      "redstring:thumbnailSrc": (prototype.semanticMetadata?.autoEnriched && prototype.semanticMetadata?.wikipediaThumbnail) ? null : prototype.thumbnailSrc,
+      "redstring:imageAspectRatio": prototype.imageAspectRatio
+    },
+    
+    // Redstring semantic properties
+    "redstring:definitionGraphIds": prototype.definitionGraphIds || [],
+    "redstring:bio": prototype.bio,
+    "redstring:conjugation": prototype.conjugation,
+    "redstring:typeNodeId": prototype.typeNodeId,
+    "redstring:citations": prototype.citations || [],
+    // Abstraction-chain membership flags (read by mcpProvider). Emitted only
+    // when set so we don't bloat every prototype; previously dropped on save.
+    ...(prototype.isSpecificityChainNode ? { "redstring:isSpecificityChainNode": true } : {}),
+    ...(prototype.hasSpecificityChain ? { "redstring:hasSpecificityChain": true } : {}),
+    ...(prototype.createdAt != null ? { "redstring:createdAt": prototype.createdAt } : {}),
+    
+    // Redstring cognitive properties
+    "redstring:cognitiveProperties": (() => {
+      const cognitiveProps = {
+        "redstring:bookmarked": saved,
+        "redstring:lastViewed": nowIso
+      };
+
+      if (prototype.personalMeaning !== undefined && prototype.personalMeaning !== null) {
+        cognitiveProps["redstring:personalMeaning"] = prototype.personalMeaning;
+      }
+
+      if (Array.isArray(prototype.cognitiveAssociations) && prototype.cognitiveAssociations.length > 0) {
+        cognitiveProps["redstring:cognitiveAssociations"] = prototype.cognitiveAssociations;
+      }
+
+      return cognitiveProps;
+    })(),
+    
+    // Abstraction chains for rdfs:subClassOf generation
+    "redstring:abstractionChains": prototype.abstractionChains || {},
+    
+    // Agent configuration (if node is an agent)
+    // Never with a credential in it: a file is shared, committed and synced.
+    "redstring:agentConfig": prototype.agentConfig ? stripSecretFields(prototype.agentConfig) : null,
+
+    // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag, etc.)
+    // Critical for image re-fetching on reload and OOM prevention
+    "redstring:semanticMetadata": prototype.semanticMetadata || null,
+
+    // Content-addressed reference to the full-resolution image, when the git
+    // sync engine has externalized it to a blob beside this file. Additive
+    // and optional — no version bump, see CURRENT_FORMAT_VERSION.
+    // See the note below on why this sits at the TOP LEVEL of the prototype
+    // rather than inside redstring:visualProperties with its siblings.
+    ...(prototype.imageRef ? { "redstring:imageRef": prototype.imageRef } : {}),
+    ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {})
+  };
+
+  // WHY imageRef IS NOT INSIDE redstring:visualProperties
+  // ------------------------------------------------------
+  // It belongs there by kinship — imageSrc/thumbnailSrc/imageAspectRatio all
+  // live in that block. But `visualProperties` is rebuilt from scratch on
+  // every export out of explicitly named store fields, so an older build that
+  // reads a file carrying a ref, then saves, would reconstruct that block
+  // WITHOUT the ref it never knew to read: the blob is orphaned in the repo
+  // and the node loses its image for good.
+  //
+  // At the top level, `quarantineUnknownFields` catches it instead — unknown
+  // top-level prototype keys are banked into `_preserved[version]`, and
+  // `_preserved` round-trips verbatim through export (see below). So a ref
+  // survives a full read/write pass through a client that has never heard of
+  // it, which is the normal case whenever a laptop upgrades before a phone.
+  //
+  // The quarantine only inspects the top level; it does not walk into a known
+  // block. Adding this field one level down would look tidier and silently
+  // give up that protection. Keep it here, and keep it listed in
+  // KNOWN_PROTOTYPE_KEYS in migrations.js.
+
+  // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
+  // strong the claim is. An automatic match (e.g. a Wikipedia article matched
+  // to a concept) is alignment, not identity → skos:closeMatch. A link the
+  // user confirmed is interchangeable → skos:exactMatch. rdfs:seeAlso (above)
+  // keeps the complete ordered list of raw URLs.
+  //
+  // owl:sameAs is deliberately never emitted. It says two IRIs denote one
+  // individual, which licenses a reasoner to pool every claim made on either
+  // side; nothing in this interface is a strong enough act of assertion to
+  // license that, and the UI control that used to offer it was one nobody
+  // could tell apart from "confirmed". Import still reads it (see the rung
+  // chain below) — other tools write it, and older Redstring files carry it.
+  //
+  // The rung is per-link, from semanticMetadata.linkConfirmations, and a link
+  // with no record is closeMatch. It used to be chosen for the whole array
+  // from semanticMetadata.autoEnriched — that flag is about images (it gates
+  // thumbnail stripping and is cleared when the user uploads their own
+  // picture), so uploading a photo promoted every link on the node a rung.
+  const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
+  if (externalLinks.length > 0) {
+    const asRef = (url) => ({ "@id": url });
+    const { close, exact } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
+    if (exact.length > 0) {
+      entry["skos:exactMatch"] = exact.map(asRef);
+    }
+    if (close.length > 0) {
+      entry["skos:closeMatch"] = close.map(asRef);
+    }
+  }
+
+  // PROV provenance (D/P2.6). Wizard-authored concepts carry provenance in
+  // semanticMetadata (which round-trips natively); project it to standard PROV
+  // on the entity. User-authored concepts have no provenance → no prov: terms.
+  const provenance = prototype.semanticMetadata?.provenance;
+  if (provenance?.wasAttributedTo) {
+    entry["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${provenance.wasAttributedTo}` };
+  }
+  if (provenance?.generatedAtTime) {
+    entry["prov:generatedAtTime"] = provenance.generatedAtTime;
+  }
+
+  // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+  if (prototype._preserved) {
+    entry._preserved = prototype._preserved;
+  }
+
+  if (broader) {
+    entry['skos:broader'] = broader;
+  }
+  return entry;
+};
+
+/**
+ * One connection, as it's written. A pure function of its arguments, so the
+ * save worker can reuse its bytes while they're unchanged (exportCache.js).
+ */
+const exportEdgeEntry = (edge, id, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId) => {
+  // Prepare a JSON-serializable directionality (convert Set -> Array)
+  const serializedDirectionality = (() => {
+    if (!edge.directionality || typeof edge.directionality !== 'object') {
+      return { arrowsToward: [] };
+    }
+    const maybeSetOrArray = edge.directionality.arrowsToward;
+    let arrowsArray;
+    if (maybeSetOrArray instanceof Set) {
+      arrowsArray = Array.from(maybeSetOrArray);
+    } else if (Array.isArray(maybeSetOrArray)) {
+      arrowsArray = maybeSetOrArray;
+    } else {
+      arrowsArray = [];
+    }
+    return { ...edge.directionality, arrowsToward: arrowsArray };
+  })();
+
+  // Store both native Redstring format and RDF format
+  const entry = {
+    // Native Redstring format (for application use)
+    "id": edge.id,
+    "sourceId": edge.sourceId,
+    "destinationId": edge.destinationId,
+    // An end inside a definition opened in place: the nodes, from this edge's own
+    // graph inward, whose definitions it is reached through (core/openDefinitions.js).
+    ...(Array.isArray(edge.sourceVia) && edge.sourceVia.length > 0 ? { "sourceVia": edge.sourceVia } : {}),
+    ...(Array.isArray(edge.destinationVia) && edge.destinationVia.length > 0 ? { "destinationVia": edge.destinationVia } : {}),
+    "name": edge.name,
+    "description": edge.description,
+    "typeNodeId": edge.typeNodeId,
+    "definitionNodeIds": edge.definitionNodeIds,
+    "directionality": serializedDirectionality,
+    
+    // RDF format (for semantic web integration)
+    "rdfStatements": sourcePrototypeId && destinationPrototypeId && predicatePrototypeId ? (() => {
+      // Project edge.directionality.arrowsToward (a Set of INSTANCE ids) to RDF.
+      // Correct mapping (see src/core/Edge.js and documentation/data-format/FORMAT_REFACTOR_PLAN.md §2):
+      //   empty            → two reciprocal triples (non-directed)
+      //   {destinationId}  → one triple  source → dest
+      //   {sourceId}       → one triple  dest → source
+      //   both             → two reciprocal triples (bidirectional)
+      // (node: prefix is a passthrough until P1.6 mints URNs.)
+      const arrows = edge.directionality?.arrowsToward;
+      const has = (instanceId) =>
+        arrows instanceof Set ? arrows.has(instanceId)
+        : Array.isArray(arrows) ? arrows.includes(instanceId)
+        : false;
+      const toDest = has(edge.destinationId);
+      const toSource = has(edge.sourceId);
+      const triple = (subjProtoId, objProtoId) => ({
+        "@type": "Statement",
+        "subject": { "@id": toIri(subjProtoId) },
+        "predicate": { "@id": toIri(predicatePrototypeId) },
+        "object": { "@id": toIri(objProtoId) },
+      });
+
+      if (toDest && !toSource) return [triple(sourcePrototypeId, destinationPrototypeId)];
+      if (toSource && !toDest) return [triple(destinationPrototypeId, sourcePrototypeId)];
+      // none (non-directed) or both (bidirectional): two reciprocal triples
+      return [
+        triple(sourcePrototypeId, destinationPrototypeId),
+        triple(destinationPrototypeId, sourcePrototypeId),
+      ];
+    })() : null,
+    
+    // Metadata for both formats
+    "sourcePrototypeId": sourcePrototypeId,
+    "destinationPrototypeId": destinationPrototypeId,
+    "predicatePrototypeId": predicatePrototypeId,
+  };
+
+  // Edge semanticMetadata + PROV (P2.6). Wizard-authored edges carry provenance
+  // in semanticMetadata; round-trip it natively and project to standard PROV.
+  if (edge.semanticMetadata) {
+    entry["redstring:semanticMetadata"] = edge.semanticMetadata;
+    const edgeProv = edge.semanticMetadata.provenance;
+    if (edgeProv?.wasAttributedTo) {
+      entry["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${edgeProv.wasAttributedTo}` };
+    }
+    if (edgeProv?.generatedAtTime) {
+      entry["prov:generatedAtTime"] = edgeProv.generatedAtTime;
+    }
+  }
+
+  // Quarantined unknown fields ride back out verbatim (D1/P1.3)
+  if (edge._preserved) {
+    entry._preserved = edge._preserved;
+  }
+  return entry;
+};
+
+/**
+ * skos:broader links for every Thing, by Thing ID, from every Thing's chains.
+ *
+ * Project abstraction chains to skos:broader links (P2.4). A chain is ordered
+ * SPECIFIC → GENERAL: index 0 is the most specific concept and each later entry is
+ * one degree more general, so each entry is skos:broader the one AFTER it. (This
+ * read used to be inverted, which exported every broader link backwards; the order
+ * is fixed by addToAbstractionChain, where 'below' — more general — splices at a
+ * higher index, and by the carousel, which draws positive levels as more generic.)
+ * SKOS is the correct register here: it carries NO logical entailment, matching
+ * Redstring's contested/interpretive hierarchies — unlike rdfs:subClassOf (audit #8),
+ * which this replaces. The native redstring:abstractionChains field is kept verbatim
+ * on each prototype.
+ * 
+ * `seenBroader` keeps the duplicate check off the growing array. Every prototype now
+ * carries a seeded chain ending at Thing, so without it the scan would be linear in
+ * the number of links already on a node — quadratic overall, and concentrated on the
+ * handful of types that everything points at.
+ */
+const broaderLinks = (nodePrototypes) => {
+  const present = {};
+  nodePrototypes.forEach((_, id) => { present[id] = true; });
+  const broader = new Map();
+  const seenBroader = new Map();
+  nodePrototypes.forEach((node) => {
+    if (node.abstractionChains) {
+      for (const dimension in node.abstractionChains) {
+        const chain = node.abstractionChains[dimension];
+        if (chain && chain.length > 1) {
+          for (let i = 1; i < chain.length; i++) {
+            const moreSpecificId = chain[i - 1];
+            const moreGeneralId = chain[i];
+            if (Object.prototype.hasOwnProperty.call(present, moreSpecificId)) {
+              const key = String(moreSpecificId);
+              let links = broader.get(key);
+              if (!links) {
+                links = [];
+                broader.set(key, links);
+              }
+              const generalIri = toIri(moreGeneralId);
+              let seen = seenBroader.get(key);
+              if (!seen) {
+                seen = new Set();
+                seenBroader.set(key, seen);
+              }
+              if (!seen.has(generalIri)) {
+                seen.add(generalIri);
+                links.push({ "@id": generalIri });
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  return broader;
+};
+
+/** The Thing a connection's statements use as their predicate. */
+const predicatePrototypeIdOf = (edge, nodePrototypes) => {
+  let predicatePrototypeId = edge.typeNodeId; // fallback to type node ID
+  if (edge.definitionNodeIds?.[0]) {
+    // Find the definition node and get its prototype ID
+    const definitionNode = nodePrototypes.get(edge.definitionNodeIds[0]);
+    if (definitionNode) {
+      predicatePrototypeId = definitionNode.prototypeId || definitionNode.typeNodeId;
+    }
+  }
+  return predicatePrototypeId;
+};
+
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
 /**
  * Export current Zustand store state to .redstring format
+ *
+ * Each Thing, web (with its connections), layout and summary is built by a
+ * pure function of what it reads (above), so `cache` (the save worker's
+ * exportCache.js) can hand back the bytes it built last time while those
+ * inputs are unchanged. Without a cache, everything is built, as always.
+ *
  * @param {Object} storeState - The current state from the Zustand store
  * @param {string} [userDomain] - User's domain for dynamic URI generation
+ * @param {Object} [options]
+ * @param {boolean} [options.emitV4]
+ * @param {Object} [options.cache] - an export cache (exportCache.js); v4 only
  * @returns {Object} Redstring data with dynamic URIs
  */
-export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT_V4 } = {}) => {
+export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT_V4, cache = null } = {}) => {
   try {
     if (!storeState) {
       throw new Error('Store state is required for export');
@@ -840,369 +1357,13 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       mergeDismissals = {}
     } = storeState;
 
-  // Three-Layer Architecture: Export Spatial Graphs with Instance Collections
-  const spatialGraphs = {};
-  graphs.forEach((graph, graphId) => {
-    // Live viewport for this graph, if the camera has moved since load.
-    const graphView = graphViews instanceof Map ? graphViews.get(graphId) : graphViews?.[graphId];
-    // Export instances as positioned individuals with rdf:type relationships
-    const spatialInstances = {};
-    if (graph.instances) {
-      graph.instances.forEach((instance, instanceId) => {
-        spatialInstances[instanceId] = {
-          // RDF Schema typing - instance is an individual
-          "@type": "redstring:Instance",
-          "@id": toIri(instanceId),
-
-          // RDF Schema: this individual belongs to prototype class
-          "rdf:type": { "@id": toIri(instance.prototypeId) },
-          "rdfs:label": instance.name || null, // Don't generate fallback labels
-          "rdfs:comment": instance.description || null,
-
-          // Redstring: this instance is contained within specific graph
-          "redstring:containedIn": { "@id": toIri(graphId) },
-          
-          // Unique spatial positioning data (Redstring's contribution to semantic web)
-          "redstring:spatialContext": {
-            "redstring:xCoordinate": instance.x,
-            "redstring:yCoordinate": instance.y,
-            "redstring:spatialScale": instance.scale
-          },
-          
-          // Visual state properties
-          "redstring:visualProperties": {
-            "redstring:expanded": instance.expanded,
-            "redstring:visible": instance.visible,
-            // Persistent per-instance size multiplier (4.1.0). Distinct from
-            // spatialScale, which is the transient drag-lift register. Emitted only
-            // when non-default (≠ 1) so Medium-sized instances round-trip unchanged.
-            ...(instance.sizeMul != null && instance.sizeMul !== 1
-              ? { "redstring:sizeMultiplier": instance.sizeMul }
-              : {})
-          },
-          
-          // Preserve original prototype reference for internal use
-          "redstring:prototypeId": instance.prototypeId,
-
-          // Group anchor properties (for thing-group connection routing)
-          "redstring:isGroupAnchor": instance.isGroupAnchor || false,
-          "redstring:anchorForGroupId": instance.anchorForGroupId || null,
-
-          // Shown open in place: which of its prototype's definitions, and where that
-          // definition's origin sits relative to this graph (core/openDefinitions.js).
-          // Additive and optional, at the top level so older builds keep it in
-          // _preserved; a build that ignores it just shows the node closed.
-          ...(instance.openDefinition ? {
-            "redstring:openDefinition": {
-              "redstring:definitionIndex": instance.openDefinition.index ?? 0,
-              "redstring:xOffset": instance.openDefinition.offset?.x ?? 0,
-              "redstring:yOffset": instance.openDefinition.offset?.y ?? 0
-            }
-          } : {})
-        };
-        // Quarantined unknown fields ride back out verbatim (D1/P1.3)
-        if (instance._preserved) {
-          spatialInstances[instanceId]._preserved = instance._preserved;
-        }
-      });
-    }
-    
-    spatialGraphs[graphId] = {
-      "@type": "redstring:SpatialGraph",
-      "@id": toIri(graphId),
-      "rdfs:label": graph.name || `Graph ${graphId}`,
-      "rdfs:comment": graph.description || "",
-      
-      // Graph-level properties
-      "redstring:definingNodeIds": graph.definingNodeIds || [],
-      "redstring:edgeIds": graph.edgeIds || [],
-      // Semantic/visual graph fields the store carries (createNewGraph sets
-      // these). Emit only when present so a graph that never had the field
-      // doesn't gain a default on round-trip. color/picture/createdAt/directed
-      // were previously dropped on every save/load cycle.
-      ...(graph.directed !== undefined ? { "redstring:directed": graph.directed !== false } : {}),
-      ...(graph.color != null ? { "redstring:color": graph.color } : {}),
-      ...(graph.picture != null ? { "redstring:picture": graph.picture } : {}),
-      ...(graph.createdAt != null ? { "redstring:createdAt": graph.createdAt } : {}),
-
-      // Viewport state for this graph.
-      //
-      // Live pan/zoom lives in the store's graphViews slice, not on the graph —
-      // see graphViews in graphStore's initial state. The graph's own fields are
-      // whatever was last imported, so they are the fallback for a graph the
-      // user has not moved this session. The emitted shape is unchanged.
-      "redstring:panOffset": (graphView?.panOffset) || graph.panOffset || { x: 0, y: 0 },
-      "redstring:zoomLevel": typeof graphView?.zoomLevel === 'number'
-        ? graphView.zoomLevel
-        : (typeof graph.zoomLevel === 'number' ? graph.zoomLevel : 1.0),
-      
-      // Spatial instances collection
-      "redstring:instances": spatialInstances,
-      
-      // Groups collection with semantic metadata
-      "redstring:groups": (() => {
-        const groupsObj = {};
-        if (graph.groups) {
-          graph.groups.forEach((group, groupId) => {
-            groupsObj[groupId] = {
-              "@type": "redstring:Group",
-              "@id": toIri(groupId),
-              "rdfs:label": group.name,
-              "rdfs:comment": group.description || "",
-              "redstring:color": group.color,
-              "redstring:memberInstanceIds": group.memberInstanceIds || [],
-              "redstring:semanticMetadata": group.semanticMetadata || {},
-              // Node-group properties (for groups that represent nodes)
-              "redstring:linkedNodePrototypeId": group.linkedNodePrototypeId,
-              "redstring:linkedDefinitionIndex": group.linkedDefinitionIndex,
-              "redstring:hasCustomLayout": group.hasCustomLayout,
-              "redstring:anchorInstanceId": group.anchorInstanceId,
-              // What the definition looked like when this copy was opened, so closing it
-              // can tell an edit made here from one made elsewhere. Optional.
-              ...(group.definitionFingerprint ? { "redstring:definitionFingerprint": group.definitionFingerprint } : {}),
-              ...(group.emptyPlaceholderOrigin ? { "redstring:emptyPlaceholderOrigin": group.emptyPlaceholderOrigin } : {}),
-              // RDF-style membership relationships
-              "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
-                "@id": toIri(memberId)
-              }))
-            };
-          });
-        }
-        return groupsObj;
-      })(),
-      
-      // UI state for this graph
-      "redstring:visualProperties": {
-        "redstring:expanded": expandedGraphIds.has(graphId),
-        "redstring:activeInContext": graphId === activeGraphId
-      }
-    };
-    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
-    if (graph._preserved) {
-      spatialGraphs[graphId]._preserved = graph._preserved;
-    }
-  });
-
-  // SKOS scheme IRI — the universe IS a skos:ConceptScheme; prototypes are the
-  // concepts in it. One scheme per file (self-contained). (P2.4)
-  const SCHEME_IRI = 'urn:redstring:scheme';
-
-  // Three-Layer Architecture: Export Prototypes as Semantic Classes
-  const prototypeSpace = {};
-  nodePrototypes.forEach((prototype, id) => {
-    prototypeSpace[id] = {
-      // RDF Schema typing — prototype is a class AND a SKOS concept (P2.4).
-      // skos:Concept is the load-bearing standards type; the rest is overlay.
-      "@type": ["redstring:Prototype", "rdfs:Class", "schema:Thing", "skos:Concept"],
-      "@id": toIri(id),
-
-      // RDF Schema standard properties (W3C compliant) - preserve original
-      "rdfs:label": prototype.name,
-      "rdfs:comment": prototype.description,
-
-      // SKOS concept properties (P2.4) — the register that survives the strip test
-      "skos:prefLabel": prototype.name,
-      "skos:altLabel": prototype.conjugation || undefined,
-      "skos:inScheme": { "@id": SCHEME_IRI },
-
-      // Redstring core properties (NEVER override these)
-      "name": prototype.name,
-      "description": prototype.description,
-      "rdfs:seeAlso": prototype.externalLinks || [],
-      "rdfs:isDefinedBy": { "@id": "https://redstring.io" },
-      
-      // Type hierarchy - automatic rdfs:subClassOf relationships
-      "rdfs:subClassOf": prototype.typeNodeId ?
-        { "@id": toIri(prototype.typeNodeId) } : null,
-      
-      // Sameness ladder (D8/P2.5) is appended after this literal so it can
-      // branch on auto-enrichment. owl:equivalentClass stays as-is.
-      "owl:equivalentClass": prototype.equivalentClasses || [],
-      
-      // Redstring spatial properties (unique contribution to semantic web)
-      "redstring:spatialContext": {
-        "redstring:xCoordinate": prototype.x || 0,
-        "redstring:yCoordinate": prototype.y || 0,
-        "redstring:spatialScale": prototype.scale || 1.0
-      },
-      
-      // Redstring visual properties. Only strip the (large, base64) image when
-      // it's genuinely re-fetchable from Wikipedia — auto-enriched AND we have
-      // the thumbnail URL. Otherwise persist it: dropping a user's image to
-      // save space is only acceptable when we can get it back. Must match the
-      // import-side condition or images round-trip lossily.
-      "redstring:visualProperties": {
-        "redstring:cognitiveColor": prototype.color,
-        "redstring:imageSrc": (prototype.semanticMetadata?.autoEnriched && prototype.semanticMetadata?.wikipediaThumbnail) ? null : prototype.imageSrc,
-        "redstring:thumbnailSrc": (prototype.semanticMetadata?.autoEnriched && prototype.semanticMetadata?.wikipediaThumbnail) ? null : prototype.thumbnailSrc,
-        "redstring:imageAspectRatio": prototype.imageAspectRatio
-      },
-      
-      // Redstring semantic properties
-      "redstring:definitionGraphIds": prototype.definitionGraphIds || [],
-      "redstring:bio": prototype.bio,
-      "redstring:conjugation": prototype.conjugation,
-      "redstring:typeNodeId": prototype.typeNodeId,
-      "redstring:citations": prototype.citations || [],
-      // Abstraction-chain membership flags (read by mcpProvider). Emitted only
-      // when set so we don't bloat every prototype; previously dropped on save.
-      ...(prototype.isSpecificityChainNode ? { "redstring:isSpecificityChainNode": true } : {}),
-      ...(prototype.hasSpecificityChain ? { "redstring:hasSpecificityChain": true } : {}),
-      ...(prototype.createdAt != null ? { "redstring:createdAt": prototype.createdAt } : {}),
-      
-      // Redstring cognitive properties
-      "redstring:cognitiveProperties": (() => {
-        const cognitiveProps = {
-          "redstring:bookmarked": savedNodeIds.has(id),
-          "redstring:lastViewed": new Date().toISOString()
-        };
-
-        if (prototype.personalMeaning !== undefined && prototype.personalMeaning !== null) {
-          cognitiveProps["redstring:personalMeaning"] = prototype.personalMeaning;
-        }
-
-        if (Array.isArray(prototype.cognitiveAssociations) && prototype.cognitiveAssociations.length > 0) {
-          cognitiveProps["redstring:cognitiveAssociations"] = prototype.cognitiveAssociations;
-        }
-
-        return cognitiveProps;
-      })(),
-      
-      // Abstraction chains for rdfs:subClassOf generation
-      "redstring:abstractionChains": prototype.abstractionChains || {},
-      
-      // Agent configuration (if node is an agent)
-      // Never with a credential in it: a file is shared, committed and synced.
-      "redstring:agentConfig": prototype.agentConfig ? stripSecretFields(prototype.agentConfig) : null,
-
-      // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag, etc.)
-      // Critical for image re-fetching on reload and OOM prevention
-      "redstring:semanticMetadata": prototype.semanticMetadata || null,
-
-      // Content-addressed reference to the full-resolution image, when the git
-      // sync engine has externalized it to a blob beside this file. Additive
-      // and optional — no version bump, see CURRENT_FORMAT_VERSION.
-      // See the note below on why this sits at the TOP LEVEL of the prototype
-      // rather than inside redstring:visualProperties with its siblings.
-      ...(prototype.imageRef ? { "redstring:imageRef": prototype.imageRef } : {}),
-      ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {})
-    };
-
-    // WHY imageRef IS NOT INSIDE redstring:visualProperties
-    // ------------------------------------------------------
-    // It belongs there by kinship — imageSrc/thumbnailSrc/imageAspectRatio all
-    // live in that block. But `visualProperties` is rebuilt from scratch on
-    // every export out of explicitly named store fields, so an older build that
-    // reads a file carrying a ref, then saves, would reconstruct that block
-    // WITHOUT the ref it never knew to read: the blob is orphaned in the repo
-    // and the node loses its image for good.
-    //
-    // At the top level, `quarantineUnknownFields` catches it instead — unknown
-    // top-level prototype keys are banked into `_preserved[version]`, and
-    // `_preserved` round-trips verbatim through export (see below). So a ref
-    // survives a full read/write pass through a client that has never heard of
-    // it, which is the normal case whenever a laptop upgrades before a phone.
-    //
-    // The quarantine only inspects the top level; it does not walk into a known
-    // block. Adding this field one level down would look tidier and silently
-    // give up that protection. Keep it here, and keep it listed in
-    // KNOWN_PROTOTYPE_KEYS in migrations.js.
-
-    // Sameness ladder (decision D8/P2.5). External links climb the ladder by how
-    // strong the claim is. An automatic match (e.g. a Wikipedia article matched
-    // to a concept) is alignment, not identity → skos:closeMatch. A link the
-    // user confirmed is interchangeable → skos:exactMatch. rdfs:seeAlso (above)
-    // keeps the complete ordered list of raw URLs.
-    //
-    // owl:sameAs is deliberately never emitted. It says two IRIs denote one
-    // individual, which licenses a reasoner to pool every claim made on either
-    // side; nothing in this interface is a strong enough act of assertion to
-    // license that, and the UI control that used to offer it was one nobody
-    // could tell apart from "confirmed". Import still reads it (see the rung
-    // chain below) — other tools write it, and older Redstring files carry it.
-    //
-    // The rung is per-link, from semanticMetadata.linkConfirmations, and a link
-    // with no record is closeMatch. It used to be chosen for the whole array
-    // from semanticMetadata.autoEnriched — that flag is about images (it gates
-    // thumbnail stripping and is cleared when the user uploads their own
-    // picture), so uploading a photo promoted every link on the node a rung.
-    const externalLinks = Array.isArray(prototype.externalLinks) ? prototype.externalLinks : [];
-    if (externalLinks.length > 0) {
-      const asRef = (url) => ({ "@id": url });
-      const { close, exact } = partitionLinksByState(externalLinks, prototype.semanticMetadata);
-      if (exact.length > 0) {
-        prototypeSpace[id]["skos:exactMatch"] = exact.map(asRef);
-      }
-      if (close.length > 0) {
-        prototypeSpace[id]["skos:closeMatch"] = close.map(asRef);
-      }
-    }
-
-    // PROV provenance (D/P2.6). Wizard-authored concepts carry provenance in
-    // semanticMetadata (which round-trips natively); project it to standard PROV
-    // on the entity. User-authored concepts have no provenance → no prov: terms.
-    const provenance = prototype.semanticMetadata?.provenance;
-    if (provenance?.wasAttributedTo) {
-      prototypeSpace[id]["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${provenance.wasAttributedTo}` };
-    }
-    if (provenance?.generatedAtTime) {
-      prototypeSpace[id]["prov:generatedAtTime"] = provenance.generatedAtTime;
-    }
-
-    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
-    if (prototype._preserved) {
-      prototypeSpace[id]._preserved = prototype._preserved;
-    }
-  });
-
-  // Project abstraction chains to skos:broader links (P2.4). A chain is ordered
-  // SPECIFIC → GENERAL: index 0 is the most specific concept and each later entry is
-  // one degree more general, so each entry is skos:broader the one AFTER it. (This
-  // read used to be inverted, which exported every broader link backwards; the order
-  // is fixed by addToAbstractionChain, where 'below' — more general — splices at a
-  // higher index, and by the carousel, which draws positive levels as more generic.)
-  // SKOS is the correct register here: it carries NO logical entailment, matching
-  // Redstring's contested/interpretive hierarchies — unlike rdfs:subClassOf (audit #8),
-  // which this replaces. The native redstring:abstractionChains field is kept verbatim
-  // on each prototype.
-  //
-  // `seenBroader` keeps the duplicate check off the growing array. Every prototype now
-  // carries a seeded chain ending at Thing, so without it the scan would be linear in
-  // the number of links already on a node — quadratic overall, and concentrated on the
-  // handful of types that everything points at.
-  const seenBroader = new Map();
-  nodePrototypes.forEach((node, nodeId) => {
-    if (node.abstractionChains) {
-      for (const dimension in node.abstractionChains) {
-        const chain = node.abstractionChains[dimension];
-        if (chain && chain.length > 1) {
-          for (let i = 1; i < chain.length; i++) {
-            const moreSpecificId = chain[i - 1];
-            const moreGeneralId = chain[i];
-            if (prototypeSpace[moreSpecificId]) {
-              if (!prototypeSpace[moreSpecificId]['skos:broader']) {
-                prototypeSpace[moreSpecificId]['skos:broader'] = [];
-              }
-              const generalIri = toIri(moreGeneralId);
-              const existing = Array.isArray(prototypeSpace[moreSpecificId]['skos:broader'])
-                ? prototypeSpace[moreSpecificId]['skos:broader']
-                : [prototypeSpace[moreSpecificId]['skos:broader']];
-              let seen = seenBroader.get(moreSpecificId);
-              if (!seen) {
-                seen = new Set(existing.map(item => item?.["@id"]));
-                seenBroader.set(moreSpecificId, seen);
-              }
-              if (!seen.has(generalIri)) {
-                seen.add(generalIri);
-                existing.push({ "@id": generalIri });
-                prototypeSpace[moreSpecificId]['skos:broader'] = existing;
-              }
-            }
-          }
-        }
-      }
-    }
-  });
+  // One reading of the clock per export.
+  const now = Date.now();
+  // Finished pieces from the last export, reused where nothing they read changed.
+  const pieces = emitV4 ? cache : null;
+  pieces?.begin();
+  // `build(time)`: a piece is stamped with the time it's built at.
+  const piece = (kind, id, inputs, build) => (pieces ? pieces.piece(kind, id, inputs, build, now) : build(now));
 
   // Create a map of instanceId -> prototypeId for efficient lookup
   const instanceToPrototypeMap = new Map();
@@ -1214,155 +1375,84 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     }
   });
 
-  // Reverse index for v4 graph-scoped edge placement (D10). Built here so the
-  // edge loop can populate graphEdgesMap without a second pass over graphs.
+  // Which web each connection is written in (v4, D10). Primary: graph.edgeIds
+  // membership. Fallback: the web holding its source or destination instance
+  // (handles states where edgeIds is absent/stale).
   const edgeToGraphId = new Map();
   const instanceToGraphId = new Map(); // fallback when edgeIds is missing
-  const graphEdgesMap = {};
+  const graphPresent = {};
   graphs.forEach((graph, graphId) => {
-    graphEdgesMap[graphId] = {};
+    graphPresent[graphId] = true;
     (graph.edgeIds || []).forEach(edgeId => edgeToGraphId.set(edgeId, graphId));
     if (graph.instances) {
       graph.instances.forEach((_, instId) => instanceToGraphId.set(instId, graphId));
     }
   });
 
+  // Each connection with what its entry reads, in its web's list (v4), or as
+  // a finished entry for the global relationships section (v3).
   const edgesObj = {};
+  const edgesByGraph = new Map();
   edges.forEach((edge, id) => {
-    //console.log('[DEBUG] Exporting edge:', id, edge);
     const sourcePrototypeId = instanceToPrototypeMap.get(edge.sourceId);
     const destinationPrototypeId = instanceToPrototypeMap.get(edge.destinationId);
-    
-    // Get the predicate prototype ID by mapping from definition node ID to its prototype ID
-    let predicatePrototypeId = edge.typeNodeId; // fallback to type node ID
-    if (edge.definitionNodeIds?.[0]) {
-      // Find the definition node and get its prototype ID
-      const definitionNodeId = edge.definitionNodeIds[0];
-      const definitionNode = nodePrototypes.get(definitionNodeId);
-      if (definitionNode) {
-        predicatePrototypeId = definitionNode.prototypeId || definitionNode.typeNodeId;
-      }
+    const predicatePrototypeId = predicatePrototypeIdOf(edge, nodePrototypes);
+    if (!emitV4) {
+      edgesObj[id] = exportEdgeEntry(edge, id, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId);
+      return;
     }
-
-    // console.log('[DEBUG] Edge mapping:', {
-    //   sourceId: edge.sourceId,
-    //   sourcePrototypeId,
-    //   destinationId: edge.destinationId,
-    //   destinationPrototypeId,
-    //   predicatePrototypeId,
-    //   definitionNodeIds: edge.definitionNodeIds
-    // });
-
-    // Prepare a JSON-serializable directionality (convert Set -> Array)
-    const serializedDirectionality = (() => {
-      if (!edge.directionality || typeof edge.directionality !== 'object') {
-        return { arrowsToward: [] };
-      }
-      const maybeSetOrArray = edge.directionality.arrowsToward;
-      let arrowsArray;
-      if (maybeSetOrArray instanceof Set) {
-        arrowsArray = Array.from(maybeSetOrArray);
-      } else if (Array.isArray(maybeSetOrArray)) {
-        arrowsArray = maybeSetOrArray;
-      } else {
-        arrowsArray = [];
-      }
-      return { ...edge.directionality, arrowsToward: arrowsArray };
-    })();
-
-    // Store both native Redstring format and RDF format
-    edgesObj[id] = {
-      // Native Redstring format (for application use)
-      "id": edge.id,
-      "sourceId": edge.sourceId,
-      "destinationId": edge.destinationId,
-      // An end inside a definition opened in place: the nodes, from this edge's own
-      // graph inward, whose definitions it is reached through (core/openDefinitions.js).
-      ...(Array.isArray(edge.sourceVia) && edge.sourceVia.length > 0 ? { "sourceVia": edge.sourceVia } : {}),
-      ...(Array.isArray(edge.destinationVia) && edge.destinationVia.length > 0 ? { "destinationVia": edge.destinationVia } : {}),
-      "name": edge.name,
-      "description": edge.description,
-      "typeNodeId": edge.typeNodeId,
-      "definitionNodeIds": edge.definitionNodeIds,
-      "directionality": serializedDirectionality,
-      
-      // RDF format (for semantic web integration)
-      "rdfStatements": sourcePrototypeId && destinationPrototypeId && predicatePrototypeId ? (() => {
-        // Project edge.directionality.arrowsToward (a Set of INSTANCE ids) to RDF.
-        // Correct mapping (see src/core/Edge.js and documentation/data-format/FORMAT_REFACTOR_PLAN.md §2):
-        //   empty            → two reciprocal triples (non-directed)
-        //   {destinationId}  → one triple  source → dest
-        //   {sourceId}       → one triple  dest → source
-        //   both             → two reciprocal triples (bidirectional)
-        // (node: prefix is a passthrough until P1.6 mints URNs.)
-        const arrows = edge.directionality?.arrowsToward;
-        const has = (instanceId) =>
-          arrows instanceof Set ? arrows.has(instanceId)
-          : Array.isArray(arrows) ? arrows.includes(instanceId)
-          : false;
-        const toDest = has(edge.destinationId);
-        const toSource = has(edge.sourceId);
-        const triple = (subjProtoId, objProtoId) => ({
-          "@type": "Statement",
-          "subject": { "@id": toIri(subjProtoId) },
-          "predicate": { "@id": toIri(predicatePrototypeId) },
-          "object": { "@id": toIri(objProtoId) },
-        });
-
-        if (toDest && !toSource) return [triple(sourcePrototypeId, destinationPrototypeId)];
-        if (toSource && !toDest) return [triple(destinationPrototypeId, sourcePrototypeId)];
-        // none (non-directed) or both (bidirectional): two reciprocal triples
-        return [
-          triple(sourcePrototypeId, destinationPrototypeId),
-          triple(destinationPrototypeId, sourcePrototypeId),
-        ];
-      })() : null,
-      
-      // Metadata for both formats
-      "sourcePrototypeId": sourcePrototypeId,
-      "destinationPrototypeId": destinationPrototypeId,
-      "predicatePrototypeId": predicatePrototypeId,
-    };
-
-    // Edge semanticMetadata + PROV (P2.6). Wizard-authored edges carry provenance
-    // in semanticMetadata; round-trip it natively and project to standard PROV.
-    if (edge.semanticMetadata) {
-      edgesObj[id]["redstring:semanticMetadata"] = edge.semanticMetadata;
-      const edgeProv = edge.semanticMetadata.provenance;
-      if (edgeProv?.wasAttributedTo) {
-        edgesObj[id]["prov:wasAttributedTo"] = { "@id": `urn:redstring:agent:${edgeProv.wasAttributedTo}` };
-      }
-      if (edgeProv?.generatedAtTime) {
-        edgesObj[id]["prov:generatedAtTime"] = edgeProv.generatedAtTime;
-      }
-    }
-
-    // Quarantined unknown fields ride back out verbatim (D1/P1.3)
-    if (edge._preserved) {
-      edgesObj[id]._preserved = edge._preserved;
-    }
-
-    // v4: also stash the edge in its owning graph's bucket.
-    // Primary: graph.edgeIds membership. Fallback: infer from sourceId/destinationId
-    // instance membership (handles states where edgeIds is absent/stale).
-    const _owningGraphId =
+    const owningGraphId =
       edgeToGraphId.get(id) ??
       instanceToGraphId.get(edge.sourceId) ??
       instanceToGraphId.get(edge.destinationId) ??
       null;
-    if (_owningGraphId != null && graphEdgesMap[_owningGraphId]) {
-      graphEdgesMap[_owningGraphId][id] = edgesObj[id];
+    if (owningGraphId != null && hasOwn(graphPresent, owningGraphId)) {
+      let list = edgesByGraph.get(String(owningGraphId));
+      if (!list) {
+        list = [];
+        edgesByGraph.set(String(owningGraphId), list);
+      }
+      list.push([id, edge, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId]);
     }
-
-    //console.log('[DEBUG] Created dual-format edge:', id, edgesObj[id]);
   });
 
-  // v4: attach graph-scoped edges inside each spatialGraph entry (D10).
-  if (emitV4) {
-    graphs.forEach((_, graphId) => {
-      spatialGraphs[graphId]['redstring:edges'] = graphEdgesMap[graphId] || {};
-    });
-  }
+  // Three-Layer Architecture: Export Spatial Graphs with Instance Collections,
+  // v4 with each web's connections inside it (D10, P3.1).
+  const spatialGraphs = {};
+  graphs.forEach((graph, graphId) => {
+    // Live viewport for this graph, if the camera has moved since load.
+    const graphView = graphViews instanceof Map ? graphViews.get(graphId) : graphViews?.[graphId];
+    const expanded = expandedGraphIds.has(graphId);
+    const active = graphId === activeGraphId;
+    const owned = edgesByGraph.get(String(graphId)) || [];
+    const build = () => {
+      const entry = exportGraphEntry(graph, graphId, graphView, expanded, active);
+      if (emitV4) {
+        const graphEdges = {};
+        for (const [id, edge, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId] of owned) {
+          graphEdges[id] = exportEdgeEntry(edge, id, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId);
+        }
+        entry['redstring:edges'] = graphEdges;
+      }
+      return entry;
+    };
+    // The viewport by value: the store hands over a new copy of it on every save.
+    const inputs = [graph, graphView?.panOffset ? JSON.stringify(graphView.panOffset) : null,
+      typeof graphView?.zoomLevel === 'number' ? graphView.zoomLevel : null, expanded, active];
+    for (const item of owned) inputs.push(...item);
+    spatialGraphs[graphId] = piece('graph', graphId, inputs, build);
+  });
+
+  // Three-Layer Architecture: Export Prototypes as Semantic Classes
+  const broader = broaderLinks(nodePrototypes);
+  const prototypeSpace = {};
+  nodePrototypes.forEach((prototype, id) => {
+    const saved = savedNodeIds.has(id);
+    const links = broader.get(String(id)) || null;
+    const linksKey = links ? links.map(link => link["@id"]).join('\u0000') : null;
+    prototypeSpace[id] = piece('prototype', id, [prototype, saved, linksKey],
+      (time) => exportPrototypeEntry(prototype, id, saved, links, new Date(time).toISOString()));
+  });
 
   // Note: abstractionChains are now stored directly on node prototypes
   // No separate abstraction axes needed
@@ -1373,9 +1463,18 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
   // Generate user URIs if domain is provided
   const userURIs = userDomain ? uriGenerator.generateUserURIs(userDomain) : null;
 
-  const layoutSnapshot = buildLayoutSnapshot(graphs);
-  const summarySnapshot = buildGraphSummariesSnapshot(graphs, nodePrototypes, edges);
-  
+  // Spatial metadata snapshots for agent/CLI workflows
+  const layoutSnapshot = {};
+  const summarySnapshot = {};
+  graphs.forEach((graph, graphId) => {
+    layoutSnapshot[graphId] = piece('layout', graphId, [graph], (time) => buildLayoutEntry(graph, time));
+    const summaryInputs = gatherSummaryInputs(graph, nodePrototypes, edges);
+    summarySnapshot[graphId] = piece('summary', graphId, [graph, ...summaryInputValues(summaryInputs)],
+      (time) => buildSummaryEntry(graph, graphId, summaryInputs, time));
+  });
+
+  pieces?.end();
+
   return {
     "@context": context,
     // The universe is both Redstring's CognitiveSpace and a SKOS ConceptScheme
@@ -1483,6 +1582,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     "_preserved": storeState._preserved
   };
   } catch (error) {
+    cache?.abort?.();
     console.error('[exportToRedstring] Error during export:', error);
     throw new Error(`Failed to export to Redstring format: ${error.message}`);
   }

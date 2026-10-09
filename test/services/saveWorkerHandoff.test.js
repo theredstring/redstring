@@ -15,6 +15,8 @@ import path from 'node:path';
 import { saveCoordinator } from '../../src/services/SaveCoordinator.js';
 import { exportToRedstring } from '../../src/formats/redstringFormat.js';
 import { importOntologyText } from '../../src/formats/ontology/importOntology.js';
+import { randomUniverse, randomEdit, rng } from '../helpers/randomUniverse.js';
+import { COMPACT_AT } from '../../src/formats/universeBytes.js';
 
 const ZOO = fs.readFileSync(path.resolve(__dirname, '../fixtures/ontology/zoo.ttl'), 'utf8');
 
@@ -234,6 +236,51 @@ describe('the save worker hand-off', () => {
       expect(stall).toHaveBeenCalled();
     } finally {
       stall.mockRestore();
+    }
+  });
+});
+
+describe('a big universe keeps what didn\'t change between saves', () => {
+  // Over the compact size, so the worker keeps finished pieces (exportCache.js).
+  const big = () => ({ ...randomUniverse(77, { prototypes: COMPACT_AT + 100, graphs: 40, edges: 300 }), _universeSlug: 'big' });
+
+  it('writes, save after save, exactly what a full export of the same state writes', () => {
+    let state = big();
+    const r = rng(1);
+    // Twelve saves: past the tenth, which rebuilds and checks every kept piece.
+    for (let i = 0; i < 12; i++) {
+      const { reply, text } = saveViaWorker(state);
+      expect(reply.type).toBe('save_processed');
+      expect(reply.cacheMismatches).toBeUndefined();
+      if (text !== JSON.stringify(exportToRedstring(state))) throw new Error(`save ${i}: the worker's file differs from a full export`);
+      state = randomEdit(state, r);
+    }
+  });
+
+  it('hashes the same as the main thread does', () => {
+    let state = big();
+    const r = rng(2);
+    for (let i = 0; i < 4; i++) {
+      const { reply } = saveViaWorker(state);
+      expect(reply.hash).toBe(saveCoordinator.generateStateHash(state));
+      state = randomEdit(state, r);
+    }
+  });
+
+  it('a new universe keeps nothing from the last one', () => {
+    saveViaWorker(big());
+    const other = { ...randomUniverse(78, { prototypes: COMPACT_AT + 50, graphs: 10, edges: 20 }), _universeSlug: 'other' };
+    const { text } = saveViaWorker(other);
+    expect(text).toBe(JSON.stringify(exportToRedstring(other)));
+  });
+
+  it('the coordinator says so, loudly, if a check ever finds a stale piece', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      saveCoordinator.handleWorkerMessage({ data: { type: 'save_processed', success: true, hash: 'h', jsonBytes: new Uint8Array([123, 125]), cacheMismatches: [{ kind: 'prototype', id: 'p1' }] } });
+      expect(error.mock.calls.some(([message]) => /stale pieces/.test(message))).toBe(true);
+    } finally {
+      error.mockRestore();
     }
   });
 });

@@ -72,9 +72,11 @@ const physicsReducer = (state, action) => {
         // Normal velocity-based movement
         nextPosition = state.realPosition + dampedVelocity * frameMultiplier;
 
-        // Dynamic bounds based on actual chain length
-        const minLevel = action.payload.minLevel || -6;
-        const maxLevel = action.payload.maxLevel || 6;
+        // Dynamic bounds based on actual chain length. `??`, not `||`: a bound of 0
+        // (the opened node is the top or bottom rung) is real, and `0 || -6` let the
+        // carousel drift six empty levels past the end of the list.
+        const minLevel = action.payload.minLevel ?? -6;
+        const maxLevel = action.payload.maxLevel ?? 6;
         nextPosition = Math.max(minLevel, Math.min(maxLevel, nextPosition));
 
         // Check if we should start snapping (with enhanced "stuck" detection)
@@ -837,6 +839,12 @@ const AbstractionCarousel = ({
 
   // Handle wheel events for continuous scrolling
   const handleWheel = useCallback((e) => {
+    // The listener is on the document, so without this the carousel swallowed
+    // every wheel on the page and the panels couldn't scroll while it was open.
+    // Same canvas-surface line as touch (claimsGesture, declared further down;
+    // safe because it only reads refs and runs at event time, after render).
+    if (!claimsGesture(e.target)) return;
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -996,8 +1004,7 @@ const AbstractionCarousel = ({
   // Overlays that sit ON the canvas but own their own touch handling. Claiming one of
   // these would drag the carousel underneath the dialog AND — because a claimed
   // gesture calls preventDefault — kill both native scrolling inside it and the
-  // synthesized clicks its buttons rely on. The wheel path is already immune because
-  // UnifiedSelector stops wheel propagation before it reaches the document.
+  // synthesized clicks its buttons rely on. The wheel is filtered by the same check.
   const TOUCH_EXCLUDE_SELECTOR = '.unified-selector-overlay, .pie-menu, .abstraction-control-panel, .unified-bottom-panel';
   const touchStateRef = useRef({
     identifier: null,
@@ -1012,8 +1019,8 @@ const AbstractionCarousel = ({
   // Last tap's timestamp + level, for double-tap-to-open-in-panel.
   const lastTapRef = useRef({ level: null, ts: 0 });
 
-  // Only touches on the canvas SURFACE (or on the carousel's own nodes) belong to the
-  // carousel. An allow-list rather than a deny-list, because a claimed gesture calls
+  // Only touches and wheels on the canvas SURFACE (or on the carousel's own nodes)
+  // belong to the carousel. An allow-list rather than a deny-list, because a claimed gesture calls
   // preventDefault and that would kill scrolling and synthesized clicks anywhere it
   // reached by mistake.
   //
@@ -1022,7 +1029,7 @@ const AbstractionCarousel = ({
   // fixed/absolute over it. This mirrors useCanvasTouch's isCanvasSurfaceTarget —
   // the container itself, or something inside the canvas <svg> — which is the same
   // line the canvas draws for its own handlers.
-  const claimsTouch = useCallback((target) => {
+  const claimsGesture = useCallback((target) => {
     if (!target?.closest) return false;
     if (target.closest(TOUCH_EXCLUDE_SELECTOR)) return false;
     if (carouselRef.current?.contains(target)) return true;
@@ -1035,7 +1042,7 @@ const AbstractionCarousel = ({
 
   const handleTouchStart = useCallback((e) => {
     if (!isVisible) return;
-    if (!claimsTouch(e.target)) {
+    if (!claimsGesture(e.target)) {
       touchStateRef.current.identifier = null;
       touchStateRef.current.isDragging = false;
       return;
@@ -1076,7 +1083,7 @@ const AbstractionCarousel = ({
       velocity: 0,
       isDragging: false
     };
-  }, [isVisible, claimsTouch]);
+  }, [isVisible, claimsGesture]);
 
   const handleTouchMove = useCallback((e) => {
     if (!isVisible) return;

@@ -589,6 +589,13 @@ class SaveCoordinator {
     if (type === 'save_processed' && success) {
       // Worker finished processing
 
+      // A check of the worker's kept pieces found one that no longer matched
+      // its Thing or web. That save was written in full and the worker keeps
+      // nothing for the rest of the session; this should never happen, so say so.
+      if (Array.isArray(e.data.cacheMismatches) && e.data.cacheMismatches.length > 0) {
+        console.error('[SaveCoordinator] The save worker found stale pieces in its cache. This save was written in full, and it will rebuild every save from now on.', e.data.cacheMismatches.slice(0, 20));
+      }
+
       // Check if hash changed
       if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
         this.pendingHash = hash;

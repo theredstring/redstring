@@ -47,6 +47,21 @@ export function writesCompact(data) {
   return redstringSize(data) >= COMPACT_AT;
 }
 
+/**
+ * A finished piece of JSON, as compact UTF-8 bytes, written into a file as it
+ * is: a Thing or web the save worker built on an earlier save and hasn't
+ * changed since (exportCache.js). Only a compact file can hold one.
+ */
+export class RawJson {
+  constructor(bytes) {
+    this.bytes = bytes;
+  }
+
+  toJSON() {
+    throw new Error('RawJson holds finished bytes: write it with serializeJsonToBytes');
+  }
+}
+
 const isPlainContainer = (value) => {
   if (Array.isArray(value)) return true;
   if (value === null || typeof value !== 'object') return false;
@@ -79,6 +94,9 @@ export function serializeJsonToBytes(value, { indent = 0, walkDepth = 4, pieceCh
   let partsLength = 0;
   let total = 0;
 
+  // A chunk that is a piece's own bytes: never handed out as the result, since
+  // the caller may transfer it to another thread, which would empty the cache.
+  const borrowed = new Set();
   const flush = () => {
     if (partsLength === 0) return;
     const bytes = encoder.encode(parts.join(''));
@@ -103,10 +121,18 @@ export function serializeJsonToBytes(value, { indent = 0, walkDepth = 4, pieceCh
   const colon = indent > 0 ? ': ' : ':';
 
   // JSON.stringify asks a value for toJSON once, with its key, before anything else.
-  const resolve = (v, key) => (v !== null && typeof v === 'object' && typeof v.toJSON === 'function' ? v.toJSON(key) : v);
+  const resolve = (v, key) => (v !== null && typeof v === 'object' && !(v instanceof RawJson) && typeof v.toJSON === 'function' ? v.toJSON(key) : v);
 
   // `v` is already resolved.
   const write = (v, depth) => {
+    if (v instanceof RawJson) {
+      if (indent > 0) throw new Error('A finished piece (RawJson) can only go into a compact file');
+      flush();
+      chunks.push(v.bytes);
+      borrowed.add(v.bytes);
+      total += v.bytes.length;
+      return;
+    }
     if (depth >= walkDepth || !isPlainContainer(v)) {
       push(leaf(v, depth));
       return;
@@ -139,7 +165,7 @@ export function serializeJsonToBytes(value, { indent = 0, walkDepth = 4, pieceCh
   write(resolve(value, ''), 0);
   flush();
 
-  if (chunks.length === 1) return chunks[0];
+  if (chunks.length === 1 && !borrowed.has(chunks[0])) return chunks[0];
   const out = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {

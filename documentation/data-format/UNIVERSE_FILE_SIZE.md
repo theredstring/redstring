@@ -26,4 +26,4 @@ A `.redstring` file used to be one JavaScript string on its way to and from disk
 
 ## Next
 
-Splitting a universe into several files, so a save rewrites only what changed and Git can carry a large universe in pieces, is the direction (agreed 2026-10-09). It needs its own design: the file layout, how Git sync and conflicts work across pieces, and how older versions of the app see a split universe.
+A universe is always exactly one `.redstring` file: no folders, packages or sidecar files (decided 2026-10-09). Making saves cheaper happens inside that: the save worker can keep each Thing's and web's finished bytes and rebuild only what changed, so a save costs what changed plus one fast sequential write, with the same file and the same bytes.
