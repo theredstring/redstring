@@ -58,6 +58,8 @@ const RestoreVersionDialog = ({
   // the universe in front of the user is empty. Reached deliberately from the
   // Git tab there is nothing to keep, so the caller names its own way out.
   dismissLabel = 'Keep it empty',
+  // Where the version is kept: the repository, or a backup on this device.
+  role = 'In the repository',
   onRestore,
   onDismiss
 }) => (
@@ -81,14 +83,14 @@ const RestoreVersionDialog = ({
           icon={RotateCcw}
           tone="accent"
           onClick={onRestore}
-          disabled={isRestoring || !version?.sha}
+          disabled={isRestoring || !(version?.sha || version?.id)}
         />
       </>
     )}
   >
     <DialogCard
       icon={<History size={14} />}
-      role="In the repository"
+      role={role}
       title={formatTimestamp(version?.date) || 'Earlier version'}
       meta={versionMeta(version)}
       tone="accent"

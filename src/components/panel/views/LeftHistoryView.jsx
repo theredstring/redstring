@@ -3,23 +3,25 @@ import useHistoryStore from '../../../store/historyStore.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { performJumpTo } from '../../../store/historyActions.js';
 import { generateDescription } from '../../../utils/actionDescriptions.js';
-import { Clock, Globe, Filter, LayoutGrid, GitBranch } from 'lucide-react';
+import { Clock, Globe, Filter, LayoutGrid, GitBranch, Archive } from 'lucide-react';
 import GitHistoryList from './GitHistoryList.jsx';
+import BackupHistoryList from './BackupHistoryList.jsx';
 import './LeftHistoryView.css';
 
 /**
- * Below this the tabs keep their icons and drop their words. Three labelled
+ * Below this the tabs keep their icons and drop their words. Four labelled
  * tabs stop fitting before the panel reaches its own minimum width, and a
  * squeezed label is worse than none.
  */
-const SLIM_TABS_WIDTH = 260;
+const SLIM_TABS_WIDTH = 340;
 
 const LeftHistoryView = ({ gitRequest = null }) => {
     const history = useHistoryStore(state => state.history);
     const currentIndex = useHistoryStore(state => state.currentIndex);
     const activeGraphId = useGraphStore(state => state.activeGraphId);
     // 'all' and 'graph' are undo steps from this session; 'git' is the
-    // universe's committed history, which outlives the session entirely.
+    // universe's committed history, which outlives the session entirely;
+    // 'backups' are earlier copies of its file kept on this device.
     const [filter, setFilter] = useState('all');
     // Set when arriving from a specific universe's repository row, so the Git
     // tab shows THAT universe rather than whichever one happens to be active.
@@ -69,12 +71,14 @@ const LeftHistoryView = ({ gitRequest = null }) => {
     const handleJumpTo = (index) => performJumpTo(index);
 
     const isGit = filter === 'git';
+    const isBackups = filter === 'backups';
+    const isVersions = isGit || isBackups;
 
     return (
         <div className={`left-history-view ${isSlim ? 'slim' : ''}`} ref={rootRef}>
             <div className="history-header">
-                <h2>{isGit ? 'Versions' : 'Action History'}</h2>
-                {!isGit && (
+                <h2>{isVersions ? 'Versions' : 'Action History'}</h2>
+                {!isVersions && (
                     <div className="history-stats">
                         {history.length} actions • {currentIndex === -1 ? 'Latest' : `${Math.abs(currentIndex) - 1} steps back`}
                     </div>
@@ -111,10 +115,21 @@ const LeftHistoryView = ({ gitRequest = null }) => {
                     <GitBranch size={14} />
                     <span>Git</span>
                 </button>
+                <button
+                    onClick={() => setFilter('backups')}
+                    className={`filter-tab ${isBackups ? 'active' : ''}`}
+                    data-nav="tab"
+                    title="Show backups kept on this device"
+                >
+                    <Archive size={14} />
+                    <span>Backups</span>
+                </button>
             </div>
 
             {isGit ? (
                 <GitHistoryList universeSlug={gitUniverseSlug} isSlim={isSlim} />
+            ) : isBackups ? (
+                <BackupHistoryList isSlim={isSlim} />
             ) : (
                 <div className="history-list">
                     {filteredHistory.length === 0 ? (

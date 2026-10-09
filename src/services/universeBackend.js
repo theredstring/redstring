@@ -23,6 +23,7 @@ import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../f
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { decideSlotConflict } from './slotConflictDecision.js';
 import repoDiscoveryCache from './repoDiscoveryCache.js';
+import { noteUniverseSaved, backUpNow, readBackup } from './universeBackups.js';
 import {
   createUniverseConfigFromDiscovered,
   listUniverseFiles,
@@ -5389,6 +5390,63 @@ class UniverseBackend {
   }
 
   /**
+   * Put a backup from this device back (History → Backups).
+   *
+   * What is open now is backed up first, unsaved changes included, so a
+   * restore can itself be undone from the same list. Then the backup is loaded
+   * and saved through the normal write path, so every guard still applies.
+   *
+   * @param {string} universeSlug - must be the open universe
+   * @param {string} backupId - from listBackups
+   * @returns {Promise<{nodeCount: number, graphCount: number}>}
+   */
+  async restoreUniverseBackup(universeSlug, backupId) {
+    const universe = this.getUniverse(universeSlug);
+    if (!universe) throw new Error(`Universe not found: ${universeSlug}`);
+    if (this.getActiveUniverse()?.slug !== universe.slug) {
+      throw new Error('Open this universe to restore one of its backups');
+    }
+    if (this.pendingConflict?.universeSlug === universe.slug) {
+      throw new Error('Choose which copy to keep first, then restore');
+    }
+    if (!this.storeOperations?.loadUniverseFromFile) {
+      throw new Error('The app is still starting up. Try again in a moment.');
+    }
+
+    const parsed = await parseRedstringBytes(await readBackup(universe.slug, backupId));
+    if (!parsed) throw new Error('That backup is empty');
+    const validation = validateFormatVersion(parsed);
+    if (!validation.valid) {
+      throw new Error(validation.tooNew
+        ? `That backup was made by a newer version of Redstring (${validation.version})`
+        : (validation.error || 'That backup is not a file this version can open'));
+    }
+    const { storeState } = importFromRedstring(parsed);
+    const counts = this.analyzeStoreData(storeState);
+    if (counts.userNodeCount === 0) throw new Error('That backup has nothing in it');
+
+    const current = this.storeOperations.getState?.();
+    // The store refuses a load while another is applying, without saying so.
+    if (current?._isLoadingUniverse) throw new Error('Another load was still finishing. Try again in a moment.');
+    if (current && !isEffectivelyEmpty(current)) {
+      await backUpNow(universe.slug, { content: serializeRedstring(exportToRedstring(current)) });
+    }
+
+    umLog(`[UniverseBackend] Restoring ${universe.slug} from backup ${backupId} (${counts.userNodeCount} things)`);
+    this.storeOperations.loadUniverseFromFile({ ...storeState, _universeSlug: universe.slug });
+    await this.saveActiveUniverse(null, { isConflictResolution: true });
+
+    this.notifyStatus('success', `Restored ${counts.userNodeCount} things from ${new Date(this._backupTime(backupId)).toLocaleString()}`);
+    return { nodeCount: counts.userNodeCount, graphCount: counts.graphCount };
+  }
+
+  /** @private The time in a backup id (20261009T143200123Z). */
+  _backupTime(id) {
+    const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(\d{3})Z$/.exec(String(id));
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]) : Date.now();
+  }
+
+  /**
    * Direct Git read without requiring a registered GitSyncEngine
    */
   async loadFromGitDirect(universe) {
@@ -7062,6 +7120,12 @@ class UniverseBackend {
     try {
       // Use the unified file access adapter
       await writeFile(handle, fileContent);
+
+      // A backup, if one is due (universeBackups.js). Not awaited: it never
+      // holds up a save, and a backup that fails is only logged. Electron
+      // copies the file just written; elsewhere the bytes are kept.
+      const electronPath = isElectron() && typeof handle === 'string' ? handle : null;
+      noteUniverseSaved(universeSlug, electronPath ? { filePath: electronPath } : { content: fileContent });
 
       // Update last accessed time in persistence
       try {

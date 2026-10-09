@@ -20,6 +20,7 @@ const { registerAppScheme, handleAppProtocol } = require('./appProtocol.cjs');
 const { createSecretsStore } = require('./secretsStore.cjs');
 const legacyMigration = require('./legacyMigration.cjs');
 const { createDruidBridge, defaultBridgePath } = require('./druidBridge.cjs');
+const { createBackupStore } = require('./backupStore.cjs');
 
 let updaterHandle = null;
 
@@ -1051,6 +1052,46 @@ handle('file:showInFolder', async (event, filePath) => {
     console.error('[Electron] showItemInFolder error:', error);
     throw new Error(`Failed to show file in folder: ${error.message}`);
   }
+});
+
+// ============================================================
+// Universe backups (Settings → Data → Backups)
+// ============================================================
+
+// Earlier copies of universe files, one folder per universe, in a root main
+// owns. Not a file-IPC root: the renderer names a universe and a backup id,
+// never a path. See backupStore.cjs.
+const getBackupsPath = () => {
+  const folderName = sessionName ? `RedstringBackups_${sessionName}` : 'RedstringBackups';
+  return path.join(app.getPath('userData'), folderName);
+};
+
+let backupStore = null;
+const backups = () => {
+  if (!backupStore) backupStore = createBackupStore({ root: getBackupsPath() });
+  return backupStore;
+};
+
+// Copy the universe file just saved. The source goes through the same guard
+// as every other file read.
+handle('backups:snapshot', async (event, slug, filePath) => {
+  const safePath = assertAccessAllowed(filePath, 'backups:snapshot');
+  return backups().snapshotFile(slug, safePath);
+});
+
+handle('backups:write', async (event, slug, bytes) => backups().writeBytes(slug, bytes));
+handle('backups:list', async (event, slug) => backups().list(slug));
+handle('backups:read', async (event, slug, id) => backups().read(slug, id));
+handle('backups:remove', async (event, slug, id) => backups().remove(slug, id));
+handle('backups:usage', async () => backups().usage());
+handle('backups:clear', async () => backups().clearAll());
+
+handle('backups:reveal', async (event, slug) => {
+  const folder = slug ? backups().folderFor(slug) : getBackupsPath();
+  await fs.mkdir(folder, { recursive: true });
+  const error = await shell.openPath(folder);
+  if (error) throw new Error(error);
+  return true;
 });
 
 // Clipboard IPC Handler (Electron 44: clipboard writes are async)

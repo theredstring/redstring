@@ -18,6 +18,26 @@ const CONNECTION_SCOPES = [
   { value: 'semantic', label: 'Semantic Web', Icon: TextSearch },
 ];
 
+// One web's piece of ConnectionBrowser's topology key for a Thing: its
+// instances of that Thing and its edge ids, or null when it holds none. Cached
+// per web object (see connectionStructureHash).
+const graphTopologyCache = new WeakMap();
+const graphTopologyPiece = (graphId, graph, prototypeId) => {
+  const hit = graphTopologyCache.get(graph);
+  if (hit && hit.prototypeId === prototypeId) return hit.piece;
+  const instanceIds = [];
+  if (graph.instances) {
+    for (const [instanceId, instance] of graph.instances.entries()) {
+      if (instance.prototypeId === prototypeId) instanceIds.push(instanceId);
+    }
+  }
+  const piece = instanceIds.length > 0
+    ? `g:${graphId}:${instanceIds.join(',')}:${(graph.edgeIds || []).join(',')}`
+    : null;
+  graphTopologyCache.set(graph, { prototypeId, piece });
+  return piece;
+};
+
 /**
  * One of this Thing's own connections, drawn with the shared triplet preview.
  * Arrowheads follow the edge's own directionality.
@@ -122,40 +142,27 @@ const ConnectionBrowser = ({ nodeData }) => {
 
   // Create a stable structural hash of the connection topology
   // This only changes when edges or instances are added/removed, not when positions change
+  //
+  // Only webs holding an instance of this Thing can hold its connections, so
+  // only theirs go in. Each web's piece is cached on the web object: immer keeps
+  // an untouched web's identity, so a write (a drag's lift, a rename) re-reads
+  // the one web it touched instead of every instance in the universe. The old
+  // whole-universe string cost ~260 ms per store write on a 47k-web universe.
   const connectionStructureHash = useMemo(() => {
     if (!nodeData?.id) return '';
 
-    // Build a string representing the structure of connections
     const parts = [];
-
-    // Include edge IDs from all graphs
     for (const [graphId, graph] of graphs.entries()) {
-      if (graph.edgeIds && graph.edgeIds.length > 0) {
-        parts.push(`g:${graphId}:${graph.edgeIds.join(',')}`);
-      }
-
-      // Include instance count for this prototype in each graph
-      if (graph.instances) {
-        let instanceCount = 0;
-        for (const [instanceId, instance] of graph.instances.entries()) {
-          if (instance.prototypeId === nodeData.id) {
-            instanceCount++;
-          }
-        }
-        if (instanceCount > 0) {
-          parts.push(`i:${graphId}:${instanceCount}`);
-        }
+      const piece = graphTopologyPiece(graphId, graph, nodeData.id);
+      if (!piece) continue;
+      parts.push(piece);
+      // Endpoints of this web's edges, so re-pointing one counts as a change.
+      for (const edgeId of graph.edgeIds || []) {
+        const edge = edges.get(edgeId);
+        if (edge?.sourceId && edge.destinationId) parts.push(`e:${edgeId}:${edge.sourceId}->${edge.destinationId}`);
       }
     }
-
-    // Include edge structure (source->dest pairs)
-    for (const [edgeId, edge] of edges.entries()) {
-      if (edge.sourceId && edge.destinationId) {
-        parts.push(`e:${edgeId}:${edge.sourceId}->${edge.destinationId}`);
-      }
-    }
-
-    return parts.sort().join('|');
+    return parts.join('|');
   }, [nodeData?.id, graphs, edges]);
 
   // Load native Redstring connections for this node
@@ -297,15 +304,20 @@ const ConnectionBrowser = ({ nodeData }) => {
         : []
   ), [connectionScope, nativeConnections]);
 
-  // Get appropriate color for nodes based on existing prototypes
-  const getNodeColor = (nodeName) => {
-    // Check if a node with this name already exists in prototypes
-    for (const [id, prototype] of nodePrototypes.entries()) {
-      if (prototype.name.toLowerCase() === nodeName.toLowerCase()) {
-        return prototype.color;
-      }
+  // Get appropriate color for nodes based on existing prototypes: the first
+  // prototype with that name, found through a lookup built once per prototype
+  // change rather than a scan of every prototype per row per render.
+  const colorByName = useMemo(() => {
+    const byName = new Map();
+    for (const prototype of nodePrototypes.values()) {
+      const key = prototype.name?.toLowerCase();
+      if (key !== undefined && !byName.has(key)) byName.set(key, prototype.color);
     }
-    return '#8B0000'; // Default maroon
+    return byName;
+  }, [nodePrototypes]);
+  const getNodeColor = (nodeName) => {
+    const key = nodeName?.toLowerCase();
+    return colorByName.has(key) ? colorByName.get(key) : '#8B0000'; // Default maroon
   };
 
   if (!nodeData) {

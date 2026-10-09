@@ -65,6 +65,19 @@ contextBridge.exposeInMainWorld('electron', {
     showItemInFolder: (filePath) => ipcRenderer.invoke('file:showInFolder', filePath),
   },
 
+  // Earlier copies of universe files, kept by main per universe. Named by
+  // universe slug and backup id; no paths.
+  backups: {
+    snapshot: (slug, filePath) => ipcRenderer.invoke('backups:snapshot', slug, filePath),
+    write: (slug, bytes) => ipcRenderer.invoke('backups:write', slug, bytes),
+    list: (slug) => ipcRenderer.invoke('backups:list', slug),
+    read: (slug, id) => ipcRenderer.invoke('backups:read', slug, id),
+    remove: (slug, id) => ipcRenderer.invoke('backups:remove', slug, id),
+    usage: () => ipcRenderer.invoke('backups:usage'),
+    clear: () => ipcRenderer.invoke('backups:clear'),
+    reveal: (slug) => ipcRenderer.invoke('backups:reveal', slug),
+  },
+
   // Persistent Storage (replaces localStorage/IndexedDB)
   storage: {
     // Get default paths
