@@ -199,6 +199,8 @@ TriG invariant: named-graph count equals Redstring graph count (tested in `test/
 
 `importJSONLD` routes through the lens table (`src/formats/lens.js`): `jsonld.toRDF` → `applyLens` → `{prototypes, abstractionLinks, compositionLinks, edges, mintedPredicates}`.
 
+**Ontologies** (OWL/RDF-XML, Turtle, N-Triples, N-Quads, TriG, JSON-LD, OBO Graphs JSON) go through `src/formats/ontology/`, not these adapters: parse → per-term index → slice → deterministic plan → universe state → `mergeUniverseState`. Every term keeps its IRI as an exact link, and Thing IDs are UUID v5 of the IRI, so re-imports and overlapping sources merge on identity. See `documentation/data-format/ONTOLOGY_IMPORT.md`. The adapters above are older and not wired into the app.
+
 ---
 
 ## Merge
@@ -206,7 +208,7 @@ TriG invariant: named-graph count equals Redstring graph count (tested in `test/
 `src/formats/mergeUniverses.js` provides `mergeUniverses(base, incoming) → {merged, report}` — a pure function (no store access) with three prototype alignment classes:
 
 1. **Exact ID match** → deduplicate; scalar conflicts banked to `_preserved.merge`
-2. **`externalLinks` intersection** (owl:sameAs / skos:exactMatch equivalence) → merge
+2. **`externalLinks` intersection** (owl:sameAs / skos:exactMatch equivalence) → merge, but only when at least one side holds the shared link on the exact rung; a pairing backed only by unconfirmed (auto/close) links is reported in `report.sameAsCandidates` instead
 3. **Case-insensitive name match** → both survive; listed in `report.closeMatchCandidates` for the UI
 
 ---

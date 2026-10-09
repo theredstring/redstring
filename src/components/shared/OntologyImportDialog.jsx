@@ -16,6 +16,13 @@ import { ACCEPTED_EXTENSIONS } from '../../formats/ontology/parseRdf.js';
 
 const LARGE_IMPORT = 20000;
 
+/**
+ * Roughly what an import adds to the universe file, per Thing. Measured on all of
+ * ChEBI LITE (218,728 Things → 405 MB of .redstring), so a fair upper bound for an
+ * ontology with definitions and many relations.
+ */
+const BYTES_PER_THING = 1900;
+
 const DEPTHS = [
   { label: 'Just these', value: 0 },
   { label: '1 level', value: 1 },
@@ -308,7 +315,7 @@ export function OntologyImportDialog({ onClose, save }) {
           )}
           {preview?.things > LARGE_IMPORT && (
             <DialogNote>
-              {"That's a large import. The universe file grows with it, and saving slows down."}
+              {`Large import: about ${fmt(Math.round((preview.things * BYTES_PER_THING) / 1e6))} MB more in the universe file, and every save writes all of it.`}
             </DialogNote>
           )}
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
