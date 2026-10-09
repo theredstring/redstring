@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { ArrowLeft, ChevronsLeft, ExternalLink, Plus, Bookmark, Search, LocateFixed } from 'lucide-react';
+import { ArrowLeft, ChevronsLeft, ExternalLink, Plus, Bookmark, Search, LocateFixed, Cable } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 import useActiveGraphStructureKey from '../../../hooks/useActiveGraphStructureKey.js';
@@ -19,6 +19,9 @@ import {
   conceptUris, ensureConceptPrototype, findPrototypeForConcept, instancesOfPrototype, placeConcept, revealInstances
 } from '../../../services/semanticPlacement.js';
 import { haptic } from '../../../services/haptics.js';
+import {
+  conceptIsPrototype, describeLinkEffect, identifiedSources, linkActionTitle, linkConceptToPrototype, listWords, unlinkConceptFromPrototype
+} from '../../../services/conceptLinking.js';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 // Room for a PanelIconButton's hover (3px ring + scale) inside a clipping box.
@@ -195,8 +198,12 @@ const ConceptTitle = ({ concept, onDropped }) => {
  * A discovered concept, shown the way the right panel shows a Thing — before
  * it is one. Title, what it is, where it comes from, and its connections on
  * the semantic web, each of which can be followed or brought into the open Web.
+ *
+ * With `origin` (the Thing the search was for) the page answers whether this
+ * concept is that Thing. Linked, it stands as that Thing: the Thing's colour,
+ * its place in the Web, and its connections hang off it, not off a copy.
  */
-const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, onSearch, canGoBack = false, bottomClearance = 24 }) => {
+const ConceptDetailView = ({ concept, origin = null, onBack, onBackToResults, onOpenConcept, onSearch, canGoBack = false, bottomClearance = 24 }) => {
   const theme = useTheme();
   const summary = useConceptSummary(concept);
   const [expanded, setExpanded] = useState(false);
@@ -211,7 +218,10 @@ const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, on
 
   if (!concept) return null;
 
-  const proto = findPrototypeForConcept(concept, nodePrototypes);
+  const originProto = origin ? nodePrototypes.get(origin.id) || null : null;
+  const linked = conceptIsPrototype(concept, originProto);
+  const proto = linked ? originProto : findPrototypeForConcept(concept, nodePrototypes);
+  const linkable = conceptUris(concept).size > 0;
   const inWeb = proto && activeGraphId && structureKey ? instancesOfPrototype(activeGraphId, proto.id)[0] : null;
   const isSaved = !!(proto && savedNodeIds.has(proto.id));
   // Only plain web links: these come from search results and linked data, and
@@ -229,9 +239,26 @@ const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, on
     if (proto) useGraphStore.getState().toggleSavedNode(proto.id);
     else ensureConceptPrototype(concept);
   };
+  const toggleLinked = () => {
+    if (!originProto) return;
+    if (linked) unlinkConceptFromPrototype(originProto.id, concept);
+    else linkConceptToPrototype(originProto.id, concept);
+  };
 
   const actions = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {originProto && (
+        <PanelIconButton
+          icon={Cable}
+          size={20}
+          active={linked}
+          disabled={!linked && !linkable}
+          onClick={toggleLinked}
+          title={linked
+            ? `Linked: this is ${originProto.name}. Unlink`
+            : linkable ? linkActionTitle(concept, originProto) : 'Nothing to link: no identifier on the semantic web'}
+        />
+      )}
       {inWeb ? (
         <PanelIconButton icon={LocateFixed} size={20} onClick={showInWeb} title="In this web. Show it" />
       ) : (
@@ -299,6 +326,19 @@ const ConceptDetailView = ({ concept, onBack, onBackToResults, onOpenConcept, on
             />
           )}
         </div>
+
+        {/* The Thing the search was for, and whether this is it. */}
+        {originProto && (
+          <div style={{ ...small, marginBottom: '12px' }}>
+            {linked ? (
+              <>This is <strong style={{ color: theme.canvas.textPrimary }}>{originProto.name}</strong>. Adding it or its connections uses that Thing.</>
+            ) : identifiedSources(originProto).length > 0 ? (
+              <>{originProto.name} is identified on {listWords(identifiedSources(originProto))}. Linking this with <Cable size={11} style={{ verticalAlign: '-1px' }} /> {describeLinkEffect(concept, originProto) || 'adds nothing new'}.</>
+            ) : (
+              <>Is this <strong style={{ color: theme.canvas.textPrimary }}>{originProto.name}</strong>? Link it with <Cable size={11} style={{ verticalAlign: '-1px' }} /> to make it that Thing.</>
+            )}
+          </div>
+        )}
 
         {/* Header: the concept as a node, its actions in a row beneath it. */}
         <div style={{ marginBottom: '10px' }}>

@@ -974,6 +974,7 @@ const Panel = memo(
       const handler = (e) => {
         try {
           const query = e?.detail?.query;
+          const originPrototypeId = e?.detail?.prototypeId || null;
           // Every sender of this event is outside the left panel — the canvas
           // pie menu, the right panel's node view — so the panel it is asking
           // for may well be shut. Switching a view nobody can see is not
@@ -987,7 +988,7 @@ const Panel = memo(
             const intervalId = setInterval(() => {
               attempts += 1;
               if (typeof window !== 'undefined' && typeof window.triggerSemanticSearch === 'function') {
-                try { window.triggerSemanticSearch(query); } catch { }
+                try { window.triggerSemanticSearch(query, { originPrototypeId }); } catch { }
                 clearInterval(intervalId);
               } else if (attempts >= maxAttempts) {
                 clearInterval(intervalId);

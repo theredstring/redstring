@@ -1257,8 +1257,9 @@ const SharedPanelContent = ({
     const query = nodeData?.name || '';
     if (!query.trim()) return;
     try {
-      // Ask left panel to switch to Semantic Discovery; its listener runs the search
-      window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+      // Ask left panel to switch to Semantic Discovery; its listener runs the
+      // search. The Thing goes along so a result can be linked back to it.
+      window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query, prototypeId: nodeData.id } }));
     } catch { }
   };
 

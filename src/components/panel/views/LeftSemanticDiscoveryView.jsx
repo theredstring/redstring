@@ -6,12 +6,14 @@ import { usePanelCardTokens } from '../../shared/PanelCard.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
 import WebSeedCard from '../items/WebSeedCard.jsx';
+import SearchOriginBar from '../items/SearchOriginBar.jsx';
 import ConceptDetailView from './ConceptDetailView.jsx';
 import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
 import { searchConcepts } from '../../../services/identifierSearch.js';
 import { normalizeToCandidate, candidateToConcept } from '../../../services/candidates.js';
 import { ensureConceptPrototype, findPrototypeForConcept } from '../../../services/semanticPlacement.js';
+import { conceptIsPrototype } from '../../../services/conceptLinking.js';
 import { ingestOrbitIndexEntries } from '../../../services/orbitLocalIndex.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
@@ -360,6 +362,11 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const headerRef = useRef(null);
   const [isHeaderWide, setIsHeaderWide] = useState(false);
   const [manualQuery, setManualQuery] = useState('');
+  // The Thing a search started from, when it started from one: a node's
+  // Semantic Search, a quick-search chip, a card from On This Web. Its results
+  // can be linked back to it. Retyping the query keeps it, since a node's name
+  // is often the wrong search term for the thing it is.
+  const [searchOriginId, setSearchOriginId] = useState(null);
   const [expandingNodeId, setExpandingNodeId] = useState(null);
   const [semanticExpansionResults, setSemanticExpansionResults] = useState([]);
   const [searchProgress, setSearchProgress] = useState('');
@@ -771,6 +778,20 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     return list;
   }, [activeWebInstances, nodePrototypesMap]);
 
+  // The Thing this search is for, and the results that are already it. Those
+  // lead the list: they answer the question the search was asked as.
+  const searchOrigin = searchOriginId ? nodePrototypesMap?.get(searchOriginId) || null : null;
+  const linkedConcepts = useMemo(
+    () => (searchOrigin ? discoveredConcepts.filter(c => conceptIsPrototype(c, searchOrigin)) : []),
+    [discoveredConcepts, searchOrigin]
+  );
+  const orderedConcepts = useMemo(
+    () => (linkedConcepts.length > 0
+      ? [...linkedConcepts, ...discoveredConcepts.filter(c => !linkedConcepts.includes(c))]
+      : discoveredConcepts),
+    [discoveredConcepts, linkedConcepts]
+  );
+
   // Back to the empty Discover list. Dropping the token orphans any search
   // still in flight, so its results never land after the clear.
   const clearSearch = () => {
@@ -781,9 +802,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     setIsSearching(false);
     setSearchProgress('');
     setCanLoadMore(true);
+    setSearchOriginId(null);
   };
 
-  const searchFromWeb = (name) => {
+  // A search for a Thing in the universe, which its results can be linked to.
+  const searchFromThing = (name, prototypeId) => {
+    if (!name?.trim()) return;
+    setSearchOriginId(prototypeId || null);
     setManualQuery(name);
     performSearch(name);
   };
@@ -1181,8 +1206,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   };
 
   // Function to trigger search from individual concept cards
-  const triggerSearchFromConcept = async (conceptName) => {
+  // `originPrototypeId` when the search is for a Thing (a node's Semantic
+  // Search); a search from a result card or a concept page is for that
+  // concept, and drops any Thing the last search was for.
+  const triggerSearchFromConcept = async (conceptName, { originPrototypeId = null } = {}) => {
     console.log(`[SemanticDiscovery] Triggering search for concept: "${conceptName}"`);
+    setSearchOriginId(originPrototypeId);
     // Callers are mostly outside this view (the canvas pie, the right panel's
     // Text Search), so it may be sitting on History, Catalog or a concept's
     // detail page. Results render only on Discover's list, so go back there.
@@ -1366,6 +1395,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             // (its URI, its description), so it opens as itself, not a stub.
             onOpenConcept={(next) => openConceptPage(next, { follow: true })}
             onSearch={triggerSearchFromConcept}
+            origin={searchOrigin}
           />
         ) : (
           // Everything under the title scrolls as one: the quick-search chips,
@@ -1658,7 +1688,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                         label={contexts.graph.nodeName}
                         busy={isSearching}
                         title="Quick search from Graph context"
-                        onClick={() => performSearch(contexts.graph.nodeName)}
+                        onClick={() => searchFromThing(contexts.graph.nodeName, contexts.graph.nodeId)}
                       />
                     )}
 
@@ -1668,12 +1698,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                         label={contexts.panel.nodeName}
                         busy={isSearching}
                         title="Quick search from Panel context"
-                        onClick={() => {
-                          const query = contexts.panel.nodeName;
-                          if (query.trim()) {
-                            performSearch(query);
-                          }
-                        }}
+                        onClick={() => searchFromThing(contexts.panel.nodeName, contexts.panel.nodeId)}
                       />
                     )}
 
@@ -1683,12 +1708,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                         label={contexts.graph.nodeName}
                         busy={isSearching}
                         title="Quick search from Graph context"
-                        onClick={() => {
-                          const query = contexts.graph.nodeName;
-                          if (query.trim()) {
-                            performSearch(query);
-                          }
-                        }}
+                        onClick={() => searchFromThing(contexts.graph.nodeName, contexts.graph.nodeId)}
                       />
                     )}
 
@@ -1698,12 +1718,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                         label={nodePrototypesMap.get(selectedNode.prototypeId)?.name || 'Selected'}
                         busy={isSearching}
                         title="Quick search from Selected"
-                        onClick={() => {
-                          const nodePrototype = nodePrototypesMap.get(selectedNode.prototypeId);
-                          if (nodePrototype?.name) {
-                            performSearch(nodePrototype.name);
-                          }
-                        }}
+                        onClick={() => searchFromThing(nodePrototypesMap.get(selectedNode.prototypeId)?.name, selectedNode.prototypeId)}
                       />
                     )}
                   </div>
@@ -1779,6 +1794,15 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
 
 
+              {/* The Thing this search is for, and whether a result is it yet. */}
+              {searchOrigin && (isSearching || discoveredConcepts.length > 0) && !semanticExpansionResults.length && (
+                <SearchOriginBar
+                  origin={searchOrigin}
+                  linkedConcepts={linkedConcepts}
+                  onClear={() => setSearchOriginId(null)}
+                />
+              )}
+
               {/* Concept Results - Regular Search */}
               {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
                 <div className="discovered-concepts">
@@ -1795,10 +1819,11 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
-                    {discoveredConcepts.map((concept, index) => (
+                    {orderedConcepts.map((concept, index) => (
                       <DraggableConceptCard
                         key={concept.id}
                         concept={concept}
+                        origin={searchOrigin}
                         index={index}
                         onMaterialize={materializeConcept}
                         onUnsave={unsaveConcept}
@@ -1840,7 +1865,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                         key={proto.id}
                         prototype={proto}
                         index={index}
-                        onSearch={searchFromWeb}
+                        onSearch={searchFromThing}
                       />
                     ))}
                   </div>
@@ -2036,6 +2061,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       // was open, or the list would change unseen beneath it.
                       setFocusedConcept(null);
                       setNavigationStack([]);
+                      setSearchOriginId(null);
                       setManualQuery(item.query);
                       setDiscoveredConcepts(item.concepts || []);
                       setViewMode('discover');

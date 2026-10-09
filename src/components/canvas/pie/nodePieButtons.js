@@ -264,12 +264,13 @@ export function buildNodePieMenuPages(ctx) {
       id: 'semantic-search', label: 'Semantic Search', icon: TextSearch, action: (instanceId) => {
         // Mirrors the right panel's Text Search: open Semantic Discovery for this
         // node's name. The left panel's listener runs the search itself, so
-        // calling triggerSemanticSearch here too would search twice.
+        // calling triggerSemanticSearch here too would search twice. The Thing
+        // goes along so a result can be linked back to it.
         const instance = nodes.find(n => n.id === instanceId);
         const query = instance?.name || '';
         if (!query.trim()) return;
         try {
-          window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query } }));
+          window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query, prototypeId: instance.prototypeId } }));
         } catch { }
       }
     },

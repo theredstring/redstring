@@ -43,7 +43,7 @@ const WebSeedCard = ({ prototype, index = 0, onSearch }) => {
       title={`Search the semantic web for "${prototype.name}"`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      onClick={() => onSearch(prototype.name)}
+      onClick={() => onSearch(prototype.name, prototype.id)}
     >
       <div style={{ flex: 1, minWidth: 0, color: ink, fontFamily: "'EmOne', sans-serif" }}>
         <div style={{

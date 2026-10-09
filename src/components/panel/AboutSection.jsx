@@ -16,12 +16,12 @@ import { resolveOrigin } from '../../utils/nodeOrigin.js';
 import { safeExternalHref, openExternalUrl, safeImageSrc } from '../../utils/safeUrl.js';
 import { wikipediaImageChoices, setWikipediaImage } from '../../services/wikipediaImage.js';
 import { searchIdentifiers, describeIdentifier } from '../../services/identifierSearch.js';
+import { detachLink } from '../../services/conceptLinking.js';
 import {
   LINK_STATES,
   canonicalizeLink,
   resolveLinkState,
-  setLinkState,
-  clearLinkState
+  setLinkState
 } from '../../formats/linkState.js';
 import {
   IDENTIFIERS_INTRO,
@@ -933,44 +933,9 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
     });
   }, [nodeData, onNodeUpdate]);
 
-  /**
-   * Strip a URL out of every place a link can live.
-   *
-   * Shared by removal and replacement, and it has to reach all of them or a
-   * link taken out of one store reappears from another on the next render.
-   * `originMetadata.originalUri` included: it is read back by
-   * `collectIdentifiers`, so leaving it behind resurrects the row.
-   *
-   * Keeps the old `unlinkSource(domain)` Wikipedia side effects verbatim. The
-   * image section's delete path is coupled to those fields being cleared
-   * together, and a swapped article's cached thumbnail belongs to the article
-   * that is no longer linked.
-   */
-  const detachUrl = useCallback((semanticMetadata, url) => {
-    const canonical = canonicalizeLink(url);
-    const matches = (candidate) => typeof candidate === 'string' && canonicalizeLink(candidate) === canonical;
-
-    const sm = { ...(semanticMetadata || {}) };
-
-    if (Array.isArray(sm.externalLinks)) {
-      sm.externalLinks = sm.externalLinks.filter(link => !matches(link));
-    }
-    if (matches(sm.wikidataUrl)) sm.wikidataUrl = undefined;
-    if (matches(sm.wikipediaUrl)) {
-      sm.wikipediaUrl = undefined;
-      sm.wikipediaTitle = undefined;
-      sm.wikipediaEnriched = undefined;
-      sm.wikipediaEnrichedAt = undefined;
-      sm.wikipediaThumbnail = undefined;
-      sm.wikipediaOriginalImage = undefined;
-      sm.wikipediaAdditionalImages = undefined;
-    }
-    if (matches(sm.originMetadata?.originalUri)) {
-      sm.originMetadata = { ...sm.originMetadata, originalUri: undefined };
-    }
-
-    return clearLinkState(sm, url);
-  }, []);
+  // Strip a URL out of every place a link can live (shared with Discover's
+  // link button, so the two can never disagree about where links are kept).
+  const detachUrl = detachLink;
 
   const handleRemove = useCallback((url) => {
     const canonical = canonicalizeLink(url);

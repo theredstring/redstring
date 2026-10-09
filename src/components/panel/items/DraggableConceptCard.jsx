@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Search, Bookmark, ArrowRight, Link2 } from 'lucide-react';
+import { Search, Bookmark, ArrowRight, Link2, Cable } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
 import { getTextColor, getLightHueText, getDarkHueText } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
-import useElementWidth from '../../../hooks/useElementWidth.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
-import { findPrototypeForConcept } from '../../../services/semanticPlacement.js';
+import { findPrototypeForConcept, conceptUris } from '../../../services/semanticPlacement.js';
+import { conceptIsPrototype, linkActionTitle, linkConceptToPrototype, unlinkConceptFromPrototype } from '../../../services/conceptLinking.js';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -16,9 +16,6 @@ const ItemTypes = {
 
 const SOURCE_LABELS = { wikidata: 'Wikidata', wikipedia: 'Wikipedia', dbpedia: 'DBpedia' };
 
-// Below this card width the actions leave their column on the right and sit
-// in a row under the text, so the name and description keep the full width.
-const NARROW_CARD = 260;
 // Round hit areas of this size: big enough to hit on touch, and the same
 // shape the pie bubbles and the panel's other icon buttons have.
 const HIT = 36;
@@ -34,9 +31,13 @@ const sourceLabel = (concept) => (
     : (SOURCE_LABELS[concept.source] || concept.source)
 );
 
-const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onSelect, onFocus }) => {
+/**
+ * A search result. With `origin` (the Thing the search was for) it can be
+ * linked to that Thing, and once it is, it stands as that Thing: its colour,
+ * its Library state, and a drag places that Thing rather than a copy.
+ */
+const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize, onSelect, onFocus }) => {
   const theme = useTheme();
-  const [cardRef, width] = useElementWidth(320);
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -67,35 +68,65 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
   // store updates every frame of a drag.
   const nodePrototypes = useGraphStore((state) => state.nodePrototypes);
   const savedNodeIds = useGraphStore((state) => state.savedNodeIds);
-  const proto = useMemo(() => findPrototypeForConcept(concept, nodePrototypes), [concept, nodePrototypes]);
+  // Read back from the store, so a link made here shows the moment it lands.
+  const originProto = origin ? nodePrototypes.get(origin.id) || null : null;
+  const linked = useMemo(() => conceptIsPrototype(concept, originProto), [concept, originProto]);
+  const proto = useMemo(
+    () => (linked ? originProto : findPrototypeForConcept(concept, nodePrototypes)),
+    [linked, originProto, concept, nodePrototypes]
+  );
   const isBookmarked = !!(proto && savedNodeIds.has(proto.id));
+  const linkable = conceptUris(concept).size > 0;
 
   const handleSaveToggle = () => {
-    if (isBookmarked) onUnsave(concept);
-    else if (proto) useGraphStore.getState().toggleSavedNode(proto.id);
+    if (proto) useGraphStore.getState().toggleSavedNode(proto.id);
     else onMaterialize(concept);
     onSelect?.(null);
   };
 
-  const ink = getTextColor(concept.color, theme.darkMode);
+  const handleLinkToggle = () => {
+    if (!origin) return;
+    if (linked) unlinkConceptFromPrototype(origin.id, concept);
+    else linkConceptToPrototype(origin.id, concept);
+  };
+
+  const color = sanitizeColor(linked ? originProto.color : concept.color, '#8B0000');
+  const ink = getTextColor(color, theme.darkMode);
   // The hover ring: the card's own hue, lighter on a dark panel and darker on
   // a light one, so it stands off the background either way.
-  const ring = theme.darkMode ? getLightHueText(concept.color) : getDarkHueText(concept.color);
+  const ring = theme.darkMode ? getLightHueText(color) : getDarkHueText(color);
   const [hovered, setHovered] = useState(false);
   const lifted = hovered && !isDragging;
-  const narrow = width > 0 && width < NARROW_CARD;
   const predicate = concept.semanticMetadata?.connectionInfo?.predicate || concept.defaultPredicate;
   const originalEntity = concept.semanticMetadata?.connectionInfo?.originalEntity;
 
   const buttonStyle = { width: HIT, height: HIT, padding: 0 };
+  // One segment under the text, so the name and description keep the card's
+  // full width however many actions there are.
   const actions = (
     <div style={{
       display: 'flex',
-      flexDirection: narrow ? 'row' : 'column',
-      gap: '4px',
+      gap: '2px',
+      padding: '2px',
+      borderRadius: `${HIT / 2 + 2}px`,
+      background: `color-mix(in srgb, ${ink} 12%, transparent)`,
       flexShrink: 0,
       alignItems: 'center'
     }}>
+      {origin && (
+        <PanelIconButton
+          icon={Cable}
+          size={18}
+          color={ink}
+          active={linked}
+          disabled={!linked && !linkable}
+          style={buttonStyle}
+          onClick={handleLinkToggle}
+          title={linked
+            ? `Linked: this is ${originProto.name}. Unlink`
+            : linkable ? linkActionTitle(concept, originProto) : 'Nothing to link: no identifier on the semantic web'}
+        />
+      )}
       <PanelIconButton
         icon={Search}
         size={18}
@@ -140,14 +171,14 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
 
   return (
     <div
-      ref={(el) => { drag(el); cardRef.current = el; }}
+      ref={drag}
       style={{
         display: 'flex',
-        flexDirection: narrow ? 'column' : 'row',
-        alignItems: narrow ? 'stretch' : 'center',
-        gap: narrow ? '6px' : '8px',
-        padding: narrow ? '10px 10px 6px' : '10px 6px 10px 12px',
-        background: sanitizeColor(concept.color, '#8B0000'),
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        gap: '6px',
+        padding: '10px 8px 8px 12px',
+        background: color,
         borderRadius: '12px',
         border: `1px solid ${theme.darkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
         cursor: 'pointer',
@@ -218,7 +249,7 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
             fontSize: '11px',
             lineHeight: 1.4,
             opacity: 0.9,
-            marginBottom: narrow ? 0 : '8px',
+            marginBottom: 0,
             overflowWrap: 'anywhere',
             overflow: 'hidden',
             display: '-webkit-box',
@@ -228,16 +259,12 @@ const DraggableConceptCard = ({ concept, index = 0, onMaterialize, onUnsave, onS
             {concept.description}
           </div>
         )}
-
-        {!narrow && info}
       </div>
 
-      {narrow ? (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-          {info}
-          {actions}
-        </div>
-      ) : actions}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+        {info}
+        {actions}
+      </div>
     </div>
   );
 };
