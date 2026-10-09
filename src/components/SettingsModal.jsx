@@ -1199,15 +1199,15 @@ const SettingsModal = ({ isVisible, onClose }) => {
               Autosave
               <div className="settings-row-description">
                 {autoSaveMode === 'auto'
-                  ? `Saves on its own while a universe is under ${AUTO_SAVE_MAX_ITEMS.toLocaleString()} Things and webs and ${Math.round(AUTO_SAVE_MAX_BYTES / (1024 * 1024))} MB. Bigger ones wait for you to save.`
+                  ? `Off past ${AUTO_SAVE_MAX_ITEMS.toLocaleString()} items or ${Math.round(AUTO_SAVE_MAX_BYTES / (1024 * 1024))} MB`
                   : autoSaveMode === 'always'
-                    ? 'Saves on its own after every change, whatever the size.'
-                    : 'Saves only when you save, from the indicator in the corner or the Universes panel.'}
+                    ? 'After every change'
+                    : 'Only when you save'}
               </div>
             </div>
             <OptionGroup
               options={[
-                { value: 'auto', label: 'Automatic' },
+                { value: 'auto', label: 'Adaptive' },
                 { value: 'always', label: 'Always' },
                 { value: 'off', label: 'Never' }
               ]}
