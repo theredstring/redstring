@@ -22,6 +22,7 @@ import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../sto
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
 import { queueEdgeHandoff } from '../edges/edgeTransitions.js';
+import { isJustAfterNodeDrop } from './dropCooldown.js';
 
 /** @param {{ current: object }} ctxRef */
 export function createPointerHandlers(ctxRef) {
@@ -102,9 +103,14 @@ export function createPointerHandlers(ctxRef) {
       // --- Handle Click vs Double Click Timing ---
       if (clickTimeoutIdRef.current) { clearTimeout(clickTimeoutIdRef.current); }
       potentialClickNodeRef.current = nodeData;
+      // A press right after a node drop doesn't select. On touch this is the
+      // browser's compatibility mousedown for the drop's own release: the drag
+      // remounts the node, the touchend can miss its handler, and this path
+      // would otherwise select the node CLICK_DELAY after it was put down.
+      const pressedAfterDrop = isJustAfterNodeDrop();
 
       clickTimeoutIdRef.current = setTimeout(() => {
-        if (potentialClickNodeRef.current?.id === instanceId && !mouseMoved.current && !isMouseDown.current) {
+        if (potentialClickNodeRef.current?.id === instanceId && !mouseMoved.current && !isMouseDown.current && !pressedAfterDrop) {
           // --- Execute Selection Logic ---
           const wasSelected = selectedInstanceIds.has(instanceId);
           setSelectedInstanceIds(prev => {
