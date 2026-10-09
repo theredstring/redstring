@@ -1,12 +1,23 @@
 /* ZoomBar.css
  *
- * Default-node maroon in both themes: the icons, the line and the thumb. No
- * backing pill; the bar floats on the canvas like the grid does. */
+ * One colour for the icons, the line and the thumb, set inline as
+ * --zoom-bar-color: default-node maroon on light, the theme's light red on
+ * dark, the app's off-white on blueprint. No backing pill; the bar floats on
+ * the canvas like the grid does.
+ *
+ * Two orientations: horizontal along the bottom (.is-bottom), vertical down
+ * the left or right side (.is-vertical), zoom-in on top. The thumb's place
+ * along the track is --zoom-t (0 to 1), written by ZoomBar.jsx every frame,
+ * and read here as `left` or `bottom` by orientation.
+ *
+ * Opacity follows the presence rule in ZoomBar.jsx: dimmed at rest, full while
+ * awake. It wakes quickly and settles slowly, like the TypeList toggle. */
 
 .zoom-bar {
   --zoom-bar-color: #8B0000;
+  --zoom-bar-rest-opacity: 0.2;
+  --zoom-t: 0.5;
   position: fixed;
-  transform: translateX(-50%);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -16,10 +27,30 @@
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  opacity: var(--zoom-bar-rest-opacity);
+  /* Position eases with the panels opening and closing beside it. */
+  transition: opacity 0.6s ease, transform 0.18s ease,
+    left 0.3s ease, right 0.3s ease, top 0.3s ease, bottom 0.3s ease;
 }
 
-/* Steps aside while a bottom control panel holds the same strip. */
+.zoom-bar.is-bottom {
+  transform: translateX(-50%);
+}
+
+.zoom-bar.is-vertical {
+  /* DOM order is out, track, in; reversed so zoom-in sits on top. */
+  flex-direction: column-reverse;
+}
+
+.zoom-bar.is-awake,
+.zoom-bar:has(:focus-visible) {
+  opacity: 1;
+  transition: opacity 0.15s ease, transform 0.18s ease,
+    left 0.3s ease, right 0.3s ease, top 0.3s ease, bottom 0.3s ease;
+}
+
+/* Comes after the awake rules so it wins over them. Steps aside while a bottom
+   control panel holds the same strip (bottom position only). */
 .zoom-bar.is-suppressed {
   opacity: 0;
   transform: translateX(-50%) translateY(6px) scale(0.96);
@@ -54,13 +85,18 @@
   outline-offset: 1px;
 }
 
-/* The whole strip is the hit area, taller than the line it draws. */
+/* The whole strip is the hit area, wider than the line it draws. */
 .zoom-bar-track {
   position: relative;
   width: 140px;
   height: 100%;
   cursor: pointer;
   touch-action: none;
+}
+
+.zoom-bar.is-vertical .zoom-bar-track {
+  width: 100%;
+  height: 140px;
 }
 
 .zoom-bar-line {
@@ -75,26 +111,45 @@
   opacity: 0.4;
 }
 
+.zoom-bar.is-vertical .zoom-bar-line {
+  left: 50%;
+  right: auto;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  height: auto;
+  margin-top: 0;
+  margin-left: -1.5px;
+}
+
 .zoom-bar-thumb {
+  --thumb-scale: 1;
   position: absolute;
   top: 50%;
-  left: 50%;
+  left: calc(var(--zoom-t) * 100%);
   width: 16px;
   height: 16px;
   border-radius: 50%;
   background: var(--zoom-bar-color);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--thumb-scale));
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   cursor: grab;
   transition: transform 0.15s ease;
 }
 
+.zoom-bar.is-vertical .zoom-bar-thumb {
+  top: auto;
+  left: 50%;
+  bottom: calc(var(--zoom-t) * 100%);
+  transform: translate(-50%, 50%) scale(var(--thumb-scale));
+}
+
 .zoom-bar-track:hover .zoom-bar-thumb {
-  transform: translate(-50%, -50%) scale(1.12);
+  --thumb-scale: 1.12;
 }
 
 .zoom-bar.is-dragging .zoom-bar-thumb {
-  transform: translate(-50%, -50%) scale(1.2);
+  --thumb-scale: 1.2;
   cursor: grabbing;
 }
 

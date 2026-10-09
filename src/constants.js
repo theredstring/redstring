@@ -11,8 +11,13 @@ export const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;
 // the store without a `window`.
 export const isExclusivePanelMode = () =>
   typeof window !== 'undefined' && window.innerWidth <= EXCLUSIVE_PANEL_MODE_THRESHOLD;
-// Allow effectively unbounded zoom; keep a very high cap to avoid numeric overflow
-export const MAX_ZOOM = 1000;
+// The deepest zoom-in, shared by every zoom path (wheel, trackpad, pinch,
+// keyboard, controller, framing) and the top of the zoom bar. Was 1000
+// ("effectively unbounded"), which let the canvas zoom in further than reads well.
+export const MAX_ZOOM = 6;
+// Where the zoom bar can sit.
+export const ZOOM_BAR_POSITIONS = ['bottom', 'left', 'right'];
+export const DEFAULT_ZOOM_BAR_POSITION = 'right';
 export const MOVEMENT_THRESHOLD = 3;
 export const SCROLL_SENSITIVITY = 0.5;
 export const PLUS_SIGN_SIZE = 160;

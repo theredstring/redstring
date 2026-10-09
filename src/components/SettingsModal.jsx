@@ -3,6 +3,7 @@ import CanvasModal from './CanvasModal';
 import MaroonSlider from './MaroonSlider.jsx';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
+import { DEFAULT_ZOOM_BAR_POSITION } from '../constants.js';
 import { Monitor, Grid3x3, Cable, Keyboard, Scaling, PanelBottom, Brain, Info, Bug, X, Database } from 'lucide-react';
 import AISection from './settings/AISection.jsx';
 import DebugSection from './settings/DebugSection.jsx';
@@ -183,6 +184,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const edgeGlowMode = useGraphStore(s => s.edgeGlowMode) ?? DEFAULT_EDGE_GLOW_MODE;
   const edgeGlowIntensity = useGraphStore(s => s.edgeGlowIntensity) ?? DEFAULT_EDGE_GLOW_INTENSITY;
   const liftedThingShadow = useGraphStore(s => s.liftedThingShadow) ?? DEFAULT_LIFTED_THING_SHADOW;
+  const showZoomBar = useGraphStore(s => s.showZoomBar !== false);
+  const zoomBarPosition = useGraphStore(s => s.zoomBarPosition ?? DEFAULT_ZOOM_BAR_POSITION);
   const darkMode = useGraphStore(s => s.darkMode);
   const canvasColor = useGraphStore(s => s.canvasColor ?? 'auto');
   // Lives outside the store on purpose — the shell decision has to be correct
@@ -322,6 +325,25 @@ const SettingsModal = ({ isVisible, onClose }) => {
               ]}
               value={liftedThingShadow}
               onChange={(v) => useGraphStore.getState().setLiftedThingShadow?.(v)}
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">Zoom Bar</div>
+            <Toggle
+              checked={showZoomBar}
+              onChange={() => useGraphStore.getState().setShowZoomBar?.(!showZoomBar)}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">Zoom Bar Position</div>
+            <OptionGroup
+              options={[
+                { label: 'Bottom', value: 'bottom' },
+                { label: 'Left', value: 'left' },
+                { label: 'Right', value: 'right' }
+              ]}
+              value={zoomBarPosition}
+              onChange={(v) => useGraphStore.getState().setZoomBarPosition?.(v)}
             />
           </div>
           <div className="settings-row settings-row--attached">

@@ -29,7 +29,7 @@ const produce = (arg1, arg2) => {
   }
 };
 import { v4 as uuidv4 } from 'uuid';
-import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode } from '../constants.js';
+import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode, ZOOM_BAR_POSITIONS, DEFAULT_ZOOM_BAR_POSITION } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { userDataCounts } from '../formats/userDataCounts.js';
@@ -187,6 +187,8 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {number} edgeGlowIntensity - Multiplier on how strongly those flares read: their size and opacity together, over whatever appearance `edgeGlowMode` picked.
  * @property {string} edgeGlowMode - `'off'|'fast'|'fancy'|'adaptive'` — how the flares that ride the viewport border pointing at off-screen Things are drawn. `'adaptive'` picks between the other two by how many Things the open web holds.
  * @property {string} liftedThingShadow - `'off'|'fast'|'fancy'` — the shadow under a Thing lifted by a drag: none, stacked low-alpha rects, or a blurred drop-shadow filter.
+ * @property {boolean} showZoomBar - Whether the canvas zoom bar is shown.
+ * @property {string} zoomBarPosition - `'bottom'|'left'|'right'` (default `'right'`) — where the zoom bar sits: horizontal above the TypeList, or vertical down one side under that side's panel toggle.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
  * @property {number} hoverPreviewSize - Scale multiplier for hover preview cards.
@@ -1957,6 +1959,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return LIFTED_THING_SHADOW_MODES.includes(saved) ? saved : DEFAULT_LIFTED_THING_SHADOW;
       } catch (_) {
         return DEFAULT_LIFTED_THING_SHADOW;
+      }
+    })(),
+    showZoomBar: (() => {
+      try {
+        return localStorage.getItem('redstring_show_zoom_bar') !== 'false';
+      } catch (_) {
+        return true;
+      }
+    })(),
+    zoomBarPosition: (() => {
+      try {
+        const saved = localStorage.getItem('redstring_zoom_bar_position');
+        return ZOOM_BAR_POSITIONS.includes(saved) ? saved : DEFAULT_ZOOM_BAR_POSITION;
+      } catch (_) {
+        return DEFAULT_ZOOM_BAR_POSITION;
       }
     })(),
     edgeGlowIntensity: (() => {
@@ -7316,6 +7333,30 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.liftedThingShadow = mode;
       try {
         localStorage.setItem('redstring_lifted_thing_shadow', mode);
+      } catch (_) { }
+    })),
+
+    /**
+     * Shows or hides the canvas zoom bar. Persists to localStorage.
+     * @param {boolean} show
+     */
+    setShowZoomBar: (show) => set(produce((draft) => {
+      draft.showZoomBar = !!show;
+      try {
+        localStorage.setItem('redstring_show_zoom_bar', String(!!show));
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets where the zoom bar sits. One of ZOOM_BAR_POSITIONS; anything else
+     * is ignored rather than written. Persists to localStorage.
+     * @param {'bottom'|'left'|'right'} position
+     */
+    setZoomBarPosition: (position) => set(produce((draft) => {
+      if (!ZOOM_BAR_POSITIONS.includes(position)) return;
+      draft.zoomBarPosition = position;
+      try {
+        localStorage.setItem('redstring_zoom_bar_position', position);
       } catch (_) { }
     })),
 

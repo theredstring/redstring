@@ -70,9 +70,9 @@ export default function CanvasChrome({ ctx }) {
         suppressed={showStorageSetupModal || bottomPanelUp}
       />
 
-      {/* Zoom bar, centred above the TypeList. It steps aside while a bottom
-          control panel holds that strip. */}
-      <ZoomBar ctx={ctx} suppressed={bottomPanelUp} />
+      {/* Zoom bar (Settings › Display). At the bottom it steps aside while a
+          bottom control panel holds that strip. */}
+      <ZoomBar ctx={ctx} bottomStripTaken={bottomPanelUp} />
 
       {/* Overlay panel resizers (outside panels) */}
       <PanelResizers controlRef={panelResizeControlRef} />

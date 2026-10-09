@@ -23,6 +23,8 @@ export const PREFERENCE_KEYS = [
   'redstring_show_hover_preview',
   'redstring_hover_preview_zoom_only',
   'redstring_hover_preview_size',
+  'redstring_show_zoom_bar',
+  'redstring_zoom_bar_position',
   // Panels
   'redstring_show_node_cp',
   'redstring_show_multi_node_cp',

@@ -4,6 +4,7 @@
  * settles.
  */
 import useGraphStore from '../../../store/graphStore.js';
+import { MAX_ZOOM } from '../../../constants';
 
 /** Restore the web's saved view, or centre it, when the active web changes (skipped mid-drag or mid-zoom). */
 export function restoreViewForGraph(ctx) {
@@ -31,8 +32,18 @@ export function restoreViewForGraph(ctx) {
     const storedView = liveState.graphViews?.get(activeGraphId) || graphData;
 
     if (storedView && storedView.panOffset && typeof storedView.zoomLevel === 'number') {
-      // Restore the stored view state immediately (jumpTo flushes settled state synchronously)
-      transform.jumpTo(storedView.panOffset, storedView.zoomLevel);
+      // Restore the stored view state immediately (jumpTo flushes settled state synchronously).
+      // A view saved deeper than today's zoom ceiling comes back at the ceiling,
+      // scaled about the viewport's centre so the same place stays in view.
+      const { panOffset: savedPan, zoomLevel: savedZoom } = storedView;
+      if (savedZoom > MAX_ZOOM) {
+        const ratio = MAX_ZOOM / savedZoom;
+        const cx = viewportSize.width / 2;
+        const cy = viewportSize.height / 2;
+        transform.jumpTo({ x: cx - (cx - savedPan.x) * ratio, y: cy - (cy - savedPan.y) * ratio }, MAX_ZOOM);
+      } else {
+        transform.jumpTo(savedPan, savedZoom);
+      }
     } else {
       // No stored state, center the view as before
 

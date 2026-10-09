@@ -6,6 +6,7 @@ import useGraphStore from './store/graphStore.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import { haptic } from './services/haptics.js';
 import { ZOOM_BAR_HEIGHT } from './components/canvas/layers/ZoomBar.jsx';
+import { DEFAULT_ZOOM_BAR_POSITION } from './constants';
 import {
   canOfferDesktopDownload,
   isDesktopDownloadDismissed,
@@ -35,6 +36,9 @@ const DownloadAppPill = ({ suppressed = false }) => {
   const typeListMode = useGraphStore(state => state.typeListMode);
   const typeListVisible = typeListMode !== 'closed';
   const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
+  // The zoom bar shares the bottom strip only when it is shown there.
+  const zoomBarBelow = useGraphStore(state =>
+    state.showZoomBar !== false && (state.zoomBarPosition ?? DEFAULT_ZOOM_BAR_POSITION) === 'bottom');
 
   // Settled once, on mount: whether this browser is ever a candidate. Both
   // halves are stable for the session — the device doesn't change under us, and
@@ -113,9 +117,9 @@ const DownloadAppPill = ({ suppressed = false }) => {
 
   // Centered in the usable viewport so the pill doesn't sit behind a panel, and
   // lifted clear of the TypeList when that's open (bottomReserved is its height,
-  // or 0 when it's closed), and over the zoom bar that shares the strip.
+  // or 0 when it's closed), and over the zoom bar when that shares the strip.
   const centerX = viewportBounds.x + viewportBounds.width / 2;
-  const bottom = viewportBounds.bottomReserved + BOTTOM_GAP + ZOOM_BAR_HEIGHT + 8;
+  const bottom = viewportBounds.bottomReserved + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
 
   let className = 'download-app-pill-wrapper';
   if (animationState === 'popping') {
