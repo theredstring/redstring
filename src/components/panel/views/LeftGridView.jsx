@@ -141,6 +141,9 @@ const NEAR_VIEW_MARGIN_PX = 400;
 // How much of a card has to show before it counts as in view.
 const IN_VIEW_MIN_PX = 40;
 
+// How long the list has to sit still before "To Current Web" fades back in.
+const LIST_STILL_MS = 250;
+
 const sameIds = (a, b) => a.size === b.size && [...b].every(id => a.has(id));
 
 /**
@@ -189,6 +192,30 @@ function useRowsNearView(listRef, rowCount) {
     };
   }, [listRef, rowCount]);
   return { nearIds, inViewIds, belowIds };
+}
+
+/**
+ * True while the list is being scrolled, and until it has been still for
+ * LIST_STILL_MS. Re-renders only when a scroll starts and when it stops.
+ */
+function useListScrolling(listRef) {
+  const [scrolling, setScrolling] = useState(false);
+  useEffect(() => {
+    const scroller = listRef.current?.closest('.panel-content') || listRef.current?.parentElement;
+    if (!scroller) return undefined;
+    let timer = null;
+    const onScroll = () => {
+      setScrolling(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setScrolling(false), LIST_STILL_MS);
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      scroller.removeEventListener('scroll', onScroll);
+    };
+  }, [listRef]);
+  return scrolling;
 }
 
 /**
@@ -341,6 +368,9 @@ const LeftGridView = ({
   const overlayHost = usePanelOverlayHost(listContainerRef);
   // "To Current Web" shows while the active web's card is scrolled out of view.
   const showToCurrent = !!activeGraphId && openGraphsForList.some(g => g.id === activeGraphId) && !inViewIds.has(activeGraphId);
+  // And steps aside while the list is scrolling, coming back once it stops.
+  const listScrolling = useListScrolling(listContainerRef);
+  const toCurrentShown = showToCurrent && !listScrolling;
   // Points the way the list will scroll to get there.
   const ToCurrentArrow = belowIds.has(activeGraphId) ? ArrowDown : ArrowUp;
   const scrollToCurrent = useCallback(() => {
@@ -490,14 +520,14 @@ const LeftGridView = ({
           bottom: overlayHost.bottom + 16,
           transform: 'translateX(-50%)',
           zIndex: 2,
-          opacity: showToCurrent ? 1 : 0,
-          pointerEvents: showToCurrent ? 'auto' : 'none',
-          transition: 'opacity 0.15s ease',
+          opacity: toCurrentShown ? 1 : 0,
+          pointerEvents: toCurrentShown ? 'auto' : 'none',
+          transition: `opacity ${toCurrentShown ? '0.3s' : '0.15s'} ease`,
         }}>
           <div
             className="back-to-civilization-pill"
             role="button"
-            tabIndex={showToCurrent ? 0 : -1}
+            tabIndex={toCurrentShown ? 0 : -1}
             title="Scroll to the current web"
             onClick={scrollToCurrent}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); scrollToCurrent(); } }}

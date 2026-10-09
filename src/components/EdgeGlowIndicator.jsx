@@ -10,6 +10,12 @@ import { toHex6Color } from '../utils/safeColor.js';
 // #rrggbb; anything else (including anything unsafe) is the default maroon.
 const glowColor = (value) => toHex6Color(value, '#8B0000');
 
+// A panel slides open over 0.2s (Panel.jsx), while the glows move to its new
+// edge at once. So on opening they drop out, wait out the slide, and fade back
+// in where they now belong.
+const PANEL_SLIDE_MS = 200;
+const PANEL_FADE_IN_MS = 250;
+
 // Where the canvas coordinate system's origin sits inside the 100k x 100k sheet.
 // NodeCanvas draws with offsetX/offsetY of -50000, so a node at canvas (0,0) is
 // half the sheet in from the corner.
@@ -170,6 +176,25 @@ const EdgeGlowIndicator = ({
   // the glows hold to a panel's edge through a resize drag instead of jumping
   // when it ends.
   const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible, { live: true });
+
+  // Hidden from the commit a panel opens in (a layout effect, so the glows
+  // are never painted at the new edge before the panel gets there), then
+  // faded back in once the slide is over.
+  const [panelOpening, setPanelOpening] = useState(false);
+  const prevExpandedRef = useRef({ left: leftPanelExpanded, right: rightPanelExpanded });
+  useLayoutEffect(() => {
+    const prev = prevExpandedRef.current;
+    const opened = (leftPanelExpanded && !prev.left) || (rightPanelExpanded && !prev.right);
+    prevExpandedRef.current = { left: leftPanelExpanded, right: rightPanelExpanded };
+    if (!opened) {
+      // A close (including one that cuts an opening short) shows them at once.
+      setPanelOpening(false);
+      return undefined;
+    }
+    setPanelOpening(true);
+    const timer = setTimeout(() => setPanelOpening(false), PANEL_SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [leftPanelExpanded, rightPanelExpanded]);
 
   // The container's own rect, measured OUT of band.
   //
@@ -519,7 +544,9 @@ const EdgeGlowIndicator = ({
         width: viewportBounds.width,
         height: viewportBounds.height,
         pointerEvents: 'none',
-        zIndex: 1000
+        zIndex: 1000,
+        opacity: panelOpening ? 0 : 1,
+        transition: panelOpening ? 'none' : `opacity ${PANEL_FADE_IN_MS}ms ease`,
       }}
     >
       {/* Debug viewport bounds visualization - positioned absolutely */}

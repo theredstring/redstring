@@ -251,7 +251,9 @@ const ConceptDetailView = ({ concept, origin = null, onBack, onBackToResults, on
         <PanelIconButton
           icon={Cable}
           size={20}
-          active={linked}
+          // Linked reads as pressed: a solid disc, the icon knocked out of it.
+          color={linked ? theme.canvas.bg : undefined}
+          style={linked ? { background: theme.canvas.textPrimary, backgroundColor: theme.canvas.textPrimary } : undefined}
           disabled={!linked && !linkable}
           onClick={toggleLinked}
           title={linked

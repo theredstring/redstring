@@ -135,10 +135,11 @@ const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize
         <PanelIconButton
           icon={Cable}
           size={18}
-          color={ink}
-          active={linked}
+          // Linked reads as pressed: a solid disc in the card's ink, the icon
+          // knocked out of it in the card's own colour.
+          color={linked ? color : ink}
           disabled={!linked && !linkable}
-          style={buttonStyle}
+          style={linked ? { ...buttonStyle, background: ink, backgroundColor: ink } : buttonStyle}
           onClick={handleLinkToggle}
           title={linked
             ? `Linked: this is ${originProto.name}. Unlink`
