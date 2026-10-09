@@ -255,7 +255,7 @@ describe('a big universe keeps what didn\'t change between saves', () => {
       if (text !== JSON.stringify(exportToRedstring(state))) throw new Error(`save ${i}: the worker's file differs from a full export`);
       state = randomEdit(state, r);
     }
-  });
+  }, 60000); // long: many full builds
 
   it('hashes the same as the main thread does', () => {
     let state = big();

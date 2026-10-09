@@ -39,7 +39,7 @@ describe('the export cache, clock frozen', () => {
       }
     }
     expect(reusedSomewhere).toBe(true);
-  });
+  }, 60000); // 2,400 full builds: seconds alone, more beside the rest of the suite
 
   it('reuses what didn\'t change and rebuilds only what did', () => {
     const state = randomUniverse(7, { prototypes: 40, graphs: 6, edges: 10 });
