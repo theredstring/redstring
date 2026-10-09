@@ -6,7 +6,7 @@ Redstring reads an ontology file (OWL, Turtle, N-Triples, N-Quads, TriG, JSON-LD
 
 Entry points:
 
-- **App:** File → Import Ontology… (`OntologyImportDialog.jsx`, mounted by `ModalHosts`, opened by the `openOntologyImport` window event).
+- **App:** File → Import Ontology…, or Import Ontology… in the Universes panel's Load menu (`OntologyImportDialog.jsx`, mounted by `ModalHosts`, opened by the `openOntologyImport` window event).
 - **CLI:** `redstring import <file> [--root <IRI|CURIE|label>]... [--depth <n|all>] [--namespace <iri-prefix>]... [--include-deprecated] [--keep-labels] [--no-kinds] [--dry-run] [--out <pack.redstring>]`. Without `--out` it merges into the active universe (through a running Redstring if there is one, via the `mergeRedstringPack` store action); with `--out` it writes a standalone pack universe with its webs laid out.
 
 ## Pipeline

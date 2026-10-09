@@ -538,6 +538,11 @@ class SaveCoordinator {
   handleWorkerMessage(e) {
     const { type, hash, jsonString, redstringData, success, error } = e.data;
 
+    if (this.workerSentAt) {
+      this.lastWorkerMs = Date.now() - this.workerSentAt;
+      this.workerSentAt = null;
+    }
+
     // Worker responded — cancel the stall watchdog.
     if (this.workerWatchdogTimer) {
       clearTimeout(this.workerWatchdogTimer);
@@ -640,6 +645,11 @@ class SaveCoordinator {
     for (const key of PERSISTED_STORE_KEYS) {
       cleanState[key] = this.nextStateToProcess[key];
     }
+    // Read by exportToRedstring though not store data of their own: each web's
+    // live pan and zoom, and fields quarantined from a newer format. The local
+    // file write uses this string, so it must match a main-thread export.
+    cleanState.graphViews = this.nextStateToProcess.graphViews;
+    cleanState._preserved = this.nextStateToProcess._preserved;
 
     // Strip imageSrc/thumbnailSrc from auto-enriched nodePrototypes before postMessage —
     // structured clone copies all data to the worker heap, and base64 data URLs
@@ -675,7 +685,13 @@ class SaveCoordinator {
     this.nextStateToProcess = null;
 
     if (this.workerWatchdogTimer) clearTimeout(this.workerWatchdogTimer);
-    const WORKER_STALL_MS = 3000;
+    // A big universe takes the worker seconds (export, stringify and hash run
+    // about 4 s at 32,000 Things), so a fixed 3 s called every save of one a
+    // stall and redid the work on the main thread. Allow for the size, and for
+    // how long the last pass actually took.
+    const thingCount = stateToSend.nodePrototypes?.size || 0;
+    const WORKER_STALL_MS = Math.min(60000, Math.max(3000 + thingCount * 0.3, (this.lastWorkerMs || 0) * 3));
+    this.workerSentAt = Date.now();
     this.workerWatchdogTimer = setTimeout(() => {
       this.workerWatchdogTimer = null;
       this._handleWorkerStall('timeout');

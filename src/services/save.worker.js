@@ -22,10 +22,13 @@ self.onmessage = (e) => {
       //    viewport and raw image data).
       const hash = generateStateHash(state);
 
+      // Only the string goes back. Sending the object too made the main
+      // thread rebuild the whole universe from the clone on every save
+      // (about 3.4 s for a 32,000-Thing universe), for a copy only browser
+      // storage mode could use, and that mode exports its own when it needs one.
       self.postMessage({
         type: 'save_processed',
         jsonString,
-        redstringData, // Include the object for browser storage mode
         hash,
         success: true
       });

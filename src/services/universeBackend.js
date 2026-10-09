@@ -2388,7 +2388,10 @@ class UniverseBackend {
             }
 
             return this.saveToLinkedLocalFile(slug, state, {
-              suppressNotification: showSuccess === false
+              suppressNotification: showSuccess === false,
+              // The save worker's serialization of this same state, so the
+              // export and stringify don't run again on the main thread.
+              serializedData: options?.preSerialized ? options.serializedData : null
             });
           }
 
@@ -6848,7 +6851,8 @@ class UniverseBackend {
     const {
       suppressNotification = false,
       allowEmpty = false,
-      isConflictResolution = false
+      isConflictResolution = false,
+      serializedData = null
     } = options || {};
 
     // 1. Prepare data first (needed for potential file creation)
@@ -6894,8 +6898,12 @@ class UniverseBackend {
       }
     }
 
-    const redstringData = exportToRedstring(storeState);
-    const jsonString = JSON.stringify(redstringData, null, 2);
+    // Autosave hands over the worker's string for this exact state (the
+    // coordinator drops it when the state has moved on); everything else
+    // serializes here.
+    const jsonString = typeof serializedData === 'string' && serializedData
+      ? serializedData
+      : JSON.stringify(exportToRedstring(storeState), null, 2);
 
     // 2. Get file handle
     let handle = this.fileHandles.get(universeSlug);

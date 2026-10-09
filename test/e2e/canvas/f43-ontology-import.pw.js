@@ -59,3 +59,13 @@ test('F43b importing the same slice again adds nothing', async ({ page }) => {
   await second.getByRole('button', { name: 'Done' }).click();
   expect(await storeEval(page, (st) => [st.nodePrototypes.size, st.graphs.size, st.edges.size])).toEqual(size);
 });
+
+test('F43c the Universes panel\'s Load menu opens the same import', async ({ page }) => {
+  await openFixture(page, 'small');
+  await page.getByTitle('Expand Panel').first().click();
+  await page.getByTitle('More views').first().click();
+  await page.getByText('Universes', { exact: true }).first().click();
+  await page.getByTitle('Load', { exact: true }).first().click();
+  await page.getByText('Import Ontology...').click();
+  await expect(page.locator('.rs-dialog-scrim').getByText('Import ontology')).toBeVisible();
+});

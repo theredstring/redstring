@@ -277,3 +277,38 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
     graphEdges: graphEdges
   };
 };
+
+/** What the wizard server accepts at /api/bridge/state (wizard-server.js: 20 MB), less a margin. */
+export const MAX_BRIDGE_STATE_BYTES = 19 * 1024 * 1024;
+
+/**
+ * Decides when the browser rebuilds and uploads the bridge state. Building it
+ * walks every web and Thing (about 1.4 s at 32,000 Things), and it used to run
+ * every 10 s whatever happened, so a big universe stalled the app on a timer.
+ *
+ *  - Nothing the payload reads has changed since the last upload: skip.
+ *  - The universe was too big to upload: skip until it shrinks well below the
+ *    size that failed (the server would refuse it again).
+ *  - Anything else: build and send. reset() forces the next one (reconnects).
+ */
+export function createBridgeSendGate({ maxBytes = MAX_BRIDGE_STATE_BYTES } = {}) {
+  let lastSent = null;   // the store references the last upload was built from
+  let tooLargeAt = null; // Things + webs when the payload last came out too big
+
+  const inputsOf = (state) => [state.graphs, state.nodePrototypes, state.edges, state.activeGraphId, state.openGraphIds, state.autoLayoutSettings];
+  const sizeOf = (state) => (state.nodePrototypes?.size || 0) + (state.graphs?.size || 0);
+
+  return {
+    maxBytes,
+    /** @returns {null|'unchanged'|'too-large'} why not to build now, or null to build */
+    skipReason(state) {
+      if (tooLargeAt !== null && sizeOf(state) > tooLargeAt * 0.8) return 'too-large';
+      if (lastSent && inputsOf(state).every((v, i) => v === lastSent[i])) return 'unchanged';
+      return null;
+    },
+    sent(state) { lastSent = inputsOf(state); tooLargeAt = null; },
+    tooLarge(state) { lastSent = null; tooLargeAt = sizeOf(state); },
+    failed() { lastSent = null; },
+    reset() { lastSent = null; tooLargeAt = null; },
+  };
+}

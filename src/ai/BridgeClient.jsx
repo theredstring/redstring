@@ -4,6 +4,7 @@ import { bridgeEventSource, bridgeFetch, resetBridgeBackoff } from '../services/
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 import {
   buildBridgeState,
+  createBridgeSendGate,
   buildGraphLayouts,
   buildGraphSummaries
 } from '../services/bridgeStateSerializer.js';
@@ -38,6 +39,9 @@ const BridgeClient = () => {
   // deployments never grow one mid-session, so there is nothing to reconnect
   // to — stop polling instead of retrying every few seconds forever.
   const bridgeUnavailableRef = useRef(false);
+  // When to rebuild and upload the store snapshot (see createBridgeSendGate).
+  const sendGateRef = useRef(null);
+  if (!sendGateRef.current) sendGateRef.current = createBridgeSendGate();
   // Track last telemetry timestamp sent to UI to avoid spam
   const lastTelemetryTsRef = useRef(0);
   // Track last user activity to throttle polling when idle
@@ -187,6 +191,8 @@ const BridgeClient = () => {
     // Listen for reconnection signal
     const handleReconnectEvent = () => {
       registerStoreActions();
+      // A reconnected server may have lost what it was sent.
+      sendGateRef.current.failed();
       sendStoreToServer();
 
       // Restart normal polling
@@ -408,9 +414,20 @@ const BridgeClient = () => {
           }
         } catch { }
 
+        // Skip the rebuild when nothing it reads has changed, or when this
+        // universe is too big for the server to take.
+        const skip = sendGateRef.current.skipReason(state);
+        if (skip) return;
+
         // Build the bridge-state payload from the shared serializer (same code
         // the Node daemon uses) so the shape stays identical everywhere.
         const bridgeData = buildBridgeState(state, { fileStatus });
+        const body = JSON.stringify(bridgeData);
+        if (body.length > sendGateRef.current.maxBytes) {
+          sendGateRef.current.tooLarge(state);
+          console.warn(`MCP Bridge: this universe is too large to share with the wizard (${Math.round(body.length / 1e6)} MB of state; the limit is ${Math.round(sendGateRef.current.maxBytes / 1e6)} MB). It will try again if the universe gets smaller.`);
+          return;
+        }
 
         // Send to server
         const response = await bridgeFetch('/api/bridge/state', {
@@ -418,7 +435,7 @@ const BridgeClient = () => {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(bridgeData)
+          body
         });
 
         if (response.status === 404) {
@@ -433,10 +450,17 @@ const BridgeClient = () => {
           console.log('ℹ️ MCP Bridge: No bridge on this deployment — bridge sync disabled for this session');
           return;
         }
+        if (response.status === 413) {
+          sendGateRef.current.tooLarge(state);
+          console.warn('MCP Bridge: the wizard server refused this universe as too large. It will try again if the universe gets smaller.');
+          return;
+        }
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+        sendGateRef.current.sent(state);
       } catch (error) {
+        sendGateRef.current.failed();
         // Provide more user-friendly error messages
         if (error.message.includes('bridge_unavailable_cooldown')) {
           const cooldownMatch = error.message.match(/(\d+)s remaining/);
@@ -463,6 +487,7 @@ const BridgeClient = () => {
     const initializeConnection = async () => {
       try {
         await registerStoreActions();
+        sendGateRef.current.failed();
         await sendStoreToServer();
 
         // Mark as connected on successful initialization
@@ -526,6 +551,7 @@ const BridgeClient = () => {
       quickRetries++;
       try {
         await registerStoreActions();
+        sendGateRef.current.failed();
         await sendStoreToServer();
         connectionStateRef.current.isConnected = true;
         connectionStateRef.current.lastSuccessfulConnection = Date.now();
