@@ -37,14 +37,19 @@ test('F43 an ontology slice imports into the open universe and opens its folder 
     const active = st.graphs.get(st.activeGraphId);
     const names = [...active.instances.values()].map((i) => st.nodePrototypes.get(i.prototypeId)?.name);
     const cat = [...st.nodePrototypes.values()].find((p) => p.semanticMetadata?.ontology?.iri === 'http://example.org/zoo/Cat');
-    return { size: st.nodePrototypes.size, activeName: active.name, names, catLinks: cat?.externalLinks, catWebs: cat?.definitionGraphIds?.length };
+    // Every connection drawn from Cat, in any web: what the panel's Universe connections list.
+    const catInstances = new Set();
+    for (const g of st.graphs.values()) for (const i of g.instances.values()) if (i.prototypeId === cat?.id) catInstances.add(i.id);
+    const fromCat = [...st.edges.values()].filter((e) => catInstances.has(e.sourceId)).map((e) => e.name).sort();
+    return { size: st.nodePrototypes.size, activeName: active.name, names, catLinks: cat?.externalLinks, catWebs: cat?.definitionGraphIds?.length, fromCat };
   });
   expect(after.size).toBeGreaterThan(before);
   expect(after.activeName).toBe('Zoo Ontology');
   expect(after.names).toEqual(['Cat']);
   expect(after.catLinks).toEqual(['http://example.org/zoo/Cat']);
-  // Its parts, and its kinds (Garfield, Kitten).
-  expect(after.catWebs).toBe(2);
+  // Its parts, its connections, and its kinds (Garfield, Kitten).
+  expect(after.catWebs).toBe(3);
+  expect(after.fromCat).toEqual(['Has Part', 'Has Part', 'Has Role']);
   await expect(page.locator('g.node').filter({ hasText: 'cat' }).first()).toBeVisible();
 });
 

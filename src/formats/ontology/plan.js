@@ -209,7 +209,7 @@ export function buildImportPlan(index, slice, options = {}) {
   };
 
   const relationTypes = new Map(); // property iri → { iri, id, name }
-  const useRelationType = (property) => {
+  const addRelationType = (property) => {
     if (!relationTypes.has(property)) {
       relationTypes.set(property, { iri: property, id: importIds.thing(property), name: relationLabel(property) });
     }
@@ -229,7 +229,7 @@ export function buildImportPlan(index, slice, options = {}) {
         // its own parts gets its own web. Neither is drawn here between parts.
         if (clue(rel.property)) continue;
         connections.push({ source: a, property: rel.property, target: rel.target });
-        useRelationType(rel.property);
+        addRelationType(rel.property);
       }
     }
     webs.push({
@@ -250,7 +250,7 @@ export function buildImportPlan(index, slice, options = {}) {
   for (const iri of sortedIris) {
     const rels = (index.terms.get(iri)?.relations || []).filter((rel) => drawable(iri, rel));
     if (rels.length === 0) continue;
-    for (const rel of rels) useRelationType(rel.property);
+    for (const rel of rels) addRelationType(rel.property);
     connectionsWebList.push({
       id: importIds.connectionsWeb(sourceKey, iri),
       kind: 'connections',

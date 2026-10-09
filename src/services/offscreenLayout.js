@@ -28,6 +28,12 @@ export function applyOffscreenLayout(graphId) {
  * store's layout and text settings still apply. One store update per web is
  * what made laying out thousands of small webs slow, and this makes none.
  *
+ * A web with connections is laid out by its shape ('pattern': star, tree,
+ * chain...) rather than by the 'best' search, which tries several layouts and
+ * repairs each: for an import's tens of thousands of webs that was a minute
+ * (full Mondo: 63 s against 3.4 s), and the webs an import draws are shapes
+ * the pattern layouts are made for, a Thing and its connections a star.
+ *
  * @param {Object} state - a deserialized universe state (Maps of graphs, prototypes, edges)
  * @param {string[]} graphIds - the webs to lay out
  * @param {Object} [options]
@@ -48,7 +54,7 @@ export async function layOutStateWebs(state, graphIds, { onProgress = null, yiel
   for (let i = 0; i < graphIds.length; i++) {
     const graph = state.graphs.get(graphIds[i]);
     try {
-      const updates = computeOffscreenLayout(graphIds[i], view);
+      const updates = computeOffscreenLayout(graphIds[i], view, graph?.edgeIds?.length ? { algorithm: 'pattern' } : {});
       if (updates && graph?.instances) {
         for (const { instanceId, x, y } of updates) {
           const instance = graph.instances.get(instanceId);
@@ -73,8 +79,10 @@ export async function layOutStateWebs(state, graphIds, { onProgress = null, yiel
  *
  * @param {string} graphId
  * @param {Object} st - store state, or a view of one (graphs, nodePrototypes, edges, settings)
+ * @param {Object} [options]
+ * @param {string} [options.algorithm] - in place of the user's layout setting
  */
-export function computeOffscreenLayout(graphId, st) {
+export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverride = null } = {}) {
   const graph = st.graphs.get(graphId);
   if (!graph) return null;
 
@@ -176,7 +184,7 @@ export function computeOffscreenLayout(graphId, st) {
   // Honor the user's chosen layout algorithm here too — otherwise definition
   // graphs built offscreen (AI generation, auto-created definitions) would
   // always come back force-directed regardless of the setting.
-  const algorithm = st.autoLayoutSettings?.groupLayoutAlgorithm || 'best';
+  const algorithm = algorithmOverride || st.autoLayoutSettings?.groupLayoutAlgorithm || 'best';
 
   let updates = applyLayout(layoutNodes, layoutEdges, algorithm, {
     width: 2000,

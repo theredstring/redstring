@@ -17,13 +17,19 @@ import { ACCEPTED_EXTENSIONS } from '../../formats/ontology/parseRdf.js';
 const LARGE_IMPORT = 20000;
 
 /**
- * Roughly what an import adds to the universe file: per Thing, and per Thing
- * placed in a web. Measured on all of Mondo (32,135 Things → 69 MB; its 46,736
- * placements in webs of kinds → 53 MB more) and ChEBI LITE (about 1.9 KB a Thing).
+ * Roughly what an import adds to the universe file, as the app writes it: per
+ * Thing, per Thing placed in a web, per web and per connection. Measured on
+ * Mondo Simple (32,134 Things, 122 MB) and full Mondo (58,815 Things, 47,282
+ * webs, 36,443 connections, 508 MB); rounded so the estimate errs high.
  */
-const BYTES_PER_THING = 2150;
-const BYTES_PER_PLACEMENT = 1150;
-const estimatedBytes = (report) => (report.things * BYTES_PER_THING) + ((report.placements || 0) * BYTES_PER_PLACEMENT);
+const BYTES_PER_THING = 2500;
+const BYTES_PER_PLACEMENT = 1250;
+const BYTES_PER_WEB = 1300;
+const BYTES_PER_CONNECTION = 1150;
+const estimatedBytes = (report) => (report.things * BYTES_PER_THING)
+  + ((report.placements || 0) * BYTES_PER_PLACEMENT)
+  + (((report.compositionWebs || 0) + (report.connectionsWebs || 0) + (report.kindsWebs || 0) + 1) * BYTES_PER_WEB)
+  + ((report.connections || 0) * BYTES_PER_CONNECTION);
 
 const DEPTHS = [
   { label: 'Just these', value: 0 },
