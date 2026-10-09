@@ -1441,14 +1441,15 @@ const Panel = memo(
     // same maroon context menu used for right-clicks elsewhere in the app.
     const leftTabDefs = useMemo(() => {
       if (side !== 'left') return [];
+      // Strip order, left to right; the overflow menu lists them in the same order.
       const defs = [];
+      defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
       if (ENABLE_ALL_THINGS_TAB) defs.push({ key: 'all', title: 'All Things', Icon: LayoutGrid });
       defs.push({ key: 'library', title: 'Saved Things', Icon: Bookmark });
       defs.push({ key: 'grid', title: 'Open Webs', Icon: BookOpen });
-      defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
       defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: TextSearch });
-      if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       defs.push({ key: 'history', title: 'Action History', Icon: History });
+      if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       return defs;
     }, [side, enableWizard]);
 

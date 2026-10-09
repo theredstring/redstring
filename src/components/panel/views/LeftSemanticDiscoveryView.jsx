@@ -5,6 +5,7 @@ import { showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { usePanelCardTokens } from '../../shared/PanelCard.jsx';
 import DraggableConceptCard from '../items/DraggableConceptCard.jsx';
 import GhostSemanticNode from '../items/GhostSemanticNode.jsx';
+import WebSeedCard from '../items/WebSeedCard.jsx';
 import ConceptDetailView from './ConceptDetailView.jsx';
 import { enhancedSemanticSearch } from '../../../services/semanticWebQuery.js';
 import { knowledgeFederation } from '../../../services/knowledgeFederation.js';
@@ -750,6 +751,42 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       : null
   ));
   const selectedNode = selectedPrototypeId ? { prototypeId: selectedPrototypeId } : null;
+
+  // The Things on the active web, once each, in the order they were placed.
+  // Before a search has anything to show, Discover lists these as its starting
+  // points. The instances Map is read as-is and the list built here, so the
+  // selector hands back a stable reference and only a change to the web
+  // recomputes it.
+  const activeWebInstances = useGraphStore(s => s.graphs.get(s.activeGraphId)?.instances);
+  const activeWebPrototypes = useMemo(() => {
+    if (!activeWebInstances) return [];
+    const seen = new Set();
+    const list = [];
+    for (const instance of activeWebInstances.values()) {
+      const proto = nodePrototypesMap?.get(instance.prototypeId);
+      if (!proto?.name || seen.has(proto.id)) continue;
+      seen.add(proto.id);
+      list.push(proto);
+    }
+    return list;
+  }, [activeWebInstances, nodePrototypesMap]);
+
+  // Back to the empty Discover list. Dropping the token orphans any search
+  // still in flight, so its results never land after the clear.
+  const clearSearch = () => {
+    latestSearchTokenRef.current = null;
+    setDiscoveredConcepts([]);
+    setSelectedConcept(null);
+    setManualQuery('');
+    setIsSearching(false);
+    setSearchProgress('');
+    setCanLoadMore(true);
+  };
+
+  const searchFromWeb = (name) => {
+    setManualQuery(name);
+    performSearch(name);
+  };
 
   // Search for concepts using current context
   const handleConceptSearch = async () => {
@@ -1613,6 +1650,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       so two short names sit side by side and a long one takes the
                       row to itself. */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                    {/* With nothing selected the open web leads, leftmost.
+                        With a selection it goes back after the panel's Thing. */}
+                    {!selectedNode && contexts.graph && (
+                      <QuickSearchChip
+                        color={contexts.graph.nodeData?.color || '#4B0082'}
+                        label={contexts.graph.nodeName}
+                        busy={isSearching}
+                        title="Quick search from Graph context"
+                        onClick={() => performSearch(contexts.graph.nodeName)}
+                      />
+                    )}
+
                     {contexts.panel && (
                       <QuickSearchChip
                         color={contexts.panel.nodeData?.color || theme.accent.primary}
@@ -1628,7 +1677,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       />
                     )}
 
-                    {contexts.graph && (
+                    {selectedNode && contexts.graph && (
                       <QuickSearchChip
                         color={contexts.graph.nodeData?.color || '#4B0082'}
                         label={contexts.graph.nodeName}
@@ -1733,8 +1782,17 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
               {/* Concept Results - Regular Search */}
               {discoveredConcepts.length > 0 && !semanticExpansionResults.length && (
                 <div className="discovered-concepts">
-                  <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
-                    Discovered Concepts ({discoveredConcepts.length})
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                      Discovered Concepts ({discoveredConcepts.length})
+                    </div>
+                    <PanelIconButton
+                      icon={X}
+                      size={14}
+                      onClick={clearSearch}
+                      title="Clear search"
+                      style={{ flexShrink: 0 }}
+                    />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
                     {discoveredConcepts.map((concept, index) => (
@@ -1767,6 +1825,25 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                       />
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Nothing to show yet: the active web's own Things, as starting points */}
+              {!isSearching && discoveredConcepts.length === 0 && !semanticExpansionResults.length && activeWebPrototypes.length > 0 && (
+                <div className="web-seed-concepts">
+                  <div style={{ marginBottom: '12px', fontSize: '12px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", fontWeight: 'bold' }}>
+                    On This Web ({activeWebPrototypes.length})
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '8px' }}>
+                    {activeWebPrototypes.map((proto, index) => (
+                      <WebSeedCard
+                        key={proto.id}
+                        prototype={proto}
+                        index={index}
+                        onSearch={searchFromWeb}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
 
