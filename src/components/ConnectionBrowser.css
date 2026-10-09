@@ -18,8 +18,8 @@
   color: #666;
   font-family: 'EmOne', sans-serif;
   font-size: 12px;
-  justify-content: center;
-  text-align: center;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 /* Loading States */

@@ -552,10 +552,16 @@ export function animateCanvasViewWith(ctx, targetPan, targetZoom, durationMs = 3
   if (carouselViewAnimRef.current) cancelAnimationFrame(carouselViewAnimRef.current);
   const startPan = { ...panOffsetRef.current };
   const startZoom = zoomLevelRef.current;
-  const startTime = performance.now();
+  // The clock starts at the first frame drawn, set back by one frame, not when
+  // the animation is asked for: rAF's timestamp can be earlier than a
+  // performance.now() taken in a long task, and a negative t through the ease
+  // overshoots the camera backwards for a frame (see useNodeDrag's
+  // DRAG_ZOOM_FIRST_FRAME_MS).
+  let startTime = null;
   isAnimatingZoomRef.current = true;
   const ease = (t) => 1 - Math.pow(1 - t, 3);
   const step = (now) => {
+    if (startTime === null) startTime = now - 1000 / 60;
     const t = Math.min(1, (now - startTime) / durationMs);
     const e = ease(t);
     const pan = {

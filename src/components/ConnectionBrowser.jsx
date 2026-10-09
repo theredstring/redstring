@@ -6,6 +6,7 @@ import PanelIconButton from './shared/PanelIconButton.jsx';
 import { showContextMenuForElement } from './GlobalContextMenu.jsx';
 import TripletPreview from './connections/TripletPreview.jsx';
 import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
+import useSemanticConnections from '../hooks/useSemanticConnections.js';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './connections/CompactConnectionRow.jsx';
 import './ConnectionBrowser.css';
 
@@ -75,9 +76,11 @@ const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth, 
  */
 const ConnectionBrowser = ({ nodeData }) => {
   const theme = useTheme();
-  const [connectionScope, setConnectionScope] = useState('graph'); // 'graph' | 'universe' | 'semantic'
-  const activeScope = CONNECTION_SCOPES.find(s => s.value === connectionScope) || CONNECTION_SCOPES[0];
+  // The scope the user picked for this Thing; until they pick, it's chosen for them.
+  const [pickedScope, setPickedScope] = useState(null); // 'graph' | 'universe' | 'semantic'
   const [nativeConnections, setNativeConnections] = useState([]);
+  // Which Thing nativeConnections were loaded for, so a stale list never picks the scope.
+  const [nativeForId, setNativeForId] = useState(null);
   const [containerWidth, setContainerWidth] = useState(400); // Default width
   const connectionListRef = useRef(null);
 
@@ -260,11 +263,32 @@ const ConnectionBrowser = ({ nodeData }) => {
       }
 
       setNativeConnections(connections);
+      setNativeForId(nodeData.id);
       console.log(`[ConnectionBrowser] Loaded ${connections.length} native connections for node ${nodeData.name}`);
     };
 
     loadNativeConnections();
   }, [nodeData?.id, connectionStructureHash, nodePrototypes, activeGraphId]);
+
+  // A new Thing starts unpicked.
+  useEffect(() => { setPickedScope(null); }, [nodeData?.id]);
+
+  // Until the user picks: In Graph if it has any, else Universe, else the
+  // semantic web if it has any, else back to In Graph. The semantic web is only
+  // asked when this Thing has no connections of its own; its answer is cached,
+  // so the list it switches to doesn't ask again.
+  const nativeLoaded = nativeForId === nodeData?.id;
+  const graphCount = nativeConnections.filter(conn => conn.inCurrentGraph).length;
+  const hasNative = nativeConnections.length > 0;
+  const semanticProbe = useSemanticConnections(
+    !pickedScope && nativeLoaded && !hasNative ? nodeData : null
+  );
+  const autoScope = !nativeLoaded || graphCount > 0 ? 'graph'
+    : hasNative ? 'universe'
+      : semanticProbe.status === 'ready' && semanticProbe.connections.length > 0 ? 'semantic'
+        : 'graph';
+  const connectionScope = pickedScope || autoScope;
+  const activeScope = CONNECTION_SCOPES.find(s => s.value === connectionScope) || CONNECTION_SCOPES[0];
 
   // Which of this Thing's own connections the scope shows.
   const filteredConnections = useMemo(() => (
@@ -311,7 +335,7 @@ const ConnectionBrowser = ({ nodeData }) => {
             label: opt.label,
             icon: <opt.Icon size={14} />,
             active: connectionScope === opt.value,
-            action: () => setConnectionScope(opt.value),
+            action: () => setPickedScope(opt.value),
           })))}
         />
         {connectionScope !== 'semantic' && (

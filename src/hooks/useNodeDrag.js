@@ -28,6 +28,16 @@ import { haptic } from '../services/haptics.js';
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
 const DRAG_ZOOM_ANIMATION_DURATION = 250; // ms
+// The drag-zoom clock starts at the first frame the animation draws, set back
+// by one frame so that frame already moves. Stamping it when the animation is
+// asked for instead breaks on a big web: the lift or drop that asks runs long
+// inside a frame, rAF then hands the first step that frame's (earlier) start
+// time, elapsed comes out negative, and easeOutCubic turns a negative progress
+// into a large overshoot backwards. On a 500 MB universe the drop's first frame
+// painted the web at zoom -0.29, a one-frame flicker of a tiny mirrored web.
+// Starting at the first frame also keeps a lift that stalled before its first
+// frame from jumping most of the way out in one step.
+const DRAG_ZOOM_FIRST_FRAME_MS = 1000 / 60;
 // Additive zoom-out floor — keeps the drag-zoom feeling substantial when
 // already zoomed out. Pure multiplicative shrinkage approaches DRAG_ZOOM_MIN
 // asymptotically, so each drag at low zoom does almost nothing. The additive
@@ -2133,7 +2143,7 @@ export const useNodeDrag = ({
 
     zoomAnimationRef.current = {
       active: true,
-      startTime: performance.now(),
+      startTime: null, // set by the first step; see DRAG_ZOOM_FIRST_FRAME_MS
       startZoom,
       targetZoom,
       startPan,
@@ -2148,6 +2158,7 @@ export const useNodeDrag = ({
       const state = zoomAnimationRef.current;
       if (!state.active) return;
 
+      if (state.startTime === null) state.startTime = now - DRAG_ZOOM_FIRST_FRAME_MS;
       const elapsed = now - state.startTime;
       const progress = Math.min(1, elapsed / DRAG_ZOOM_ANIMATION_DURATION);
       const t = 1 - Math.pow(1 - progress, 3); // easeOutCubic
@@ -2200,7 +2211,7 @@ export const useNodeDrag = ({
 
     zoomAnimationRef.current = {
       active: true,
-      startTime: performance.now(),
+      startTime: null, // set by the first step; see DRAG_ZOOM_FIRST_FRAME_MS
       startZoom,
       targetZoom,
       startPan,
@@ -2214,6 +2225,7 @@ export const useNodeDrag = ({
       const state = zoomAnimationRef.current;
       if (!state.active) return;
 
+      if (state.startTime === null) state.startTime = now - DRAG_ZOOM_FIRST_FRAME_MS;
       const elapsed = now - state.startTime;
       const progress = Math.min(1, elapsed / DRAG_ZOOM_ANIMATION_DURATION);
       const t = 1 - Math.pow(1 - progress, 3); // easeOutCubic

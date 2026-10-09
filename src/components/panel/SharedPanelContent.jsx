@@ -1868,7 +1868,7 @@ const SharedPanelContent = ({
       {/* Connections Section - Native Redstring connections */}
       <CollapsibleSection
         title="Connections"
-        defaultExpanded={false}
+        defaultExpanded={true}
       >
         <ConnectionBrowser
           nodeData={nodeData}
@@ -1885,7 +1885,7 @@ const SharedPanelContent = ({
           Those moved to About; what's left is genuinely semantic-web work. */}
       <CollapsibleSection
         title="Semantic Web"
-        defaultExpanded={false}
+        defaultExpanded={true}
       >
         <SemanticEditor
           nodeData={nodeData}
