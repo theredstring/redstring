@@ -667,6 +667,7 @@ async function main() {
         things: report.things,
         webs: report.compositionWebs + 1,
         connections: report.connections,
+        relationTypes: report.relationTypes,
         relationsKeptAsData: report.relationsKeptAsData,
         ...(report.ambiguousRoots.length ? { ambiguousRoots: report.ambiguousRoots } : {}),
       };

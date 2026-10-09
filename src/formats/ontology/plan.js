@@ -59,7 +59,6 @@ const titleCase = (str) => String(str || '')
   .replace(/([a-z])([A-Z])/g, '$1 $2')
   .replace(/\S+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1));
 
-const isHttpIri = (iri) => /^https?:\/\//i.test(String(iri));
 
 /**
  * Longest distance from the top of the slice for each term, where the top is a

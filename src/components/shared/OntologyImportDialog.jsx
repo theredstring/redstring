@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Library, FileInput, X } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import Dialog, { DialogButton, DialogCard, DialogCheckbox, DialogInput, DialogNote, DialogOption } from './Dialog.jsx';
@@ -308,11 +308,11 @@ export function OntologyImportDialog({ onClose, save }) {
           )}
           {preview?.things > LARGE_IMPORT && (
             <DialogNote>
-              That's a large import. The universe file grows with it, and saving slows down.
+              {"That's a large import. The universe file grows with it, and saving slows down."}
             </DialogNote>
           )}
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
-            Added to this universe; nothing here is removed. Undo can't take an import back, so the universe is saved first.
+            {"Added to this universe; nothing here is removed. Undo can't take an import back, so the universe is saved first."}
           </div>
         </>
       )}

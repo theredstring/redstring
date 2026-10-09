@@ -63,7 +63,7 @@ export function detectFormat(filename, sample = '') {
   const ext = String(filename || '').toLowerCase().replace(/\.gz$/, '').split('.').pop();
   if (ext && EXTENSION_FORMATS[ext]) return EXTENSION_FORMATS[ext];
 
-  const head = String(sample || '').replace(/^﻿/, '').trimStart();
+  const head = String(sample || '').replace(/^\uFEFF/, '').trimStart();
   if (ext === 'json' || head.startsWith('{') || head.startsWith('[')) {
     if (/"@context"|"@id"|"@graph"/.test(head)) return FORMATS.JSONLD;
     if (/"graphs"\s*:/.test(head)) return FORMATS.OBOGRAPHS;

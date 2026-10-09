@@ -309,6 +309,20 @@ export class OntologyIndexBuilder {
     // annotation property pointing at an IRI is metadata, not a relation.
     const isRelationPredicate = (p) => !annotationProperties.has(p);
 
+    // Being declared is enough to be a term: a class with no label and nothing
+    // named above it is still a class. So is anything typed by one of the
+    // ontology's own classes (an individual).
+    for (const [iri, types] of this.subjectTypes) {
+      if (!isTermIri(iri) || this.terms.has(iri)) continue;
+      for (const type of types) {
+        if (V.TERM_TYPES.has(type) || (!V.isSchemaIri(type) && !V.PROPERTY_TYPES.has(type)
+          && type !== V.SKOS_CONCEPT_SCHEME && type !== V.OWL_ONTOLOGY)) {
+          this.term(iri);
+          break;
+        }
+      }
+    }
+
     const terms = new Map();
     for (const [iri, t] of this.terms) {
       if (!isTermIri(iri)) continue;

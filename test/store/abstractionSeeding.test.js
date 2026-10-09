@@ -157,4 +157,25 @@ describe('orphan sweep', () => {
     useGraphStore.getState().cleanupOrphanedData();
     expect(useGraphStore.getState().nodePrototypes.has('automaker')).toBe(true);
   });
+
+  it('keeps a kept rung\'s own web, not just the rung', () => {
+    // A rung is kept by the ladder pass, which runs after the webs to keep were
+    // listed. Its web has to be kept with it, or the Thing survives with a
+    // definition pointing at nothing.
+    addProto('ford');
+    addProto('automaker', { definitionGraphIds: ['automaker-web'] });
+    useGraphStore.setState((s) => {
+      const graphs = new Map(s.graphs);
+      graphs.set('automaker-web', {
+        id: 'automaker-web', name: 'automaker', description: '', instances: new Map(),
+        groups: new Map(), edgeIds: [], definingNodeIds: ['automaker'],
+      });
+      return { graphs };
+    });
+    useGraphStore.getState().addToAbstractionChain('ford', DIM, 'below', 'automaker', 'ford');
+    useGraphStore.setState({ savedNodeIds: new Set(['ford']), rightPanelTabs: [], openGraphIds: [] });
+    useGraphStore.getState().cleanupOrphanedData();
+    expect(useGraphStore.getState().nodePrototypes.has('automaker')).toBe(true);
+    expect(useGraphStore.getState().graphs.has('automaker-web')).toBe(true);
+  });
 });

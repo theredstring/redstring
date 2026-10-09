@@ -14,6 +14,7 @@ import {
   seededChainFor,
   isSeededChain,
   resolveChain,
+  typeLadderFor,
   THING_PROTOTYPE_ID
 } from './abstractionSpec.js';
 
@@ -288,5 +289,65 @@ describe('resolveChain', () => {
     const r = resolveChain(THING_PROTOTYPE_ID, DIM, protos);
     expect(r.ownerId).toBe(THING_PROTOTYPE_ID);
     expect(r.virtual).toBe(true);
+  });
+});
+
+describe('typeLadderFor — the ladder linked types make', () => {
+  const lookupOf = (protos) => {
+    const byId = new Map(protos.map((p) => [p.id, p]));
+    return (id) => byId.get(id);
+  };
+
+  it('follows each type up to Thing: Garfield → Cat → Mammal → Thing', () => {
+    const lookup = lookupOf([
+      { id: 'garfield', typeNodeId: 'cat' },
+      { id: 'cat', typeNodeId: 'mammal' },
+      { id: 'mammal', typeNodeId: THING_PROTOTYPE_ID },
+    ]);
+    expect(typeLadderFor('garfield', lookup)).toEqual(['garfield', 'cat', 'mammal', THING_PROTOTYPE_ID]);
+  });
+
+  it('treats an untyped node as a Thing', () => {
+    expect(typeLadderFor('x', lookupOf([{ id: 'x', typeNodeId: null }]))).toEqual(['x', THING_PROTOTYPE_ID]);
+  });
+
+  it('keeps a type it cannot look up as the last rung before Thing', () => {
+    expect(typeLadderFor('bakery', lookupOf([{ id: 'bakery', typeNodeId: 'company' }])))
+      .toEqual(['bakery', 'company', THING_PROTOTYPE_ID]);
+  });
+
+  it('stops at a loop instead of walking forever', () => {
+    const lookup = lookupOf([
+      { id: 'a', typeNodeId: 'b' },
+      { id: 'b', typeNodeId: 'a' },
+    ]);
+    expect(typeLadderFor('a', lookup)).toEqual(['a', 'b', THING_PROTOTYPE_ID]);
+  });
+
+  it('gives the two roots no ladder', () => {
+    expect(typeLadderFor(THING_PROTOTYPE_ID, () => undefined)).toBe(null);
+  });
+
+  it('is what resolveChain shows for a seeded or unstored chain on the default axis', () => {
+    const DIM = 'Generalization Axis';
+    const protos = [
+      { id: 'garfield', typeNodeId: 'cat', abstractionChains: { [DIM]: ['garfield', 'cat', THING_PROTOTYPE_ID] } },
+      { id: 'cat', typeNodeId: 'mammal' },
+      { id: 'mammal', typeNodeId: null },
+    ];
+    const seeded = resolveChain('garfield', DIM, protos);
+    expect(seeded.chain).toEqual(['garfield', 'cat', 'mammal', THING_PROTOTYPE_ID]);
+    expect(seeded).toMatchObject({ ownerId: 'garfield', seeded: true, virtual: false });
+    expect(resolveChain('cat', DIM, protos)).toMatchObject({ chain: ['cat', 'mammal', THING_PROTOTYPE_ID], virtual: true });
+  });
+
+  it('leaves a hand-built ladder, and other axes, exactly as stored', () => {
+    const DIM = 'Generalization Axis';
+    const protos = [
+      { id: 'ford', typeNodeId: 'company', abstractionChains: { [DIM]: ['ford', 'automaker'], Size: ['ford', 'big'] } },
+      { id: 'company', typeNodeId: 'organization' },
+    ];
+    expect(resolveChain('ford', DIM, protos).chain).toEqual(['ford', 'automaker']);
+    expect(resolveChain('ford', 'Size', protos).chain).toEqual(['ford', 'big']);
   });
 });
