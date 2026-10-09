@@ -355,6 +355,9 @@ export const useNodeDrag = ({
   // the edge-pan loop. NodeCanvas reads it via the exposed ref to gate the
   // drag-end block in handleMouseUp.
   const dragPhaseRef = useRef('idle');
+  // performance.now() of the last drop. The touch path reads it to ignore a
+  // tap-select that lands right after a release (finger re-contact on lift).
+  const lastDragEndAtRef = useRef(0);
 
   const zoomAnimationRef = useRef({
     active: false,
@@ -2832,6 +2835,7 @@ export const useNodeDrag = ({
       return { draggedNodeIds: [], primaryNodeId: null, checkGroupDrop: false, wasGroupDrag: false };
     }
     dragPhaseRef.current = 'finalizing';
+    lastDragEndAtRef.current = performance.now();
     // Past the re-entry guard and the no-info bail, so this fires exactly once
     // per real release, on the same tick the drop animation starts settling.
     haptic('nodeDrop');
@@ -3204,6 +3208,7 @@ export const useNodeDrag = ({
     dragOwnedEdgeIds,
     draggingNodeInfoRef,
     dragPhaseRef,
+    lastDragEndAtRef,
     isAnimatingZoomRef,
     longPressingInstanceIdRef,
     setLongPressingInstanceId,

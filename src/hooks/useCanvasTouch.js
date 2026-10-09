@@ -28,6 +28,9 @@ const LONG_PRESS_DURATION = 450;
 // and is the floor for how responsive selection can feel while a double-tap
 // gesture still has to be recognized.
 const NODE_DOUBLE_TAP_MS = 250;
+// A node tap this soon after a drag drop doesn't select. Lifting a dragged
+// node often brushes the screen a second time, which otherwise reads as a tap.
+const NODE_TAP_AFTER_DRAG_MS = 300;
 // Release-velocity sampling for the pinch glide (mirrors the pan glide's
 // window approach). Velocity is measured on the RAW finger-driven target zoom,
 // not the eased/applied zoom — the applied zoom lags the fingers and keeps
@@ -63,7 +66,7 @@ export const useCanvasTouch = ({
     const { stopPanMomentum, isViewMoving, startZoomMomentum, stopZoomMomentum } = camera;
     const { handleMouseMove, handleMouseUp, handleMouseDown } = pointer;
     const {
-        startDragForNode, draggingNodeInfo, draggingNodeInfoRef, isAnimatingZoomRef,
+        startDragForNode, draggingNodeInfo, draggingNodeInfoRef, lastDragEndAtRef, isAnimatingZoomRef,
     } = nodeDrag;
     const {
         isPanningOrZooming, panSourceRef, panVelocityHistoryRef, isMouseDown, mouseMoved, startedOnNode,
@@ -1176,6 +1179,12 @@ export const useCanvasTouch = ({
         // latency — see services/haptics.js.
         haptic('nodeTouch');
 
+        // pointerdown and touchstart both run this handler for one finger;
+        // clear the first run's long-press timer before its handle is lost.
+        if (touchState.current.longPressTimer) {
+            clearTimeout(touchState.current.longPressTimer);
+        }
+
         // Initialize touch state (drag can also start via long-press fallback)
         touchState.current = {
             isDragging: false,
@@ -1527,7 +1536,8 @@ export const useCanvasTouch = ({
         // multiTouchGestureRef: a finger that started on a node and became half
         // of a pinch can end with near-zero movement — that lift is pinch-end,
         // not a tap, and must not toggle the node's selection.
-        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && !multiTouchGestureRef.current && touchState.current.dragNodeId === nodeData.id) {
+        const justDropped = performance.now() - (lastDragEndAtRef?.current || 0) < NODE_TAP_AFTER_DRAG_MS;
+        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && !multiTouchGestureRef.current && !justDropped && touchState.current.dragNodeId === nodeData.id) {
             // This was a tap, not a drag
             // Light haptic feedback for tap completion
             haptic('nodeTap');
