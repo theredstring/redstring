@@ -26,6 +26,61 @@ import { exportToRedstring } from '../formats/redstringFormat.js';
 import { isElectron, pickSaveLocation, writeFile } from '../utils/fileAccessAdapter.js';
 import { isCapacitor } from '../utils/capacitorAdapter.js';
 import { createFileInWorkspace } from './workspaceFolderService.js';
+import { GIT_WRITE_CAP_BYTES } from './gitSyncEngine.js';
+
+/**
+ * Roughly what Things, placements, webs and connections cost in a universe
+ * file. A universe this large is written compact (formats/universeBytes.js);
+ * measured on Mondo Simple (32,134 Things, 122 MB) and full Mondo (58,815
+ * Things, 47,282 webs, 36,443 connections, 346 MB), within about 5% of both.
+ */
+const BYTES_PER_THING = 2000;
+const BYTES_PER_PLACEMENT = 950;
+const BYTES_PER_WEB = 950;
+const BYTES_PER_CONNECTION = 850;
+
+/** About how much an import adds to the universe file, from a preview report. */
+export const estimateImportBytes = (report) => (report.things * BYTES_PER_THING)
+  + ((report.placements || 0) * BYTES_PER_PLACEMENT)
+  + (((report.compositionWebs || 0) + (report.connectionsWebs || 0) + (report.kindsWebs || 0) + 1) * BYTES_PER_WEB)
+  + ((report.connections || 0) * BYTES_PER_CONNECTION);
+
+/** About how large a universe's file is, from what's in the store. */
+export function estimateUniverseBytes(state) {
+  let placements = 0;
+  for (const graph of state?.graphs?.values?.() || []) placements += graph?.instances?.size || 0;
+  return ((state?.nodePrototypes?.size || 0) * BYTES_PER_THING)
+    + (placements * BYTES_PER_PLACEMENT)
+    + ((state?.graphs?.size || 0) * BYTES_PER_WEB)
+    + ((state?.edges?.size || 0) * BYTES_PER_CONNECTION);
+}
+
+/**
+ * Whether an import fits a universe synced to GitHub, which carries files up
+ * to GIT_WRITE_CAP_BYTES. Only a universe linked to a repository has a limit.
+ *
+ *  - 'refuse': the import alone is over the limit. No universe synced to
+ *    GitHub can hold it.
+ *  - 'block': the universe would go over, and it has no file on this device
+ *    to keep the rest (kept only in the repository). Import into a new
+ *    universe instead.
+ *  - 'warn': the universe would go over; its file keeps everything and GitHub
+ *    sync pauses until it's smaller again.
+ *  - 'ok': under the limit, or not synced to GitHub.
+ *
+ * @param {Object} target - { gitLinked, hasLocalFile, heldBytes } for the universe imported into
+ * @param {number} currentBytes - about how large that universe is now
+ * @param {number} importBytes - about how much the import adds
+ * @returns {{ verdict: string, totalBytes: number, importBytes: number, limit: number }}
+ */
+export function githubFit(target, currentBytes, importBytes, limit = GIT_WRITE_CAP_BYTES) {
+  const totalBytes = Math.max(currentBytes, target?.heldBytes || 0) + importBytes;
+  const result = (verdict) => ({ verdict, totalBytes, importBytes, limit });
+  if (!target?.gitLinked) return result('ok');
+  if (importBytes > limit) return result('refuse');
+  if (totalBytes > limit) return result(target.hasLocalFile ? 'warn' : 'block');
+  return result('ok');
+}
 
 const canUseWorker = () => typeof window !== 'undefined' && typeof Worker === 'function';
 

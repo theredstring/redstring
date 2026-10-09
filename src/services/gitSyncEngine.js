@@ -73,6 +73,14 @@ class GitSyncEngine {
     // Set when a commit was refused for size: { bytes, items } of that
     // universe, so later changes can be estimated without building the file.
     this.tooLargeToSync = null;
+    // The repository is holding an older copy than this device: called with
+    // { bytes } when a commit is refused for size, and with null once a commit
+    // lands again. The backend remembers it, so the next load doesn't take the
+    // repository's older copy over this device's.
+    this.onSyncHeld = null;
+    // Called with each state this engine won't send because it's too large,
+    // so a universe kept only in the repository can keep it somewhere.
+    this.onHeldState = null;
 
     // Rate limiting and debouncing - aggressive but safe for GitHub API
     this.minCommitInterval = this.isGitHubApp ? 2000 : 3000; // Min 2-3s between commits
@@ -342,11 +350,17 @@ class GitSyncEngine {
     const bytes = serializeRedstring(redstringData);
     if (bytes.length > GIT_WRITE_CAP_BYTES) {
       this.tooLargeToSync = { bytes: bytes.length, items: this._itemsOf(storeState) };
+      this._report(this.onSyncHeld, { bytes: bytes.length });
       throw this._tooLargeError(bytes.length);
     }
     this.tooLargeToSync = null;
     // Under the cap, so safe to hold as text for the provider.
     return new TextDecoder().decode(bytes);
+  }
+
+  /** Call a listener the backend set, never letting it break a commit. */
+  _report(listener, value) {
+    try { listener?.(value); } catch (error) { console.warn('[GitSyncEngine] Listener failed:', error); }
   }
 
   /** Things plus webs: what a universe file's size follows. */
@@ -717,8 +731,10 @@ class GitSyncEngine {
     }
 
     // Too large to sync: don't fingerprint or queue it (both mean holding
-    // the whole universe as text on the main thread).
+    // the whole universe as text on the main thread). Hand it to whoever keeps
+    // it on this device instead.
     if (this._stillTooLarge(storeState)) {
+      this._report(this.onHeldState, storeState);
       return;
     }
 
@@ -1287,6 +1303,7 @@ class GitSyncEngine {
       this.pendingCommits = [];
       this.lastCommitTime = now;
       this._persistFloor();
+      this._report(this.onSyncHeld, null);
 
       vlog(`[GitSyncEngine] Successfully committed changes to Git repository (${commitCount} updates batched)`);
       this.notifyStatus('success', `Committed ${commitCount} update${commitCount === 1 ? '' : 's'} to Git`);
@@ -1515,6 +1532,7 @@ class GitSyncEngine {
       this.pendingCommits = []; // Clear pending commits
       this.lastCommitTime = now; // Use original timestamp for rate limiting
       this._persistFloor();
+      this._report(this.onSyncHeld, null);
 
       // Reset error tracking on successful commit
       this.consecutiveErrors = 0;

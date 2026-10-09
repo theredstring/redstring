@@ -346,7 +346,7 @@ const RedstringMenu = ({
                           style={{ cursor: 'pointer' }}
                         >
                           <Library size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
-                          Import Ontology...
+                          Import Ontology
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('Export') ? 'active-submenu-parent' : ''}`}

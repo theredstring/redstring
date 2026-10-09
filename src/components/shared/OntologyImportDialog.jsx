@@ -4,7 +4,9 @@ import { useTheme } from '../../hooks/useTheme.js';
 import Dialog, { DialogButton, DialogCard, DialogCheckbox, DialogInput, DialogNote, DialogOption } from './Dialog.jsx';
 import {
   createOntologyImportSession, applyOntologyImport, openImportedFolder, prepareNewUniverseFile, importIntoNewUniverse,
+  estimateImportBytes, estimateUniverseBytes, githubFit,
 } from '../../services/ontologyImport.js';
+import useGraphStore from '../../store/graphStore.js';
 import { ACCEPTED_EXTENSIONS } from '../../formats/ontology/parseRdf.js';
 
 /**
@@ -19,21 +21,7 @@ import { ACCEPTED_EXTENSIONS } from '../../formats/ontology/parseRdf.js';
 
 const LARGE_IMPORT = 20000;
 
-/**
- * Roughly what an import adds to the universe file: per Thing, per Thing placed
- * in a web, per web and per connection. A universe this large is written
- * compact (formats/universeBytes.js); measured on Mondo Simple (32,134 Things,
- * 122 MB) and full Mondo (58,815 Things, 47,282 webs, 36,443 connections,
- * 346 MB), within about 5% of both.
- */
-const BYTES_PER_THING = 2000;
-const BYTES_PER_PLACEMENT = 950;
-const BYTES_PER_WEB = 950;
-const BYTES_PER_CONNECTION = 850;
-const estimatedBytes = (report) => (report.things * BYTES_PER_THING)
-  + ((report.placements || 0) * BYTES_PER_PLACEMENT)
-  + (((report.compositionWebs || 0) + (report.connectionsWebs || 0) + (report.kindsWebs || 0) + 1) * BYTES_PER_WEB)
-  + ((report.connections || 0) * BYTES_PER_CONNECTION);
+const mb = (bytes) => fmt(Math.max(1, Math.round(bytes / (1024 * 1024))));
 
 const DEPTHS = [
   { label: 'Just these', value: 0 },
@@ -87,7 +75,13 @@ const Spinner = ({ text }) => {
 
 const baseName = (name) => String(name || '').replace(/\.(gz)$/i, '').replace(/\.[^.]+$/, '').trim();
 
-export function OntologyImportDialog({ onClose, save, currentUniverseName = null, initialDestination = 'current' }) {
+/**
+ * @param {Object|null|false} currentUniverse - the open universe as
+ *   { name, gitLinked, hasLocalFile, heldBytes }; null while it's looked up,
+ *   false when none is open
+ */
+export function OntologyImportDialog({ onClose, save, currentUniverse = null, initialDestination = 'current' }) {
+  const currentUniverseName = currentUniverse ? currentUniverse.name : currentUniverse;
   const theme = useTheme();
   const sessionRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -179,6 +173,14 @@ export function OntologyImportDialog({ onClose, save, currentUniverseName = null
     return () => { live = false; clearTimeout(t); };
   }, [options, phase]);
 
+  // GitHub carries files up to 50 MB: whether this import fits the universe
+  // it's going into (services/ontologyImport.js githubFit).
+  const fit = useMemo(() => {
+    if (destination !== 'current' || !currentUniverse || !preview || preview.error || !preview.things) return null;
+    return githubFit(currentUniverse, estimateUniverseBytes(useGraphStore.getState()), estimateImportBytes(preview));
+  }, [destination, currentUniverse, preview]);
+  const fitStops = fit?.verdict === 'refuse' || fit?.verdict === 'block';
+
   const runImport = async () => {
     const intoNew = destination === 'new';
     const name = newName.trim();
@@ -229,7 +231,7 @@ export function OntologyImportDialog({ onClose, save, currentUniverseName = null
             label={thingCount ? `Import ${fmt(thingCount)} ${thingCount === 1 ? 'thing' : 'things'}` : 'Import'}
             tone="accent"
             icon={Library}
-            disabled={!thingCount || (destination === 'new' && !newName.trim())}
+            disabled={!thingCount || fitStops || (destination === 'new' && !newName.trim())}
             onClick={runImport}
           />
         </>
@@ -292,7 +294,7 @@ export function OntologyImportDialog({ onClose, save, currentUniverseName = null
               />
             )}
             <DialogButton
-              label="New universe"
+              label="New Universe"
               tone={destination === 'new' ? 'primary' : 'neutral'}
               onClick={() => setDestination('new')}
             />
@@ -398,9 +400,27 @@ export function OntologyImportDialog({ onClose, save, currentUniverseName = null
               {preview.slice?.ancestors ? ` · includes ${fmt(preview.slice.ancestors)} less specific terms` : ''}
             </div>
           )}
-          {preview?.things > LARGE_IMPORT && (
+          {fit?.verdict === 'refuse' && (
             <DialogNote>
-              {`Large import: about ${fmt(Math.round(estimatedBytes(preview) / 1e6))} MB more in the universe file. Saves take longer, and Git sync stops above 50 MB.`}
+              {`Too large for GitHub. This import alone is about ${mb(fit.importBytes)} MB, and GitHub sync carries up to ${mb(fit.limit)} MB.`}
+            </DialogNote>
+          )}
+          {fit?.verdict === 'block' && (
+            <DialogNote>
+              {`This would make ${currentUniverseName} about ${mb(fit.totalBytes)} MB, over the ${mb(fit.limit)} MB GitHub sync carries, and it has no file on this device to keep the rest.`}
+              <div style={{ marginTop: 8 }}>
+                <DialogButton label="Import into a New Universe" onClick={() => setDestination('new')} />
+              </div>
+            </DialogNote>
+          )}
+          {fit?.verdict === 'warn' && (
+            <DialogNote>
+              {`This would make ${currentUniverseName} about ${mb(fit.totalBytes)} MB. GitHub sync pauses above ${mb(fit.limit)} MB; the file on this device keeps everything.`}
+            </DialogNote>
+          )}
+          {!fitStops && fit?.verdict !== 'warn' && preview?.things > LARGE_IMPORT && (
+            <DialogNote>
+              {`Large import: about ${mb(estimateImportBytes(preview))} MB more in the universe file. Saves take longer.`}
             </DialogNote>
           )}
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>
@@ -451,18 +471,23 @@ export default function OntologyImportHost() {
   const [open, setOpen] = useState(false);
   const [destination, setDestination] = useState('current');
   // null while looking it up, false when no universe is open.
-  const [currentUniverseName, setCurrentUniverseName] = useState(null);
+  const [currentUniverse, setCurrentUniverse] = useState(null);
 
   useEffect(() => {
     const onOpen = (event) => {
       setDestination(event?.detail?.destination === 'new' ? 'new' : 'current');
-      setCurrentUniverseName(null);
+      setCurrentUniverse(null);
       setOpenCount((n) => n + 1);
       setOpen(true);
       import('../../services/universeBackend.js')
         .then(({ default: universeBackend }) => {
           const active = universeBackend.getActiveUniverse?.();
-          setCurrentUniverseName(active ? (active.name || active.slug) : false);
+          setCurrentUniverse(active ? {
+            name: active.name || active.slug,
+            gitLinked: !!(active.gitRepo?.enabled && active.gitRepo?.linkedRepo),
+            hasLocalFile: !!active.localFile?.enabled,
+            heldBytes: active.metadata?.gitSyncHeld?.bytes || 0,
+          } : false);
         })
         .catch(() => {});
     };
@@ -481,7 +506,7 @@ export default function OntologyImportHost() {
       key={openCount}
       onClose={() => setOpen(false)}
       save={save}
-      currentUniverseName={currentUniverseName}
+      currentUniverse={currentUniverse}
       initialDestination={destination}
     />
   );

@@ -71,6 +71,6 @@ test('F43c the Universes panel\'s Load menu opens the same import', async ({ pag
   await page.getByTitle('More views').first().click();
   await page.getByText('Universes', { exact: true }).first().click();
   await page.getByTitle('Load', { exact: true }).first().click();
-  await page.getByText('Import Ontology...').click();
+  await page.getByText('Import Ontology').click();
   await expect(page.locator('.rs-dialog-scrim').getByText('Import ontology')).toBeVisible();
 });

@@ -119,6 +119,9 @@ const SOURCE_OF_TRUTH = {
   BROWSER: 'browser'
 };
 
+/** How long a state Git refused for size waits before it's kept in browser storage. */
+const HELD_SAVE_DEBOUNCE_MS = 3000;
+
 const LOCAL_FILE_ERROR = {
   PERMISSION: 'LOCAL_FILE_PERMISSION',
   MISSING: 'LOCAL_FILE_MISSING',
@@ -2200,6 +2203,15 @@ class UniverseBackend {
       this.notifyStatus(status.type, `${universeName}: ${status.status}`);
     });
 
+    // Too large for Git: remember that the repository holds an older copy,
+    // and keep what Git won't take on this device (_keepHeldState).
+    engine.onSyncHeld = (held) => {
+      this._setGitSyncHeld(universeSlug, held).catch((error) => {
+        umWarn('[UniverseBackend] Could not record the Git hold:', error);
+      });
+    };
+    engine.onHeldState = (state) => this._keepHeldState(universeSlug, state);
+
     // Remote-divergence handler (optimistic concurrency). Called when a push
     // discovers the remote moved since our last sync — i.e. another device
     // committed. Decides 'overwrite' (contents equivalent — safe to push) or
@@ -3535,6 +3547,60 @@ class UniverseBackend {
   /**
    * Save to browser storage with size limits
    */
+  /**
+   * Whether the repository is holding an older copy of this universe than
+   * this device, because the universe grew past what Git can carry. Recorded
+   * on this device only: another device never had the newer copy, so the
+   * repository's is the current one there.
+   */
+  isGitSyncHeld(universe) {
+    return !!(universe?.gitRepo?.enabled && universe?.metadata?.gitSyncHeld);
+  }
+
+  /** @private */
+  async _setGitSyncHeld(slug, held) {
+    const universe = this.getUniverse(slug);
+    if (!universe) return;
+    const current = universe.metadata?.gitSyncHeld || null;
+    if (!!held === !!current) return;
+    await this.updateUniverse(slug, {
+      metadata: {
+        ...(universe.metadata || {}),
+        gitSyncHeld: held ? { reason: 'too-large', bytes: held.bytes, at: new Date().toISOString() } : null,
+      },
+    }, { silent: true });
+  }
+
+  /**
+   * Keep a state Git refused for size, for a universe kept only in the
+   * repository: its one copy on this device is browser storage, and autosave
+   * hands states straight to the Git engine. Debounced; a universe with a
+   * local file has its file and needs none of this.
+   *
+   * @private
+   */
+  _keepHeldState(slug, storeState) {
+    const universe = this.getUniverse(slug);
+    if (!universe || (universe.localFile?.enabled && this.fileHandles.get(slug))) return;
+    if (!this._heldSaves) this._heldSaves = new Map();
+    const entry = this._heldSaves.get(slug) || { timer: null, state: null };
+    entry.state = storeState;
+    if (!entry.timer) {
+      entry.timer = setTimeout(async () => {
+        entry.timer = null;
+        const state = entry.state;
+        entry.state = null;
+        try {
+          await this.saveToBrowserStorage(this.getUniverse(slug) || universe, exportToRedstring(state));
+        } catch (error) {
+          umError('[UniverseBackend] Could not keep the universe on this device while Git is held:', error);
+          this.notifyStatus('error', `${universe.name || slug} is too large for Git and could not be saved on this device: ${error.message}`);
+        }
+      }, HELD_SAVE_DEBOUNCE_MS);
+    }
+    this._heldSaves.set(slug, entry);
+  }
+
   async saveToBrowserStorage(universe, redstringData) {
     try {
       const db = await this.openBrowserDB();
@@ -3542,7 +3608,10 @@ class UniverseBackend {
       // Check storage quota before saving
       if ('storage' in navigator && 'estimate' in navigator.storage) {
         const estimate = await navigator.storage.estimate();
-        const dataSize = JSON.stringify(redstringData).length;
+        // A universe too large for one string can't be measured this way;
+        // the write below still tells us if it doesn't fit.
+        let dataSize = 0;
+        try { dataSize = JSON.stringify(redstringData).length; } catch { dataSize = 0; }
         const availableSpace = estimate.quota - estimate.usage;
 
         if (dataSize > availableSpace) {
@@ -4135,7 +4204,15 @@ class UniverseBackend {
    * @private
    */
   async _loadUniverseDataInner(universe, options = {}, timing = createLoadTiming(universe?.slug || 'unknown')) {
-    const { sourceOfTruth } = universe;
+    // While Git is held (isGitSyncHeld), the repository's copy is older than
+    // this device's: read this device's copy first, the local file or else
+    // browser storage. Everything else about the load is unchanged.
+    const gitHeld = this.isGitSyncHeld(universe);
+    let { sourceOfTruth } = universe;
+    if (gitHeld && sourceOfTruth === SOURCE_OF_TRUTH.GIT) {
+      sourceOfTruth = universe.localFile?.enabled ? SOURCE_OF_TRUTH.LOCAL : SOURCE_OF_TRUTH.BROWSER;
+      umLog('[UniverseBackend] Git is holding an older copy; loading this device\'s copy first:', sourceOfTruth);
+    }
     const {
       skipConflictDetection = false,
       allowPermissionPrompt = true
@@ -4152,7 +4229,8 @@ class UniverseBackend {
     const slotReads = {};
 
     // If both local and Git are enabled, check for conflicts or missing primary selection
-    if (!skipConflictDetection && hasLocal && hasGit) {
+    // While Git is held its copy is known to be the older one: nothing to ask.
+    if (!skipConflictDetection && hasLocal && hasGit && !gitHeld) {
       try {
         let conflict = await this.detectSlotConflict(universe, {
           forcePrompt: !primaryDefined,
@@ -4315,8 +4393,8 @@ class UniverseBackend {
       loadPromies.push(gitPromise);
     }
 
-    // 3. Browser Storage (Low Priority / Backup)
-    if (universe.browserStorage?.enabled) {
+    // 3. Browser Storage (Low Priority / Backup; this device's copy while Git is held)
+    if (universe.browserStorage?.enabled || gitHeld) {
       loadPromies.push(
         this.loadFromBrowserStorage(universe)
           .then(data => ({ source: SOURCE_OF_TRUTH.BROWSER, data, error: null }))
@@ -4428,6 +4506,21 @@ class UniverseBackend {
       if (hasLinkedGitRepo && gitRes?.error) {
         umError('[UniverseBackend] Git load failed for git-primary universe:', gitRes.error);
         throw new Error(`Failed to load from repository: ${gitRes.error.message || gitRes.error}`);
+      }
+    }
+
+    // B2. Git is held and this device's copy is in browser storage (the
+    // universe has no local file, or its file didn't load): newer than the
+    // repository's, so it's the one to load, ahead of the Git fallback below.
+    if (gitHeld) {
+      const heldRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
+      if (heldRes?.data && !isEffectivelyEmpty(heldRes.data)) {
+        umLog('[UniverseBackend] Loading the copy on this device; Git holds an older one');
+        this.notifyStatus('warning', `${universe.name || universe.slug} is larger than Git can sync, so it was loaded from this device. The repository still has an older copy.`);
+        return this.syncAndReturn(universe, heldRes.data, {
+          source: SOURCE_OF_TRUTH.BROWSER,
+          allowPermissionPrompt
+        });
       }
     }
 

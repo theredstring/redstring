@@ -245,7 +245,7 @@ const UniversesList = ({
     { label: 'Load from Local File', icon: <FileText size={14} />, action: handleLoadFromLocalClick },
     { label: 'Load from Repository', icon: <Github size={14} />, action: handleLoadFromRepoClick },
     { label: 'Load from Link', icon: <Link size={14} />, action: handleLoadFromLinkClick },
-    { label: 'Import Ontology...', icon: <Library size={14} />, action: handleImportOntologyClick },
+    { label: 'Import Ontology', icon: <Library size={14} />, action: handleImportOntologyClick },
   ]);
 
   const openNewMenu = (e) => showContextMenuForElement(e.currentTarget, [
