@@ -11,6 +11,9 @@ on:
     # up even in a week with no pushes.
     - cron: '17 6 * * 1'
   workflow_dispatch:
+  # release.yml runs this whole workflow on the tagged commit and publishes only
+  # if it passes, so a release can't ship past a red test or security gate.
+  workflow_call:
 
 # Least privilege for GITHUB_TOKEN: nothing in CI writes to the repo.
 permissions:

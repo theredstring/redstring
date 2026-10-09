@@ -112,11 +112,27 @@ describe('packaging config', () => {
 describe('release pipeline (S-30)', () => {
   const yml = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf-8');
 
+  // ci.yml runs inside the release (the `checks` job), so its actions are held
+  // to the same rule. A same-repo workflow path is pinned by nature: it runs
+  // the copy in the tagged commit.
+  const ciYml = fs.readFileSync(path.join(ROOT, '.github/workflows/ci.yml'), 'utf-8');
+  const usesOf = (text) => [...text.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1]);
+  const isLocalWorkflow = (u) => /^\.\/\.github\/workflows\/[\w.-]+\.ya?ml$/.test(u);
+
   it('uses no third-party builder action and pins every action to a commit SHA', () => {
     expect(yml).not.toMatch(/samuelmeuli/);
-    const uses = [...yml.matchAll(/^\s*-?\s*uses:\s*(\S+)/gm)].map((m) => m[1]);
+    const uses = [...usesOf(yml), ...usesOf(ciYml)];
     expect(uses.length).toBeGreaterThan(0);
-    for (const u of uses) expect(u, u).toMatch(/@[0-9a-f]{40}$/);
+    for (const u of uses) {
+      if (isLocalWorkflow(u)) continue;
+      expect(u, u).toMatch(/@[0-9a-f]{40}$/);
+    }
+  });
+
+  it('publishes only after the CI workflow passes on the tagged commit', () => {
+    expect(yml).toMatch(/^ {2}checks:\n {4}uses: \.\/\.github\/workflows\/ci\.yml$/m);
+    expect(yml).toMatch(/^ {2}release:\n {4}needs: checks$/m);
+    expect(ciYml).toMatch(/^ {2}workflow_call:/m);
   });
 
   it('is read-only by default and asserts fuses on the built app', () => {

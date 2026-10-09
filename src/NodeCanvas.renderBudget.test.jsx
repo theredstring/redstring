@@ -353,9 +353,12 @@ describe('NodeCanvas render budget', () => {
   it('marquee commits only when the selection changes, not per move', async () => {
     // A known camera: zoom 1, world (0,0) at client (500,400). The canvas is
     // offset by -50000 on both axes, and the container rect is stubbed at 0,0.
-    useGraphStore.setState({
+    // Edge pan is off: the sweep ends past the stubbed viewport's edge, and a
+    // pan there would grow the box beyond the drag this test measures.
+    useGraphStore.setState((s) => ({
       graphViews: new Map([['g1', { panOffset: { x: -49500, y: -49600 }, zoomLevel: 1 }]]),
-    }, false, 'render_budget_camera');
+      mouseSettings: { ...s.mouseSettings, marqueeEdgePanEnabled: false },
+    }), false, 'render_budget_camera');
     const svg = await mountAndSettle();
     const at = (wx, wy) => ({ clientX: wx + 500, clientY: wy + 400, metaKey: true, ctrlKey: true, buttons: 1 });
     const selectedIds = () => [...document.querySelectorAll('g.node.selected')]

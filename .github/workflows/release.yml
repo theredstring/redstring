@@ -14,7 +14,16 @@ permissions:
   contents: read
 
 jobs:
+  # The whole CI workflow (tests, undefined names, build, secret scan, security
+  # suite, dependency audit) on the tagged commit. Nothing is built or uploaded
+  # unless every job in it passes.
+  checks:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   release:
+    needs: checks
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
