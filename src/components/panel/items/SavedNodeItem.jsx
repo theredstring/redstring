@@ -18,7 +18,7 @@ const getSemanticNodeColor = (nodeData) => {
   return `hsl(${hue}, 100%, 27%)`;
 };
 
-const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => {
+const SavedNodeItem = ({ node, onClick, onDoubleClick, onContextMenu, onUnsave, isActive }) => {
   const theme = useTheme();
   const [isHovered, setIsHovered] = useState(false);
   const handleMouseEnter = useCallback(() => setIsHovered(true), []);
@@ -43,9 +43,11 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
       ref={drag}
       key={node.id}
       data-nav="item"
+      data-has-context-menu={onContextMenu ? 'true' : undefined}
       title={node.name}
       onClick={() => onClick(node)}
       onDoubleClick={() => onDoubleClick(node)}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, node) : undefined}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{

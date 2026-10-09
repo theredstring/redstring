@@ -8,7 +8,12 @@ import { runCanvasCommand, hasCanvasCommand } from '../../utils/canvas/canvasCom
  * callback threaded down from the canvas.
  */
 
-const rectOf = (event) => event?.currentTarget?.getBoundingClientRect?.() || null;
+// An event, or a rect already measured (a context menu measures at right-click:
+// by the time an item is chosen the event's currentTarget is gone).
+const rectOf = (event) => {
+  if (event && typeof event.left === 'number' && typeof event.width === 'number') return event;
+  return event?.currentTarget?.getBoundingClientRect?.() || null;
+};
 
 /** The Thing that stands for a Connection: its type. */
 export function connectionThingId(edge) {

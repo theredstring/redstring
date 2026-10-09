@@ -6,6 +6,7 @@ import LazySection from '../LazySection.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
 import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
+import { getThingContextMenuOptions } from '../../thingContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 
@@ -95,6 +96,12 @@ const LeftLibraryView = ({
   const handleItemDoubleClick = useCallback((node) => {
     openRightPanelNodeTab?.(node.id);
   }, [openRightPanelNodeTab]);
+
+  const handleItemContextMenu = useCallback((e, node) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, getThingContextMenuOptions(node.id, e.currentTarget?.getBoundingClientRect?.()));
+  }, []);
 
   const handleItemUnsave = useCallback((node) => {
     toggleSavedNode?.(node.id);
@@ -221,6 +228,7 @@ const LeftLibraryView = ({
                                 node={node}
                                 onClick={handleItemClick}
                                 onDoubleClick={handleItemDoubleClick}
+                                onContextMenu={handleItemContextMenu}
                                 onUnsave={scope === 'all' ? undefined : handleItemUnsave}
                                 isActive={node.id === activeDefinitionNodeId}
                               />
