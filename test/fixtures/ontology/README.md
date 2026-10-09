@@ -24,3 +24,14 @@ ChEBI is © EMBL-EBI and is licensed under
 Source: <https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/>. Hastings J, et
 al. *ChEBI in 2016: Improved services and an expanding collection of metabolites.*
 Nucleic Acids Res. 2016.
+
+## wikidata-water.ttl
+
+A trimmed copy of Wikidata's export of water (Q283), in the shape
+`Special:EntityData/Q283.ttl` writes it: the dataset node, two sitelinks, direct
+claims (between items, to a string, to an image, an external ID and its
+normalized IRI, Wikimedia housekeeping), a statement node with a qualifier and
+a reference, a value node, labelled items that appear only in a qualifier or a
+reference, and property entities with their direct-claim and novalue
+declarations. Values are Wikidata's, which is
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/).

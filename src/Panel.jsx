@@ -49,12 +49,10 @@ import { getTextColor, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { useTheme } from './hooks/useTheme.js';
 import DraggableTab from './components/panel/DraggableTab.jsx';
 import SavedNodeItem from './components/panel/items/SavedNodeItem.jsx';
-import AllThingsNodeItem from './components/panel/items/AllThingsNodeItem.jsx';
 import DraggableConceptCard from './components/panel/items/DraggableConceptCard.jsx';
 import GhostSemanticNode from './components/panel/items/GhostSemanticNode.jsx';
 import CustomDragLayer from './components/panel/CustomDragLayer.jsx';
 import LeftLibraryView from './components/panel/views/LeftLibraryView.jsx';
-import LeftAllThingsView from './components/panel/views/LeftAllThingsView.jsx';
 import LeftSemanticDiscoveryView from './components/panel/views/LeftSemanticDiscoveryView.jsx';
 import LeftGridView from './components/panel/views/LeftGridView.jsx';
 import LeftAIView from './components/panel/views/LeftAIView.jsx';
@@ -131,7 +129,6 @@ const ItemTypes = {
 
 // LeftLibraryView component extracted to components/panel/views/LeftLibraryView.jsx
 
-// LeftAllThingsView component extracted to components/panel/views/LeftAllThingsView.jsx
 
 // LeftSemanticDiscoveryView component extracted to components/panel/views/LeftSemanticDiscoveryView.jsx
 
@@ -140,8 +137,6 @@ const ItemTypes = {
 
 // GhostSemanticNode component extracted to components/panel/items/GhostSemanticNode.jsx
 
-// All Things Node Item Component with semantic web glow and exact SavedNodeItem formatting
-// AllThingsNodeItem component extracted to components/panel/items/AllThingsNodeItem.jsx
 
 // Bridge Status Display Component - Disabled
 // const BridgeStatusDisplay = () => {
@@ -373,8 +368,8 @@ const ULTRA_SLIM_WIDTH = 320;
 // EXCLUSIVE_PANEL_MODE_THRESHOLD imported from ./constants (shared with NodeCanvas.jsx + Header.jsx)
 const PANEL_TOGGLE_BUTTON_WIDTH = 50; // Must match ToggleButton width
 
-// Feature flag: toggle visibility of the "All Things" tab in the left panel header
-const ENABLE_ALL_THINGS_TAB = false;
+// Which Things the Things tab lists: 'saved' or 'all'. Remembered on this device.
+const THINGS_SCOPE_KEY = 'redstring_things_scope';
 // Wizard enablement is now handled by debugConfig
 
 // Clamp a panel width to what the current viewport can support. In exclusive
@@ -687,13 +682,27 @@ const Panel = memo(
       return groups;
     }, [savedNodes, nodePrototypesMap]);
 
-    // Derive all nodes array reactively - all node prototypes
+    // The Things tab lists either the saved Things or every Thing in the universe.
+    const [thingsScope, setThingsScopeState] = useState(() => {
+      try {
+        if (globalThis.localStorage?.getItem(THINGS_SCOPE_KEY) === 'all') return 'all';
+      } catch { /* per-device convenience only */ }
+      return 'saved';
+    });
+    const setThingsScope = useCallback((scope) => {
+      setThingsScopeState(scope);
+      try { globalThis.localStorage?.setItem(THINGS_SCOPE_KEY, scope); } catch { /* per-device convenience only */ }
+    }, []);
+
+    // Every node prototype. Only built while the Things tab shows all of them:
+    // an imported ontology can hold tens of thousands.
     const allNodes = useMemo(() => {
+      if (thingsScope !== 'all') return [];
       return Array.from(nodePrototypesMap.values()).map(prototype => ({
         ...prototype,
         name: prototype.name || 'Untitled Node'
       }));
-    }, [nodePrototypesMap]);
+    }, [nodePrototypesMap, thingsScope]);
 
     // Group all nodes by their types
     const allNodesByType = useMemo(() => {
@@ -789,7 +798,7 @@ const Panel = memo(
     const leftPanelViewRequest = useCanvasUIStore(s => (side === 'left' ? s.leftPanelViewRequest : null));
     const [leftViewActive, setLeftViewActive] = useState(
       () => (side === 'left' && useCanvasUIStore.getState().leftPanelViewRequest?.view) || 'library'
-    ); // 'library', 'all', 'grid', 'federation', 'semantic', 'history', or 'ai'
+    ); // 'library', 'grid', 'federation', 'semantic', 'history', or 'ai'
 
     // A pending "show me this universe's versions" request from Universes.
     const [gitHistoryRequest, setGitHistoryRequest] = useState(null);
@@ -1449,14 +1458,16 @@ const Panel = memo(
       // Strip order, left to right; the overflow menu lists them in the same order.
       const defs = [];
       defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
-      if (ENABLE_ALL_THINGS_TAB) defs.push({ key: 'all', title: 'All Things', Icon: LayoutGrid });
-      defs.push({ key: 'library', title: 'Saved Things', Icon: Bookmark });
+      // One tab for Things; its icon says which Things it is showing.
+      defs.push(thingsScope === 'all'
+        ? { key: 'library', title: 'All Things', Icon: LayoutGrid }
+        : { key: 'library', title: 'Saved Things', Icon: Bookmark });
       defs.push({ key: 'grid', title: 'Open Webs', Icon: BookOpen });
       defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: TextSearch });
       defs.push({ key: 'history', title: 'Action History', Icon: History });
       if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       return defs;
-    }, [side, enableWizard]);
+    }, [side, enableWizard, thingsScope]);
 
     // Measured rather than derived from panelWidth: during an overlay resize
     // drag the width is mutated straight onto the DOM node and panelWidth stays
@@ -1733,27 +1744,12 @@ const Panel = memo(
     // --- Generate Content based on Side ---
     let panelContent = null;
     if (side === 'left') {
-      if (ENABLE_ALL_THINGS_TAB && leftViewActive === 'all') {
-        panelContent = (
-          <LeftAllThingsView
-            allNodesByType={allNodesByType}
-            sectionCollapsed={sectionCollapsed}
-            sectionMaxHeights={sectionMaxHeights}
-            toggleSection={toggleSection}
-            isWideLayout={isWideLayout}
-            sectionContentRefs={sectionContentRefs}
-            activeDefinitionNodeId={activeDefinitionNodeId}
-            openGraphTab={openGraphTab}
-            createAndAssignGraphDefinition={createAndAssignGraphDefinition}
-            openRightPanelNodeTab={openRightPanelNodeTab}
-            storeActions={storeActions}
-            onOpenSearch={() => setAllThingsSearchVisible(true)}
-          />
-        );
-      } else if (leftViewActive === 'library') {
+      if (leftViewActive === 'library') {
         panelContent = (
           <LeftLibraryView
-            savedNodesByType={savedNodesByType}
+            scope={thingsScope}
+            onScopeChange={setThingsScope}
+            nodesByType={thingsScope === 'all' ? allNodesByType : savedNodesByType}
             sectionCollapsed={sectionCollapsed}
             sectionMaxHeights={sectionMaxHeights}
             toggleSection={toggleSection}
@@ -1766,7 +1762,7 @@ const Panel = memo(
             openRightPanelNodeTab={openRightPanelNodeTab}
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
-            onOpenSearch={() => setLibrarySearchVisible(true)}
+            onOpenSearch={() => (thingsScope === 'all' ? setAllThingsSearchVisible(true) : setLibrarySearchVisible(true))}
           />
         );
       } else if (leftViewActive === 'grid') {

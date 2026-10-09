@@ -1,0 +1,151 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix wikibase: <http://wikiba.se/ontology#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix schema: <http://schema.org/> .
+@prefix cc: <http://creativecommons.org/ns#> .
+@prefix wd: <http://www.wikidata.org/entity/> .
+@prefix data: <https://www.wikidata.org/wiki/Special:EntityData/> .
+@prefix wds: <http://www.wikidata.org/entity/statement/> .
+@prefix wdref: <http://www.wikidata.org/reference/> .
+@prefix wdv: <http://www.wikidata.org/value/> .
+@prefix wdt: <http://www.wikidata.org/prop/direct/> .
+@prefix wdtn: <http://www.wikidata.org/prop/direct-normalized/> .
+@prefix p: <http://www.wikidata.org/prop/> .
+@prefix ps: <http://www.wikidata.org/prop/statement/> .
+@prefix pq: <http://www.wikidata.org/prop/qualifier/> .
+@prefix pqv: <http://www.wikidata.org/prop/qualifier/value/> .
+@prefix pr: <http://www.wikidata.org/prop/reference/> .
+@prefix wdno: <http://www.wikidata.org/prop/novalue/> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+
+data:Q283 a schema:Dataset ;
+	schema:about wd:Q283 ;
+	cc:license <http://creativecommons.org/publicdomain/zero/1.0/> ;
+	schema:softwareVersion "1.0.0" ;
+	schema:version "2553306125"^^xsd:integer ;
+	schema:dateModified "2026-10-05T05:22:30Z"^^xsd:dateTime ;
+	wikibase:statements "467"^^xsd:integer .
+
+wd:Q283 a wikibase:Item .
+
+<https://en.wikipedia.org/wiki/Water> a schema:Article ;
+	schema:about wd:Q283 ;
+	schema:inLanguage "en" ;
+	schema:isPartOf <https://en.wikipedia.org/> ;
+	schema:name "Water"@en .
+
+<https://en.wikipedia.org/> wikibase:wikiGroup "wikipedia" .
+
+<https://de.wikipedia.org/wiki/Wasser> a schema:Article ;
+	schema:about wd:Q283 ;
+	schema:inLanguage "de" ;
+	schema:isPartOf <https://de.wikipedia.org/> ;
+	schema:name "Wasser"@de .
+
+<https://de.wikipedia.org/> wikibase:wikiGroup "wikipedia" .
+
+wd:Q283 wdt:P527 wd:Q629,
+		wd:Q556 ;
+	wdt:P274 "H₂O" ;
+	wdt:P683 "15377" ;
+	wdtn:P683 <http://purl.obolibrary.org/obo/CHEBI_15377> ;
+	wdt:P18 <http://commons.wikimedia.org/wiki/Special:FilePath/Ice%20water%20vapor.jpg> ;
+	wdt:P910 wd:Q6529461 ;
+	wdt:P1343 wd:Q602358 ;
+	wdt:P366 wd:Q1074076 ;
+	wdt:P31 wd:Q113145171 ;
+	wdt:P279 wd:Q50690 .
+
+wd:Q283 p:P527 wds:Q283-1a96a1c2-4d06-ed5c-c2cd-ed20f8a97f44 .
+
+wds:Q283-1a96a1c2-4d06-ed5c-c2cd-ed20f8a97f44 a wikibase:Statement,
+		wikibase:BestRank ;
+	wikibase:rank wikibase:NormalRank ;
+	ps:P527 wd:Q556 ;
+	pq:P1114 "+2"^^xsd:decimal ;
+	pqv:P1114 wdv:13e0e562c420369f0d45feb31b7a41ba ;
+	pq:P518 wd:Q11570 ;
+	prov:wasDerivedFrom wdref:a1b2c3 .
+
+wdref:a1b2c3 a wikibase:Reference ;
+	pr:P248 wd:Q602358 .
+
+wdv:13e0e562c420369f0d45feb31b7a41ba a wikibase:QuantityValue ;
+	wikibase:quantityAmount "+2"^^xsd:decimal ;
+	wikibase:quantityUnit <http://www.wikidata.org/entity/Q199> .
+
+wd:Q283 rdfs:label "eau"@fr ;
+	skos:prefLabel "eau"@fr ;
+	rdfs:label "water"@en ;
+	skos:prefLabel "water"@en ;
+	schema:name "water"@en ;
+	schema:description "chemical compound whose molecules are formed by two hydrogen atoms and one oxygen atom"@en ;
+	schema:description "composé chimique"@fr ;
+	skos:altLabel "H2O"@en ;
+	skos:altLabel "dihydrogène"@fr .
+
+wd:Q629 a wikibase:Item ;
+	rdfs:label "oxygen"@en ;
+	rdfs:label "O"@mul ;
+	schema:description "chemical element with symbol O and atomic number 8"@en .
+
+wd:Q556 a wikibase:Item ;
+	rdfs:label "hydrogen"@en ;
+	rdfs:label "H"@mul .
+
+wd:Q6529461 a wikibase:Item ;
+	rdfs:label "Category:Water"@en .
+
+wd:Q602358 a wikibase:Item ;
+	rdfs:label "Brockhaus and Efron Encyclopedic Dictionary"@en .
+
+wd:Q1074076 a wikibase:Item ;
+	rdfs:label "refrigerant"@en .
+
+wd:Q113145171 a wikibase:Item ;
+	rdfs:label "type of chemical entity"@en .
+
+wd:Q50690 a wikibase:Item ;
+	rdfs:label "oxide"@en .
+
+wd:Q11570 a wikibase:Item ;
+	rdfs:label "kilogram"@en .
+
+wd:P527 a wikibase:Property ;
+	rdfs:label "has part(s)"@en ;
+	schema:description "part of this subject"@en ;
+	wikibase:propertyType <http://wikiba.se/ontology#WikibaseItem> ;
+	wikibase:directClaim wdt:P527 ;
+	wikibase:claim p:P527 ;
+	wikibase:novalue wdno:P527 .
+
+p:P527 a owl:ObjectProperty .
+
+wdt:P527 a owl:ObjectProperty .
+
+ps:P527 a owl:ObjectProperty .
+
+wdno:P527 a owl:Class ;
+	owl:complementOf _:c508fd90817ec28651ec025cc3117403 .
+
+_:c508fd90817ec28651ec025cc3117403 a owl:Restriction ;
+	owl:onProperty wdt:P527 ;
+	owl:someValuesFrom owl:Thing .
+
+wd:P366 a wikibase:Property ;
+	rdfs:label "has use"@en ;
+	wikibase:directClaim wdt:P366 .
+
+wdt:P366 a owl:ObjectProperty .
+
+wd:P683 a wikibase:Property ;
+	rdfs:label "ChEBI ID"@en ;
+	wikibase:directClaim wdt:P683 ;
+	wikibase:directClaimNormalized wdtn:P683 .
+
+wdt:P683 a owl:DatatypeProperty .
+
+wdtn:P683 a owl:ObjectProperty .

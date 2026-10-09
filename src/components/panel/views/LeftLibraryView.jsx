@@ -1,17 +1,24 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Merge, ChevronRight, Search } from 'lucide-react';
+import { Merge, ChevronRight, ChevronDown, Search, Bookmark, LayoutGrid } from 'lucide-react';
 import { VirtuosoGrid } from 'react-virtuoso';
 import SavedNodeItem from '../items/SavedNodeItem.jsx';
 import LazySection from '../LazySection.jsx';
 import StandardDivider from '../../StandardDivider.jsx';
 import { getTextColor } from '../../../utils/colorUtils';
-import { showContextMenu } from '../../GlobalContextMenu.jsx';
+import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 
-// Internal Left Library View (Saved Things)
+const SCOPES = [
+  { value: 'saved', label: 'Saved Things', Icon: Bookmark },
+  { value: 'all', label: 'All Things', Icon: LayoutGrid },
+];
+
+// Internal Left Library View: Saved Things, or All Things, chosen from the title
 const LeftLibraryView = ({
-  savedNodesByType,
+  scope = 'saved',
+  onScopeChange,
+  nodesByType,
   sectionCollapsed,
   sectionMaxHeights,
   toggleSection,
@@ -27,8 +34,22 @@ const LeftLibraryView = ({
   onOpenSearch,
 }) => {
   const theme = useTheme();
+  const scopeLabel = scope === 'all' ? 'All Things' : 'Saved Things';
 
-  // Context menu options for saved things tab
+  // Kept only so the chevron can point at an open menu; the menu is the
+  // global context menu, which owns its own dismissal.
+  const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  const openScopeMenu = useCallback((e) => {
+    setScopeMenuOpen(true);
+    showContextMenuForElement(e.currentTarget, SCOPES.map(({ value, label, Icon }) => ({
+      label,
+      icon: <Icon size={14} />,
+      active: scope === value,
+      action: () => onScopeChange?.(value),
+    })), { onClose: () => setScopeMenuOpen(false) });
+  }, [scope, onScopeChange]);
+
+  // Context menu options for the Things tab
   const getTabContextMenuOptions = () => [
     {
       label: 'Merge Duplicates',
@@ -94,23 +115,46 @@ const LeftLibraryView = ({
       {/* Sticky: stays put while the list scrolls under it. Bleeds over the
           wrapper's padding so nothing shows above or beside it. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 16px', backgroundColor: theme.canvas.bg }}>
-        <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
-          Saved Things
-        </h2>
+        <button
+          onClick={openScopeMenu}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            background: 'none',
+            color: theme.canvas.textPrimary,
+            border: 'none',
+            borderRadius: 4,
+            padding: '2px 4px 2px 0',
+            margin: 0,
+            fontFamily: "'EmOne', sans-serif",
+            fontSize: '1.1rem',
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            userSelect: 'none',
+            transition: 'opacity 0.15s ease'
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
+          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+        >
+          {scopeLabel}
+          <ChevronDown size={13} style={{ opacity: 0.8, transition: 'transform 0.15s ease', transform: scopeMenuOpen ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+        </button>
         <PanelIconButton
           icon={Search}
           size={20}
           onClick={onOpenSearch}
-          title="Search Saved Things"
+          title={`Search ${scopeLabel}`}
         />
       </div>
 
-      {savedNodesByType.size === 0 ? (
+      {nodesByType.size === 0 ? (
         <div style={{ color: theme.canvas.textSecondary, fontSize: '0.9rem', fontFamily: "'EmOne', sans-serif", textAlign: 'center', marginTop: '20px' }}>
-          Bookmark Things to add them here.
+          {scope === 'all' ? 'No Things yet.' : 'Bookmark Things to add them here.'}
         </div>
       ) : (
-        Array.from(savedNodesByType.entries()).map(([typeId, group], index, array) => {
+        Array.from(nodesByType.entries()).map(([typeId, group], index, array) => {
           const { typeInfo, nodes } = group;
           const isCollapsed = sectionCollapsed[typeId] ?? false;
           const maxHeight = sectionMaxHeights[typeId] || '0px';
@@ -177,7 +221,7 @@ const LeftLibraryView = ({
                                 node={node}
                                 onClick={handleItemClick}
                                 onDoubleClick={handleItemDoubleClick}
-                                onUnsave={handleItemUnsave}
+                                onUnsave={scope === 'all' ? undefined : handleItemUnsave}
                                 isActive={node.id === activeDefinitionNodeId}
                               />
                             );

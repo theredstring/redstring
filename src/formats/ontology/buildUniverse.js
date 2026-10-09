@@ -44,6 +44,7 @@ const WEB_DESCRIPTIONS = {
   composition: (name, from) => `The parts of ${name}, from ${from}.`,
   connections: (name, from) => `The connections of ${name}, from ${from}.`,
   kinds: (name, from) => `The kinds of ${name}, from ${from}.`,
+  relation: (name, from, relation) => `${name}: ${relation}, from ${from}.`,
 };
 
 function newWeb({ id, name, description, definingId }) {
@@ -130,7 +131,7 @@ export function buildUniverseState(plan) {
       description: thing.description,
       color: NODE_DEFAULT_COLOR,
       typeNodeId: thing.typeIri ? thingIdOf.get(thing.typeIri) : null,
-      definitionGraphIds: [thing.compositionWebId, thing.connectionsWebId, thing.kindsWebId].filter(Boolean),
+      definitionGraphIds: [thing.compositionWebId, ...thing.connectionsWebIds, thing.kindsWebId].filter(Boolean),
       externalLinks: identity.externalLinks,
       ...(thing.equivalents.length ? { equivalentClasses: thing.equivalents } : {}),
       semanticMetadata: {
@@ -176,11 +177,28 @@ export function buildUniverseState(plan) {
     const web = newWeb({
       id: plannedWeb.id,
       name: wholeName,
-      description: WEB_DESCRIPTIONS[plannedWeb.kind](wholeName, source.title),
+      description: WEB_DESCRIPTIONS[plannedWeb.kind](wholeName, source.title, relationById.get(plannedWeb.property)?.name),
       definingId: wholeId,
     });
     const memberIds = plannedWeb.members.map((iri) => thingIdOf.get(iri)).filter(Boolean);
     placeAll(web, memberIds);
+
+    // One group per relation, named and coloured as its connections are.
+    for (const g of plannedWeb.groups || []) {
+      const rel = relationById.get(g.property);
+      const memberInstanceIds = g.members
+        .map((iri) => importIds.instance(web.id, thingIdOf.get(iri)))
+        .filter((id) => web.instances.has(id));
+      if (memberInstanceIds.length < 2) continue;
+      const id = importIds.group(web.id, g.property);
+      web.groups.set(id, {
+        id,
+        name: rel?.name || 'Connection',
+        color: connectionColor(rel?.name),
+        memberInstanceIds,
+        semanticMetadata: { type: 'Group', relation: g.property, source: source.id },
+      });
+    }
 
     for (const c of plannedWeb.connections) {
       const sourceInstance = importIds.instance(web.id, thingIdOf.get(c.source));

@@ -79,7 +79,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
       }}>
         {node.name || 'Unnamed'}
       </span>
-      <div
+      {onUnsave && <div
         style={{
           position: 'absolute',
           top: '-6px',
@@ -111,7 +111,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onUnsave, isActive }) => 
           onMouseEnter={(e) => e.currentTarget.style.color = theme.canvas.textPrimary}
           onMouseLeave={(e) => e.currentTarget.style.color = theme.canvas.textSecondary}
         />
-      </div>
+      </div>}
     </div>
   );
 };

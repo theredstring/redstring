@@ -19,9 +19,14 @@
  *    "relationship:") becomes the relation (P, D). So does a restriction inside
  *    an `equivalentClass` intersection, whose named members also become parents
  *    (A ≡ G ∧ … entails A ⊑ G).
+ *  - A Wikidata export is read as items and their direct claims, not as every
+ *    IRI in it (wikidata.js).
  */
 
 import * as V from './vocab.js';
+import * as W from './wikidata.js';
+
+const CC_LICENSE = 'http://creativecommons.org/ns#license';
 
 const LANG_SCORE = (lang) => (!lang ? 3 : /^en(-|$)/i.test(lang) ? 2 : 1);
 
@@ -78,12 +83,16 @@ export class OntologyIndexBuilder {
     this.pendingEquivalent = []; // [subjectIri, bnodeId]
     this.headerTriples = []; // [subjectIri, pred, object] seen before the ontology IRI is known
     this.quadCount = 0;
+    // A Wikidata export, once one is recognized: its dataset node, the items it
+    // is about, and the direct-claim predicates in use.
+    this.wikidata = { seen: false, dataset: null, mainItems: new Set(), claimPredicates: new Set(), instanceOf: [], license: null, version: null, date: null };
     this.stats = {
       blankNodeAxioms: 0,
       universalRestrictions: 0,
       unionOrComplementClasses: 0,
       unresolvedBlankNodes: 0,
       skippedLiterals: 0,
+      wikidataMachinery: 0,
     };
   }
 
@@ -113,6 +122,7 @@ export class OntologyIndexBuilder {
     }
     if (subject.termType !== 'NamedNode') return;
     const s = subject.value;
+    if (this.readWikidata(s, p, object)) return;
 
     if (p === V.RDF_TYPE) {
       if (object.termType !== 'NamedNode') return;
@@ -150,6 +160,60 @@ export class OntologyIndexBuilder {
     const t = this.term(s);
     if (!t.relations) t.relations = new Map();
     t.relations.set(`${p}\u0000${o}`, [p, o]);
+  }
+
+  /**
+   * The Wikidata reading (wikidata.js). Returns true when the quad is taken
+   * care of here, false to read it as any other quad.
+   */
+  readWikidata(s, p, object) {
+    const wd = this.wikidata;
+    if (s.startsWith(W.WD_DATA)) {
+      wd.seen = true;
+      wd.dataset = wd.dataset || s;
+      const value = String(object.value ?? '').trim();
+      if (p === `${V.SCHEMA}about` && object.termType === 'NamedNode') wd.mainItems.add(value);
+      else if (p === CC_LICENSE) wd.license = wd.license || value;
+      else if (p === `${V.SCHEMA}version`) wd.version = wd.version || value;
+      else if (p === `${V.SCHEMA}dateModified`) wd.date = wd.date || value;
+      return true;
+    }
+    if (p === V.RDF_TYPE && object.value === W.WIKIBASE_ITEM) { wd.seen = true; return true; }
+    if (W.isWikidataMachinery(s) || W.isWikidataMachinery(p)
+      || (p === V.RDF_TYPE && W.isWikidataMachinery(object.value))) {
+      this.stats.wikidataMachinery++;
+      return true;
+    }
+    // A property entity contributes only its name, onto the IRI claims use.
+    const claim = W.directClaimOf(s);
+    if (claim) {
+      if (object.termType === 'Literal' && (V.LABEL_PREDICATES.includes(p) || V.DEFINITION_PREDICATES.includes(p))) {
+        this.addLiteral(claim, p, object);
+      }
+      return true;
+    }
+    if (p.startsWith(W.WDTN)) {
+      if (W.isWikidataItem(s) && object.termType === 'NamedNode') add(this.term(s), 'xrefs', object.value);
+      return true;
+    }
+    if (p.startsWith(W.WDT)) {
+      if (W.HOUSEKEEPING_PROPERTIES.has(p)) return true;
+      if (object.termType === 'NamedNode' && !W.isWikidataItem(object.value)) return true;
+      wd.claimPredicates.add(p);
+      // Instance of waits for finish(): whether it's a kind depends on the rest.
+      if (p === W.WDT_INSTANCE_OF && object.termType === 'NamedNode') {
+        wd.instanceOf.push([s, object.value]);
+        return true;
+      }
+      // Subclass of is the kinds ladder, and drawn too: in a file about one
+      // item there's no other web its kinds would show in.
+      if (p === W.WDT_SUBCLASS_OF && object.termType === 'NamedNode' && s !== object.value) {
+        const t = this.term(s);
+        if (!t.relations) t.relations = new Map();
+        t.relations.set(`${p}\u0000${object.value}`, [p, object.value]);
+      }
+    }
+    return false;
   }
 
   addLiteral(s, p, object) {
@@ -257,6 +321,18 @@ export class OntologyIndexBuilder {
   /** Resolve what was deferred and produce the index. */
   finish({ format = null, sourceName = null } = {}) {
     for (const [s, b] of this.pendingSubclass) this.readClassExpression(s, { bnode: b }, false);
+    // Wikidata: an item that is a subclass of something takes its kinds from
+    // that. Its instance of names a class of classes (water is an instance of
+    // "type of chemical entity", a subclass of oxide). Either way the claim is
+    // drawn as a relation as well.
+    for (const [s, o] of this.wikidata.instanceOf) {
+      if (s === o) continue;
+      const t = this.term(s);
+      if (!t.parents?.size) add(t, 'parents', o);
+      if (!t.relations) t.relations = new Map();
+      t.relations.set(`${W.WDT_INSTANCE_OF}\u0000${o}`, [W.WDT_INSTANCE_OF, o]);
+      this.term(o);
+    }
     for (const [s, b] of this.pendingEquivalent) this.readClassExpression(s, { bnode: b }, true);
     this.bnodes.clear();
 
@@ -264,6 +340,23 @@ export class OntologyIndexBuilder {
     // the ontology; when a file declares none, header literals are ignored.
     const ontologyIri = [...this.ontologyIris].sort()[0] || null;
     const ontology = { ...this.ontology, iri: ontologyIri };
+    const wd = this.wikidata;
+    if (wd.seen && !ontologyIri && wd.dataset) {
+      // A Wikidata export has no ontology header; its dataset node stands in.
+      const labels = [...wd.mainItems].sort()
+        .map((iri) => this.terms.get(iri)?.label?.value)
+        .filter(Boolean)
+        .map((l) => l.charAt(0).toUpperCase() + l.slice(1));
+      Object.assign(ontology, {
+        iri: wd.dataset,
+        title: labels.length === 1 ? `${labels[0]} (Wikidata)` : 'Wikidata',
+        license: wd.license,
+        version: wd.version,
+        date: wd.date,
+        homepage: wd.mainItems.size === 1 ? [...wd.mainItems][0] : null,
+      });
+      this.ontologyIris.add(wd.dataset);
+    }
     for (const [s, p, v] of this.headerTriples) {
       if (!ontologyIri || s !== ontologyIri) continue;
       if ((p === `${V.DCTERMS}title` || p === `${V.DC}title`) && !ontology.title) ontology.title = v;
@@ -278,6 +371,7 @@ export class OntologyIndexBuilder {
     // Which named subjects are relations, not terms.
     const propertyIris = new Set();
     const annotationProperties = new Set();
+    for (const p of wd.claimPredicates) propertyIris.add(p);
     for (const [iri, types] of this.subjectTypes) {
       for (const type of types) {
         if (V.PROPERTY_TYPES.has(type)) propertyIris.add(iri);
@@ -302,6 +396,7 @@ export class OntologyIndexBuilder {
       && !propertyIris.has(iri)
       && !this.ontologyIris.has(iri)
       && !V.isSchemaIri(iri)
+      && (!wd.seen || W.isWikidataItem(iri))
     );
 
     // A relation is kept when its predicate is a real relation: declared an
@@ -372,6 +467,19 @@ export class OntologyIndexBuilder {
       });
     }
 
+    // In a Wikidata export, an item that takes part in no claim kept here (a
+    // unit, a source cited in a reference) was only along for its label.
+    if (wd.seen) {
+      const keep = new Set(wd.mainItems);
+      for (const term of terms.values()) {
+        if (!term.parents.length && !term.relations.length) continue;
+        keep.add(term.iri);
+        for (const ref of term.parents) keep.add(ref);
+        for (const r of term.relations) keep.add(r.target);
+      }
+      for (const iri of [...terms.keys()]) if (!keep.has(iri)) terms.delete(iri);
+    }
+
     // A term mentioned only as somebody's parent or target, with nothing said
     // about it, still exists (it may carry a label elsewhere). Make sure every
     // reference resolves to an index entry.
@@ -387,6 +495,8 @@ export class OntologyIndexBuilder {
       ontology,
       terms,
       properties,
+      // What the file is about, when it says: the items of a Wikidata export.
+      focus: wd.seen ? [...wd.mainItems].filter((iri) => terms.has(iri)).sort() : [],
       stats: { quads: this.quadCount, ...this.stats },
     });
   }

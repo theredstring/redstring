@@ -37,6 +37,16 @@
  *    is only a tree of kinds (Mondo, most of ChEBI) walkable by opening Things.
  *    Every direct kind inside the slice is placed, whichever parent is its type.
  *
+ *  - A connections web groups what a Thing relates to by relation (Part Of,
+ *    Has Use, Found In Taxon), one group per relation with two or more ends.
+ *    One web too big to work with (MAX_CONNECTIONS_WEB) becomes a web per
+ *    relation instead.
+ *
+ *  - A file about particular Things (a Wikidata item's export: index.focus)
+ *    describes only those. Everything else in it is known by name, so only the
+ *    focus Things get webs: "Water is part of River" is a connection from
+ *    Water, never a web of River's parts holding Water alone.
+ *
  *  - A Thing opens to its parts first, then its connections, then its kinds.
  *
  *  - The source becomes one Thing (named after the ontology) whose web is a
@@ -59,9 +69,14 @@ export const importIds = {
   compositionWeb: (sourceKey, wholeIri) => uuidv5(`composition|${sourceKey}|${wholeIri}`, IMPORT_NAMESPACE),
   kindsWeb: (sourceKey, iri) => uuidv5(`kinds|${sourceKey}|${iri}`, IMPORT_NAMESPACE),
   connectionsWeb: (sourceKey, iri) => uuidv5(`connections|${sourceKey}|${iri}`, IMPORT_NAMESPACE),
+  relationWeb: (sourceKey, iri, property) => uuidv5(`relation|${sourceKey}|${iri}|${property}`, IMPORT_NAMESPACE),
+  group: (graphId, property) => uuidv5(`group|${graphId}|${property}`, IMPORT_NAMESPACE),
   instance: (graphId, thingId) => uuidv5(`instance|${graphId}|${thingId}`, IMPORT_NAMESPACE),
   edge: (graphId, s, p, o) => uuidv5(`edge|${graphId}|${s}|${p}|${o}`, IMPORT_NAMESPACE),
 };
+
+/** Members past which a Thing's connections are split into a web per relation. */
+export const MAX_CONNECTIONS_WEB = 500;
 
 /** Last path segment or fragment of an IRI, for terms with no label. */
 export function localName(iri) {
@@ -156,6 +171,11 @@ export function buildImportPlan(index, slice, options = {}) {
   const depth = depthsInSlice(index, iris);
   const sortedIris = [...iris].sort();
 
+  // What the file describes, when it says (index.focus): only those get webs.
+  const focus = (index.focus || []).filter((iri) => iris.has(iri));
+  const focusSet = focus.length > 0 ? new Set(focus) : null;
+  const getsWebs = (iri) => !focusSet || focusSet.has(iri);
+
   // ── Things and their types ────────────────────────────────────────────────
   const typeOf = new Map(); // iri → parent iri chosen as its type
   for (const iri of sortedIris) {
@@ -189,7 +209,7 @@ export function buildImportPlan(index, slice, options = {}) {
   const clue = compositionOf(index);
   const partsOf = new Map(); // whole iri → Set<part iri>
   const addPart = (whole, part) => {
-    if (whole === part || !iris.has(whole) || !iris.has(part)) return;
+    if (whole === part || !iris.has(whole) || !iris.has(part) || !getsWebs(whole)) return;
     let set = partsOf.get(whole);
     if (!set) { set = new Set(); partsOf.set(whole, set); }
     set.add(part);
@@ -246,27 +266,58 @@ export function buildImportPlan(index, slice, options = {}) {
   // the Thing itself and what it relates to, with each relation as a connection
   // from it. A compositional relation is drawn here too, as well as placing its
   // inner end in the other's web.
+  // What a Thing relates to is grouped by relation, each end in the group of
+  // the first relation that reaches it, so no two groups overlap.
   const connectionsWebList = [];
+  const connectionsWebsOf = new Map(); // iri → [web id]
   for (const iri of sortedIris) {
+    if (!getsWebs(iri)) continue;
     const rels = (index.terms.get(iri)?.relations || []).filter((rel) => drawable(iri, rel));
     if (rels.length === 0) continue;
     for (const rel of rels) addRelationType(rel.property);
-    connectionsWebList.push({
-      id: importIds.connectionsWeb(sourceKey, iri),
-      kind: 'connections',
-      whole: iri,
-      members: [iri, ...[...new Set(rels.map((rel) => rel.target))].sort()],
-      connections: rels.map((rel) => ({ source: iri, property: rel.property, target: rel.target })),
-    });
+    const byProperty = new Map(); // property → [target], in first-seen order
+    const placed = new Set();
+    for (const rel of rels) {
+      if (placed.has(rel.target)) continue;
+      placed.add(rel.target);
+      if (!byProperty.has(rel.property)) byProperty.set(rel.property, []);
+      byProperty.get(rel.property).push(rel.target);
+    }
+    const toConnection = (rel) => ({ source: iri, property: rel.property, target: rel.target });
+
+    if (placed.size + 1 <= MAX_CONNECTIONS_WEB) {
+      connectionsWebList.push({
+        id: importIds.connectionsWeb(sourceKey, iri),
+        kind: 'connections',
+        whole: iri,
+        members: [iri, ...[...placed].sort()],
+        connections: rels.map(toConnection),
+        groups: [...byProperty].filter(([, targets]) => targets.length > 1)
+          .map(([property, targets]) => ({ property, members: [...targets].sort() })),
+      });
+    } else {
+      for (const property of [...new Set(rels.map((rel) => rel.property))]) {
+        const own = rels.filter((rel) => rel.property === property);
+        connectionsWebList.push({
+          id: importIds.relationWeb(sourceKey, iri, property),
+          kind: 'relation',
+          whole: iri,
+          property,
+          members: [iri, ...[...new Set(own.map((rel) => rel.target))].sort()],
+          connections: own.map(toConnection),
+          groups: [],
+        });
+      }
+    }
+    connectionsWebsOf.set(iri, connectionsWebList.filter((w) => w.whole === iri).map((w) => w.id));
   }
-  const connectionsWebOf = new Map(connectionsWebList.map((w) => [w.whole, w.id]));
 
   // ── Kinds ─────────────────────────────────────────────────────────────────
   const kindsOf = new Map(); // iri → its direct, more specific kinds in the slice
   if (kindsWebs) {
     for (const iri of sortedIris) {
       for (const p of index.terms.get(iri)?.parents || []) {
-        if (p === iri || !iris.has(p)) continue;
+        if (p === iri || !iris.has(p) || !getsWebs(p)) continue;
         let list = kindsOf.get(p);
         if (!list) { list = []; kindsOf.set(p, list); }
         list.push(iri); // sortedIris order, so each list is already sorted
@@ -285,6 +336,10 @@ export function buildImportPlan(index, slice, options = {}) {
   let folderMembers;
   if (slice.roots && slice.roots.length > 0) {
     folderMembers = slice.roots.filter((r) => iris.has(r));
+  } else if (focus.length > 0) {
+    // A file about particular Things (a Wikidata item's export) opens on them;
+    // everything else is reached through their webs.
+    folderMembers = focus;
   } else {
     // The source's own top kinds: not what rode along with the selection, nor
     // the Things from other ontologies it only refers to (full Mondo names
@@ -338,7 +393,7 @@ export function buildImportPlan(index, slice, options = {}) {
       deprecated: term.deprecated,
       replacedBy: term.replacedBy,
       compositionWebId: partsOf.has(iri) ? importIds.compositionWeb(sourceKey, iri) : null,
-      connectionsWebId: connectionsWebOf.get(iri) || null,
+      connectionsWebIds: connectionsWebsOf.get(iri) || [],
       kindsWebId: kindsOf.has(iri) ? importIds.kindsWeb(sourceKey, iri) : null,
     };
   });

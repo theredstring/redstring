@@ -329,13 +329,13 @@ describe('webs of connections', () => {
       [z('Cat'), 'BFO 0000051', z('Tail')],
       [z('Cat'), 'RO 0000087', z('Predator')],
     ]);
-    expect(thing(p, 'Cat').connectionsWebId).toBe(cat.id);
+    expect(thing(p, 'Cat').connectionsWebIds).toEqual([cat.id]);
     // Part of is drawn from the part as well as placing it in the whole.
     expect(connectionsOf(p, 'Whisker').connections).toEqual([{ source: z('Whisker'), property: 'http://purl.obolibrary.org/obo/BFO_0000050', target: z('Cat') }]);
     // A relation inside a logical definition is drawn too.
     expect(connectionsOf(p, 'Kitten').connections).toEqual([{ source: z('Kitten'), property: z('hasStage'), target: z('Juvenile') }]);
     // A Thing with no relations has none.
-    expect(thing(p, 'Dog').connectionsWebId).toBe(null);
+    expect(thing(p, 'Dog').connectionsWebIds).toEqual([]);
   });
 
   it('counts every relation drawn: one per relation, plus those between parts of a whole', () => {
