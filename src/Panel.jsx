@@ -1013,7 +1013,11 @@ const Panel = memo(
     useEffect(() => {
       if (side !== 'left') return;
       const handler = (e) => {
-        setGitHistoryRequest({ universeSlug: e?.detail?.universeSlug || null, at: Date.now() });
+        setGitHistoryRequest({
+          universeSlug: e?.detail?.universeSlug || null,
+          tab: e?.detail?.tab === 'backups' ? 'backups' : 'git',
+          at: Date.now()
+        });
         setLeftViewActive('history');
       };
       window.addEventListener('redstring:open-git-history', handler);

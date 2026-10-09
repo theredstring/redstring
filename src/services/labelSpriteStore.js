@@ -184,6 +184,33 @@ export function persistSprite(key, sprite) {
   flushTimer = setTimeout(flushWrites, FLUSH_DELAY_MS);
 }
 
+/**
+ * How many sprites are on disk and roughly how much room they take (their
+ * data URLs, two bytes a character), for Settings → Data.
+ *
+ * @returns {Promise<{count: number, bytes: number}>}
+ */
+export function measurePersistedSprites() {
+  return openDb().then((db) => new Promise((resolve) => {
+    if (!db) { resolve({ count: 0, bytes: 0 }); return; }
+    let count = 0;
+    let bytes = 0;
+    try {
+      const req = db.transaction(STORE, 'readonly').objectStore(STORE).openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) { resolve({ count, bytes }); return; }
+        count++;
+        bytes += (cursor.value?.href?.length || 0) * 2;
+        cursor.continue();
+      };
+      req.onerror = () => resolve({ count, bytes });
+    } catch {
+      resolve({ count, bytes });
+    }
+  })).catch(() => ({ count: 0, bytes: 0 }));
+}
+
 /** Drop every persisted sprite, this schema and any older one. */
 export function purgePersistedSprites() {
   writeBuffer.clear();

@@ -617,6 +617,17 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     }
   }, []);
 
+  // Settings → Data clears both keys; an open view would write its copy
+  // straight back, so it lets go of it too.
+  useEffect(() => {
+    const onCleared = () => {
+      setSearchHistory([]);
+      setDiscoveredConcepts([]);
+    };
+    window.addEventListener('redstring:discovery-history-cleared', onCleared);
+    return () => window.removeEventListener('redstring:discovery-history-cleared', onCleared);
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem('redstring_semantic_discovery_history', JSON.stringify(searchHistory));

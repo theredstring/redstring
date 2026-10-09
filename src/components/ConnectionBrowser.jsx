@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { CircleDot, ChevronDown, BookOpen, Globe, TextSearch } from 'lucide-react';
+import { CircleDot, ChevronDown, BookOpen, Globe, TextSearch, ArrowUpFromDot } from 'lucide-react';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 import PanelIconButton from './shared/PanelIconButton.jsx';
@@ -7,6 +7,7 @@ import { showContextMenuForElement } from './GlobalContextMenu.jsx';
 import TripletPreview from './connections/TripletPreview.jsx';
 import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
 import useSemanticConnections from '../hooks/useSemanticConnections.js';
+import { openWebOnCanvas } from './wizard/entityActions.js';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './connections/CompactConnectionRow.jsx';
 import './ConnectionBrowser.css';
 
@@ -17,6 +18,9 @@ const CONNECTION_SCOPES = [
   { value: 'universe', label: 'Universe', Icon: Globe },
   { value: 'semantic', label: 'Semantic Web', Icon: TextSearch },
 ];
+
+// Width a Universe row gives its open-web button: the button and the gap before it.
+const OPEN_WEB_BUTTON_ROOM = 36;
 
 // One web's piece of ConnectionBrowser's topology key for a Thing: its
 // instances of that Thing and its edge ids, or null when it holds none. Cached
@@ -375,18 +379,34 @@ const ConnectionBrowser = ({ nodeData }) => {
             </div>
           </div>
         ) : (
-          filteredConnections.map((connection) => (
-            <NativeTriplet
-              key={connection.id}
-              connection={connection}
-              subjectColor={getNodeColor(connection.subject)}
-              objectColor={getNodeColor(connection.object)}
-              // minus the triplet's own 8px padding + 1px border per side
-              containerWidth={Math.max(160, containerWidth - 18)}
-              compact={containerWidth > 0 && containerWidth < COMPACT_CONNECTIONS_BELOW}
-              note={connectionScope === 'universe' && !connection.inCurrentGraph ? `in ${connection.graphName || 'another web'}` : undefined}
-            />
-          ))
+          filteredConnections.map((connection) => {
+            const triplet = (
+              <NativeTriplet
+                connection={connection}
+                subjectColor={getNodeColor(connection.subject)}
+                objectColor={getNodeColor(connection.object)}
+                // minus the triplet's own 8px padding + 1px border per side,
+                // and in Universe the open-web button and its gap
+                containerWidth={Math.max(160, containerWidth - 18 - (connectionScope === 'universe' ? OPEN_WEB_BUTTON_ROOM : 0))}
+                compact={containerWidth > 0 && containerWidth < COMPACT_CONNECTIONS_BELOW}
+                note={connectionScope === 'universe' && !connection.inCurrentGraph ? `in ${connection.graphName || 'another web'}` : undefined}
+              />
+            );
+            if (connectionScope !== 'universe') return <React.Fragment key={connection.id}>{triplet}</React.Fragment>;
+            // In Universe, each connection can open the Web it's in.
+            const webOpen = connection.inCurrentGraph;
+            return (
+              <div key={connection.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>{triplet}</div>
+                <PanelIconButton
+                  icon={ArrowUpFromDot}
+                  onClick={webOpen ? undefined : (e) => openWebOnCanvas(connection.graphId, e)}
+                  disabled={webOpen}
+                  title={webOpen ? 'This Web is open' : `Open ${connection.graphName || 'this Web'}`}
+                />
+              </div>
+            );
+          })
         )}
       </div>
     </div>

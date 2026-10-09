@@ -4,6 +4,7 @@ import useGraphStore from '../../store/graphStore.js';
 import { getStorageKey } from '../../utils/storageUtils.js';
 import debugConfig from '../../utils/debugConfig.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import ActionRow from './ActionRow.jsx';
 import DialogGallery from './DialogGallery.jsx';
 import ModalGallery from './ModalGallery.jsx';
 import PaletteEditor from './PaletteEditor.jsx';
@@ -34,23 +35,6 @@ const LAYOUT_ALGORITHMS = [
   { label: 'Euler', value: 'euler' },
   { label: 'Hybrid', value: 'hybrid' }
 ];
-
-/** A row whose control is a single button: label and reason on the left. */
-const ActionRow = ({ title, description, actionLabel, onClick }) => (
-  <div className="settings-row">
-    <div className="settings-row-label">
-      {title}
-      {description && <div className="settings-row-description">{description}</div>}
-    </div>
-    <PanelIconButton
-      label={actionLabel}
-      labelFontSize={11}
-      variant="outline"
-      onClick={onClick}
-      style={{ padding: '5px 12px', flexShrink: 0 }}
-    />
-  </div>
-);
 
 const DebugSection = ({ onCloseSettings, onRelock }) => {
   const [settings, setSettings] = useState(() => debugConfig.getConfig());
@@ -257,12 +241,6 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
       <hr className="settings-section-divider" />
 
       <div className="settings-section-subtitle">Maintenance</div>
-      <ActionRow
-        title="Repair Broken Web Links"
-        description="Re-point definitions whose Web no longer exists"
-        actionLabel="Repair"
-        onClick={() => useGraphStore.getState().repairGraphLinkages()}
-      />
       <ActionRow
         title="Reset Onboarding"
         description="Clear the welcome flag, the workspace folder, and session state, then reload"

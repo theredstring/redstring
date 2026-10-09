@@ -133,6 +133,31 @@ describe('electron/main.cjs', () => {
     });
   });
 
+  describe('backups IPC', () => {
+    beforeEach(async () => { ctx = await boot(); });
+
+    it('copies only a file the user could already reach, into a folder file IPC cannot', async () => {
+      const ev = ipcEvent(APP);
+      const secret = path.join(ctx.tmp, 'outside', 'secret.txt');
+      fs.mkdirSync(path.dirname(secret), { recursive: true });
+      fs.writeFileSync(secret, 'top secret');
+      await expect(ctx.invoke('backups:snapshot', ev, 'evil', secret)).rejects.toThrow(/not approved/);
+
+      const inDocs = path.join(ctx.documents, 'Redstring', 'kept.redstring');
+      await ctx.invoke('file:write', ev, inDocs, '{"kept":1}');
+      const entry = await ctx.invoke('backups:snapshot', ev, 'kept', inDocs);
+      const listed = await ctx.invoke('backups:list', ev, 'kept');
+      expect(listed.map((e) => e.id)).toEqual([entry.id]);
+      const bytes = await ctx.invoke('backups:read', ev, 'kept', entry.id);
+      expect(new TextDecoder().decode(bytes)).toBe('{"kept":1}');
+
+      const backupFile = path.join(ctx.userData, 'RedstringBackups', 'kept', `${entry.id}.redstring`);
+      expect(fs.existsSync(backupFile)).toBe(true);
+      await expect(ctx.invoke('file:read', ev, backupFile)).rejects.toThrow(/not approved/);
+      await expect(ctx.invoke('backups:read', ev, 'kept', '../../RedstringMain/approved-paths')).rejects.toThrow(/Invalid backup/);
+    });
+  });
+
   describe('dialog approvals (S-20)', () => {
     it('a picked file is approved and survives a restart; a picked folder covers its contents', async () => {
       const tmpOut = fs.mkdtempSync(path.join(os.tmpdir(), 'rs-picked-'));

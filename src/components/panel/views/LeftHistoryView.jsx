@@ -48,7 +48,7 @@ const LeftHistoryView = ({ gitRequest = null }) => {
     useEffect(() => {
         if (!gitRequest) return;
         setGitUniverseSlug(gitRequest.universeSlug || null);
-        setFilter('git');
+        setFilter(gitRequest.tab === 'backups' ? 'backups' : 'git');
     }, [gitRequest?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const effectiveIndex = history.length + currentIndex;

@@ -6405,45 +6405,40 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Walks all graphs and ensures each `definingNodeIds` entry has a matching
      * `definitionGraphIds` entry in the referenced prototype. Run this to recover
      * from data corruption or mismatched state after a partial import.
+     *
+     * @returns {number} how many links were put back
      */
     repairGraphLinkages: () => {
-      console.log('[Repair Tool] Starting bidirectional link repair...');
+      // Find the missing back-links first, so a universe with none is left
+      // untouched (no change, no save) and the caller can say what happened.
+      const missing = [];
+      for (const [graphId, graph] of get().graphs.entries()) {
+        for (const prototypeId of graph.definingNodeIds || []) {
+          const prototype = get().nodePrototypes.get(prototypeId);
+          if (!prototype) {
+            console.warn(`[Repair Tool] Graph "${graph.name}" (${graphId}) defines missing prototype ${prototypeId}`);
+            continue;
+          }
+          if (!(prototype.definitionGraphIds || []).includes(graphId)) {
+            missing.push([prototypeId, graphId]);
+          }
+        }
+      }
+      if (missing.length === 0) {
+        console.log('[Repair Tool] No broken links found.');
+        return 0;
+      }
+
       api.setChangeContext({ type: 'graph_linkage_repair' });
       set(produce((draft) => {
-        let repairCount = 0;
-
-        // Iterate all graphs
-        for (const [graphId, graph] of draft.graphs.entries()) {
-          // Check if graph defines any nodes
-          const definingNodeIds = graph.definingNodeIds || [];
-
-          definingNodeIds.forEach(prototypeId => {
-            const prototype = draft.nodePrototypes.get(prototypeId);
-            if (!prototype) {
-              console.warn(`[Repair Tool] Graph "${graph.name}" (${graphId}) defines missing prototype ${prototypeId}`);
-              return;
-            }
-
-            // Ensure prototype links back to this graph
-            if (!Array.isArray(prototype.definitionGraphIds)) {
-              prototype.definitionGraphIds = [];
-            }
-
-            if (!prototype.definitionGraphIds.includes(graphId)) {
-              prototype.definitionGraphIds.push(graphId);
-              console.log(`[Repair Tool] 🛠️ FIXED: Linked Node "${prototype.name}" back to definition Graph "${graph.name}"`);
-              repairCount++;
-            }
-          });
-        }
-
-        if (repairCount > 0) {
-          console.log(`[Repair Tool] ✅ Completed with ${repairCount} repairs.`);
-          // Force a store update trigger if needed, though Immer should handle it
-        } else {
-          console.log('[Repair Tool] No broken links found.');
+        for (const [prototypeId, graphId] of missing) {
+          const prototype = draft.nodePrototypes.get(prototypeId);
+          if (!Array.isArray(prototype.definitionGraphIds)) prototype.definitionGraphIds = [];
+          if (!prototype.definitionGraphIds.includes(graphId)) prototype.definitionGraphIds.push(graphId);
         }
       }));
+      console.log(`[Repair Tool] Completed with ${missing.length} repairs.`);
+      return missing.length;
     },
 
     /**

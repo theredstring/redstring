@@ -237,7 +237,10 @@ const take = async (slug, source) => {
  */
 export async function noteUniverseSaved(slug, source) {
   if (!slug || mode !== 'on' || inFlight.has(slug)) return null;
-  const run = (async () => {
+  // Started on the next tick, so it is registered as in flight before its
+  // `finally` can clear it (an early return would otherwise clear it first and
+  // leave the universe marked busy for good).
+  const run = Promise.resolve().then(async () => {
     try {
       if (!newestAt.has(slug)) {
         const existing = await store().list(slug);
@@ -251,7 +254,7 @@ export async function noteUniverseSaved(slug, source) {
     } finally {
       inFlight.delete(slug);
     }
-  })();
+  });
   inFlight.set(slug, run);
   return run;
 }
