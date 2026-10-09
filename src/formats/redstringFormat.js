@@ -8,6 +8,7 @@
  * - v1.0.0: Legacy format
  */
 
+import { serializeRedstring } from './universeBytes.js';
 import { v4 as uuidv4 } from 'uuid';
 import uriGenerator from '../services/uriGenerator.js';
 import { runMigrations } from './migrations.js';
@@ -2299,8 +2300,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
  */
 export const downloadRedstringFile = (storeState, filename = 'cognitive-space.redstring') => {
   const redstringData = exportToRedstring(storeState);
-  const jsonString = JSON.stringify(redstringData, null, 2);
-  const blob = new Blob([jsonString], { type: 'application/json' });
+  // Bytes built a piece at a time, like a save (universeBytes.js).
+  const blob = new Blob([serializeRedstring(redstringData)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   
   const a = document.createElement('a');

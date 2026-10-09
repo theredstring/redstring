@@ -133,7 +133,7 @@ describe('reading in pieces', () => {
       const streamed = await parseRedstringBytes(encode(text), { streamAt: 0, sliceBytes: 1 + (i % 5) });
       expect(streamed).toEqual(JSON.parse(text));
     }
-  });
+  }, 60000); // thousands of one-byte slices, each a yield to the event loop
 
   it('keeps a "__proto__" key as data, as JSON.parse does', async () => {
     const text = '{"a":{"__proto__":{"polluted":true},"b":1}}';

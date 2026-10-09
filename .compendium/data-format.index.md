@@ -28,6 +28,7 @@ These describe older format versions that the system must remain capable of read
 |------|---------|---------|
 | [REDSTRING_FORMAT_VERSIONING.md](../documentation/data-format/REDSTRING_FORMAT_VERSIONING.md) | Version history, ledger-based migration system, auto-upgrade on file load, compatibility guarantees | Understanding how old files get upgraded; adding a new version |
 | [MIGRATION_GUIDE.md](../documentation/data-format/MIGRATION_GUIDE.md) | How to migrate semantic query API usage between versions; documents the additive API approach (no breaking changes) | Updating call sites when semantic API changes |
+| [UNIVERSE_FILE_SIZE.md](../documentation/data-format/UNIVERSE_FILE_SIZE.md) | Reading and writing big `.redstring` files a piece at a time as bytes (`src/formats/universeBytes.js`), compact writing for large universes, the Git 50 MB cap, and the limits that remain | Any change to how universe files are saved, loaded, or synced; anything that would hold a whole universe as one string |
 | [ONTOLOGY_IMPORT.md](../documentation/data-format/ONTOLOGY_IMPORT.md) | Importing OWL / Turtle / N-Triples / JSON-LD / OBO Graphs into a universe: the pipeline (`src/formats/ontology/`), the deterministic mapping rules (term → Thing, parent → type, composition → webs), IRI identity and merging, what keeps imported Things alive, scale numbers, the CLI | Any work on ontology import, starter packs, or the smart planner that will sit on the plan |
 
 ---

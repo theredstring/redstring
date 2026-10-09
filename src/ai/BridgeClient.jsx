@@ -460,6 +460,13 @@ const BridgeClient = () => {
         }
         sendGateRef.current.sent(state);
       } catch (error) {
+        // Too big to build as text at all ("Invalid string length"): too
+        // large, not failed. As a failure it would be rebuilt every tick.
+        if (error instanceof RangeError) {
+          sendGateRef.current.tooLarge(useGraphStore.getState());
+          console.warn('MCP Bridge: this universe is too large to share with the wizard. It will try again if the universe gets smaller.');
+          return;
+        }
         sendGateRef.current.failed();
         // Provide more user-friendly error messages
         if (error.message.includes('bridge_unavailable_cooldown')) {

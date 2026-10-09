@@ -9,6 +9,15 @@ import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../f
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
 import { vlog } from '../utils/verboseLog.js';
+import { serializeRedstring } from '../formats/universeBytes.js';
+import { GIT_READ_CAP_DESKTOP_BYTES } from './gitNativeProvider.js';
+
+/**
+ * The largest universe file Git sync writes: the most any device will read
+ * back (gitNativeProvider's read cap). Writing more would leave a remote that
+ * nothing can open.
+ */
+export const GIT_WRITE_CAP_BYTES = GIT_READ_CAP_DESKTOP_BYTES;
 
 // Source of truth modes
 const SOURCE_OF_TRUTH = {
@@ -61,6 +70,9 @@ class GitSyncEngine {
     this.hasChanges = false; // Track if there are actual changes
     this.isCommitInProgress = false; // Prevent overlapping commits
     this.isPaused = false; // Allow external pausing of operations
+    // Set when a commit was refused for size: { bytes, items } of that
+    // universe, so later changes can be estimated without building the file.
+    this.tooLargeToSync = null;
 
     // Rate limiting and debouncing - aggressive but safe for GitHub API
     this.minCommitInterval = this.isGitHubApp ? 2000 : 3000; // Min 2-3s between commits
@@ -325,7 +337,43 @@ class GitSyncEngine {
    */
   async _buildCommitPayload(storeState) {
     const redstringData = await this._externalizeImages(exportToRedstring(storeState));
-    return JSON.stringify(redstringData, null, 2);
+    // Built a piece at a time (formats/universeBytes.js); the same bytes the
+    // local file gets, compact when the universe is large.
+    const bytes = serializeRedstring(redstringData);
+    if (bytes.length > GIT_WRITE_CAP_BYTES) {
+      this.tooLargeToSync = { bytes: bytes.length, items: this._itemsOf(storeState) };
+      throw this._tooLargeError(bytes.length);
+    }
+    this.tooLargeToSync = null;
+    // Under the cap, so safe to hold as text for the provider.
+    return new TextDecoder().decode(bytes);
+  }
+
+  /** Things plus webs: what a universe file's size follows. */
+  _itemsOf(storeState) {
+    return (storeState?.nodePrototypes?.size || 0) + (storeState?.graphs?.size || 0);
+  }
+
+  /**
+   * Whether this state is still too large to sync, judged from the last
+   * refused commit's bytes per Thing or web, without building the file:
+   * building it means exporting and serializing the whole universe on the
+   * main thread, seconds for a universe this size, on every change.
+   */
+  _stillTooLarge(storeState) {
+    if (!this.tooLargeToSync) return false;
+    const { bytes, items } = this.tooLargeToSync;
+    if (!items) return false;
+    return this._itemsOf(storeState) * (bytes / items) > GIT_WRITE_CAP_BYTES;
+  }
+
+  _tooLargeError(bytes) {
+    const mb = (n) => Math.round(n / (1024 * 1024));
+    const error = new Error(`This universe is ${mb(bytes)} MB, over the ${mb(GIT_WRITE_CAP_BYTES)} MB Git sync can carry. It is saved on this device; Git sync resumes when it is smaller.`);
+    error.code = 'FILE_TOO_LARGE';
+    error.size = bytes;
+    error.limit = GIT_WRITE_CAP_BYTES;
+    return error;
   }
 
   // Backup paths removed for rate limit efficiency
@@ -666,6 +714,12 @@ class GitSyncEngine {
         console.warn('[GitSyncEngine] Refusing updateState: incoming state has 0 nodes but last commit had', this.lastCommittedNodeCount, '— likely a transient empty state, not a real edit.');
         return;
       }
+    }
+
+    // Too large to sync: don't fingerprint or queue it (both mean holding
+    // the whole universe as text on the main thread).
+    if (this._stillTooLarge(storeState)) {
+      return;
     }
 
     // Store the current state for background persistence
@@ -1163,6 +1217,13 @@ class GitSyncEngine {
         return;
       }
 
+      // Still too large to sync: nothing to send, and nothing to retry.
+      if (this._stillTooLarge(latestState)) {
+        this.pendingCommits = [];
+        this.hasChanges = false;
+        return;
+      }
+
       // Export to Redstring format (raw JSON write, not TTL), moving
       // full-resolution images out to content-addressed blobs on the way.
       const jsonString = await this._buildCommitPayload(latestState);
@@ -1235,6 +1296,16 @@ class GitSyncEngine {
       this.isInErrorBackoff = false;
 
     } catch (error) {
+      // Too large to sync isn't a failure to retry: say so once, drop the
+      // queue, and wait for the universe to shrink (_stillTooLarge).
+      if (error?.code === 'FILE_TOO_LARGE') {
+        console.warn('[GitSyncEngine] Not committing:', error.message);
+        this.notifyStatus('warning', error.message);
+        this.pendingCommits = [];
+        this.hasChanges = false;
+        return;
+      }
+
       console.error('[GitSyncEngine] Failed to commit:', error);
 
       // Track consecutive errors for backoff
@@ -1348,6 +1419,15 @@ class GitSyncEngine {
         return false;
       }
 
+      // Still too large to sync (see _stillTooLarge): say so, without
+      // fingerprinting or building the whole universe again.
+      if (this._stillTooLarge(storeState)) {
+        const { bytes, items } = this.tooLargeToSync;
+        const error = this._tooLargeError(Math.round(this._itemsOf(storeState) * (bytes / items)));
+        this.notifyStatus('warning', error.message);
+        throw error;
+      }
+
       // Check for redundant commits - don't commit identical content.
       // Hash first: no point externalizing images for a commit we then skip.
       const currentHash = this.generateStateHash(storeState);
@@ -1382,7 +1462,13 @@ class GitSyncEngine {
 
       // Export + externalize images. Done after the redundancy check and inside
       // the in-progress guard so blob uploads can't overlap another commit.
-      const jsonString = await this._buildCommitPayload(storeState);
+      let jsonString;
+      try {
+        jsonString = await this._buildCommitPayload(storeState);
+      } catch (error) {
+        if (error?.code === 'FILE_TOO_LARGE') this.notifyStatus('warning', error.message);
+        throw error;
+      }
 
       // Track API call for circuit breaker
       this.recentApiCalls.push(Date.now());

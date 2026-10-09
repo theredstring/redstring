@@ -401,3 +401,80 @@ describe('remoteConflictPending blocks every push except the resolution save', (
     expect(engine.hasChanges).toBe(false);
   });
 });
+
+describe('size cap: never write what no device can read back', () => {
+  let engine, provider;
+  // About 3 KB a Thing: 18,000 of them is well over the 50 MB cap.
+  const bigStore = (n) => {
+    const nodePrototypes = new Map();
+    const description = 'x'.repeat(3000);
+    for (let i = 0; i < n; i++) nodePrototypes.set('p' + i, { id: 'p' + i, name: 'N' + i, description });
+    return { graphs: new Map(), nodePrototypes, edges: new Map() };
+  };
+  beforeEach(() => {
+    provider = makeProvider();
+    engine = new GitSyncEngine(provider, 'git', 'u', 'u', 'u');
+    engine.lastKnownRemoteSha = 'sha-loaded';
+    engine.lastCommitTime = 0;
+  });
+
+  it('refuses a universe over the cap, writes nothing, and says why', async () => {
+    const statuses = [];
+    engine.notifyStatus = (type, message) => statuses.push([type, message]);
+    await expect(engine.forceCommit(bigStore(18000))).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+    expect(provider.writes).toHaveLength(0);
+    expect(statuses.some(([type, message]) => type === 'warning' && /over the 50 MB Git sync can carry/.test(message))).toBe(true);
+  });
+
+  it('after a refusal, stops fingerprinting and building it until it shrinks', async () => {
+    engine.notifyStatus = () => {};
+    const big = bigStore(18000);
+    await expect(engine.forceCommit(big)).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+
+    let hashes = 0;
+    let builds = 0;
+    const hash = engine.generateStateHash.bind(engine);
+    const build = engine._buildCommitPayload.bind(engine);
+    engine.generateStateHash = (st) => { hashes++; return hash(st); };
+    engine._buildCommitPayload = (st) => { builds++; return build(st); };
+
+    engine.updateState(big);
+    expect(engine.pendingCommits).toHaveLength(0);
+    engine.lastCommitTime = 0;
+    await expect(engine.forceCommit(big)).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+    expect(hashes).toBe(0);
+    expect(builds).toBe(0);
+
+    // Small enough again: it builds, writes, and forgets the refusal.
+    engine.lastCommitTime = 0;
+    expect(await engine.forceCommit(bigStore(2000))).toBe(true);
+    expect(builds).toBe(1);
+    expect(provider.writes).toHaveLength(1);
+    expect(engine.tooLargeToSync).toBeNull();
+  });
+
+  it('the background loop drops an oversized commit instead of retrying it', async () => {
+    engine.notifyStatus = () => {};
+    const big = bigStore(18000);
+    engine.pendingCommits = [{ type: 'state_update', data: big, hash: 'h', timestamp: Date.now() - 60000, isDragging: false }];
+    engine.hasChanges = true;
+    engine.lastCommitTime = 0;
+    await engine.processPendingCommits();
+    expect(provider.writes).toHaveLength(0);
+    expect(engine.pendingCommits).toHaveLength(0);
+    expect(engine.consecutiveErrors).toBe(0);
+    expect(engine.isInErrorBackoff).toBe(false);
+  });
+
+  it('writes a small universe exactly as before: pretty-printed', async () => {
+    engine.notifyStatus = () => {};
+    const { exportToRedstring } = await import('../../src/formats/redstringFormat.js');
+    const store = storeWithNodes(3);
+    expect(await engine.forceCommit(store)).toBe(true);
+    const written = provider.writes[0].content;
+    expect(typeof written).toBe('string');
+    const reparsed = JSON.parse(written);
+    expect(written).toBe(JSON.stringify(reparsed, null, 2));
+    expect(Object.keys(reparsed.prototypeSpace.prototypes)).toEqual(Object.keys(exportToRedstring(store).prototypeSpace.prototypes));
+  });
+});

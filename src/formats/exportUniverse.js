@@ -88,9 +88,11 @@ export const EXPORT_FORMATS = [
     description: 'The native format. Everything: webs, definitions, positions, colors.',
     run: async (storeState) => {
       const { exportToRedstring } = await import('./redstringFormat.js');
+      const { serializeRedstring } = await import('./universeBytes.js');
       const doc = exportToRedstring(storeState);
       return {
-        blob: new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }),
+        // Bytes built a piece at a time, like a save (universeBytes.js).
+        blob: new Blob([serializeRedstring(doc)], { type: 'application/json' }),
         extension: 'redstring'
       };
     }
@@ -105,9 +107,11 @@ export const EXPORT_FORMATS = [
     description: 'Identical to .redstring, under an extension other tools recognize.',
     run: async (storeState) => {
       const { exportToRedstring } = await import('./redstringFormat.js');
+      const { serializeRedstring } = await import('./universeBytes.js');
       const doc = exportToRedstring(storeState);
       return {
-        blob: new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }),
+        // Bytes built a piece at a time, like a save (universeBytes.js).
+        blob: new Blob([serializeRedstring(doc)], { type: 'application/json' }),
         extension: 'json'
       };
     }

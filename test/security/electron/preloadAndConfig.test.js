@@ -36,7 +36,7 @@ describe('preload surface', () => {
     expect(name).toBe('electron');
     expect(shape(api)).toEqual({
       isElectron: 'boolean',
-      fileSystem: ['deleteFile', 'fileExists', 'folderExists', 'getPathParent', 'mkdir', 'pickFile', 'pickFolder', 'readFile', 'saveAs', 'showItemInFolder', 'writeFile'],
+      fileSystem: ['deleteFile', 'fileExists', 'folderExists', 'getPathParent', 'mkdir', 'pickFile', 'pickFolder', 'readFile', 'readFileBytes', 'saveAs', 'showItemInFolder', 'writeFile'],
       storage: ['clear', 'getAll', 'getItem', 'getPaths', 'removeItem', 'setAll', 'setItem'],
       secrets: ['delete', 'get', 'isAvailable', 'set'],
       migration: ['complete', 'takeLegacyState'],

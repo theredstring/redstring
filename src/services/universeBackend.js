@@ -54,7 +54,6 @@ import {
   hasFileSystemAccess,
   pickFile,
   pickSaveLocation,
-  readFile,
   readFileBytes,
   writeFile,
   fileExists,
