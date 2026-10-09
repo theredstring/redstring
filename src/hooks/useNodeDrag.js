@@ -25,6 +25,7 @@ import { measureTextWidth as pretextMeasureTextWidth, edgeLabelGlyphAdvances, tr
 import saveCoordinator from '../services/SaveCoordinator.js';
 import { haptic } from '../services/haptics.js';
 import { createFrameClock } from '../components/canvas/camera/frameClock.js';
+import { markNodeDrop } from '../components/canvas/input/dropCooldown.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -355,9 +356,6 @@ export const useNodeDrag = ({
   // the edge-pan loop. NodeCanvas reads it via the exposed ref to gate the
   // drag-end block in handleMouseUp.
   const dragPhaseRef = useRef('idle');
-  // performance.now() of the last drop. The touch path reads it to ignore a
-  // tap-select that lands right after a release (finger re-contact on lift).
-  const lastDragEndAtRef = useRef(0);
 
   const zoomAnimationRef = useRef({
     active: false,
@@ -2835,7 +2833,7 @@ export const useNodeDrag = ({
       return { draggedNodeIds: [], primaryNodeId: null, checkGroupDrop: false, wasGroupDrag: false };
     }
     dragPhaseRef.current = 'finalizing';
-    lastDragEndAtRef.current = performance.now();
+    markNodeDrop();
     // Past the re-entry guard and the no-info bail, so this fires exactly once
     // per real release, on the same tick the drop animation starts settling.
     haptic('nodeDrop');
@@ -3208,7 +3206,6 @@ export const useNodeDrag = ({
     dragOwnedEdgeIds,
     draggingNodeInfoRef,
     dragPhaseRef,
-    lastDragEndAtRef,
     isAnimatingZoomRef,
     longPressingInstanceIdRef,
     setLongPressingInstanceId,

@@ -5,6 +5,7 @@ import { haptic } from '../services/haptics.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
+import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -28,9 +29,6 @@ const LONG_PRESS_DURATION = 450;
 // and is the floor for how responsive selection can feel while a double-tap
 // gesture still has to be recognized.
 const NODE_DOUBLE_TAP_MS = 250;
-// A node tap this soon after a drag drop doesn't select. Lifting a dragged
-// node often brushes the screen a second time, which otherwise reads as a tap.
-const NODE_TAP_AFTER_DRAG_MS = 300;
 // Release-velocity sampling for the pinch glide (mirrors the pan glide's
 // window approach). Velocity is measured on the RAW finger-driven target zoom,
 // not the eased/applied zoom — the applied zoom lags the fingers and keeps
@@ -66,7 +64,7 @@ export const useCanvasTouch = ({
     const { stopPanMomentum, isViewMoving, startZoomMomentum, stopZoomMomentum } = camera;
     const { handleMouseMove, handleMouseUp, handleMouseDown } = pointer;
     const {
-        startDragForNode, draggingNodeInfo, draggingNodeInfoRef, lastDragEndAtRef, isAnimatingZoomRef,
+        startDragForNode, draggingNodeInfo, draggingNodeInfoRef, isAnimatingZoomRef,
     } = nodeDrag;
     const {
         isPanningOrZooming, panSourceRef, panVelocityHistoryRef, isMouseDown, mouseMoved, startedOnNode,
@@ -961,7 +959,7 @@ export const useCanvasTouch = ({
         // everything inside the much larger finger-sized radius that missed it.
         // Nodes still win — they paint on top and claim their own taps, and
         // trySelectConnectionAtPoint bails on any point inside a node.
-        if (isTap && !draggingNodeInfo && !drawingConnectionFrom
+        if (isTap && !draggingNodeInfo && !drawingConnectionFrom && !isJustAfterNodeDrop()
             && !nodeNamePrompt.visible && activeGraphId && trySelectConnectionAtPoint) {
             if (trySelectConnectionAtPoint(clientX, clientY)) {
                 // Suppress the synthesized click, which would otherwise reach
@@ -1536,8 +1534,7 @@ export const useCanvasTouch = ({
         // multiTouchGestureRef: a finger that started on a node and became half
         // of a pinch can end with near-zero movement — that lift is pinch-end,
         // not a tap, and must not toggle the node's selection.
-        const justDropped = performance.now() - (lastDragEndAtRef?.current || 0) < NODE_TAP_AFTER_DRAG_MS;
-        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && !multiTouchGestureRef.current && !justDropped && touchState.current.dragNodeId === nodeData.id) {
+        if (!touchState.current.hasMovedPastThreshold && !wasDragOrConnection && !multiTouchGestureRef.current && !isJustAfterNodeDrop() && touchState.current.dragNodeId === nodeData.id) {
             // This was a tap, not a drag
             // Light haptic feedback for tap completion
             haptic('nodeTap');

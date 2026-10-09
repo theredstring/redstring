@@ -8,6 +8,7 @@ import { haptic } from '../../../services/haptics.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
+import { isJustAfterNodeDrop } from './dropCooldown.js';
 
 /** The mouse handlers a connection's hit stroke spreads. */
 export function edgeHitboxHandlersFor(ctx, edgeId) {
@@ -17,6 +18,7 @@ export function edgeHitboxHandlersFor(ctx, edgeId) {
     onClick: (e) => {
       e.stopPropagation();
       ignoreCanvasClick.current = true;
+      if (isJustAfterNodeDrop()) return;
       haptic('edgeSelect');
       if (e.ctrlKey || e.metaKey) {
         if (selectedEdgeIds.has(edgeId)) {
@@ -95,6 +97,7 @@ export function commitEdgeTouchWith(ctx, e) {
   const y = e?.clientY ?? e?.changedTouches?.[0]?.clientY;
   if (typeof x === 'number' && typeof y === 'number'
     && Math.hypot(x - pending.x, y - pending.y) > EDGE_TAP_SLOP_PX) return;
+  if (isJustAfterNodeDrop()) return;
 
   haptic('edgeSelect');
   // Double-tap → open definition. Counted on release for the same reason
@@ -151,6 +154,7 @@ export function edgePointerDownTouchWith(ctx, edgeId, e) {
 /** Select a connection from a click, preferring the nearest (hovered) one over the hitbox on top. */
 export function selectEdgeFromClickWith(ctx, clickedEdgeId, e) {
   const { findEdgeAtClientPoint, selectedEdgeIds, storeActions } = ctx;
+  if (isJustAfterNodeDrop()) return;
   const targetEdgeId = useCanvasUIStore.getState().hoveredEdgeInfo?.edgeId
     || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId
     || clickedEdgeId;
