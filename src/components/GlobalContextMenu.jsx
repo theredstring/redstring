@@ -5,7 +5,7 @@ import { likelyTouch } from '../utils/inputDeviceAnalysis';
 // Global context menu manager
 let globalContextMenuManager = null;
 
-export const showContextMenu = (x, y, options = [], { force = false, onClose } = {}) => {
+export const showContextMenu = (x, y, options = [], { force = false, onClose, grow } = {}) => {
   // On touch devices the long-press gesture fires `contextmenu`, but users expect
   // long-press-and-drag to move things — not pop up a menu. Suppress the custom
   // menu entirely on touch; right-click on desktop still works.
@@ -19,7 +19,8 @@ export const showContextMenu = (x, y, options = [], { force = false, onClose } =
     // `onClose` is for a trigger that shows its own open/closed state — a
     // chevron that flips, a button that stays lit. Dismissal is the backdrop's
     // job, so without this the trigger would have no way to learn about it.
-    globalContextMenuManager.showMenu(x, y, options, onClose);
+    // `grow`: 'right' (default) or 'left', the side the card opens toward.
+    globalContextMenuManager.showMenu(x, y, options, onClose, grow);
   }
 };
 
@@ -105,12 +106,12 @@ const GlobalContextMenu = () => {
   useEffect(() => {
     // Register the global manager
     globalContextMenuManager = {
-      showMenu: (x, y, options, onClose) => {
+      showMenu: (x, y, options, onClose, grow) => {
         // One menu at a time: whatever was open is being replaced, so it is
         // closing — its trigger has to hear about that too.
         setContextMenu((prev) => {
           prev?.onClose?.();
-          return { x, y, options, onClose };
+          return { x, y, options, onClose, grow };
         });
       },
       hideMenu: () => {
@@ -173,6 +174,7 @@ const GlobalContextMenu = () => {
           x={contextMenu.x}
           y={contextMenu.y}
           options={contextMenu.options}
+          grow={contextMenu.grow}
           onClose={handleClose}
           onSelect={handleSelect}
         />

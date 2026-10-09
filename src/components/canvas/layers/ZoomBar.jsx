@@ -21,10 +21,11 @@
  * Keyboard focus wakes it too (CSS, :focus-visible).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut } from 'lucide-react';
+import { ZoomIn, ZoomOut, EyeOff } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
 import { haptic } from '../../../services/haptics.js';
+import { showContextMenu } from '../../GlobalContextMenu.jsx';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { DARK_THEME } from '../../../utils/themeColors.js';
 import { MAX_ZOOM, NODE_DEFAULT_COLOR, DEFAULT_ZOOM_BAR_POSITION } from '../../../constants';
@@ -333,7 +334,23 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
   const shield = {
     onMouseDown: stop, onMouseUp: stop, onMouseMove: stop, onClick: stop, onDoubleClick: stop,
     onTouchStart: stop, onTouchMove: stop, onTouchEnd: stop, onTouchCancel: stop,
-    onContextMenu: (e) => { e.preventDefault(); e.stopPropagation(); },
+  };
+
+  // Right-click: the bar's own menu. Hide turns off the Settings › Display
+  // "Zoom Bar" setting, which is where it comes back from. The card opens
+  // toward the middle of the screen, so a bar on the right side gets it to
+  // its left.
+  const onContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, [
+      {
+        label: 'Hide Zoom Bar',
+        icon: <EyeOff size={14} />,
+        title: 'Show it again from Settings › Display',
+        action: () => useGraphStore.getState().setShowZoomBar?.(false),
+      },
+    ], { grow: e.clientX > window.innerWidth / 2 ? 'left' : 'right' });
   };
 
   if (!shown) return null;
@@ -374,6 +391,8 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
       ref={barRef}
       className={`zoom-bar ${vertical ? 'is-vertical' : 'is-bottom'}${awake ? ' is-awake' : ''}${suppressed ? ' is-suppressed' : ''}${dragging ? ' is-dragging' : ''}${viewportBounds.resizing ? ' is-panel-resizing' : ''}`}
       style={{ ...place, '--zoom-bar-color': color }}
+      data-has-context-menu
+      onContextMenu={onContextMenu}
       {...shield}
     >
       <button

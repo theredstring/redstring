@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check } from 'lucide-react';
 
-const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
+const ContextMenu = ({ x, y, options = [], onClose, onSelect, grow = 'right' }) => {
   // If no options provided, show default message
   const displayOptions = options.length > 0 ? options : [{ label: 'No Tools Here...', disabled: true }];
 
@@ -49,8 +49,17 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
     el.style.top = '0px';
     const { width, height } = el.getBoundingClientRect();
 
-    let left = x;
-    if (left + width > vw - margin) left = x - width;
+    // `grow` is the side the card opens toward from the point: right (the
+    // default, a native menu) or left, for a trigger on the screen's right
+    // where the room is. Either flips when that side has no room.
+    let left;
+    if (grow === 'left') {
+      left = x - width;
+      if (left < margin) left = x;
+    } else {
+      left = x;
+      if (left + width > vw - margin) left = x - width;
+    }
     left = Math.max(margin, Math.min(left, Math.max(margin, vw - width - margin)));
 
     let top = y;
@@ -66,7 +75,7 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect }) => {
     setPos({ left, top });
     // Measured from the rendered card, so re-run whenever its content or the
     // requested point changes.
-  }, [x, y, options]);
+  }, [x, y, options, grow]);
 
   return (
     <>
