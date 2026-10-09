@@ -43,7 +43,8 @@ describe('mergeRedstringPack', () => {
     const pack = JSON.parse(JSON.stringify(exportToRedstring(state)));
 
     const first = await actions.mergeRedstringPack(pack);
-    expect(first).toMatchObject({ success: true, thingsAlreadyHere: 0, websAdded: state.graphs.size, connectionsAdded: 1 });
+    expect(first).toMatchObject({ success: true, thingsAlreadyHere: 0, websAdded: state.graphs.size, connectionsAdded: state.edges.size });
+    expect(state.edges.size).toBe(6);
     expect(first.thingsAdded).toBe(state.nodePrototypes.size);
     expect(first.laidOut).toBe(state.graphs.size);
 
@@ -73,7 +74,7 @@ describe('redstring import', () => {
 
   it('--dry-run reports what it would import', () => {
     const out = cli('import', ZOO_OWL, '--root', 'cat', '--depth', '0', '--dry-run');
-    expect(out).toMatchObject({ dryRun: true, source: { title: 'Zoo Ontology' }, connections: 1 });
+    expect(out).toMatchObject({ dryRun: true, source: { title: 'Zoo Ontology' }, connections: 6 });
     expect(out.things).toBeGreaterThan(5);
   });
 

@@ -40,6 +40,12 @@ function gridPosition(i) {
   return { x: (i % 8) * 260, y: Math.floor(i / 8) * 200 };
 }
 
+const WEB_DESCRIPTIONS = {
+  composition: (name, from) => `The parts of ${name}, from ${from}.`,
+  connections: (name, from) => `The connections of ${name}, from ${from}.`,
+  kinds: (name, from) => `The kinds of ${name}, from ${from}.`,
+};
+
 function newWeb({ id, name, description, definingId }) {
   return {
     id,
@@ -124,7 +130,7 @@ export function buildUniverseState(plan) {
       description: thing.description,
       color: NODE_DEFAULT_COLOR,
       typeNodeId: thing.typeIri ? thingIdOf.get(thing.typeIri) : null,
-      definitionGraphIds: [thing.compositionWebId, thing.kindsWebId].filter(Boolean),
+      definitionGraphIds: [thing.compositionWebId, thing.connectionsWebId, thing.kindsWebId].filter(Boolean),
       externalLinks: identity.externalLinks,
       ...(thing.equivalents.length ? { equivalentClasses: thing.equivalents } : {}),
       semanticMetadata: {
@@ -170,9 +176,7 @@ export function buildUniverseState(plan) {
     const web = newWeb({
       id: plannedWeb.id,
       name: wholeName,
-      description: plannedWeb.kind === 'kinds'
-        ? `The kinds of ${wholeName}, from ${source.title}.`
-        : `The parts of ${wholeName}, from ${source.title}.`,
+      description: WEB_DESCRIPTIONS[plannedWeb.kind](wholeName, source.title),
       definingId: wholeId,
     });
     const memberIds = plannedWeb.members.map((iri) => thingIdOf.get(iri)).filter(Boolean);

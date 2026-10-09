@@ -103,15 +103,34 @@ describe('the built universe', () => {
     expect(state.graphs.get(folderWebId).description).toMatch(/^Folder:/);
   });
 
-  it('opens a Thing to its parts first, then to its kinds', () => {
+  it('opens a Thing to its parts first, then its connections, then its kinds', () => {
     const { state } = build();
     const cat = state.nodePrototypes.get(id('Cat'));
-    const [parts, kinds] = cat.definitionGraphIds.map((g) => state.graphs.get(g));
+    const [parts, connections, kinds] = cat.definitionGraphIds.map((g) => state.graphs.get(g));
     expect(parts.description).toBe('The parts of Cat, from Zoo Ontology.');
+    expect(connections.description).toBe('The connections of Cat, from Zoo Ontology.');
     expect(kinds.description).toBe('The kinds of Cat, from Zoo Ontology.');
     expect(kinds.definingNodeIds).toEqual([id('Cat')]);
     const names = [...kinds.instances.values()].map((i) => state.nodePrototypes.get(i.prototypeId).name).sort();
     expect(names).toEqual(['Garfield', 'Kitten']);
+  });
+
+  it('draws every relation from the Thing, in its web of connections, which holds the Thing itself', () => {
+    const { state } = build({ roots: ['cat'], depth: 0 });
+    const cat = state.nodePrototypes.get(id('Cat'));
+    const web = state.graphs.get(cat.definitionGraphIds[1]);
+    expect(web.definingNodeIds).toEqual([id('Cat')]);
+    const catInstance = [...web.instances.values()].find((i) => i.prototypeId === id('Cat'));
+    expect(catInstance).toBeTruthy();
+    const drawn = web.edgeIds.map((e) => state.edges.get(e)).map((e) => [
+      e.sourceId === catInstance.id ? 'Cat' : '?',
+      e.name,
+      state.nodePrototypes.get(web.instances.get(e.destinationId).prototypeId).name,
+    ]).sort();
+    expect(drawn).toEqual([['Cat', 'Has Part', 'Paw'], ['Cat', 'Has Part', 'Tail'], ['Cat', 'Has Role', 'Predator']]);
+    // The connection's type is the relation's own Thing.
+    const role = state.edges.get(web.edgeIds.find((e) => state.edges.get(e).name === 'Has Role'));
+    expect(state.nodePrototypes.get(role.definitionNodeIds[0]).externalLinks).toEqual(['http://purl.obolibrary.org/obo/RO_0000087']);
   });
 
   it('draws composition as the whole\'s web, with relations between parts as connections', () => {
@@ -220,8 +239,9 @@ describe('importing into a universe', () => {
     // The universe it landed in keeps its name for the Thing; the other source's is kept too.
     expect(cat.name).toBe('Cat');
     expect(cat._preserved.merge.name).toBe('Domestic Cat');
-    // Each source's account of what a cat is made of survives, as two definitions.
-    expect(cat.definitionGraphIds).toHaveLength(2);
+    // Each source's account of what a cat is made of, and of what it relates
+    // to, survives: a web of parts and a web of connections from each.
+    expect(cat.definitionGraphIds).toHaveLength(4);
   });
 
   it('a Thing someone already linked to the same IRI is folded in, not duplicated', async () => {
@@ -318,6 +338,34 @@ describe('what keeps imported Things alive', () => {
     for (const g of st.graphs.values()) {
       for (const inst of g.instances?.values() || []) expect(st.nodePrototypes.has(inst.prototypeId)).toBe(true);
     }
+  });
+
+  it('a kept Thing keeps its parts, but not what it only relates to', async () => {
+    const built = build();
+    await applyOntologyImport(built);
+    // The user puts Cat in a web of their own, then removes the source.
+    useGraphStore.setState((s) => {
+      const graphs = new Map(s.graphs);
+      graphs.set('mine', {
+        id: 'mine', name: 'Mine', description: '', instances: new Map([['i', { id: 'i', prototypeId: id('Cat'), x: 0, y: 0, scale: 1 }]]),
+        groups: new Map(), edgeIds: [], definingNodeIds: [],
+      });
+      const saved = new Set(s.savedNodeIds);
+      saved.delete(built.sourceId);
+      return { graphs, openGraphIds: ['mine'], savedNodeIds: saved };
+    });
+    useGraphStore.getState().cleanupOrphanedData();
+    const st = useGraphStore.getState();
+    // Its parts are what it's made of, and stay, with their own webs.
+    for (const kept of ['Cat', 'Paw', 'Tail', 'Whisker']) expect(st.nodePrototypes.has(id(kept)), kept).toBe(true);
+    expect(st.graphs.has(importIds.connectionsWeb('http://example.org/zoo.owl', Z + 'Paw'))).toBe(true);
+    // Predator is only something Cat relates to: it goes with the source.
+    expect(st.nodePrototypes.has(id('Predator'))).toBe(false);
+    // Cat's web of connections stays, with Cat in it, minus Predator and that connection.
+    const web = st.graphs.get(importIds.connectionsWeb('http://example.org/zoo.owl', Z + 'Cat'));
+    const names = [...web.instances.values()].map((i) => st.nodePrototypes.get(i.prototypeId).name).sort();
+    expect(names).toEqual(['Cat', 'Paw', 'Tail']);
+    expect(web.edgeIds.map((e) => st.edges.get(e)?.name).sort()).toEqual(['Has Part', 'Has Part']);
   });
 });
 

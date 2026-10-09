@@ -7,6 +7,7 @@ import path from 'node:path';
 import { indexOntology } from '../../../src/formats/ontology/importOntology.js';
 import { computeSlice, resolveTermRef, searchTerms } from '../../../src/formats/ontology/slice.js';
 import { buildImportPlan, importIds, localName, titleCaseName } from '../../../src/formats/ontology/plan.js';
+import { compositionalClue } from '../../../src/formats/ontology/vocab.js';
 
 const FIXTURES = path.resolve(__dirname, '../../fixtures/ontology');
 const Z = 'http://example.org/zoo/';
@@ -57,12 +58,15 @@ describe('the slice', () => {
     expect(s.counts.ancestors).toBe(3);
   });
 
-  it('adds the parts of selected wholes, whichever side declares them', () => {
+  it('adds the parts of selected wholes, whichever side declares them, and what they relate to', () => {
     const s = computeSlice(zoo, { roots: ['cat'], depth: 0 });
     // has part (declared on Cat) and part of (declared on Whisker), and their ancestors.
     for (const part of ['Tail', 'Paw', 'Whisker', 'BodyPart']) expect(s.iris.has(z(part))).toBe(true);
-    // A relation that isn't composition does not pull its target in.
-    expect(s.iris.has(z('Predator'))).toBe(false);
+    // Every relation is drawn, so its other end comes along too, with its ladder.
+    expect(s.iris.has(z('Predator'))).toBe(true);
+    expect(s.iris.has(z('Role'))).toBe(true);
+    // What rode along isn't what was selected.
+    expect([...s.selected]).toEqual([z('Cat')]);
   });
 
   it('leaves deprecated terms out unless asked', () => {
@@ -78,6 +82,21 @@ describe('the slice', () => {
         <http://b.org/y> rdfs:label "y" .`,
     });
     expect([...computeSlice(mixed, { namespaces: ['http://a.org/'] }).iris]).toEqual(['http://a.org/x']);
+  });
+
+  it('still brings what the namespace relates to, from any namespace', async () => {
+    const mixed = await indexOntology({
+      fileName: 'm.ttl',
+      source: `@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        <http://a.org/locatedIn> a owl:ObjectProperty ; rdfs:label "located in" .
+        <http://a.org/x> rdfs:label "x" ; rdfs:subClassOf [ a owl:Restriction ; owl:onProperty <http://a.org/locatedIn> ; owl:someValuesFrom <http://b.org/y> ] .
+        <http://b.org/y> rdfs:label "y" .
+        <http://b.org/z> rdfs:label "z" .`,
+    });
+    const s = computeSlice(mixed, { namespaces: ['http://a.org/'] });
+    expect([...s.iris].sort()).toEqual(['http://a.org/x', 'http://b.org/y']);
+    expect([...s.selected]).toEqual(['http://a.org/x']);
   });
 
   it('reports roots it could not find', () => {
@@ -133,15 +152,19 @@ describe('the plan', () => {
     expect(thing(p, 'Cat').compositionWebId).toBe(parts[0].id);
   });
 
-  it('draws only relations between parts, inside the whole\'s web', () => {
+  it('draws relations between parts inside the whole\'s web too, but not part of / has part between them', () => {
     const p = plan({ roots: ['cat'], depth: 0 });
     expect(p.webs.find((w) => w.kind === 'composition').connections).toEqual([{ source: z('Paw'), property: z('adjacentTo'), target: z('Tail') }]);
-    expect(p.relationTypes).toEqual([{ iri: z('adjacentTo'), id: importIds.thing(z('adjacentTo')), name: 'Adjacent To' }]);
+    expect(p.relationTypes).toContainEqual({ iri: z('adjacentTo'), id: importIds.thing(z('adjacentTo')), name: 'Adjacent To' });
   });
 
-  it('keeps every relation on the Thing as readable data', () => {
-    const cat = thing(plan(), 'Cat');
-    expect(cat.relations).toContainEqual({
+  it('keeps on the Thing as data only the relations it can\'t draw', () => {
+    // Everything Cat relates to is in this import: nothing is left as data.
+    expect(thing(plan(), 'Cat').relations).toEqual([]);
+    // Without what rides along, none of it is here, so each relation stays, readable.
+    const alone = plan({ roots: ['cat'], depth: 0, includePartners: false });
+    expect(thing(alone, 'Cat').relations.map((r) => r.target)).toEqual([z('Paw'), z('Tail'), z('Predator')]);
+    expect(thing(alone, 'Cat').relations).toContainEqual({
       property: 'http://purl.obolibrary.org/obo/RO_0000087',
       propertyLabel: 'Has Role',
       target: z('Predator'),
@@ -189,7 +212,7 @@ describe('names', () => {
   it('keeps the source\'s own labels when Title Case is off', () => {
     const p = plan({}, { titleCase: false });
     expect(thing(p, 'Cat')).toMatchObject({ name: 'cat', label: null });
-    expect(thing(p, 'Cat').relations.find((r) => r.target === z('Predator')).propertyLabel).toBe('has role');
+    expect(p.relationTypes.find((r) => r.iri === 'http://purl.obolibrary.org/obo/RO_0000087').name).toBe('has role');
   });
 
   it('changes only words written all in lower case', () => {
@@ -233,7 +256,7 @@ describe('webs of kinds', () => {
 
   it('can be left out, keeping kinds on the carousel only', () => {
     const p = plan({}, { kindsWebs: false });
-    expect(p.webs.every((w) => w.kind === 'composition')).toBe(true);
+    expect(p.webs.some((w) => w.kind === 'kinds')).toBe(false);
     expect(p.things.every((t) => t.kindsWebId === null)).toBe(true);
     expect(p.report.kindsWebs).toBe(0);
   });
@@ -243,5 +266,108 @@ describe('webs of kinds', () => {
     const inWebs = p.webs.reduce((n, w) => n + w.members.length, 0);
     expect(p.report.placements).toBe(inWebs + p.source.folderMembers.length);
     expect(plan({}, { kindsWebs: false }).report.placements).toBeLessThan(p.report.placements);
+  });
+});
+
+describe('compositional clues', () => {
+  it('reads which end goes inside from the relation\'s name, in any case or spelling', () => {
+    const clue = (name) => compositionalClue('http://e/p', name);
+    for (const name of ['part of', 'Part Of', 'regional part of', 'located in', 'Located In', 'disease has location',
+      'Disease Has Inflammation Site', 'contained in', 'member of', 'occurs in', 'part_of', 'isPartOf']) {
+      expect([name, clue(name)]).toEqual([name, 'in-object']);
+    }
+    for (const name of ['has part', 'HAS PART', 'has proper part', 'hasPart', 'has_component', 'has member', 'contains',
+      'composed primarily of', 'consists of', 'location of']) {
+      expect([name, clue(name)]).toEqual([name, 'in-subject']);
+    }
+    for (const name of ['has participant', 'has role', 'adjacent to', 'in taxon', 'develops from', 'participates in', '', null]) {
+      expect([name, clue(name)]).toEqual([name, null]);
+    }
+  });
+
+  it('knows part of and has part by IRI, whatever they\'re called', () => {
+    expect(compositionalClue('http://purl.obolibrary.org/obo/BFO_0000050', 'BFO_0000050')).toBe('in-object');
+    expect(compositionalClue('http://purl.obolibrary.org/obo/BFO_0000051', undefined)).toBe('in-subject');
+  });
+
+  it('places a Thing located in another in that one\'s web, and draws the connection from it', async () => {
+    const dz = await indexOntology({
+      fileName: 'd.ttl',
+      source: `@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        <http://e/hasLocation> a owl:ObjectProperty ; rdfs:label "disease has location" .
+        <http://e/hasFeature> a owl:ObjectProperty ; rdfs:label "disease has feature" .
+        <http://e/pneumonia> rdfs:label "pneumonia" ;
+          rdfs:subClassOf [ a owl:Restriction ; owl:onProperty <http://e/hasLocation> ; owl:someValuesFrom <http://e/lung> ] ;
+          rdfs:subClassOf [ a owl:Restriction ; owl:onProperty <http://e/hasFeature> ; owl:someValuesFrom <http://e/cough> ] .
+        <http://e/lung> rdfs:label "lung" .
+        <http://e/cough> rdfs:label "cough" .`,
+    });
+    const p = buildImportPlan(dz, computeSlice(dz));
+    const lung = p.webs.find((w) => w.kind === 'composition' && w.whole === 'http://e/lung');
+    expect(lung.members).toEqual(['http://e/pneumonia']);
+    // A feature isn't composition: Cough gets no web of Pneumonia's.
+    expect(p.webs.find((w) => w.kind === 'composition' && w.whole === 'http://e/cough')).toBeUndefined();
+    const pneumonia = p.webs.find((w) => w.kind === 'connections' && w.whole === 'http://e/pneumonia');
+    expect(pneumonia.members).toEqual(['http://e/pneumonia', 'http://e/cough', 'http://e/lung']);
+    expect(pneumonia.connections).toEqual([
+      { source: 'http://e/pneumonia', property: 'http://e/hasFeature', target: 'http://e/cough' },
+      { source: 'http://e/pneumonia', property: 'http://e/hasLocation', target: 'http://e/lung' },
+    ]);
+  });
+});
+
+describe('webs of connections', () => {
+  const connectionsOf = (p, local) => p.webs.find((w) => w.kind === 'connections' && w.whole === z(local));
+
+  it('draws every relation, from the Thing, in a web holding the Thing and what it relates to', () => {
+    const p = plan();
+    const cat = connectionsOf(p, 'Cat');
+    expect(cat.members).toEqual([z('Cat'), z('Paw'), z('Predator'), z('Tail')]);
+    expect(cat.connections.map((c) => [c.source, localName(c.property), c.target])).toEqual([
+      [z('Cat'), 'BFO 0000051', z('Paw')],
+      [z('Cat'), 'BFO 0000051', z('Tail')],
+      [z('Cat'), 'RO 0000087', z('Predator')],
+    ]);
+    expect(thing(p, 'Cat').connectionsWebId).toBe(cat.id);
+    // Part of is drawn from the part as well as placing it in the whole.
+    expect(connectionsOf(p, 'Whisker').connections).toEqual([{ source: z('Whisker'), property: 'http://purl.obolibrary.org/obo/BFO_0000050', target: z('Cat') }]);
+    // A relation inside a logical definition is drawn too.
+    expect(connectionsOf(p, 'Kitten').connections).toEqual([{ source: z('Kitten'), property: z('hasStage'), target: z('Juvenile') }]);
+    // A Thing with no relations has none.
+    expect(thing(p, 'Dog').connectionsWebId).toBe(null);
+  });
+
+  it('counts every relation drawn: one per relation, plus those between parts of a whole', () => {
+    const p = plan();
+    const relations = [...zoo.terms.values()].filter((t) => p.things.some((th) => th.iri === t.iri)).reduce((n, t) => n + t.relations.length, 0);
+    const betweenParts = p.webs.filter((w) => w.kind === 'composition').reduce((n, w) => n + w.connections.length, 0);
+    expect(p.report.connections).toBe(relations + betweenParts);
+    expect(p.report.relationsKeptAsData).toBe(0);
+    expect(p.report.connectionsWebs).toBe(p.webs.filter((w) => w.kind === 'connections').length);
+  });
+
+  it('derives the web\'s ID from the source and the Thing', () => {
+    expect(connectionsOf(plan(), 'Cat').id).toBe(importIds.connectionsWeb('http://example.org/zoo.owl', z('Cat')));
+  });
+});
+
+describe('the folder', () => {
+  it('holds the source\'s own top kinds, not the Things it only refers to', async () => {
+    const mixed = await indexOntology({
+      fileName: 'm.ttl',
+      source: `@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        <http://a.org/inTaxon> a owl:ObjectProperty ; rdfs:label "in taxon" .
+        <http://a.org/disease> rdfs:label "disease" .
+        <http://a.org/flu> rdfs:label "flu" ; rdfs:subClassOf <http://a.org/disease> ;
+          rdfs:subClassOf [ a owl:Restriction ; owl:onProperty <http://a.org/inTaxon> ; owl:someValuesFrom <http://b.org/human> ] .
+        <http://a.org/injury> rdfs:label "injury" .
+        <http://b.org/human> rdfs:label "human" .`,
+    });
+    const p = buildImportPlan(mixed, computeSlice(mixed));
+    expect(p.source.folderMembers).toEqual(['http://a.org/disease', 'http://a.org/injury']);
+    // Human is still imported, and reachable through Flu's connections.
+    expect(p.things.some((t) => t.iri === 'http://b.org/human')).toBe(true);
   });
 });

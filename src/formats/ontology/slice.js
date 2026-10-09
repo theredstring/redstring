@@ -9,11 +9,12 @@
  * rather than ragged:
  *  - ancestors: everything less specific than a selected term, so each Thing's
  *    ladder reaches the top of its ontology instead of stopping at the slice;
- *  - partners: the parts of selected terms (has part, or a part declaring part
- *    of), so every composition web the import draws has all its members.
+ *  - partners: what selected terms relate to, and what declares itself inside
+ *    them (part of, located in), so every connection the import draws has both
+ *    ends and every composition web has all its members.
  */
 
-import { OBO, HAS_PART_PREDICATES, PART_OF_PREDICATES } from './vocab.js';
+import { OBO, compositionalClue } from './vocab.js';
 
 /**
  * Resolve a user-written reference to index IRIs: a full IRI, an OBO CURIE
@@ -81,13 +82,41 @@ export function childrenOf(index) {
   return children;
 }
 
-/** For each whole, the terms that declare themselves part of it. Built once per index. */
+/** "http://x/y#part_of" → "part_of": what a relation with no label is called. */
+const localNameOf = (iri) => {
+  const s = String(iri);
+  const hash = s.lastIndexOf('#');
+  return hash !== -1 ? s.slice(hash + 1) : s.slice(s.lastIndexOf('/') + 1);
+};
+
+/**
+ * Which end of each relation goes inside the other (vocab.js compositionalClue),
+ * read from the relation's label in this index. Cached per index.
+ *
+ * @returns {(property: string) => 'in-subject'|'in-object'|null}
+ */
+export function compositionOf(index) {
+  if (index._compositionOf) return index._compositionOf;
+  const cache = new Map();
+  const of = (property) => {
+    if (!cache.has(property)) {
+      const name = index.properties?.get(property)?.label || index.terms.get(property)?.label || localNameOf(property);
+      cache.set(property, compositionalClue(property, name));
+    }
+    return cache.get(property);
+  };
+  Object.defineProperty(index, '_compositionOf', { value: of, enumerable: false });
+  return of;
+}
+
+/** For each whole, the terms that declare themselves inside it (part of, located in). Built once per index. */
 export function declaredPartsOf(index) {
   if (index._declaredParts) return index._declaredParts;
+  const clue = compositionOf(index);
   const parts = new Map();
   for (const term of index.terms.values()) {
     for (const rel of term.relations) {
-      if (!PART_OF_PREDICATES.has(rel.property)) continue;
+      if (clue(rel.property) !== 'in-object') continue;
       let list = parts.get(rel.target);
       if (!list) { list = []; parts.set(rel.target, list); }
       list.push(term.iri);
@@ -104,11 +133,13 @@ export function declaredPartsOf(index) {
  * @param {Object} [options]
  * @param {string[]} [options.roots] - IRIs, CURIEs or labels. Empty = the whole ontology
  * @param {number} [options.depth=Infinity] - how many steps more specific than a root to go
- * @param {string[]} [options.namespaces] - IRI prefixes to keep (e.g. `http://purl.obolibrary.org/obo/CHEBI_`)
+ * @param {string[]} [options.namespaces] - IRI prefixes to select from (e.g. `http://purl.obolibrary.org/obo/CHEBI_`);
+ *   what the selection relates to still rides along from any namespace
  * @param {boolean} [options.includeDeprecated=false]
  * @param {boolean} [options.includeAncestors=true]
  * @param {boolean} [options.includePartners=true]
- * @returns {{iris: Set<string>, roots: string[], missingRoots: string[], ambiguousRoots: Object[], counts: Object}}
+ * @returns {{iris: Set<string>, selected: Set<string>, roots: string[], missingRoots: string[], ambiguousRoots: Object[], counts: Object}}
+ *   `selected`: the terms chosen, before anything rode along
  */
 export function computeSlice(index, options = {}) {
   const {
@@ -127,6 +158,12 @@ export function computeSlice(index, options = {}) {
     if (term.deprecated && !includeDeprecated) return false;
     if (prefixes.length > 0 && !prefixes.some((p) => iri.startsWith(p))) return false;
     return true;
+  };
+  // What a selected term relates to rides along from any namespace: a
+  // namespace narrows what's selected, not what the selection connects to.
+  const isLive = (iri) => {
+    const term = index.terms.get(iri);
+    return !!term && (!term.deprecated || includeDeprecated);
   };
 
   const resolvedRoots = [];
@@ -150,41 +187,40 @@ export function computeSlice(index, options = {}) {
       else if (index.terms.get(iri).deprecated) counts.deprecatedSkipped++;
       else counts.outOfNamespace++;
     }
-    counts.selected = iris.size;
-    return { iris, roots: [], missingRoots, ambiguousRoots, counts };
-  }
-
-  // Descendants of each root, breadth first, to the depth asked for.
-  const children = childrenOf(index);
-  const maxDepth = depth == null || depth === '' ? Infinity
-    : (Number.isFinite(Number(depth)) && Number(depth) >= 0 ? Number(depth) : Infinity);
-  let frontier = resolvedRoots.filter(inScope);
-  for (const iri of frontier) iris.add(iri);
-  let level = 0;
-  while (frontier.length > 0 && level < maxDepth) {
-    const next = [];
-    for (const iri of frontier) {
-      for (const child of children.get(iri) || []) {
-        if (iris.has(child)) continue;
-        if (!inScope(child)) {
-          if (index.terms.get(child)?.deprecated) counts.deprecatedSkipped++;
-          continue;
+  } else {
+    // Descendants of each root, breadth first, to the depth asked for.
+    const children = childrenOf(index);
+    const maxDepth = depth == null || depth === '' ? Infinity
+      : (Number.isFinite(Number(depth)) && Number(depth) >= 0 ? Number(depth) : Infinity);
+    let frontier = resolvedRoots.filter(inScope);
+    for (const iri of frontier) iris.add(iri);
+    let level = 0;
+    while (frontier.length > 0 && level < maxDepth) {
+      const next = [];
+      for (const iri of frontier) {
+        for (const child of children.get(iri) || []) {
+          if (iris.has(child)) continue;
+          if (!inScope(child)) {
+            if (index.terms.get(child)?.deprecated) counts.deprecatedSkipped++;
+            continue;
+          }
+          iris.add(child);
+          next.push(child);
         }
-        iris.add(child);
-        next.push(child);
       }
+      frontier = next;
+      level++;
     }
-    frontier = next;
-    level++;
   }
   counts.selected = iris.size;
+  const selected = new Set(iris);
 
-  const addAncestors = (start) => {
+  const addAncestors = (start, allowed) => {
     const stack = [...start];
     while (stack.length > 0) {
       const iri = stack.pop();
       for (const parent of index.terms.get(iri)?.parents || []) {
-        if (iris.has(parent) || !inScope(parent)) continue;
+        if (iris.has(parent) || !allowed(parent)) continue;
         iris.add(parent);
         counts.ancestors++;
         stack.push(parent);
@@ -195,21 +231,19 @@ export function computeSlice(index, options = {}) {
   if (includePartners) {
     const partners = [];
     const addPartner = (iri) => {
-      if (iris.has(iri) || !inScope(iri)) return;
+      if (iris.has(iri) || !isLive(iri)) return;
       iris.add(iri);
       partners.push(iri);
       counts.partners++;
     };
     const declared = declaredPartsOf(index);
-    for (const iri of [...iris]) {
-      for (const rel of index.terms.get(iri)?.relations || []) {
-        if (HAS_PART_PREDICATES.has(rel.property)) addPartner(rel.target);
-      }
+    for (const iri of selected) {
+      for (const rel of index.terms.get(iri)?.relations || []) addPartner(rel.target);
       for (const part of declared.get(iri) || []) addPartner(part);
     }
-    if (includeAncestors) addAncestors(partners);
+    if (includeAncestors) addAncestors(partners, isLive);
   }
-  if (includeAncestors) addAncestors([...iris]);
+  if (includeAncestors) addAncestors(selected, inScope);
 
-  return { iris, roots: resolvedRoots.filter(inScope), missingRoots, ambiguousRoots, counts };
+  return { iris, selected, roots: resolvedRoots.filter(inScope), missingRoots, ambiguousRoots, counts };
 }

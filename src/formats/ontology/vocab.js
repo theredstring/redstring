@@ -3,7 +3,8 @@
  *
  * Everything here is a plain string constant: the index matches predicates by
  * exact IRI, never by prefix or local name, so a term from an unrelated
- * vocabulary that happens to be called "label" is never mistaken for one.
+ * vocabulary that happens to be called "label" is never mistaken for one. The
+ * one exception is compositionalClue(), which reads a relation's name.
  */
 
 export const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
@@ -116,6 +117,67 @@ export const PART_OF_PREDICATES = new Set([
   `${SCHEMA}isPartOf`,
   `${WDT}P361`,
 ]);
+
+/**
+ * Compositional clues: relation names that say one end is inside the other.
+ *
+ * The one place the importer reads a relation by its name rather than its IRI.
+ * Every ontology names these its own way ("disease has location", "located
+ * in", "has proper part", "composed primarily of"), and a relation that says
+ * where something is, or what it is made of, is composition in Redstring's
+ * terms. Matched case-insensitively on whole words, so "has part" never
+ * matches "has participant".
+ */
+const IN_SUBJECT_CLUES = [ // the object goes inside the subject
+  /\bhas (?:\w+ )?(?:part|component|member|constituent)s?\b/,
+  /\bcontains\b/,
+  /\b(?:composed|consists?|made) (?:\w+ )?of\b/,
+  /\blocation of\b/,
+];
+const IN_OBJECT_CLUES = [ // the subject goes inside the object
+  /\b(?:part|component|member|constituent) of\b/,
+  /\b(?:contained|located|occurs) in\b/,
+  /\bhas (?:\w+ )*(?:location|site)\b/,
+];
+
+/** "hasPart", "part_of", "Disease Has Location" → "has part", "part of", "disease has location" */
+const clueText = (name) => String(name || '')
+  .replace(/([a-z])([A-Z])/g, '$1 $2')
+  .toLowerCase()
+  .replace(/[_\-#/]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/**
+ * Which end of a relation goes inside the other, if either does.
+ *
+ * @param {string} property - the relation's IRI
+ * @param {string} [name] - its label, or its local name when it has none
+ * @returns {'in-subject'|'in-object'|null} 'in-subject': the object is placed
+ *   in the subject's web (has part); 'in-object': the subject is placed in the
+ *   object's web (part of, located in); null: neither
+ */
+export function compositionalClue(property, name) {
+  if (HAS_PART_PREDICATES.has(property)) return 'in-subject';
+  if (PART_OF_PREDICATES.has(property)) return 'in-object';
+  const text = clueText(name);
+  if (!text) return null;
+  if (IN_SUBJECT_CLUES.some((re) => re.test(text))) return 'in-subject';
+  if (IN_OBJECT_CLUES.some((re) => re.test(text))) return 'in-object';
+  return null;
+}
+
+/**
+ * The namespace part of an IRI: up to the last `#` or `/`, or for OBO-style
+ * IRIs (`.../obo/CHEBI_15377`) up to and including the `_`.
+ */
+export function namespaceOf(iri) {
+  const s = String(iri);
+  const obo = s.match(/^(.*\/obo\/[A-Za-z]+_)\d/);
+  if (obo) return obo[1];
+  const cut = Math.max(s.lastIndexOf('#'), s.lastIndexOf('/'));
+  return cut > 0 ? s.slice(0, cut + 1) : s;
+}
 
 /** Literal predicates that name a term. The first one found wins over later ones. */
 export const LABEL_PREDICATES = [SKOS_PREF_LABEL, RDFS_LABEL, `${SCHEMA}name`, `${FOAF}name`, `${DCTERMS}title`];

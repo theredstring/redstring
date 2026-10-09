@@ -667,7 +667,7 @@ async function main() {
       const summary = {
         source: report.source,
         things: report.things,
-        webs: report.compositionWebs + report.kindsWebs + 1,
+        webs: report.compositionWebs + (report.connectionsWebs || 0) + report.kindsWebs + 1,
         connections: report.connections,
         relationTypes: report.relationTypes,
         relationsKeptAsData: report.relationsKeptAsData,

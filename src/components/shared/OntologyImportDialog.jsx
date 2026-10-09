@@ -333,7 +333,7 @@ export function OntologyImportDialog({ onClose, save }) {
 
           {preview && !preview.error && (
             <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
-              {fmt(preview.things)} things · {fmt(preview.compositionWebs + (preview.kindsWebs || 0) + 1)} webs · {fmt(preview.connections)} connections
+              {fmt(preview.things)} things · {fmt(preview.compositionWebs + (preview.connectionsWebs || 0) + (preview.kindsWebs || 0) + 1)} webs · {fmt(preview.connections)} connections
               {preview.slice?.ancestors ? ` · includes ${fmt(preview.slice.ancestors)} less specific terms` : ''}
             </div>
           )}

@@ -8522,9 +8522,29 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // it: it lives by its source, or by a web of somebody's own. Otherwise one
       // live Thing would keep its whole subtree, and through its type, the
       // subtrees beside it (formats/ontology/plan.js).
-      const isImportedKindIn = (graph, prototype) => {
+      //
+      // The same goes for an imported Thing in another imported Thing's web of
+      // connections, the one sort of imported web that holds its own Thing:
+      // what a Thing relates to isn't made of it, and every Thing relates to
+      // something, so otherwise one live Thing would keep the whole import.
+      const holdsItsOwnImportedThing = new Map(); // graph id → boolean
+      const isImportedConnectionsWeb = (graph) => {
+        if (!holdsItsOwnImportedThing.has(graph.id)) {
+          const defining = new Set(graph.definingNodeIds.filter((id) => draft.nodePrototypes.get(id)?.semanticMetadata?.ontology?.source));
+          let holds = false;
+          if (defining.size > 0 && graph.instances) {
+            for (const instance of graph.instances.values()) {
+              if (defining.has(instance?.prototypeId)) { holds = true; break; }
+            }
+          }
+          holdsItsOwnImportedThing.set(graph.id, holds);
+        }
+        return holdsItsOwnImportedThing.get(graph.id);
+      };
+      const isImportedMemberOnlyBrowsedIn = (graph, prototype) => {
         const ontology = prototype?.semanticMetadata?.ontology;
         if (!ontology?.source || !Array.isArray(graph?.definingNodeIds)) return false;
+        if (isImportedConnectionsWeb(graph)) return true;
         return graph.definingNodeIds.some((definingId) => {
           if (prototype.typeNodeId === definingId) return true;
           const definingIri = draft.nodePrototypes.get(definingId)?.semanticMetadata?.ontology?.iri;
@@ -8565,7 +8585,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             if (defGraph && defGraph.instances) {
               defGraph.instances.forEach(instance => {
                 if (!referencedPrototypeIds.has(instance.prototypeId)) {
-                  if (isImportedKindIn(defGraph, draft.nodePrototypes.get(instance.prototypeId))) return;
+                  if (isImportedMemberOnlyBrowsedIn(defGraph, draft.nodePrototypes.get(instance.prototypeId))) return;
                   referencedPrototypeIds.add(instance.prototypeId);
                   addDefinitionPrototypes(instance.prototypeId); // Recurse
                 }
@@ -8682,6 +8702,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         }
       }
+
+      // What that pass reached through a kept Thing's webs (a part of a kept
+      // whole) keeps its own webs too.
+      referencedPrototypeIds.forEach((prototypeId) => {
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (!Array.isArray(prototype?.definitionGraphIds)) return;
+        prototype.definitionGraphIds.forEach((graphId) => {
+          if (draft.graphs.has(graphId)) referencedGraphIds.add(graphId);
+        });
+      });
 
       // Step 3: Remove orphaned prototypes
       const orphanedPrototypes = [];

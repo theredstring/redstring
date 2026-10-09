@@ -16,20 +16,28 @@
  *    broken by IRI). Linked types make the carousel, so the full ladder shows
  *    without storing it. A term's other parents are kept on the Thing as data.
  *
- *  - Composition (has part / part of) becomes webs. A whole's web holds its
- *    parts, and relations between those parts are drawn there as connections.
- *    That is the only place the import draws connections: a web is the inside
- *    of its Thing, so nothing is put in a web that isn't part of it.
+ *  - Composition becomes webs. A relation whose name says one end is inside
+ *    the other (part of, has part, located in, disease has location, composed
+ *    of: vocab.js compositionalClue, read case-insensitively) places that end
+ *    in the other's web: Pneumonia, located in the Lung, is placed in Lung's
+ *    web. Relations between parts of the same whole are drawn there too.
  *
- *  - A Thing with more specific kinds gets a second sort of web: its kinds.
+ *  - Every relation is drawn as a connection, whatever it is. A Thing with
+ *    relations gets a web of its connections: the Thing itself, what it relates
+ *    to, and a connection from it for each relation (Pneumonia → Disease Has
+ *    Location → Lung). It's a declared sort of web, the one sort that holds its
+ *    own Thing, since its members are what the Thing is defined against rather
+ *    than parts of it. That's what lets every Thing's connections be found from
+ *    either end. A relation whose other end isn't in the import is kept on the
+ *    Thing as data.
+ *
+ *  - A Thing with more specific kinds gets a web of its kinds.
  *    A kind is a subset of the set its Thing names, so this is composition
  *    too, of the set rather than of the object; it's what makes a source that
  *    is only a tree of kinds (Mondo, most of ChEBI) walkable by opening Things.
  *    Every direct kind inside the slice is placed, whichever parent is its type.
- *    A Thing with parts opens to its parts first; its kinds are the second web.
  *
- *  - Every other relation (has role, is conjugate acid of, ...) is kept on the
- *    Thing as data, with nothing lost, until there is a web it belongs in.
+ *  - A Thing opens to its parts first, then its connections, then its kinds.
  *
  *  - The source becomes one Thing (named after the ontology) whose web is a
  *    declared folder: the roots that were asked for, or the slice's top kinds.
@@ -38,7 +46,8 @@
  */
 
 import { v5 as uuidv5 } from 'uuid';
-import { HAS_PART_PREDICATES, PART_OF_PREDICATES } from './vocab.js';
+import { compositionOf } from './slice.js';
+import { namespaceOf } from './vocab.js';
 
 /** Namespace for every ID the importer derives. Never change it: IDs in saved files depend on it. */
 export const IMPORT_NAMESPACE = 'acebeb60-775d-4791-8f11-b7907ba203ea';
@@ -49,6 +58,7 @@ export const importIds = {
   folderWeb: (sourceKey) => uuidv5(`folder|${sourceKey}`, IMPORT_NAMESPACE),
   compositionWeb: (sourceKey, wholeIri) => uuidv5(`composition|${sourceKey}|${wholeIri}`, IMPORT_NAMESPACE),
   kindsWeb: (sourceKey, iri) => uuidv5(`kinds|${sourceKey}|${iri}`, IMPORT_NAMESPACE),
+  connectionsWeb: (sourceKey, iri) => uuidv5(`connections|${sourceKey}|${iri}`, IMPORT_NAMESPACE),
   instance: (graphId, thingId) => uuidv5(`instance|${graphId}|${thingId}`, IMPORT_NAMESPACE),
   edge: (graphId, s, p, o) => uuidv5(`edge|${graphId}|${s}|${p}|${o}`, IMPORT_NAMESPACE),
 };
@@ -173,6 +183,10 @@ export function buildImportPlan(index, slice, options = {}) {
   }
 
   // ── Composition ───────────────────────────────────────────────────────────
+  // A relation whose name says one end is inside the other (part of, has part,
+  // located in, disease has location, composed of: vocab.js compositionalClue)
+  // places that end in the other's web.
+  const clue = compositionOf(index);
   const partsOf = new Map(); // whole iri → Set<part iri>
   const addPart = (whole, part) => {
     if (whole === part || !iris.has(whole) || !iris.has(part)) return;
@@ -182,8 +196,9 @@ export function buildImportPlan(index, slice, options = {}) {
   };
   for (const iri of sortedIris) {
     for (const rel of index.terms.get(iri)?.relations || []) {
-      if (HAS_PART_PREDICATES.has(rel.property)) addPart(iri, rel.target);
-      else if (PART_OF_PREDICATES.has(rel.property)) addPart(rel.target, iri);
+      const inside = clue(rel.property);
+      if (inside === 'in-subject') addPart(iri, rel.target);
+      else if (inside === 'in-object') addPart(rel.target, iri);
     }
   }
 
@@ -193,8 +208,16 @@ export function buildImportPlan(index, slice, options = {}) {
     return titleCase(label || localName(property));
   };
 
+  const relationTypes = new Map(); // property iri → { iri, id, name }
+  const useRelationType = (property) => {
+    if (!relationTypes.has(property)) {
+      relationTypes.set(property, { iri: property, id: importIds.thing(property), name: relationLabel(property) });
+    }
+  };
+  /** A relation that can be drawn: both ends are Things of this import, and they're two. */
+  const drawable = (iri, rel) => rel.target !== iri && iris.has(rel.target);
+
   const webs = [];
-  const relationTypes = new Map(); // property iri → { iri, name }
   for (const whole of [...partsOf.keys()].sort()) {
     const parts = [...partsOf.get(whole)].sort();
     const partSet = new Set(parts);
@@ -202,13 +225,11 @@ export function buildImportPlan(index, slice, options = {}) {
     for (const a of parts) {
       for (const rel of index.terms.get(a)?.relations || []) {
         if (!partSet.has(rel.target) || rel.target === a) continue;
-        // Being in this web already says "part of the whole"; a part that has
-        // its own parts gets its own web. Neither is drawn as a connection.
-        if (HAS_PART_PREDICATES.has(rel.property) || PART_OF_PREDICATES.has(rel.property)) continue;
+        // Being in this web already says one is inside the other; a part with
+        // its own parts gets its own web. Neither is drawn here between parts.
+        if (clue(rel.property)) continue;
         connections.push({ source: a, property: rel.property, target: rel.target });
-        if (!relationTypes.has(rel.property)) {
-          relationTypes.set(rel.property, { iri: rel.property, id: importIds.thing(rel.property), name: relationLabel(rel.property) });
-        }
+        useRelationType(rel.property);
       }
     }
     webs.push({
@@ -219,6 +240,26 @@ export function buildImportPlan(index, slice, options = {}) {
       connections,
     });
   }
+
+  // ── Connections ───────────────────────────────────────────────────────────
+  // Every relation is drawn, whatever it is: a Thing's web of connections holds
+  // the Thing itself and what it relates to, with each relation as a connection
+  // from it. A compositional relation is drawn here too, as well as placing its
+  // inner end in the other's web.
+  const connectionsWebList = [];
+  for (const iri of sortedIris) {
+    const rels = (index.terms.get(iri)?.relations || []).filter((rel) => drawable(iri, rel));
+    if (rels.length === 0) continue;
+    for (const rel of rels) useRelationType(rel.property);
+    connectionsWebList.push({
+      id: importIds.connectionsWeb(sourceKey, iri),
+      kind: 'connections',
+      whole: iri,
+      members: [iri, ...[...new Set(rels.map((rel) => rel.target))].sort()],
+      connections: rels.map((rel) => ({ source: iri, property: rel.property, target: rel.target })),
+    });
+  }
+  const connectionsWebOf = new Map(connectionsWebList.map((w) => [w.whole, w.id]));
 
   // ── Kinds ─────────────────────────────────────────────────────────────────
   const kindsOf = new Map(); // iri → its direct, more specific kinds in the slice
@@ -245,7 +286,19 @@ export function buildImportPlan(index, slice, options = {}) {
   if (slice.roots && slice.roots.length > 0) {
     folderMembers = slice.roots.filter((r) => iris.has(r));
   } else {
-    const tops = sortedIris.filter((iri) => !typeOf.has(iri));
+    // The source's own top kinds: not what rode along with the selection, nor
+    // the Things from other ontologies it only refers to (full Mondo names
+    // species, genes and anatomy, many with no kind above them in the file).
+    const selected = slice.selected || iris;
+    const namespaceCounts = new Map();
+    for (const iri of selected) {
+      const ns = namespaceOf(iri);
+      namespaceCounts.set(ns, (namespaceCounts.get(ns) || 0) + 1);
+    }
+    const own = [...namespaceCounts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]?.[0];
+    let tops = sortedIris.filter((iri) => !typeOf.has(iri) && selected.has(iri));
+    const ownTops = tops.filter((iri) => namespaceOf(iri) === own);
+    if (ownTops.length > 0) tops = ownTops;
     folderMembers = tops;
     if (tops.length === 1) {
       const only = tops[0];
@@ -272,7 +325,8 @@ export function buildImportPlan(index, slice, options = {}) {
       typeIri: type,
       // Labels ride along so the data reads on its own, without the index.
       otherParents: term.parents.filter((p) => p !== type).map((p) => ({ iri: p, label: labelOf(p) })),
-      relations: term.relations.map((r) => ({
+      // Only what can't be drawn (its other end isn't in this import) stays as data.
+      relations: term.relations.filter((r) => !drawable(iri, r)).map((r) => ({
         property: r.property,
         propertyLabel: relationLabel(r.property),
         target: r.target,
@@ -284,11 +338,13 @@ export function buildImportPlan(index, slice, options = {}) {
       deprecated: term.deprecated,
       replacedBy: term.replacedBy,
       compositionWebId: partsOf.has(iri) ? importIds.compositionWeb(sourceKey, iri) : null,
+      connectionsWebId: connectionsWebOf.get(iri) || null,
       kindsWebId: kindsOf.has(iri) ? importIds.kindsWeb(sourceKey, iri) : null,
     };
   });
 
-  const connectionCount = webs.reduce((n, w) => n + w.connections.length, 0);
+  const allWebs = [...webs, ...connectionsWebList, ...kindsWebList];
+  const connectionCount = allWebs.reduce((n, w) => n + w.connections.length, 0);
 
   return {
     source: {
@@ -310,21 +366,20 @@ export function buildImportPlan(index, slice, options = {}) {
       roots: slice.roots || [],
     },
     things,
-    webs: [...webs, ...kindsWebList],
+    webs: allWebs,
     relationTypes: [...relationTypes.values()].sort((a, b) => (a.iri < b.iri ? -1 : 1)),
     report: {
       things: things.length,
       typed: typeOf.size,
       compositionWebs: webs.length,
+      connectionsWebs: connectionsWebList.length,
       kindsWebs: kindsWebList.length,
       connections: connectionCount,
       relationTypes: relationTypes.size,
       relationsKeptAsData: things.reduce((n, t) => n + t.relations.length, 0),
       folderMembers: folderMembers.length,
       // Every Thing placed in a web, the folder included: with the Things, what sets the file's size.
-      placements: folderMembers.length
-        + webs.reduce((n, w) => n + w.members.length, 0)
-        + kindsWebList.reduce((n, w) => n + w.members.length, 0),
+      placements: folderMembers.length + allWebs.reduce((n, w) => n + w.members.length, 0),
       missingRoots: slice.missingRoots || [],
       ambiguousRoots: slice.ambiguousRoots || [],
       slice: slice.counts || {},

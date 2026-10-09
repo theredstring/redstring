@@ -15,9 +15,11 @@ import { OntologyIndexBuilder, indexOboGraphs } from './ontologyIndex.js';
 import { computeSlice } from './slice.js';
 import { buildImportPlan } from './plan.js';
 import { buildUniverseState } from './buildUniverse.js';
+import { namespaceOf } from './vocab.js';
 
 export { FORMATS, detectFormat, ACCEPTED_EXTENSIONS } from './parseRdf.js';
 export { searchTerms, resolveTermRef } from './slice.js';
+export { namespaceOf } from './vocab.js';
 
 async function* asChunks(source) {
   if (typeof source === 'string') { yield source; return; }
@@ -91,17 +93,6 @@ export function summarizeIndex(index) {
   };
 }
 
-/**
- * The namespace part of an IRI: up to the last `#` or `/`, or for OBO-style
- * IRIs (`.../obo/CHEBI_15377`) up to and including the `_`.
- */
-export function namespaceOf(iri) {
-  const s = String(iri);
-  const obo = s.match(/^(.*\/obo\/[A-Za-z]+_)\d/);
-  if (obo) return obo[1];
-  const cut = Math.max(s.lastIndexOf('#'), s.lastIndexOf('/'));
-  return cut > 0 ? s.slice(0, cut + 1) : s;
-}
 
 /**
  * Slice, plan and build.
