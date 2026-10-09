@@ -156,6 +156,7 @@
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.5.207",
     "rdflib": "^2.2.37",
+    "rdfxml-streaming-parser": "^3.3.0",
     "react": "^18.3.1",
     "react-contenteditable": "^3.3.7",
     "react-dnd": "^16.0.1",

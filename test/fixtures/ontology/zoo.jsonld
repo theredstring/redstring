@@ -1,0 +1,306 @@
+{
+  "@context": {
+    "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "owl": "http://www.w3.org/2002/07/owl#",
+    "obo": "http://purl.obolibrary.org/obo/",
+    "oboInOwl": "http://www.geneontology.org/formats/oboInOwl#",
+    "dcterms": "http://purl.org/dc/terms/",
+    "zoo": "http://example.org/zoo/",
+    "xsd": "http://www.w3.org/2001/XMLSchema#"
+  },
+  "@graph": [
+    {
+      "@id": "_:bn30",
+      "@type": "owl:Restriction",
+      "owl:onProperty": {
+        "@id": "obo:BFO_0000051"
+      },
+      "owl:someValuesFrom": {
+        "@id": "zoo:Tail"
+      }
+    },
+    {
+      "@id": "_:bn31",
+      "@type": "owl:Restriction",
+      "owl:onProperty": {
+        "@id": "obo:BFO_0000051"
+      },
+      "owl:someValuesFrom": {
+        "@id": "zoo:Paw"
+      }
+    },
+    {
+      "@id": "_:bn32",
+      "@type": "owl:Restriction",
+      "owl:onProperty": {
+        "@id": "obo:RO_0000087"
+      },
+      "owl:someValuesFrom": {
+        "@id": "zoo:Predator"
+      }
+    },
+    {
+      "@id": "_:bn33",
+      "@type": "owl:Class",
+      "owl:intersectionOf": {
+        "@list": [
+          {
+            "@id": "zoo:Cat"
+          },
+          {
+            "@id": "_:bn36"
+          }
+        ]
+      }
+    },
+    {
+      "@id": "_:bn36",
+      "@type": "owl:Restriction",
+      "owl:onProperty": {
+        "@id": "zoo:hasStage"
+      },
+      "owl:someValuesFrom": {
+        "@id": "zoo:Juvenile"
+      }
+    },
+    {
+      "@id": "_:bn37",
+      "@type": "owl:Restriction",
+      "owl:onProperty": {
+        "@id": "zoo:adjacentTo"
+      },
+      "owl:someValuesFrom": {
+        "@id": "zoo:Tail"
+      }
+    },
+    {
+      "@id": "_:bn38",
+      "@type": "owl:Restriction",
+      "owl:onProperty": {
+        "@id": "obo:BFO_0000050"
+      },
+      "owl:someValuesFrom": {
+        "@id": "zoo:Cat"
+      }
+    },
+    {
+      "@id": "http://example.org/zoo.owl",
+      "@type": "owl:Ontology",
+      "dcterms:description": "Animals, their parts and their roles.",
+      "dcterms:license": {
+        "@id": "https://creativecommons.org/publicdomain/zero/1.0/"
+      },
+      "dcterms:title": "Zoo Ontology",
+      "owl:versionInfo": "1.0"
+    },
+    {
+      "@id": "zoo:Animal",
+      "@type": "owl:Class",
+      "obo:IAO_0000115": "A living organism that feeds on organic matter.",
+      "rdfs:label": "animal",
+      "rdfs:subClassOf": {
+        "@id": "owl:Thing"
+      }
+    },
+    {
+      "@id": "zoo:BodyPart",
+      "@type": "owl:Class",
+      "rdfs:label": "body part"
+    },
+    {
+      "@id": "zoo:Cat",
+      "@type": "owl:Class",
+      "obo:IAO_0000115": "A small domesticated carnivorous mammal.",
+      "oboInOwl:hasDbXref": "WIKIDATA:Q146",
+      "oboInOwl:hasExactSynonym": "house cat",
+      "oboInOwl:hasRelatedSynonym": "kitty",
+      "rdfs:label": "cat",
+      "rdfs:subClassOf": [
+        {
+          "@id": "zoo:Mammal"
+        },
+        {
+          "@id": "zoo:Pet"
+        },
+        {
+          "@id": "_:bn30"
+        },
+        {
+          "@id": "_:bn31"
+        },
+        {
+          "@id": "_:bn32"
+        }
+      ]
+    },
+    {
+      "@id": "zoo:Dog",
+      "@type": "owl:Class",
+      "rdfs:label": "dog",
+      "rdfs:subClassOf": {
+        "@id": "zoo:Mammal"
+      }
+    },
+    {
+      "@id": "zoo:Garfield",
+      "@type": [
+        "owl:NamedIndividual",
+        "zoo:Cat"
+      ],
+      "obo:IAO_0000115": "A fat orange cat.",
+      "rdfs:label": "Garfield"
+    },
+    {
+      "@id": "zoo:Juvenile",
+      "@type": "owl:Class",
+      "rdfs:label": "juvenile",
+      "rdfs:subClassOf": {
+        "@id": "zoo:Stage"
+      }
+    },
+    {
+      "@id": "zoo:Kitten",
+      "@type": "owl:Class",
+      "rdfs:label": "kitten",
+      "owl:equivalentClass": {
+        "@id": "_:bn33"
+      }
+    },
+    {
+      "@id": "zoo:Mammal",
+      "@type": "owl:Class",
+      "obo:IAO_0000115": "An animal that feeds its young with milk.",
+      "rdfs:label": [
+        "mammal",
+        {
+          "@language": "fr",
+          "@value": "mammifère"
+        }
+      ],
+      "rdfs:subClassOf": {
+        "@id": "zoo:Animal"
+      }
+    },
+    {
+      "@id": "zoo:OldCat",
+      "@type": "owl:Class",
+      "obo:IAO_0100001": {
+        "@id": "zoo:Cat"
+      },
+      "rdfs:label": "obsolete cat",
+      "owl:deprecated": {
+        "@type": "xsd:boolean",
+        "@value": "true"
+      }
+    },
+    {
+      "@id": "zoo:Paw",
+      "@type": "owl:Class",
+      "rdfs:label": "paw",
+      "rdfs:subClassOf": [
+        {
+          "@id": "zoo:BodyPart"
+        },
+        {
+          "@id": "_:bn37"
+        }
+      ]
+    },
+    {
+      "@id": "zoo:Pet",
+      "@type": "owl:Class",
+      "obo:IAO_0000115": "An animal kept for company.",
+      "rdfs:label": "pet"
+    },
+    {
+      "@id": "zoo:Predator",
+      "@type": "owl:Class",
+      "rdfs:label": "predator",
+      "rdfs:subClassOf": {
+        "@id": "zoo:Role"
+      }
+    },
+    {
+      "@id": "zoo:Role",
+      "@type": "owl:Class",
+      "rdfs:label": "role"
+    },
+    {
+      "@id": "zoo:Stage",
+      "@type": "owl:Class",
+      "rdfs:label": "life stage"
+    },
+    {
+      "@id": "zoo:Tail",
+      "@type": "owl:Class",
+      "rdfs:label": "tail",
+      "rdfs:subClassOf": {
+        "@id": "zoo:BodyPart"
+      }
+    },
+    {
+      "@id": "zoo:Whisker",
+      "@type": "owl:Class",
+      "rdfs:label": "whisker",
+      "rdfs:subClassOf": [
+        {
+          "@id": "zoo:BodyPart"
+        },
+        {
+          "@id": "_:bn38"
+        }
+      ]
+    },
+    {
+      "@id": "zoo:adjacentTo",
+      "@type": "owl:ObjectProperty",
+      "rdfs:label": "adjacent to"
+    },
+    {
+      "@id": "zoo:hasStage",
+      "@type": "owl:ObjectProperty",
+      "rdfs:label": "has stage"
+    },
+    {
+      "@id": "obo:BFO_0000050",
+      "@type": "owl:ObjectProperty",
+      "rdfs:label": "part of"
+    },
+    {
+      "@id": "obo:BFO_0000051",
+      "@type": "owl:ObjectProperty",
+      "rdfs:label": "has part",
+      "owl:inverseOf": {
+        "@id": "obo:BFO_0000050"
+      }
+    },
+    {
+      "@id": "obo:IAO_0000115",
+      "@type": "owl:AnnotationProperty",
+      "rdfs:label": "definition"
+    },
+    {
+      "@id": "obo:IAO_0100001",
+      "@type": "owl:AnnotationProperty",
+      "rdfs:label": "term replaced by"
+    },
+    {
+      "@id": "obo:RO_0000087",
+      "@type": "owl:ObjectProperty",
+      "rdfs:label": "has role"
+    },
+    {
+      "@id": "oboInOwl:hasDbXref",
+      "@type": "owl:AnnotationProperty"
+    },
+    {
+      "@id": "oboInOwl:hasExactSynonym",
+      "@type": "owl:AnnotationProperty"
+    },
+    {
+      "@id": "oboInOwl:hasRelatedSynonym",
+      "@type": "owl:AnnotationProperty"
+    }
+  ]
+}

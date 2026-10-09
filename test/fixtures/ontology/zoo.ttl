@@ -1,0 +1,93 @@
+# A small ontology that exercises every reading the importer makes.
+# The same ontology is written in five formats next to this file
+# (zoo.nt, zoo.owl, zoo.jsonld, zoo.obographs.json); the tests require all
+# five to produce the same index.
+
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix obo: <http://purl.obolibrary.org/obo/> .
+@prefix oboInOwl: <http://www.geneontology.org/formats/oboInOwl#> .
+@prefix zoo: <http://example.org/zoo/> .
+
+<http://example.org/zoo.owl> a owl:Ontology ;
+  dcterms:title "Zoo Ontology" ;
+  dcterms:description "Animals, their parts and their roles." ;
+  dcterms:license <https://creativecommons.org/publicdomain/zero/1.0/> ;
+  owl:versionInfo "1.0" .
+
+obo:IAO_0000115 a owl:AnnotationProperty ; rdfs:label "definition" .
+oboInOwl:hasExactSynonym a owl:AnnotationProperty .
+oboInOwl:hasRelatedSynonym a owl:AnnotationProperty .
+oboInOwl:hasDbXref a owl:AnnotationProperty .
+obo:IAO_0100001 a owl:AnnotationProperty ; rdfs:label "term replaced by" .
+
+obo:BFO_0000051 a owl:ObjectProperty ; rdfs:label "has part" ; owl:inverseOf obo:BFO_0000050 .
+obo:BFO_0000050 a owl:ObjectProperty ; rdfs:label "part of" .
+obo:RO_0000087 a owl:ObjectProperty ; rdfs:label "has role" .
+zoo:adjacentTo a owl:ObjectProperty ; rdfs:label "adjacent to" .
+zoo:hasStage a owl:ObjectProperty ; rdfs:label "has stage" .
+
+zoo:Animal a owl:Class ;
+  rdfs:label "animal" ;
+  obo:IAO_0000115 "A living organism that feeds on organic matter." ;
+  rdfs:subClassOf owl:Thing .
+
+zoo:Mammal a owl:Class ;
+  rdfs:label "mammal" ;
+  rdfs:label "mammifère"@fr ;
+  obo:IAO_0000115 "An animal that feeds its young with milk." ;
+  rdfs:subClassOf zoo:Animal .
+
+zoo:Pet a owl:Class ;
+  rdfs:label "pet" ;
+  obo:IAO_0000115 "An animal kept for company." .
+
+zoo:Cat a owl:Class ;
+  rdfs:label "cat" ;
+  obo:IAO_0000115 "A small domesticated carnivorous mammal." ;
+  oboInOwl:hasExactSynonym "house cat" ;
+  oboInOwl:hasRelatedSynonym "kitty" ;
+  oboInOwl:hasDbXref "WIKIDATA:Q146" ;
+  rdfs:subClassOf zoo:Mammal , zoo:Pet ;
+  rdfs:subClassOf [ a owl:Restriction ; owl:onProperty obo:BFO_0000051 ; owl:someValuesFrom zoo:Tail ] ;
+  rdfs:subClassOf [ a owl:Restriction ; owl:onProperty obo:BFO_0000051 ; owl:someValuesFrom zoo:Paw ] ;
+  rdfs:subClassOf [ a owl:Restriction ; owl:onProperty obo:RO_0000087 ; owl:someValuesFrom zoo:Predator ] .
+
+zoo:Dog a owl:Class ;
+  rdfs:label "dog" ;
+  rdfs:subClassOf zoo:Mammal .
+
+zoo:Kitten a owl:Class ;
+  rdfs:label "kitten" ;
+  owl:equivalentClass [
+    a owl:Class ;
+    owl:intersectionOf ( zoo:Cat [ a owl:Restriction ; owl:onProperty zoo:hasStage ; owl:someValuesFrom zoo:Juvenile ] )
+  ] .
+
+zoo:BodyPart a owl:Class ; rdfs:label "body part" .
+zoo:Tail a owl:Class ; rdfs:label "tail" ; rdfs:subClassOf zoo:BodyPart .
+zoo:Paw a owl:Class ;
+  rdfs:label "paw" ;
+  rdfs:subClassOf zoo:BodyPart ;
+  rdfs:subClassOf [ a owl:Restriction ; owl:onProperty zoo:adjacentTo ; owl:someValuesFrom zoo:Tail ] .
+zoo:Whisker a owl:Class ;
+  rdfs:label "whisker" ;
+  rdfs:subClassOf zoo:BodyPart ;
+  rdfs:subClassOf [ a owl:Restriction ; owl:onProperty obo:BFO_0000050 ; owl:someValuesFrom zoo:Cat ] .
+
+zoo:Role a owl:Class ; rdfs:label "role" .
+zoo:Predator a owl:Class ; rdfs:label "predator" ; rdfs:subClassOf zoo:Role .
+zoo:Stage a owl:Class ; rdfs:label "life stage" .
+zoo:Juvenile a owl:Class ; rdfs:label "juvenile" ; rdfs:subClassOf zoo:Stage .
+
+zoo:OldCat a owl:Class ;
+  rdfs:label "obsolete cat" ;
+  owl:deprecated "true"^^xsd:boolean ;
+  obo:IAO_0100001 zoo:Cat .
+
+zoo:Garfield a owl:NamedIndividual , zoo:Cat ;
+  rdfs:label "Garfield" ;
+  obo:IAO_0000115 "A fat orange cat." .

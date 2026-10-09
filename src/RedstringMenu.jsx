@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon } from 'lucide-react';
+import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon, Library } from 'lucide-react';
 import './RedstringMenu.css';
 import { canOfferDesktopDownload, openDesktopDownload } from './utils/desktopDownload.js';
 import * as fileStorage from './store/fileStorage.js';
@@ -335,6 +335,18 @@ const RedstringMenu = ({
                         >
                           <LinkIcon size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Load from External Link...
+                        </div>
+                        <div
+                          className="submenu-item"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onClick={() => {
+                            // OntologyImportDialog's host (ModalHosts) listens for this.
+                            window.dispatchEvent(new Event('openOntologyImport'));
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <Library size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          Import Ontology...
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('Export') ? 'active-submenu-parent' : ''}`}

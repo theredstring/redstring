@@ -45,6 +45,36 @@ export function seededChainFor(protoId, typeNodeId) {
 }
 
 /**
+ * The ladder a node's linked types make: itself, its type, its type's type, and so on
+ * up to Thing. `typeNodeId` names the next lens down the specificity stack, so following
+ * it is the whole is-a claim — Garfield → Cat → Mammal → … → Thing — and nothing has to
+ * store the ladder for the carousel to show it.
+ *
+ * Stops at Thing, at a type it can't look up (that rung is kept, as seeding keeps it,
+ * and the walk ends there before the Thing floor), and at any loop (setNodeType refuses one, but a merged or
+ * imported file isn't guaranteed to have gone through it).
+ *
+ * @param {string} protoId
+ * @param {(id: string) => (Object|undefined)} lookup - prototype by id
+ * @returns {string[]|null} null for the two roots, which carry no ladder
+ */
+export function typeLadderFor(protoId, lookup) {
+  if (!protoId || protoId === THING_PROTOTYPE_ID || protoId === CONNECTION_PROTOTYPE_ID) return null;
+  const ladder = [protoId];
+  const seen = new Set(ladder);
+  let current = lookup(protoId)?.typeNodeId;
+  while (current && current !== THING_PROTOTYPE_ID && current !== CONNECTION_PROTOTYPE_ID && !seen.has(current)) {
+    ladder.push(current);
+    seen.add(current);
+    const proto = lookup(current);
+    if (!proto) break;
+    current = proto.typeNodeId;
+  }
+  ladder.push(THING_PROTOTYPE_ID);
+  return ladder;
+}
+
+/**
  * True when `chain` is still exactly what seeding would have produced — i.e. nobody has
  * edited it by hand, and retype-sync may safely rewrite it.
  *
@@ -86,6 +116,8 @@ export function isSeededChain(proto, chain) {
  */
 export function resolveChain(protoId, dimension, protos) {
   const list = Array.isArray(protos) ? protos : [...protos];
+  const byId = new Map();
+  for (const p of list) if (p?.id) byId.set(p.id, p);
 
   let self = null;
   let owned = null;      // { chain, seeded } for the node's own chain
@@ -103,11 +135,17 @@ export function resolveChain(protoId, dimension, protos) {
 
   if (owned && !owned.seeded) return { ownerId: protoId, chain: owned.chain, seeded: false, virtual: false };
   if (memberOf) return { ownerId: memberOf.ownerId, chain: memberOf.chain, seeded: false, virtual: false };
-  if (owned) return { ownerId: protoId, chain: owned.chain, seeded: true, virtual: false };
+
+  // A seeded chain stores one rung of type; the ladder shown is the whole one the
+  // linked types make. On the default axis only: other axes aren't typed.
+  const walked = dimension === DEFAULT_ABSTRACTION_DIMENSION
+    ? typeLadderFor(protoId, (id) => byId.get(id))
+    : null;
+  if (owned) return { ownerId: protoId, chain: walked || owned.chain, seeded: true, virtual: false };
 
   return {
     ownerId: protoId,
-    chain: seededChainFor(protoId, self?.typeNodeId) || [protoId],
+    chain: walked || seededChainFor(protoId, self?.typeNodeId) || [protoId],
     seeded: true,
     virtual: true
   };

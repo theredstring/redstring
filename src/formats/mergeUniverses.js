@@ -16,8 +16,14 @@
  *                               union, base wins conflicting scalars, and the
  *                               losing value is banked in _preserved.merge.
  *   2. externalLinks overlap  → owl:sameAs / skos:exactMatch. Folded only when
- *                               `foldSameAs` is set; otherwise both are kept
- *                               and reported in report.sameAsCandidates.
+ *                               `foldSameAs` is set AND at least one side holds
+ *                               the shared link on the exact rung (someone, or
+ *                               an import, vouched that it names the same
+ *                               subject). A link nobody confirmed (auto/close)
+ *                               is not evidence of identity: two Things
+ *                               auto-matched to one Wikidata item are kept
+ *                               apart and reported in report.sameAsCandidates,
+ *                               as every pairing is when folding is off.
  *   3. Case-insensitive name  → never merged. A shared name is not evidence of
  *                               a shared referent; listed in
  *                               report.closeMatchCandidates for review.
@@ -41,6 +47,7 @@
  */
 
 import { duplicatePairKey, splitDuplicatePairKey } from './duplicatePairKey.js';
+import { resolveLinkState, LINK_STATES } from './linkState.js';
 import { isSeededChain } from '../wizard/tools/utils/abstractionSpec.js';
 
 // Scalar fields on a prototype that can conflict during merge.
@@ -62,6 +69,9 @@ function buildSameAsIndex(prototypes) {
   }
   return idx;
 }
+
+/** Is `url` on the exact rung for this prototype? */
+const isExactLink = (proto, url) => resolveLinkState(url, proto?.semanticMetadata) === LINK_STATES.EXACT;
 
 /**
  * Merge semanticMetadata, following the field rules mergeNodePrototypes already
@@ -307,14 +317,23 @@ export function mergeUniverses(base, incoming, options = {}) {
       continue;
     }
 
-    // Class 2: externalLinks intersection (owl:sameAs / skos:exactMatch).
+    // Class 2: externalLinks intersection (owl:sameAs / skos:exactMatch). A
+    // pairing backed by an exact link on either side may fold; one backed only
+    // by unconfirmed links is a candidate, never a fold.
     let sameAsBaseId = null;
+    let sameAsExact = false;
     for (const url of (iproto.externalLinks || [])) {
       const hits = sameAsIdx.get(url);
-      if (hits?.size > 0) { sameAsBaseId = [...hits][0]; break; }
+      if (!hits?.size) continue;
+      for (const hitId of hits) {
+        const exact = isExactLink(iproto, url) || isExactLink(merged.nodePrototypes.get(hitId), url);
+        if (exact) { sameAsBaseId = hitId; sameAsExact = true; break; }
+        if (!sameAsBaseId) sameAsBaseId = hitId;
+      }
+      if (sameAsExact) break;
     }
 
-    if (sameAsBaseId && foldSameAs) {
+    if (sameAsBaseId && sameAsExact && foldSameAs) {
       const winner = mergePrototype(merged.nodePrototypes.get(sameAsBaseId), iproto);
       merged.nodePrototypes.set(sameAsBaseId, winner);
       // Keep the sameAs index current.

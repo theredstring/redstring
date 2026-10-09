@@ -1,0 +1,166 @@
+<?xml version="1.0"?>
+<!-- The zoo ontology (see zoo.ttl) in RDF/XML, laid out the way OWL tools write .owl files. -->
+<rdf:RDF xmlns="http://example.org/zoo/"
+     xml:base="http://example.org/zoo.owl"
+     xmlns:obo="http://purl.obolibrary.org/obo/"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:terms="http://purl.org/dc/terms/"
+     xmlns:oboInOwl="http://www.geneontology.org/formats/oboInOwl#">
+    <owl:Ontology rdf:about="http://example.org/zoo.owl">
+        <terms:title>Zoo Ontology</terms:title>
+        <terms:description>Animals, their parts and their roles.</terms:description>
+        <terms:license rdf:resource="https://creativecommons.org/publicdomain/zero/1.0/"/>
+        <owl:versionInfo>1.0</owl:versionInfo>
+    </owl:Ontology>
+
+    <owl:AnnotationProperty rdf:about="http://purl.obolibrary.org/obo/IAO_0000115">
+        <rdfs:label>definition</rdfs:label>
+    </owl:AnnotationProperty>
+    <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasExactSynonym"/>
+    <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym"/>
+    <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasDbXref"/>
+    <owl:AnnotationProperty rdf:about="http://purl.obolibrary.org/obo/IAO_0100001">
+        <rdfs:label>term replaced by</rdfs:label>
+    </owl:AnnotationProperty>
+
+    <owl:ObjectProperty rdf:about="http://purl.obolibrary.org/obo/BFO_0000051">
+        <owl:inverseOf rdf:resource="http://purl.obolibrary.org/obo/BFO_0000050"/>
+        <rdfs:label>has part</rdfs:label>
+    </owl:ObjectProperty>
+    <owl:ObjectProperty rdf:about="http://purl.obolibrary.org/obo/BFO_0000050">
+        <rdfs:label>part of</rdfs:label>
+    </owl:ObjectProperty>
+    <owl:ObjectProperty rdf:about="http://purl.obolibrary.org/obo/RO_0000087">
+        <rdfs:label>has role</rdfs:label>
+    </owl:ObjectProperty>
+    <owl:ObjectProperty rdf:about="http://example.org/zoo/adjacentTo">
+        <rdfs:label>adjacent to</rdfs:label>
+    </owl:ObjectProperty>
+    <owl:ObjectProperty rdf:about="http://example.org/zoo/hasStage">
+        <rdfs:label>has stage</rdfs:label>
+    </owl:ObjectProperty>
+
+    <owl:Class rdf:about="http://example.org/zoo/Animal">
+        <rdfs:subClassOf rdf:resource="http://www.w3.org/2002/07/owl#Thing"/>
+        <obo:IAO_0000115>A living organism that feeds on organic matter.</obo:IAO_0000115>
+        <rdfs:label>animal</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/Mammal">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/Animal"/>
+        <obo:IAO_0000115>An animal that feeds its young with milk.</obo:IAO_0000115>
+        <rdfs:label xml:lang="fr">mammifère</rdfs:label>
+        <rdfs:label>mammal</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/Pet">
+        <obo:IAO_0000115>An animal kept for company.</obo:IAO_0000115>
+        <rdfs:label>pet</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/Cat">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/Pet"/>
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/Mammal"/>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://purl.obolibrary.org/obo/BFO_0000051"/>
+                <owl:someValuesFrom rdf:resource="http://example.org/zoo/Paw"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://purl.obolibrary.org/obo/BFO_0000051"/>
+                <owl:someValuesFrom rdf:resource="http://example.org/zoo/Tail"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://purl.obolibrary.org/obo/RO_0000087"/>
+                <owl:someValuesFrom rdf:resource="http://example.org/zoo/Predator"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <obo:IAO_0000115>A small domesticated carnivorous mammal.</obo:IAO_0000115>
+        <oboInOwl:hasDbXref>WIKIDATA:Q146</oboInOwl:hasDbXref>
+        <oboInOwl:hasExactSynonym>house cat</oboInOwl:hasExactSynonym>
+        <oboInOwl:hasRelatedSynonym>kitty</oboInOwl:hasRelatedSynonym>
+        <rdfs:label>cat</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/Dog">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/Mammal"/>
+        <rdfs:label>dog</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/Kitten">
+        <owl:equivalentClass>
+            <owl:Class>
+                <owl:intersectionOf rdf:parseType="Collection">
+                    <rdf:Description rdf:about="http://example.org/zoo/Cat"/>
+                    <owl:Restriction>
+                        <owl:onProperty rdf:resource="http://example.org/zoo/hasStage"/>
+                        <owl:someValuesFrom rdf:resource="http://example.org/zoo/Juvenile"/>
+                    </owl:Restriction>
+                </owl:intersectionOf>
+            </owl:Class>
+        </owl:equivalentClass>
+        <rdfs:label>kitten</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/BodyPart">
+        <rdfs:label>body part</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://example.org/zoo/Tail">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/BodyPart"/>
+        <rdfs:label>tail</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://example.org/zoo/Paw">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/BodyPart"/>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://example.org/zoo/adjacentTo"/>
+                <owl:someValuesFrom rdf:resource="http://example.org/zoo/Tail"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:label>paw</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://example.org/zoo/Whisker">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/BodyPart"/>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://purl.obolibrary.org/obo/BFO_0000050"/>
+                <owl:someValuesFrom rdf:resource="http://example.org/zoo/Cat"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:label>whisker</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/Role">
+        <rdfs:label>role</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://example.org/zoo/Predator">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/Role"/>
+        <rdfs:label>predator</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://example.org/zoo/Stage">
+        <rdfs:label>life stage</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://example.org/zoo/Juvenile">
+        <rdfs:subClassOf rdf:resource="http://example.org/zoo/Stage"/>
+        <rdfs:label>juvenile</rdfs:label>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/zoo/OldCat">
+        <obo:IAO_0100001 rdf:resource="http://example.org/zoo/Cat"/>
+        <owl:deprecated rdf:datatype="http://www.w3.org/2001/XMLSchema#boolean">true</owl:deprecated>
+        <rdfs:label>obsolete cat</rdfs:label>
+    </owl:Class>
+
+    <owl:NamedIndividual rdf:about="http://example.org/zoo/Garfield">
+        <rdf:type rdf:resource="http://example.org/zoo/Cat"/>
+        <obo:IAO_0000115>A fat orange cat.</obo:IAO_0000115>
+        <rdfs:label>Garfield</rdfs:label>
+    </owl:NamedIndividual>
+</rdf:RDF>

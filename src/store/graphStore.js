@@ -68,6 +68,7 @@ import {
   THING_PROTOTYPE_ID,
   seededChainFor,
   isSeededChain,
+  typeLadderFor,
 } from '../wizard/tools/utils/abstractionSpec.js';
 import { vlog } from '../utils/verboseLog.js';
 
@@ -416,6 +417,27 @@ const calculateStringSimilarity = (str1, str2) => {
  * Never overwrites: a chain that already exists belongs to whoever wrote it. Callers
  * pass a draft prototype, so this runs inside their existing produce().
  */
+/**
+ * Turn a node's default-axis ladder into the one the carousel shows before editing it.
+ *
+ * A seeded chain stores one rung of type ([self, type, Thing]) while the carousel shows
+ * the whole ladder the linked types make (typeLadderFor). An edit relative to a rung
+ * that only exists in the walked ladder (Add Above "Mammal" on Garfield's carousel)
+ * would find nothing to anchor to, so the walked ladder is written first. That makes
+ * the chain hand-authored from here on, which is exactly what an edit makes it.
+ *
+ * Runs inside the caller's produce(); returns the (possibly new) chain array.
+ */
+const materializeTypeLadder = (draft, node, dimension) => {
+  const chains = node.abstractionChains || (node.abstractionChains = {});
+  const stored = chains[dimension];
+  if (dimension !== DEFAULT_ABSTRACTION_DIMENSION) return stored;
+  if (stored && stored.length > 0 && !isSeededChain(node, stored)) return stored;
+  const walked = typeLadderFor(node.id, (id) => draft.nodePrototypes.get(id));
+  if (walked) chains[dimension] = walked;
+  return chains[dimension];
+};
+
 const seedTypeRung = (draft, prototypeId) => {
   const prototype = draft.nodePrototypes.get(prototypeId);
   if (!prototype) return;
@@ -8593,18 +8615,43 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // seeded chain naming ITSELF at index 0, so an unconditional pass would have each
       // one vouch for its own liveness and the sweep would never collect anything again.
       // Runs last, so it starts from the fully-settled reachable set.
+      //
+      // Imported Things are kept the same way, by the Thing they came from: an
+      // ontology import names its source Thing in semanticMetadata.ontology.source
+      // (formats/ontology/buildUniverse.js). A pack's leaves sit in no web and are
+      // saved by nobody, so without this the first sweep would take them. While the
+      // source Thing is live its Things are; remove the source and they go with it.
+      //
+      // Anything this pass adds also keeps its own webs: they were collected into
+      // referencedGraphIds before this ran, so they're added here or swept below.
+      const keepWithWebs = (prototypeId) => {
+        referencedPrototypeIds.add(prototypeId);
+        addDefinitionPrototypes(prototypeId);
+        const prototype = draft.nodePrototypes.get(prototypeId);
+        if (Array.isArray(prototype?.definitionGraphIds)) {
+          prototype.definitionGraphIds.forEach((graphId) => {
+            if (draft.graphs.has(graphId)) referencedGraphIds.add(graphId);
+          });
+        }
+      };
       let chainGrew = true;
       while (chainGrew) {
         chainGrew = false;
         for (const prototype of draft.nodePrototypes.values()) {
+          if (!referencedPrototypeIds.has(prototype.id)) {
+            const sourceId = prototype.semanticMetadata?.ontology?.source;
+            if (sourceId && referencedPrototypeIds.has(sourceId)) {
+              keepWithWebs(prototype.id);
+              chainGrew = true;
+            }
+            continue;
+          }
           if (!prototype.abstractionChains) continue;
-          if (!referencedPrototypeIds.has(prototype.id)) continue;
           for (const chain of Object.values(prototype.abstractionChains)) {
             if (!Array.isArray(chain)) continue;
             for (const memberId of chain) {
               if (referencedPrototypeIds.has(memberId)) continue;
-              referencedPrototypeIds.add(memberId);
-              addDefinitionPrototypes(memberId);
+              keepWithWebs(memberId);
               chainGrew = true;
             }
           }
@@ -9047,6 +9094,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // the seeded chain, not a bare [nodeId] — otherwise a legacy prototype that
       // predates seeding would permanently diverge from one created after it, losing
       // both its type rung and the Thing floor on its first hand-added level.
+      // On the default axis, start from the ladder the carousel is showing — the one
+      // the linked types make — so the edit can anchor on any rung of it.
+      materializeTypeLadder(draft, node, dimension);
       if (!node.abstractionChains[dimension]) {
         node.abstractionChains[dimension] =
           (dimension === DEFAULT_ABSTRACTION_DIMENSION && seededChainFor(nodeId, node.typeNodeId))
@@ -9120,7 +9170,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     removeFromAbstractionChain: (nodeId, dimension, nodeToRemove) => ctxSet({ type: 'abstraction_remove', nodeId, dimension, nodeToRemove }, produce((draft) => {
       const node = draft.nodePrototypes.get(nodeId);
-      if (!node?.abstractionChains?.[dimension]) return;
+      if (!node) return;
+      // A rung the carousel shows only through linked types has to be written down
+      // before it can be taken out.
+      const stored = node.abstractionChains?.[dimension];
+      if (!stored?.includes(nodeToRemove)) materializeTypeLadder(draft, node, dimension);
+      if (!node.abstractionChains?.[dimension]) return;
 
       const chain = node.abstractionChains[dimension];
       const index = chain.indexOf(nodeToRemove);

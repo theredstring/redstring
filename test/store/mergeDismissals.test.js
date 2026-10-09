@@ -3,6 +3,7 @@ import useGraphStore from '../../src/store/graphStore.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 import { mergeUniverses } from '../../src/formats/mergeUniverses.js';
 import { duplicatePairKey } from '../../src/formats/duplicatePairKey.js';
+import { canonicalizeLink } from '../../src/formats/linkState.js';
 
 const resetStore = (patch = {}) => {
   useGraphStore.setState({
@@ -138,7 +139,11 @@ describe('mergeUniverses carries dismissals across', () => {
     // dismissal said "these two are different"; after the fold there is only
     // one thing, so the ruling has nothing left to refer to.
     const link = 'https://www.wikidata.org/wiki/Q144';
-    const base = state([proto('a', 'Dog', { externalLinks: [link] })]);
+    // Exact on the base side, so the shared link folds x into a.
+    const base = state([proto('a', 'Dog', {
+      externalLinks: [link],
+      semanticMetadata: { linkConfirmations: { [canonicalizeLink(link)]: { state: 'exact', by: 'user' } } },
+    })]);
     const incoming = state(
       [proto('x', 'Dog', { externalLinks: [link] }), proto('y', 'Hound')],
       { [duplicatePairKey('x', 'y')]: true }

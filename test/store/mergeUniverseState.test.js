@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
+import { canonicalizeLink } from '../../src/formats/linkState.js';
 
 /**
  * Store-level cover for mergeUniverseState. The field-merge rules themselves are
@@ -121,9 +122,14 @@ describe('mergeUniverseState', () => {
   });
 
   const WIKI = 'https://www.wikidata.org/wiki/Q144';
+  // A shared link folds only when someone vouched for it (the exact rung).
+  const exactWiki = {
+    externalLinks: [WIKI],
+    semanticMetadata: { linkConfirmations: { [canonicalizeLink(WIKI)]: { state: 'exact', by: 'user' } } },
+  };
 
   it('foldSameAs on: shared external link combines, leaving nothing dangling', () => {
-    resetStore({ nodePrototypes: new Map([proto('mine-dog', 'Dog', { externalLinks: [WIKI] })]) });
+    resetStore({ nodePrototypes: new Map([proto('mine-dog', 'Dog', exactWiki)]) });
 
     const report = useGraphStore.getState().mergeUniverseState(incoming({
       protos: [proto('their-dog', 'Doggo', { externalLinks: [WIKI] })],

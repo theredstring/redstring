@@ -1,0 +1,301 @@
+{
+ "graphs": [
+  {
+   "id": "http://example.org/zoo.owl",
+   "meta": {
+    "basicPropertyValues": [
+     {
+      "pred": "http://purl.org/dc/terms/title",
+      "val": "Zoo Ontology"
+     },
+     {
+      "pred": "http://purl.org/dc/terms/description",
+      "val": "Animals, their parts and their roles."
+     },
+     {
+      "pred": "http://purl.org/dc/terms/license",
+      "val": "https://creativecommons.org/publicdomain/zero/1.0/"
+     },
+     {
+      "pred": "http://www.w3.org/2002/07/owl#versionInfo",
+      "val": "1.0"
+     }
+    ]
+   },
+   "nodes": [
+    {
+     "id": "http://purl.obolibrary.org/obo/IAO_0000115",
+     "lbl": "definition",
+     "type": "PROPERTY",
+     "propertyType": "ANNOTATION"
+    },
+    {
+     "id": "http://purl.obolibrary.org/obo/IAO_0100001",
+     "lbl": "term replaced by",
+     "type": "PROPERTY",
+     "propertyType": "ANNOTATION"
+    },
+    {
+     "id": "http://purl.obolibrary.org/obo/BFO_0000051",
+     "lbl": "has part",
+     "type": "PROPERTY",
+     "propertyType": "OBJECT"
+    },
+    {
+     "id": "http://purl.obolibrary.org/obo/BFO_0000050",
+     "lbl": "part of",
+     "type": "PROPERTY",
+     "propertyType": "OBJECT"
+    },
+    {
+     "id": "http://purl.obolibrary.org/obo/RO_0000087",
+     "lbl": "has role",
+     "type": "PROPERTY",
+     "propertyType": "OBJECT"
+    },
+    {
+     "id": "http://example.org/zoo/adjacentTo",
+     "lbl": "adjacent to",
+     "type": "PROPERTY",
+     "propertyType": "OBJECT"
+    },
+    {
+     "id": "http://example.org/zoo/hasStage",
+     "lbl": "has stage",
+     "type": "PROPERTY",
+     "propertyType": "OBJECT"
+    },
+    {
+     "id": "http://example.org/zoo/Animal",
+     "lbl": "animal",
+     "type": "CLASS",
+     "meta": {
+      "definition": {
+       "val": "A living organism that feeds on organic matter."
+      }
+     }
+    },
+    {
+     "id": "http://example.org/zoo/Mammal",
+     "lbl": "mammal",
+     "type": "CLASS",
+     "meta": {
+      "definition": {
+       "val": "An animal that feeds its young with milk."
+      }
+     }
+    },
+    {
+     "id": "http://example.org/zoo/Pet",
+     "lbl": "pet",
+     "type": "CLASS",
+     "meta": {
+      "definition": {
+       "val": "An animal kept for company."
+      }
+     }
+    },
+    {
+     "id": "http://example.org/zoo/Cat",
+     "lbl": "cat",
+     "type": "CLASS",
+     "meta": {
+      "definition": {
+       "val": "A small domesticated carnivorous mammal."
+      },
+      "synonyms": [
+       {
+        "pred": "hasExactSynonym",
+        "val": "house cat"
+       },
+       {
+        "pred": "hasRelatedSynonym",
+        "val": "kitty"
+       }
+      ],
+      "xrefs": [
+       {
+        "val": "WIKIDATA:Q146"
+       }
+      ]
+     }
+    },
+    {
+     "id": "http://example.org/zoo/Dog",
+     "lbl": "dog",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Kitten",
+     "lbl": "kitten",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/BodyPart",
+     "lbl": "body part",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Tail",
+     "lbl": "tail",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Paw",
+     "lbl": "paw",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Whisker",
+     "lbl": "whisker",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Role",
+     "lbl": "role",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Predator",
+     "lbl": "predator",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Stage",
+     "lbl": "life stage",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/Juvenile",
+     "lbl": "juvenile",
+     "type": "CLASS"
+    },
+    {
+     "id": "http://example.org/zoo/OldCat",
+     "lbl": "obsolete cat",
+     "type": "CLASS",
+     "meta": {
+      "deprecated": true,
+      "basicPropertyValues": [
+       {
+        "pred": "http://purl.obolibrary.org/obo/IAO_0100001",
+        "val": "http://example.org/zoo/Cat"
+       }
+      ]
+     }
+    },
+    {
+     "id": "http://example.org/zoo/Garfield",
+     "lbl": "Garfield",
+     "type": "INDIVIDUAL",
+     "meta": {
+      "definition": {
+       "val": "A fat orange cat."
+      }
+     }
+    }
+   ],
+   "edges": [
+    {
+     "sub": "http://example.org/zoo/Animal",
+     "pred": "is_a",
+     "obj": "http://www.w3.org/2002/07/owl#Thing"
+    },
+    {
+     "sub": "http://example.org/zoo/Mammal",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/Animal"
+    },
+    {
+     "sub": "http://example.org/zoo/Cat",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/Mammal"
+    },
+    {
+     "sub": "http://example.org/zoo/Cat",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/Pet"
+    },
+    {
+     "sub": "http://example.org/zoo/Cat",
+     "pred": "http://purl.obolibrary.org/obo/BFO_0000051",
+     "obj": "http://example.org/zoo/Tail"
+    },
+    {
+     "sub": "http://example.org/zoo/Cat",
+     "pred": "http://purl.obolibrary.org/obo/BFO_0000051",
+     "obj": "http://example.org/zoo/Paw"
+    },
+    {
+     "sub": "http://example.org/zoo/Cat",
+     "pred": "http://purl.obolibrary.org/obo/RO_0000087",
+     "obj": "http://example.org/zoo/Predator"
+    },
+    {
+     "sub": "http://example.org/zoo/Dog",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/Mammal"
+    },
+    {
+     "sub": "http://example.org/zoo/Tail",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/BodyPart"
+    },
+    {
+     "sub": "http://example.org/zoo/Paw",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/BodyPart"
+    },
+    {
+     "sub": "http://example.org/zoo/Paw",
+     "pred": "http://example.org/zoo/adjacentTo",
+     "obj": "http://example.org/zoo/Tail"
+    },
+    {
+     "sub": "http://example.org/zoo/Whisker",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/BodyPart"
+    },
+    {
+     "sub": "http://example.org/zoo/Whisker",
+     "pred": "http://purl.obolibrary.org/obo/BFO_0000050",
+     "obj": "http://example.org/zoo/Cat"
+    },
+    {
+     "sub": "http://example.org/zoo/Predator",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/Role"
+    },
+    {
+     "sub": "http://example.org/zoo/Juvenile",
+     "pred": "is_a",
+     "obj": "http://example.org/zoo/Stage"
+    },
+    {
+     "sub": "http://example.org/zoo/Garfield",
+     "pred": "type",
+     "obj": "http://example.org/zoo/Cat"
+    },
+    {
+     "sub": "http://purl.obolibrary.org/obo/BFO_0000051",
+     "pred": "inverseOf",
+     "obj": "http://purl.obolibrary.org/obo/BFO_0000050"
+    }
+   ],
+   "logicalDefinitionAxioms": [
+    {
+     "definedClassId": "http://example.org/zoo/Kitten",
+     "genusIds": [
+      "http://example.org/zoo/Cat"
+     ],
+     "restrictions": [
+      {
+       "propertyId": "http://example.org/zoo/hasStage",
+       "fillerId": "http://example.org/zoo/Juvenile"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

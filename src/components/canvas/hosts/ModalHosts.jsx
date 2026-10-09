@@ -3,13 +3,14 @@ import AutoGraphModal from '../../AutoGraphModal';
 import HelpModal from '../../HelpModal.jsx';
 import SettingsModal from '../../SettingsModal.jsx';
 import MergeThingsModal from '../../merge/MergeThingsModal.jsx';
+import OntologyImportHost from '../../shared/OntologyImportDialog.jsx';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { parseInputData, generateGraph } from '../../../services/autoGraphGenerator';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 
 /**
- * Help, Settings, Merge and Auto Graph, outside NodeCanvas (P2.06b).
+ * Help, Settings, Merge, Auto Graph and Import Ontology, outside NodeCanvas (P2.06b).
  *
  * Their open flags live in canvasUIStore (P2.04); this host owns the window
  * events that open them and renders them after the canvas overlays. Each sits
@@ -100,6 +101,8 @@ function ModalHosts() {
       <HelpModal isVisible={showHelpModal} onClose={closeHelp} />
       <SettingsModal isVisible={showSettingsModal} onClose={closeSettings} />
       <MergeThingsModal isVisible={showMergeThingsModal} onClose={closeMerge} />
+      {/* Owns its own open state: it listens for `openOntologyImport` itself. */}
+      <OntologyImportHost />
     </Profiler>
   );
 }

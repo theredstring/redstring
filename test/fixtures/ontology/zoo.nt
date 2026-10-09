@@ -1,0 +1,107 @@
+<http://example.org/zoo.owl> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Ontology> .
+<http://example.org/zoo.owl> <http://purl.org/dc/terms/title> "Zoo Ontology" .
+<http://example.org/zoo.owl> <http://purl.org/dc/terms/description> "Animals, their parts and their roles." .
+<http://example.org/zoo.owl> <http://purl.org/dc/terms/license> <https://creativecommons.org/publicdomain/zero/1.0/> .
+<http://example.org/zoo.owl> <http://www.w3.org/2002/07/owl#versionInfo> "1.0" .
+<http://purl.obolibrary.org/obo/IAO_0000115> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#AnnotationProperty> .
+<http://purl.obolibrary.org/obo/IAO_0000115> <http://www.w3.org/2000/01/rdf-schema#label> "definition" .
+<http://www.geneontology.org/formats/oboInOwl#hasExactSynonym> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#AnnotationProperty> .
+<http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#AnnotationProperty> .
+<http://www.geneontology.org/formats/oboInOwl#hasDbXref> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#AnnotationProperty> .
+<http://purl.obolibrary.org/obo/IAO_0100001> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#AnnotationProperty> .
+<http://purl.obolibrary.org/obo/IAO_0100001> <http://www.w3.org/2000/01/rdf-schema#label> "term replaced by" .
+<http://purl.obolibrary.org/obo/BFO_0000051> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#ObjectProperty> .
+<http://purl.obolibrary.org/obo/BFO_0000051> <http://www.w3.org/2000/01/rdf-schema#label> "has part" .
+<http://purl.obolibrary.org/obo/BFO_0000051> <http://www.w3.org/2002/07/owl#inverseOf> <http://purl.obolibrary.org/obo/BFO_0000050> .
+<http://purl.obolibrary.org/obo/BFO_0000050> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#ObjectProperty> .
+<http://purl.obolibrary.org/obo/BFO_0000050> <http://www.w3.org/2000/01/rdf-schema#label> "part of" .
+<http://purl.obolibrary.org/obo/RO_0000087> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#ObjectProperty> .
+<http://purl.obolibrary.org/obo/RO_0000087> <http://www.w3.org/2000/01/rdf-schema#label> "has role" .
+<http://example.org/zoo/adjacentTo> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#ObjectProperty> .
+<http://example.org/zoo/adjacentTo> <http://www.w3.org/2000/01/rdf-schema#label> "adjacent to" .
+<http://example.org/zoo/hasStage> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#ObjectProperty> .
+<http://example.org/zoo/hasStage> <http://www.w3.org/2000/01/rdf-schema#label> "has stage" .
+<http://example.org/zoo/Animal> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Animal> <http://www.w3.org/2000/01/rdf-schema#label> "animal" .
+<http://example.org/zoo/Animal> <http://purl.obolibrary.org/obo/IAO_0000115> "A living organism that feeds on organic matter." .
+<http://example.org/zoo/Animal> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://www.w3.org/2002/07/owl#Thing> .
+<http://example.org/zoo/Mammal> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Mammal> <http://www.w3.org/2000/01/rdf-schema#label> "mammal" .
+<http://example.org/zoo/Mammal> <http://www.w3.org/2000/01/rdf-schema#label> "mammifère"@fr .
+<http://example.org/zoo/Mammal> <http://purl.obolibrary.org/obo/IAO_0000115> "An animal that feeds its young with milk." .
+<http://example.org/zoo/Mammal> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/Animal> .
+<http://example.org/zoo/Pet> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Pet> <http://www.w3.org/2000/01/rdf-schema#label> "pet" .
+<http://example.org/zoo/Pet> <http://purl.obolibrary.org/obo/IAO_0000115> "An animal kept for company." .
+<http://example.org/zoo/Cat> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Cat> <http://www.w3.org/2000/01/rdf-schema#label> "cat" .
+<http://example.org/zoo/Cat> <http://purl.obolibrary.org/obo/IAO_0000115> "A small domesticated carnivorous mammal." .
+<http://example.org/zoo/Cat> <http://www.geneontology.org/formats/oboInOwl#hasExactSynonym> "house cat" .
+<http://example.org/zoo/Cat> <http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym> "kitty" .
+<http://example.org/zoo/Cat> <http://www.geneontology.org/formats/oboInOwl#hasDbXref> "WIKIDATA:Q146" .
+<http://example.org/zoo/Cat> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/Mammal> .
+<http://example.org/zoo/Cat> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/Pet> .
+_:n3-0 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Restriction> .
+_:n3-0 <http://www.w3.org/2002/07/owl#onProperty> <http://purl.obolibrary.org/obo/BFO_0000051> .
+_:n3-0 <http://www.w3.org/2002/07/owl#someValuesFrom> <http://example.org/zoo/Tail> .
+<http://example.org/zoo/Cat> <http://www.w3.org/2000/01/rdf-schema#subClassOf> _:n3-0 .
+_:n3-1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Restriction> .
+_:n3-1 <http://www.w3.org/2002/07/owl#onProperty> <http://purl.obolibrary.org/obo/BFO_0000051> .
+_:n3-1 <http://www.w3.org/2002/07/owl#someValuesFrom> <http://example.org/zoo/Paw> .
+<http://example.org/zoo/Cat> <http://www.w3.org/2000/01/rdf-schema#subClassOf> _:n3-1 .
+_:n3-2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Restriction> .
+_:n3-2 <http://www.w3.org/2002/07/owl#onProperty> <http://purl.obolibrary.org/obo/RO_0000087> .
+_:n3-2 <http://www.w3.org/2002/07/owl#someValuesFrom> <http://example.org/zoo/Predator> .
+<http://example.org/zoo/Cat> <http://www.w3.org/2000/01/rdf-schema#subClassOf> _:n3-2 .
+<http://example.org/zoo/Dog> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Dog> <http://www.w3.org/2000/01/rdf-schema#label> "dog" .
+<http://example.org/zoo/Dog> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/Mammal> .
+<http://example.org/zoo/Kitten> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Kitten> <http://www.w3.org/2000/01/rdf-schema#label> "kitten" .
+_:n3-3 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+_:n3-4 <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> <http://example.org/zoo/Cat> .
+_:n3-4 <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> _:n3-5 .
+_:n3-5 <http://www.w3.org/1999/02/22-rdf-syntax-ns#first> _:n3-6 .
+_:n3-6 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Restriction> .
+_:n3-6 <http://www.w3.org/2002/07/owl#onProperty> <http://example.org/zoo/hasStage> .
+_:n3-6 <http://www.w3.org/2002/07/owl#someValuesFrom> <http://example.org/zoo/Juvenile> .
+_:n3-5 <http://www.w3.org/1999/02/22-rdf-syntax-ns#rest> <http://www.w3.org/1999/02/22-rdf-syntax-ns#nil> .
+_:n3-3 <http://www.w3.org/2002/07/owl#intersectionOf> _:n3-4 .
+<http://example.org/zoo/Kitten> <http://www.w3.org/2002/07/owl#equivalentClass> _:n3-3 .
+<http://example.org/zoo/BodyPart> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/BodyPart> <http://www.w3.org/2000/01/rdf-schema#label> "body part" .
+<http://example.org/zoo/Tail> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Tail> <http://www.w3.org/2000/01/rdf-schema#label> "tail" .
+<http://example.org/zoo/Tail> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/BodyPart> .
+<http://example.org/zoo/Paw> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Paw> <http://www.w3.org/2000/01/rdf-schema#label> "paw" .
+<http://example.org/zoo/Paw> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/BodyPart> .
+_:n3-7 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Restriction> .
+_:n3-7 <http://www.w3.org/2002/07/owl#onProperty> <http://example.org/zoo/adjacentTo> .
+_:n3-7 <http://www.w3.org/2002/07/owl#someValuesFrom> <http://example.org/zoo/Tail> .
+<http://example.org/zoo/Paw> <http://www.w3.org/2000/01/rdf-schema#subClassOf> _:n3-7 .
+<http://example.org/zoo/Whisker> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Whisker> <http://www.w3.org/2000/01/rdf-schema#label> "whisker" .
+<http://example.org/zoo/Whisker> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/BodyPart> .
+_:n3-8 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Restriction> .
+_:n3-8 <http://www.w3.org/2002/07/owl#onProperty> <http://purl.obolibrary.org/obo/BFO_0000050> .
+_:n3-8 <http://www.w3.org/2002/07/owl#someValuesFrom> <http://example.org/zoo/Cat> .
+<http://example.org/zoo/Whisker> <http://www.w3.org/2000/01/rdf-schema#subClassOf> _:n3-8 .
+<http://example.org/zoo/Role> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Role> <http://www.w3.org/2000/01/rdf-schema#label> "role" .
+<http://example.org/zoo/Predator> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Predator> <http://www.w3.org/2000/01/rdf-schema#label> "predator" .
+<http://example.org/zoo/Predator> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/Role> .
+<http://example.org/zoo/Stage> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Stage> <http://www.w3.org/2000/01/rdf-schema#label> "life stage" .
+<http://example.org/zoo/Juvenile> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/Juvenile> <http://www.w3.org/2000/01/rdf-schema#label> "juvenile" .
+<http://example.org/zoo/Juvenile> <http://www.w3.org/2000/01/rdf-schema#subClassOf> <http://example.org/zoo/Stage> .
+<http://example.org/zoo/OldCat> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#Class> .
+<http://example.org/zoo/OldCat> <http://www.w3.org/2000/01/rdf-schema#label> "obsolete cat" .
+<http://example.org/zoo/OldCat> <http://www.w3.org/2002/07/owl#deprecated> "true"^^<http://www.w3.org/2001/XMLSchema#boolean> .
+<http://example.org/zoo/OldCat> <http://purl.obolibrary.org/obo/IAO_0100001> <http://example.org/zoo/Cat> .
+<http://example.org/zoo/Garfield> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2002/07/owl#NamedIndividual> .
+<http://example.org/zoo/Garfield> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://example.org/zoo/Cat> .
+<http://example.org/zoo/Garfield> <http://www.w3.org/2000/01/rdf-schema#label> "Garfield" .
+<http://example.org/zoo/Garfield> <http://purl.obolibrary.org/obo/IAO_0000115> "A fat orange cat." .

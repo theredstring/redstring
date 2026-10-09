@@ -24,6 +24,7 @@
  *   redstring push [<universe>] [<user/repo>]   publish a universe to a GitHub repo
  *   redstring link|unlink <universe> ...        manage a universe's repo link
  *   redstring graph|node|edge|search|apply|export|state   (operate on the active universe)
+ *   redstring import <ontology> [--root <term>]... [--depth <n>] [--out <pack>]   OWL/Turtle/OBO import
  *
  * Flags: --workspace/-w <dir>, --universe <file> (back-compat), --port <n>, --json,
  *        --token <t>, --branch <b>, --name <n>, -m/--message <msg>, --no-activate
@@ -72,6 +73,11 @@ const { values: flags, positionals } = parseArgs({
     local: { type: 'boolean' },
     git: { type: 'boolean' },
     'keep-file': { type: 'boolean' },
+    root: { type: 'string', multiple: true },
+    depth: { type: 'string' },
+    namespace: { type: 'string', multiple: true },
+    'include-deprecated': { type: 'boolean' },
+    'dry-run': { type: 'boolean' },
     json: { type: 'boolean' },
     help: { type: 'boolean', short: 'h' }
   }
@@ -136,10 +142,10 @@ function httpBackend() {
     mode: 'http',
     headless: false, // set below
     async getState() { return get('/api/bridge/state'); },
-    async runActions(actions) {
+    async runActions(actions, { timeoutMs } = {}) {
       const res = await post('/api/bridge/pending-actions/enqueue', { actions });
       const results = [];
-      for (const id of res.actionIds || []) results.push(await waitAction(id));
+      for (const id of res.actionIds || []) results.push(await waitAction(id, timeoutMs));
       return results;
     },
     async export() { return get('/api/store/export'); },
@@ -650,8 +656,95 @@ async function main() {
       return out({ applied: specs.length, results, layout });
     });
 
+    case 'import': {
+      const file = sub;
+      if (!file) die('import <ontology file> [--root <term>]... [--depth <n>] [--namespace <iri-prefix>]... [--include-deprecated] [--out <pack.redstring>] [--dry-run]');
+      const built = await buildOntologyPack(path.resolve(file));
+      const { report } = built;
+      if (report.missingRoots.length) die(`no term matches ${report.missingRoots.map((r) => `"${r}"`).join(', ')}`);
+      const summary = {
+        source: report.source,
+        things: report.things,
+        webs: report.compositionWebs + 1,
+        connections: report.connections,
+        relationsKeptAsData: report.relationsKeptAsData,
+        ...(report.ambiguousRoots.length ? { ambiguousRoots: report.ambiguousRoots } : {}),
+      };
+      if (flags['dry-run']) return out({ dryRun: true, ...summary });
+
+      if (flags.out) {
+        // A standalone pack: lay its webs out in a one-shot store, then write it.
+        const { createHeadlessStore } = await import(path.join(ROOT, 'src/headless/createHeadlessStore.js'));
+        const { useGraphStore } = await createHeadlessStore();
+        const { applyOffscreenLayout } = await import(path.join(ROOT, 'src/services/offscreenLayout.js'));
+        const { exportToRedstring } = await import(path.join(ROOT, 'src/formats/redstringFormat.js'));
+        useGraphStore.getState().loadUniverseFromFile(built.state);
+        for (const gid of built.state.graphs.keys()) {
+          try { applyOffscreenLayout(gid); } catch (e) { console.error(`layout failed for ${gid}: ${e.message}`); }
+        }
+        const target = path.resolve(flags.out);
+        fs.writeFileSync(target, JSON.stringify(exportToRedstring(useGraphStore.getState())));
+        return out({ wrote: target, ...summary });
+      }
+
+      return withBackend(async (b) => {
+        const { exportToRedstring } = await import(path.join(ROOT, 'src/formats/redstringFormat.js'));
+        const pack = exportToRedstring(built.state);
+        const [result] = await b.runActions([{ action: 'mergeRedstringPack', params: [pack] }], { timeoutMs: 10 * 60 * 1000 });
+        if (result && result.success === false) die(result.error || 'import failed');
+        await b.save();
+        return out({ imported: true, ...summary, merge: result });
+      });
+    }
+
     default: die(`unknown command: ${command} (try: redstring --help)`);
   }
+}
+
+/**
+ * Read, index and plan an ontology file for `redstring import`. Streams the
+ * file (gunzipping .gz) so a 200 MB ontology never sits in memory as one string.
+ */
+async function buildOntologyPack(file) {
+  if (!fs.existsSync(file)) die(`no such file: ${file}`);
+  const zlib = await import('node:zlib');
+  const { indexOntology, planImport } = await import(path.join(ROOT, 'src/formats/ontology/importOntology.js'));
+
+  let stream = fs.createReadStream(file, { highWaterMark: 1 << 20 });
+  if (/\.gz$/i.test(file)) stream = stream.pipe(zlib.createGunzip());
+  stream.setEncoding('utf8');
+  const iterator = stream[Symbol.asyncIterator]();
+  const first = await iterator.next();
+  const sample = first.done ? '' : first.value.slice(0, 4096);
+  const source = (async function* () {
+    if (!first.done) yield first.value;
+    for (;;) { const n = await iterator.next(); if (n.done) return; yield n.value; }
+  })();
+
+  const total = /\.gz$/i.test(file) ? null : fs.statSync(file).size;
+  let lastReport = 0;
+  const index = await indexOntology({
+    source,
+    sample,
+    fileName: path.basename(file),
+    onProgress: ({ consumed }) => {
+      if (flags.json || Date.now() - lastReport < 1000) return;
+      lastReport = Date.now();
+      process.stderr.write(`reading ${path.basename(file)}: ${total ? `${Math.min(99, Math.round((consumed / total) * 100))}%` : `${(consumed / 1e6).toFixed(0)} MB`}\r`);
+    },
+  });
+  if (!flags.json) process.stderr.write(`read ${index.terms.size.toLocaleString()} terms from ${path.basename(file)}${' '.repeat(12)}\n`);
+
+  const roots = [].concat(flags.root || []).flatMap((r) => String(r).split(',')).map((r) => r.trim()).filter(Boolean);
+  const depth = flags.depth === undefined || flags.depth === 'all' ? Infinity : Number(flags.depth);
+  if (!(depth === Infinity || (Number.isInteger(depth) && depth >= 0))) die('--depth takes a whole number or "all"');
+  return planImport(index, {
+    roots,
+    depth,
+    namespaces: [].concat(flags.namespace || []),
+    includeDeprecated: !!flags['include-deprecated'],
+    importedAt: new Date().toISOString(),
+  });
 }
 
 function printHelp() {
@@ -688,6 +781,13 @@ Graph (operate on the active universe):
   node create <name> --graph <id> [--color <hex>] | list --graph <id>
   edge create <src> <dst> --graph <id> [--type <name>]
   search <query> | apply <specs.json|-> | export [--out <file>] | state [--json]
+
+Ontologies (OWL/RDF-XML, Turtle, N-Triples, N-Quads, TriG, JSON-LD, OBO Graphs JSON; .gz ok):
+  import <file> [--root <IRI|CURIE|label>]... [--depth <n|all>]
+                [--namespace <iri-prefix>]... [--include-deprecated] [--dry-run]
+                        merge an ontology (or a slice of it) into the active universe
+  import <file> ... --out <pack.redstring>
+                        write it as a standalone universe (a pack) instead
 
 A workspace is a local folder of universes (.redstring files). Commands use a
 running Redstring if present (localhost:${PORT}); otherwise they run the store

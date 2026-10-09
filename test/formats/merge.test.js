@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { mergeUniverses } from '../../src/formats/mergeUniverses.js';
+import { canonicalizeLink } from '../../src/formats/linkState.js';
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -10,6 +11,14 @@ const proto = (id, name, extras = {}) => [id, {
   externalLinks: [], definitionGraphIds: [],
   ...extras,
 }];
+
+// Links somebody vouched for (the exact rung). Class 2 folds only on these.
+const exactLinks = (...urls) => ({
+  externalLinks: urls,
+  semanticMetadata: {
+    linkConfirmations: Object.fromEntries(urls.map((u) => [canonicalizeLink(u), { state: 'exact', by: 'user' }])),
+  },
+});
 
 const graph = (id, name = `Graph ${id}`) => [id, { id, name, description: '', nodeIds: [], edgeIds: [], definingNodeIds: [], instances: new Map() }];
 
@@ -82,7 +91,7 @@ describe('P5.4 — alignment class 1: exact ID match', () => {
 describe('P5.4 — alignment class 2: externalLinks overlap', () => {
   it('shared externalLink detected → incoming merged into base prototype', () => {
     const SHARED = 'https://www.wikidata.org/entity/Q144';
-    const base = state({ protos: [proto('dog-base', 'Dog', { externalLinks: [SHARED] })] });
+    const base = state({ protos: [proto('dog-base', 'Dog', exactLinks(SHARED))] });
     const inc  = state({ protos: [proto('dog-inc',  'Dog', { externalLinks: [SHARED] })] });
     const { merged, report } = mergeUniverses(base, inc);
     // The incoming 'dog-inc' should merge INTO 'dog-base'; no new prototype added.
@@ -95,7 +104,7 @@ describe('P5.4 — alignment class 2: externalLinks overlap', () => {
   it('merged prototype has union of externalLinks', () => {
     const SHARED = 'https://www.wikidata.org/entity/Q144';
     const EXTRA  = 'https://dbpedia.example/Dog';
-    const base = state({ protos: [proto('dog-base', 'Dog', { externalLinks: [SHARED] })] });
+    const base = state({ protos: [proto('dog-base', 'Dog', exactLinks(SHARED))] });
     const inc  = state({ protos: [proto('dog-inc',  'Dog', { externalLinks: [SHARED, EXTRA] })] });
     const { merged } = mergeUniverses(base, inc);
     const p = merged.nodePrototypes.get('dog-base');
@@ -105,7 +114,7 @@ describe('P5.4 — alignment class 2: externalLinks overlap', () => {
 
   it('scalar conflict still preserved in _preserved.merge', () => {
     const SHARED = 'https://wd.example/Q144';
-    const base = state({ protos: [proto('a', 'Dog', { color: '#111', externalLinks: [SHARED] })] });
+    const base = state({ protos: [proto('a', 'Dog', { color: '#111', ...exactLinks(SHARED) })] });
     const inc  = state({ protos: [proto('b', 'Dog', { color: '#222', externalLinks: [SHARED] })] });
     const { merged } = mergeUniverses(base, inc);
     const p = merged.nodePrototypes.get('a');
@@ -272,7 +281,7 @@ const graphWith = (id, { instances = [], edgeIds = [], definingNodeIds = [], gro
 const instance = (instanceId, prototypeId, extras = {}) => [instanceId, { id: instanceId, prototypeId, x: 0, y: 0, ...extras }];
 
 describe('P5.4 — sameAs fold leaves no dangling prototype references', () => {
-  const baseSide = () => state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+  const baseSide = () => state({ protos: [proto('base-dog', 'Dog', exactLinks(WIKI_DOG))] });
 
   it('instance.prototypeId is rewritten to the surviving prototype', () => {
     const inc = state({
@@ -337,7 +346,7 @@ describe('P5.4 — sameAs fold leaves no dangling prototype references', () => {
   });
 
   it('saved sets are unioned and remapped', () => {
-    const base = state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+    const base = state({ protos: [proto('base-dog', 'Dog', exactLinks(WIKI_DOG))] });
     base.savedNodeIds = new Set(['base-dog']);
     const inc = state({ protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] }), proto('inc-cat', 'Cat')] });
     inc.savedNodeIds = new Set(['inc-dog', 'inc-cat']);
@@ -352,7 +361,7 @@ describe('P5.4 — sameAs fold leaves no dangling prototype references', () => {
 // ---------------------------------------------------------------------------
 
 describe('P5.4 — foldSameAs: off keeps duplicates for the things-merge step', () => {
-  const base = () => state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+  const base = () => state({ protos: [proto('base-dog', 'Dog', exactLinks(WIKI_DOG))] });
   const inc = () => state({
     protos: [proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] })],
     graphs: [graphWith('g1', { instances: [instance('i1', 'inc-dog')] })],
@@ -502,7 +511,7 @@ describe('P5.4 — abstractionChains survive a merge', () => {
   });
 
   it('prototype ids inside a chain are remapped through a sameAs fold', () => {
-    const base = state({ protos: [proto('base-dog', 'Dog', { externalLinks: [WIKI_DOG] })] });
+    const base = state({ protos: [proto('base-dog', 'Dog', exactLinks(WIKI_DOG))] });
     const inc  = state({ protos: [
       proto('inc-dog', 'Doggo', { externalLinks: [WIKI_DOG] }),
       proto('pet', 'Pet', { abstractionChains: { generalization: ['inc-dog', 'pet'] } }),
@@ -541,5 +550,62 @@ describe('P5.4 — semanticMetadata survives a merge', () => {
     const inc  = state({ protos: [withMeta('dog', { confidence: 0.7 })] });
     const { merged } = mergeUniverses(base, inc);
     expect(merged.nodePrototypes.get('dog').semanticMetadata.confidence).toBe(0.7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Class 2 folds only on a link somebody vouched for
+//
+// A shared link nobody confirmed (auto-matched, or confirmed only as a close
+// match) is not evidence that two Things are one subject: two Things auto-linked
+// to one Wikidata item would otherwise be fused silently. They stay apart and
+// go to the things-merge review as a candidate.
+// ---------------------------------------------------------------------------
+
+describe('class 2 needs an exact link on at least one side', () => {
+  const SHARED = 'https://www.wikidata.org/wiki/Q42';
+  const close = (url) => ({
+    externalLinks: [url],
+    semanticMetadata: { linkConfirmations: { [canonicalizeLink(url)]: { state: 'close', by: 'user' } } },
+  });
+
+  it('unconfirmed links on both sides: no fold, both kept, reported as a candidate', () => {
+    const base = state({ protos: [proto('a', 'Douglas Adams', { externalLinks: [SHARED] })] });
+    const inc = state({ protos: [proto('b', 'D. Adams', { externalLinks: [SHARED] })] });
+    const { merged, report } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.has('a')).toBe(true);
+    expect(merged.nodePrototypes.has('b')).toBe(true);
+    expect(report.mergedIds).toHaveLength(0);
+    expect(report.sameAsCandidates).toEqual([
+      expect.objectContaining({ baseId: 'a', incomingId: 'b' }),
+    ]);
+  });
+
+  it('close-match confirmations are not identity either', () => {
+    const base = state({ protos: [proto('a', 'Symptoms', close(SHARED))] });
+    const inc = state({ protos: [proto('b', 'Signs', close(SHARED))] });
+    const { merged, report } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.size).toBe(2);
+    expect(report.sameAsCandidates).toHaveLength(1);
+  });
+
+  it('exact on the incoming side alone is enough to fold', () => {
+    const base = state({ protos: [proto('a', 'Douglas Adams', { externalLinks: [SHARED] })] });
+    const inc = state({ protos: [proto('b', 'Douglas Adams', exactLinks(SHARED))] });
+    const { merged, report } = mergeUniverses(base, inc);
+    expect(merged.nodePrototypes.has('b')).toBe(false);
+    expect(report.mergedIds).toEqual([{ baseId: 'a', incomingId: 'b' }]);
+  });
+
+  it('an exact hit wins over an earlier unconfirmed one for the same link', () => {
+    const base = state({
+      protos: [
+        proto('loose', 'Adams (auto)', { externalLinks: [SHARED] }),
+        proto('sure', 'Douglas Adams', exactLinks(SHARED)),
+      ],
+    });
+    const inc = state({ protos: [proto('b', 'Douglas Adams', { externalLinks: [SHARED] })] });
+    const { report } = mergeUniverses(base, inc);
+    expect(report.mergedIds).toEqual([{ baseId: 'sure', incomingId: 'b' }]);
   });
 });

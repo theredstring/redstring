@@ -767,6 +767,38 @@ export function createStoreActions({
               } catch { }
               console.groupEnd();
               return { success: true, results };
+            },
+
+            /**
+             * Merge a `.redstring` document (an ontology pack, or any universe)
+             * into the active universe, additively, and lay out the webs it
+             * brought. Takes the document rather than a store state because it
+             * arrives as JSON over the bridge (`redstring import` with a
+             * Redstring running). Same merge as the app's own universe merge.
+             */
+            mergeRedstringPack: async (packJson, options = {}) => {
+              markActive();
+              const { importFromRedstring } = await import('../formats/redstringFormat.js');
+              const doc = typeof packJson === 'string' ? JSON.parse(packJson) : packJson;
+              const { storeState } = importFromRedstring(doc);
+              const report = useGraphStore.getState().mergeUniverseState(storeState, {
+                foldSameAs: options.foldSameAs !== false,
+              });
+              if (!report) return { success: false, error: 'The pack could not be merged into this universe.' };
+              let laidOut = 0;
+              for (const gid of report.addedGraphIds || []) {
+                try { applyOffscreenLayout(gid); laidOut++; } catch (e) { console.error('[mergeRedstringPack] Layout failed for', gid, e); }
+              }
+              return {
+                success: true,
+                thingsAdded: report.addedPrototypeIds?.length || 0,
+                thingsAlreadyHere: report.dedupedIds?.length || 0,
+                thingsMatchedByLink: report.mergedIds?.length || 0,
+                websAdded: report.addedGraphIds?.length || 0,
+                connectionsAdded: report.addedEdgeIds?.length || 0,
+                duplicateCandidates: (report.closeMatchCandidates?.length || 0) + (report.sameAsCandidates?.length || 0),
+                laidOut,
+              };
             }
   };
 }
