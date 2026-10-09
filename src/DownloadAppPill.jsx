@@ -5,6 +5,7 @@ import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import { haptic } from './services/haptics.js';
+import { ZOOM_BAR_HEIGHT } from './components/canvas/layers/ZoomBar.jsx';
 import {
   canOfferDesktopDownload,
   isDesktopDownloadDismissed,
@@ -112,9 +113,9 @@ const DownloadAppPill = ({ suppressed = false }) => {
 
   // Centered in the usable viewport so the pill doesn't sit behind a panel, and
   // lifted clear of the TypeList when that's open (bottomReserved is its height,
-  // or 0 when it's closed).
+  // or 0 when it's closed), and over the zoom bar that shares the strip.
   const centerX = viewportBounds.x + viewportBounds.width / 2;
-  const bottom = viewportBounds.bottomReserved + BOTTOM_GAP;
+  const bottom = viewportBounds.bottomReserved + BOTTOM_GAP + ZOOM_BAR_HEIGHT + 8;
 
   let className = 'download-app-pill-wrapper';
   if (animationState === 'popping') {

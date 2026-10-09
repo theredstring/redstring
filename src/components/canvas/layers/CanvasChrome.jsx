@@ -1,6 +1,7 @@
 /**
  * Canvas chrome over the graph (moved verbatim from NodeCanvas): the off-screen
- * edge glows, Back to Civilization, the desktop-app pill and the panel resizers.
+ * edge glows, Back to Civilization, the desktop-app pill, the zoom bar and the
+ * panel resizers.
  */
 import { Profiler } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
@@ -8,6 +9,7 @@ import EdgeGlowIndicator from '../../EdgeGlowIndicator.jsx';
 import BackToCivilization from '../../../BackToCivilization.jsx';
 import DownloadAppPill from '../../../DownloadAppPill.jsx';
 import PanelResizers from '../PanelResizers.jsx';
+import ZoomBar from './ZoomBar.jsx';
 
 export default function CanvasChrome({ ctx }) {
   const {
@@ -18,6 +20,12 @@ export default function CanvasChrome({ ctx }) {
     nodeControlPanelVisible, connectionControlPanelShouldShow, connectionControlPanelVisible,
     abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef,
   } = ctx;
+
+  // A bottom control panel centres on the same strip above the TypeList.
+  const bottomPanelUp =
+    nodeControlPanelShouldShow || nodeControlPanelVisible ||
+    connectionControlPanelShouldShow || connectionControlPanelVisible ||
+    abstractionControlPanelShouldShow || abstractionControlPanelVisible;
 
   return (
     <Profiler id="CanvasChrome" onRender={onRenderProbe}>
@@ -59,13 +67,12 @@ export default function CanvasChrome({ ctx }) {
           center on the same strip of canvas above the TypeList. The pill is
           in no hurry: it waits and pops once the way is clear. */}
       <DownloadAppPill
-        suppressed={
-          showStorageSetupModal ||
-          nodeControlPanelShouldShow || nodeControlPanelVisible ||
-          connectionControlPanelShouldShow || connectionControlPanelVisible ||
-          abstractionControlPanelShouldShow || abstractionControlPanelVisible
-        }
+        suppressed={showStorageSetupModal || bottomPanelUp}
       />
+
+      {/* Zoom bar, centred above the TypeList. It steps aside while a bottom
+          control panel holds that strip. */}
+      <ZoomBar ctx={ctx} suppressed={bottomPanelUp} />
 
       {/* Overlay panel resizers (outside panels) */}
       <PanelResizers controlRef={panelResizeControlRef} />

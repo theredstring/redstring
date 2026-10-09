@@ -1,0 +1,103 @@
+/* ZoomBar.css
+ *
+ * Default-node maroon in both themes: the icons, the line and the thumb. No
+ * backing pill; the bar floats on the canvas like the grid does. */
+
+.zoom-bar {
+  --zoom-bar-color: #8B0000;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--zoom-bar-color);
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+/* Steps aside while a bottom control panel holds the same strip. */
+.zoom-bar.is-suppressed {
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px) scale(0.96);
+  pointer-events: none;
+}
+
+.zoom-bar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.zoom-bar-icon:hover {
+  transform: scale(1.12);
+}
+
+.zoom-bar-icon:active {
+  transform: scale(0.94);
+}
+
+.zoom-bar-icon:focus-visible {
+  outline: 2px solid var(--zoom-bar-color);
+  outline-offset: 1px;
+}
+
+/* The whole strip is the hit area, taller than the line it draws. */
+.zoom-bar-track {
+  position: relative;
+  width: 140px;
+  height: 100%;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.zoom-bar-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: var(--zoom-bar-color);
+  opacity: 0.4;
+}
+
+.zoom-bar-thumb {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--zoom-bar-color);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: grab;
+  transition: transform 0.15s ease;
+}
+
+.zoom-bar-track:hover .zoom-bar-thumb {
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.zoom-bar.is-dragging .zoom-bar-thumb {
+  transform: translate(-50%, -50%) scale(1.2);
+  cursor: grabbing;
+}
+
+.zoom-bar.is-dragging .zoom-bar-track {
+  cursor: grabbing;
+}
