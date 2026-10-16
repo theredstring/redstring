@@ -17,7 +17,7 @@ import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
-import { summarizeSide } from '../formats/syncMerge.js';
+import { syncMerge, summarizeSide } from '../formats/syncMerge.js';
 import { planMerge, mergeOntoCanvas, bringInRemote } from './remoteMerge.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { serializeRedstring, parseRedstringBytes, bytesToTextIfSmall, isBlankBytes } from '../formats/universeBytes.js';
@@ -1775,12 +1775,15 @@ class UniverseBackend {
               // would have seeded the SHA, letting the next autosave push
               // the near-empty store over the repo without first-contact.
               if (applied !== false && storeState?._gitObservation?.universeSlug) {
-                this._recordRemoteObservation(storeState._gitObservation.universeSlug, {
-                  ...storeState._gitObservation,
+                const observation = storeState._gitObservation;
+                this._recordRemoteObservation(observation.universeSlug, {
+                  ...observation,
                   // What the store now holds = what the repository holds, so
-                  // the engine has nothing to commit until a real edit.
-                  contentHash: this._contentHashOf(useGraphStore.getState())
+                  // the engine has nothing to commit until a real edit —
+                  // unless this is a merge made at load, which it still has to push.
+                  contentHash: observation.unpushed ? null : this._contentHashOf(useGraphStore.getState())
                 });
+                if (observation.unpushed) this._flushPendingPush(observation.universeSlug);
               }
               return true;
             } catch (error) {
@@ -2296,6 +2299,8 @@ class UniverseBackend {
     // Register engine
     this.gitSyncEngines.set(universeSlug, engine);
     this._startRemoteWatch();
+    // A merge made at load (before this engine existed) waiting to be pushed.
+    setTimeout(() => this._flushPendingPush(universeSlug), 0);
 
     // Seed first-contact state from any direct provider read that happened
     // before the engine existed (loadFromGitDirect during boot). A stale SHA
@@ -2387,46 +2392,8 @@ class UniverseBackend {
               return false;
             }
 
-            // Defense-in-depth wipe guard. SaveCoordinator has its own
-            // shrinkage/load guards upstream, but this is the single point
-            // where bytes actually leave for disk — so the check lives here
-            // too. Two conditions block the save:
-            //  1. universeLoadingError is set — the boot/reload attempt
-            //     failed, the real on-disk content is unknown to us, and
-            //     writing the in-memory state risks overwriting whatever
-            //     was actually there (including the case where the user
-            //     added a node after the failed load, thinking they were
-            //     continuing from saved state).
-            //  2. hasUniverseFile=false AND state is empty — universe
-            //     never finished loading, and we'd be writing zero bytes
-            //     of content over the real file.
-            if (state?.universeLoadingError) {
-              umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe load failed (${state.universeLoadingError}). On-disk file preserved.`);
-              this.notifyStatus('warning', 'Save blocked: universe load failed. Reload or reconnect the file to recover.');
-              return { blocked: true, reason: 'universe load failed' };
-            }
-            if (state?.hasUniverseFile === false) {
-              const counts = this.analyzeStoreData(state);
-              if (counts.userNodeCount === 0) {
-                umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe never loaded (hasUniverseFile=false) and state has no user content. On-disk file preserved.`);
-                this.notifyStatus('warning', 'Save blocked: universe not loaded. Reconnect the file or reload to recover.');
-                return { blocked: true, reason: 'universe not loaded' };
-              }
-            }
-            // Symmetric empty-state guard. Even after a load completes
-            // (hasUniverseFile=true), a transient zero-node state racing the
-            // autosave dispatch can clobber a file that previously held data.
-            // If the universe has ever been saved (metadata.lastSaved is set),
-            // refuse to overwrite it with empty content — the matching
-            // GitSyncEngine.updateState guard does the same on the Git side.
-            if (this._hasSavedContent(universe)) {
-              const counts = this.analyzeStoreData(state);
-              if (counts.userNodeCount === 0) {
-                umWarn(`[UniverseBackend] Refusing local save for ${slug}: state has 0 nodes but universe has prior saves (lastSaved=${universe.metadata?.lastSaved}). On-disk file preserved.`);
-                this.notifyStatus('warning', 'Save blocked: this universe has no things but the saved file does. Reload to recover it. Emptying a universe completely is not supported yet.');
-                return { blocked: true, reason: 'empty state with prior saves' };
-              }
-            }
+            const blocked = this._localSaveBlocked(slug, universe, state);
+            if (blocked) return blocked;
 
             return this.saveToLinkedLocalFile(slug, state, {
               suppressNotification: showSuccess === false,
@@ -2434,6 +2401,24 @@ class UniverseBackend {
               // export and stringify don't run again on the main thread.
               serializedData: options?.preSerialized ? options.serializedData : null
             });
+          }
+
+          // A Git-linked universe with no local file: this browser's copy of
+          // it is the device's local copy — what a restart reads back, and
+          // where edits made offline live until they reach Git. Autosave used
+          // to skip it (the legacy single-slot store below is never read by
+          // any universe load), so a restart dropped those edits.
+          if (universe?.gitRepo?.enabled && universe?.browserStorage?.key) {
+            const blocked = this._localSaveBlocked(slug, universe, state);
+            if (blocked) return blocked;
+            try {
+              const data = options?.preSerialized && options.serializedData ? options.serializedData : exportToRedstring(state);
+              await this.saveToBrowserStorage(universe, data);
+              this._noteLocalCopySaved(slug, state);
+              return true;
+            } catch (error) {
+              return { failed: true, reason: `browser storage: ${error?.message || error}` };
+            }
           }
 
           if (typeof fileStorage?.saveToFile === 'function') {
@@ -3632,7 +3617,11 @@ class UniverseBackend {
         // A universe too large for one string can't be measured this way;
         // the write below still tells us if it doesn't fit.
         let dataSize = 0;
-        try { dataSize = JSON.stringify(redstringData).length; } catch { dataSize = 0; }
+        if (redstringData instanceof Uint8Array) dataSize = redstringData.byteLength;
+        else if (typeof redstringData === 'string') dataSize = redstringData.length;
+        else {
+          try { dataSize = JSON.stringify(redstringData).length; } catch { dataSize = 0; }
+        }
         const availableSpace = estimate.quota - estimate.usage;
 
         if (dataSize > availableSpace) {
@@ -4258,6 +4247,18 @@ class UniverseBackend {
           reads: slotReads
         });
         timing.step('check (reads + compare)', slotReads.identical ? 'slots identical' : undefined);
+        // The file and the repository differ. If this device knows which
+        // version its file grew from, merge them: the file's edits (made
+        // offline, or not pushed before the app closed) and whatever others
+        // saved. Picking one used to silently drop the other side's work.
+        if (conflict && conflict.areIdentical !== true) {
+          const merged = await this._mergeLocalCopyOnLoad(universe, conflict.localData?.storeState, conflict.gitData?.storeState);
+          if (merged) {
+            this.pendingConflict = null;
+            this.pendingPrimarySelection.delete(universe.slug);
+            return this.syncAndReturn(universe, merged, { force: true, source: SOURCE_OF_TRUTH.GIT, allowPermissionPrompt });
+          }
+        }
         if (conflict) {
           // Auto-resolve when source of truth is defined AND has data.
           // Only show conflict dialog when:
@@ -4508,6 +4509,19 @@ class UniverseBackend {
         // (a repository with one commit has nothing to offer).
         if (isEffectivelyEmpty(gitRes.data)) {
           await this._offerRestoreIfHistoryHasData(universe);
+        }
+
+        // No local file: this browser's copy is the device's local copy, and
+        // may hold edits that never reached the repository (offline, or the
+        // app closed first). Merge them in rather than mirroring Git over it.
+        if (!hasLocal) {
+          const browserRes = resultsMap.get(SOURCE_OF_TRUTH.BROWSER);
+          const merged = browserRes?.data
+            ? await this._mergeLocalCopyOnLoad(universe, browserRes.data, gitRes.data)
+            : null;
+          if (merged) {
+            return syncTimed(merged, { force: true, source: SOURCE_OF_TRUTH.GIT, allowPermissionPrompt });
+          }
         }
 
         return syncTimed(gitRes.data, {
@@ -4901,6 +4915,119 @@ class UniverseBackend {
    *
    * @returns {Promise<{decision: 'overwrite'|'conflict', remoteState: Object|null}>}
    */
+  /**
+   * At load: this device's saved copy (`localState`) and the repository's
+   * (`gitState`) differ. Merge them, with the version the saved copy grew from
+   * as the base. Returns the merged state (tagged so applying it records the
+   * repository version, and queued to push), or null to fall back to the old
+   * decision — no known base, the copies already agree, the base can't be
+   * read, or the merge refuses (a mass deletion).
+   */
+  async _mergeLocalCopyOnLoad(universe, localState, gitState) {
+    if (!this._syncMergeEnabled() || !localState?.graphs || !gitState?.graphs) return null;
+    const slug = universe.slug;
+    const gitSha = gitState._gitObservation?.sha;
+    const baseSha = GitSyncEngine.readPersistedSyncBase(slug);
+    if (typeof gitSha !== 'string' || !gitSha || !baseSha) return null;
+    try {
+      if (await slotsHaveEqualKnowledge(localState, gitState)) return null;
+    } catch (_) { /* compare below */ }
+
+    let baseState;
+    try {
+      if (baseSha === gitSha) {
+        baseState = gitState; // only this device moved since: its copy is the merge
+      } else {
+        const provider = await this.createProviderForUniverse(universe);
+        const { sanitizeGitFileBaseName } = await import('./gitSyncEngine.js');
+        const folder = universe.gitRepo?.universeFolder || slug;
+        const fileName = universe.gitRepo?.universeFile || `${slug}.redstring`;
+        const path = `universes/${folder}/${sanitizeGitFileBaseName(fileName)}.redstring`;
+        if (typeof provider?.readFileAtSha !== 'function') return null;
+        baseState = importFromRedstring(JSON.parse(await provider.readFileAtSha(path, baseSha))).storeState;
+      }
+    } catch (error) {
+      umWarn(`Could not read the version this device last synced (${baseSha.slice(0, 8)}); not merging at load:`, error?.message || error);
+      return null;
+    }
+
+    const { merged, report, safe, reason } = syncMerge(baseState, localState, gitState);
+    if (!safe) {
+      umWarn(`Not merging at load: ${reason}`);
+      return null;
+    }
+
+    const nodeCount = this.analyzeStoreData(merged).userNodeCount;
+    // Applying it records the repository version this merge is built on…
+    this._tagGitObservation(merged, slug, { sha: gitSha, nodeCount, unpushed: true });
+    // …and the merge itself still has to reach the repository.
+    this._pendingPushAfterLoad = this._pendingPushAfterLoad || new Set();
+    this._pendingPushAfterLoad.add(slug);
+    umLog(`Merged this device's copy of ${slug} with the repository at load`);
+    this._announceRemoteChanges(slug, report);
+    return merged;
+  }
+
+  /** Queue the merged-at-load state for Git once the universe's engine exists. */
+  _flushPendingPush(slug) {
+    if (!this._pendingPushAfterLoad?.has(slug) || this.activeUniverseSlug !== slug) return;
+    const engine = this.gitSyncEngines.get(slug);
+    const state = this.storeOperations?.getState?.();
+    if (!engine || !state?.graphs) return;
+    this._pendingPushAfterLoad.delete(slug);
+    try {
+      engine.updateState(state, true);
+    } catch (error) {
+      umWarn('Could not queue the merged universe for Git:', error?.message || error);
+    }
+  }
+
+  /**
+   * Defense-in-depth wipe guard for the device's local copy (file or browser
+   * storage). SaveCoordinator has its own shrinkage/load guards upstream, but
+   * this is where bytes actually leave for disk. Returns a `{ blocked }`
+   * result, or null when the save may go ahead:
+   *  1. universeLoadingError is set — the boot/reload attempt failed, the real
+   *     on-disk content is unknown, and writing the in-memory state risks
+   *     overwriting whatever was actually there.
+   *  2. hasUniverseFile=false AND the state is empty — the universe never
+   *     finished loading.
+   *  3. the universe has been saved before and the state is empty — a
+   *     transient zero-node state racing the autosave (GitSyncEngine's
+   *     updateState guard does the same on the Git side).
+   */
+  _localSaveBlocked(slug, universe, state) {
+    if (state?.universeLoadingError) {
+      umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe load failed (${state.universeLoadingError}). On-disk file preserved.`);
+      this.notifyStatus('warning', 'Save blocked: universe load failed. Reload or reconnect the file to recover.');
+      return { blocked: true, reason: 'universe load failed' };
+    }
+    if (state?.hasUniverseFile === false) {
+      const counts = this.analyzeStoreData(state);
+      if (counts.userNodeCount === 0) {
+        umWarn(`[UniverseBackend] Refusing local save for ${slug}: universe never loaded (hasUniverseFile=false) and state has no user content. On-disk file preserved.`);
+        this.notifyStatus('warning', 'Save blocked: universe not loaded. Reconnect the file or reload to recover.');
+        return { blocked: true, reason: 'universe not loaded' };
+      }
+    }
+    if (this._hasSavedContent(universe)) {
+      const counts = this.analyzeStoreData(state);
+      if (counts.userNodeCount === 0) {
+        umWarn(`[UniverseBackend] Refusing local save for ${slug}: state has 0 nodes but universe has prior saves (lastSaved=${universe.metadata?.lastSaved}). On-disk file preserved.`);
+        this.notifyStatus('warning', 'Save blocked: this universe has no things but the saved file does. Reload to recover it. Emptying a universe completely is not supported yet.');
+        return { blocked: true, reason: 'empty state with prior saves' };
+      }
+    }
+    return null;
+  }
+
+  /** The local copy now holds `state`: tell the universe's sync engine (see noteLocalCopySaved). */
+  _noteLocalCopySaved(slug, state) {
+    try {
+      this.gitSyncEngines.get(slug)?.noteLocalCopySaved?.(state);
+    } catch (_) { /* never let bookkeeping fail a save */ }
+  }
+
   /** Merging can be switched off on a device (localStorage) while it is new. */
   _syncMergeEnabled() {
     try {
@@ -5364,11 +5491,11 @@ class UniverseBackend {
    * state is actually APPLIED to the store — see the loadUniverseFromFile
    * wrapper in setupStoreOperations.
    */
-  _tagGitObservation(storeState, universeSlug, { sha, nodeCount } = {}) {
+  _tagGitObservation(storeState, universeSlug, { sha, nodeCount, unpushed = false } = {}) {
     if (!storeState || typeof storeState !== 'object') return;
     try {
       Object.defineProperty(storeState, '_gitObservation', {
-        value: { universeSlug, sha, nodeCount },
+        value: { universeSlug, sha, nodeCount, unpushed },
         enumerable: false,
         configurable: true
       });
@@ -6214,7 +6341,12 @@ class UniverseBackend {
 
       if (!result) return null;
 
-      const importResult = importFromRedstring(result.data);
+      // Autosave stores the save worker's bytes; older records hold the
+      // exported object itself.
+      let data = result.data;
+      if (data instanceof Uint8Array || data instanceof ArrayBuffer) data = await parseRedstringBytes(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+      else if (typeof data === 'string') data = JSON.parse(data);
+      const importResult = importFromRedstring(data);
       const { storeState } = importResult;
       // NO migration write-back — loading is read-only. See loadFromGitDirect.
       if (importResult.version?.migrated) {
@@ -7430,6 +7562,8 @@ class UniverseBackend {
         }
       });
     }
+
+    this._noteLocalCopySaved(universeSlug, storeState);
 
     if (!suppressNotification) {
       this.notifyStatus('success', `Saved to ${fileName}`);

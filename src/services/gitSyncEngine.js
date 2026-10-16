@@ -147,6 +147,15 @@ class GitSyncEngine {
     // device wrote it, or after a read of it was applied — and it is
     // persisted, so edits made offline still merge after a restart.
     this.syncBaseSha = null;
+    // The persisted base must never be newer than this device's local copy:
+    // if the app quits after applying someone's changes but before the local
+    // copy is saved, a merge on restart would read the local copy as having
+    // deleted them. So a version is persisted only once a local save is known
+    // to hold it (or something newer): `_localSavedHashes` are the content
+    // hashes of recent local saves, `_pendingBases` the versions waiting for
+    // one. An older persisted base is always safe — just a wider merge.
+    this._localSavedHashes = [];
+    this._pendingBases = new Map(); // contentHash → sha
     // Set by universeBackend: async ({ baseText, localJson, applyBaseJson,
     // remoteData, remoteText, remoteSha }) => null | { content,
     // apply: async () => ({ state, before })|null } — `state` is the store
@@ -208,7 +217,26 @@ class GitSyncEngine {
   }
 
   _getSyncBaseStorageKey() {
-    return `redstring-gitengine-base:${this.universeSlug}`;
+    return GitSyncEngine.syncBaseStorageKey(this.universeSlug);
+  }
+
+  static syncBaseStorageKey(universeSlug) {
+    return `redstring-gitengine-base:${universeSlug}`;
+  }
+
+  /**
+   * The persisted merge base for a universe, readable before its engine
+   * exists (a load at boot). The version this device's saved copy is known to
+   * hold or be newer than; see noteLocalCopySaved.
+   */
+  static readPersistedSyncBase(universeSlug) {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return null;
+      const parsed = JSON.parse(window.localStorage.getItem(GitSyncEngine.syncBaseStorageKey(universeSlug)) || 'null');
+      return typeof parsed?.sha === 'string' && parsed.sha ? parsed.sha : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   _restoreSyncBase() {
@@ -222,25 +250,58 @@ class GitSyncEngine {
   }
 
   /**
-   * Record that the store now holds remote version `sha`. Only call this when
-   * that is true: a wrong base makes a merge read this device's copy as
-   * having deleted whatever the base has and the store lacks.
+   * Record that the store now holds remote version `sha` (as a state whose
+   * content hash is `contentHash`). Only call this when that is true: a wrong
+   * base makes a merge read this device's copy as having deleted whatever the
+   * base has and the store lacks. Persisted once the local copy holds it.
    */
-  _setSyncBase(sha) {
+  _setSyncBase(sha, contentHash = null) {
     if (typeof sha !== 'string' || !sha) return;
     this.syncBaseSha = sha;
+    if (typeof contentHash !== 'string' || !contentHash) return;
+    if (this._localSavedHashes.includes(contentHash)) {
+      this._persistSyncBase(sha);
+    } else {
+      this._pendingBases.set(contentHash, sha);
+      if (this._pendingBases.size > 20) this._pendingBases.delete(this._pendingBases.keys().next().value);
+    }
+  }
+
+  _persistSyncBase(sha) {
     try {
       if (typeof window === 'undefined' || !window.localStorage) return;
       window.localStorage.setItem(this._getSyncBaseStorageKey(), JSON.stringify({ sha, ts: Date.now() }));
     } catch (_) { /* non-fatal */ }
   }
 
-  /** A write of OUR content landed: the remote is at `sha` and the store descends from it. */
-  _noteOwnWrite(result) {
+
+  /**
+   * The device's local copy (file, or browser storage) was just saved with
+   * `storeState`. Any remote version the store reached with exactly this
+   * content is now safe to remember across a restart.
+   */
+  noteLocalCopySaved(storeState) {
+    let hash;
+    try { hash = this.generateStateHash(storeState); } catch (_) { return; }
+    this._localSavedHashes.push(hash);
+    if (this._localSavedHashes.length > 20) this._localSavedHashes.shift();
+    const sha = this._pendingBases.get(hash);
+    if (sha) {
+      this._persistSyncBase(sha);
+      // Anything recorded before it is older; it can never be the better base.
+      for (const key of [...this._pendingBases.keys()]) {
+        this._pendingBases.delete(key);
+        if (key === hash) break;
+      }
+    }
+  }
+
+  /** A write of OUR content (a state hashing to `localHash`) landed. */
+  _noteOwnWrite(result, localHash = null) {
     const sha = result?.content?.sha;
     if (typeof sha === 'string' && sha) {
       this.lastKnownRemoteSha = sha;
-      this._setSyncBase(sha);
+      this._setSyncBase(sha, localHash);
     }
   }
 
@@ -928,7 +989,7 @@ class GitSyncEngine {
 
     try {
       const result = await this.provider.writeFileRaw(path, jsonString, options);
-      this._noteOwnWrite(result);
+      this._noteOwnWrite(result, localHash);
       this.remoteConflictPending = false;
       this._conflictRemoteSha = null;
       return result;
@@ -957,7 +1018,7 @@ class GitSyncEngine {
       // A genuinely empty remote file (no bytes) is safe to write over.
       if (remoteData === null && !remoteUnparseable) {
         const retry = await this.provider.writeFileRaw(path, jsonString, { expectedSha: this.lastKnownRemoteSha });
-        this._noteOwnWrite(retry);
+        this._noteOwnWrite(retry, localHash);
         this.remoteConflictPending = false;
         return retry;
       }
@@ -998,7 +1059,7 @@ class GitSyncEngine {
 
       if (decision === 'overwrite') {
         const retry = await this.provider.writeFileRaw(path, jsonString, { expectedSha: this.lastKnownRemoteSha });
-        this._noteOwnWrite(retry);
+        this._noteOwnWrite(retry, localHash);
         this.remoteConflictPending = false;
         return retry;
       }
@@ -1160,7 +1221,7 @@ class GitSyncEngine {
     // now holds this version: it is the merge base, and (given its hash) the
     // content the repository already has — nothing to commit until an edit.
     if (typeof sha === 'string' && sha) {
-      this._setSyncBase(sha);
+      this._setSyncBase(sha, contentHash);
       if (typeof contentHash === 'string' && contentHash) this.lastCommittedHash = contentHash;
     }
     const count = Number(nodeCount);
@@ -1295,7 +1356,7 @@ class GitSyncEngine {
       console.warn('[GitSyncEngine] Merged and saved, but could not show it on the canvas:', error);
     }
     if (applied?.state) {
-      this._setSyncBase(newSha);
+      this._setSyncBase(newSha, this.generateStateHash(applied.state));
       this._adoptAppliedState(applied, localHash);
     } else {
       // The repository holds the merge but the store does not. Forget the SHA
@@ -1351,7 +1412,7 @@ class GitSyncEngine {
       if (!applied?.state) return { changed: true, applied: false };
 
       this.lastKnownRemoteSha = remote.sha;
-      this._setSyncBase(remote.sha);
+      this._setSyncBase(remote.sha, this.generateStateHash(applied.state));
       this._adoptAppliedState(applied, this.lastCommittedHash);
       return { changed: true, applied: true };
     } catch (error) {
