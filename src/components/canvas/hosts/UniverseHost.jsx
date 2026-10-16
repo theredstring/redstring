@@ -58,6 +58,8 @@ function UniverseHost() {
 
   const resolveGitReconnectTarget = useCallback(async () => {
     const { default: universeBackend } = await import('../../../services/universeBackend.js');
+    // The dev-only local Git host (src/dev/devForge.js) needs no GitHub sign-in.
+    if (universeBackend.usesDevForge?.()) return null;
     const universe = universeBackend.getActiveUniverse?.();
     const linked = universe?.gitRepo?.enabled ? universe.gitRepo.linkedRepo : null;
     if (!linked) return null;

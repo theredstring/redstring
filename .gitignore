@@ -94,3 +94,6 @@ training/druid/models
 training/druid/checkpoints
 training/druid/.venv
 __pycache__/
+
+# Shared-universe harness: per-port Vite caches
+.vite-harness/

@@ -86,6 +86,10 @@ const REMOTE_WATCH_INTERVAL_MS = 30000;
  * storage, so two ports are two devices sharing one repository. Never active
  * in a build: Vite replaces import.meta.env.DEV with false.
  */
+export function usesDevForge() {
+  return !!devForgeConfig();
+}
+
 function devForgeConfig() {
   try {
     if (!import.meta.env?.DEV || typeof window === 'undefined') return null;
@@ -5067,6 +5071,11 @@ class UniverseBackend {
     } catch (_) { /* never let bookkeeping fail a save */ }
   }
 
+  /** Is this (dev) origin sending Git traffic to the local fake host? See devForgeConfig. */
+  usesDevForge() {
+    return !!devForgeConfig();
+  }
+
   /** Merging can be switched off on a device (localStorage) while it is new. */
   _syncMergeEnabled() {
     try {
@@ -5149,7 +5158,14 @@ class UniverseBackend {
     const clashes = report.conflicts.filter((c) => c.banked).length;
     const clashNote = clashes ? ` ${plural(clashes, 'edit')} of yours overlapped; theirs kept, yours saved aside.` : '';
 
-    const say = (who) => this.notifyStatus('info', `${who} updated ${parts.join(' and ')}.${clashNote}`);
+    const say = (who) => {
+      const message = `${who} updated ${parts.join(' and ')}.${clashNote}`;
+      this.notifyStatus('info', message);
+      // Shown briefly where the save status sits (SaveStatusDisplay).
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('redstring:remote-changes', { detail: { universeSlug, message } }));
+      }
+    };
     const engine = this.gitSyncEngines.get(universeSlug);
     const provider = engine?.provider;
     if (!provider || typeof provider.listFileHistory !== 'function') {

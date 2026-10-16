@@ -87,6 +87,14 @@ const mountApp = () => {
   )
 }
 
+function wantsDevForge() {
+  try {
+    return /[?&]devForge=/.test(window.location.search) || !!window.localStorage.getItem('redstring:dev-forge')
+  } catch {
+    return false
+  }
+}
+
 if ((import.meta.env.DEV || import.meta.env.MODE === 'profile') && window.__REDSTRING_FIXTURE_MODE__) {
   // Fixture mode (dev server and the profiling build only; the perf scenarios,
   // P0.04, run on the latter): load the fixture and disable persistence before
@@ -101,6 +109,19 @@ if ((import.meta.env.DEV || import.meta.env.MODE === 'profile') && window.__REDS
       const root = document.getElementById('root')
       root.textContent = `Fixture boot failed: ${window.__fixtureError}`
       root.setAttribute('data-fixture-error', 'true')
+    })
+} else if (import.meta.env.DEV && wantsDevForge()) {
+  // Shared-universe harness (dev server only): this port is one person in a
+  // universe kept by scripts/fake-forge.mjs. See src/dev/devForge.js.
+  import('./dev/devForge.js')
+    .then((devForge) => {
+      devForge.captureDevForgeParams()
+      mountApp()
+      devForge.joinDevForgeUniverse().catch((err) => console.error('[devForge] could not open the shared universe', err))
+    })
+    .catch((err) => {
+      console.error('[devForge] failed to load', err)
+      mountApp()
     })
 } else {
   mountApp()

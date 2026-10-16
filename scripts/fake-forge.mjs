@@ -261,7 +261,7 @@ body{background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,sans-serif;ma
 
 const log = (...m) => console.log(`[fake-forge ${new Date().toISOString().slice(11, 19)}]`, ...m);
 
-const server = http.createServer(async (req, res) => {
+const handle = async (req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     if (req.method === 'OPTIONS') return send(res, 204, '');
@@ -284,6 +284,9 @@ const server = http.createServer(async (req, res) => {
     log('error', error?.message || error);
     return fail(res, 500, String(error?.message || error));
   }
-});
+};
 
-server.listen(PORT, '127.0.0.1', () => log(`listening on http://localhost:${PORT} — repositories in ${ROOT}`));
+// Both loopback addresses, so `localhost` works whichever one a client tries
+// first (Node's fetch can pick ::1). Never a non-loopback interface.
+http.createServer(handle).listen(PORT, '127.0.0.1', () => log(`listening on http://localhost:${PORT} — repositories in ${ROOT}`));
+http.createServer(handle).on('error', () => { /* no IPv6 loopback here */ }).listen(PORT, '::1');

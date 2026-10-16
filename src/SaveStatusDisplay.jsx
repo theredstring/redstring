@@ -9,6 +9,7 @@ import useGraphStore from './store/graphStore.js';
 import { useTheme } from './hooks/useTheme.js';
 import { persistentAuth } from './services/persistentAuth.js';
 import { vlog } from './utils/verboseLog.js';
+import { usesDevForge } from './services/universeBackend.js';
 
 // How long changes may sit un-written before the indicator says so even with
 // no reason reported. The normal pipeline writes ~1.5s after an edit (500ms
@@ -17,6 +18,9 @@ import { vlog } from './utils/verboseLog.js';
 // stall nobody explained. The dirty clock is held at zero during interaction
 // (see below), so a long drag never trips it.
 const STALLED_DIRTY_MS = 6000;
+
+// How long "Ana updated 4 Things" stays up after someone else's changes land.
+const REMOTE_NOTICE_MS = 6000;
 
 const SaveStatusDisplay = ({ hidden = false }) => {
   // `null` means "nothing worth saying" (mid-drag, before anything is written).
@@ -28,6 +32,26 @@ const SaveStatusDisplay = ({ hidden = false }) => {
   // with nobody signed in); anything else opens the Universes panel.
   const [ctaAction, setCtaAction] = useState(null);
   const [isVisible, setIsVisible] = useState(true);
+  // Someone else's saved changes just arrived (universeBackend._announceRemoteChanges).
+  const [remoteNotice, setRemoteNotice] = useState(null);
+
+  useEffect(() => {
+    let timer = null;
+    const onRemoteChanges = (event) => {
+      const message = event?.detail?.message;
+      if (!message) return;
+      setRemoteNotice(message);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => setRemoteNotice(null), REMOTE_NOTICE_MS);
+    };
+    window.addEventListener('redstring:remote-changes', onRemoteChanges);
+    return () => {
+      window.removeEventListener('redstring:remote-changes', onRemoteChanges);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+  // The notice gives way to anything the person has to act on.
+  const showNotice = !!remoteNotice && !isCTA && statusText !== 'Not saved';
 
   // Timestamp the coordinator first went dirty with no write in flight.
   const dirtySinceRef = useRef(0);
@@ -182,7 +206,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           // engine never starts, so "Syncing..." would never end; with only
           // OAuth it syncs on the fallback. Either way the App is missing,
           // and this is the way back to the modal after "not now".
-          needsGitAuth: hasGit && !gitAuth?.hasGitHubApp,
+          needsGitAuth: hasGit && !gitAuth?.hasGitHubApp && !usesDevForge(),
           gitAuthLabel: gitAuth?.isAuthenticated ? 'Link App' : 'Reconnect',
           isInErrorBackoff: !!engine?.isInErrorBackoff,
           isUnhealthy: engine?.isHealthy === false,
@@ -299,11 +323,11 @@ const SaveStatusDisplay = ({ hidden = false }) => {
 
         cursor: isCTA ? 'pointer' : 'default',
         textDecoration: 'none',
-        opacity: (isVisible && !hidden) ? 1 : 0,
+        opacity: ((isVisible || showNotice) && !hidden) ? 1 : 0,
         transition: 'opacity 1s ease',
-        pointerEvents: (isVisible && !hidden) ? 'auto' : 'none'
+        pointerEvents: ((isVisible || showNotice) && !hidden) ? 'auto' : 'none'
       }}
-      title={statusDetail || undefined}
+      title={showNotice ? undefined : (statusDetail || undefined)}
       onClick={handleClick}
       onMouseEnter={(e) => {
         if (!isCTA) return;
@@ -339,7 +363,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         } catch { }
       }}
     >
-      {statusText === 'Save' && (
+      {!showNotice && statusText === 'Save' && (
         // The text's outline is eight text-shadows in the canvas colour; an
         // icon takes the same outline as chained drop-shadows, 1px at a time
         // so it grows 2px all round without gaps.
@@ -355,7 +379,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           }}
         />
       )}
-      {statusText}
+      {showNotice ? remoteNotice : statusText}
     </div>
   );
 };
