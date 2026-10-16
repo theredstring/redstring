@@ -355,6 +355,22 @@ describe('two people, one universe', () => {
     expect(names(restarted.state)).toEqual(['Bird', 'Fungus', 'Soil', 'Squirrel', 'Tree']);
   });
 
+  it('a store a failed load left nearly empty is never merged in, even with a known base', async () => {
+    ana.edit((s) => { for (let i = 0; i < 12; i++) addThing(s, `t${i}`, `Thing ${i}`); });
+    await ana.save();
+    const base = ana.engine.syncBaseSha;
+    // Ana restarts; the load goes wrong and leaves one Thing. Autosave fires.
+    const collapsed = structuredClone(ana.state);
+    for (let i = 0; i < 12; i++) deleteThing(collapsed, `t${i}`);
+    deleteThing(collapsed, 'tree');
+    deleteThing(collapsed, 'bird');
+    const restarted = makeDevice(host, 'ana', { initialState: collapsed });
+    restarted.engine.syncBaseSha = base;
+    await expect(restarted.save()).rejects.toMatchObject({ code: 'REMOTE_CONFLICT' });
+    const inRepo = importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState;
+    expect(inRepo.nodePrototypes.size).toBeGreaterThanOrEqual(15);
+  });
+
   it('without a known base it still asks rather than overwriting', async () => {
     ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
     await ana.save();

@@ -422,6 +422,20 @@ describe('syncMerge: safety', () => {
     expect(syncMerge(base, ours, clone(base)).safe).toBe(true);
   });
 
+  it('refuses a collapse even in a small universe (a failed load, not an edit)', () => {
+    const base = bigBase(15);
+    const ours = clone(base);
+    for (let i = 1; i < 15; i++) deleteThing(ours, `p${i}`); // one Thing left
+    expect(syncMerge(base, ours, clone(base)).safe).toBe(false);
+  });
+
+  it('refuses losing every web', () => {
+    const base = forest();
+    const ours = clone(base);
+    ours.graphs.clear();
+    expect(syncMerge(base, ours, clone(base)).safe).toBe(false);
+  });
+
   it('allows a small universe to change a lot', () => {
     const base = forest();
     const ours = clone(base);

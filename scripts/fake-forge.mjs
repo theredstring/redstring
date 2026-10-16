@@ -215,7 +215,8 @@ async function handleApi(req, res, url, user) {
       if (req.method === 'POST' && current) return fail(res, 422, `repository file already exists [path: ${filePath}]`);
       if (req.method === 'PUT') {
         if (!body.sha) return fail(res, 422, '"sha" is required for updating a file');
-        if (!current || current.sha !== body.sha) return fail(res, 409, `sha does not match [given: ${body.sha}, expected: ${current?.sha || 'none'}]`);
+        // Gitea 1.22 answers a stale SHA with 422 and this message (checked against a real instance).
+        if (!current || current.sha !== body.sha) return fail(res, 422, `sha does not match [given: ${body.sha}, expected: ${current?.sha || 'none'}]`);
       }
       const { commit, sha } = commitFile(dir, head, filePath, bytes, user, body.message || `Update ${filePath}`);
       log(`${user} saved ${owner}/${repo}/${filePath} (${bytes.length} bytes) → ${sha.slice(0, 8)}`);

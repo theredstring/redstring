@@ -568,6 +568,14 @@ function massDeletion(base, side) {
   for (const id of base.nodePrototypes?.keys() || []) if (!side.nodePrototypes?.has(id)) deleted++;
   for (const id of base.graphs?.keys() || []) if (!side.graphs?.has(id)) deleted++;
   if (deleted > MASS_DELETE_MIN && deleted > total * MASS_DELETE_SHARE) return { deleted, total };
+  // A collapse, whatever the count: the shape of a store a failed load left
+  // nearly empty. Same rule as SaveCoordinator._isCatastrophicShrinkage, which
+  // not every Git commit path passes through.
+  const things = base.nodePrototypes?.size || 0;
+  const thingsLeft = side.nodePrototypes?.size || 0;
+  const collapsedThings = things >= 5 && thingsLeft <= Math.max(2, Math.floor(things * 0.1));
+  const lostEveryWeb = (base.graphs?.size || 0) >= 1 && (side.graphs?.size || 0) === 0;
+  if (deleted > 0 && (collapsedThings || lostEveryWeb)) return { deleted, total };
   // Everything gone is a wipe however small the universe (emptying a universe
   // completely is refused everywhere else too).
   if (deleted > 0 && deleted === total) return { deleted, total };
