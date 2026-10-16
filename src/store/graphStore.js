@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import useCanvasUIStore from './canvasUIStore.js';
+import useCanvasUIStore, { setGroupAnchorLookup } from './canvasUIStore.js';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches, current, isDraft } from 'immer';
 import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity, LIFTED_THING_SHADOW_MODES, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 
@@ -52,6 +52,7 @@ import {
   anchorIdFromOpenGroupId,
   openGroupId,
   initialOpenOffset,
+  projectGraphView,
 } from '../core/openDefinitions.js';
 import { rightPanelTabKey } from '../utils/rightPanelTabs.js';
 import useHistoryStore from './historyStore.js';
@@ -9885,6 +9886,20 @@ export const getNodeTypesInHierarchy = (nodeId) => (state) => {
 
 // Export the store hook
 export default useGraphStore;
+
+// Which selected ids are node-group anchors, in the web as drawn (an open box's
+// node is an anchor only in the view). See setGroupAnchorLookup.
+setGroupAnchorLookup((ids) => {
+  const state = useGraphStore.getState();
+  const instances = projectGraphView(state, state.activeGraphId)?.instances;
+  const anchors = new Map();
+  if (!instances) return anchors;
+  for (const id of ids) {
+    const inst = instances.get(id);
+    if (inst?.isGroupAnchor && inst.anchorForGroupId) anchors.set(id, inst.anchorForGroupId);
+  }
+  return anchors;
+});
 
 // ===========================================================================
 // HMR state preservation

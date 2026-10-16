@@ -30,6 +30,7 @@ Key code paths this category maps to: `src/store/graphStore.js`, `src/store/canv
 
 | File | Summary | Note |
 |------|---------|------|
+| [SHARED_UNIVERSE_SYNC.md](../documentation/core-system/SHARED_UNIVERSE_SYNC.md) | Shared-universe collaboration over Git: a three-way semantic merge through the provider interface, no Redstring servers, plus the full list of what's needed | **Not implemented** — decided 2026-10-16; the §1 safety fixes (Gitea write check) apply today |
 | [docs/COLLABORATION_PLAN.md](../docs/COLLABORATION_PLAN.md) | "One Graph, many Webs" model — a reversible fold/hydrate membrane between personal and shared graph representations | **Not implemented** — design decisions recorded; no code exists yet |
 
 ## Supplementary (not .md)

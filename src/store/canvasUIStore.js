@@ -383,6 +383,46 @@ export function setPieCommandHandler(handler) {
   };
 }
 
+// ─── Group anchors in the selection ─────────────────────────────────────────
+// A node-group's anchor instance is drawn as the group's title tab, never as a
+// node. Anything that selects instance ids from outside the canvas (the type
+// list, the wizard) can still name one, and a selected anchor got a
+// node pie and the full Thing drawn at the tab's corner. The selection setter
+// and dispatchPie swap a lone anchor for its group (what clicking the title does) and drops anchors
+// from a multi-selection. graphStore registers the lookup, since this store
+// must not import it.
+let groupAnchorLookup = null;
+
+/**
+ * @param {((ids: Set<string>) => Map<string, string>)|null} lookup - anchor id → group id, for the ids that are anchors
+ * @returns {() => void} unregister (only if this lookup is still current)
+ */
+export function setGroupAnchorLookup(lookup) {
+  groupAnchorLookup = lookup;
+  return () => {
+    if (groupAnchorLookup === lookup) groupAnchorLookup = null;
+  };
+}
+
+/**
+ * `ids` without anchors. A lone anchor selects its group instead, as clicking
+ * the title does (and like that click, clears the connection selection).
+ */
+function withoutGroupAnchors(ids, set, get) {
+  const anchors = ids.size > 0 && groupAnchorLookup ? groupAnchorLookup(ids) : null;
+  if (!anchors?.size) return ids;
+  if (ids.size === 1) {
+    set({
+      ...edgeSelectionCleared(get()),
+      selectedGroupId: anchors.values().next().value,
+      groupControlPanelShouldShow: true,
+      nodeControlPanelShouldShow: false,
+      nodeControlPanelVisible: false,
+    });
+  }
+  return new Set([...ids].filter((id) => !anchors.has(id)));
+}
+
 /** Test helper: clear every pending timer, the queue and the handler. */
 export function resetPieRunner() {
   for (const id of pieKeyedTimers.values()) clearTimeout(id);
@@ -440,7 +480,7 @@ const useCanvasUIStore = create((set, get) => ({
   // rule in the same write (P5.02b step 6; it was a NodeCanvas effect).
   setSelectedInstanceIds: (valueOrUpdater) => {
     const prev = get().selectedInstanceIds;
-    const next = toSet(resolveNext(valueOrUpdater, prev));
+    const next = withoutGroupAnchors(toSet(resolveNext(valueOrUpdater, prev)), set, get);
     if (setsEqual(prev, next)) return;
     get().dispatchPie({ type: 'SELECTION_CHANGED', ids: next });
   },
@@ -509,6 +549,14 @@ const useCanvasUIStore = create((set, get) => ({
    * @returns {{ patch: object, commands: object[] }} what was applied, for tests and tracing
    */
   dispatchPie: (event, env) => {
+    // A direct target write (the wizard's select, the context menu) skips the
+    // setter above, so anchors are swapped for their group here too.
+    if (event?.type === 'PIE_TARGET' && event.selection !== undefined) {
+      const asked = toSet(event.selection);
+      const selection = withoutGroupAnchors(asked, set, get);
+      const droppedTarget = asked.has(event.id) && !selection.has(event.id);
+      event = { ...event, selection, id: droppedTarget ? null : event.id };
+    }
     const result = reducePie(get(), event, env);
     // Selecting Things deselects connections, in the same write (edgeSelectionCleared).
     const patch = result.patch.selectedInstanceIds?.size > 0

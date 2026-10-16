@@ -76,13 +76,15 @@ function NodeLayer({
   const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIds.has(n.id));
   const thingGroupMemberNodes = allOtherNodes.filter(n => thingGroupMemberIds.has(n.id));
 
-  const activeNodeToRender = nodeIdToKeepActiveForStacking
-    ? nodes.find(n => n.id === nodeIdToKeepActiveForStacking)
-    : null;
-
-  const draggingNodeToRender = draggingNodeId
-    ? nodes.find(n => n.id === draggingNodeId)
-    : null;
+  // A node-group's anchor is drawn as its title tab, never as a node — the same
+  // rule as the filter above. Selecting or targeting it from elsewhere (a
+  // panel, search, a connection) must not pop the full Thing up at the tab.
+  const findDrawable = (id) => {
+    const n = id ? nodes.find(node => node.id === id) : null;
+    return n && !n.isGroupAnchor ? n : null;
+  };
+  const activeNodeToRender = findDrawable(nodeIdToKeepActiveForStacking);
+  const draggingNodeToRender = findDrawable(draggingNodeId);
 
 
   // Helper to render a Node component with all its props (avoids duplication)

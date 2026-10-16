@@ -3,7 +3,8 @@
  * startHurtleAnimation). NodeCanvas passes the render values it used as `ctx`.
  */
 import { NODE_DEFAULT_COLOR } from '../../../constants';
-import useGraphStore, { getHydratedNodesForGraph } from '../../../store/graphStore.js';
+import useGraphStore from '../../../store/graphStore.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../utils.js';
 
 export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraphId = null, ctx) {
@@ -16,8 +17,11 @@ export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraph
   // If a sourceGraphId is provided, look for the node there. Otherwise, use the current active graph.
   const graphIdToFindNodeIn = sourceGraphId || currentState.activeGraphId;
 
-  const nodesInSourceGraph = getHydratedNodesForGraph(graphIdToFindNodeIn)(currentState);
-  const nodeData = nodesInSourceGraph.find(n => n.id === nodeId);
+  // The graph as drawn: a node inside an open node group lives in that group's
+  // definition, not the viewed graph, so the raw instances would miss it.
+  const instance = projectGraphView(currentState, graphIdToFindNodeIn)?.instances?.get(nodeId);
+  const prototype = instance ? currentState.nodePrototypes.get(instance.prototypeId) : null;
+  const nodeData = prototype ? { ...prototype, ...instance } : null;
 
   if (!nodeData) {
 

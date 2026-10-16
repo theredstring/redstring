@@ -776,7 +776,19 @@ function computeGroupLayoutInner(group, context) {
   // folded by the dedicated pass after the loop.
   const foldedChildIds = new Set();
 
+  // A nested node-group's anchor is one of our members, but it is drawn as that
+  // child's title tab, which the child's folded shell already covers. Measured
+  // as a node instead, it projects the Thing's full footprint (image and all)
+  // from the tab's corner, and the parent grew hundreds of units of empty room
+  // to the right of and below the child.
+  const childAnchorIds = new Set();
+  for (const childId of childGroupIds) {
+    const child = groupsById?.get(childId);
+    if (child?.linkedNodePrototypeId && child.anchorInstanceId) childAnchorIds.add(child.anchorInstanceId);
+  }
+
   for (const memberId of memberIds) {
+    if (childAnchorIds.has(memberId)) continue;
     const node = nodesById.get(memberId);
     if (!node) {
       droppedOrphanIds.push(memberId);
