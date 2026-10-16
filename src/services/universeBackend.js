@@ -79,6 +79,23 @@ const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = con
 /** How often the active universe's repository is checked for others' saves. */
 const REMOTE_WATCH_INTERVAL_MS = 30000;
 
+/**
+ * Development only: send every Git-linked universe on this origin to a local
+ * Gitea-compatible host instead of GitHub (scripts/fake-forge.mjs, set up by
+ * src/dev/devForge.js). Each dev-server port is its own origin with its own
+ * storage, so two ports are two devices sharing one repository. Never active
+ * in a build: Vite replaces import.meta.env.DEV with false.
+ */
+function devForgeConfig() {
+  try {
+    if (!import.meta.env?.DEV || typeof window === 'undefined') return null;
+    const config = JSON.parse(window.localStorage.getItem('redstring:dev-forge') || 'null');
+    return config?.endpoint && config?.token ? config : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 const umLog = (...args) => { if (isVerbose()) __umNativeLog.call(console, '[UniverseBackend]', ...args); };
 const umInfo = (...args) => __umNativeLog.call(console, '[UniverseBackend]', ...args);
 const umWarn = (...args) => __umNativeWarn.call(console, '[UniverseBackend]', ...args);
@@ -1847,6 +1864,20 @@ class UniverseBackend {
             const currentNodeCount = countUserPrototypes(currentState);
             const currentGraphCount = currentState?.graphs ? (currentState.graphs instanceof Map ? currentState.graphs.size : Object.keys(currentState.graphs).length) : 0;
 
+            // Already open and synced: bring in only what others changed,
+            // merged with whatever was edited here. Reloading would replace
+            // the store wholesale, dropping edits that haven't saved yet.
+            const engine = this.gitSyncEngines.get(activeUniverse.slug);
+            const openAndSynced = currentState?._universeSlug === activeUniverse.slug
+              && currentState?.isUniverseLoaded && !currentState?.universeLoadingError
+              && currentNodeCount > 0
+              && typeof engine?.checkRemote === 'function' && engine.syncBaseSha;
+            if (openAndSynced && this._syncMergeEnabled()) {
+              const result = await this.checkForRemoteChanges('auth');
+              umLog('[UniverseBackend] Auth connected; checked Git for others\' changes instead of reloading', result);
+              return;
+            }
+
             /*
              * `allowPermissionPrompt: false`, and it matters for two reasons.
              *
@@ -2474,6 +2505,14 @@ class UniverseBackend {
 
     if (!user || !repo) {
       throw new Error('Invalid repository configuration');
+    }
+
+    const forge = devForgeConfig();
+    if (forge) {
+      return SemanticProviderFactory.createProvider({
+        type: 'gitea', endpoint: forge.endpoint, user, repo, token: forge.token,
+        semanticPath: universe.gitRepo.schemaPath || 'schema'
+      });
     }
 
     // Get authentication with better error handling
@@ -5857,7 +5896,11 @@ class UniverseBackend {
       // Prefer GitHub App installation token when available; fall back to OAuth
       let token;
       let authMethod = 'oauth';
-      try {
+      const forge = devForgeConfig();
+      if (forge) {
+        token = forge.token;
+        authMethod = 'gitea';
+      } else try {
         const app = persistentAuth.getAppInstallation?.();
         if (app?.installationId) {
           if (usesDeviceFlowAuth()) {
@@ -5915,7 +5958,8 @@ class UniverseBackend {
       }
 
       let provider = SemanticProviderFactory.createProvider({
-        type: 'github',
+        type: forge ? 'gitea' : 'github',
+        ...(forge ? { endpoint: forge.endpoint } : {}),
         user,
         repo,
         token,
