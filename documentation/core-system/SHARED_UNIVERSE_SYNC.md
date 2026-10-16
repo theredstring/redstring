@@ -123,7 +123,7 @@ Made as defaults on 2026-10-16, each easy to change:
 - **The batch commit path** (`GitAutosavePolicy` → `forceCommit`) still skips SaveCoordinator's shrinkage guard for ordinary (non-merge) writes. Merges have their own guard; plain writes rely on the engine's zero-floor.
 - **Two people reorganising the same web** merge cleanly but can pile both layouts together. The notice and undo are the current answer.
 - **Two tabs of one origin on one universe** share the browser copy and its record. There is no tab lock anywhere in the app; the merge doesn't make this worse in the browser copy (record and content are written together), but two tabs editing the same local file can still pair one tab's file with the other's record in a narrow window.
-- **The connection-names toggle, saved sets and connection types** aren't in the engine's change fingerprint (`generateStateHash`), so a change to only those doesn't trigger a commit on its own (older behaviour, unchanged).
+- **Saved sets, connection types and duplicate-pair rulings** aren't in the engine's change fingerprint (`generateStateHash`), so a change to only those doesn't trigger a commit on its own (older behaviour, unchanged).
 
 ## Not part of this
 
