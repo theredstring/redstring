@@ -82,7 +82,7 @@ function makeDevice(host, author, { initialState = null } = {}) {
   };
 
   engine.onMergeRemote = async (input) => {
-    const plan = planMerge(input);
+    const plan = await planMerge(input);
     if (!plan.ok) {
       device.notices.push(plan.reason);
       return null;
@@ -369,6 +369,63 @@ describe('two people, one universe', () => {
     await expect(restarted.save()).rejects.toMatchObject({ code: 'REMOTE_CONFLICT' });
     const inRepo = importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState;
     expect(inRepo.nodePrototypes.size).toBeGreaterThanOrEqual(15);
+  });
+
+  it('a new session whose store did not come from this device\'s copy asks instead of merging', async () => {
+    // Review finding: a base restored from storage used to be trusted at first
+    // contact, so a store holding something else (a fresh universe, a fallback
+    // copy) merged as if it had deleted everything it lacks.
+    ana.edit((s) => { for (let i = 0; i < 12; i++) addThing(s, `t${i}`, `Thing ${i}`); });
+    await ana.save();
+    const elsewhere = forest();
+    deleteThing(elsewhere, 'soil');
+    addThing(elsewhere, 'x', 'X');
+    const restarted = makeDevice(host, 'ana', { initialState: elsewhere }); // no adoptBase: lineage unknown
+    expect(restarted.engine.syncBaseSha).toBeNull();
+    await expect(restarted.save()).rejects.toMatchObject({ code: 'REMOTE_CONFLICT' });
+    const inRepo = importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState;
+    expect(inRepo.nodePrototypes.size).toBe(15);
+  });
+
+  it('a state captured before others\' changes arrived is never committed over them', async () => {
+    // Review finding: a save in flight when a remote apply landed pushed its
+    // older snapshot, reverting the apply in the repository.
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    const captured = ana.state;
+    ana.engine.stampState(captured); // SaveCoordinator saw it, a save began
+    ben.edit((s) => addThing(s, 'squirrel', 'Squirrel'));
+    await ben.save();
+    // The watch brings Ben's change in while Ana's save is still running.
+    ana.engine.hasChanges = false;
+    expect(await ana.engine.checkRemote()).toMatchObject({ applied: true });
+    // The old snapshot reaches the engine afterwards: dropped.
+    ana.engine.lastCommitTime = 0;
+    expect(await ana.engine.forceCommit(captured)).toBe(false);
+    const inRepo = names(importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState);
+    expect(inRepo).toContain('Squirrel');
+    // The canvas kept Fungus, and its next save sends both.
+    expect(names(ana.state)).toEqual(['Bird', 'Fungus', 'Soil', 'Squirrel', 'Tree']);
+    expect(await ana.save()).toBe(true);
+    expect(names(importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState)).toEqual(['Bird', 'Fungus', 'Soil', 'Squirrel', 'Tree']);
+  });
+
+  it('a version read but never applied is merged, not overwritten', async () => {
+    // Review finding: reads set the compare-and-swap token even when discarded,
+    // so the next commit asserted it and overwrote that version's changes.
+    ben.edit((s) => addThing(s, 'squirrel', 'Squirrel'));
+    await ben.save();
+    const remote = await ana.provider.readFileRawWithMeta(PATH);
+    ana.engine.lastKnownRemoteSha = remote.sha; // read, then thrown away
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    await ana.save();
+    expect(names(importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState)).toEqual(['Bird', 'Fungus', 'Soil', 'Squirrel', 'Tree']);
+  });
+
+  it('a recorded base for a state follows what the state grew from', () => {
+    const before = ana.state;
+    ana.engine.stampState(before);
+    expect(ana.engine.baseForState(before)).toBe(ana.engine.syncBaseSha);
+    expect(ana.engine.baseForState({ graphs: new Map() })).toBeNull();
   });
 
   it('without a known base it still asks rather than overwriting', async () => {

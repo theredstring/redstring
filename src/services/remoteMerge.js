@@ -9,7 +9,29 @@
  */
 import { exportToRedstring, importFromRedstring } from '../formats/redstringFormat.js';
 import { serializeRedstring } from '../formats/universeBytes.js';
-import { syncMerge } from '../formats/syncMerge.js';
+import { syncMerge, rememberInlineImageRef, knowsInlineImageRef } from '../formats/syncMerge.js';
+import { computeImageRef, isDataUrl } from '../formats/imageRefs.js';
+
+/**
+ * Learn the content ref of every inline image in these states, so the merge
+ * can tell an inline picture from the same picture held as a ref (see
+ * syncMerge's Images). Hashing is async, the merge is not, so this runs first.
+ * An image that can't be hashed just compares as itself.
+ */
+export async function primeImageRefs(...states) {
+  for (const state of states) {
+    const prototypes = state?.nodePrototypes;
+    if (!(prototypes instanceof Map)) continue;
+    for (const proto of prototypes.values()) {
+      const src = proto?.imageSrc;
+      if (!isDataUrl(src) || knowsInlineImageRef(src)) continue;
+      try {
+        const computed = await computeImageRef(src);
+        if (computed?.ref) rememberInlineImageRef(src, computed.ref);
+      } catch (_) { /* compares as itself */ }
+    }
+  }
+}
 
 const read = (data) => importFromRedstring(typeof data === 'string' ? JSON.parse(data) : data).storeState;
 
@@ -23,7 +45,7 @@ const read = (data) => importFromRedstring(typeof data === 'string' ? JSON.parse
  * @returns {{ ok: true, content: string, merged: Object, report: Object, applyBase: Object }
  *         | { ok: false, reason: string, report?: Object }}
  */
-export function planMerge({ baseText, localJson, applyBaseJson, remoteData }) {
+export async function planMerge({ baseText, localJson, applyBaseJson, remoteData }) {
   let base, ours, theirs;
   try {
     base = read(baseText);
@@ -33,6 +55,7 @@ export function planMerge({ baseText, localJson, applyBaseJson, remoteData }) {
     return { ok: false, reason: `A version could not be read (${error?.message || error})` };
   }
 
+  await primeImageRefs(base, ours, theirs);
   const { merged, report, safe, reason } = syncMerge(base, ours, theirs);
   if (!safe) return { ok: false, reason, report };
 
@@ -44,7 +67,8 @@ export function planMerge({ baseText, localJson, applyBaseJson, remoteData }) {
 /**
  * The canvas may have moved on since the commit a merge started from, so
  * applying it is itself a three-way merge: what the canvas built on → what
- * it holds now → the merge. Edits made while the merge ran win.
+ * it holds now → the merge. Edits made while the merge ran win. Prime the
+ * live state's images first (primeImageRefs).
  *
  * @returns {Object} the store state to apply
  */
@@ -56,7 +80,7 @@ export function mergeOntoCanvas(applyBase, live, merged) {
  * @param {Object} input
  * @param {string} input.baseText - the version the canvas grew from
  * @param {Object} input.remoteData - the repository's file now, parsed
- * @param {Object} live - the store state on the canvas
+ * @param {Object} live - the store state on the canvas (images primed: primeImageRefs)
  * @returns {{ ok: true, merged: Object, report: Object } | { ok: false, reason: string }}
  */
 export function bringInRemote({ baseText, remoteData }, live) {

@@ -45,7 +45,7 @@ function makeDevice(repo, author, initialState = null) {
   Object.assign(device, { provider, engine });
   const apply = (doc) => { device.state = { ...device.state, ...doc }; };
   engine.onMergeRemote = async (input) => {
-    const plan = planMerge(input);
+    const plan = await planMerge(input);
     if (!plan.ok) return null;
     return { content: plan.content, apply: async () => { const before = device.state; apply(mergeOntoCanvas(plan.applyBase, before, plan.merged)); return { state: device.state, before }; } };
   };
@@ -133,7 +133,8 @@ const sameDocument = (a, b) => {
 };
 
 
-describe('shared universe over HTTP (fake forge, Gitea API)', () => {
+// Every save spawns a few git processes; under a full parallel run that is slow.
+describe('shared universe over HTTP (fake forge, Gitea API)', { timeout: 30000 }, () => {
   it('two people edit, the second save merges, the first pulls it in, nobody echoes', async () => {
     const repo = `forest${++repoCounter}`;
     const ana = makeDevice(repo, 'ana', forest());

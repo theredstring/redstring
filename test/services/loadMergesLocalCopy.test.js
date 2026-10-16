@@ -7,7 +7,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { universeBackend } from '../../src/services/universeBackend.js';
-import { GitSyncEngine } from '../../src/services/gitSyncEngine.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 
 const UniverseBackend = Object.getPrototypeOf(universeBackend).constructor;
@@ -52,14 +51,15 @@ function makeBackend(universe, { local, git, browser, baseDoc }) {
   backend.secondarySyncTimestamps = new Map();
   backend.gitSyncEngines = new Map();
   backend.notifyStatus = vi.fn();
-  backend.loadFromLocalFile = vi.fn(async () => local?.());
+  const tagged = (state) => { if (state) backend._tagLocalCopyBase(state, copyBase); return state; };
+  backend.loadFromLocalFile = vi.fn(async () => tagged(local?.()));
   backend.loadFromGit = vi.fn(async () => {
     const state = git();
     backend._tagGitObservation(state, universe.slug, { sha: 'sha-remote', nodeCount: state.nodePrototypes.size });
     return state;
   });
   backend.loadFromGitDirect = vi.fn(async () => null);
-  backend.loadFromBrowserStorage = vi.fn(async () => browser?.());
+  backend.loadFromBrowserStorage = vi.fn(async () => tagged(browser?.()));
   backend.syncSecondaryStorage = vi.fn(async () => {});
   backend.saveToLinkedLocalFile = vi.fn(async () => {});
   backend.createProviderForUniverse = vi.fn(async () => ({
@@ -72,9 +72,12 @@ function makeBackend(universe, { local, git, browser, baseDoc }) {
   return backend;
 }
 
-const setBase = (slug, sha) => window.localStorage.setItem(GitSyncEngine.syncBaseStorageKey(slug), JSON.stringify({ sha }));
+// The base this device's copy grew from, as its own record names it (a local
+// file's record, or the browser copy's): the load functions tag it on.
+let copyBase = null;
+const setBase = (slug, sha) => { copyBase = sha; };
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => { window.localStorage.clear(); copyBase = null; });
 
 describe('load: a universe linked to a file and a repository', () => {
   it('merges the file\'s offline edits with what others saved', async () => {
@@ -92,6 +95,25 @@ describe('load: a universe linked to a file and a repository', () => {
     expect(backend._pendingPushAfterLoad.has(BOTH.slug)).toBe(true);
     // Both copies get the merge.
     expect(backend.syncSecondaryStorage).toHaveBeenCalledWith(BOTH, result, expect.objectContaining({ source: 'git' }));
+  });
+
+  it('copies written from the merge record the version it was built on (so a second load can merge again)', async () => {
+    // Found in the browser harness: the universe loads twice on open (boot,
+    // then a reload or auth event). The first load merged and wrote the merge
+    // to the device's copies without a base, so the second couldn't merge and
+    // mirrored the repository over the offline edits.
+    setBase(BOTH.slug, 'sha-base');
+    const backend = makeBackend(BOTH, {
+      local: () => buildState(['cat', 'dog', 'fox']),
+      git: () => buildState(['cat', 'dog', 'owl']),
+      baseDoc: buildDoc(['cat', 'dog'])
+    });
+    const result = await backend._loadUniverseDataInner(BOTH, { allowPermissionPrompt: false });
+    expect(backend._baseForSavedState(BOTH.slug, result)).toBe('sha-remote');
+    // A copy read with no record names no base, whatever the engine thinks.
+    const untagged = buildState(['cat']);
+    backend._tagLocalCopyBase(untagged, null);
+    expect(backend._baseForSavedState(BOTH.slug, untagged)).toBeNull();
   });
 
   it('honours deletions made offline', async () => {
@@ -153,6 +175,20 @@ describe('load: a Git-only universe (browser copy is the local copy)', () => {
     const result = await backend._loadUniverseDataInner(GIT_ONLY, { allowPermissionPrompt: false });
     expect(names(result)).toEqual(['cat', 'fox', 'owl']);
     expect(backend._pendingPushAfterLoad.has(GIT_ONLY.slug)).toBe(true);
+  });
+
+  it('a browser copy that can\'t be merged is kept as a backup before Git replaces it', async () => {
+    // No base: nothing says what the copy grew from, so no merge.
+    const backend = makeBackend(GIT_ONLY, {
+      browser: () => buildState(['cat', 'dog', 'fox']),
+      git: () => buildState(['cat', 'owl']),
+      baseDoc: buildDoc(['cat', 'dog'])
+    });
+    backend._backUpUnmergedBrowserCopy = vi.fn(async () => {});
+    const result = await backend._loadUniverseDataInner(GIT_ONLY, { allowPermissionPrompt: false });
+    expect(names(result)).toEqual(['cat', 'owl']);
+    expect(backend._backUpUnmergedBrowserCopy).toHaveBeenCalledTimes(1);
+    expect(names(backend._backUpUnmergedBrowserCopy.mock.calls[0][1])).toEqual(['cat', 'dog', 'fox']);
   });
 
   it('identical copies load the repository version as before', async () => {

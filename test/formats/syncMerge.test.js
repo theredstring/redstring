@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { syncMerge, deepEqual, documentChanged, summarizeSide, PERSONAL_KEYS } from '../../src/formats/syncMerge.js';
+import { syncMerge, deepEqual, documentChanged, summarizeSide, PERSONAL_KEYS, rememberInlineImageRef } from '../../src/formats/syncMerge.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 
 // ---------------------------------------------------------------------------
@@ -351,6 +351,73 @@ describe('syncMerge: webs and sets', () => {
     const theirs = clone(base);
     theirs.graphs.get('forest').groups.get('g1').semanticMetadata.lastModified = '2026-10-16';
     expect(documentChanged(base, theirs)).toBe(false);
+  });
+});
+
+describe('syncMerge: images are one unit, compared by the picture', () => {
+  // The canvas holds a picture inline; the repository holds the same picture
+  // as a ref with the inline copy cleared. Review finding: field by field,
+  // that read as an edit everywhere.
+  const INLINE = 'data:image/png;base64,AAAA';
+  const withPicture = (state, id, fields) => Object.assign(state.nodePrototypes.get(id), fields);
+
+  it('an inline picture and the same picture as a ref are no change', () => {
+    rememberInlineImageRef(INLINE, 'sha256:aaaa');
+    const base = forest();
+    withPicture(base, 'tree', { imageSrc: null, imageRef: 'sha256:aaaa', imageRefExt: 'png' });
+    const ours = clone(base);
+    withPicture(ours, 'tree', { imageSrc: INLINE, imageRef: undefined, imageRefExt: undefined });
+    expect(documentChanged(base, ours)).toBe(false);
+  });
+
+  it('a collaborator\'s delete is not undone by a picture held inline', () => {
+    rememberInlineImageRef(INLINE, 'sha256:aaaa');
+    const base = forest();
+    withPicture(base, 'tree', { imageSrc: null, imageRef: 'sha256:aaaa' });
+    const ours = clone(base);
+    withPicture(ours, 'tree', { imageSrc: INLINE });
+    const theirs = clone(base);
+    deleteThing(theirs, 'tree');
+    const { merged } = syncMerge(base, ours, theirs);
+    expect(merged.nodePrototypes.has('tree')).toBe(false);
+  });
+
+  it('a collaborator\'s new picture replaces the old one whole', () => {
+    rememberInlineImageRef(INLINE, 'sha256:aaaa');
+    const base = forest();
+    withPicture(base, 'tree', { imageSrc: null, imageRef: 'sha256:aaaa', imageRefExt: 'png' });
+    const ours = clone(base);
+    withPicture(ours, 'tree', { imageSrc: INLINE, name: 'Oak' });
+    const theirs = clone(base);
+    withPicture(theirs, 'tree', { imageSrc: null, imageRef: 'sha256:bbbb', imageRefExt: 'jpg' });
+    const tree = syncMerge(base, ours, theirs).merged.nodePrototypes.get('tree');
+    expect(tree).toMatchObject({ name: 'Oak', imageRef: 'sha256:bbbb', imageRefExt: 'jpg' });
+    expect(tree.imageSrc ?? null).toBeNull(); // never the old inline copy beside the new ref
+  });
+
+  it('a picture this device added stays inline', () => {
+    const base = forest();
+    const ours = clone(base);
+    withPicture(ours, 'bird', { imageSrc: 'data:image/png;base64,BBBB' });
+    const theirs = clone(base);
+    theirs.nodePrototypes.get('bird').name = 'Robin';
+    const bird = syncMerge(base, ours, theirs).merged.nodePrototypes.get('bird');
+    expect(bird).toMatchObject({ name: 'Robin', imageSrc: 'data:image/png;base64,BBBB' });
+  });
+});
+
+describe('syncMerge: lists of objects merge by key', () => {
+  it('equivalentClasses entries are matched by @id, not by reference', () => {
+    // Review finding: [A,B] / [A,B,C] / [A] gave [A,B,C,A].
+    const cls = (id) => ({ '@id': id, source: 'wikidata' });
+    const base = forest();
+    base.nodePrototypes.get('tree').equivalentClasses = [cls('Q1'), cls('Q2')];
+    const ours = clone(base);
+    ours.nodePrototypes.get('tree').equivalentClasses.push(cls('Q3'));
+    const theirs = clone(base);
+    theirs.nodePrototypes.get('tree').equivalentClasses = [cls('Q1')];
+    const got = syncMerge(base, ours, theirs).merged.nodePrototypes.get('tree').equivalentClasses;
+    expect(got.map((c) => c['@id'])).toEqual(['Q1', 'Q3']);
   });
 });
 

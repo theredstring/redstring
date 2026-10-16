@@ -115,6 +115,59 @@ const MASS_DELETE_MIN = 20;
 const ABSENT = Symbol('absent');
 
 // ---------------------------------------------------------------------------
+// Images
+//
+// One picture can be held two ways: inline as a data URL (the store, a local
+// file), or as a content-addressed ref with the inline copy cleared (what Git
+// holds, gitSyncEngine._externalizeImages). Compared field by field, every
+// Thing with an image would read as edited between the two — so a
+// collaborator's delete would be undone ("the edit wins"), and a replaced
+// image would end up as the old inline copy beside the new ref. So the image
+// fields are one unit, compared by what picture they show.
+
+/** The fields that together say which picture a Thing shows. */
+const IMAGE_FIELDS = new Set(['imageSrc', 'thumbnailSrc', 'imageAspectRatio', 'imageRef', 'imageRefExt']);
+
+/** data URL → its content ref, learned by remoteMerge.primeImageRefs (hashing is async). */
+const inlineImageRefs = new Map();
+const INLINE_REF_LIMIT = 512;
+
+export function rememberInlineImageRef(dataUrl, ref) {
+  if (typeof dataUrl !== 'string' || typeof ref !== 'string') return;
+  inlineImageRefs.delete(dataUrl);
+  inlineImageRefs.set(dataUrl, ref);
+  if (inlineImageRefs.size > INLINE_REF_LIMIT) inlineImageRefs.delete(inlineImageRefs.keys().next().value);
+}
+
+export const knowsInlineImageRef = (dataUrl) => inlineImageRefs.has(dataUrl);
+
+const hasImage = (o) => isPlainObject(o) && (o.imageSrc != null || o.imageRef != null);
+
+/**
+ * Which picture an entity shows: [kind, value]. An inline copy is the truth
+ * when present (replacing an image leaves the old ref beside the new data
+ * URL, and the next commit externalizes the inline one).
+ */
+function imageKey(o) {
+  if (!isPlainObject(o)) return null;
+  const src = o.imageSrc;
+  if (typeof src === 'string' && src.startsWith('data:')) {
+    const ref = inlineImageRefs.get(src);
+    return ref ? ['ref', ref] : ['inline', src];
+  }
+  if (typeof o.imageRef === 'string' && o.imageRef) return ['ref', o.imageRef];
+  if (typeof src === 'string' && src) return ['url', src];
+  return null;
+}
+
+function sameImage(a, b) {
+  const ka = imageKey(a);
+  const kb = imageKey(b);
+  if (!ka || !kb) return !ka && !kb;
+  return ka[0] === kb[0] && ka[1] === kb[1];
+}
+
+// ---------------------------------------------------------------------------
 // Equality
 
 const isPlainObject = (v) => v !== null && typeof v === 'object'
@@ -151,12 +204,16 @@ export function deepEqual(a, b) {
   // reads back with `semanticMetadata: null` where it had nothing), and that
   // upgrade is not an edit.
   const none = (v) => v === undefined || v === null;
+  // The image fields are one unit, compared by the picture they show.
+  const images = hasImage(a) || hasImage(b);
+  if (images && !sameImage(a, b)) return false;
+  const skip = (k) => NOISE_KEYS.has(k) || (images && IMAGE_FIELDS.has(k));
   for (const k of Object.keys(a)) {
-    if (NOISE_KEYS.has(k) || none(a[k])) continue;
+    if (skip(k) || none(a[k])) continue;
     if (none(b[k]) || !deepEqual(a[k], b[k])) return false;
   }
   for (const k of Object.keys(b)) {
-    if (NOISE_KEYS.has(k) || none(b[k])) continue;
+    if (skip(k) || none(b[k])) continue;
     if (none(a[k])) return false;
   }
   return true;
@@ -192,6 +249,18 @@ function mergeKeyed(b, o, t, ctx, path, kind) {
   collect(o); collect(t); collect(b);
 
   const out = asMap ? new Map() : {};
+
+  // A picture is one unit: take all its fields from the side whose picture wins.
+  let imageFrom = null;
+  if (!asMap && (hasImage(o) || hasImage(t) || hasImage(b))) {
+    imageFrom = mergeImage(b, o, t, ctx, path);
+    for (const field of IMAGE_FIELDS) {
+      const v = read(imageFrom, field);
+      if (v !== ABSENT) out[field] = v;
+      keys.delete(field);
+    }
+  }
+
   for (const key of keys) {
     const bv = read(b, key);
     const ov = read(o, key);
@@ -240,6 +309,18 @@ function mergeEntity(bv, ov, tv, ctx, path, kind, id) {
   }
   if (frame.banked.length && isPlainObject(merged)) merged = bank(merged, frame.banked);
   return merged;
+}
+
+/** Which side's picture an entity ends up with. */
+function mergeImage(b, o, t, ctx, path) {
+  if (sameImage(o, t)) return o;
+  if (sameImage(b, o)) return t;
+  if (sameImage(b, t)) return o;
+  // Both changed the picture. Not banked: a picture is megabytes.
+  const winnerIsTheirs = ctx.conflictWinner !== 'ours';
+  const frame = ctx.frames[ctx.frames.length - 1] || null;
+  ctx.report.conflicts.push({ kind: frame?.kind || 'universe', id: frame?.id ?? null, field: 'image', kept: winnerIsTheirs ? 'theirs' : 'ours', banked: false });
+  return winnerIsTheirs ? t : o;
 }
 
 function mergeValue(bv, ov, tv, ctx, path, { entityRoot = false } = {}) {
@@ -311,26 +392,47 @@ function bank(entity, banked) {
   return { ...entity, _preserved: preserved };
 }
 
+/**
+ * What makes two set members the same member. Ids are themselves; an object
+ * (an equivalentClasses entry, say) is its `@id`, or else its content — two
+ * imports of one object are never the same reference.
+ */
+function memberKey(v) {
+  if (v === null || typeof v !== 'object') return v;
+  if (typeof v['@id'] === 'string') return `@id:${v['@id']}`;
+  return `json:${stableStringify(v)}`;
+}
+
+function stableStringify(v) {
+  if (v instanceof Map) return stableStringify(Object.fromEntries(v));
+  if (v instanceof Set) return stableStringify([...v]);
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => `${JSON.stringify(k)}:${stableStringify(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
 function mergeSet(b, o, t) {
-  const out = new Set();
-  for (const v of o) if (t.has(v) || !b.has(v)) out.add(v);
-  for (const v of t) if (!b.has(v) && !out.has(v)) out.add(v);
-  return out;
+  const merged = mergeOrderedSet([...b], [...o], [...t]);
+  return new Set(merged);
 }
 
 /** Set semantics, ours' order, theirs' additions appended. */
 function mergeOrderedSet(b, o, t) {
-  const bs = new Set(b);
-  const ts = new Set(t);
+  const bs = new Set(b.map(memberKey));
+  const ts = new Set(t.map(memberKey));
   const out = [];
   const seen = new Set();
   for (const v of o) {
-    if (seen.has(v)) continue;
-    if (ts.has(v) || !bs.has(v)) { out.push(v); seen.add(v); }
+    const k = memberKey(v);
+    if (seen.has(k)) continue;
+    if (ts.has(k) || !bs.has(k)) { out.push(v); seen.add(k); }
   }
   for (const v of t) {
-    if (seen.has(v)) continue;
-    if (!bs.has(v)) { out.push(v); seen.add(v); }
+    const k = memberKey(v);
+    if (seen.has(k)) continue;
+    if (!bs.has(k)) { out.push(v); seen.add(k); }
   }
   return out;
 }

@@ -916,6 +916,9 @@ class SaveCoordinator {
    * @param {Object} [changeContext={}] - Metadata about the change: `type`, `isDragging`, `isPanning`, `isPinching`, `isAnimating`, `phase`.
    */
   onStateChange(newState, changeContext = {}) {
+    // What this state grew from, before anything can hold on to it (shared
+    // universes: GitSyncEngine.stampState).
+    try { this.gitSyncEngine?.stampState?.(newState); } catch (_) { /* never block a save */ }
     if (!this.isEnabled || !newState) {
       if (!this.isEnabled) {
         // console.log('[SaveCoordinator] State change ignored - not enabled');

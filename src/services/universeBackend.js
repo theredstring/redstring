@@ -18,7 +18,7 @@ import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
 import { syncMerge, summarizeSide } from '../formats/syncMerge.js';
-import { planMerge, mergeOntoCanvas, bringInRemote } from './remoteMerge.js';
+import { planMerge, mergeOntoCanvas, bringInRemote, primeImageRefs } from './remoteMerge.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { serializeRedstring, parseRedstringBytes, bytesToTextIfSmall, isBlankBytes } from '../formats/universeBytes.js';
 import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
@@ -1805,6 +1805,11 @@ class UniverseBackend {
                   contentHash: observation.unpushed ? null : this._contentHashOf(useGraphStore.getState())
                 });
                 if (observation.unpushed) this._flushPendingPush(observation.universeSlug);
+              } else if (applied !== false && storeState?._universeSlug) {
+                // Not a Git read: the store came from this device's copy (with
+                // the base its record names) or from nowhere known. Either way
+                // that is now the only lineage a merge may assume.
+                this._adoptStoreLineage(storeState._universeSlug, storeState._localCopyBase || null);
               }
               return true;
             } catch (error) {
@@ -1875,7 +1880,8 @@ class UniverseBackend {
             const openAndSynced = currentState?._universeSlug === activeUniverse.slug
               && currentState?.isUniverseLoaded && !currentState?.universeLoadingError
               && currentNodeCount > 0
-              && typeof engine?.checkRemote === 'function' && engine.syncBaseSha;
+              && typeof engine?.checkRemote === 'function' && engine.syncBaseSha
+              && typeof engine.lastKnownRemoteSha === 'string';
             if (openAndSynced && this._syncMergeEnabled()) {
               const result = await this.checkForRemoteChanges('auth');
               umLog('[UniverseBackend] Auth connected; checked Git for others\' changes instead of reloading', result);
@@ -2131,6 +2137,7 @@ class UniverseBackend {
         return existingEngine;
       } else {
         umLog(`[UniverseBackend] Existing engine for ${universeSlug} is unhealthy, removing`);
+        this._keepLineageOf(universeSlug, existingEngine);
         this.gitSyncEngines.delete(universeSlug);
       }
     }
@@ -2330,6 +2337,14 @@ class UniverseBackend {
     // for what a merge can't settle (documentation/core-system/SHARED_UNIVERSE_SYNC.md).
     engine.onMergeRemote = (input) => this._planRemoteMerge(universeSlug, input);
     engine.onRemoteUpdate = (input) => this._applyRemoteUpdate(universeSlug, input);
+    // Don't bring others' changes in while a local save is mid-flight.
+    engine.isLocalBusy = () => {
+      try {
+        return !!(loadGateCoordinator?.isSaving || loadGateCoordinator?.hasUnsavedChanges?.());
+      } catch (_) {
+        return false;
+      }
+    };
 
     // Register engine
     this.gitSyncEngines.set(universeSlug, engine);
@@ -2341,6 +2356,9 @@ class UniverseBackend {
     // before the engine existed (loadFromGitDirect during boot). A stale SHA
     // is safe — the write path detects divergence and pull-and-compares.
     const priorObservation = this.remoteObservations.get(universeSlug);
+    if (!priorObservation && this.storeLineage?.has(universeSlug)) {
+      engine.adoptBase(this.storeLineage.get(universeSlug));
+    }
     if (priorObservation) {
       engine.markRemoteObserved(priorObservation);
       umLog(`[UniverseBackend] Seeded engine with prior remote observation for ${universeSlug}`, {
@@ -2443,13 +2461,12 @@ class UniverseBackend {
           // where edits made offline live until they reach Git. Autosave used
           // to skip it (the legacy single-slot store below is never read by
           // any universe load), so a restart dropped those edits.
-          if (universe?.gitRepo?.enabled && universe?.browserStorage?.key) {
+          if (universe?.gitRepo?.enabled && universe?.browserStorage?.enabled && universe?.browserStorage?.key) {
             const blocked = this._localSaveBlocked(slug, universe, state);
             if (blocked) return blocked;
             try {
               const data = options?.preSerialized && options.serializedData ? options.serializedData : exportToRedstring(state);
-              await this.saveToBrowserStorage(universe, data);
-              this._noteLocalCopySaved(slug, state);
+              await this.saveToBrowserStorage(universe, data, { syncBase: this._baseForSavedState(slug, state) });
               return true;
             } catch (error) {
               return { failed: true, reason: `browser storage: ${error?.message || error}` };
@@ -2621,6 +2638,7 @@ class UniverseBackend {
   async removeGitSyncEngine(universeSlug) {
     const engine = this.gitSyncEngines.get(universeSlug);
     if (engine) {
+      this._keepLineageOf(universeSlug, engine);
       engine.stop();
       this.gitSyncEngines.delete(universeSlug);
       umLog(`[UniverseBackend] Removed Git sync engine for universe: ${universeSlug}`);
@@ -3392,7 +3410,7 @@ class UniverseBackend {
     // Save to browser storage if enabled (always try as fallback)
     if (!skipBrowser && (universe.browserStorage.enabled || results.length === 0)) {
       try {
-        await this.saveToBrowserStorage(universe, redstringData);
+        await this.saveToBrowserStorage(universe, redstringData, { syncBase: this._baseForSavedState(universe.slug, storeState) });
         results.push('browser');
       } catch (error) {
         umError('[UniverseBackend] Browser storage save failed:', error);
@@ -3640,7 +3658,7 @@ class UniverseBackend {
         const state = entry.state;
         entry.state = null;
         try {
-          await this.saveToBrowserStorage(this.getUniverse(slug) || universe, exportToRedstring(state));
+          await this.saveToBrowserStorage(this.getUniverse(slug) || universe, exportToRedstring(state), { syncBase: this._baseForSavedState(slug, state) });
         } catch (error) {
           umError('[UniverseBackend] Could not keep the universe on this device while Git is held:', error);
           this.notifyStatus('error', `${universe.name || slug} is too large for Git and could not be saved on this device: ${error.message}`);
@@ -3650,7 +3668,7 @@ class UniverseBackend {
     this._heldSaves.set(slug, entry);
   }
 
-  async saveToBrowserStorage(universe, redstringData) {
+  async saveToBrowserStorage(universe, redstringData, { syncBase = null } = {}) {
     try {
       const db = await this.openBrowserDB();
 
@@ -3687,7 +3705,11 @@ class UniverseBackend {
       store.put({
         id: universe.browserStorage.key,
         data: redstringData,
-        savedAt: Date.now()
+        savedAt: Date.now(),
+        // The remote version this copy grew from (shared universes): written in
+        // the same record so the two can never disagree. Device-local, never
+        // part of the universe file.
+        ...(syncBase ? { syncBase } : {})
       });
 
       await new Promise((resolve, reject) => {
@@ -4565,6 +4587,12 @@ class UniverseBackend {
           if (merged) {
             return syncTimed(merged, { force: true, source: SOURCE_OF_TRUTH.GIT, allowPermissionPrompt });
           }
+          // It couldn't be merged, and the repository copy is about to be
+          // mirrored over it. If it holds anything the repository doesn't,
+          // keep it as a backup first: it may be the only copy of offline work.
+          if (browserRes?.data && !isEffectivelyEmpty(browserRes.data)) {
+            await this._backUpUnmergedBrowserCopy(universe, browserRes.data, gitRes.data);
+          }
         }
 
         return syncTimed(gitRes.data, {
@@ -4918,7 +4946,7 @@ class UniverseBackend {
       } else if (shouldSync(syncState.browser)) {
         try {
           const redstringData = exportToRedstring(storeState);
-          await this.saveToBrowserStorage(universe, redstringData);
+          await this.saveToBrowserStorage(universe, redstringData, { syncBase: this._baseForSavedState(universe.slug, storeState) });
           nextState.browser = now;
           updated = true;
           umLog(`[UniverseBackend] Secondary sync: updated browser cache for ${slug}`);
@@ -4970,7 +4998,8 @@ class UniverseBackend {
     if (!this._syncMergeEnabled() || !localState?.graphs || !gitState?.graphs) return null;
     const slug = universe.slug;
     const gitSha = gitState._gitObservation?.sha;
-    const baseSha = GitSyncEngine.readPersistedSyncBase(slug);
+    // The base this very copy grew from, from its own record (see _writeFileBaseRecord).
+    const baseSha = localState._localCopyBase || null;
     if (typeof gitSha !== 'string' || !gitSha || !baseSha) return null;
     try {
       if (await slotsHaveEqualKnowledge(localState, gitState)) return null;
@@ -4994,6 +5023,7 @@ class UniverseBackend {
       return null;
     }
 
+    await primeImageRefs(baseState, localState, gitState);
     const { merged, report, safe, reason } = syncMerge(baseState, localState, gitState);
     if (!safe) {
       umWarn(`Not merging at load: ${reason}`);
@@ -5009,6 +5039,21 @@ class UniverseBackend {
     umLog(`Merged this device's copy of ${slug} with the repository at load`);
     this._announceRemoteChanges(slug, report);
     return merged;
+  }
+
+  /**
+   * A Git-only universe's browser copy differs from the repository and could
+   * not be merged at load. Before it is overwritten, keep it as a backup
+   * (History panel) and say so. Never blocks or fails the load.
+   */
+  async _backUpUnmergedBrowserCopy(universe, browserState, gitState) {
+    try {
+      if (await slotsHaveEqualKnowledge(browserState, gitState)) return;
+      await backUpNow(universe.slug, { content: serializeRedstring(exportToRedstring(browserState)) });
+      this.notifyStatus('warning', `This device had changes to ${universe.name || universe.slug} that couldn't be merged with the repository. They're kept as a backup in History.`);
+    } catch (error) {
+      umWarn('Could not back up the browser copy before loading the repository version:', error?.message || error);
+    }
   }
 
   /** Queue the merged-at-load state for Git once the universe's engine exists. */
@@ -5064,11 +5109,72 @@ class UniverseBackend {
     return null;
   }
 
-  /** The local copy now holds `state`: tell the universe's sync engine (see noteLocalCopySaved). */
-  _noteLocalCopySaved(slug, state) {
+  /**
+   * The remote version a state about to be saved locally grew from, or null
+   * when unknown (GitSyncEngine.baseForState). The live store's own state may
+   * not be stamped yet; it grew from the engine's current base.
+   */
+  _baseForSavedState(slug, state) {
     try {
-      this.gitSyncEngines.get(slug)?.noteLocalCopySaved?.(state);
+      // A state straight from a load names its own lineage: the Git version it
+      // is (or was merged onto), or the base of the copy it was read from.
+      const observed = state?._gitObservation;
+      if (observed && observed.universeSlug === slug && typeof observed.sha === 'string' && observed.sha) return observed.sha;
+      if (state && Object.prototype.hasOwnProperty.call(state, '_localCopyBase')) return state._localCopyBase || null;
+      const engine = this.gitSyncEngines.get(slug);
+      if (!engine) return null;
+      const stamped = engine.baseForState?.(state);
+      if (stamped) return stamped;
+      return state && state === this.storeOperations?.getState?.() ? (engine.syncBaseSha || null) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _fileBaseKey(slug) {
+    return `redstring-gitengine-base:${slug}:file`;
+  }
+
+  /**
+   * Beside a local file save: which remote version that file's content grew
+   * from, and its length. A file has no room for this itself (one file, no
+   * sidecars), so it lives on the device; the length is how a load tells
+   * that the file was since written by something else (another app instance,
+   * a synced folder), and then trusts no base.
+   */
+  _writeFileBaseRecord(slug, state, fileContent) {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      const sha = this._baseForSavedState(slug, state);
+      if (!sha) {
+        window.localStorage.removeItem(this._fileBaseKey(slug));
+        return;
+      }
+      const length = fileContent instanceof Uint8Array ? fileContent.length
+        : typeof fileContent === 'string' ? new TextEncoder().encode(fileContent).length : null;
+      window.localStorage.setItem(this._fileBaseKey(slug), JSON.stringify({ sha, length, ts: Date.now() }));
     } catch (_) { /* never let bookkeeping fail a save */ }
+  }
+
+  /** The base the file record names, if it describes a file of this length. */
+  _readFileBaseRecord(slug, length) {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return null;
+      const record = JSON.parse(window.localStorage.getItem(this._fileBaseKey(slug)) || 'null');
+      if (typeof record?.sha !== 'string' || !record.sha) return null;
+      if (!Number.isFinite(length) || record.length !== length) return null;
+      return record.sha;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /** Mark a state loaded from this device's own copy with the base that copy grew from. */
+  _tagLocalCopyBase(storeState, sha) {
+    if (!storeState || typeof storeState !== 'object') return;
+    try {
+      Object.defineProperty(storeState, '_localCopyBase', { value: sha || null, enumerable: false, configurable: true });
+    } catch (_) { /* non-fatal */ }
   }
 
   /** Is this (dev) origin sending Git traffic to the local fake host? See devForgeConfig. */
@@ -5096,7 +5202,7 @@ class UniverseBackend {
    */
   async _planRemoteMerge(universeSlug, input) {
     if (!this._syncMergeEnabled()) return null;
-    const plan = planMerge(input);
+    const plan = await planMerge(input);
     if (!plan.ok) {
       umWarn(`Not merging automatically: ${plan.reason}`);
       this.notifyStatus('warning', `${plan.reason}. Choose which version to keep.`);
@@ -5115,8 +5221,10 @@ class UniverseBackend {
    */
   async _applyMergedState(universeSlug, applyBase, merged, report) {
     if (this.activeUniverseSlug !== universeSlug || !this.storeOperations?.applyRemoteDocument) return null;
+    await primeImageRefs(this.storeOperations.getState());
+    // Read again after the await, then merge and apply in one go.
     const live = this.storeOperations.getState();
-    if (!live?.graphs) return null;
+    if (!live?.graphs || this.activeUniverseSlug !== universeSlug) return null;
     if (!this.storeOperations.applyRemoteDocument(mergeOntoCanvas(applyBase, live, merged))) return null;
     this._announceRemoteChanges(universeSlug, report);
     return { state: this.storeOperations.getState(), before: live };
@@ -5131,8 +5239,10 @@ class UniverseBackend {
     if (!this._syncMergeEnabled()) return null;
     if (this.activeUniverseSlug !== universeSlug || !this.storeOperations?.applyRemoteDocument) return null;
     if (this.pendingConflict) return null;
+    await primeImageRefs(this.storeOperations.getState());
+    // Read again after the await, then merge and apply in one go.
     const live = this.storeOperations.getState();
-    if (!live?.graphs) return null;
+    if (!live?.graphs || this.activeUniverseSlug !== universeSlug) return null;
 
     const result = bringInRemote(input, live);
     if (!result.ok) {
@@ -5214,6 +5324,7 @@ class UniverseBackend {
     try {
       const coordinator = loadGateCoordinator;
       if (coordinator?.isGlobalDragging || coordinator?.loadInFlight > 0) return { skipped: 'busy' };
+      if (coordinator?.isSaving || coordinator?.hasUnsavedChanges?.()) return { skipped: 'saving' };
     } catch (_) { /* ignore */ }
     if (this._isLoadInFlight?.()) return { skipped: 'busy' };
     const result = await engine.checkRemote();
@@ -5566,7 +5677,28 @@ class UniverseBackend {
     }
   }
 
+  /**
+   * An engine is going away but the store stays: the next engine for this
+   * universe starts from the base this one reached, not from the version the
+   * universe was loaded at (which would bring back things deleted since).
+   */
+  _keepLineageOf(universeSlug, engine) {
+    if (this.activeUniverseSlug !== universeSlug || !engine?.syncBaseSha) return;
+    this.remoteObservations.delete(universeSlug);
+    this.storeLineage = this.storeLineage || new Map();
+    this.storeLineage.set(universeSlug, engine.syncBaseSha);
+  }
+
+  /** The store now holds a copy grown from `base` (null: unknown). See GitSyncEngine.adoptBase. */
+  _adoptStoreLineage(universeSlug, base) {
+    this.remoteObservations.delete(universeSlug);
+    this.storeLineage = this.storeLineage || new Map();
+    this.storeLineage.set(universeSlug, base);
+    this.gitSyncEngines.get(universeSlug)?.adoptBase?.(base);
+  }
+
   _recordRemoteObservation(universeSlug, { sha, nodeCount, contentHash = null } = {}) {
+    this.storeLineage?.delete(universeSlug);
     try {
       const observation = {
         sha,
@@ -6375,6 +6507,7 @@ class UniverseBackend {
       if (importResult.version?.migrated) {
         umLog(`[UniverseBackend] Local file migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
       }
+      this._tagLocalCopyBase(storeState, this._readFileBaseRecord(slug, bytes?.length));
       return storeState;
     } catch (error) {
       umWarn('[UniverseBackend] Failed to parse local file JSON:', error);
@@ -6408,6 +6541,8 @@ class UniverseBackend {
       else if (typeof data === 'string') data = JSON.parse(data);
       const importResult = importFromRedstring(data);
       const { storeState } = importResult;
+      // The base this copy grew from, written in the same record as the copy.
+      this._tagLocalCopyBase(storeState, typeof result.syncBase === 'string' ? result.syncBase : null);
       // NO migration write-back — loading is read-only. See loadFromGitDirect.
       if (importResult.version?.migrated) {
         umLog(`[UniverseBackend] Browser-storage data migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
@@ -7623,7 +7758,7 @@ class UniverseBackend {
       });
     }
 
-    this._noteLocalCopySaved(universeSlug, storeState);
+    this._writeFileBaseRecord(universeSlug, storeState, fileContent);
 
     if (!suppressNotification) {
       this.notifyStatus('success', `Saved to ${fileName}`);

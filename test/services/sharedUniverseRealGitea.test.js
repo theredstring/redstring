@@ -31,7 +31,7 @@ function makeDevice(folder, token, initialState = null) {
   Object.assign(device, { provider, engine });
   const apply = (doc) => { device.state = { ...device.state, ...doc }; };
   engine.onMergeRemote = async (input) => {
-    const plan = planMerge(input);
+    const plan = await planMerge(input);
     if (!plan.ok) return null;
     return { content: plan.content, apply: async () => { const before = device.state; apply(mergeOntoCanvas(plan.applyBase, before, plan.merged)); return { state: device.state, before }; } };
   };
