@@ -568,6 +568,9 @@ function massDeletion(base, side) {
   for (const id of base.nodePrototypes?.keys() || []) if (!side.nodePrototypes?.has(id)) deleted++;
   for (const id of base.graphs?.keys() || []) if (!side.graphs?.has(id)) deleted++;
   if (deleted > MASS_DELETE_MIN && deleted > total * MASS_DELETE_SHARE) return { deleted, total };
+  // Everything gone is a wipe however small the universe (emptying a universe
+  // completely is refused everywhere else too).
+  if (deleted > 0 && deleted === total) return { deleted, total };
   return null;
 }
 
@@ -582,10 +585,12 @@ const DOCUMENT_KEYS = PERSISTED_STORE_KEYS.filter((k) => !PERSONAL_KEYS.includes
  * @param {Object} [options]
  * @param {'theirs'|'ours'} [options.conflictWinner='theirs'] who wins a field
  *   both sides changed to different values. The loser is banked either way.
+ * @param {boolean} [options.checkDeletions=true] refuse mass deletions. Off
+ *   only for re-applying a merge that already passed this check.
  * @returns {{ merged: Object, report: Object, safe: boolean, reason: string|null }}
  */
 export function syncMerge(base, ours, theirs, options = {}) {
-  const { conflictWinner = 'theirs' } = options;
+  const { conflictWinner = 'theirs', checkDeletions = true } = options;
   base = base || {};
   ours = ours || {};
   theirs = theirs || {};
@@ -598,8 +603,8 @@ export function syncMerge(base, ours, theirs, options = {}) {
     massDeletion: null
   };
 
-  const oursMass = massDeletion(base, ours);
-  const theirsMass = massDeletion(base, theirs);
+  const oursMass = checkDeletions ? massDeletion(base, ours) : null;
+  const theirsMass = checkDeletions ? massDeletion(base, theirs) : null;
   if (oursMass || theirsMass) {
     report.massDeletion = oursMass ? { side: 'ours', ...oursMass } : { side: 'theirs', ...theirsMass };
     const { side, deleted, total } = report.massDeletion;

@@ -17,6 +17,8 @@ import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
+import { summarizeSide } from '../formats/syncMerge.js';
+import { planMerge, mergeOntoCanvas, bringInRemote } from './remoteMerge.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { serializeRedstring, parseRedstringBytes, bytesToTextIfSmall, isBlankBytes } from '../formats/universeBytes.js';
 import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../formats/userDataCounts.js';
@@ -74,6 +76,9 @@ import {
 const { log: __umNativeLog, warn: __umNativeWarn, error: __umNativeError } = console;
 // Routine lifecycle chatter is gated (see utils/verboseLog.js); the load-timing
 // line, warnings and errors always print.
+/** How often the active universe's repository is checked for others' saves. */
+const REMOTE_WATCH_INTERVAL_MS = 30000;
+
 const umLog = (...args) => { if (isVerbose()) __umNativeLog.call(console, '[UniverseBackend]', ...args); };
 const umInfo = (...args) => __umNativeLog.call(console, '[UniverseBackend]', ...args);
 const umWarn = (...args) => __umNativeWarn.call(console, '[UniverseBackend]', ...args);
@@ -1738,6 +1743,10 @@ class UniverseBackend {
               }
             } catch (_) { }
           },
+          applyRemoteDocument: (docState) => {
+            const store = useGraphStore.getState();
+            return typeof store.applyRemoteDocument === 'function' ? store.applyRemoteDocument(docState) : false;
+          },
           loadUniverseFromFile: (storeState) => {
             try {
               const store = useGraphStore.getState();
@@ -1766,7 +1775,12 @@ class UniverseBackend {
               // would have seeded the SHA, letting the next autosave push
               // the near-empty store over the repo without first-contact.
               if (applied !== false && storeState?._gitObservation?.universeSlug) {
-                this._recordRemoteObservation(storeState._gitObservation.universeSlug, storeState._gitObservation);
+                this._recordRemoteObservation(storeState._gitObservation.universeSlug, {
+                  ...storeState._gitObservation,
+                  // What the store now holds = what the repository holds, so
+                  // the engine has nothing to commit until a real edit.
+                  contentHash: this._contentHashOf(useGraphStore.getState())
+                });
               }
               return true;
             } catch (error) {
@@ -2273,8 +2287,15 @@ class UniverseBackend {
       }
     };
 
+    // Shared universes: someone else saved since this device last synced.
+    // Merge instead of asking which version to keep; the dialog above stays
+    // for what a merge can't settle (documentation/core-system/SHARED_UNIVERSE_SYNC.md).
+    engine.onMergeRemote = (input) => this._planRemoteMerge(universeSlug, input);
+    engine.onRemoteUpdate = (input) => this._applyRemoteUpdate(universeSlug, input);
+
     // Register engine
     this.gitSyncEngines.set(universeSlug, engine);
+    this._startRemoteWatch();
 
     // Seed first-contact state from any direct provider read that happened
     // before the engine existed (loadFromGitDirect during boot). A stale SHA
@@ -4880,6 +4901,144 @@ class UniverseBackend {
    *
    * @returns {Promise<{decision: 'overwrite'|'conflict', remoteState: Object|null}>}
    */
+  /** Merging can be switched off on a device (localStorage) while it is new. */
+  _syncMergeEnabled() {
+    try {
+      return typeof window === 'undefined' || window.localStorage?.getItem('redstring:sync-merge') !== 'off';
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /**
+   * Plan a merge for GitSyncEngine._mergeWithRemote: this device's commit
+   * (`localJson`) against what the repository holds now (`remoteData`), with
+   * the version both grew from (`baseText`). All three go through the same
+   * import, so a difference between them is an edit, not a reading artefact.
+   *
+   * Returns null when the merge is not safe to apply automatically (a side
+   * deleted most of the universe), so the engine falls back to the dialog.
+   */
+  async _planRemoteMerge(universeSlug, input) {
+    if (!this._syncMergeEnabled()) return null;
+    const plan = planMerge(input);
+    if (!plan.ok) {
+      umWarn(`Not merging automatically: ${plan.reason}`);
+      this.notifyStatus('warning', `${plan.reason}. Choose which version to keep.`);
+      return null;
+    }
+    return {
+      content: plan.content,
+      report: plan.report,
+      apply: async () => this._applyMergedState(universeSlug, plan.applyBase, plan.merged, plan.report)
+    };
+  }
+
+  /**
+   * Bring a finished merge onto the canvas (see mergeOntoCanvas).
+   * @returns {Object|null} the store state now on the canvas, or null if not applied
+   */
+  async _applyMergedState(universeSlug, applyBase, merged, report) {
+    if (this.activeUniverseSlug !== universeSlug || !this.storeOperations?.applyRemoteDocument) return null;
+    const live = this.storeOperations.getState();
+    if (!live?.graphs) return null;
+    if (!this.storeOperations.applyRemoteDocument(mergeOntoCanvas(applyBase, live, merged))) return null;
+    this._announceRemoteChanges(universeSlug, report);
+    return { state: this.storeOperations.getState(), before: live };
+  }
+
+  /**
+   * Someone else saved and this device has nothing waiting to push
+   * (GitSyncEngine.checkRemote). Bring their changes onto the canvas, keeping
+   * anything edited here that has not reached the engine yet.
+   */
+  async _applyRemoteUpdate(universeSlug, input) {
+    if (!this._syncMergeEnabled()) return null;
+    if (this.activeUniverseSlug !== universeSlug || !this.storeOperations?.applyRemoteDocument) return null;
+    if (this.pendingConflict) return null;
+    const live = this.storeOperations.getState();
+    if (!live?.graphs) return null;
+
+    const result = bringInRemote(input, live);
+    if (!result.ok) {
+      // Left for the next save, which asks (the merge refuses the same way there).
+      umWarn(`Not bringing in others' changes automatically: ${result.reason}`);
+      this.notifyStatus('warning', `${result.reason}. Your next save will ask which version to keep.`);
+      return null;
+    }
+    if (!this.storeOperations.applyRemoteDocument(result.merged)) return null;
+    this._announceRemoteChanges(universeSlug, result.report);
+    return { state: this.storeOperations.getState(), before: live };
+  }
+
+  /** "Ana updated 4 Things" — who comes from the repository's latest commit. */
+  _announceRemoteChanges(universeSlug, report) {
+    const { things, webs, connections } = summarizeSide(report.theirs);
+    if (!things && !webs && !connections) return;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const parts = [];
+    if (things) parts.push(plural(things, 'Thing'));
+    if (webs) parts.push(plural(webs, 'web'));
+    if (!things && !webs && connections) parts.push(plural(connections, 'connection'));
+    const clashes = report.conflicts.filter((c) => c.banked).length;
+    const clashNote = clashes ? ` ${plural(clashes, 'edit')} of yours overlapped; theirs kept, yours saved aside.` : '';
+
+    const say = (who) => this.notifyStatus('info', `${who} updated ${parts.join(' and ')}.${clashNote}`);
+    const engine = this.gitSyncEngines.get(universeSlug);
+    const provider = engine?.provider;
+    if (!provider || typeof provider.listFileHistory !== 'function') {
+      say('Someone');
+      return;
+    }
+    provider.listFileHistory(engine.getLatestPath(), { limit: 1, withSize: false })
+      .then((revisions) => say(revisions?.[0]?.author || 'Someone'))
+      .catch(() => say('Someone'));
+  }
+
+  /**
+   * Watch the active universe's repository for others' saves: every 30s while
+   * the window is visible, and right away on focus or reconnect. One cheap
+   * request per check (the file's SHA); the file is read only when it moved.
+   */
+  _startRemoteWatch() {
+    if (this._remoteWatchStarted || typeof window === 'undefined') return;
+    this._remoteWatchStarted = true;
+    let last = 0;
+    const check = (reason) => {
+      const now = Date.now();
+      if (now - last < 5000) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      if (!this._syncMergeEnabled()) return;
+      last = now;
+      this.checkForRemoteChanges(reason).catch(() => {});
+    };
+    this._remoteWatchTimer = setInterval(() => check('interval'), REMOTE_WATCH_INTERVAL_MS);
+    window.addEventListener('focus', () => check('focus'));
+    window.addEventListener('online', () => check('online'));
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') check('visible');
+      });
+    }
+  }
+
+  /** One check of the active universe's repository for others' saves. */
+  async checkForRemoteChanges(reason = 'manual') {
+    const slug = this.activeUniverseSlug;
+    const engine = slug ? this.gitSyncEngines.get(slug) : null;
+    if (!engine || typeof engine.checkRemote !== 'function') return { skipped: 'no-engine' };
+    // Never mid-gesture: a drag in progress would have the ground move under it.
+    try {
+      const coordinator = loadGateCoordinator;
+      if (coordinator?.isGlobalDragging || coordinator?.loadInFlight > 0) return { skipped: 'busy' };
+    } catch (_) { /* ignore */ }
+    if (this._isLoadInFlight?.()) return { skipped: 'busy' };
+    const result = await engine.checkRemote();
+    if (result?.applied) umLog(`Brought in others' changes (${reason})`);
+    return result;
+  }
+
   async _decideRemoteDivergence(localState, remoteData) {
     if (!localState) return { decision: 'conflict', remoteState: null };
 
@@ -5216,11 +5375,21 @@ class UniverseBackend {
     } catch (_) { /* non-fatal */ }
   }
 
-  _recordRemoteObservation(universeSlug, { sha, nodeCount } = {}) {
+  /** The engine's content fingerprint of a store state (null if it can't be taken). */
+  _contentHashOf(state) {
+    try {
+      return state?.graphs instanceof Map ? GitSyncEngine.prototype.generateStateHash.call(null, state) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _recordRemoteObservation(universeSlug, { sha, nodeCount, contentHash = null } = {}) {
     try {
       const observation = {
         sha,
         nodeCount: Number.isFinite(Number(nodeCount)) ? Number(nodeCount) : 0,
+        contentHash,
         ts: Date.now()
       };
       this.remoteObservations.set(universeSlug, observation);

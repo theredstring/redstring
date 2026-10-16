@@ -31,7 +31,7 @@ const produce = (arg1, arg2) => {
 import { v4 as uuidv4 } from 'uuid';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode, ZOOM_BAR_POSITIONS, DEFAULT_ZOOM_BAR_POSITION } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
-import { importFromRedstring } from '../formats/redstringFormat.js';
+import { importFromRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 import { userDataCounts } from '../formats/userDataCounts.js';
 import { mergeUniverses } from '../formats/mergeUniverses.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
@@ -8920,6 +8920,64 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {Object} dataToLoad - Deserialized universe state (from `importFromRedstring`).
      */
+    /**
+     * Apply a merged universe that arrived from a collaborator (or this
+     * person's other device), in place.
+     *
+     * Not a load: undo history stays (the arriving changes are not on the
+     * stack, so Cmd+Z still undoes only this person's own edits), every web's
+     * pan/zoom stays, and the change saves locally like an edit — the local
+     * copy has to hold what the repository now holds. `docState` comes from
+     * syncMerge, which already kept this device's personal state (open webs,
+     * tabs) and pruned what the merge removed.
+     *
+     * @param {Object} docState - merged store state (Maps), document keys + personal keys
+     * @returns {boolean} whether it was applied
+     */
+    applyRemoteDocument: (docState) => {
+      const current = api.getState();
+      if (!docState || !(docState.graphs instanceof Map) || !(docState.nodePrototypes instanceof Map)) return false;
+      if (current._isLoadingUniverse) return false;
+
+      const next = {};
+      for (const key of PERSISTED_STORE_KEYS) {
+        if (key in docState) next[key] = docState[key];
+      }
+      if ('_preserved' in docState) next._preserved = docState._preserved;
+      // A local view preference, never taken from the file.
+      next.showConnectionNames = current.showConnectionNames;
+
+      // The merged edges can be the live store's own (frozen) objects, so the
+      // in-place normalization in sanitizeStoreStateReferences would throw on
+      // them. Normalize copy-on-write here and sanitize everything else.
+      if (next.edges instanceof Map) {
+        let edges = null;
+        for (const [eid, edge] of next.edges) {
+          if (edge && !(edge.directionality?.arrowsToward instanceof Set)) {
+            edges = edges || new Map(next.edges);
+            edges.set(eid, { ...edge, directionality: normalizeEdgeDirectionality(edge.directionality) });
+          }
+        }
+        if (edges) next.edges = edges;
+      }
+      const { edges: mergedEdges, ...rest } = next;
+      sanitizeStoreStateReferences(rest);
+      Object.assign(next, rest);
+      if (mergedEdges !== undefined) next.edges = mergedEdges;
+
+      // Keep each web's camera; drop the cameras of webs that are gone.
+      if (current.graphViews instanceof Map) {
+        const views = new Map();
+        for (const [gid, view] of current.graphViews) if (next.graphs.has(gid)) views.set(gid, view);
+        next.graphViews = views;
+      }
+
+      // Not recorded in history (ignore), but saved like any edit.
+      api.setChangeContext({ type: 'remote-merge', ignore: true });
+      set(next);
+      return true;
+    },
+
     loadUniverseFromFile: (dataToLoad) => {
       try {
         // CRITICAL: Prevent concurrent loads - check if a load is already in progress

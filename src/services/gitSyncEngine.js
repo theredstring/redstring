@@ -137,6 +137,31 @@ class GitSyncEngine {
     // by any clean read.
     this.remoteUnrecognized = false;
 
+    // Shared-universe merge (documentation/core-system/SHARED_UNIVERSE_SYNC.md).
+    //
+    // `syncBaseSha` is the remote version this device's store descends from:
+    // the merge base. It is NOT lastKnownRemoteSha. That one is the
+    // compare-and-swap token, and reads set it even when what they read is
+    // never applied (a conflict dialog, a discarded background load). This
+    // moves only when the store is known to hold that version — after this
+    // device wrote it, or after a read of it was applied — and it is
+    // persisted, so edits made offline still merge after a restart.
+    this.syncBaseSha = null;
+    // Set by universeBackend: async ({ baseText, localJson, applyBaseJson,
+    // remoteData, remoteText, remoteSha }) => null | { content,
+    // apply: async () => ({ state, before })|null } — `state` is the store
+    // after applying, `before` the store just before. null = can't merge safely
+    // here; the old pull-and-compare flow (and its dialog) takes over.
+    this.onMergeRemote = null;
+    // Set by universeBackend: async ({ baseText, remoteData, remoteText,
+    // remoteSha }) => ({ state, before })|null. Brings someone else's saved changes
+    // onto the canvas when this device has nothing waiting to push.
+    this.onRemoteUpdate = null;
+    // The remote version a conflict dialog was shown against. A resolution
+    // save asserts it, and merges onto anything newer that landed meanwhile.
+    this._conflictRemoteSha = null;
+    this._restoreSyncBase();
+
     // Restore the persisted commit floor for this universe slug. Without this,
     // a fresh engine after page refresh has lastCommittedNodeCount=0 — meaning
     // the empty-state guard in updateState is disarmed for the first save,
@@ -180,6 +205,43 @@ class GitSyncEngine {
         this.lastCommittedNodeCount = parsed.lastCommittedNodeCount;
       }
     } catch (_) { /* non-fatal */ }
+  }
+
+  _getSyncBaseStorageKey() {
+    return `redstring-gitengine-base:${this.universeSlug}`;
+  }
+
+  _restoreSyncBase() {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      const raw = window.localStorage.getItem(this._getSyncBaseStorageKey());
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.sha === 'string' && parsed.sha) this.syncBaseSha = parsed.sha;
+    } catch (_) { /* non-fatal */ }
+  }
+
+  /**
+   * Record that the store now holds remote version `sha`. Only call this when
+   * that is true: a wrong base makes a merge read this device's copy as
+   * having deleted whatever the base has and the store lacks.
+   */
+  _setSyncBase(sha) {
+    if (typeof sha !== 'string' || !sha) return;
+    this.syncBaseSha = sha;
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return;
+      window.localStorage.setItem(this._getSyncBaseStorageKey(), JSON.stringify({ sha, ts: Date.now() }));
+    } catch (_) { /* non-fatal */ }
+  }
+
+  /** A write of OUR content landed: the remote is at `sha` and the store descends from it. */
+  _noteOwnWrite(result) {
+    const sha = result?.content?.sha;
+    if (typeof sha === 'string' && sha) {
+      this.lastKnownRemoteSha = sha;
+      this._setSyncBase(sha);
+    }
   }
 
   // Allow UI to subscribe to status updates
@@ -821,8 +883,15 @@ class GitSyncEngine {
    *   write; see below.
    * @returns {Promise<Object>} Provider write result.
    */
-  async _commitToRemote(jsonString, { outgoingEmpty = false } = {}) {
+  async _commitToRemote(jsonString, { outgoingEmpty = false, resolution = false, localHash = null } = {}) {
     const path = this.getLatestPath();
+
+    // A resolution save is the user's answer to a dialog shown against one
+    // remote version: assert exactly that version. Anything newer that landed
+    // since is merged on top below, with that version as the base.
+    if (resolution && this.lastKnownRemoteSha === undefined && this._conflictRemoteSha) {
+      this.lastKnownRemoteSha = this._conflictRemoteSha;
+    }
 
     // NEVER write to a remote this session has not read. Before the first
     // write of a session, pull the remote and run the same safety decision
@@ -832,7 +901,8 @@ class GitSyncEngine {
     // (fresh mobile browser, evicted localStorage) every "did the repo have
     // data" floor reads zero, so nothing downstream stops the overwrite.
     if (this.lastKnownRemoteSha === undefined) {
-      await this._firstContactCheck(path);
+      const merged = await this._firstContactCheck(path, { localJson: jsonString, outgoingEmpty, localHash });
+      if (merged) return merged;
     }
 
     // Last-resort check, and the only one that cannot be wrong: if we are
@@ -858,14 +928,17 @@ class GitSyncEngine {
 
     try {
       const result = await this.provider.writeFileRaw(path, jsonString, options);
-      const newSha = result?.content?.sha;
-      if (newSha) this.lastKnownRemoteSha = newSha;
+      this._noteOwnWrite(result);
       this.remoteConflictPending = false;
+      this._conflictRemoteSha = null;
       return result;
     } catch (error) {
       if (error?.code !== 'REMOTE_DIVERGED') throw error;
 
       console.warn('[GitSyncEngine] Remote moved since last sync — pulling to compare before any overwrite');
+      // The version this content was built on: the merge base. For a
+      // resolution save, the version the user adjudicated.
+      const baseSha = resolution ? (this._conflictRemoteSha || this.syncBaseSha) : this.syncBaseSha;
       const remote = await this.provider.readFileRawWithMeta(path);
       this.lastKnownRemoteSha = remote.sha;
 
@@ -884,8 +957,7 @@ class GitSyncEngine {
       // A genuinely empty remote file (no bytes) is safe to write over.
       if (remoteData === null && !remoteUnparseable) {
         const retry = await this.provider.writeFileRaw(path, jsonString, { expectedSha: this.lastKnownRemoteSha });
-        const retrySha = retry?.content?.sha;
-        if (retrySha) this.lastKnownRemoteSha = retrySha;
+        this._noteOwnWrite(retry);
         this.remoteConflictPending = false;
         return retry;
       }
@@ -907,6 +979,12 @@ class GitSyncEngine {
         throw unrecognized;
       }
 
+      // Someone else saved since our last sync. Merge their work with ours.
+      if (!outgoingEmpty) {
+        const merged = await this._mergeWithRemote({ path, localJson: jsonString, remote, remoteData, baseSha, localHash });
+        if (merged) return merged;
+      }
+
       let decision = 'conflict';
       if (typeof this.onRemoteDivergence === 'function') {
         try {
@@ -920,13 +998,12 @@ class GitSyncEngine {
 
       if (decision === 'overwrite') {
         const retry = await this.provider.writeFileRaw(path, jsonString, { expectedSha: this.lastKnownRemoteSha });
-        const retrySha = retry?.content?.sha;
-        if (retrySha) this.lastKnownRemoteSha = retrySha;
+        this._noteOwnWrite(retry);
         this.remoteConflictPending = false;
         return retry;
       }
 
-      this.remoteConflictPending = true;
+      this._armConflict(remote.sha);
       this.notifyStatus('warning', 'This universe changed on another device — choose which version to keep.');
       const conflictError = new Error('Remote universe changed since last sync — resolution required before pushing.');
       conflictError.code = 'REMOTE_CONFLICT';
@@ -959,7 +1036,7 @@ class GitSyncEngine {
    * @private
    * @param {string} path - Remote universe file path.
    */
-  async _firstContactCheck(path) {
+  async _firstContactCheck(path, { localJson = null, outgoingEmpty = false, localHash = null } = {}) {
     console.warn('[GitSyncEngine] First write of this session — reading remote before any overwrite');
 
     let remote;
@@ -1029,9 +1106,17 @@ class GitSyncEngine {
 
     if (remoteNodeCount === 0) return; // genuinely empty universe file
 
-    // The remote has data this session never loaded. Reuse the divergence
-    // decision machinery: only a handler that proves the contents equivalent
-    // (or the remote effectively empty) may green-light the write.
+    // The remote has data this session never loaded. If this device knows
+    // which version its copy grew from, merge — this is how edits made
+    // offline (or before a restart) reach a universe others kept editing.
+    if (localJson && !outgoingEmpty && this.syncBaseSha) {
+      const merged = await this._mergeWithRemote({ path, localJson, remote, remoteData, baseSha: this.syncBaseSha, localHash });
+      if (merged) return merged;
+    }
+
+    // Otherwise reuse the divergence decision machinery: only a handler that
+    // proves the contents equivalent (or the remote effectively empty) may
+    // green-light the write.
     let decision = 'conflict';
     if (typeof this.onRemoteDivergence === 'function') {
       try {
@@ -1042,7 +1127,7 @@ class GitSyncEngine {
     }
     if (decision === 'overwrite') return;
 
-    this.remoteConflictPending = true;
+    this._armConflict(remote.sha);
     this.notifyStatus('warning', 'The repository has existing data that was never loaded this session — choose which version to keep.');
     const conflictError = new Error('Remote universe has data this session never loaded — refusing to overwrite until resolved.');
     conflictError.code = 'REMOTE_CONFLICT';
@@ -1067,9 +1152,16 @@ class GitSyncEngine {
    * @param {number} [observation.nodeCount] - Node count of the remote
    *   content; ratchets the shrink-to-zero floor upward.
    */
-  markRemoteObserved({ sha, nodeCount } = {}) {
+  markRemoteObserved({ sha, nodeCount, contentHash = null } = {}) {
     if ((typeof sha === 'string' && sha) || sha === null) {
       this.lastKnownRemoteSha = sha;
+    }
+    // Only ever called once the read was APPLIED to the store, so the store
+    // now holds this version: it is the merge base, and (given its hash) the
+    // content the repository already has — nothing to commit until an edit.
+    if (typeof sha === 'string' && sha) {
+      this._setSyncBase(sha);
+      if (typeof contentHash === 'string' && contentHash) this.lastCommittedHash = contentHash;
     }
     const count = Number(nodeCount);
     if (Number.isFinite(count) && count > this.lastCommittedNodeCount) {
@@ -1088,6 +1180,186 @@ class GitSyncEngine {
    */
   invalidateRemoteObservation() {
     this.lastKnownRemoteSha = undefined;
+  }
+
+  /**
+   * A conflict dialog is about to be shown against remote version `sha`.
+   * Pushes stop until it is answered, and the SHA is forgotten: a dismissed
+   * dialog used to leave the remote's SHA in place, so the very next
+   * autosave asserted it and overwrote the version the dialog was about.
+   * Now the next write re-reads the remote and goes through first contact.
+   */
+  _armConflict(sha) {
+    this.remoteConflictPending = true;
+    this._conflictRemoteSha = typeof sha === 'string' ? sha : null;
+    this.lastKnownRemoteSha = undefined;
+  }
+
+  /**
+   * After remote changes landed on the canvas: if the canvas held nothing
+   * newer than what this engine had already committed (`expectedHash`), what
+   * it holds now IS what the repository holds, so record it as committed —
+   * otherwise autosave pushes it straight back and two devices echo the same
+   * change forever. If the canvas had edits of its own on the way, leave the
+   * record alone so autosave sends them.
+   */
+  _adoptAppliedState({ state, before }, expectedHash) {
+    const unsynced = !before || !expectedHash || this.generateStateHash(before) !== expectedHash;
+    if (!unsynced) this.lastCommittedHash = this.generateStateHash(state);
+    this.lastCommittedNodeCount = this._countNodes(state);
+    this._persistFloor();
+  }
+
+  /**
+   * Merge this device's content with a remote someone else moved, write the
+   * result, and bring it onto the canvas. Returns the write result (with
+   * `merged: true`) or null when it can't merge safely here — no base, the
+   * base can't be read, the backend says no (a mass deletion, say) — in which
+   * case the caller falls back to the dialog flow. Never writes anything that
+   * did not come out of a merge.
+   *
+   * @private
+   */
+  async _mergeWithRemote({ path, localJson, remote, remoteData, baseSha, localHash = null, applyBaseJson = localJson, attempt = 1 }) {
+    if (typeof this.onMergeRemote !== 'function' || typeof baseSha !== 'string' || !baseSha) return null;
+
+    let baseText;
+    if (baseSha === remote.sha) {
+      baseText = remote.content;
+    } else {
+      if (typeof this.provider.readFileAtSha !== 'function') return null;
+      try {
+        baseText = await this.provider.readFileAtSha(path, baseSha);
+      } catch (error) {
+        console.warn(`[GitSyncEngine] Could not read the merge base ${baseSha.slice(0, 8)} — falling back to the conflict dialog:`, error?.message || error);
+        return null;
+      }
+    }
+
+    let plan = null;
+    try {
+      plan = await this.onMergeRemote({
+        baseText,
+        localJson,
+        applyBaseJson,
+        remoteData,
+        remoteText: remote.content,
+        remoteSha: remote.sha,
+        universeSlug: this.universeSlug
+      });
+    } catch (error) {
+      console.warn('[GitSyncEngine] Merge failed — falling back to the conflict dialog:', error);
+      return null;
+    }
+    if (!plan || typeof plan.content !== 'string') return null;
+
+    let result;
+    if (plan.content === remote.content) {
+      // Nothing of ours to add: the remote already is the merge.
+      result = { content: { sha: remote.sha }, unchanged: true };
+    } else {
+      try {
+        result = await this.provider.writeFileRaw(path, plan.content, { expectedSha: remote.sha });
+      } catch (error) {
+        if (error?.code !== 'REMOTE_DIVERGED' || attempt >= 3) throw error;
+        // Someone saved again while we merged. Merge once more on top, with
+        // the version we just merged against as the base; the canvas still
+        // only needs the changes since what it was built from.
+        console.warn('[GitSyncEngine] Remote moved again during the merge — merging on top');
+        const again = await this.provider.readFileRawWithMeta(path);
+        let againData = null;
+        try {
+          againData = again.content && again.content.trim() ? JSON.parse(again.content) : null;
+        } catch (_) { againData = null; }
+        if (!againData || !isRecognizedShape(againData)) {
+          const unrecognized = new Error(`Remote file at ${path} stopped reading as a universe mid-merge — refusing to overwrite it.`);
+          unrecognized.code = 'REMOTE_UNRECOGNIZED';
+          throw unrecognized;
+        }
+        return this._mergeWithRemote({
+          path, localJson: plan.content, remote: again, remoteData: againData,
+          baseSha: remote.sha, localHash, applyBaseJson, attempt: attempt + 1
+        });
+      }
+    }
+
+    const newSha = result?.content?.sha || remote.sha;
+    this.lastKnownRemoteSha = newSha;
+    this.remoteConflictPending = false;
+    this._conflictRemoteSha = null;
+
+    let applied = null;
+    try {
+      applied = await plan.apply();
+    } catch (error) {
+      console.warn('[GitSyncEngine] Merged and saved, but could not show it on the canvas:', error);
+    }
+    if (applied?.state) {
+      this._setSyncBase(newSha);
+      this._adoptAppliedState(applied, localHash);
+    } else {
+      // The repository holds the merge but the store does not. Forget the SHA
+      // so the next write merges again instead of asserting it and
+      // overwriting the other side's work with this device's older copy.
+      this.lastKnownRemoteSha = undefined;
+    }
+    return { ...result, merged: true, applied: !!applied?.state };
+  }
+
+  /**
+   * Has anyone else saved? A cheap check (the remote's SHA, no download).
+   * If they have and this device has nothing waiting to push, bring their
+   * changes onto the canvas. If this device does have changes waiting, do
+   * nothing: the commit merges on its way out.
+   *
+   * @returns {Promise<{changed?: boolean, applied?: boolean, skipped?: string, error?: Error}>}
+   */
+  async checkRemote() {
+    if (this._checkingRemote) return { skipped: 'busy' };
+    if (this.isPaused || this.remoteConflictPending || this.isCommitInProgress) return { skipped: 'busy' };
+    if (typeof this.provider?.getRemoteFileSha !== 'function' || typeof this.onRemoteUpdate !== 'function') return { skipped: 'unsupported' };
+    if (typeof this.lastKnownRemoteSha !== 'string' || !this.syncBaseSha) return { skipped: 'unsynced' };
+    if (this.hasChanges || this.pendingCommits.length > 0) return { skipped: 'local-changes' };
+
+    this._checkingRemote = true;
+    try {
+      const path = this.getLatestPath();
+      const sha = await this.provider.getRemoteFileSha(path);
+      if (!sha || sha === this.lastKnownRemoteSha) return { changed: false };
+
+      const remote = await this.provider.readFileRawWithMeta(path);
+      if (remote.sha === this.lastKnownRemoteSha) return { changed: false };
+      let remoteData = null;
+      try {
+        remoteData = remote.content && remote.content.trim() ? JSON.parse(remote.content) : null;
+      } catch (_) { remoteData = null; }
+      if (!remoteData || !isRecognizedShape(remoteData)) return { skipped: 'unrecognized' };
+
+      const baseSha = this.syncBaseSha;
+      const baseText = baseSha === remote.sha ? remote.content : await this.provider.readFileAtSha(path, baseSha);
+
+      // A commit may have started while we read. Let it do the merge.
+      if (this.isCommitInProgress || this.hasChanges || this.pendingCommits.length > 0) return { skipped: 'local-changes' };
+
+      const applied = await this.onRemoteUpdate({
+        baseText,
+        remoteData,
+        remoteText: remote.content,
+        remoteSha: remote.sha,
+        universeSlug: this.universeSlug
+      });
+      if (!applied?.state) return { changed: true, applied: false };
+
+      this.lastKnownRemoteSha = remote.sha;
+      this._setSyncBase(remote.sha);
+      this._adoptAppliedState(applied, this.lastCommittedHash);
+      return { changed: true, applied: true };
+    } catch (error) {
+      console.warn('[GitSyncEngine] Checking the repository for others\' changes failed:', error?.message || error);
+      return { error };
+    } finally {
+      this._checkingRemote = false;
+    }
   }
 
   /**
@@ -1253,9 +1525,10 @@ class GitSyncEngine {
 
       const outgoingEmpty = isEffectivelyEmpty(latestState);
 
+      let writeResult = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await this._commitToRemote(jsonString, { outgoingEmpty });
+          writeResult = await this._commitToRemote(jsonString, { outgoingEmpty, localHash: latestHash });
           writeSuccess = true;
           break;
         } catch (writeError) {
@@ -1296,9 +1569,12 @@ class GitSyncEngine {
       // Skip backup writes for rate limit efficiency - main file is sufficient
       // await this.provider.writeFileRaw(this.getBackupPath(), jsonString);
 
-      // Update tracking
-      this.lastCommittedHash = latestHash;
-      this.lastCommittedNodeCount = this._countNodes(latestState);
+      // Update tracking. A merge already recorded what the store now holds
+      // (ours plus theirs); the pre-merge hash would make autosave re-push it.
+      if (!writeResult?.merged) {
+        this.lastCommittedHash = latestHash;
+        this.lastCommittedNodeCount = this._countNodes(latestState);
+      }
       this.hasChanges = false;
       this.pendingCommits = [];
       this.lastCommitTime = now;
@@ -1498,9 +1774,10 @@ class GitSyncEngine {
       // never waives the destination read below — that one looks at the file
       // itself, and no caller today may clear a remote that still holds data.
       const outgoingEmpty = isEffectivelyEmpty(storeState);
+      let writeResult = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          await this._commitToRemote(jsonString, { outgoingEmpty });
+          writeResult = await this._commitToRemote(jsonString, { outgoingEmpty, resolution: options.isConflictResolution === true, localHash: currentHash });
           lastError = null;
           break;
         } catch (error) {
@@ -1525,9 +1802,11 @@ class GitSyncEngine {
         throw lastError;
       }
 
-      // Success! Update tracking
-      this.lastCommittedHash = currentHash;
-      this.lastCommittedNodeCount = this._countNodes(storeState);
+      // Success! Update tracking (a merge already recorded what the store holds)
+      if (!writeResult?.merged) {
+        this.lastCommittedHash = currentHash;
+        this.lastCommittedNodeCount = this._countNodes(storeState);
+      }
       this.hasChanges = false;
       this.pendingCommits = []; // Clear pending commits
       this.lastCommitTime = now; // Use original timestamp for rate limiting
