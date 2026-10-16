@@ -411,6 +411,53 @@ export class SemanticProvider {
   }
 
   /**
+   * One file's content at an old version, by its blob SHA (the `sha` every
+   * read and write of the file reports). This is how a shared-universe merge
+   * gets its base: the file as it was at the last sync, fetched from the host
+   * rather than stored on the device.
+   *
+   * @param {string} path - Only for messages; the blob is addressed by SHA.
+   * @param {string} blobSha
+   * @returns {Promise<string>} the file's text
+   */
+  async readFileAtSha(path, blobSha) {
+    throw new Error('readFileAtSha() must be implemented by provider');
+  }
+
+  /**
+   * The current blob SHA of one file, without downloading it. A cheap "has
+   * anyone else saved?" check: it lists the file's folder, which reports each
+   * entry's SHA and no content.
+   *
+   * @param {string} path
+   * @returns {Promise<string|null>} the SHA, or null when the file is absent
+   * @throws {Error} with `code: 'FILE_INFO_UNKNOWN'` when the host can't say
+   */
+  async getRemoteFileSha(path) {
+    throw new Error('getRemoteFileSha() must be implemented by provider');
+  }
+
+  /**
+   * Find one entry in a contents-API folder listing. Shared by providers: the
+   * GitHub and Gitea listings have the same shape.
+   */
+  _shaFromListing(listing, fileName) {
+    if (!Array.isArray(listing)) return null;
+    const entry = listing.find((item) => item && item.name === fileName && item.type === 'file');
+    return entry?.sha || null;
+  }
+
+  /** Split an API path into its folder and decoded file name. */
+  _splitApiPath(apiPath) {
+    const cut = apiPath.lastIndexOf('/');
+    const folder = cut === -1 ? '' : apiPath.slice(0, cut);
+    const encodedName = cut === -1 ? apiPath : apiPath.slice(cut + 1);
+    let fileName = encodedName;
+    try { fileName = decodeURIComponent(encodedName); } catch { /* keep as is */ }
+    return { folder, fileName };
+  }
+
+  /**
    * Base64-encode write content that may be either text or raw bytes.
    *
    * Every write path funnels through here so binary payloads (content-addressed
@@ -1432,8 +1479,43 @@ This repository was automatically initialized by Redstring UI React. You can now
     }
     const bytes = base64ToBytes(blob.content);
     const decoded = new TextDecoder().decode(bytes);
-    assertRawBodyMatches(decoded, size, label, bytes.length);
+    assertRawBodyMatches(decoded, Number.isFinite(size) ? size : blob.size, label, bytes.length);
     return decoded;
+  }
+
+  async readFileAtSha(path, blobSha) {
+    const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (typeof blobSha !== 'string' || !blobSha) throw new Error(`readFileAtSha(${safePath}) needs a SHA`);
+    return this._readBlobVerified(blobSha, null, `${safePath}@${blobSha.slice(0, 8)}`);
+  }
+
+  async getRemoteFileSha(path) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) throw new Error('Invalid path provided to getRemoteFileSha');
+    const { folder, fileName } = this._splitApiPath(apiPath);
+    await githubRateLimiter.waitForAvailability(this.authMethod);
+    githubRateLimiter.recordRequest(this.authMethod);
+    let response;
+    try {
+      response = await fetch(folder ? `${this.rootUrl}/${folder}` : this.rootUrl, {
+        cache: NO_HTTP_CACHE,
+        headers: { 'Authorization': this.getAuthHeader(), 'Accept': 'application/vnd.github.v3+json' }
+      });
+    } catch (networkError) {
+      const err = new Error(`getRemoteFileSha(${safePath}): network: ${networkError?.message || networkError}`);
+      err.code = 'FILE_INFO_UNKNOWN';
+      err.status = 0;
+      throw err;
+    }
+    if (response.status === 404) return null; // the folder isn't there, so neither is the file
+    if (!response.ok) {
+      this._maybeDispatchAuthExpired(response.status);
+      const err = new Error(`getRemoteFileSha(${safePath}) status=${response.status}`);
+      err.code = 'FILE_INFO_UNKNOWN';
+      err.status = response.status;
+      throw err;
+    }
+    return this._shaFromListing(await response.json(), fileName);
   }
 
   /**
@@ -1484,6 +1566,7 @@ This repository was automatically initialized by Redstring UI React. You can now
       sha: commit?.sha,
       date: commit?.commit?.author?.date || commit?.commit?.committer?.date || null,
       message: (commit?.commit?.message || '').split('\n')[0],
+      author: commit?.author?.login || commit?.commit?.author?.name || null,
       size: null
     })).filter((revision) => !!revision.sha);
 
@@ -1843,10 +1926,19 @@ export class GiteaSemanticProvider extends SemanticProvider {
     }
   }
 
-  async writeFileRaw(path, content) {
+  async writeFileRaw(path, content, options = {}) {
     const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
     if (!apiPath) {
       throw new Error('Invalid path provided to writeFileRaw');
+    }
+
+    // Optimistic-concurrency mode, the same contract as GitHub's: write only
+    // if the file is still at `expectedSha` (`null` = it must not exist yet),
+    // and never retry with a re-fetched SHA. This used to be ignored here —
+    // the write below reads the current SHA and uses it, so a save always
+    // won and silently overwrote whatever another device had pushed.
+    if ('expectedSha' in options) {
+      return this._writeWithExpectedSha(safePath, apiPath, content, options.expectedSha);
     }
 
     try {
@@ -1971,6 +2063,103 @@ export class GiteaSemanticProvider extends SemanticProvider {
       console.error('[GiteaSemanticProvider] OVERWRITER writeFileRaw failed:', e);
       throw e;
     }
+  }
+
+  async _writeWithExpectedSha(safePath, apiPath, content, expectedSha) {
+    const creating = !(typeof expectedSha === 'string' && expectedSha);
+    const body = {
+      message: `Update ${safePath}`,
+      content: this.contentToBase64(content),
+      branch: 'main'
+    };
+    if (!creating) body.sha = expectedSha;
+
+    const response = await fetch(`${this.rootUrl}/${apiPath}`, {
+      // Gitea creates with POST and updates with PUT; PUT without a sha is
+      // refused, so "must not exist yet" is a POST.
+      method: creating ? 'POST' : 'PUT',
+      headers: {
+        'Authorization': `token ${this.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (response.ok) {
+      if (!this.lastWrites) this.lastWrites = new Map();
+      this.lastWrites.set(`${safePath}_${this.generateContentHash(content)}`, Date.now());
+      return await response.json();
+    }
+
+    const text = await response.text();
+    if (response.status === 401) {
+      throw new Error('Gitea authentication failed (401). Please reconnect in the Git Federation panel.');
+    }
+
+    // A stale SHA ("sha does not match") or a create over an existing file
+    // ("already exists"). Gitea answers these with 409 or 422 depending on
+    // version; the message says which.
+    const saysDiverged = /sha|already exist|does not match|conflict/i.test(text || '');
+    if (response.status === 409 || ((response.status === 422 || response.status === 400) && saysDiverged)) {
+      console.warn(`[GiteaSemanticProvider] Remote diverged for ${safePath} (expected SHA ${creating ? 'none' : String(expectedSha).substring(0, 8)}) — NOT retrying blindly`);
+      const err = new Error(`Remote file changed since last sync: ${safePath}`);
+      err.code = 'REMOTE_DIVERGED';
+      err.status = response.status;
+      throw err;
+    }
+
+    throw new Error(`Gitea write failed: ${response.status} ${text}`);
+  }
+
+  async readFileAtSha(path, blobSha) {
+    const { displayPath: safePath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (typeof blobSha !== 'string' || !blobSha) throw new Error(`readFileAtSha(${safePath}) needs a SHA`);
+    const repoUrl = this.rootUrl.replace(/\/contents$/, '');
+    const response = await fetch(`${repoUrl}/git/blobs/${encodeURIComponent(blobSha)}`, {
+      cache: NO_HTTP_CACHE,
+      headers: { 'Authorization': `token ${this.token}` }
+    });
+    if (response.status === 404) {
+      const err = new Error(`Blob ${blobSha.slice(0, 8)} of ${safePath} not found`);
+      err.code = 'FILE_NOT_FOUND';
+      err.status = 404;
+      throw err;
+    }
+    if (!response.ok) throw readTruncated(`Blob read failed for ${safePath} (HTTP ${response.status})`);
+    const blob = await response.json();
+    if (blob?.sha !== blobSha || typeof blob?.content !== 'string' || (blob.encoding && blob.encoding !== 'base64')) {
+      throw readTruncated(`Blob read for ${safePath} returned something other than blob ${blobSha.slice(0, 8)}`);
+    }
+    const bytes = base64ToBytes(blob.content);
+    const decoded = new TextDecoder().decode(bytes);
+    assertRawBodyMatches(decoded, blob.size, safePath, bytes.length);
+    return decoded;
+  }
+
+  async getRemoteFileSha(path) {
+    const { displayPath: safePath, apiPath } = this.resolvePathInput(path, { trimTrailing: false });
+    if (!apiPath) throw new Error('Invalid path provided to getRemoteFileSha');
+    const { folder, fileName } = this._splitApiPath(apiPath);
+    let response;
+    try {
+      response = await fetch(`${folder ? `${this.rootUrl}/${folder}` : this.rootUrl}?ref=main`, {
+        cache: NO_HTTP_CACHE,
+        headers: { 'Authorization': `token ${this.token}` }
+      });
+    } catch (networkError) {
+      const err = new Error(`getRemoteFileSha(${safePath}): network: ${networkError?.message || networkError}`);
+      err.code = 'FILE_INFO_UNKNOWN';
+      err.status = 0;
+      throw err;
+    }
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      const err = new Error(`getRemoteFileSha(${safePath}) status=${response.status}`);
+      err.code = 'FILE_INFO_UNKNOWN';
+      err.status = response.status;
+      throw err;
+    }
+    return this._shaFromListing(await response.json(), fileName);
   }
 
   /**
@@ -2102,6 +2291,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
       sha: commit?.sha,
       date: commit?.commit?.author?.date || commit?.commit?.committer?.date || null,
       message: (commit?.commit?.message || '').split('\n')[0],
+      author: commit?.author?.login || commit?.commit?.author?.name || null,
       size: null
     })).filter((revision) => !!revision.sha);
 
