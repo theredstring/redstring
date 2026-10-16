@@ -122,7 +122,8 @@ Note: The engine writes a single canonical JSON `.redstring` file. It does not c
 
 ## Conflict and Rate Limits
 
-- 409 conflicts are retried with fresh SHAs and small exponential backoff
+- The universe file is written compare-and-swap (`expectedSha`): a remote that moved is never overwritten with a re-fetched SHA. The engine merges this device's work with it, or asks when it can't merge safely; see [SHARED_UNIVERSE_SYNC.md](SHARED_UNIVERSE_SYNC.md)
+- Image blobs (content-addressed, immutable) still use the plain write
 - Minimum intervals between commits, plus batching, reduce provider rate pressure
 - Circuit breaker opens when too many API calls occur; resumes after cooldown
 
