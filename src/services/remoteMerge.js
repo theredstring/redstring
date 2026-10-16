@@ -24,10 +24,10 @@ export async function primeImageRefs(...states) {
     if (!(prototypes instanceof Map)) continue;
     for (const proto of prototypes.values()) {
       const src = proto?.imageSrc;
-      if (!isDataUrl(src) || knowsInlineImageRef(src)) continue;
+      if (!isDataUrl(src) || knowsInlineImageRef(src, proto)) continue;
       try {
         const computed = await computeImageRef(src);
-        if (computed?.ref) rememberInlineImageRef(src, computed.ref);
+        if (computed?.ref) rememberInlineImageRef(src, computed.ref, proto);
       } catch (_) { /* compares as itself */ }
     }
   }

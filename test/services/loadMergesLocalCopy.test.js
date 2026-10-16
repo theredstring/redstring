@@ -191,6 +191,31 @@ describe('load: a Git-only universe (browser copy is the local copy)', () => {
     expect(names(backend._backUpUnmergedBrowserCopy.mock.calls[0][1])).toEqual(['cat', 'dog', 'fox']);
   });
 
+  it('a copy written by an older build (a mirror of Git) never triggers the backup warning', async () => {
+    const backend = makeBackend(GIT_ONLY, { git: () => buildState(['cat']), baseDoc: buildDoc(['cat']) });
+    const old = buildState(['cat', 'dog']);
+    Object.defineProperty(old, '_mirrorOnlyCopy', { value: true });
+    await backend._backUpUnmergedBrowserCopy(GIT_ONLY, old, buildState(['cat']));
+    expect(backend.notifyStatus).not.toHaveBeenCalled();
+  });
+
+  it('a copy that differs only by holding pictures inline loads the repository version, with nothing to push', async () => {
+    // Second review: every load of a file + Git universe with a picture made a commit that changed nothing.
+    const { computeImageRef } = await import('../../src/formats/imageRefs.js');
+    const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const computed = await computeImageRef(PNG);
+    if (!computed) return; // no WebCrypto in this environment
+    setBase(GIT_ONLY.slug, 'sha-base');
+    const withPic = (form) => {
+      const state = buildState(['cat', 'dog']);
+      Object.assign(state.nodePrototypes.get('cat'), form === 'inline' ? { imageSrc: PNG, imageRef: undefined } : { imageSrc: null, imageRef: computed.ref, imageRefExt: 'png' });
+      return state;
+    };
+    const backend = makeBackend(GIT_ONLY, { browser: () => withPic('inline'), git: () => withPic('ref'), baseDoc: buildDoc(['cat', 'dog']) });
+    await backend._loadUniverseDataInner(GIT_ONLY, { allowPermissionPrompt: false });
+    expect(backend._pendingPushAfterLoad?.has(GIT_ONLY.slug)).toBeFalsy();
+  });
+
   it('identical copies load the repository version as before', async () => {
     setBase(GIT_ONLY.slug, 'sha-base');
     const backend = makeBackend(GIT_ONLY, {

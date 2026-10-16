@@ -128,18 +128,49 @@ const ABSENT = Symbol('absent');
 /** The fields that together say which picture a Thing shows. */
 const IMAGE_FIELDS = new Set(['imageSrc', 'thumbnailSrc', 'imageAspectRatio', 'imageRef', 'imageRefExt']);
 
-/** data URL → its content ref, learned by remoteMerge.primeImageRefs (hashing is async). */
-const inlineImageRefs = new Map();
-const INLINE_REF_LIMIT = 512;
+/**
+ * An inline picture's content ref, learned by remoteMerge.primeImageRefs
+ * (SHA-256 is async; the merge isn't). Keyed by a fingerprint of the data URL
+ * rather than the data URL itself: a key is a few dozen characters, so the
+ * table can hold every picture a universe has (a cap that evicts makes the
+ * evicted pictures read as edits again) without keeping megabytes of
+ * replaced images alive.
+ */
+const inlineImageRefs = new Map(); // fingerprint → ref
+const INLINE_REF_LIMIT = 100000;
 
-export function rememberInlineImageRef(dataUrl, ref) {
+/** Per object, the fingerprint of its inline picture (strings can't be WeakMap keys; objects can). */
+const fingerprintCache = new WeakMap(); // entity → [dataUrl, fingerprint]
+
+/** Length plus two independent 32-bit FNV-1a passes: collisions are not a practical concern. */
+function fingerprint(str) {
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 15);
+  }
+  return `${str.length}:${(a >>> 0).toString(36)}:${(b >>> 0).toString(36)}`;
+}
+
+function inlineFingerprint(entity, dataUrl) {
+  const cached = fingerprintCache.get(entity);
+  if (cached && cached[0] === dataUrl) return cached[1];
+  const fp = fingerprint(dataUrl);
+  fingerprintCache.set(entity, [dataUrl, fp]);
+  return fp;
+}
+
+export function rememberInlineImageRef(dataUrl, ref, entity = null) {
   if (typeof dataUrl !== 'string' || typeof ref !== 'string') return;
-  inlineImageRefs.delete(dataUrl);
-  inlineImageRefs.set(dataUrl, ref);
+  const fp = entity ? inlineFingerprint(entity, dataUrl) : fingerprint(dataUrl);
+  inlineImageRefs.set(fp, ref);
   if (inlineImageRefs.size > INLINE_REF_LIMIT) inlineImageRefs.delete(inlineImageRefs.keys().next().value);
 }
 
-export const knowsInlineImageRef = (dataUrl) => inlineImageRefs.has(dataUrl);
+export const knowsInlineImageRef = (dataUrl, entity = null) =>
+  inlineImageRefs.has(entity ? inlineFingerprint(entity, dataUrl) : fingerprint(dataUrl));
 
 const hasImage = (o) => isPlainObject(o) && (o.imageSrc != null || o.imageRef != null);
 
@@ -152,8 +183,9 @@ function imageKey(o) {
   if (!isPlainObject(o)) return null;
   const src = o.imageSrc;
   if (typeof src === 'string' && src.startsWith('data:')) {
-    const ref = inlineImageRefs.get(src);
-    return ref ? ['ref', ref] : ['inline', src];
+    const fp = inlineFingerprint(o, src);
+    const ref = inlineImageRefs.get(fp);
+    return ref ? ['ref', ref] : ['inline', fp];
   }
   if (typeof o.imageRef === 'string' && o.imageRef) return ['ref', o.imageRef];
   if (typeof src === 'string' && src) return ['url', src];

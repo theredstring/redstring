@@ -409,6 +409,23 @@ describe('two people, one universe', () => {
     expect(names(importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState)).toEqual(['Bird', 'Fungus', 'Soil', 'Squirrel', 'Tree']);
   });
 
+  it('the commit loop never pushes a state queued before remote changes arrived', async () => {
+    // Second review: only updateState and forceCommit dropped stale states.
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    const captured = ana.state;
+    ana.engine.stampState(captured);
+    ben.edit((s) => addThing(s, 'squirrel', 'Squirrel'));
+    await ben.save();
+    expect(await ana.engine.checkRemote()).toMatchObject({ applied: true });
+    // The old state reached the queue during the apply.
+    ana.engine.pendingCommits.push({ type: 'state_update', timestamp: Date.now(), data: captured, hash: 'x', isDragging: false });
+    ana.engine.hasChanges = true;
+    ana.engine.lastCommitTime = 0;
+    await ana.engine.processPendingCommits();
+    expect(names(importFromRedstring(JSON.parse(host.files.get(PATH).content)).storeState)).toContain('Squirrel');
+    expect(ana.engine.pendingCommits).toHaveLength(0);
+  });
+
   it('a version read but never applied is merged, not overwritten', async () => {
     // Review finding: reads set the compare-and-swap token even when discarded,
     // so the next commit asserted it and overwrote that version's changes.

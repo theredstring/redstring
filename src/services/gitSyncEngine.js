@@ -1534,6 +1534,14 @@ class GitSyncEngine {
       vlog(`[GitSyncEngine] Processing ${commitCount} pending commits${isFromDragging ? ' (from dragging)' : ''}...`);
       this.notifyStatus('info', `Committing ${commitCount} update${commitCount === 1 ? '' : 's'}...`);
 
+      // States captured before remote changes reached the canvas would revert
+      // them (see updateState); the apply's own save brings a newer one.
+      this.pendingCommits = this.pendingCommits.filter((commit) => !this._isStale(commit.data));
+      if (this.pendingCommits.length === 0) {
+        this.hasChanges = false;
+        return;
+      }
+
       // Get the most recent state (always use the latest, discard intermediate states)
       const latestState = this.pendingCommits[this.pendingCommits.length - 1].data;
       const latestHash = this.pendingCommits[this.pendingCommits.length - 1].hash;

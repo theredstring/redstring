@@ -1667,6 +1667,18 @@ const saveCoordinatorMiddleware = (config) => {
 };
 
 // Create store with async initialization
+/**
+ * Called with the state handed to every successful loadUniverseFromFile. Sync
+ * uses it to forget what the previous store grew from when a universe arrives
+ * by a path it didn't make (universeBackend._onStoreLoaded): a stale merge base
+ * would read whatever the new store lacks as deleted.
+ */
+const universeLoadListeners = new Set();
+export function onUniverseLoaded(listener) {
+  universeLoadListeners.add(listener);
+  return () => universeLoadListeners.delete(listener);
+}
+
 const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
   // Grace period cleanup timer
   let cleanupTimer = null;
@@ -9095,6 +9107,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           hasUniverseFile: true,
           _isLoadingUniverse: false,
         });
+
+        // Every way a universe reaches the store comes through here (the
+        // menu's Open, a linked file, the backend's loads), so this is where
+        // sync learns the store was replaced. See onUniverseLoaded.
+        for (const listener of universeLoadListeners) {
+          try { listener(dataToLoad); } catch (listenerError) { console.warn('[graphStore] universe-load listener failed:', listenerError); }
+        }
 
         return true;
       } catch (error) {

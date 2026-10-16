@@ -17,7 +17,7 @@ import { persistentAuth } from '../backend/auth/index.js';
 import { SemanticProviderFactory } from '../backend/git/index.js';
 import startupCoordinator from './startupCoordinator.js';
 import { exportToRedstring, importFromRedstring, downloadRedstringFile, validateFormatVersion, getRedstringStats } from '../formats/redstringFormat.js';
-import { syncMerge, summarizeSide } from '../formats/syncMerge.js';
+import { syncMerge, summarizeSide, documentChanged } from '../formats/syncMerge.js';
 import { planMerge, mergeOntoCanvas, bringInRemote, primeImageRefs } from './remoteMerge.js';
 import { slotsHaveEqualKnowledge } from './semanticHash.js';
 import { serializeRedstring, parseRedstringBytes, bytesToTextIfSmall, isBlankBytes } from '../formats/universeBytes.js';
@@ -1736,7 +1736,10 @@ class UniverseBackend {
     while (retryCount < maxRetries) {
       try {
         // Dynamically import graphStore from backend (outside the circular dependency)
-        const { default: useGraphStore } = await import('../store/graphStore.js');
+        const { default: useGraphStore, onUniverseLoaded } = await import('../store/graphStore.js');
+        if (!this._unsubscribeStoreLoads && typeof onUniverseLoaded === 'function') {
+          this._unsubscribeStoreLoads = onUniverseLoaded((state) => this._onStoreLoaded(state));
+        }
 
         // Validate that the store is properly initialized
         const testState = useGraphStore.getState();
@@ -1786,7 +1789,13 @@ class UniverseBackend {
                 storeState._universeSlug = this.activeUniverseSlug;
               }
 
-              const applied = store.loadUniverseFromFile(storeState);
+              this._wrapperLoadState = storeState;
+              let applied;
+              try {
+                applied = store.loadUniverseFromFile(storeState);
+              } finally {
+                this._wrapperLoadState = null;
+              }
               umLog('[UniverseBackend] Successfully loaded universe data into store');
 
               // The git-read observation attached to this state (sha + node
@@ -3708,8 +3717,10 @@ class UniverseBackend {
         savedAt: Date.now(),
         // The remote version this copy grew from (shared universes): written in
         // the same record so the two can never disagree. Device-local, never
-        // part of the universe file.
-        ...(syncBase ? { syncBase } : {})
+        // part of the universe file. `syncRecord` marks a record written by a
+        // build that autosaves here; older builds only ever mirrored Git into it.
+        syncRecord: 1,
+        syncBase: syncBase || null
       });
 
       await new Promise((resolve, reject) => {
@@ -5030,6 +5041,11 @@ class UniverseBackend {
       return null;
     }
 
+    // This device's copy had nothing the repository lacks (it often differs
+    // only in holding pictures inline): load the repository's version as it
+    // is. Pushing the merge would be a commit that changes nothing, on every load.
+    if (!documentChanged(gitState, merged)) return gitState;
+
     const nodeCount = this.analyzeStoreData(merged).userNodeCount;
     // Applying it records the repository version this merge is built on…
     this._tagGitObservation(merged, slug, { sha: gitSha, nodeCount, unpushed: true });
@@ -5047,6 +5063,8 @@ class UniverseBackend {
    * (History panel) and say so. Never blocks or fails the load.
    */
   async _backUpUnmergedBrowserCopy(universe, browserState, gitState) {
+    // A copy an older build wrote only ever mirrored Git; it holds no edits of its own.
+    if (browserState?._mirrorOnlyCopy) return;
     try {
       if (await slotsHaveEqualKnowledge(browserState, gitState)) return;
       await backUpNow(universe.slug, { content: serializeRedstring(exportToRedstring(browserState)) });
@@ -5687,6 +5705,22 @@ class UniverseBackend {
     this.remoteObservations.delete(universeSlug);
     this.storeLineage = this.storeLineage || new Map();
     this.storeLineage.set(universeSlug, engine.syncBaseSha);
+  }
+
+  /**
+   * The store was replaced by a load this backend didn't make (the menu's
+   * Open / Open Recent / New, "Use Linked File", the daemon). Nothing says
+   * what that content grew from, so the active universe's sync forgets its
+   * base and its last-seen version: the next save reads and asks, exactly as
+   * before shared universes. Keeping the old base would merge the new
+   * content's gaps as deletions.
+   */
+  _onStoreLoaded(state) {
+    if (state && state === this._wrapperLoadState) return; // the wrapper records lineage itself
+    const slug = this.activeUniverseSlug;
+    if (!slug) return;
+    this._adoptStoreLineage(slug, null);
+    this.gitSyncEngines.get(slug)?.invalidateRemoteObservation?.();
   }
 
   /** The store now holds a copy grown from `base` (null: unknown). See GitSyncEngine.adoptBase. */
@@ -6543,6 +6577,10 @@ class UniverseBackend {
       const { storeState } = importResult;
       // The base this copy grew from, written in the same record as the copy.
       this._tagLocalCopyBase(storeState, typeof result.syncBase === 'string' ? result.syncBase : null);
+      if (!result.syncRecord) {
+        // Written by an older build, which only mirrored Git into it: never edits of its own.
+        try { Object.defineProperty(storeState, '_mirrorOnlyCopy', { value: true, enumerable: false, configurable: true }); } catch (_) { /* non-fatal */ }
+      }
       // NO migration write-back — loading is read-only. See loadFromGitDirect.
       if (importResult.version?.migrated) {
         umLog(`[UniverseBackend] Browser-storage data migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
