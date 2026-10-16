@@ -44,6 +44,8 @@ Field by field, the same rules apply one level down. A field changed to two diff
 
 **References** are checked after merging. A deleted target comes back only when the side that kept it actively made or changed the reference since base. A placement the merge restores brings its Thing back too.
 
+**Images** are one unit: an inline picture (store, local file) and the same picture held as a content ref (Git) are the same picture (`imageKey`; `remoteMerge.primeImageRefs` learns each inline picture's ref first). Otherwise every Thing with a picture read as edited, undoing collaborators' deletes. **Lists of objects** (`equivalentClasses`) merge by `@id` or content, not by reference.
+
 **Safety**: the merge refuses, and the caller falls back to the conflict dialog, when either side removed more than 30% of the Things and webs (and more than 20), removed all of them, or collapsed the way a failed load does (5 or more Things down to 10% or fewer, or every web gone, the same rule as `SaveCoordinator._isCatastrophicShrinkage`). A mass deletion arriving through a merge is what a wipe looks like.
 
 `mergeUniverses.js` (imports and forks) is a two-way union and stays as it is: without a base it cannot tell a deletion from something never added.
@@ -53,7 +55,10 @@ Field by field, the same rules apply one level down. A field changed to two diff
 - **Saving onto a moved remote** (`REMOTE_DIVERGED`): `_mergeWithRemote` reads the base by SHA, asks `onMergeRemote` (universeBackend → `planMerge`) for the merged file, writes it with compare-and-swap, merges again on top if someone saved during the merge (up to 3 rounds), then brings it onto the canvas.
 - **First write of a session** (`_firstContactCheck`): if the remote has data and this device knows its base, it merges the same way. This is how edits made before a restart reach a universe others kept editing. With no base it still reads, compares and asks, as before.
 - **Others saved, this device has nothing to push** (`checkRemote`): one cheap request for the file's SHA (`getRemoteFileSha`); only if it moved, read it and apply it through `onRemoteUpdate` (→ `bringInRemote`). universeBackend calls this every 30 s while the window is visible, and on focus, visibility and reconnect (`_startRemoteWatch`). It never runs mid-drag, mid-load, or while this device has commits on the way out (those merge as they go).
-- **The merge base** (`syncBaseSha`) moves only when the store is known to hold that version: after this device wrote it, or after a read of it was applied (`markRemoteObserved`). It is persisted (`redstring-gitengine-base:<slug>`) only once a local save is known to hold that version or something newer (`noteLocalCopySaved`), so after a restart it is never newer than the local copy. An older base is always safe, just a wider merge.
+- **The merge base** (`syncBaseSha`) lives in memory and moves only when the store is known to hold that version: this device wrote it, a read of it was applied (`markRemoteObserved`), a merge or pull was applied, or the store was loaded from a device copy whose record names it (`adoptBase`). Anything else (a fresh universe, a fallback copy, a discarded load) leaves it unknown, and then a first save asks, as before. A base the store does not descend from would make a merge read everything the store lacks as deleted; that was the most serious finding of the review.
+- **Each device copy records what it grew from.** The browser copy keeps `syncBase` inside its own IndexedDB record, so the two cannot disagree. A local file can't hold it (one file, no sidecars), so a device-local record (`redstring-gitengine-base:<slug>:file`) keeps the base and the file's byte length; a load that finds a different length (the file was written by something else) trusts no base. `_baseForSavedState` decides what a copy records: a loaded state's own lineage, else the SaveCoordinator stamp of the state, else the engine's base for the live state.
+- **States are stamped.** SaveCoordinator stamps every store state it sees (`stampState`) with the base it grew from and how many remote applies have happened. A state stamped before an apply is never committed (`_isStale`): it lacks what the apply brought in, and committing it would revert that in the repository. The canvas kept its edits, so the apply's own save carries them.
+- **Writes assert the base**, not just the last version seen: a read that was never applied (a discarded load) used to leave a token that let the next commit overwrite that version. Now that version is merged.
 - **No echo commits.** After remote changes land, the engine records what the store now holds as committed, unless the canvas had edits of its own on the way. Otherwise two devices would push the same change back and forth forever.
 - **A conflict dialog forgets the SHA** (`_armConflict`). Dismissing the dialog used to leave the remote's SHA in place, so the next autosave overwrote the version the dialog was about. The next write now re-reads; a resolution save asserts the version the dialog showed and merges anything newer on top.
 
@@ -62,7 +67,7 @@ Field by field, the same rules apply one level down. A field changed to two diff
 - `_planRemoteMerge`, `_applyMergedState`, `_applyRemoteUpdate` wire the engine to `src/services/remoteMerge.js` (pure, shared with the tests).
 - The store applies a merge with `applyRemoteDocument` (`src/store/graphStore.js`): not a load. Undo history stays (the arriving changes are not on the stack, so Cmd+Z undoes only this person's edits), each web's camera stays, and the change saves locally like an edit.
 - **At load** (`_mergeLocalCopyOnLoad`): when this device's saved copy (local file, or browser copy for a Git-only universe) and the repository differ and a base is known, they are merged, the result goes to both copies, and the merge is pushed (`_flushPendingPush`). This used to silently mirror the repository over the local copy, dropping edits made offline or not pushed before the app closed.
-- **Git-only universes autosave to their own browser copy** (`universe_<slug>`), the copy a load reads back. Autosave used to write a legacy single-slot store no load reads. Both local copies go through the same empty-overwrite guards (`_localSaveBlocked`).
+- **Git-only universes autosave to their own browser copy** (`universe_<slug>`), the copy a load reads back. Autosave used to write a legacy single-slot store no load reads. Both local copies go through the same empty-overwrite guards (`_localSaveBlocked`). If a Git-only universe's browser copy differs from the repository and can't be merged at load, it is kept as a backup (History panel) before the repository version replaces it.
 - An auth event no longer reloads an open, synced universe wholesale; it checks for others' changes.
 - **The notice.** When others' changes arrive, the save status in the corner reads "Ana updated 4 Things." for 6 s (`redstring:remote-changes`, `SaveStatusDisplay.jsx`). It gives way to anything the person has to act on. Who comes from the repository's latest commit.
 - Switch-off per device: `localStorage['redstring:sync-merge'] = 'off'` restores the old ask-every-time behaviour.
@@ -92,10 +97,12 @@ This starts `scripts/fake-forge.mjs`, a Git host on this machine speaking the Gi
 - `test/formats/syncMergeReal.test.js`: every real universe in a folder (`REDSTRING_REAL_UNIVERSES=~/Documents`): a written file reads back unchanged, and two people's random edits merge without new broken references. 76 files on 2026-10-16, all under 0.5 s.
 - `test/services/providerSharedSync.test.js`: the three host operations on GitHub and Gitea.
 - `test/services/sharedUniverseTwoClients.test.js`: two (and three) real engines against an in-memory compare-and-swap host: merges, no echo, offline, restart, edits made mid-merge, a save racing the merge, collapsed stores, dismissed and resolved dialogs.
-- `test/services/loadMergesLocalCopy.test.js`: merging at load, for file + Git and Git-only universes.
+- `test/services/loadMergesLocalCopy.test.js`: merging at load, for file + Git and Git-only universes, including the double load on open and the backup of an unmergeable copy.
+- `test/services/remoteMergeImages.test.js`: an inline picture and its content ref read as the same picture.
 - `test/services/sharedUniverseFakeForge.test.js`: the same over HTTP against the fake host.
 - `test/services/sharedUniverseRealGitea.test.js`: the same against a real Gitea or Forgejo with two accounts (`REDSTRING_GITEA_URL`, `REDSTRING_GITEA_REPO`, `REDSTRING_GITEA_TOKENS`). Passed against Gitea 1.22.6 on 2026-10-16.
-- The harness was driven in two real browser pages (create, join, simultaneous edits, a same-name clash, offline and reconnect, 45 s with no echo commits).
+- The harness was driven in two real browser pages: create, join, simultaneous edits, a same-name clash, offline and reconnect, 45 s with no echo commits; and offline edits surviving a closed page (Ben offline adds a Thing, closes the page, Ana saves, Ben reconnects and reopens with both, and his Thing reaches the repository).
+- Two independent data-safety reviews of the branch; every finding fixed has a regression test (see the commit "fix: address the data-safety review").
 
 ## Behaviour decisions
 
@@ -115,6 +122,8 @@ Made as defaults on 2026-10-16, each easy to change:
 - **The universe card's "Status / Last saved"** reads GitHub-era fields that autosave doesn't update.
 - **The batch commit path** (`GitAutosavePolicy` → `forceCommit`) still skips SaveCoordinator's shrinkage guard for ordinary (non-merge) writes. Merges have their own guard; plain writes rely on the engine's zero-floor.
 - **Two people reorganising the same web** merge cleanly but can pile both layouts together. The notice and undo are the current answer.
+- **Two tabs of one origin on one universe** share the browser copy and its record. There is no tab lock anywhere in the app; the merge doesn't make this worse in the browser copy (record and content are written together), but two tabs editing the same local file can still pair one tab's file with the other's record in a narrow window.
+- **The connection-names toggle, saved sets and connection types** aren't in the engine's change fingerprint (`generateStateHash`), so a change to only those doesn't trigger a commit on its own (older behaviour, unchanged).
 
 ## Not part of this
 
