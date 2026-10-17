@@ -1,46 +1,63 @@
 // @vitest-environment node
 //
-// Shared universes end to end over HTTP: the real GiteaSemanticProvider and
-// two real GitSyncEngines against scripts/fake-forge.mjs (a separate process
-// keeping real Git repositories). The same glue the app wires up.
+// Shared universes end to end over HTTP: the real Gitea and GitHub providers
+// and two real GitSyncEngines against scripts/fake-forge.mjs (a separate
+// process keeping real Git repositories, speaking both APIs). The same glue
+// the app wires up.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { GitSyncEngine } from '../../src/services/gitSyncEngine.js';
-import { GiteaSemanticProvider } from '../../src/services/gitNativeProvider.js';
+import { GiteaSemanticProvider, GitHubSemanticProvider } from '../../src/services/gitNativeProvider.js';
 import { planMerge, mergeOntoCanvas, bringInRemote } from '../../src/services/remoteMerge.js';
 import { importFromRedstring, exportToRedstring } from '../../src/formats/redstringFormat.js';
 import { deepEqual } from '../../src/formats/syncMerge.js';
 
-const PORT = 4600 + Math.floor(Math.random() * 300);
-const ENDPOINT = `http://127.0.0.1:${PORT}`;
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-forge-test-'));
-let forge;
+const forges = [];
 
-beforeAll(async () => {
-  forge = spawn(process.execPath, [path.resolve('scripts/fake-forge.mjs'), '--port', String(PORT), '--dir', DIR], { stdio: 'pipe' });
+async function startForge(extraArgs = []) {
+  const port = 4600 + Math.floor(Math.random() * 300) + forges.length * 300;
+  const endpoint = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [path.resolve('scripts/fake-forge.mjs'), '--port', String(port), '--dir', DIR, ...extraArgs], { stdio: 'pipe' });
+  forges.push(child);
   for (let i = 0; i < 50; i++) {
     try {
-      if ((await fetch(`${ENDPOINT}/api/v1/version`)).ok) return;
+      if ((await fetch(`${endpoint}/api/v1/version`)).ok) return endpoint;
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error('fake forge did not start');
-}, 15000);
+}
+
+let ENDPOINT;
+// GitHub's reads trail its writes for a moment after a save; this host's do too.
+let LAGGING;
+const READ_LAG_MS = 1500;
+
+beforeAll(async () => {
+  ENDPOINT = await startForge();
+  LAGGING = await startForge(['--read-lag', String(READ_LAG_MS)]);
+}, 20000);
 
 afterAll(() => {
-  forge?.kill();
+  for (const child of forges) child.kill();
   fs.rmSync(DIR, { recursive: true, force: true });
 });
+
+const HOSTS = {
+  Gitea: (repo, token, endpoint = ENDPOINT) => new GiteaSemanticProvider({ endpoint, user: 'harness', repo, token }),
+  GitHub: (repo, token, endpoint = ENDPOINT) => new GitHubSemanticProvider({ apiBase: `${endpoint}/github`, user: 'harness', repo, token, authMethod: 'oauth' })
+};
 
 const setOffline = (user, on) => fetch(`${ENDPOINT}/_control/offline`, { method: 'POST', body: new URLSearchParams({ user, on: on ? '1' : '0' }), redirect: 'manual' });
 
 let repoCounter = 0;
-function makeDevice(repo, author, initialState = null) {
+function makeDevice(host, repo, author, initialState = null, endpoint) {
   const device = { author, state: initialState, conflicts: 0 };
-  const provider = new GiteaSemanticProvider({ endpoint: ENDPOINT, user: 'harness', repo, token: author });
+  const provider = HOSTS[host](repo, author, endpoint);
   const engine = new GitSyncEngine(provider, 'git', 'forest', 'forest.redstring', 'forest');
   Object.assign(device, { provider, engine });
   const apply = (doc) => { device.state = { ...device.state, ...doc }; };
@@ -134,20 +151,22 @@ const sameDocument = (a, b) => {
 
 
 // Every save spawns a few git processes; under a full parallel run that is slow.
-describe('shared universe over HTTP (fake forge, Gitea API)', { timeout: 30000 }, () => {
+describe.each(Object.keys(HOSTS))('shared universe over HTTP (fake forge, %s API)', { timeout: 30000 }, (host) => {
   it('two people edit, the second save merges, the first pulls it in, nobody echoes', async () => {
     const repo = `forest${++repoCounter}`;
-    const ana = makeDevice(repo, 'ana', forest());
+    const ana = makeDevice(host, repo, 'ana', forest());
     await ana.save();
-    const ben = makeDevice(repo, 'ben');
+    const ben = makeDevice(host, repo, 'ben');
     await ben.open();
 
     ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
     ben.edit((s) => { addThing(s, 'squirrel', 'Squirrel'); s.nodePrototypes.get('tree').name = 'Oak'; });
     await ana.save();
+    expect(ben.engine.lastSavedAt).toBe(0);
     await ben.save();
     expect(ben.conflicts).toBe(0);
     expect(names(ben.state)).toEqual(['Bird', 'Fungus', 'Oak', 'Soil', 'Squirrel']);
+    expect(ben.engine.lastSavedAt).toBeGreaterThan(0); // a merged save is a save
 
     expect(await ana.engine.checkRemote()).toMatchObject({ applied: true });
     expect(sameDocument(ana.state, ben.state)).toBe(true);
@@ -161,7 +180,7 @@ describe('shared universe over HTTP (fake forge, Gitea API)', { timeout: 30000 }
 
   it('a stale write is refused by the host, never overwritten', async () => {
     const repo = `forest${++repoCounter}`;
-    const ana = makeDevice(repo, 'ana', forest());
+    const ana = makeDevice(host, repo, 'ana', forest());
     await ana.save();
     const path_ = ana.engine.getLatestPath();
     const sha = ana.engine.lastKnownRemoteSha;
@@ -173,9 +192,9 @@ describe('shared universe over HTTP (fake forge, Gitea API)', { timeout: 30000 }
 
   it('offline edits merge when the connection comes back', async () => {
     const repo = `forest${++repoCounter}`;
-    const ana = makeDevice(repo, 'ana', forest());
+    const ana = makeDevice(host, repo, 'ana', forest());
     await ana.save();
-    const ben = makeDevice(repo, 'ben');
+    const ben = makeDevice(host, repo, 'ben');
     await ben.open();
 
     await setOffline('ben', true);
@@ -193,7 +212,7 @@ describe('shared universe over HTTP (fake forge, Gitea API)', { timeout: 30000 }
 
   it('reads the merge base by SHA from the host', async () => {
     const repo = `forest${++repoCounter}`;
-    const ana = makeDevice(repo, 'ana', forest());
+    const ana = makeDevice(host, repo, 'ana', forest());
     await ana.save();
     const first = ana.engine.lastKnownRemoteSha;
     ana.edit((s) => addThing(s, 'x', 'X'));
@@ -201,5 +220,79 @@ describe('shared universe over HTTP (fake forge, Gitea API)', { timeout: 30000 }
     const old = importFromRedstring(JSON.parse(await ana.provider.readFileAtSha(ana.engine.getLatestPath(), first))).storeState;
     expect(names(old)).toEqual(['Bird', 'Soil', 'Tree']);
     expect(await ana.provider.getRemoteFileSha(ana.engine.getLatestPath())).toBe(ana.engine.lastKnownRemoteSha);
+  });
+});
+
+// GitHub's own behaviour, beyond the API shape.
+describe('shared universe over HTTP (fake forge, GitHub quirks)', { timeout: 30000 }, () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  it('a universe over 1 MB, which the contents API sends without content', async () => {
+    const repo = `forest${++repoCounter}`;
+    const big = forest();
+    for (let i = 0; i < 400; i++) {
+      addThing(big, `t${i}`, `Thing ${i}`, i);
+      big.nodePrototypes.get(`t${i}`).description = 'x'.repeat(3000);
+    }
+    const ana = makeDevice('GitHub', repo, 'ana', big);
+    await ana.save();
+
+    const listing = await (await fetch(`${ENDPOINT}/github/repos/harness/${repo}/contents/${ana.engine.getLatestPath()}`, { headers: { Authorization: 'token ana' } })).json();
+    expect(listing.size).toBeGreaterThan(1024 * 1024);
+    expect(listing.encoding).toBe('none');
+
+    const ben = makeDevice('GitHub', repo, 'ben');
+    await ben.open();
+    expect(ben.state.nodePrototypes.size).toBe(403);
+
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    ben.edit((s) => addThing(s, 'squirrel', 'Squirrel'));
+    await ana.save();
+    await ben.save();
+    expect(ben.conflicts).toBe(0);
+    await ana.engine.checkRemote();
+    expect(ana.state.nodePrototypes.has('squirrel')).toBe(true);
+    expect(sameDocument(ana.state, ben.state)).toBe(true);
+  });
+
+  it('reads that trail writes never undo your own save', async () => {
+    const repo = `forest${++repoCounter}`;
+    const ana = makeDevice('GitHub', repo, 'ana', forest(), LAGGING);
+    await ana.save();
+    await wait(READ_LAG_MS + 200);
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    await ana.save();
+
+    // The host still shows the first version for a moment.
+    expect(await ana.provider.getRemoteFileSha(ana.engine.getLatestPath())).not.toBe(ana.engine.lastKnownRemoteSha);
+    await ana.engine.checkRemote();
+    expect(names(ana.state)).toContain('Fungus');
+    await wait(READ_LAG_MS + 200);
+    expect(await ana.engine.checkRemote()).toEqual({ changed: false });
+    expect(names(ana.state)).toContain('Fungus');
+  });
+
+  it('two people saving moments apart still merge, while reads trail', async () => {
+    const repo = `forest${++repoCounter}`;
+    const ana = makeDevice('GitHub', repo, 'ana', forest(), LAGGING);
+    await ana.save();
+    await wait(READ_LAG_MS + 200);
+    const ben = makeDevice('GitHub', repo, 'ben', null, LAGGING);
+    await ben.open();
+
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    ben.edit((s) => { addThing(s, 'squirrel', 'Squirrel'); s.nodePrototypes.get('tree').name = 'Oak'; });
+    await ana.save();
+    await ben.save(); // right after Ana: her save is not readable yet
+    expect(ben.conflicts).toBe(0);
+    expect(names(ben.state)).toEqual(['Bird', 'Fungus', 'Oak', 'Soil', 'Squirrel']);
+
+    // The host still shows Ana's version, the one Ben just merged with.
+    await ben.engine.checkRemote();
+    expect(names(ben.state)).toEqual(['Bird', 'Fungus', 'Oak', 'Soil', 'Squirrel']);
+
+    await wait(READ_LAG_MS + 200);
+    await ana.engine.checkRemote();
+    expect(sameDocument(ana.state, ben.state)).toBe(true);
   });
 });

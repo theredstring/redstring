@@ -61,6 +61,8 @@ Field by field, the same rules apply one level down. A field changed to two diff
 - **States are stamped.** SaveCoordinator stamps every store state it sees (`stampState`) with the base it grew from and how many remote applies have happened. A state stamped before an apply is never committed (`_isStale`): it lacks what the apply brought in, and committing it would revert that in the repository. The canvas kept its edits, so the apply's own save carries them.
 - **Writes assert the base**, not just the last version seen: a read that was never applied (a discarded load) used to leave a token that let the next commit overwrite that version. Now that version is merged.
 - **No echo commits.** After remote changes land, the engine records what the store now holds as committed, unless the canvas had edits of its own on the way. Otherwise two devices would push the same change back and forth forever.
+- **Stale reads are not news.** GitHub's reads trail its writes for a few seconds. The engine remembers every version it moved past (old bases, and versions a saved merge already contains) for two minutes (`_isRecentlySuperseded`); a read showing one of them is ignored instead of applied, which would have undone this device's own last save on its canvas. When the host refuses a save but a read still shows the refused version, it waits and reads again (0.5, 1, 2, 4 s; then `REMOTE_READ_STALE`, retried like any failed save) instead of merging against nothing new until it gives up. Saved files carry their save time, so a real save never repeats an old version's bytes; after the window, a matching version is believed (a file put back by hand).
+- **"Last saved"** on the universe card is when this device's changes last reached the repository, any write, a merge included (`lastSavedAt`, kept in `metadata.gitLastSaved` across restarts). `lastCommitTime` is a rate limit that a failed write backdates; the card no longer reads it.
 - **A conflict dialog forgets the SHA** (`_armConflict`). Dismissing the dialog used to leave the remote's SHA in place, so the next autosave overwrote the version the dialog was about. The next write now re-reads; a resolution save asserts the version the dialog showed and merges anything newer on top.
 
 ### universeBackend and the store
@@ -81,16 +83,22 @@ Three things every provider supports:
 2. `readFileAtSha(path, blobSha)`: the merge base, from the Git blob API.
 3. `getRemoteFileSha(path)`: the current SHA from a folder listing, without downloading the file.
 
-`listFileHistory` also returns each revision's `author`.
+`listFileHistory` also returns each revision's `author`. The GitHub provider takes `apiBase` (default `https://api.github.com`), so tests and the harness can point it at the fake host.
 
 ## Trying it: the two-port harness
 
 ```
-npm run harness:shared            # keeps the repositories from last time
-npm run harness:shared -- --fresh # starts from an empty host
+npm run harness:shared                              # keeps the repositories from last time
+npm run harness:shared -- --fresh                   # starts from an empty host
+npm run harness:shared -- --fresh --github          # through the GitHub provider
+npm run harness:shared -- --fresh --github --read-lag 3000   # ...with reads trailing writes by 3 s
 ```
 
-This starts `scripts/fake-forge.mjs`, a Git host on this machine speaking the Gitea API over real bare Git repositories (`git log` in one shows every save and who made it), plus two dev servers, Ana on 5181 and Ben on 5182. Each port is its own origin with its own storage, so each behaves as a separate device. The script prints one link per person. `src/dev/devForge.js` (dev builds only) makes that port the person, skips onboarding, and opens or creates the shared universe. `http://localhost:4510/` shows the history and has a switch per person that drops their connection, for trying offline. Each harness port has its own Vite cache (`.vite-harness/`), so it never touches the one a normal `npm run dev` uses. `?devForge=off` turns a port back into a normal session.
+This starts `scripts/fake-forge.mjs`, a Git host on this machine speaking the Gitea API and the GitHub API (under `/github`) over the same real bare Git repositories (`git log` in one shows every save and who made it), plus two dev servers, Ana on 5181 and Ben on 5182. Each port is its own origin with its own storage, so each behaves as a separate device. The script prints one link per person. `src/dev/devForge.js` (dev builds only) makes that port the person, skips onboarding, and opens or creates the shared universe. `http://localhost:4510/` shows the history and has a switch per person that drops their connection, for trying offline. Each harness port has its own Vite cache (`.vite-harness/`), so it never touches the one a normal `npm run dev` uses. `?devForge=off` turns a port back into a normal session.
+
+The GitHub dialect follows GitHub's rules as Redstring meets them: a stale SHA answers 409, a write over an existing file without a SHA answers 422 "sha wasn't supplied", a file over 1 MB comes back from the contents API with `encoding: "none"` and no content (so the blob read is exercised), base64 wrapped at 60 columns, `Bad credentials` without a token. `--read-lag` makes GitHub-dialect contents, listings and history trail writes; blobs never do. Not simulated: GitHub's sign-in (OAuth, the App), rate limits, caching proxies, and collaborator permissions. Those still need two real accounts.
+
+In a production build the dev-host code is compiled out, apart from two small helpers (`usesDevForge`, `devForgeProvider`) that only act on a setting dev builds write.
 
 ## Tests
 
@@ -100,9 +108,12 @@ This starts `scripts/fake-forge.mjs`, a Git host on this machine speaking the Gi
 - `test/services/sharedUniverseTwoClients.test.js`: two (and three) real engines against an in-memory compare-and-swap host: merges, no echo, offline, restart, edits made mid-merge, a save racing the merge, collapsed stores, dismissed and resolved dialogs.
 - `test/services/loadMergesLocalCopy.test.js`: merging at load, for file + Git and Git-only universes, including the double load on open and the backup of an unmergeable copy.
 - `test/services/remoteMergeImages.test.js`: an inline picture and its content ref read as the same picture.
-- `test/services/sharedUniverseFakeForge.test.js`: the same over HTTP against the fake host.
+- `test/services/sharedUniverseFakeForge.test.js`: the same over HTTP against the fake host, through both the Gitea and the GitHub provider; plus GitHub's quirks: a universe over 1 MB, and reads trailing writes (your own save is not undone; two people saving moments apart still merge, and a check right after the merge doesn't revert it).
+- `test/services/staleReads.test.js`: the two-minute window, and waiting out a stale read after a refused save.
+- `test/services/gitSaveTime.test.js`: "Last saved" is the time a write landed, kept across sessions, never the rate-limit timestamp.
 - `test/services/sharedUniverseRealGitea.test.js`: the same against a real Gitea or Forgejo with two accounts (`REDSTRING_GITEA_URL`, `REDSTRING_GITEA_REPO`, `REDSTRING_GITEA_TOKENS`). Passed against Gitea 1.22.6 on 2026-10-16.
 - The harness was driven in two real browser pages: create, join, simultaneous edits, a same-name clash, offline and reconnect, 45 s with no echo commits; and offline edits surviving a closed page (Ben offline adds a Thing, closes the page, Ana saves, Ben reconnects and reopens with both, and his Thing reaches the repository).
+- The harness driven through the GitHub provider with reads lagging 3 s (2026-10-17): create, join, simultaneous edits and a rename, a check right after a save, 40 s idle with no echo commits, both cards showing a save time, no request reaching github.com. Its first runs found the stale-read bugs above.
 - Two independent data-safety reviews of the branch; every finding fixed has a regression test (see the commit "fix: address the data-safety review").
 
 ## Behaviour decisions
@@ -118,9 +129,9 @@ Made as defaults on 2026-10-16, each easy to change:
 
 ## Not done yet
 
-- **GitHub with two real accounts.** Everything above runs on Gitea's API and on GitHub's in unit tests; the two-person flow hasn't been run against github.com. The GitHub App is installed per owner, so a collaborator may land on the OAuth fallback (already wired) unless the owner installs the App on that repository.
+- **GitHub with two real accounts.** The two-person flow runs through the GitHub provider against the fake host's GitHub dialect, not github.com itself. The GitHub App is installed per owner, so a collaborator may land on the OAuth fallback (already wired) unless the owner installs the App on that repository.
 - **Gitea in the app's UI.** The provider works, but universeBackend only builds GitHub providers outside the dev harness: no way yet to link a Gitea/Forgejo/Codeberg repository or store its token.
-- **The universe card's "Status / Last saved"** reads GitHub-era fields that autosave doesn't update.
+- **A restart within seconds of a save** can read the repository's previous version at load (the window that tracks moved-past versions starts empty each session). The merge at load then shows the older version; the push that follows is refused, re-reads, and should merge the newer one back. Reasoned through, not tested.
 - **The batch commit path** (`GitAutosavePolicy` → `forceCommit`) still skips SaveCoordinator's shrinkage guard for ordinary (non-merge) writes. Merges have their own guard; plain writes rely on the engine's zero-floor.
 - **Two people reorganising the same web** merge cleanly but can pile both layouts together. The notice and undo are the current answer.
 - **Two tabs of one origin on one universe** share the browser copy and its record. There is no tab lock anywhere in the app; the merge doesn't make this worse in the browser copy (record and content are written together), but two tabs editing the same local file can still pair one tab's file with the other's record in a narrow window.

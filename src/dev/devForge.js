@@ -4,6 +4,9 @@
  *
  *   http://localhost:5181/?devForge=http://localhost:4510&devForgeUser=ana&devForgeRepo=harness/forest
  *
+ * `&devForgeApi=github` talks to the host through the GitHub provider (the
+ * host speaks both APIs) instead of the Gitea one.
+ *
  * Each port is its own origin with its own storage, so two ports are two
  * devices. The setting is remembered in this origin's localStorage, onboarding
  * is skipped, and the shared universe is opened (or created, for whoever is
@@ -13,7 +16,7 @@
  *
  * scripts/shared-universe-harness.mjs starts the host and both ports.
  */
-import { GiteaSemanticProvider } from '../services/gitNativeProvider.js';
+import { SemanticProviderFactory } from '../services/gitNativeProvider.js';
 
 const KEY = 'redstring:dev-forge';
 const SLUG = 'shared-forest';
@@ -37,13 +40,14 @@ export function captureDevForgeParams() {
     const config = {
       endpoint: endpoint.replace(/\/+$/, ''),
       token: params.get('devForgeUser') || 'dev',
-      repo: params.get('devForgeRepo') || 'harness/forest'
+      repo: params.get('devForgeRepo') || 'harness/forest',
+      api: params.get('devForgeApi') === 'github' ? 'github' : 'gitea'
     };
     window.localStorage.setItem(KEY, JSON.stringify(config));
     // Onboarding would ask where to keep universes; this origin keeps one, in the fake host.
     window.localStorage.setItem('redstring-welcome-seen', 'true');
   }
-  for (const name of ['devForge', 'devForgeUser', 'devForgeRepo']) params.delete(name);
+  for (const name of ['devForge', 'devForgeUser', 'devForgeRepo', 'devForgeApi']) params.delete(name);
   const query = params.toString();
   window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
   return readConfig();
@@ -62,13 +66,13 @@ function readConfig() {
 export async function joinDevForgeUniverse() {
   const config = readConfig();
   if (!config) return;
-  const { default: backend } = await import('../services/universeBackend.js');
+  const { default: backend, devForgeProvider } = await import('../services/universeBackend.js');
   if (!backend.isInitialized) await backend.initialize();
 
   const [owner, repo] = config.repo.split('/');
   const gitRepo = {
     enabled: true,
-    linkedRepo: { type: 'gitea', user: owner, repo },
+    linkedRepo: { type: config.api === 'github' ? 'github' : 'gitea', user: owner, repo },
     universeFolder: SLUG,
     universeFile: `${SLUG}.redstring`,
     schemaPath: 'schema'
@@ -88,7 +92,7 @@ export async function joinDevForgeUniverse() {
 
   // Load it the way the app loads any Git universe: what the host has, or —
   // for whoever is first — a new empty one their first edit creates.
-  const provider = new GiteaSemanticProvider({ endpoint: config.endpoint, user: owner, repo, token: config.token });
+  const provider = SemanticProviderFactory.createProvider({ ...devForgeProvider(config), user: owner, repo });
   const sha = await provider.getRemoteFileSha(`universes/${SLUG}/${SLUG}.redstring`).catch(() => null);
   if (backend.activeUniverseSlug !== universe.slug) {
     await backend.switchActiveUniverse(universe.slug);
@@ -103,5 +107,5 @@ export async function joinDevForgeUniverse() {
     /** Check the host for others' saves now (the app also does every 30s and on focus). */
     checkNow: () => backend.checkForRemoteChanges('manual')
   };
-  console.info(`[devForge] ${config.token} is in ${config.repo} (${sha ? 'opened' : 'new — the first edit creates it'})`);
+  console.info(`[devForge] ${config.token} is in ${config.repo} through the ${config.api === 'github' ? 'GitHub' : 'Gitea'} API (${sha ? 'opened' : 'new — the first edit creates it'})`);
 }

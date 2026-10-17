@@ -505,7 +505,9 @@ export class GitHubSemanticProvider extends SemanticProvider {
   constructor(config) {
     super({
       name: 'GitHub',
-      rootUrl: `https://api.github.com/repos/${config.user}/${config.repo}/contents`,
+      // apiBase points the provider at a GitHub-compatible test host
+      // (scripts/fake-forge.mjs); everything else talks to GitHub.
+      rootUrl: `${config.apiBase || 'https://api.github.com'}/repos/${config.user}/${config.repo}/contents`,
       authMechanism: 'oauth',
       ...config
     });
@@ -882,7 +884,7 @@ This repository was automatically initialized by Redstring UI React. You can now
 
       await githubRateLimiter.waitForAvailability(this.authMethod);
 
-      const repoUrl = `https://api.github.com/repos/${this.user}/${this.repo}`;
+      const repoUrl = this.rootUrl.replace(/\/contents$/, '');
       githubRateLimiter.recordRequest(this.authMethod);
       const response = await fetch(repoUrl, {
         headers: {

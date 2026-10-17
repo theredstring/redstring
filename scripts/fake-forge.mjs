@@ -3,13 +3,22 @@
 //
 //   node scripts/fake-forge.mjs [--port 4510] [--dir <folder>]
 //
-// Speaks the slice of the Gitea API that GiteaSemanticProvider uses (so the
-// app talks to it exactly as it would to Gitea, Forgejo or Codeberg) and keeps
-// everything in real bare Git repositories under --dir: `git log` in one shows
-// every save, with the person who made it. Writes follow Gitea's rules: an
-// update must name the SHA it replaces, a create must not land on an existing
-// file, and a stale SHA is refused — the compare-and-swap shared universes
-// depend on.
+// Speaks two dialects over the same repositories:
+//   /api/v1/...        the slice of the Gitea API GiteaSemanticProvider uses
+//                      (as Gitea, Forgejo or Codeberg would answer)
+//   /github/repos/...  the slice of the GitHub REST API GitHubSemanticProvider
+//                      uses (point it here with `apiBase: <host>/github`)
+// Everything lives in real bare Git repositories under --dir: `git log` in one
+// shows every save, with the person who made it. Writes follow each host's
+// rules: an update must name the SHA it replaces, a create must not land on an
+// existing file, and a stale SHA is refused — the compare-and-swap shared
+// universes depend on. Gitea answers a stale SHA with 422, GitHub with 409.
+//
+// GitHub's quirks that have bitten Redstring are kept too: a file over 1 MB
+// comes back from the contents API with no content (`encoding: "none"`), and
+// `--read-lag <ms>` makes GitHub-dialect reads trail writes by that long, as
+// GitHub's do for a few seconds after a save (blobs, being addressed by their
+// SHA, are never stale).
 //
 // Who is saving comes from the token: `Authorization: token ana` is Ana. No
 // real authentication; it listens on localhost only.
@@ -34,6 +43,8 @@ const arg = (name, fallback) => {
 const PORT = Number(arg('port', 4510));
 const ROOT = path.resolve(arg('dir', path.join(os.tmpdir(), 'redstring-fake-forge')));
 const BRANCH = 'main';
+const READ_LAG_MS = Math.max(0, Number(arg('read-lag', 0)) || 0);
+const GITHUB_CONTENT_LIMIT = 1024 * 1024; // the contents API omits content above this
 
 fs.mkdirSync(ROOT, { recursive: true });
 const offline = new Set(); // people whose connection is "down"
@@ -118,15 +129,38 @@ function commitFile(dir, parent, filePath, bytes, author, message) {
     const commit = git(dir, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message], { env: { ...env, ...who } }).toString().trim();
     // The ref moves only from the parent we built on: compare-and-swap again at the Git level.
     git(dir, ['update-ref', `refs/heads/${BRANCH}`, commit, parent || '0'.repeat(40)]);
+    if (!moves.has(dir)) moves.set(dir, []);
+    moves.get(dir).push({ at: Date.now(), commit, parent });
     return { commit, sha };
   } finally {
     fs.rmSync(index, { force: true });
   }
 }
 
-function history(dir, filePath, limit) {
-  if (!headCommit(dir)) return [];
-  const out = git(dir, ['log', `-n${limit}`, '--format=%H%x1f%an%x1f%aI%x1f%s', BRANCH, '--', ...(filePath ? [filePath] : [])]).toString().trim();
+// Every move of each repository's branch, for --read-lag.
+const moves = new Map(); // dir -> [{ at, commit, parent }]
+
+/** The branch tip a lagging reader sees: the newest one at least READ_LAG_MS old. */
+function visibleHead(dir) {
+  const head = headCommit(dir);
+  if (!READ_LAG_MS) return head;
+  const cutoff = Date.now() - READ_LAG_MS;
+  const recent = (moves.get(dir) || []).find((move) => move.at > cutoff);
+  return recent ? recent.parent : head;
+}
+
+/** A commit from a branch name or commit SHA, or null. */
+function resolveRef(dir, ref) {
+  try {
+    return git(dir, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function history(dir, filePath, limit, from = BRANCH) {
+  if (!headCommit(dir) || !from) return [];
+  const out = git(dir, ['log', `-n${limit}`, '--format=%H%x1f%an%x1f%aI%x1f%s', from, '--', ...(filePath ? [filePath] : [])]).toString().trim();
   if (!out) return [];
   return out.split('\n').map((line) => {
     const [sha, name, date, message] = line.split('\x1f');
@@ -231,6 +265,93 @@ async function handleApi(req, res, url, user) {
 }
 
 // ---------------------------------------------------------------------------
+// GitHub dialect (GitHubSemanticProvider with apiBase `<host>/github`)
+
+// GitHub wraps base64 at 60 columns.
+const githubBase64 = (bytes) => bytes.toString('base64').replace(/(.{60})/g, '$1\n');
+const githubFail = (res, status, message) => send(res, status, { message, documentation_url: 'https://docs.github.com/rest', status: String(status) });
+
+function githubFileJson(filePath, entry, bytes) {
+  const size = bytes ? bytes.length : entry.size;
+  const omitted = size > GITHUB_CONTENT_LIMIT;
+  return {
+    type: 'file',
+    name: path.posix.basename(filePath),
+    path: filePath,
+    sha: entry.sha,
+    size,
+    encoding: omitted ? 'none' : 'base64',
+    content: omitted || !bytes ? '' : githubBase64(bytes)
+  };
+}
+
+async function handleGithub(req, res, url, user) {
+  if (user === 'anonymous') return githubFail(res, 401, 'Bad credentials');
+  if (url.pathname === '/github/user') return send(res, 200, { login: user });
+
+  const m = url.pathname.match(/^\/github\/repos\/([^/]+)\/([^/]+)(?:\/(.*))?$/);
+  if (!m) return githubFail(res, 404, 'Not Found');
+  const [, owner, repo, rest = ''] = m.map((x) => (x ? decodeURIComponent(x) : x));
+  const dir = repoDir(owner, repo);
+
+  if (rest === '') {
+    return send(res, 200, { name: repo, full_name: `${owner}/${repo}`, owner: { login: owner }, private: true, default_branch: BRANCH, permissions: { pull: true, push: true, admin: true } }, 'application/json');
+  }
+
+  if (rest.startsWith('git/blobs/')) {
+    const sha = rest.slice('git/blobs/'.length);
+    const bytes = blob(dir, sha);
+    if (!bytes) return githubFail(res, 404, 'Not Found');
+    return send(res, 200, { sha, size: bytes.length, encoding: 'base64', content: githubBase64(bytes) });
+  }
+
+  if (rest === 'commits') {
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('per_page') || 30)));
+    return send(res, 200, history(dir, url.searchParams.get('path') || '', limit, visibleHead(dir)));
+  }
+
+  if (rest === 'contents' || rest.startsWith('contents/')) {
+    const filePath = rest === 'contents' ? '' : rest.slice('contents/'.length).replace(/\/+$/, '');
+
+    if (req.method === 'GET') {
+      const ref = url.searchParams.get('ref');
+      const at = ref ? resolveRef(dir, ref) : visibleHead(dir);
+      if (ref && !at) return githubFail(res, 404, `No commit found for the ref ${ref}`);
+      if (!at) return githubFail(res, 404, 'This repository is empty.');
+      if (!filePath) return send(res, 200, listDir(dir, at, ''));
+      const entry = entryAt(dir, at, filePath);
+      if (!entry) return githubFail(res, 404, 'Not Found');
+      if (entry.type === 'dir') return send(res, 200, listDir(dir, at, filePath));
+      const bytes = blob(dir, entry.sha);
+      if (/application\/vnd\.github(\.v3)?\.raw/.test(req.headers.accept || '')) return send(res, 200, bytes, 'application/vnd.github.raw');
+      return send(res, 200, githubFileJson(filePath, entry, bytes));
+    }
+
+    if (req.method === 'PUT') {
+      let body;
+      try { body = JSON.parse((await readBody(req)).toString('utf8') || '{}'); } catch { return githubFail(res, 400, 'Problems parsing JSON'); }
+      if (typeof body.message !== 'string') return githubFail(res, 422, 'Invalid request.\n\n"message" wasn\'t supplied.');
+      // Writes see the true tip, never a lagging one.
+      const head = headCommit(dir);
+      const current = entryAt(dir, head, filePath);
+      if (current && !body.sha) return githubFail(res, 422, 'Invalid request.\n\n"sha" wasn\'t supplied.');
+      if (body.sha && (!current || current.sha !== body.sha)) {
+        return githubFail(res, 409, `is at ${current?.sha || 'nothing'} but expected ${body.sha}`);
+      }
+      const bytes = Buffer.from(String(body.content || '').replace(/\s/g, ''), 'base64');
+      const { commit, sha } = commitFile(dir, head, filePath, bytes, user, body.message);
+      log(`${user} saved ${owner}/${repo}/${filePath} (${bytes.length} bytes, GitHub API) → ${sha.slice(0, 8)}`);
+      return send(res, current ? 200 : 201, {
+        content: { type: 'file', name: path.posix.basename(filePath), path: filePath, sha, size: bytes.length },
+        commit: { sha: commit, message: body.message, author: { name: user, date: new Date().toISOString() } }
+      });
+    }
+  }
+
+  return githubFail(res, 404, 'Not Found');
+}
+
+// ---------------------------------------------------------------------------
 // Control page
 
 function repos() {
@@ -280,6 +401,7 @@ const handle = async (req, res) => {
     const user = (auth.match(/^token\s+(.+)$/i) || auth.match(/^Bearer\s+(.+)$/i) || [])[1]?.trim() || 'anonymous';
     // "Offline": drop the connection, as a dead network would.
     if (offline.has(user)) return req.socket.destroy();
+    if (url.pathname.startsWith('/github/')) return await handleGithub(req, res, url, user);
     return await handleApi(req, res, url, user);
   } catch (error) {
     log('error', error?.message || error);
@@ -289,5 +411,5 @@ const handle = async (req, res) => {
 
 // Both loopback addresses, so `localhost` works whichever one a client tries
 // first (Node's fetch can pick ::1). Never a non-loopback interface.
-http.createServer(handle).listen(PORT, '127.0.0.1', () => log(`listening on http://localhost:${PORT} — repositories in ${ROOT}`));
+http.createServer(handle).listen(PORT, '127.0.0.1', () => log(`listening on http://localhost:${PORT} — repositories in ${ROOT}${READ_LAG_MS ? ` — GitHub reads lag ${READ_LAG_MS} ms` : ''}`));
 http.createServer(handle).on('error', () => { /* no IPv6 loopback here */ }).listen(PORT, '::1');

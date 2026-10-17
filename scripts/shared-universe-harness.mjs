@@ -3,9 +3,11 @@
 //
 //   npm run harness:shared            # keep the repositories from last time
 //   npm run harness:shared -- --fresh # start from an empty host
+//   npm run harness:shared -- --github                 # through the GitHub API
+//   npm run harness:shared -- --github --read-lag 3000 # ...whose reads trail writes
 //
-// Starts scripts/fake-forge.mjs (a Git host speaking the Gitea API, over real
-// Git repositories) and two dev servers on two ports. Each port is its own
+// Starts scripts/fake-forge.mjs (a Git host speaking the Gitea and GitHub
+// APIs, over real Git repositories) and two dev servers on two ports. Each port is its own
 // origin with its own storage, so it behaves like a separate device. Open one
 // link per person; src/dev/devForge.js does the rest.
 //
@@ -29,6 +31,8 @@ const PORTS = arg('ports', '5181,5182').split(',').map(Number);
 const PEOPLE = ['ana', 'ben', 'cy', 'dee'].slice(0, PORTS.length);
 const DIR = path.resolve(arg('dir', path.join(os.tmpdir(), 'redstring-shared-harness')));
 const REPO = arg('repo', 'harness/forest');
+const API = args.includes('--github') ? 'github' : 'gitea';
+const READ_LAG = arg('read-lag', null);
 
 if (args.includes('--fresh')) fs.rmSync(DIR, { recursive: true, force: true });
 
@@ -43,15 +47,15 @@ const run = (label, command, commandArgs, env = {}) => {
   return child;
 };
 
-run('host', process.execPath, ['scripts/fake-forge.mjs', '--port', String(FORGE_PORT), '--dir', DIR]);
+run('host', process.execPath, ['scripts/fake-forge.mjs', '--port', String(FORGE_PORT), '--dir', DIR, ...(READ_LAG ? ['--read-lag', READ_LAG] : [])]);
 PORTS.forEach((port, i) => run(PEOPLE[i], 'npx', ['vite', '--config', 'scripts/harness.vite.config.mjs', '--port', String(port), '--strictPort'], { HARNESS_PORT: String(port) }));
 
 const forge = `http://localhost:${FORGE_PORT}`;
 setTimeout(() => {
-  console.log('\nShared universe harness');
+  console.log(`\nShared universe harness (${API === 'github' ? 'GitHub' : 'Gitea'} API${READ_LAG ? `, reads trail writes by ${READ_LAG} ms` : ''})`);
   console.log(`  Host (history, offline switches): ${forge}/`);
   PORTS.forEach((port, i) => {
-    console.log(`  ${PEOPLE[i].padEnd(4)} http://localhost:${port}/?devForge=${encodeURIComponent(forge)}&devForgeUser=${PEOPLE[i]}&devForgeRepo=${encodeURIComponent(REPO)}`);
+    console.log(`  ${PEOPLE[i].padEnd(4)} http://localhost:${port}/?devForge=${encodeURIComponent(forge)}&devForgeUser=${PEOPLE[i]}&devForgeRepo=${encodeURIComponent(REPO)}&devForgeApi=${API}`);
   });
   console.log('  After the first visit, plain http://localhost:<port>/ remembers who that port is.');
   console.log('  ?devForge=off on a port turns it back into a normal dev session.\n');

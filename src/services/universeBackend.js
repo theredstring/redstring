@@ -81,13 +81,21 @@ const REMOTE_WATCH_INTERVAL_MS = 30000;
 
 /**
  * Development only: send every Git-linked universe on this origin to a local
- * Gitea-compatible host instead of GitHub (scripts/fake-forge.mjs, set up by
- * src/dev/devForge.js). Each dev-server port is its own origin with its own
- * storage, so two ports are two devices sharing one repository. Never active
- * in a build: Vite replaces import.meta.env.DEV with false.
+ * test host instead of GitHub (scripts/fake-forge.mjs, set up by
+ * src/dev/devForge.js), through either the Gitea or the GitHub provider
+ * (`api`). Each dev-server port is its own origin with its own storage, so two
+ * ports are two devices sharing one repository. Never active in a build: Vite
+ * replaces import.meta.env.DEV with false.
  */
 export function usesDevForge() {
   return !!devForgeConfig();
+}
+
+/** Provider settings for the dev host (see devForgeConfig). */
+export function devForgeProvider(forge) {
+  return forge.api === 'github'
+    ? { type: 'github', apiBase: `${forge.endpoint}/github`, token: forge.token, authMethod: 'oauth' }
+    : { type: 'gitea', endpoint: forge.endpoint, token: forge.token, authMethod: 'gitea' };
 }
 
 function devForgeConfig() {
@@ -2541,7 +2549,7 @@ class UniverseBackend {
     const forge = devForgeConfig();
     if (forge) {
       return SemanticProviderFactory.createProvider({
-        type: 'gitea', endpoint: forge.endpoint, user, repo, token: forge.token,
+        ...devForgeProvider(forge), user, repo,
         semanticPath: universe.gitRepo.schemaPath || 'schema'
       });
     }
@@ -6099,8 +6107,7 @@ class UniverseBackend {
       let authMethod = 'oauth';
       const forge = devForgeConfig();
       if (forge) {
-        token = forge.token;
-        authMethod = 'gitea';
+        ({ token, authMethod } = devForgeProvider(forge));
       } else try {
         const app = persistentAuth.getAppInstallation?.();
         if (app?.installationId) {
@@ -6159,8 +6166,8 @@ class UniverseBackend {
       }
 
       let provider = SemanticProviderFactory.createProvider({
-        type: forge ? 'gitea' : 'github',
-        ...(forge ? { endpoint: forge.endpoint } : {}),
+        type: 'github',
+        ...(forge ? devForgeProvider(forge) : {}),
         user,
         repo,
         token,

@@ -12,6 +12,13 @@ import { vlog } from '../utils/verboseLog.js';
 import { serializeRedstring } from '../formats/universeBytes.js';
 import { GIT_READ_CAP_DESKTOP_BYTES } from './gitNativeProvider.js';
 
+// GitHub's reads trail its writes by a few seconds. A version this device
+// moved past less than this long ago, read back, is a stale read.
+const STALE_READ_WINDOW_MS = 2 * 60 * 1000;
+// How long to wait between reads when the host refused a save but a read still
+// shows the old version (7.5 s in all, then the save is retried later).
+const STALE_READ_RETRY_MS = [500, 1000, 2000, 4000];
+
 /**
  * The largest universe file Git sync writes: the most any device will read
  * back (gitNativeProvider's read cap). Writing more would leave a remote that
@@ -159,6 +166,8 @@ class GitSyncEngine {
     // a local copy saved from it records the base it really grew from.
     this._remoteGeneration = 0;
     this._stamps = new WeakMap(); // storeState → { gen, base }
+    // Versions this device moved past, and when (see _isRecentlySuperseded).
+    this._supersededAt = new Map();
     // Set by universeBackend: async ({ baseText, localJson, applyBaseJson,
     // remoteData, remoteText, remoteSha }) => null | { content,
     // apply: async () => ({ state, before })|null } — `state` is the store
@@ -221,7 +230,56 @@ class GitSyncEngine {
   /** Record that the store now holds remote version `sha`. See syncBaseSha. */
   _setSyncBase(sha) {
     if (typeof sha !== 'string' || !sha) return;
+    if (this.syncBaseSha && this.syncBaseSha !== sha) this._markSuperseded(this.syncBaseSha);
     this.syncBaseSha = sha;
+  }
+
+  /** A version the current one already contains (an old base, or one merged with). */
+  _markSuperseded(sha) {
+    if (typeof sha !== 'string' || !sha) return;
+    this._supersededAt.set(sha, Date.now());
+    if (this._supersededAt.size > 50) this._supersededAt.delete(this._supersededAt.keys().next().value);
+  }
+
+  /**
+   * Is `sha` a version this device moved past moments ago? Then a read showing
+   * it is stale: GitHub's reads trail its writes for a few seconds, and taking
+   * a stale read for someone else's save would undo this device's own work on
+   * the canvas. Saved files carry their save time, so a real save never
+   * repeats an old version's bytes; past the window, a matching SHA is
+   * believed (a file put back by hand).
+   */
+  _isRecentlySuperseded(sha) {
+    const at = this._supersededAt.get(sha);
+    return !!at && Date.now() - at < STALE_READ_WINDOW_MS;
+  }
+
+  /**
+   * Read the file after the host refused a write that asserted `refusedSha`.
+   * The host has a newer version than that, so a read still showing it (or
+   * any version this device moved past, or no file at all) is stale: wait and
+   * read again. Throws REMOTE_READ_STALE if it stays stale; the save is kept
+   * and retried like any failed save.
+   */
+  async _readRemoteAfterRefusal(path, refusedSha) {
+    for (let attempt = 0; ; attempt++) {
+      let remote = null;
+      try {
+        remote = await this.provider.readFileRawWithMeta(path);
+      } catch (error) {
+        // A file we asserted a version of can't have vanished this quickly.
+        if (error?.code !== 'FILE_NOT_FOUND' || typeof refusedSha !== 'string') throw error;
+      }
+      const stale = !remote || remote.sha === refusedSha || this._isRecentlySuperseded(remote.sha);
+      if (!stale) return remote;
+      if (attempt >= STALE_READ_RETRY_MS.length) {
+        const error = new Error('The repository refused the save but still shows an older version. Trying again shortly.');
+        error.code = 'REMOTE_READ_STALE';
+        throw error;
+      }
+      console.warn(`[GitSyncEngine] The repository still shows an older version of ${path} — reading again`);
+      await new Promise((resolve) => setTimeout(resolve, STALE_READ_RETRY_MS[attempt]));
+    }
   }
 
   /**
@@ -264,6 +322,11 @@ class GitSyncEngine {
       this.lastKnownRemoteSha = sha;
       this._setSyncBase(sha);
     }
+    this._noteSaved();
+  }
+
+  /** This device's changes reached the repository (what "Last saved" shows). */
+  _noteSaved() {
     this.lastSavedAt = Date.now();
     try { this.onSaved?.(this.lastSavedAt); } catch (_) { /* display only */ }
   }
@@ -984,7 +1047,7 @@ class GitSyncEngine {
       // The version this content was built on: the merge base. For a
       // resolution save, the version the user adjudicated.
       const baseSha = resolution ? (this._conflictRemoteSha || this.syncBaseSha) : this.syncBaseSha;
-      const remote = await this.provider.readFileRawWithMeta(path);
+      const remote = await this._readRemoteAfterRefusal(path, assertSha);
       this.lastKnownRemoteSha = remote.sha;
 
       let remoteData = null;
@@ -1268,7 +1331,7 @@ class GitSyncEngine {
    *
    * @private
    */
-  async _mergeWithRemote({ path, localJson, remote, remoteData, baseSha, localHash = null, applyBaseJson = localJson, attempt = 1 }) {
+  async _mergeWithRemote({ path, localJson, remote, remoteData, baseSha, localHash = null, applyBaseJson = localJson, attempt = 1, mergedShas = [] }) {
     if (typeof this.onMergeRemote !== 'function' || typeof baseSha !== 'string' || !baseSha) return null;
 
     let baseText;
@@ -1308,13 +1371,14 @@ class GitSyncEngine {
     } else {
       try {
         result = await this.provider.writeFileRaw(path, plan.content, { expectedSha: remote.sha });
+        this._noteSaved();
       } catch (error) {
         if (error?.code !== 'REMOTE_DIVERGED' || attempt >= 3) throw error;
         // Someone saved again while we merged. Merge once more on top, with
         // the version we just merged against as the base; the canvas still
         // only needs the changes since what it was built from.
         console.warn('[GitSyncEngine] Remote moved again during the merge — merging on top');
-        const again = await this.provider.readFileRawWithMeta(path);
+        const again = await this._readRemoteAfterRefusal(path, remote.sha);
         let againData = null;
         try {
           againData = again.content && again.content.trim() ? JSON.parse(again.content) : null;
@@ -1326,12 +1390,16 @@ class GitSyncEngine {
         }
         return this._mergeWithRemote({
           path, localJson: plan.content, remote: again, remoteData: againData,
-          baseSha: remote.sha, localHash, applyBaseJson, attempt: attempt + 1
+          baseSha: remote.sha, localHash, applyBaseJson, attempt: attempt + 1,
+          mergedShas: [...mergedShas, remote.sha]
         });
       }
     }
 
     const newSha = result?.content?.sha || remote.sha;
+    // The saved merge contains every version it merged with: a read showing
+    // one of them now is stale, not news.
+    for (const sha of [...mergedShas, remote.sha]) if (sha !== newSha) this._markSuperseded(sha);
     this.lastKnownRemoteSha = newSha;
     this.remoteConflictPending = false;
     this._conflictRemoteSha = null;
@@ -1377,9 +1445,11 @@ class GitSyncEngine {
       const path = this.getLatestPath();
       const sha = await this.provider.getRemoteFileSha(path);
       if (!sha || sha === this.syncBaseSha) return { changed: false };
+      if (this._isRecentlySuperseded(sha)) return { changed: false, stale: true };
 
       const remote = await this.provider.readFileRawWithMeta(path);
       if (remote.sha === this.syncBaseSha) return { changed: false };
+      if (this._isRecentlySuperseded(remote.sha)) return { changed: false, stale: true };
       let remoteData = null;
       try {
         remoteData = remote.content && remote.content.trim() ? JSON.parse(remote.content) : null;
