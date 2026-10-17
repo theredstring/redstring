@@ -897,15 +897,15 @@ const UniversesList = ({
 
                               {/* Git Status Information */}
                               {(() => {
-                                const syncStatus = syncStatusMap[universe.slug];
+                                // The status summary built from this universe's sync
+                                // engine (universeManagerService buildSyncInfo).
+                                const sync = universe.sync || {};
                                 const gitFolder = universe.raw?.gitRepo?.universeFolder || universe.slug;
                                 const gitFile = universe.raw?.gitRepo?.universeFile || `${universe.slug}.redstring`;
                                 const fileName = `${gitFolder}/${gitFile}`;
-                                const statusText = syncStatus?.status || 'unknown';
-                                const lastSync = syncStatus?.lastSync ? formatWhen(syncStatus.lastSync) : 'Never';
-                                const hasError = syncStatus?.error;
-                                const isLoading = syncStatus?.isLoading || syncStatus?.isSyncing;
-
+                                const statusText = sync.label || 'Unknown';
+                                const lastSync = sync.lastSync ? formatWhen(sync.lastSync) : 'Never';
+                                const hasError = sync.state === 'error';
                                 return (
                                   <div style={{
                                     fontSize: '0.65rem',
@@ -924,10 +924,10 @@ const UniversesList = ({
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                       <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Status:</span>
                                       <span style={{
-                                        color: hasError ? theme.alert.error.text : isLoading ? theme.alert.warning.text : statusText === 'synced' ? theme.canvas.brand : theme.canvas.textSecondary,
+                                        color: hasError ? theme.alert.error.text : sync.state === 'idle' ? theme.canvas.brand : theme.canvas.textSecondary,
                                         fontWeight: 500
                                       }}>
-                                        {isLoading ? '⟳ Loading...' : hasError ? '⚠ Error' : statusText}
+                                        {statusText}
                                       </span>
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -943,7 +943,7 @@ const UniversesList = ({
                                         border: `1px solid ${theme.alert.error.border}`
                                       }}>
                                         <span style={{ color: theme.alert.error.text, fontSize: '0.6rem' }}>
-                                          {syncStatus.error}
+                                          {sync.description}
                                         </span>
                                       </div>
                                     )}

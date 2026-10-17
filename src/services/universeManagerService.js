@@ -117,7 +117,7 @@ function buildSlotsFromUniverse(universe, syncStatus = null, syncInfo = null) {
   if (universe.gitRepo?.linkedRepo) {
     const repo = normalizeRepository(universe.gitRepo.linkedRepo);
     if (repo) {
-      const lastCommitIso = toIsoTimestamp(syncStatus?.lastCommitTime);
+      const lastCommitIso = syncInfo?.lastSync || null;
       const slotStatusLabel = syncInfo?.label || syncStatus?.state || universe.metadata?.syncStatus || 'Unknown';
 
       // DEBUG: Log status resolution only when it changes (with a periodic refresh)
@@ -217,8 +217,12 @@ function buildSyncInfo(universe, syncStatus) {
   const gitLinked = !!(universe.gitRepo?.linkedRepo);
   const gitEnabled = !!(universe.gitRepo?.enabled);
   const metadataLastSync = toIsoTimestamp(universe.metadata?.lastSync || universe.metadata?.lastSaved);
-  const commitIso = toIsoTimestamp(syncStatus?.lastCommitTime);
-  const lastSync = commitIso || metadataLastSync;
+  // When this device's changes last reached the repository: the engine's
+  // record, else the one kept from an earlier session, else (universes saved
+  // before that record existed) the last save of any kind.
+  const lastSync = toIsoTimestamp(syncStatus?.lastSavedAt)
+    || toIsoTimestamp(universe.metadata?.gitLastSaved)
+    || metadataLastSync;
 
   if (!gitLinked || !gitEnabled) {
     return {
@@ -273,12 +277,10 @@ function buildSyncInfo(universe, syncStatus) {
     isHealthy = true,
     isInErrorBackoff = false,
     consecutiveErrors = 0,
-    lastCommitTime: rawLastCommitTime = null,
     lastErrorTime = null
   } = syncStatus;
 
   const hasChanges = !!syncStatus.hasChanges;
-  const commitTimeIso = toIsoTimestamp(rawLastCommitTime);
 
   let state = 'idle';
   let label = 'All changes saved';
@@ -322,7 +324,7 @@ function buildSyncInfo(universe, syncStatus) {
     isHealthy,
     isInBackoff: isInErrorBackoff,
     consecutiveErrors,
-    lastCommitTime: commitTimeIso || rawLastCommitTime || lastSync,
+    lastCommitTime: lastSync,
     lastErrorTime,
     sourceOfTruth: universe.sourceOfTruth
   };
@@ -787,4 +789,4 @@ export const universeManagerService = {
 };
 
 export default universeManagerService;
-export { STORAGE_TYPES };
+export { STORAGE_TYPES, buildSyncInfo };

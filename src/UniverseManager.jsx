@@ -4217,7 +4217,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
               displayDesc = base.description || '';
             }
 
-            const lastTime = engine?.lastCommitTime || base?.lastCommitTime;
+            const lastTime = base?.lastSync; // when changes last reached the repository
             const elapsedText = (() => {
               try {
                 if (!lastTime) return null;

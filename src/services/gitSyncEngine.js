@@ -58,7 +58,11 @@ class GitSyncEngine {
     this.autoSaveEnabled = this.isGitHubApp; // Enable optimized auto-save for GitHub App
 
     this.isRunning = false;
-    this.lastCommitTime = 0;
+    this.lastCommitTime = 0; // rate limiting; a failed write backdates it
+    // When this device's changes last reached the repository (any write: an
+    // autosave, a merge, a resolution). What "Last saved" shows.
+    this.lastSavedAt = 0;
+    this.onSaved = null; // set by universeBackend: (timestamp) => void
     this.commitLoop = null;
     this.lastCommittedHash = null; // Hash of last committed state
     // Node count of the last successful commit. Used as the floor for the
@@ -260,6 +264,8 @@ class GitSyncEngine {
       this.lastKnownRemoteSha = sha;
       this._setSyncBase(sha);
     }
+    this.lastSavedAt = Date.now();
+    try { this.onSaved?.(this.lastSavedAt); } catch (_) { /* display only */ }
   }
 
   /** Remote changes reached the canvas: every state captured before now is stale. */
@@ -1977,6 +1983,7 @@ class GitSyncEngine {
       isPaused: this.isPaused,
       pendingCommits: this.pendingCommits.length,
       lastCommitTime: this.lastCommitTime,
+      lastSavedAt: this.lastSavedAt,
       provider: this.provider.name,
       sourceOfTruth: this.sourceOfTruth,
       hasChanges: this.hasChanges,

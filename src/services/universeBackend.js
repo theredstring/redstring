@@ -2346,6 +2346,7 @@ class UniverseBackend {
     // for what a merge can't settle (documentation/core-system/SHARED_UNIVERSE_SYNC.md).
     engine.onMergeRemote = (input) => this._planRemoteMerge(universeSlug, input);
     engine.onRemoteUpdate = (input) => this._applyRemoteUpdate(universeSlug, input);
+    engine.onSaved = (timestamp) => this._recordGitSaveTime(universeSlug, timestamp);
     // Don't bring others' changes in while a local save is mid-flight.
     engine.isLocalBusy = () => {
       try {
@@ -5440,6 +5441,24 @@ class UniverseBackend {
       Date.now();
 
     return { nodeCount, graphCount, connectionCount, timestamp, userNodeCount, recognized };
+  }
+
+  /**
+   * Remember when this device last saved to the universe's repository, so the
+   * universe card's "Last saved" survives a restart (the engine only holds it
+   * in memory). Kept apart from metadata.lastSaved, which any local or
+   * browser save also moves.
+   */
+  async _recordGitSaveTime(universeSlug, timestamp) {
+    try {
+      const universe = this.getUniverse(universeSlug);
+      if (!universe) return;
+      await this.updateUniverse(universeSlug, {
+        metadata: { ...(universe.metadata || {}), gitLastSaved: new Date(timestamp).toISOString() }
+      }, { silent: true });
+    } catch (error) {
+      umWarn('[UniverseBackend] Failed to record Git save time:', error);
+    }
   }
 
   /**
