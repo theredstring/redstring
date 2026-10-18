@@ -2,7 +2,8 @@
  * Formula notation: the operations a formula is made of, and typed text.
  *
  *   OPERATORS, operatorKeyForName(name)   the vocabulary: "Addition", "+", "plus"...
- *   parseFormulaText("E = m*c^2")         typed text -> an expression tree
+ *   parseFormulaText("E = mc^2", opts)    typed text -> an expression tree, read as
+ *                                         standard math or as programming
  *   needsParens(parent, child, index)     where a line of text needs parentheses
  *
  * How a formula is drawn in Things mode, and read back, is formulaChain.js.
@@ -95,7 +96,7 @@ export function needsParens(parent, child, index) {
 // Parsing text into a tree (to build a formula from what someone types)
 // ---------------------------------------------------------------------------
 
-const TOKEN_RE = /\s*(?:(\d+(?:\.\d+)?)|([A-Za-z_Ͱ-Ͽ⁰-₟][A-Za-z0-9_Ͱ-Ͽ']*)|(<=|>=|!=|==|~=|\*\*|[-+*/^=<>(),×÷·−≠≤≥≈√]))/y;
+const TOKEN_RE = /\s*(?:"([^"]*)"|(\d+(?:\.\d+)?)|([A-Za-z_Ͱ-Ͽ⁰-₟][A-Za-z0-9_Ͱ-Ͽ']*)|(<=|>=|!=|==|~=|\*\*|[-+*/^=<>(),×÷·−≠≤≥≈√]))/y;
 
 function tokenize(text) {
   const out = [];
@@ -107,12 +108,55 @@ function tokenize(text) {
     TOKEN_RE.lastIndex = pos;
     const m = TOKEN_RE.exec(src);
     if (!m) throw new Error(`Can't read "${src.slice(pos).trim().slice(0, 12)}"`);
-    if (m[1] !== undefined) out.push({ type: 'num', value: m[1] });
-    else if (m[2] !== undefined) out.push({ type: 'name', value: m[2] });
-    else out.push({ type: 'sym', value: m[3] });
+    if (m[1] !== undefined) {
+      if (!m[1].trim()) throw new Error('Empty name in quotes');
+      out.push({ type: 'name', value: m[1].trim(), quoted: true });
+    } else if (m[2] !== undefined) out.push({ type: 'num', value: m[2] });
+    else if (m[3] !== undefined) out.push({ type: 'name', value: m[3] });
+    else out.push({ type: 'sym', value: m[4] });
     pos = TOKEN_RE.lastIndex;
   }
   return out;
+}
+
+/** Greek letters by name: one variable each in math, however many letters they take. */
+export const GREEK_NAMES = new Set([
+  'alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa', 'lambda', 'mu',
+  'nu', 'xi', 'omicron', 'pi', 'rho', 'sigma', 'tau', 'upsilon', 'phi', 'chi', 'psi', 'omega',
+  'Gamma', 'Delta', 'Theta', 'Lambda', 'Xi', 'Pi', 'Sigma', 'Phi', 'Psi', 'Omega',
+]);
+
+// Letters conventionally used as function names, so f(x) calls rather than multiplies.
+const FUNCTION_LETTERS = new Set(['f', 'g', 'h']);
+
+/**
+ * Standard math writing: letters side by side are separate variables multiplied
+ * together (mc is m × c), except where they spell something known: a function
+ * (sin, log), a Greek letter (theta), or a name the universe already has (a
+ * Thing called "mc"). Longest known match first, else one letter. A name with
+ * an underscore (v_max) or in quotes is kept whole.
+ */
+function splitMathName(token, isKnownName) {
+  const word = token.value;
+  if (token.quoted || word.includes('_') || isKnownName(word) || GREEK_NAMES.has(word) || KNOWN_FUNCTIONS.has(word) || operatorKeyForName(word) === 'sqrt') {
+    return [{ ...token, fn: KNOWN_FUNCTIONS.has(word) || operatorKeyForName(word) === 'sqrt' }];
+  }
+  const pieces = [];
+  let i = 0;
+  while (i < word.length) {
+    let found = null;
+    for (let end = word.length; end > i + 1; end--) {
+      const piece = word.slice(i, end);
+      if (KNOWN_FUNCTIONS.has(piece) || GREEK_NAMES.has(piece) || isKnownName(piece)) { found = piece; break; }
+    }
+    if (!found) {
+      // One letter, keeping digits right after it (x1, x2: written for x₁, x₂) and primes (f').
+      found = /^[^0-9'][0-9]*'*/.exec(word.slice(i))[0];
+    }
+    pieces.push({ type: 'name', value: found, fn: KNOWN_FUNCTIONS.has(found) });
+    i += found.length;
+  }
+  return pieces;
 }
 
 const INFIX_BY_SYMBOL = {
@@ -121,12 +165,26 @@ const INFIX_BY_SYMBOL = {
   '/': 'div', '÷': 'div', '^': 'pow', '**': 'pow',
 };
 
+/** How typed text is read: 'math' (standard equations) or 'programming' (code-style names). */
+export const CONVENTIONS = ['math', 'programming'];
+
 /**
- * Parse "E = m * c^2" into a tree of { kind: 'op'|'fn'|'leaf', name, op?, children? }.
+ * Parse "E = mc^2" into a tree of { kind: 'op'|'fn'|'leaf', name, op?, children? }.
+ *
+ * convention 'math' (the default): letters side by side multiply (see
+ *   splitMathName), side by side means multiply generally (2a, 2(a + b)), and a
+ *   function takes what follows it with or without parentheses (sin x).
+ * convention 'programming': a name is the whole word (mass, speedOfLight),
+ *   multiplying needs *, and a function always takes parentheses.
+ * isKnownName(name): whether the universe has a Thing by that name, which math
+ *   keeps whole.
+ *
  * Throws an Error with a short message when the text isn't a formula.
  */
-export function parseFormulaText(text) {
-  const toks = tokenize(text);
+export function parseFormulaText(text, { convention = 'math', isKnownName = () => false } = {}) {
+  const math = convention !== 'programming';
+  let toks = tokenize(text);
+  if (math) toks = toks.flatMap(t => (t.type === 'name' ? splitMathName(t, isKnownName) : [t]));
   if (toks.length === 0) throw new Error('Type a formula');
   let i = 0;
   const peek = () => toks[i];
@@ -139,8 +197,9 @@ export function parseFormulaText(text) {
     for (;;) {
       const t = peek();
       let key = t && t.type === 'sym' ? INFIX_BY_SYMBOL[t.value] : null;
-      // Side by side means multiply: 2x, 2(a + b).
+      // Side by side means multiply: 2x, 2(a + b). Code says so with *.
       const implicit = !key && startsAtom(t);
+      if (implicit && !math) throw new Error(`Use * to multiply by "${t.value}"`);
       if (implicit) key = 'mul';
       if (!key) break;
       const op = OPERATORS[key];
@@ -158,6 +217,13 @@ export function parseFormulaText(text) {
       }
     }
     return left;
+  };
+
+  const applyTo = (name, args) => {
+    if (operatorKeyForName(name) === 'sqrt' && args.length === 1) {
+      return { kind: 'op', name: OPERATORS.sqrt.name, op: { key: 'sqrt', ...OPERATORS.sqrt }, children: args };
+    }
+    return { kind: 'fn', name, children: args };
   };
 
   const parsePrefix = () => {
@@ -180,7 +246,11 @@ export function parseFormulaText(text) {
     }
     if (t.type === 'num') return { kind: 'leaf', name: t.value };
     if (t.type === 'name') {
-      if (peek() && peek().type === 'sym' && peek().value === '(') {
+      const opensParen = peek() && peek().type === 'sym' && peek().value === '(';
+      // In math, a lone letter before parentheses multiplies them (a(b + c)),
+      // unless it is a function's letter (f, g, h) or a function's name.
+      const calls = opensParen && (!math || t.fn || t.quoted || FUNCTION_LETTERS.has(t.value) || t.value.length > 1);
+      if (calls) {
         next();
         const args = [];
         if (!(peek() && peek().value === ')')) {
@@ -192,13 +262,11 @@ export function parseFormulaText(text) {
         }
         const close = next();
         if (!close || close.value !== ')') throw new Error('Missing )');
-        const sqrtKey = operatorKeyForName(t.value) === 'sqrt';
-        if (sqrtKey && args.length === 1) {
-          return { kind: 'op', name: OPERATORS.sqrt.name, op: { key: 'sqrt', ...OPERATORS.sqrt }, children: args };
-        }
         if (args.length === 0) return { kind: 'leaf', name: `${t.value}()` };
-        return { kind: 'fn', name: t.value, children: args };
+        return applyTo(t.value, args);
       }
+      // sin x, sin x^2: in math a function takes what follows it.
+      if (math && t.fn && startsAtom(peek())) return applyTo(t.value, [parseExpr(OPERATORS.pow.prec)]);
       return { kind: 'leaf', name: t.value };
     }
     throw new Error(`Unexpected "${t.value}"`);

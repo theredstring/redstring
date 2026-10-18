@@ -54,7 +54,10 @@ describe('formula objects', () => {
     const state = webState();
     const fo = computeFormulaObjects(state);
     const tokens = fo.objects[0].tokens;
-    expect(tokens.map(t => t.text)).toEqual(['(', 'a', '+', 'b', ')', '×', 'c']);
+    // Standard notation by default: (a + b)c.
+    expect(tokens.map(t => t.text)).toEqual(['(', 'a', '+', 'b', ')', 'c']);
+    expect(computeFormulaObjects(state, { standard: false }).objects[0].tokens.map(t => t.text))
+      .toEqual(['(', 'a', '+', 'b', ')', '×', 'c']);
     const nodeById = new Map([...state.graphs.get('web').instances].map(([id, inst]) => [id, { ...inst }]));
     const redirected = redirectEdgeCtx({ nodeById, baseDimsById: new Map() }, fo);
     const cBox = fo.tokenBoxById.get('c');

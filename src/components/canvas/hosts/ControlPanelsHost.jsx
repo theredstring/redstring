@@ -31,7 +31,7 @@ import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
-import useFormatsStore, { showFormatInPlace, showAsThings, setRaisedExponents } from '../formats/formatsStore.js';
+import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, selectStandard } from '../formats/formatsStore.js';
 import { Superscript } from 'lucide-react';
 import {
   onCarouselClose,
@@ -164,13 +164,15 @@ export default function ControlPanelsHost({ ctx }) {
     if (next === 'things') showAsThings(activeGraphId, groupPanelTarget.id);
     else showFormatInPlace({ source: 'group', sourceId: groupPanelTarget.id, graphId: activeGraphId, format: next });
   };
-  const raisedExponents = useFormatsStore((s) => s.raisedExponents);
-  const formatToggles = currentFormat === 'formula' && groupFormulaText?.includes('^')
+  // Standard math (mc²) or every operation written (m × c ^ 2): only offered
+  // when the formula has an operation the two write differently.
+  const standardNotation = useFormatsStore(selectStandard);
+  const formatToggles = currentFormat === 'formula' && /[×^]/.test(groupFormulaText || '')
     ? [{
-      key: 'exponents',
+      key: 'notation',
       icon: (size) => <Superscript size={size} />,
-      title: raisedExponents ? 'Show Exponents as ^' : 'Show Exponents Raised',
-      onClick: () => setRaisedExponents(!raisedExponents),
+      title: standardNotation ? 'Write Every Operation' : 'Standard Notation',
+      onClick: () => setNotation(standardNotation ? 'explicit' : 'standard'),
     }]
     : null;
   const formatAt = (step) => FORMAT_LABELS[formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length]];

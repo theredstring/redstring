@@ -106,7 +106,10 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   }), xId);
   await shot(page, '2-in-place');
 
-  // Exponents are raised by default: no ^, the exponent smaller and lifted.
+  // Standard notation by default: no ^ (the exponent smaller and lifted) and no
+  // × where math multiplies side by side (4ac, 2a).
+  await expect(object(page).locator('g.formula-object-token text', { hasText: /^×$/ })).toHaveCount(0);
+  // Exponents: no ^, the exponent smaller and lifted.
   await expect(object(page).locator('g.formula-object-token text', { hasText: /^\^$/ })).toHaveCount(0);
   const sizeOf = (loc) => loc.locator('text').getAttribute('font-size').then(Number);
   const tokenTexts = object(page).locator('g.formula-object-token');
@@ -126,8 +129,9 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   // The formula's panel switches exponents to ^, an operation like the others.
   await pointAt(page, token(page, '='), { click: true });
   await expect(panel(page)).toBeVisible();
-  await panel(page).locator('.piemenu-button[title="Show Exponents as ^"]').click();
+  await panel(page).locator('.piemenu-button[title="Write Every Operation"]').click();
   await expect(token(page, '^')).toHaveCount(1);
+  await expect(object(page).locator('g.formula-object-token text', { hasText: /^×$/ })).toHaveCount(3);
   // The panel sits over this part of the canvas; click away to put it down and reach the token.
   const away = await findBareSpot(page);
   await page.mouse.click(away.x, away.y);
@@ -140,7 +144,7 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   await expect(lit).toHaveCount(1);
   await shot(page, '3a-caret');
   await pointAt(page, token(page, '='), { click: true });
-  await panel(page).locator('.piemenu-button[title="Show Exponents Raised"]').click();
+  await panel(page).locator('.piemenu-button[title="Standard Notation"]').click();
   await expect(object(page).locator('g.formula-object-token text', { hasText: /^\^$/ })).toHaveCount(0);
 
   // As Things: the web of operations, its parts nested Thing-groups.
@@ -162,10 +166,10 @@ test('F44 a tap selects the formula; its panel swaps it to Things and back', asy
   await buildFormula(page, 'a + b * c');
   const { id, members } = await formulaGroup(page, 'a + b');
 
-  await pointAt(page, token(page, '×'), { click: true });
+  await pointAt(page, token(page, '+'), { click: true });
   await expect(object(page)).toHaveClass(/is-selected/);
   await expect(panel(page)).toBeVisible();
-  await expect(panel(page).locator('.format-panel-chip')).toContainText('×');
+  await expect(panel(page).locator('.format-panel-chip')).toContainText('+');
   await shot(page, '4-panel-formula');
 
   // Swap to Things.
@@ -260,7 +264,7 @@ test('F44 the offer shows a group in place, and its X waves it off', async ({ pa
   // The group is offered back.
   const pill = page.locator('.format-offer');
   await expect(pill).toBeVisible();
-  await expect.poll(() => pillText(page)).toContain('a+b×c');
+  await expect.poll(() => pillText(page)).toContain('a+bc');
   await page.locator('.format-offer-main').click();
   await expect(object(page)).toHaveCount(1);
   await expect(pill).toHaveCount(0);
@@ -269,4 +273,44 @@ test('F44 the offer shows a group in place, and its X waves it off', async ({ pa
   await expect(pill).toBeVisible();
   await page.locator('.format-offer-dismiss').click();
   await expect(pill).toHaveCount(0);
+});
+
+test('F44 New Formula reads typing as math or as programming, and Enter adds it', async ({ page }) => {
+  await openFixture(page, 'small');
+  await page.mouse.click(BARE.x, BARE.y, { button: 'right' });
+  await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
+  const input = page.locator('.formula-composer input');
+  const preview = page.locator('.formula-composer-preview');
+  const add = page.locator('.formula-composer-add');
+  const option = (name) => page.locator('.format-slider-option', { hasText: name });
+  const previewText = () => preview.innerText().then(t => t.replace(/\s+/g, ''));
+
+  // Math by default: mc is m times c, written the standard way.
+  await expect(option('Math')).toHaveAttribute('aria-checked', 'true');
+  await input.fill('e = mc^2');
+  await expect.poll(previewText).toBe('e=mc2');
+  await shot(page, '7-compose-math');
+
+  // Programming: whole-word names, and side by side is a mistake there.
+  await option('Programming').click();
+  await expect(option('Programming')).toHaveAttribute('aria-checked', 'true');
+  await expect(input).toBeFocused();
+  await input.fill('e = m c');
+  await expect(preview).toContainText('*');
+  await expect(add).toBeDisabled();
+  await input.fill('energy = mass * c**2');
+  await expect.poll(previewText).toBe('energy=mass×c2');
+  await shot(page, '8-compose-programming');
+
+  // Enter adds it.
+  await input.press('Enter');
+  await expect(page.locator('.formula-composer')).toHaveCount(0);
+  await expect(object(page)).toHaveCount(1);
+  expect((await formulaGroup(page, 'energy = ')).format).toBe('formula');
+
+  // The choice is remembered for next time.
+  const again = await findBareSpot(page);
+  await page.mouse.click(again.x, again.y, { button: 'right' });
+  await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
+  await expect(option('Programming')).toHaveAttribute('aria-checked', 'true');
 });

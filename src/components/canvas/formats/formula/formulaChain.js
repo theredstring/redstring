@@ -28,7 +28,7 @@
  *   chainText(chain)                     -> "a + b × c"
  */
 import { isGroupInsideGroup } from '../../../../services/groupLayout.js';
-import { OPERATORS, operatorKeyForName, parseFormulaText, needsParens, KNOWN_FUNCTIONS } from './formulaNotation.js';
+import { OPERATORS, operatorKeyForName, parseFormulaText, needsParens, KNOWN_FUNCTIONS, GREEK_NAMES } from './formulaNotation.js';
 
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const OPERATOR_TYPE_NAMES = new Set(['operator', 'operation', 'mathematical operation', 'relation']);
@@ -213,9 +213,13 @@ export function readFormulaGroup(state, view, group) {
 // Text -> Chain (what New Formula builds)
 // ---------------------------------------------------------------------------
 
-/** Parse typed text into the chain to build. Throws a short message when it isn't a formula. */
-export function chainFromText(text) {
-  return chainOfNode(parseFormulaText(text));
+/**
+ * Parse typed text into the chain to build. Options as parseFormulaText
+ * ({ convention: 'math' | 'programming', isKnownName }). Throws a short message
+ * when it isn't a formula.
+ */
+export function chainFromText(text, options) {
+  return chainOfNode(parseFormulaText(text, options));
 }
 
 const opItem = (key) => ({ kind: 'op', key, symbol: OPERATORS[key].symbol, name: OPERATORS[key].name });
@@ -255,26 +259,52 @@ function chainOfNode(node) {
 
 const termCount = (chain) => (chain.items.length + 1) / 2;
 
+const GREEK_LETTERS = /^[\u0370-\u03FF]$/;
+const isNumberTerm = (t) => t?.kind === 'thing' && /^\d+(\.\d+)?$/.test(t.name);
+// A variable written the textbook way: one letter (x, θ), a letter with its index (x1), or a Greek name (theta).
+const isLetterTerm = (t) => t?.kind === 'thing'
+  && (/^[A-Za-z][0-9]*'*$/.test(t.name) || GREEK_LETTERS.test(t.name) || GREEK_NAMES.has(t.name));
+const isGroupedTerm = (t) => t?.kind === 'part' && t.apply !== 'neg';
+
+/** Whether multiplication between these two terms goes unwritten in standard notation (2a, mc, 4ac, 2(a + b)). */
+function multipliesSideBySide(left, right) {
+  if (!left || !right || isNumberTerm(right)) return false;
+  if (!(isLetterTerm(right) || isGroupedTerm(right))) return false;
+  return isNumberTerm(left) || isLetterTerm(left) || isGroupedTerm(left);
+}
+
 /**
  * The formula token by token. Each token:
  * { key, text, kind: 'operand'|'operator'|'paren'|'function'|'comma',
  *   target (what it stands for: an instance id, or `edge:<id>` for an operation),
- *   protoId (the Thing it shows), prefix?, level (how many times it is raised) }
+ *   protoId (the Thing it shows), prefix?, level (how many times it is raised),
+ *   joined? (written right against the token before: multiplied side by side) }
  *
- * With `raised`, exponentiation is shown the usual way: no ^, the exponent raised
- * a level (and a plain part as an exponent loses its parentheses, since the raise
- * already groups it). a ^ b ^ c raises twice, which is how ^ groups.
+ * With `standard`, it is written the way math usually is: exponentiation with
+ * no ^, the exponent raised a level (a plain part as an exponent losing its
+ * parentheses, since the raise already groups it; a ^ b ^ c raising twice, which
+ * is how ^ groups), and multiplication unwritten between a number or a letter and
+ * the letter or part after it (mc², 4ac, 2(a + b)). Between whole-word names, or
+ * before a number, the × stays.
  */
-export function tokensOf(chain, { raised = false } = {}) {
+export function tokensOf(chain, { standard = false } = {}) {
   const tokens = [];
   let k = 0;
-  const push = (t, level) => tokens.push({ key: `t${k++}`, level, ...t });
+  let joinNext = false;
+  const push = (t, level) => {
+    tokens.push({ key: `t${k++}`, level, ...t, ...(joinNext ? { joined: true } : {}) });
+    joinNext = false;
+  };
   const emitChain = (c, level) => {
     let termLevel = level;
-    c.items.forEach((item) => {
+    c.items.forEach((item, idx) => {
       if (item.kind === 'op') {
-        if (raised && item.key === 'pow') { termLevel += 1; return; }
+        if (standard && item.key === 'pow') { termLevel += 1; return; }
         termLevel = level;
+        if (standard && item.key === 'mul' && multipliesSideBySide(c.items[idx - 1], c.items[idx + 1])) {
+          joinNext = true;
+          return;
+        }
         push({ text: item.symbol, kind: 'operator', target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null }, level);
       } else emitTerm(item, termLevel, termLevel > level);
     });

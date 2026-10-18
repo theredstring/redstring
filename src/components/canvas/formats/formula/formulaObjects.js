@@ -42,6 +42,7 @@ function measure(text, size) {
 }
 
 function padsFor(t) {
+  if (t.joined) return [0.02, t.kind === 'operator' ? 0.3 : 0.1];
   if (t.kind === 'operator') return t.prefix ? [0.1, 0.04] : [0.3, 0.3];
   if (t.kind === 'comma') return [0, 0.35];
   if (t.kind === 'paren') return [0.03, 0.03];
@@ -83,18 +84,18 @@ let last = null;
  *
  * @param {object} state - graphStore state
  */
-export function computeFormulaObjects(state, { raised = true } = {}) {
+export function computeFormulaObjects(state, { standard = true } = {}) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
   const view = projectGraphView(state, graphId);
   if (!view?.instances || !view.groups?.size) return EMPTY;
-  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.raised === raised) {
+  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard) {
     return last.result;
   }
   const shownGroups = [];
   view.groups.forEach((group) => { if (group.format === 'formula') shownGroups.push(group); });
   if (shownGroups.length === 0) {
-    last = { view, protos: state.nodePrototypes, edges: state.edges, raised, result: EMPTY };
+    last = { view, protos: state.nodePrototypes, edges: state.edges, standard, result: EMPTY };
     return EMPTY;
   }
 
@@ -124,7 +125,7 @@ export function computeFormulaObjects(state, { raised = true } = {}) {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const tokens = tokensOf(chain, { raised });
+    const tokens = tokensOf(chain, { standard });
     const line = layoutFormulaLine(tokens);
     const left = cx - line.width / 2;
     const boxes = line.boxes.map(b => ({ ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy }));
@@ -159,7 +160,7 @@ export function computeFormulaObjects(state, { raised = true } = {}) {
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById } : EMPTY;
   // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
   const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
-  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, raised, result } : null;
+  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, result } : null;
   return result;
 }
 

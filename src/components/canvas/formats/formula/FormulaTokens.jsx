@@ -30,7 +30,7 @@ function FormulaTokens({ tokens }) {
       {tokens.map((t, i) => (
         <span
           key={t.key}
-          className={['formula-token', `kind-${t.kind}`, t.prefix ? 'is-prefix' : ''].filter(Boolean).join(' ')}
+          className={['formula-token', `kind-${t.kind}`, t.prefix ? 'is-prefix' : '', t.joined ? 'is-joined' : ''].filter(Boolean).join(' ')}
           style={tokenStyle(t.level || 0, i > 0 ? (tokens[i - 1].level || 0) : 0)}
         >
           {t.text}

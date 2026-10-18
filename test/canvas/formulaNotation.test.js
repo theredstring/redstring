@@ -50,12 +50,50 @@ describe('typed text', () => {
     expect(tokens.map(t => [t.text, t.kind])).toEqual([['c', 'operand'], ['^', 'operator'], ['2', 'operand']]);
   });
 
+  it('reads standard math: letters side by side multiply, unless they spell something known', () => {
+    expect(text('e=mc^2')).toBe('e = m × c ^ 2');
+    expect(text('4ac')).toBe('4 × a × c');
+    expect(text('sinx + 1')).toBe('sin(x) + 1');
+    expect(text('sin x^2')).toBe('sin(x ^ 2)');
+    expect(text('2 pi r')).toBe('2 × pi × r');
+    expect(text('2pir')).toBe('2 × pi × r');
+    expect(text('a(b + c)')).toBe('a × (b + c)');
+    expect(text('f(x) = x^2')).toBe('f(x) = x ^ 2');
+    expect(text('x1 + x2')).toBe('x1 + x2');
+    expect(text('v_max = d / t')).toBe('v_max = d ÷ t');
+    expect(text('"speed of light" ^ 2')).toBe('speed of light ^ 2');
+    // A Thing the universe already has keeps its name whole.
+    expect(chainText(chainFromText('e=mc^2', { isKnownName: (n) => n === 'mc' }))).toBe('e = mc ^ 2');
+  });
+
+  it('reads programming: whole-word names, * to multiply, parentheses to call', () => {
+    const code = (t) => chainText(chainFromText(t, { convention: 'programming' }));
+    expect(code('energy = mass * c**2')).toBe('energy = mass × c ^ 2');
+    expect(code('total = price * qty')).toBe('total = price × qty');
+    expect(code('y = sin(x)')).toBe('y = sin(x)');
+    expect(() => code('e = m c')).toThrow(/\*/);
+  });
+
+  it('writes standard notation: multiplication side by side where math does, else the ×', () => {
+    const shown = (t) => tokensOf(chainFromText(t), { standard: true }).map(x => x.text).join(' ');
+    expect(shown('e=mc^2')).toBe('e = m c 2');
+    expect(shown('4ac')).toBe('4 a c');
+    expect(shown('2(a+b)')).toBe('2 ( a + b )');
+    expect(shown('a*2')).toBe('a × 2');
+    expect(shown('2*(-b)')).toBe('2 × − b');
+    const code = (t) => tokensOf(chainFromText(t, { convention: 'programming' }), { standard: true }).map(x => x.text).join(' ');
+    expect(code('mass * speed')).toBe('mass × speed');
+    // Explicit writes every operation.
+    expect(tokensOf(chainFromText('e=mc^2')).map(x => x.text).join(' ')).toBe('e = m × c ^ 2');
+  });
+
   it('raises exponents the usual way when asked: no ^, a level up, the raise grouping a part', () => {
-    const levels = (t) => tokensOf(chainFromText(t), { raised: true }).map(x => [x.text, x.level]);
+    const levels = (t) => tokensOf(chainFromText(t, { convention: 'programming' }), { standard: true }).map(x => [x.text, x.level]);
     expect(levels('c^2')).toEqual([['c', 0], ['2', 1]]);
     expect(levels('2^3^2')).toEqual([['2', 0], ['3', 1], ['2', 2]]);
     expect(levels('b^(n+1)')).toEqual([['b', 0], ['n', 1], ['+', 1], ['1', 1]]);
-    expect(levels('a^b*c')).toEqual([['a', 0], ['b', 1], ['×', 0], ['c', 0]]);
+    expect(levels('a^b*c')).toEqual([['a', 0], ['b', 1], ['c', 0]]);
+    expect(levels('a^b*2')).toEqual([['a', 0], ['b', 1], ['×', 0], ['2', 0]]);
     expect(levels('(a+b)^2')).toEqual([['(', 0], ['a', 0], ['+', 0], ['b', 0], [')', 0], ['2', 1]]);
     // Plain text keeps the ^.
     expect(chainText(chainFromText('b^(n+1)'))).toBe('b ^ (n + 1)');

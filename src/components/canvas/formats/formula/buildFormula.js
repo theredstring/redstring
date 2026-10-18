@@ -55,11 +55,12 @@ const nameKey = (name) => {
  * @param {string} text - e.g. "E = m * c^2"
  * @param {string} graphId - the web to build into
  * @param {{x: number, y: number}} at - canvas point for the middle of the formula
+ * @param {object} [readOptions] - how the text is read: { convention, isKnownName } (see parseFormulaText)
  * @returns {{ instanceIds: string[], groupId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
  */
-export function buildFormulaInWeb(text, graphId, at) {
-  const chain = chainFromText(text);
+export function buildFormulaInWeb(text, graphId, at, readOptions) {
+  const chain = chainFromText(text, readOptions);
   const store = useGraphStore.getState();
   if (!store.graphs.get(graphId)) throw new Error('No web to add it to');
 

@@ -9,18 +9,28 @@ import { create } from 'zustand';
 import useGraphStore from '../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 
-const RAISED_EXPONENTS_KEY = 'redstring_formula_raised_exponents';
-const readRaisedExponents = () => {
-  try { return localStorage.getItem(RAISED_EXPONENTS_KEY) !== 'false'; } catch { return true; }
+const NOTATION_KEY = 'redstring_formula_notation';
+const CONVENTION_KEY = 'redstring_formula_convention';
+const readPref = (key, allowed, fallback) => {
+  try {
+    const v = localStorage.getItem(key);
+    return allowed.includes(v) ? v : fallback;
+  } catch { return fallback; }
+};
+const writePref = (key, value) => {
+  try { localStorage.setItem(key, value); } catch { /* the choice still holds for this session */ }
 };
 
 const useFormatsStore = create(() => ({
   /**
-   * How a formula shows exponentiation: raised (c², the usual way, the default)
-   * or as an operator like the others (c ^ 2). A display preference of this
-   * browser's, not part of the universe.
+   * How formulas are shown: 'standard' math (mc², 4ac: multiplication side by
+   * side and exponents raised, the default) or 'explicit' (m × c ^ 2, every
+   * operation a token). A display preference of this browser's, not part of
+   * the universe.
    */
-  raisedExponents: readRaisedExponents(),
+  notation: readPref(NOTATION_KEY, ['standard', 'explicit'], 'standard'),
+  /** How New Formula reads what is typed: 'math' (the default) or 'programming'. */
+  convention: readPref(CONVENTION_KEY, ['math', 'programming'], 'math'),
   /** Offer keys the user waved off this session (see formatCandidates). */
   dismissed: new Set(),
   /** The "New Formula" composer: { graphId, at: {x, y} } in canvas coordinates, or null. */
@@ -58,10 +68,18 @@ export function showAsThings(graphId, groupId) {
   useGraphStore.getState().updateGroup(graphId, groupId, (g) => { delete g.format; });
 }
 
-export const setRaisedExponents = (raised) => {
-  try { localStorage.setItem(RAISED_EXPONENTS_KEY, String(!!raised)); } catch { /* the choice still holds for this session */ }
-  useFormatsStore.setState({ raisedExponents: !!raised });
+export const setNotation = (notation) => {
+  writePref(NOTATION_KEY, notation);
+  useFormatsStore.setState({ notation });
 };
+
+export const setConvention = (convention) => {
+  writePref(CONVENTION_KEY, convention);
+  useFormatsStore.setState({ convention });
+};
+
+/** Whether formulas show in standard notation (a selector). */
+export const selectStandard = (s) => s.notation !== 'explicit';
 
 export const openFormulaComposer = (graphId, at) => useFormatsStore.setState({ composing: { graphId, at } });
 export const closeFormulaComposer = () => useFormatsStore.setState({ composing: null });
