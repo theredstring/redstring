@@ -1111,6 +1111,21 @@ const copyGroupsInto = (draft, { sourceGraph, targetGraph, instanceIdMap, offset
  * @param {Set<string>} instanceIdSet
  * @returns {boolean}
  */
+/**
+ * An instance merged away into another in the same web: the groups it was in
+ * now hold the one it became (once). Leaving its id behind made the group
+ * point at nothing, which a later load or a collaborator's copy then dropped.
+ */
+const replaceGroupMember = (graph, removedId, keptId) => {
+  for (const group of graph.groups?.values?.() || []) {
+    const members = group.memberInstanceIds;
+    if (!Array.isArray(members) || !members.includes(removedId)) continue;
+    group.memberInstanceIds = members.includes(keptId)
+      ? members.filter((id) => id !== removedId)
+      : members.map((id) => (id === removedId ? keptId : id));
+  }
+};
+
 const isGroupContainedInInstances = (group, instanceIdSet) => {
   if (!group) return false;
   // Anchor first: an empty node-group placeholder has no members to test with.
@@ -4417,6 +4432,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 draft.edges.delete(edgeId);
               }
             }
+            replaceGroupMember(graph, secInstId, primaryInstId);
             graph.instances.delete(secInstId);
           }
         } else {
@@ -4449,6 +4465,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 draft.edges.delete(edgeId);
               }
             }
+            replaceGroupMember(graph, extraId, keepInstId);
             graph.instances.delete(extraId);
           }
         }

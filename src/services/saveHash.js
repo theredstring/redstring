@@ -12,7 +12,7 @@
  * Exclusions (deliberate):
  * - `panOffset`/`zoomLevel` per graph — viewport moves must not trigger saves.
  * - `imageSrc`/`thumbnailSrc` — multi-MB data URLs OOM V8 when stringified;
- *   replaced with a length fingerprint so image *changes* are still detected.
+ *   replaced with a sampled fingerprint so image *changes* are still detected.
  */
 
 /** FNV-1a — fast 32-bit content hash. */
@@ -52,15 +52,31 @@ export const mapSetReplacer = (key, value) => {
  */
 const isReFetchable = (proto) => !!(proto?.semanticMetadata?.autoEnriched && proto?.semanticMetadata?.wikipediaThumbnail);
 
-/** A prototype as the hash sees it: images as length fingerprints. */
+/**
+ * A picture's fingerprint without hashing megabytes: its length plus up to
+ * 4096 characters sampled evenly through it. Length alone missed a picture
+ * replaced by another of the same size, which then never saved.
+ */
+const IMAGE_SAMPLES = 4096;
+export const imageFingerprint = (src) => {
+  if (typeof src !== 'string' || !src) return 0;
+  const step = Math.max(1, Math.floor(src.length / IMAGE_SAMPLES));
+  let hash = 2166136261;
+  for (let i = 0; i < src.length; i += step) {
+    hash ^= src.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return `${src.length}:${(hash >>> 0).toString(36)}`;
+};
+
+/** A prototype as the hash sees it: images as fingerprints. */
 const hashedPrototype = (proto) => {
   const { imageSrc, thumbnailSrc, ...rest } = proto;
   const kept = !isReFetchable(proto);
   return {
     ...rest,
-    // Cheap fingerprints: detect image replacement without hashing MBs.
-    __imageLen: kept && typeof imageSrc === 'string' ? imageSrc.length : 0,
-    __thumbLen: kept && typeof thumbnailSrc === 'string' ? thumbnailSrc.length : 0
+    __image: kept ? imageFingerprint(imageSrc) : 0,
+    __thumb: kept ? imageFingerprint(thumbnailSrc) : 0
   };
 };
 

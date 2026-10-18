@@ -169,6 +169,10 @@ class GitSyncEngine {
     this._stamps = new WeakMap(); // storeState → { gen, base }
     // Versions this device moved past, and when (see _isRecentlySuperseded).
     this._supersededAt = new Map();
+    // Waits between reads while the host still shows a refused version (tests shorten them).
+    this.staleReadRetryMs = STALE_READ_RETRY_MS;
+    // Wait before retrying a save that failed on the network, times the attempt (tests shorten it).
+    this.networkRetryMs = 1000;
     // Set by universeBackend: async ({ baseText, localJson, applyBaseJson,
     // remoteData, remoteText, remoteSha }) => null | { content,
     // apply: async () => ({ state, before })|null } — `state` is the store
@@ -273,13 +277,13 @@ class GitSyncEngine {
       }
       const stale = !remote || remote.sha === refusedSha || this._isRecentlySuperseded(remote.sha);
       if (!stale) return remote;
-      if (attempt >= STALE_READ_RETRY_MS.length) {
+      if (attempt >= this.staleReadRetryMs.length) {
         const error = new Error('The repository refused the save but still shows an older version. Trying again shortly.');
         error.code = 'REMOTE_READ_STALE';
         throw error;
       }
       console.warn(`[GitSyncEngine] The repository still shows an older version of ${path} — reading again`);
-      await new Promise((resolve) => setTimeout(resolve, STALE_READ_RETRY_MS[attempt]));
+      await new Promise((resolve) => setTimeout(resolve, this.staleReadRetryMs[attempt]));
     }
   }
 
@@ -1674,7 +1678,7 @@ class GitSyncEngine {
           if (isNetworkError && attempt < 3) {
             vlog(`[GitSyncEngine] Network error on commit attempt ${attempt}, retrying...`);
             // Wait with exponential backoff: 1s, 2s
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            await new Promise(resolve => setTimeout(resolve, this.networkRetryMs * attempt));
             continue;
           }
 
@@ -1916,7 +1920,7 @@ class GitSyncEngine {
             error.message?.includes('fetch') ||
             error.message?.includes('NETWORK_CHANGED');
           if (isNetworkError && attempt < 3) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+            await new Promise(resolve => setTimeout(resolve, this.networkRetryMs * attempt));
             continue;
           }
           break;
