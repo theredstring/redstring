@@ -17,7 +17,7 @@ import useFormatsStore, { closeFormulaComposer, setConvention, selectStandard } 
 
 const CONVENTION_OPTIONS = [
   { key: 'math', label: 'Math' },
-  { key: 'programming', label: 'Programming' },
+  { key: 'programming', label: 'Code' },
 ];
 
 const PLACEHOLDER = { math: 'E = mc^2', programming: 'energy = mass * c**2' };
@@ -102,7 +102,6 @@ export default function FormulaComposer() {
         <button type="submit" className="formula-composer-add" disabled={!parsed.chain} title="Add to Web" aria-label="Add to Web">
           <SendHorizontal size={16} strokeWidth={2.5} />
         </button>
-        <span className="format-offer-divider" />
         <button type="button" className="format-offer-dismiss" onClick={closeFormulaComposer} title="Cancel" aria-label="Cancel">
           <X size={14} strokeWidth={2.75} />
         </button>

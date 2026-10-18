@@ -292,8 +292,8 @@ test('F44 New Formula reads typing as math or as programming, and Enter adds it'
   await shot(page, '7-compose-math');
 
   // Programming: whole-word names, and side by side is a mistake there.
-  await option('Programming').click();
-  await expect(option('Programming')).toHaveAttribute('aria-checked', 'true');
+  await option('Code').click();
+  await expect(option('Code')).toHaveAttribute('aria-checked', 'true');
   await expect(input).toBeFocused();
   await input.fill('e = m c');
   await expect(preview).toContainText('*');
@@ -312,5 +312,5 @@ test('F44 New Formula reads typing as math or as programming, and Enter adds it'
   const again = await findBareSpot(page);
   await page.mouse.click(again.x, again.y, { button: 'right' });
   await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
-  await expect(option('Programming')).toHaveAttribute('aria-checked', 'true');
+  await expect(option('Code')).toHaveAttribute('aria-checked', 'true');
 });
