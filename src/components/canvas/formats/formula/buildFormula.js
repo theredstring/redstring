@@ -1,19 +1,23 @@
 /**
- * Build a formula into a web from text: one Thing per token, connections from
- * each operator to its operands, laid out as a tree (operator above, operands
- * below it left to right, which is the order the formula reads them back in),
- * and a group around the whole thing named after the formula, shown as the
- * formula.
+ * Build a typed formula into a web, the way formulaChain.js reads one:
+ * - each operand a Thing, in a row, left to right;
+ * - each operation a connection between neighbours, defined by the operation's
+ *   Thing (Addition, Multiplication, Exponentiation...), pointing the way it reads;
+ * - each part in parentheses a Thing-group nested in place, its Thing named after
+ *   its term and typed by what is applied to it (Square Root, Negation, sin), or
+ *   untyped for plain parentheses;
+ * - a group around the whole formula, named after it and shown as the formula.
  *
- * Names are references, the way they are everywhere else in Redstring: a Thing
- * that already exists by that name is placed again rather than duplicated, so
- * every formula's "+" is the same Addition and every "c" the same c.
+ * Names are references, as everywhere in Redstring: an operand, an operation or a
+ * type that already exists by that name is placed again rather than duplicated.
+ * A part's Thing is always new, since converting its group gives it a definition.
  */
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
 import { getNodeDimensions } from '../../../../utils.js';
-import { parseFormulaText, formulaToText } from './formulaNotation.js';
+import { OPERATORS } from './formulaNotation.js';
+import { chainFromText, chainText } from './formulaChain.js';
 
 const OPERATOR_DESCRIPTIONS = {
   eq: 'States that its two sides are equal.',
@@ -23,32 +27,23 @@ const OPERATOR_DESCRIPTIONS = {
   le: 'States that the left side is at most the right.',
   ge: 'States that the left side is at least the right.',
   approx: 'States that its two sides are approximately equal.',
-  add: 'The sum of its operands.',
-  sub: 'The first operand less the second.',
-  mul: 'The product of its operands.',
-  div: 'The first operand divided by the second.',
-  neg: 'The opposite of its operand.',
-  pow: 'The base raised to the power of the exponent.',
-  sqrt: 'The number that, multiplied by itself, gives its operand.',
+  add: 'The sum of what it joins.',
+  sub: 'The first less the second.',
+  mul: 'The product of what it joins.',
+  div: 'The first divided by the second.',
+  neg: 'The opposite of its contents.',
+  pow: 'The first raised to the power of the second.',
+  sqrt: 'The number that, multiplied by itself, gives its contents.',
 };
 
-const H_GAP = 50;
-const V_GAP = 110;
+const GAP = 190;      // between terms: room for the operation's label on the connection
+const PART_PAD = 70;  // a part's box around its contents
 
 // Case matters for symbols (E is not e), not for words (Mass is mass).
 const nameKey = (name) => {
   const s = String(name).trim();
   return s.length <= 3 ? s : s.toLowerCase();
 };
-
-function findPrototypeByName(prototypes, name) {
-  const want = nameKey(name);
-  for (const proto of prototypes.values()) {
-    if (proto.isOrbitCatalog) continue;
-    if (nameKey(proto.name || '') === want) return proto;
-  }
-  return null;
-}
 
 /**
  * @param {string} text - e.g. "E = m * c^2"
@@ -58,80 +53,112 @@ function findPrototypeByName(prototypes, name) {
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
  */
 export function buildFormulaInWeb(text, graphId, at) {
-  const tree = parseFormulaText(text);
+  const chain = chainFromText(text);
   const store = useGraphStore.getState();
   if (!store.graphs.get(graphId)) throw new Error('No web to add it to');
 
-  // Prototypes: reuse by name, create what's missing (one per name, even if
-  // the formula uses it twice).
+  // Prototypes by name: operands, operations and types are reused.
   const protoByName = new Map();
-  const protoFor = (node) => {
-    const key = nameKey(node.name);
+  const prototypeNamed = (name, description = '') => {
+    const key = nameKey(name);
     if (protoByName.has(key)) return protoByName.get(key);
-    let proto = findPrototypeByName(useGraphStore.getState().nodePrototypes, node.name);
+    let proto = null;
+    for (const p of useGraphStore.getState().nodePrototypes.values()) {
+      if (!p.isOrbitCatalog && nameKey(p.name || '') === key) { proto = p; break; }
+    }
     if (!proto) {
-      proto = {
-        id: uuidv4(),
-        name: String(node.name),
-        color: NODE_DEFAULT_COLOR,
-        description: node.kind === 'op' ? (OPERATOR_DESCRIPTIONS[node.op.key] || '') : '',
-        typeNodeId: null,
-        definitionGraphIds: [],
-      };
+      proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description, typeNodeId: null, definitionGraphIds: [] };
       store.addNodePrototype(proto);
     }
     protoByName.set(key, proto);
     return proto;
   };
 
-  // Tidy tree layout: every subtree gets the width of its widest row of leaves.
-  const measure = (node) => {
-    const dims = getNodeDimensions({ name: String(node.name) }, false, null);
-    node._w = dims.currentWidth;
-    node._h = dims.currentHeight;
-    if (!node.children?.length) { node._span = node._w; return; }
-    node.children.forEach(measure);
-    const childSpan = node.children.reduce((sum, c) => sum + c._span, 0) + H_GAP * (node.children.length - 1);
-    node._span = Math.max(node._w, childSpan);
-  };
-  measure(tree);
-
-  const nodes = [];
-  const edges = [];
-  const place = (node, left, top) => {
-    const proto = protoFor(node);
-    const instanceId = uuidv4();
-    const centerX = left + node._span / 2;
-    nodes.push({ instanceId, prototypeId: proto.id, x: centerX - node._w / 2, y: top, scale: 1 });
-    if (node.children?.length) {
-      const childSpan = node.children.reduce((sum, c) => sum + c._span, 0) + H_GAP * (node.children.length - 1);
-      let x = centerX - childSpan / 2;
-      for (const child of node.children) {
-        const childId = place(child, x, top + node._h + V_GAP);
-        edges.push({
-          id: uuidv4(),
-          sourceId: instanceId,
-          destinationId: childId,
-          name: '',
-          typeNodeId: 'base-connection-prototype',
-          definitionNodeIds: [],
-          directionality: { arrowsToward: new Set([childId]) },
-        });
-        x += child._span + H_GAP;
-      }
+  // Widths, inside out.
+  const termWidth = (term) => {
+    if (term.kind === 'thing') {
+      term._w = getNodeDimensions({ name: term.name }, false, null).currentWidth;
+      return term._w;
     }
-    return instanceId;
+    term.args.forEach(chainWidth);
+    term._w = term.args.reduce((sum, a) => sum + a._w, 0) + GAP * (term.args.length - 1) + PART_PAD * 2;
+    return term._w;
   };
-  // Centred on the point asked for, so the formula shown in place (centred on
-  // its Things) lands where the person clicked.
-  const depth = (node) => 1 + Math.max(0, ...(node.children || []).map(depth));
-  const levels = depth(tree);
-  const rowH = tree._h + V_GAP;
-  place(tree, at.x - tree._span / 2, at.y - ((levels - 1) * rowH + tree._h) / 2);
+  const chainWidth = (c) => {
+    c._w = c.items.reduce((sum, item) => sum + (item.kind === 'op' ? GAP : termWidth(item)), 0);
+    return c._w;
+  };
+  chainWidth(chain);
 
-  store.pasteNodesAndEdges(graphId, nodes, edges);
-  const instanceIds = nodes.map(n => n.instanceId);
-  const name = formulaToText(tree);
-  const groupId = store.createGroup(graphId, { name, color: NODE_DEFAULT_COLOR, memberInstanceIds: instanceIds, format: 'formula' });
-  return { instanceIds, groupId, text: name };
+  // Build one chain from x: its parts first (each becomes a Thing-group), then
+  // its own Things and the operations between its terms. Returns every
+  // instance inside it.
+  const buildChain = (c, left) => {
+    let x = left;
+    const placed = [];
+    const nodes = [];
+    const inside = [];
+    for (const item of c.items) {
+      if (item.kind === 'op') { x += GAP; placed.push(null); continue; }
+      if (item.kind === 'thing') {
+        const proto = prototypeNamed(item.name);
+        const id = uuidv4();
+        const h = getNodeDimensions({ name: item.name }, false, null).currentHeight;
+        nodes.push({ instanceId: id, prototypeId: proto.id, x, y: at.y - h / 2, scale: 1 });
+        placed.push(id);
+        inside.push(id);
+      } else {
+        const { anchorId, ids } = buildPart(item, x);
+        placed.push(anchorId);
+        inside.push(...ids);
+      }
+      x += item._w;
+    }
+    const edges = [];
+    c.items.forEach((item, i) => {
+      if (item.kind !== 'op') return;
+      const from = placed[i - 1];
+      const to = placed[i + 1];
+      if (!from || !to) return;
+      const opProto = prototypeNamed(item.name, OPERATOR_DESCRIPTIONS[item.key] || '');
+      edges.push({
+        id: uuidv4(), sourceId: from, destinationId: to, name: '',
+        typeNodeId: 'base-connection-prototype', definitionNodeIds: [opProto.id],
+        directionality: { arrowsToward: new Set([to]) },
+      });
+    });
+    useGraphStore.getState().pasteNodesAndEdges(graphId, nodes, edges);
+    return { inside };
+  };
+
+  const buildPart = (part, left) => {
+    let x = left + PART_PAD;
+    const ids = [];
+    part.args.forEach((arg) => {
+      ids.push(...buildChain(arg, x).inside);
+      x += arg._w + GAP;
+    });
+    const st = useGraphStore.getState();
+    const groupId = st.createGroup(graphId, { name: part.name, color: NODE_DEFAULT_COLOR, memberInstanceIds: ids });
+    // The part's Thing: named after its term, typed by what is applied to it.
+    let typeNodeId = null;
+    if (part.apply === 'neg' || part.apply === 'sqrt') {
+      typeNodeId = prototypeNamed(OPERATORS[part.apply].name, OPERATOR_DESCRIPTIONS[part.apply]).id;
+    } else if (part.apply === 'fn') {
+      typeNodeId = prototypeNamed(part.fnName).id;
+    }
+    const thing = { id: uuidv4(), name: part.name, color: NODE_DEFAULT_COLOR, description: '', typeNodeId, definitionGraphIds: [] };
+    st.addNodePrototype(thing);
+    st.convertGroupToNodeGroup(graphId, groupId, thing.id, false);
+    const anchorId = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId)?.anchorInstanceId;
+    if (!anchorId) throw new Error('Could not make a part of the formula');
+    return { anchorId, ids: [...ids, anchorId] };
+  };
+
+  const { inside } = buildChain(chain, at.x - chain._w / 2);
+  const name = chainText(chain);
+  const groupId = useGraphStore.getState().createGroup(graphId, {
+    name, color: NODE_DEFAULT_COLOR, memberInstanceIds: inside, format: 'formula',
+  });
+  return { instanceIds: inside, groupId, text: name };
 }

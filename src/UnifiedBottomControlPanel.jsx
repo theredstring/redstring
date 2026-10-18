@@ -284,11 +284,14 @@ const UnifiedBottomControlPanel = ({
   connectionPieMenuButtons = null,
   connectionPieMenuTargetEdgeId = null,
 
-  // Optional navigations (shown on node mode)
+  // Optional navigations (shown on node mode, and on format mode, where they
+  // swap how a group is shown: as its Things, as a formula...)
   onLeftNav,
   onRightNav,
   hasLeftNav = false,
   hasRightNav = false,
+  leftNavLabel = 'Previous',
+  rightNavLabel = 'Next',
 
   // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
   onDismiss,
@@ -418,7 +421,10 @@ const UnifiedBottomControlPanel = ({
 
   const isNodes = mode === 'nodes';
   const isAbstraction = mode === 'abstraction';
-  const isGroup = mode === 'group';
+  // Format mode is a plain group that reads as a format (formats/): the group's
+  // own buttons, with ◀ ▶ to swap formats and the current one shown between them.
+  const isFormat = mode === 'format';
+  const isGroup = mode === 'group' || isFormat;
   const isNodeGroup = mode === 'nodegroup';
   const isDecompose = mode === 'decompose';
 
@@ -794,14 +800,14 @@ const UnifiedBottomControlPanel = ({
         />
         {/* Row 1: Interactive info */}
         <div className="info-row">
-          {(isNodes || isDecompose) ? (
+          {(isNodes || isDecompose || isFormat) ? (
             <div className="arrow-group" style={{ marginRight: 6 }}>
               <div
                 className="piemenu-button"
                 onClick={onLeftNav}
-                title="Previous"
+                title={leftNavLabel}
                 style={{ visibility: hasLeftNav ? 'visible' : 'hidden' }}
-                onMouseEnter={() => triggerActionHover('control-previous', 'Previous')}
+                onMouseEnter={() => triggerActionHover('control-previous', leftNavLabel)}
                 onMouseLeave={clearActionHover}
               >
                 <ChevronLeft size={iconSize} />
@@ -824,6 +830,8 @@ const UnifiedBottomControlPanel = ({
                 />
               </div>
             ) : null
+          ) : (isFormat && customContent) ? (
+            customContent
           ) : isNodeGroup ? (
             nodeGroupRendererNode ? (
               <div
@@ -891,14 +899,14 @@ const UnifiedBottomControlPanel = ({
             </div>
           )}
 
-          {(isNodes || isDecompose) ? (
+          {(isNodes || isDecompose || isFormat) ? (
             <div className="arrow-group" style={{ marginLeft: 6 }}>
               <div
                 className="piemenu-button"
                 onClick={onRightNav}
-                title="Next"
+                title={rightNavLabel}
                 style={{ visibility: hasRightNav ? 'visible' : 'hidden' }}
-                onMouseEnter={() => triggerActionHover('control-next', 'Next')}
+                onMouseEnter={() => triggerActionHover('control-next', rightNavLabel)}
                 onMouseLeave={clearActionHover}
               >
                 <ChevronRight size={iconSize} />

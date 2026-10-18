@@ -2,61 +2,21 @@
  * Formats: other ways a piece of a web can be shown. The formula is the first.
  *
  * A candidate is a piece of the web in view that reads as a format: the
- * selection, a group, or the whole web. Nothing about it is saved; it is
- * worked out from the web each time, so a format can never disagree with the
- * Things and connections it shows.
+ * selection, a group, or the whole web. It is worked out from the web each
+ * time, so a format can never disagree with the Things and connections it shows.
  */
 import { projectGraphView } from '../../../core/openDefinitions.js';
-import { readFormula, formulaToText } from './formula/formulaNotation.js';
+import { isGroupInsideGroup } from '../../../services/groupLayout.js';
+import { readFormulaGroup, chainText, operationOf } from './formula/formulaChain.js';
 
 const MAX_WEB_FORMULA = 200;
 
-/** What a connection's name says, for reading which side an operand is on. */
-function connectionRole(edge, state) {
-  const defId = edge.definitionNodeIds?.[0];
-  if (defId) return state.nodePrototypes.get(defId)?.name || '';
-  if (edge.name) return edge.name;
-  if (edge.typeNodeId && edge.typeNodeId !== 'base-connection-prototype') {
-    return state.edgePrototypes?.get(edge.typeNodeId)?.name || '';
-  }
-  return '';
-}
-
-/** The nodes and connections among `instanceIds`, in the shape readFormula takes. */
-export function sliceOfView(state, view, instanceIds) {
-  const ids = new Set(instanceIds);
-  const nodes = [];
-  for (const id of ids) {
-    const inst = view.instances.get(id);
-    if (!inst) return null;
-    const proto = state.nodePrototypes.get(inst.prototypeId);
-    if (!proto) return null;
-    const typeName = proto.typeNodeId ? state.nodePrototypes.get(proto.typeNodeId)?.name : undefined;
-    nodes.push({ id, name: proto.name, x: inst.x, y: inst.y, typeName });
-  }
-  const edges = [];
-  for (const edgeId of view.edgeIds || []) {
-    const stored = state.edges.get(edgeId);
-    const edge = view.openView?.edges?.get(edgeId) || stored;
-    if (!edge || !ids.has(edge.sourceId) || !ids.has(edge.destinationId)) continue;
-    edges.push({
-      id: edgeId,
-      sourceId: edge.sourceId,
-      destinationId: edge.destinationId,
-      arrowsToward: edge.directionality?.arrowsToward || [],
-      role: connectionRole(edge, state),
-    });
-  }
-  return { nodes, edges };
-}
-
-function formulaCandidate(state, view, graphId, source, sourceId, label, instanceIds) {
-  if (instanceIds.length < 3) return null;
-  const slice = sliceOfView(state, view, instanceIds);
-  if (!slice) return null;
-  const tree = readFormula(slice);
-  if (!tree) return null;
-  const text = formulaToText(tree);
+function formulaCandidate(state, view, graphId, source, sourceId, label, container) {
+  const instanceIds = (container.memberInstanceIds || []).filter(id => view.instances.has(id));
+  if (instanceIds.length < 2) return null;
+  const chain = readFormulaGroup(state, view, container);
+  if (!chain) return null;
+  const text = chainText(chain);
   return {
     // Dismissals are kept by this key, so changing the formula asks again.
     key: `formula|${graphId}|${source}:${sourceId}|${text}`,
@@ -66,14 +26,15 @@ function formulaCandidate(state, view, graphId, source, sourceId, label, instanc
     sourceId,
     label,
     instanceIds,
-    tree,
+    chain,
     text,
   };
 }
 
 /**
  * The format to offer for what is in front of the user, or null.
- * Order: the selection, then the selected group, then any group, then the web.
+ * Order: the selection, then the selected group, then any group (outermost
+ * first, since a formula's parts are groups too), then the web.
  */
 export function findFormatCandidate(state, { selectedInstanceIds, selectedGroupId, dismissed }) {
   const graphId = state.activeGraphId;
@@ -86,26 +47,54 @@ export function findFormatCandidate(state, { selectedInstanceIds, selectedGroupI
   view.groups?.forEach(g => { if (g.format) (g.memberInstanceIds || []).forEach(id => shownIds.add(id)); });
   const open = (c) => (c && !dismissed?.has(c.key) && !c.instanceIds.every(id => shownIds.has(id)) ? c : null);
 
-  if (selectedInstanceIds && selectedInstanceIds.size >= 3) {
+  if (selectedInstanceIds && selectedInstanceIds.size >= 2) {
     // A selection is a deliberate ask: it is the only thing offered while it stands.
-    return open(formulaCandidate(state, view, graphId, 'selection', 'selection', 'Selection', [...selectedInstanceIds]));
+    return open(formulaCandidate(state, view, graphId, 'selection', 'selection', 'Selection',
+      { id: '__selection__', memberInstanceIds: [...selectedInstanceIds] }));
   }
 
-  const groups = view.groups ? [...view.groups.values()] : [];
-  const fromGroup = (g) => formulaCandidate(state, view, graphId, 'group', g.id, g.name || 'Group', g.memberInstanceIds || []);
+  // A Thing-group whose Thing an operation joins to something outside it is a
+  // part of a larger formula, not a formula of its own.
+  const isPart = (g) => {
+    if (!g.anchorInstanceId) return false;
+    const members = new Set(g.memberInstanceIds || []);
+    return (view.edgeIds || []).some((edgeId) => {
+      const e = state.edges.get(edgeId);
+      if (!e || (e.sourceId !== g.anchorInstanceId && e.destinationId !== g.anchorInstanceId)) return false;
+      const other = e.sourceId === g.anchorInstanceId ? e.destinationId : e.sourceId;
+      return !members.has(other) && !!operationOf(e, state);
+    });
+  };
+  const groups = view.groups ? [...view.groups.values()].filter(g => !g.isOpenDefinition && !isPart(g)) : [];
+  const fromGroup = (g) => formulaCandidate(state, view, graphId, 'group', g.id, g.name || 'Group', g);
   if (selectedGroupId && view.groups?.has(selectedGroupId)) {
     const c = open(fromGroup(view.groups.get(selectedGroupId)));
     if (c) return c;
   }
-  for (const g of groups) {
+  const outermostFirst = groups
+    .filter(g => !groups.some(o => o !== g && isGroupInsideGroup(g, o)))
+    .sort((a, b) => (b.memberInstanceIds?.length || 0) - (a.memberInstanceIds?.length || 0));
+  for (const g of outermostFirst) {
     const c = open(fromGroup(g));
     if (c) return c;
   }
 
-  // The whole web, when it is one formula and small enough to be one. A tree has
-  // one connection fewer than it has Things, which turns most webs away at once.
-  if (view.instances.size > MAX_WEB_FORMULA || (view.edgeIds || []).length !== view.instances.size - 1) return null;
+  // The whole web, when it is one formula and small enough to be one.
+  if (view.instances.size > MAX_WEB_FORMULA) return null;
   const everyThing = [];
-  view.instances.forEach((inst, id) => { if (!inst.isGroupAnchor) everyThing.push(id); });
-  return open(formulaCandidate(state, view, graphId, 'web', graphId, graphName, everyThing));
+  view.instances.forEach((inst, id) => everyThing.push(id));
+  return open(formulaCandidate(state, view, graphId, 'web', graphId, graphName,
+    { id: '__web__', memberInstanceIds: everyThing }));
+}
+
+/**
+ * The formula a group reads as, or null: what the group control panel's format
+ * mode swaps to.
+ */
+export function readGroupFormula(state, graphId, groupId) {
+  if (!graphId || !groupId) return null;
+  const view = projectGraphView(state, graphId);
+  const group = view?.groups?.get(groupId);
+  if (!group || group.isOpenDefinition) return null;
+  return readFormulaGroup(state, view, group);
 }

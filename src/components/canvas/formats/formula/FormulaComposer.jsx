@@ -8,16 +8,10 @@ import { X } from 'lucide-react';
 import useGraphStore from '../../../../store/graphStore.js';
 import { useViewportBounds } from '../../../../hooks/useViewportBounds';
 import { useMobileLandscapeShell } from '../../../../hooks/useMobileLandscapeShell.js';
-import { linearize, parseFormulaText } from './formulaNotation.js';
+import { chainFromText, tokensOf } from './formulaChain.js';
 import { buildFormulaInWeb } from './buildFormula.js';
 import FormulaTokens from './FormulaTokens.jsx';
 import useFormatsStore, { closeFormulaComposer } from '../formatsStore.js';
-
-const withIds = (tree) => {
-  let n = 0;
-  const tag = (node) => ({ ...node, id: `draft-${n++}`, ...(node.children ? { children: node.children.map(tag) } : {}) });
-  return tag(tree);
-};
 
 export default function FormulaComposer() {
   const composing = useFormatsStore(s => s.composing);
@@ -32,13 +26,13 @@ export default function FormulaComposer() {
   useEffect(() => { requestAnimationFrame(() => inputRef.current?.focus()); }, []);
 
   const parsed = useMemo(() => {
-    if (!draft.trim()) return { tree: null, error: null };
-    try { return { tree: withIds(parseFormulaText(draft)), error: null }; } catch (err) { return { tree: null, error: err.message }; }
+    if (!draft.trim()) return { chain: null, error: null };
+    try { return { chain: chainFromText(draft), error: null }; } catch (err) { return { chain: null, error: err.message }; }
   }, [draft]);
-  const line = useMemo(() => (parsed.tree ? linearize(parsed.tree) : null), [parsed.tree]);
+  const tokens = useMemo(() => (parsed.chain ? tokensOf(parsed.chain) : null), [parsed.chain]);
 
   const add = () => {
-    if (!composing || !parsed.tree) return;
+    if (!composing || !parsed.chain) return;
     buildFormulaInWeb(draft, composing.graphId, composing.at);
     closeFormulaComposer();
   };
@@ -58,15 +52,13 @@ export default function FormulaComposer() {
           spellCheck={false}
           autoComplete="off"
         />
-        <button type="submit" className="formula-composer-add" disabled={!parsed.tree}>Add</button>
+        <button type="submit" className="formula-composer-add" disabled={!parsed.chain}>Add</button>
         <button type="button" className="format-offer-dismiss" onClick={closeFormulaComposer} aria-label="Cancel">
           <X size={14} strokeWidth={2.75} />
         </button>
       </form>
       <div className="formula-composer-preview">
-        {line ? (
-          <FormulaTokens tokens={line.tokens} />
-        ) : parsed.error}
+        {tokens ? <FormulaTokens tokens={tokens} /> : parsed.error}
       </div>
     </div>
   );

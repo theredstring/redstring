@@ -1,25 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { findFormatCandidate } from '../../src/components/canvas/formats/formatCandidates.js';
+import { formulaWeb } from './formulaWeb.js';
 
-// (a + b) × c, drawn top-down, plus an unrelated Thing off to the side.
+// (a + b) × c, its part a nested Thing-group, plus an unrelated Thing.
 function webState({ withStray = true, grouped = false } = {}) {
-  const protos = [
-    ['p-times', '×'], ['p-plus', 'Addition'], ['p-a', 'a'], ['p-b', 'b'], ['p-c', 'c'], ['p-cat', 'Cat'],
-  ];
-  const nodePrototypes = new Map(protos.map(([id, name]) => [id, { id, name, color: '#8B0000' }]));
-  const at = (id, prototypeId, x, y) => [id, { id, prototypeId, x, y }];
-  const instances = new Map([
-    at('times', 'p-times', 200, 0), at('plus', 'p-plus', 100, 200), at('c', 'p-c', 300, 200),
-    at('a', 'p-a', 0, 400), at('b', 'p-b', 200, 400),
-    ...(withStray ? [at('cat', 'p-cat', 900, 900)] : []),
-  ]);
-  const edgeList = [['times', 'plus'], ['times', 'c'], ['plus', 'a'], ['plus', 'b']].map(([s, d]) => ({
-    id: `${s}-${d}`, sourceId: s, destinationId: d, directionality: { arrowsToward: new Set([d]) },
-  }));
-  const edges = new Map(edgeList.map(e => [e.id, e]));
-  const groups = new Map(grouped ? [['g1', { id: 'g1', name: 'Area', memberInstanceIds: ['times', 'plus', 'c', 'a', 'b'] }]] : []);
-  const graphs = new Map([['web', { id: 'web', name: 'Shapes', instances, edgeIds: edgeList.map(e => e.id), groups }]]);
-  return { activeGraphId: 'web', graphs, nodePrototypes, edges, edgePrototypes: new Map() };
+  return formulaWeb({
+    things: [['a', 'a', 0], ['b', 'b', 300], ['c', 'c', 700]],
+    parts: [{ id: 'g', anchor: 'pa', name: 'a + b', members: ['a', 'b'], x: 150 }],
+    ops: [['a', 'b', 'Addition'], ['pa', 'c', 'Multiplication']],
+    top: grouped ? ['a', 'b', 'pa', 'c'] : null,
+    extra: withStray ? [['cat', 'Cat', 1500, 900]] : [],
+  });
 }
 
 const none = { selectedInstanceIds: new Set(), selectedGroupId: null, dismissed: new Set() };
@@ -35,17 +26,18 @@ describe('format candidates', () => {
     expect(findFormatCandidate(webState(), none)).toBe(null);
   });
 
-  it('offers a group that is one formula', () => {
+  it('offers the outermost group that is one formula, not its parts', () => {
     const c = findFormatCandidate(webState({ grouped: true }), none);
     expect(c?.source).toBe('group');
-    expect(c?.label).toBe('Area');
+    expect(c?.sourceId).toBe('top');
+    expect(c?.text).toBe('(a + b) × c');
   });
 
   it('offers a selection, and only the selection while it stands', () => {
     const state = webState();
-    const sel = { ...none, selectedInstanceIds: new Set(['plus', 'a', 'b']) };
+    const sel = { ...none, selectedInstanceIds: new Set(['a', 'b']) };
     expect(findFormatCandidate(state, sel)?.text).toBe('a + b');
-    const notOne = { ...none, selectedInstanceIds: new Set(['plus', 'a', 'cat']) };
+    const notOne = { ...none, selectedInstanceIds: new Set(['a', 'cat']) };
     expect(findFormatCandidate(webState({ grouped: true }), notOne)).toBe(null);
   });
 
@@ -59,7 +51,7 @@ describe('format candidates', () => {
 
   it('does not offer Things already shown as a formula', () => {
     const state = webState({ grouped: true });
-    state.graphs.get('web').groups.get('g1').format = 'formula';
+    state.graphs.get('web').groups.get('top').format = 'formula';
     expect(findFormatCandidate(state, none)).toBe(null);
   });
 });

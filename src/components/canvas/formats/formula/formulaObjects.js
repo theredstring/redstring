@@ -11,15 +11,13 @@
  */
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
-import { sliceOfView } from '../formatCandidates.js';
-import { readFormula, linearize, formulaToText } from './formulaNotation.js';
+import { isGroupInsideGroup } from '../../../../services/groupLayout.js';
+import { readFormulaGroup, tokensOf, chainText } from './formulaChain.js';
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
 export const FORMULA_FONT = 44;
 export const FORMULA_FONT_FAMILY = 'EmOne, sans-serif';
 export const FORMULA_FONT_WEIGHT = 'bold';
-const RAISE_SCALE = 0.62;
-const RAISE_STEP = 0.48;
 const BOX_EM = 1.5;      // token box height, in its own em
 const BASELINE_EM = 0.36; // baseline below the line's middle, in the line's em
 export const FRAME_PAD_X = 0.55; // em
@@ -40,7 +38,6 @@ function measure(text, size) {
 }
 
 function padsFor(t) {
-  if (t.raise) return [0, 0];
   if (t.kind === 'operator') return t.prefix ? [0.1, 0.04] : [0.3, 0.3];
   if (t.kind === 'comma') return [0, 0.35];
   if (t.kind === 'paren') return [0.03, 0.03];
@@ -54,13 +51,10 @@ function padsFor(t) {
 export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
   let x = 0;
   const boxes = tokens.map((t) => {
-    const level = t.level || 0;
-    const size = font * Math.pow(RAISE_SCALE, level);
-    let lift = 0;
-    for (let i = 0; i < level; i++) lift += RAISE_STEP * font * Math.pow(RAISE_SCALE, i);
+    const size = font;
     const [padL, padR] = padsFor(t);
-    const w = t.raise ? 0.14 * font : measure(t.text, size) + (padL + padR) * size;
-    const baseline = BASELINE_EM * font - lift;
+    const w = measure(t.text, size) + (padL + padR) * size;
+    const baseline = BASELINE_EM * font;
     const h = BOX_EM * size;
     const box = { x, y: baseline - BASELINE_EM * size - h / 2, w, h, size, baseline, textX: x + padL * size };
     x += w;
@@ -98,27 +92,28 @@ export function computeFormulaObjects(state) {
   const hiddenGroupIds = new Set();
   const tokenBoxById = new Map();
 
+  const allGroups = [...view.groups.values()];
   for (const group of shownGroups) {
     const memberIds = (group.memberInstanceIds || []).filter(id => view.instances.has(id));
     if (memberIds.some(id => hiddenIds.has(id))) continue; // one formula per Thing
-
-    const slice = sliceOfView(state, view, memberIds);
-    const tree = slice && readFormula(slice);
-    if (!tree) continue; // no longer a formula: its Things come back on their own
+    const chain = readFormulaGroup(state, view, group);
+    if (!chain) continue; // no longer a formula: its Things come back on their own
 
     // Centred where its Things were.
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const id of memberIds) {
       const inst = view.instances.get(id);
+      if (inst.isGroupAnchor) continue; // drawn as its group's title, from the members
       const proto = state.nodePrototypes.get(inst.prototypeId);
       const dims = getNodeDimensions({ ...proto, ...inst, name: proto?.name }, false, null);
       minX = Math.min(minX, inst.x); minY = Math.min(minY, inst.y);
       maxX = Math.max(maxX, inst.x + dims.currentWidth); maxY = Math.max(maxY, inst.y + dims.currentHeight);
     }
+    if (!Number.isFinite(minX)) continue;
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const { tokens, spans } = linearize(tree);
+    const tokens = tokensOf(chain);
     const line = layoutFormulaLine(tokens);
     const left = cx - line.width / 2;
     const boxes = line.boxes.map(b => ({ ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy }));
@@ -129,20 +124,24 @@ export function computeFormulaObjects(state) {
       h: line.height + 2 * FRAME_PAD_Y * FORMULA_FONT,
     };
 
-    // A Thing's connections from outside land on its (first) token.
+    // A connection from outside lands on the first token of the Thing it reaches:
+    // an operand, or a part's opening parenthesis (or sign, or function name).
+    const protoOf = new Map();
     tokens.forEach((t, i) => {
-      if (t.nodeId && !tokenBoxById.has(t.nodeId)) {
+      if (t.protoId && !protoOf.has(t.protoId)) protoOf.set(t.protoId, state.nodePrototypes.get(t.protoId));
+      if (t.target && !t.target.startsWith('edge:') && !tokenBoxById.has(t.target)) {
         const b = boxes[i];
-        tokenBoxById.set(t.nodeId, { x: b.x, y: b.y, w: Math.max(b.w, 0.3 * FORMULA_FONT), h: b.h });
+        tokenBoxById.set(t.target, { x: b.x, y: b.y, w: Math.max(b.w, 0.3 * FORMULA_FONT), h: b.h });
       }
     });
 
-    const protoOf = new Map(memberIds.map(id => [id, state.nodePrototypes.get(view.instances.get(id).prototypeId)]));
     memberIds.forEach(id => hiddenIds.add(id));
     hiddenGroupIds.add(group.id);
+    const memberSet = new Set(memberIds);
+    allGroups.forEach(g => { if (isGroupInsideGroup(g, group, memberSet)) hiddenGroupIds.add(g.id); });
     objects.push({
-      graphId, groupId: group.id, memberIds, tree, text: formulaToText(tree),
-      tokens, spans, boxes, frame, center: { x: cx, y: cy }, protoOf, groupColor: group.color,
+      graphId, groupId: group.id, memberIds, chain, text: chainText(chain),
+      tokens, boxes, frame, center: { x: cx, y: cy }, protoOf, groupColor: group.color,
     });
   }
 

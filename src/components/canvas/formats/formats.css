@@ -242,7 +242,25 @@ button.format-pill:disabled {
   opacity: 0.75;
 }
 
-.formula-token.is-raise {
-  padding: 0;
-  width: 0.08em;
+
+/* --- Group control panel, format mode (FormatPanelPreview) ------------- */
+
+.format-panel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, 70vw);
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.format-panel-chip .formula-tokens {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -1,178 +1,209 @@
 /**
- * Formulas shown in place: one canvas object per formula, drawn where its
- * Things were (formulaObjects.js says where). Drawn by NodeLayer after the
+ * Formulas shown in place: one canvas object per formula group, drawn where its
+ * Things are (formulaObjects.js says where). Drawn by NodeLayer after the
  * nodes, inside the canvas SVG, so it pans and zooms with the web.
  *
- * - A token under the pointer becomes its Thing: its color, rounded like a node.
- *   An operator also shades the subexpression it governs.
- * - Click a token to keep its description up (a tap does the same on touch).
- * - Drag the object to move its Things together.
- * - The button on its corner turns it back into Things.
+ * It takes input the way a Thing does:
+ * - the token under the pointer becomes its Thing (its color, rounded like a node):
+ *   an operand its Thing, an operation the Thing that defines its connection, a
+ *   parenthesis or sign or function name the part's Thing (both parentheses light);
+ * - a tap selects the formula's group, which brings up its control panel (the
+ *   format mode of UnifiedBottomControlPanel, where formats are swapped);
+ * - a double tap on a token opens that Thing in the panel;
+ * - hold, then drag, moves its Things together, snapping to the grid like a
+ *   group drag when the grid is on. The Things are written as they move
+ *   (drag-phase writes, no save, no history), so connections stay on their
+ *   tokens; the drop is one undo step.
  */
-import { memo, useCallback, useRef, useState } from 'react';
-import { Network } from 'lucide-react';
+import { memo, useEffect, useRef, useState } from 'react';
 import useGraphStore from '../../../../store/graphStore.js';
+import useCanvasUIStore from '../../../../store/canvasUIStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
+import { getNodeDimensions } from '../../../../utils.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor } from '../../../../utils/colorUtils.js';
+import { haptic } from '../../../../services/haptics.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
-import { showAsThings } from '../formatsStore.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { FORMULA_FONT, FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT } from './formulaObjects.js';
 
-const DRAG_SLOP_PX = 4;
-const CARD_W = 560;
+const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
+const DOUBLE_TAP_MS = 320;
+const LIFT_SCALE = 1.04;
 
-
-const stop = (e) => e.stopPropagation();
-
-function roleLine(node, parent) {
-  const parentName = parent ? (parent.kind === 'op' ? parent.op.name : parent.name) : null;
-  const inParent = parentName ? ` · in ${parentName}` : '';
-  if (node.kind === 'op') {
-    const n = node.children.length;
-    return `${node.op.name} · ${n === 1 ? '1 operand' : `${n} operands`}${inParent}`;
-  }
-  if (node.kind === 'fn') {
-    const n = node.children.length;
-    return `Function · ${n === 1 ? '1 argument' : `${n} arguments`}${inParent}`;
-  }
-  return parentName ? `Operand of ${parentName}` : 'Operand';
+/** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
+function selectGroup(groupId) {
+  const ui = useCanvasUIStore.getState();
+  ui.setSelectedGroupId(groupId);
+  ui.setSelectedInstanceIds(new Set());
+  ui.setSelectedEdgeId(null);
+  ui.clearSelectedEdgeIds();
+  ui.setGroupControlPanelShouldShow(true);
+  ui.setNodeControlPanelShouldShow(false);
+  ui.setNodeControlPanelVisible(false);
+  ui.setAbstractionControlPanelVisible(false);
+  ui.setAbstractionControlPanelShouldShow(false);
+  ui.setConnectionControlPanelVisible(false);
+  ui.setConnectionControlPanelShouldShow(false);
 }
 
-function FormulaObject({ obj, theme }) {
+function openThingInPanel(prototype) {
+  if (!prototype) return;
+  const st = useGraphStore.getState();
+  st.openRightPanelNodeTab(prototype.id, prototype.name);
+  if (!st.rightPanelExpanded) st.setRightPanelExpanded(true);
+}
+
+/** Where each Thing goes for a drag of (dx, dy): per Thing, snapped like a group drag's members. */
+function movedPositions(start, dx, dy) {
+  const { mode, size } = useGraphStore.getState().gridSettings || {};
+  const snap = mode && mode !== 'off' && size > 0;
+  return start.map(({ id, x, y, w, h }) => {
+    if (!snap) return { instanceId: id, x: x + dx, y: y + dy };
+    const cx = Math.round((x + dx + w / 2) / size) * size;
+    const cy = Math.round((y + dy + h / 2) / size) * size;
+    return { instanceId: id, x: cx - w / 2, y: cy - h / 2 };
+  });
+}
+
+function FormulaObject({ obj, theme, selected }) {
   const [hoverId, setHoverId] = useState(null);
-  const [pinnedId, setPinnedId] = useState(null);
-  const [offset, setOffset] = useState(null);
-  const dragRef = useRef(null);
+  const [lifted, setLifted] = useState(false);
+  const pressRef = useRef(null);
+  const lastTapRef = useRef({ target: null, at: 0 });
 
-  const nodeOf = useCallback((id) => {
-    let found = null;
-    let parentOf = null;
-    const walk = (n, p) => {
-      if (found) return;
-      if (n.id === id) { found = n; parentOf = p; return; }
-      (n.children || []).forEach(c => walk(c, n));
-    };
-    walk(obj.tree, null);
-    return found ? { node: found, parent: parentOf } : null;
-  }, [obj.tree]);
+  useEffect(() => () => { if (pressRef.current?.timer) clearTimeout(pressRef.current.timer); }, []);
 
-  const colorOf = (id) => obj.protoOf.get(id)?.color || NODE_DEFAULT_COLOR;
+  const colorOf = (protoId) => obj.protoOf.get(protoId)?.color || NODE_DEFAULT_COLOR;
 
-  // Drag: pointer events with capture; the press is kept from the canvas so it
-  // doesn't start a pan or a marquee underneath.
+  const writePositions = (positions, contextOptions) => {
+    useGraphStore.getState().updateMultipleNodeInstancePositions(obj.graphId, positions, contextOptions);
+  };
+
   const onPointerDown = (e) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     const scale = e.currentTarget.getScreenCTM?.()?.a || 1;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, scale, moved: false, pointerId: e.pointerId };
+    const tokenEl = e.target.closest?.('[data-formula-target]');
+    const target = tokenEl?.getAttribute('data-formula-target') || null;
+    const protoId = tokenEl?.getAttribute('data-formula-proto') || null;
+    const press = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, scale, target, protoId, lifted: false, moved: false, frame: 0 };
+    const delay = useGraphStore.getState().mouseSettings?.nodeLiftDelay ?? 250;
+    press.timer = setTimeout(() => {
+      // Lift: the Things' resting places, for the drag and for the drop's undo.
+      const st = useGraphStore.getState();
+      const view = projectGraphView(st, obj.graphId);
+      press.start = obj.memberIds.map((id) => {
+        const inst = view.instances.get(id);
+        const proto = st.nodePrototypes.get(inst.prototypeId);
+        const dims = getNodeDimensions({ ...proto, ...inst, name: proto?.name }, false, null);
+        return { id, x: inst.x, y: inst.y, w: dims.currentWidth, h: dims.currentHeight };
+      });
+      press.lifted = true;
+      setLifted(true);
+      setHoverId(null);
+      haptic('nodeLift');
+    }, delay);
+    pressRef.current = press;
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
+
   const onPointerMove = (e) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    const sx = e.clientX - d.startX;
-    const sy = e.clientY - d.startY;
-    if (!d.moved && Math.hypot(sx, sy) < DRAG_SLOP_PX) return;
-    d.moved = true;
-    setOffset({ dx: sx / d.scale, dy: sy / d.scale });
-  };
-  const onPointerUp = (e) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    dragRef.current = null;
-    if (!d.moved) return;
-    const dx = (e.clientX - d.startX) / d.scale;
-    const dy = (e.clientY - d.startY) / d.scale;
-    const st = useGraphStore.getState();
-    const view = projectGraphView(st, obj.graphId);
-    const updates = obj.memberIds
-      .map(id => view.instances.get(id))
-      .filter(Boolean)
-      .map(inst => ({ instanceId: inst.id, x: inst.x + dx, y: inst.y + dy }));
-    st.updateMultipleNodeInstancePositions(obj.graphId, updates, { finalize: true });
-    setOffset(null);
-    dragRef.current = { suppressClick: true };
-  };
-  const swallowClickAfterDrag = (e) => {
-    e.stopPropagation();
-    if (dragRef.current?.suppressClick) {
-      dragRef.current = null;
-      return true;
+    const press = pressRef.current;
+    if (!press || press.pointerId !== e.pointerId) return;
+    const sx = e.clientX - press.startX;
+    const sy = e.clientY - press.startY;
+    if (!press.lifted) {
+      // Moving before the lift isn't a hold: nothing happens, as with a group's title.
+      if (Math.hypot(sx, sy) > MOVE_SLOP_PX) { clearTimeout(press.timer); press.cancelled = true; }
+      return;
     }
-    return false;
+    press.moved = true;
+    press.dx = sx / press.scale;
+    press.dy = sy / press.scale;
+    if (press.frame) return;
+    press.frame = requestAnimationFrame(() => {
+      press.frame = 0;
+      if (pressRef.current !== press) return;
+      writePositions(movedPositions(press.start, press.dx, press.dy), { isDragging: true, phase: 'move', ignore: true, skipSave: true });
+    });
   };
 
-  const litId = hoverId ?? pinnedId;
-  const litSpan = litId ? obj.spans.get(litId) : null;
-  let band = null;
-  if (litSpan) {
-    let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
-    for (let i = litSpan[0]; i <= litSpan[1]; i++) {
-      const b = obj.boxes[i];
-      left = Math.min(left, b.x); right = Math.max(right, b.x + b.w);
-      if (!obj.tokens[i].level) { top = Math.min(top, b.y); bottom = Math.max(bottom, b.y + b.h); }
+  const endPress = (e, cancelled) => {
+    const press = pressRef.current;
+    if (!press || press.pointerId !== e.pointerId) return;
+    pressRef.current = null;
+    clearTimeout(press.timer);
+    if (press.frame) cancelAnimationFrame(press.frame);
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    if (press.lifted) {
+      setLifted(false);
+      if (press.moved && !cancelled) {
+        // One undo step: back to where they were without recording, then the move.
+        const from = press.start.map(({ id, x, y }) => ({ instanceId: id, x, y }));
+        writePositions(from, { ignore: true, skipSave: true });
+        writePositions(movedPositions(press.start, press.dx, press.dy), { finalize: true, historyLabel: 'Move Formula' });
+        haptic('nodeDrop');
+      } else if (press.moved) {
+        writePositions(press.start.map(({ id, x, y }) => ({ instanceId: id, x, y })), { ignore: true, skipSave: true });
+      }
+      return;
     }
-    if (Number.isFinite(top)) band = { x: left, y: top, w: right - left, h: bottom - top, color: colorOf(litId) };
-  }
+    if (cancelled || press.cancelled) return;
+    // A tap. Twice on the same token opens its Thing; otherwise it selects the formula.
+    const now = performance.now();
+    const last = lastTapRef.current;
+    if (press.target && last.target === press.target && now - last.at < DOUBLE_TAP_MS) {
+      lastTapRef.current = { target: null, at: 0 };
+      openThingInPanel(obj.protoOf.get(press.protoId));
+      return;
+    }
+    lastTapRef.current = { target: press.target, at: now };
+    selectGroup(obj.groupId);
+  };
 
-  const shownInfo = litId ? nodeOf(litId) : null;
-  const shownProto = litId ? obj.protoOf.get(litId) : null;
   const textColor = theme.canvas.textPrimary;
   const frameColor = obj.groupColor || theme.canvas.brand;
   const { frame } = obj;
-  const r = FORMULA_FONT * 0.42;
+  const cx = frame.x + frame.w / 2;
+  const cy = frame.y + frame.h / 2;
 
   return (
     <g
-      className="formula-object"
-      data-group-id-formula={obj.groupId}
-      transform={offset ? `translate(${offset.dx} ${offset.dy})` : undefined}
+      className={`formula-object${selected ? ' is-selected' : ''}${lifted ? ' is-lifted' : ''}`}
+      data-formula-group={obj.groupId}
+      transform={lifted ? `translate(${cx} ${cy}) scale(${LIFT_SCALE}) translate(${-cx} ${-cy})` : undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={() => { dragRef.current = null; setOffset(null); }}
-      onMouseDown={stop}
-      onTouchStart={stop}
-      onClick={(e) => { if (!swallowClickAfterDrag(e)) setPinnedId(null); }}
-      onDoubleClick={stop}
-      style={{ cursor: offset ? 'grabbing' : 'grab' }}
+      onPointerUp={(e) => endPress(e, false)}
+      onPointerCancel={(e) => endPress(e, true)}
+      onMouseDown={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      style={{ cursor: lifted ? 'grabbing' : 'pointer', filter: lifted ? 'drop-shadow(0px 10px 15px rgba(0, 0, 0, 0.2))' : undefined }}
     >
       <rect
         x={frame.x} y={frame.y} width={frame.w} height={frame.h} rx={FORMULA_FONT * 0.55}
-        fill={frameColor} fillOpacity={0.07} stroke={frameColor} strokeWidth={4}
+        fill={frameColor} fillOpacity={selected ? 0.14 : 0.07}
+        stroke={frameColor} strokeWidth={selected ? 7 : 4}
       />
-      {band && (
-        <rect
-          x={band.x} y={band.y} width={band.w} height={band.h} rx={band.h * 0.3}
-          fill={band.color} fillOpacity={0.14} pointerEvents="none"
-        />
-      )}
       {obj.tokens.map((t, i) => {
         const b = obj.boxes[i];
-        const target = t.nodeId || t.ownerId || null;
-        const hot = !!t.nodeId && t.nodeId === litId;
-        const owned = !t.nodeId && t.ownerId && t.ownerId === litId;
-        const inSpan = !!litSpan && i >= litSpan[0] && i <= litSpan[1];
-        const fill = target ? colorOf(target) : NODE_DEFAULT_COLOR;
-        let color = textColor;
-        if (hot) color = getTextColor(fill, theme.darkMode);
-        else if (owned || (inSpan && t.level > 0)) color = fill;
+        const target = t.target || null;
+        const hot = !!target && target === hoverId;
+        const fill = colorOf(t.protoId);
         return (
           <g
             key={t.key}
             className="formula-object-token"
-            onPointerEnter={target ? () => setHoverId(target) : undefined}
-            onPointerLeave={target ? () => setHoverId(null) : undefined}
-            onClick={target ? (e) => {
-              if (swallowClickAfterDrag(e)) return;
-              setPinnedId(prev => (prev === target ? null : target));
-            } : undefined}
-            style={{ cursor: target ? 'pointer' : undefined }}
+            data-formula-target={target || undefined}
+            data-formula-proto={t.protoId || undefined}
+            onPointerEnter={target ? () => { if (!pressRef.current?.lifted) setHoverId(target); } : undefined}
+            onPointerLeave={target ? () => setHoverId(prev => (prev === target ? null : prev)) : undefined}
           >
             <rect
-              x={b.x} y={b.y} width={Math.max(b.w, t.raise ? FORMULA_FONT * 0.3 : 0)} height={b.h}
+              x={b.x} y={b.y} width={b.w} height={b.h}
               rx={Math.min(b.h * 0.4, b.w / 2)}
               fill={hot ? fill : 'transparent'}
             />
@@ -180,7 +211,8 @@ function FormulaObject({ obj, theme }) {
               <text
                 x={b.textX} y={b.baseline}
                 fontSize={b.size} fontFamily={FORMULA_FONT_FAMILY} fontWeight={FORMULA_FONT_WEIGHT}
-                fill={color} opacity={t.kind === 'paren' && !owned ? 0.75 : 1}
+                fill={hot ? getTextColor(fill, theme.darkMode) : textColor}
+                opacity={t.kind === 'paren' && !hot ? 0.75 : 1}
                 style={{ userSelect: 'none', pointerEvents: 'none' }}
               >
                 {t.text}
@@ -189,52 +221,22 @@ function FormulaObject({ obj, theme }) {
           </g>
         );
       })}
-
-      {/* Back to Things */}
-      <g
-        className="formula-object-revert"
-        transform={`translate(${frame.x + frame.w} ${frame.y})`}
-        onPointerDown={stop}
-        onClick={(e) => { e.stopPropagation(); showAsThings(obj.graphId, obj.groupId); }}
-        style={{ cursor: 'pointer' }}
-      >
-        <title>Show as Things</title>
-        <circle r={r} fill={theme.canvas.bg} stroke={frameColor} strokeWidth={3} />
-        <Network x={-r * 0.55} y={-r * 0.55} width={r * 1.1} height={r * 1.1} color={frameColor} strokeWidth={2.5} />
-      </g>
-
-      {shownInfo && (
-        <foreignObject
-          x={frame.x + frame.w / 2 - CARD_W / 2} y={frame.y + frame.h + 18}
-          width={CARD_W} height={260} pointerEvents="none"
-        >
-          <div className="formula-object-card" style={{ '--fo-text': textColor, '--fo-muted': theme.canvas.textSecondary }}>
-            <span
-              className="formula-object-chip"
-              style={{ background: colorOf(litId), color: getTextColor(colorOf(litId), theme.darkMode) }}
-            >
-              {shownProto?.name || shownInfo.node.name}
-            </span>
-            <span className="formula-object-role">{roleLine(shownInfo.node, shownInfo.parent)}</span>
-            <span className="formula-object-description">
-              {shownProto?.description?.trim() || 'No description'}
-            </span>
-          </div>
-        </foreignObject>
-      )}
     </g>
   );
 }
 
 function FormulaObjectsLayer() {
   const formulaObjects = useFormulaObjects();
+  const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   const theme = useTheme();
   if (!formulaObjects.objects.length) return null;
   const hideGroups = [...formulaObjects.hiddenGroupIds].map(id => `[data-group-id=${JSON.stringify(id)}]`).join(',');
   return (
     <g className="formula-objects-layer">
       {hideGroups && <style>{`${hideGroups}{display:none}`}</style>}
-      {formulaObjects.objects.map(obj => <FormulaObject key={obj.groupId} obj={obj} theme={theme} />)}
+      {formulaObjects.objects.map(obj => (
+        <FormulaObject key={obj.groupId} obj={obj} theme={theme} selected={selectedGroupId === obj.groupId} />
+      ))}
     </g>
   );
 }

@@ -14,7 +14,7 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { haptic } from '../../../services/haptics.js';
-import { linearize } from './formula/formulaNotation.js';
+import { tokensOf } from './formula/formulaChain.js';
 import FormulaTokens from './formula/FormulaTokens.jsx';
 import FormulaComposer from './formula/FormulaComposer.jsx';
 import useFormatsStore, { dismissFormatOffer, showFormatInPlace } from './formatsStore.js';
@@ -90,7 +90,7 @@ function FormatOffer({ candidate }) {
   const { shown, phase, settle } = useLatchedPresence(candidate);
   if (!shown) return null;
 
-  const { tokens } = linearize(shown.tree);
+  const tokens = tokensOf(shown.chain);
   const left = bounds.x + bounds.width / 2;
   const top = bounds.y + (mobileLandscapeShell ? 40 : 70);
   return (
@@ -130,9 +130,12 @@ export default function FormatsHost({ suppressed = false }) {
   const composing = useFormatsStore(s => s.composing);
   const ready = useGraphStore(s => !!s.activeGraphId && s.isUniverseLoaded && !s.isUniverseLoading && s.hasUniverseFile);
   const busy = useCanvasUIStore(s => !!s.selectedNodeIdForPieMenu || s.abstractionCarouselVisible);
+  const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
 
   const candidate = useFormatCandidate(ready);
-  const offer = !suppressed && !busy && !composing ? candidate : null;
+  // A selected group's panel does the swapping, so the pill doesn't repeat it.
+  const panelHasIt = candidate?.source === 'group' && candidate.sourceId === selectedGroupId;
+  const offer = !suppressed && !busy && !composing && !panelHasIt ? candidate : null;
 
   return (
     <>

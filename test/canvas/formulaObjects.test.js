@@ -8,23 +8,25 @@ vi.mock('../../src/utils.js', async (orig) => ({
 import {
   computeFormulaObjects, redirectEdgeCtx, filterFormulaEdges,
 } from '../../src/components/canvas/formats/formula/formulaObjects.js';
+import { formulaWeb } from './formulaWeb.js';
 
-// a + b, grouped, plus an outside Thing wired to b.
+// (a + b) × c shown as a formula, plus an outside Thing wired to c and to the part.
 function webState({ shown = true } = {}) {
-  const protos = [['p-plus', 'Addition'], ['p-a', 'a'], ['p-b', 'b'], ['p-cat', 'Cat']];
-  const nodePrototypes = new Map(protos.map(([id, name]) => [id, { id, name, color: '#8B0000' }]));
-  const at = (id, prototypeId, x, y) => [id, { id, prototypeId, x, y }];
-  const instances = new Map([at('plus', 'p-plus', 100, 0), at('a', 'p-a', 0, 200), at('b', 'p-b', 200, 200), at('cat', 'p-cat', 900, 200)]);
-  const edgeList = [['plus', 'a'], ['plus', 'b'], ['cat', 'b']].map(([s, d]) => ({
-    id: `${s}-${d}`, sourceId: s, destinationId: d, directionality: { arrowsToward: new Set([d]) },
-  }));
-  const groups = new Map([['g1', { id: 'g1', name: 'Sum', memberInstanceIds: ['plus', 'a', 'b'], ...(shown ? { format: 'formula' } : {}) }]]);
-  return {
-    activeGraphId: 'web',
-    graphs: new Map([['web', { id: 'web', name: 'Web', instances, edgeIds: edgeList.map(e => e.id), groups }]]),
-    nodePrototypes, edges: new Map(edgeList.map(e => [e.id, e])), edgePrototypes: new Map(),
-    edgeList,
-  };
+  const state = formulaWeb({
+    things: [['a', 'a', 0], ['b', 'b', 300], ['c', 'c', 700]],
+    parts: [{ id: 'g', anchor: 'pa', name: 'a + b', members: ['a', 'b'], x: 150 }],
+    ops: [['a', 'b', 'Addition'], ['pa', 'c', 'Multiplication']],
+    top: ['a', 'b', 'pa', 'c'],
+    extra: [['cat', 'Cat', 1500, 400]],
+    format: shown ? 'formula' : undefined,
+  });
+  const graph = state.graphs.get('web');
+  for (const [id, to] of [['out-c', 'c'], ['out-part', 'pa']]) {
+    state.edges.set(id, { id, sourceId: 'cat', destinationId: to, definitionNodeIds: [], directionality: { arrowsToward: new Set() } });
+    graph.edgeIds.push(id);
+  }
+  state.edgeList = graph.edgeIds.map(id => state.edges.get(id));
+  return state;
 }
 
 describe('formula objects', () => {
@@ -32,37 +34,38 @@ describe('formula objects', () => {
     const state = webState({ shown: false });
     const none = computeFormulaObjects(state);
     expect(none.objects).toEqual([]);
-    expect(redirectEdgeCtx({ nodeById: new Map() }, none).nodeById).toBeInstanceOf(Map);
+    const ctx = { nodeById: new Map() };
+    expect(redirectEdgeCtx(ctx, none)).toBe(ctx);
     expect(filterFormulaEdges(state.edgeList, none)).toBe(state.edgeList);
   });
 
-  it('hides a group marked as a formula, its frame and its inner connections', () => {
-    const state = webState();
-    const fo = computeFormulaObjects(state);
+  it('hides a formula group, its parts and its operations', () => {
+    const fo = computeFormulaObjects(webState());
     expect(fo.objects).toHaveLength(1);
-    expect(fo.objects[0].text).toBe('a + b');
-    expect([...fo.hiddenIds].sort()).toEqual(['a', 'b', 'plus']);
-    expect([...fo.hiddenGroupIds]).toEqual(['g1']);
-    // Only the outside connection is still drawn.
-    expect(filterFormulaEdges(state.edgeList, fo).map(e => e.id)).toEqual(['cat-b']);
+    expect(fo.objects[0].text).toBe('(a + b) × c');
+    expect([...fo.hiddenIds].sort()).toEqual(['a', 'b', 'c', 'pa']);
+    expect([...fo.hiddenGroupIds].sort()).toEqual(['g', 'top']);
+    // Only the connections from outside are still drawn.
+    const state = webState();
+    expect(filterFormulaEdges(state.edgeList, computeFormulaObjects(state)).map(e => e.id)).toEqual(['out-c', 'out-part']);
   });
 
-  it('lands outside connections on the token, without moving anything stored', () => {
+  it('lands outside connections on tokens (a part on its opening parenthesis), moving nothing stored', () => {
     const state = webState();
     const fo = computeFormulaObjects(state);
+    const tokens = fo.objects[0].tokens;
+    expect(tokens.map(t => t.text)).toEqual(['(', 'a', '+', 'b', ')', '×', 'c']);
     const nodeById = new Map([...state.graphs.get('web').instances].map(([id, inst]) => [id, { ...inst }]));
-    const ctx = { nodeById, baseDimsById: new Map() };
-    const redirected = redirectEdgeCtx(ctx, fo);
-    const box = fo.tokenBoxById.get('b');
-    expect(redirected.nodeById.get('b')).toMatchObject({ x: box.x, y: box.y });
-    expect(redirected.baseDimsById.get('b')).toMatchObject({ currentWidth: box.w, currentHeight: box.h });
-    expect(ctx.nodeById.get('b').x).toBe(200);
-    expect(state.graphs.get('web').instances.get('b').x).toBe(200);
+    const redirected = redirectEdgeCtx({ nodeById, baseDimsById: new Map() }, fo);
+    const cBox = fo.tokenBoxById.get('c');
+    expect(redirected.nodeById.get('c')).toMatchObject({ x: cBox.x, y: cBox.y });
+    expect(fo.tokenBoxById.get('pa').x).toBe(fo.objects[0].boxes[0].x);
+    expect(state.graphs.get('web').instances.get('c').x).toBe(700);
   });
 
   it('lets the Things come back on their own once they stop being a formula', () => {
     const state = webState();
-    state.nodePrototypes.set('p-plus', { id: 'p-plus', name: 'Dog', color: '#8B0000' });
+    state.nodePrototypes.get('p-Addition').name = 'Likes';
     const fo = computeFormulaObjects(state);
     expect(fo.objects).toEqual([]);
     expect(fo.hiddenIds.size).toBe(0);

@@ -1,13 +1,19 @@
-// F44: formulas. "New Formula" on the web menu builds a typed formula as
-// Things in a group and shows it in place: one object on the canvas where the
+// F44: formulas. "New Formula" on the web menu builds a typed formula as a web
+// of operations: its operands as Things, each operation a connection defined by
+// the operation's Thing, each part in parentheses a nested Thing-group named
+// after its term (typed Square Root, Negation... when that is what it is), all
+// in a group shown in place as the formula: one object on the canvas where the
 // Things are, which hides them and the connections among them. A connection
-// from outside lands on its Thing's token. A hovered token shows its Thing;
-// the corner button turns the object back into Things; the offer pill (Back to
-// Civilization's spot) shows the group the same way, and its X waves it off.
+// from outside lands on its Thing's token. A hovered token becomes its Thing; a
+// tap selects the formula and brings up the group panel's format mode, whose
+// arrows swap it between Things and Formula; a double tap on a token opens its
+// Thing; hold-and-drag moves it (snapping to the grid when that's on) as one
+// undo step. The offer pill (Back to Civilization's spot) shows a group as its
+// formula, and its X waves it off.
 //
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
-  test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames,
+  test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS,
 } from './helpers.js';
 
 // In the small fixture's empty lower half, far enough left that a long formula
@@ -23,21 +29,31 @@ const shot = async (page, name) => {
 
 const QUADRATIC = 'x = (-b + sqrt(b^2 - 4*a*c)) / (2*a)';
 const object = (page) => page.locator('svg.canvas g.formula-object');
+const panel = (page) => page.locator('.unified-bottom-panel.mode-format');
 const token = (page, text) => object(page)
-  .locator('g.formula-object-token', { has: page.locator('text', { hasText: new RegExp(`^${text}$`) }) })
+  .locator('g.formula-object-token', { has: page.locator('text', { hasText: new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) }) })
   .first();
 // Pointer moves to a spot, never locator.hover/click: those scroll an element
 // into view, and the canvas must only move through its camera.
-async function pointAt(page, locator, { click = false } = {}) {
+async function centerOfLocator(locator) {
   const box = await locator.boundingBox();
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+async function pointAt(page, locator, { click = false } = {}) {
+  const { x, y } = await centerOfLocator(locator);
   if (click) await page.mouse.click(x, y); else await page.mouse.move(x, y);
 }
-const revert = (page) => pointAt(page, object(page).locator('g.formula-object-revert circle'), { click: true });
 const pillText = (page) => page.locator('.format-offer').innerText().then(t => t.replace(/\s+/g, ''));
 const shownNodes = (page, ids) => page.evaluate((list) =>
   list.filter(id => document.querySelector(`svg.canvas g.node[data-instance-id="${id}"]`)).length, ids);
+const formulaGroup = (page, prefix) => storeEval(page, (st, p) => {
+  const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.name.startsWith(p));
+  return g ? { id: g.id, format: g.format ?? null, members: [...g.memberInstanceIds] } : null;
+}, prefix);
+const positionsOf = (page, ids) => storeEval(page, (st, list) => {
+  const g = st.graphs.get(st.activeGraphId);
+  return list.map(id => ({ x: g.instances.get(id).x, y: g.instances.get(id).y }));
+}, ids);
 
 async function buildFormula(page, text) {
   await page.mouse.click(BARE.x, BARE.y, { button: 'right' });
@@ -57,19 +73,26 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
 
   await buildFormula(page, QUADRATIC);
 
-  // 18 Things, 17 connections, one group named after the formula.
+  // 9 operands and 4 parts (each a Thing-group's Thing), 8 operations, and the
+  // formula's group named after it.
   const after = await activeGraphSnapshot(page);
   const memberIds = Object.keys(after.instances).filter(id => !before.instances[id]);
-  expect(memberIds).toHaveLength(18);
-  expect(after.edgeIds.length - before.edgeIds.length).toBe(17);
-  expect(Object.values(after.groups).map(g => g.name)).toContain('x = (−b + √(b^2 − 4 × a × c)) ÷ (2 × a)');
+  expect(memberIds).toHaveLength(13);
+  expect(after.edgeIds.length - before.edgeIds.length).toBe(8);
+  const names = Object.values(after.groups).map(g => g.name);
+  expect(names).toContain('x = (−b + √(b ^ 2 − 4 × a × c)) ÷ (2 × a)');
+  expect(names).toEqual(expect.arrayContaining(['−b + √(b ^ 2 − 4 × a × c)', '2 × a', '−b', '√(b ^ 2 − 4 × a × c)']));
+  // Each operation is a connection defined by its Thing.
+  const operations = await storeEval(page, (st, ids) => {
+    const g = st.graphs.get(st.activeGraphId);
+    return g.edgeIds.map(id => st.edges.get(id))
+      .filter(e => ids.includes(e.sourceId))
+      .map(e => st.nodePrototypes.get(e.definitionNodeIds?.[0])?.name).sort();
+  }, memberIds);
+  expect(operations).toEqual(['Addition', 'Division', 'Equality', 'Exponentiation', 'Multiplication', 'Multiplication', 'Multiplication', 'Subtraction']);
 
   // Shown in place, and saved that way on the group: the object, not its Things.
-  const formatOf = () => storeEval(page, (st) => {
-    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.name.startsWith('x = '));
-    return g?.format ?? null;
-  });
-  expect(await formatOf()).toBe('formula');
+  expect((await formulaGroup(page, 'x = ')).format).toBe('formula');
   await expect(object(page)).toHaveCount(1);
   expect(await shownNodes(page, memberIds)).toBe(0);
 
@@ -83,26 +106,123 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   }), xId);
   await shot(page, '2-in-place');
 
-  // Hover an operator: it becomes its Thing, and its description shows.
-  await pointAt(page, token(page, '√'));
-  await expect(object(page).locator('.formula-object-chip')).toHaveText('Square Root');
-  await shot(page, '3-hover-operator');
+  // Hover lights only that token, as its Thing; a part's sign lights with its parentheses.
+  const lit = object(page).locator('g.formula-object-token rect:not([fill="transparent"])');
   await pointAt(page, token(page, 'x'));
-  await expect(object(page).locator('.formula-object-role')).toHaveText('Operand of Equality');
+  await expect(lit).toHaveCount(1);
+  await pointAt(page, token(page, '^'));
+  await expect(lit).toHaveCount(1);
+  await shot(page, '3-hover-operation');
+  await pointAt(page, token(page, '√'));
+  await expect(lit).toHaveCount(3);
+  await shot(page, '3b-hover-part');
 
-  // Back to Things.
-  await revert(page);
+  // As Things: the web of operations, its parts nested Thing-groups.
+  const { id } = await formulaGroup(page, 'x = ');
+  await storeEval(page, (st, gid) => st.updateGroup(st.activeGraphId, gid, (g) => { delete g.format; }), id);
   await expect(object(page)).toHaveCount(0);
-  expect(await formatOf()).toBe(null);
-  // Back on the canvas (the culled ones are simply off screen).
-  await expect.poll(() => shownNodes(page, memberIds)).toBeGreaterThan(0);
-  await shot(page, '4-as-things');
+  await page.mouse.move(5, 400);
+  await shot(page, '3c-as-things');
+});
+
+test('F44 a tap selects the formula; its panel swaps it to Things and back', async ({ page }) => {
+  await openFixture(page, 'small');
+  await buildFormula(page, 'a + b * c');
+  const { id, members } = await formulaGroup(page, 'a + b');
+
+  await pointAt(page, token(page, '×'), { click: true });
+  await expect(object(page)).toHaveClass(/is-selected/);
+  await expect(panel(page)).toBeVisible();
+  await expect(panel(page).locator('.format-panel-chip')).toContainText('×');
+  await shot(page, '4-panel-formula');
+
+  // Swap to Things.
+  await panel(page).locator('.piemenu-button[title="Show as Things"]').first().click();
+  await expect(object(page)).toHaveCount(0);
+  expect((await formulaGroup(page, 'a + b')).format).toBe(null);
+  await expect.poll(() => shownNodes(page, members)).toBeGreaterThan(0);
+  await expect(panel(page)).toBeVisible();
+  await shot(page, '5-panel-things');
+
+  // And back.
+  await panel(page).locator('.piemenu-button[title="Show as Formula"]').first().click();
+  await expect(object(page)).toHaveCount(1);
+  expect((await formulaGroup(page, 'a + b')).id).toBe(id);
+  expect((await formulaGroup(page, 'a + b')).format).toBe('formula');
+});
+
+test('F44 a double tap on a token opens its Thing', async ({ page }) => {
+  await openFixture(page, 'small');
+  await buildFormula(page, 'a + b * c');
+  const p = await centerOfLocator(token(page, 'b'));
+  await page.mouse.click(p.x, p.y);
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(() => storeEval(page, (st) => {
+    const tab = st.rightPanelTabs.find(t => t.isActive);
+    return tab?.nodeId ? st.nodePrototypes.get(tab.nodeId)?.name : null;
+  })).toBe('b');
+});
+
+test('F44 hold and drag moves the formula, snapping to the grid, as one undo step', async ({ page }) => {
+  await openFixture(page, 'small');
+  await buildFormula(page, 'a + b * c');
+  const { members } = await formulaGroup(page, 'a + b');
+  const start = await positionsOf(page, members);
+
+  // A press that moves before the lift does nothing.
+  const p = await centerOfLocator(token(page, '+'));
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.move(p.x + 60, p.y, { steps: 4 });
+  await page.mouse.up();
+  expect(await positionsOf(page, members)).toEqual(start);
+
+  // Hold, then drag: the Things move with it (grid off: by the drag exactly).
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.waitForTimeout(NODE_LIFT_DELAY_MS + 120);
+  await expect(object(page)).toHaveClass(/is-lifted/);
+  await page.mouse.move(p.x - 120, p.y - 80, { steps: 10 });
+  await shot(page, '6-dragging');
+  await page.mouse.up();
+  const moved = await positionsOf(page, members);
+  const dx = moved[0].x - start[0].x;
+  const dy = moved[0].y - start[0].y;
+  expect(dx).toBeLessThan(-20);
+  expect(dy).toBeLessThan(-10);
+  moved.forEach((m, i) => {
+    expect(m.x - start[i].x).toBeCloseTo(dx, 3);
+    expect(m.y - start[i].y).toBeCloseTo(dy, 3);
+  });
+
+  // One undo puts it back.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => positionsOf(page, members)).toEqual(start);
+
+  // With the grid on, the Things land on the grid: once there, a drag of less
+  // than half a cell leaves every one of them where it is.
+  await storeEval(page, (st) => st.setGridMode('always'));
+  const nudge = async (ddx, ddy) => {
+    const q = await centerOfLocator(token(page, '+'));
+    await page.mouse.move(q.x, q.y);
+    await page.mouse.down();
+    await page.waitForTimeout(NODE_LIFT_DELAY_MS + 120);
+    await page.mouse.move(q.x + ddx, q.y + ddy, { steps: 6 });
+    await page.mouse.up();
+    await expect(object(page)).not.toHaveClass(/is-lifted/);
+  };
+  await nudge(30, 20);
+  const onGrid = await positionsOf(page, members);
+  expect(onGrid).not.toEqual(start);
+  await nudge(25, -20);
+  expect(await positionsOf(page, members)).toEqual(onGrid);
 });
 
 test('F44 the offer shows a group in place, and its X waves it off', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'a + b * c');
-  await revert(page);
+  const { id } = await formulaGroup(page, 'a + b');
+  await storeEval(page, (st, gid) => st.updateGroup(st.activeGraphId, gid, (g) => { delete g.format; }), id);
   await expect(object(page)).toHaveCount(0);
 
   // The group is offered back.
@@ -113,7 +233,7 @@ test('F44 the offer shows a group in place, and its X waves it off', async ({ pa
   await expect(object(page)).toHaveCount(1);
   await expect(pill).toHaveCount(0);
 
-  await revert(page);
+  await storeEval(page, (st, gid) => st.updateGroup(st.activeGraphId, gid, (g) => { delete g.format; }), id);
   await expect(pill).toBeVisible();
   await page.locator('.format-offer-dismiss').click();
   await expect(pill).toHaveCount(0);

@@ -29,6 +29,9 @@ import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { expandNodeInPlace } from '../actions/expandInPlace.js';
 import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
+import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
+import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
+import { showFormatInPlace, showAsThings } from '../formats/formatsStore.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -146,7 +149,21 @@ export default function ControlPanelsHost({ ctx }) {
   }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
 
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
-  const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
+  // A plain group that reads as a formula gets the format mode: ◀ ▶ swap how
+  // it is shown (formats/). Node-groups keep their own panel.
+  const darkMode = useGraphStore((s) => s.darkMode);
+  const groupFormulaText = useGroupFormulaText(groupPanelTarget?.linkedNodePrototypeId ? null : groupPanelTarget?.id);
+  const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : (groupFormulaText ? "format" : "group");
+  const formatOrder = groupFormats(groupFormulaText);
+  const currentFormat = groupPanelTarget?.format && formatOrder.includes(groupPanelTarget.format) ? groupPanelTarget.format : 'things';
+  const swapFormat = (step) => {
+    if (!groupPanelTarget || !activeGraphId) return;
+    const next = formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length];
+    if (next === currentFormat) return;
+    if (next === 'things') showAsThings(activeGraphId, groupPanelTarget.id);
+    else showFormatInPlace({ source: 'group', sourceId: groupPanelTarget.id, graphId: activeGraphId, format: next });
+  };
+  const formatAt = (step) => FORMAT_LABELS[formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length]];
 
   // Group control panel action handlers
   const handleGroupPanelUngroup = useCallback(() => {
@@ -514,6 +531,17 @@ export default function ControlPanelsHost({ ctx }) {
             onRefreshGroupFromDefinition={handleNodeGroupRefreshFromDefinition}
             onActionHoverChange={handlePieMenuHoverChange}
             onDismiss={() => setSelectedGroup(null)}
+            {...(groupPanelMode === 'format' ? {
+              onLeftNav: () => swapFormat(-1),
+              onRightNav: () => swapFormat(1),
+              hasLeftNav: formatOrder.length > 1,
+              hasRightNav: formatOrder.length > 1,
+              leftNavLabel: `Show as ${formatAt(-1)}`,
+              rightNavLabel: `Show as ${formatAt(1)}`,
+              customContent: currentFormat === 'formula'
+                ? <FormatPanelPreview groupId={groupPanelTarget.id} color={groupPanelTarget.color} darkMode={darkMode} />
+                : undefined,
+            } : {})}
           />
         )
       }
