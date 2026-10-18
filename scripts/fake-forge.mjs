@@ -62,13 +62,27 @@ function repoDir(owner, repo) {
   return dir;
 }
 
+// Every git call has a time limit and is retried once or twice: on macOS a
+// git process now and then stalls for minutes (seen in the soak runs on
+// `hash-object`), and the host answers one request at a time, so one stalled
+// call froze everything. The calls retried are safe to repeat: writing an
+// object is idempotent, and update-ref is a compare-and-swap.
+const GIT_TIMEOUT_MS = 20000;
 function git(dir, gitArgs, { input, env } = {}) {
-  return execFileSync('git', gitArgs, {
-    cwd: dir,
-    input,
-    env: { ...process.env, GIT_DIR: dir, ...env },
-    maxBuffer: 256 * 1024 * 1024
-  });
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return execFileSync('git', gitArgs, {
+        cwd: dir,
+        input,
+        env: { ...process.env, GIT_DIR: dir, ...env },
+        maxBuffer: 256 * 1024 * 1024,
+        timeout: GIT_TIMEOUT_MS
+      });
+    } catch (error) {
+      if (error?.code !== 'ETIMEDOUT' || attempt >= 3) throw error;
+      log(`git ${gitArgs[0]} stalled for ${GIT_TIMEOUT_MS / 1000}s; trying again`);
+    }
+  }
 }
 
 function headCommit(dir) {

@@ -19,7 +19,7 @@
 // forge and dev servers on 4710 / 5381 / 5382 (override: --forge-port,
 // --ports), so it never touches a harness already running.
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -177,12 +177,14 @@ async function ready(p) {
   // The action catalog and file export, loaded through Vite like the app's own modules.
   await inPage(p, async () => {
     if (window.__soak) return;
-    const [catalog, format, bytes] = await Promise.all([
+    const [catalog, format, bytes, sc] = await Promise.all([
       import('/test/sync/actionCatalog.js'),
       import('/src/formats/redstringFormat.js'),
-      import('/src/formats/universeBytes.js')
+      import('/src/formats/universeBytes.js'),
+      import('/src/services/SaveCoordinator.js')
     ]);
     window.__soak = { catalog, format, bytes };
+    window.__saveCoordinatorForSoak = sc.default || sc.saveCoordinator;
   });
 }
 
@@ -196,6 +198,29 @@ const engineStatus = (p) => inPage(p, () => {
   const s = backend.getSyncStatus(backend.activeUniverseSlug) || {};
   return { pending: s.pendingCommits || 0, running: !!s.isRunning, changes: !!s.hasChanges };
 });
+/** A window's sync state, for a failure report. */
+const syncState = (p) => inPage(p, () => {
+  const { backend } = window.__redstringDevForge;
+  const slug = backend.activeUniverseSlug;
+  const engine = backend.gitSyncEngines?.get(slug);
+  const sc = window.__saveCoordinatorForSoak || null;
+  return {
+    engine: engine ? {
+      pending: engine.pendingCommits?.length, hasChanges: engine.hasChanges, committing: engine.isCommitInProgress,
+      conflict: engine.remoteConflictPending, paused: engine.isPaused, backoff: engine.isInErrorBackoff, errors: engine.consecutiveErrors,
+      base: engine.syncBaseSha?.slice(0, 8), lastKnown: typeof engine.lastKnownRemoteSha === 'string' ? engine.lastKnownRemoteSha.slice(0, 8) : String(engine.lastKnownRemoteSha)
+    } : null,
+    coordinator: sc ? { dragging: !!sc.isGlobalDragging, saving: !!sc.isSaving, unsaved: !!sc.hasUnsavedChanges?.(), dirty: !!sc.isDirty, pending: sc.pendingHash != null, loadInFlight: sc.loadInFlight } : '(not reachable)',
+    indicator: document.querySelector('.save-status-display')?.textContent?.trim() || '',
+    pendingConflict: !!backend.pendingConflict
+  };
+}, undefined, 15000).catch((e) => ({ error: e.message }));
+
+async function repoSha() {
+  const res = await fetch(`${FORGE}/api/v1/repos/${REPO}/commits?limit=1`, { headers: { Authorization: 'token observer' } });
+  return res.ok ? (await res.json())[0]?.sha?.slice(0, 8) : null;
+}
+
 const checkNow = (p) => inPage(p, () => window.__redstringDevForge.checkNow()).catch((error) => {
   if (error instanceof FrozenPage) throw error;
   return null;
@@ -209,10 +234,14 @@ const reachableThings = (p) => inPage(p, () => {
   const out = [];
   for (const el of document.querySelectorAll('g.node[data-instance-id]')) {
     const r = el.getBoundingClientRect();
-    const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
-    if (r.width < 10 || x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) continue;
-    const hit = document.elementFromPoint(x, y);
-    if (hit && el.contains(hit)) out.push({ id: el.getAttribute('data-instance-id'), x, y });
+    if (r.width < 10) continue;
+    // The centre, or another point inside it when something covers the centre.
+    for (const [fx, fy] of [[0.5, 0.5], [0.3, 0.5], [0.7, 0.5], [0.5, 0.3], [0.5, 0.7]]) {
+      const [x, y] = [r.left + r.width * fx, r.top + r.height * fy];
+      if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) continue;
+      const hit = document.elementFromPoint(x, y);
+      if (hit && el.contains(hit)) { out.push({ id: el.getAttribute('data-instance-id'), x, y }); break; }
+    }
   }
   return out.sort((a, b) => a.id.localeCompare(b.id));
 });
@@ -377,12 +406,20 @@ async function verify(people, history, label) {
   }
   // Idle: nothing more should be saved.
   const before = (await repoCommits()).length;
+  const fileBefore = await repoFile();
   for (let i = 0; i < 4; i++) { await sleep(3000); for (const p of people) await checkNow(p); }
   const after = (await repoCommits()).length;
-  if (after !== before) problems.push(`${after - before} saves while everyone was idle`);
+  if (after !== before) {
+    const who = (await repoCommits()).slice(0, after - before).join(', ');
+    const fileAfter = await repoFile();
+    const what = fileBefore && fileAfter ? describeDifference(fromFile(fileBefore), fromFile(fileAfter)) : '(no file)';
+    problems.push(`${after - before} saves while everyone was idle, by ${who}; what changed:\n${what}`);
+  }
   for (const p of people) if (p.errors.length) problems.push(`${p.who} page errors: ${p.errors.slice(-3).join(' | ')}`);
 
   if (problems.length) {
+    problems.push(`repository at ${await repoSha()}`);
+    for (const p of people) problems.push(`${p.who}: ${JSON.stringify(await syncState(p))}`);
     log(`FAIL at ${label} (seed ${SEED}):\n  ${problems.join('\n  ')}\nlast steps:\n  ${history.slice(-20).join('\n  ')}`);
     return false;
   }
@@ -409,6 +446,23 @@ async function runSoak() {
   await waitFor(`${FORGE}/api/v1/version`, 'fake forge');
   // Vite may listen on either loopback address for "localhost".
   for (const port of PORTS) await waitFor([`http://127.0.0.1:${port}/`, `http://[::1]:${port}/`], `dev server ${port}`);
+
+  // The fake forge handles one request at a time with synchronous git calls;
+  // if it stops answering, say what it is stuck on.
+  const forgeChild = children.find((c) => c.label === 'forge');
+  let forgeReported = false;
+  const forgeWatch = setInterval(async () => {
+    try {
+      const res = await fetch(`${FORGE}/api/v1/version`, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) return;
+    } catch { /* not answering */ }
+    if (forgeReported) return;
+    forgeReported = true;
+    let tree = '';
+    try { tree = execFileSync('ps', ['-o', 'pid,ppid,etime,command', '-g', String(forgeChild.pid)], { encoding: 'utf8' }); } catch (e) { tree = String(e.message); }
+    log(`the fake forge stopped answering; its processes:\n${tree}`);
+  }, 5000);
+  forgeWatch.unref();
 
   const browser = await chromium.launch({ headless: !HEADED });
   const rng = seededRandom(SEED);

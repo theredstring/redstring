@@ -122,6 +122,15 @@ In a production build the dev-host code is compiled out, apart from two small he
 - Two scripted windows through the GitHub provider with reads lagging 3 s (2026-10-18): one-at-a-time edits each way (add, rename, move, connect, describe, delete, recolour, arrow, group, a second web), both moving different Things at once, delete against edit, auto layout on either side, then 40-60 s idle: both windows identical after every step, no save loop, both settled. Its first runs found the two bugs above (moves never syncing; deletes of another person's Things undone).
 - The harness driven through the GitHub provider with reads lagging 3 s (2026-10-17): create, join, simultaneous edits and a rename, a check right after a save, 40 s idle with no echo commits, both cards showing a save time, no request reaching github.com. Its first runs found the stale-read bugs above.
 - Found by the random tests (2026-10-18), fixed: a picture replaced by another of the same size never saved (the save fingerprint used only a picture's length; it now samples the content), and merging two Things left the removed placement in its groups, pointing at nothing.
+- A third review (2026-10-18) read the code shared sync relies on rather than the sync code itself, and found, all fixed with tests that fail on the old code:
+  - **Orphan cleanup** decided what to keep from this device's open webs, bookmarks and tabs, which are personal, and deleted the rest for everyone: closing a tab deleted webs and Things another person (or this person's other device) made and this device never opened. What the repository holds is now recorded at every load, save and pull of a Git-linked universe (`graphStore.markDocumentSynced`, `universeBackend._markSyncedIfShared`) and cleanup never deletes it; what this device made since and let go it still discards.
+  - **Undo replayed list edits by position**, so after a merge shifted a web's connection list, undoing a connection took out someone else's. History entries keep each list of ids they touched, before and after (`listChanges`), and undo/redo apply the difference by value (`applyHistoryPatches`).
+  - **An edit made while a commit was in flight** waited for the next edit: the engine and `GitAutosavePolicy` cleared their whole queue when a commit landed (`_clearCommitted` now keeps what was queued during it).
+  - **Edit, undo inside the save delay, redo**: the redo was never saved (SaveCoordinator recorded the undone change's hash as written).
+  - **Loading a universe** layered the previous universe's custom connection types into it (`defaultEdgePrototypes`).
+  - **A merge saved mid-drag** was laid onto the canvas under the drag (`_waitForGestureEnd`).
+  - **Duplicate-pair rulings** never saved on their own (now in both fingerprints).
+  - Left as is: the save worker's copy keeps the old order of entries after a merge reorders them, so the worker's and the main thread's local-save hashes can differ once (an extra local write, nothing lost).
 - Two independent data-safety reviews of the branch; every finding fixed has a regression test (see the commit "fix: address the data-safety review").
 
 ## Behaviour decisions
@@ -145,6 +154,8 @@ Made as defaults on 2026-10-16, each easy to change:
 - **Two tabs of one origin on one universe** share the browser copy and its record. There is no tab lock anywhere in the app; the merge doesn't make this worse in the browser copy (record and content are written together), but two tabs editing the same local file can still pair one tab's file with the other's record in a narrow window.
 - **One redundant commit is possible** after opening from this device's own copy: the first change pulled in is pushed back once (the engine can't tell whether that copy held unpushed edits). Not a loop.
 - **A local save that keeps failing** keeps this device from pulling others' changes (it waits for local saves to settle). Its own commits still merge.
+- **Orphan cleanup in a Git-linked universe** no longer deletes anything the repository already holds. For one person on one device this means closing a web never throws away a Thing or web that has reached Git.
+- **Long test runs need the machine awake** (`caffeinate -dims`): macOS maintenance sleep suspended runs for up to 15 minutes at a time and read as hangs.
 - **Saved sets, open tabs and other personal UI state** don't trigger a commit on their own (they're each person's own and the merge drops them). They still go out with the next change to the document.
 
 ## Not part of this
