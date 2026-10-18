@@ -146,6 +146,23 @@ export const createStateHashCache = () => Object.fromEntries(SECTIONS.map((secti
  * @returns {string} 32-bit unsigned integer as a decimal string.
  */
 export const generateStateHash = (state, { cache = null } = {}) => {
+  let hash = hashSections(state, cache);
+  hash = fnvMore(hash, `\u0003${JSON.stringify(buildPersistedUiState(state), mapSetReplacer)}`);
+  return hash.toString();
+};
+
+/**
+ * Content hash of the universe's shared document only: its webs (positions
+ * and groups included, cameras not), Things, connections and connection
+ * types — no personal UI state. What GitSyncEngine compares to decide whether
+ * there is anything to commit.
+ *
+ * @param {Object} state - Zustand store snapshot.
+ * @returns {string}
+ */
+export const generateDocumentHash = (state) => hashSections(state, null).toString();
+
+function hashSections(state, cache) {
   let hash = 2166136261;
   for (const section of SECTIONS) {
     hash = fnvMore(hash, `\u0002${section}`);
@@ -166,6 +183,5 @@ export const generateStateHash = (state, { cache = null } = {}) => {
       hash = fnvMore(hash, `\u0000${String(id)}\u0001${h}`);
     }
   }
-  hash = fnvMore(hash, `\u0003${JSON.stringify(buildPersistedUiState(state), mapSetReplacer)}`);
-  return hash.toString();
-};
+  return hash;
+}

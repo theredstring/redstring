@@ -9,7 +9,7 @@
  */
 import { exportToRedstring, importFromRedstring } from '../formats/redstringFormat.js';
 import { serializeRedstring } from '../formats/universeBytes.js';
-import { syncMerge, rememberInlineImageRef, knowsInlineImageRef } from '../formats/syncMerge.js';
+import { syncMerge, rememberInlineImageRef, knowsInlineImageRef, deepEqual } from '../formats/syncMerge.js';
 import { computeImageRef, isDataUrl } from '../formats/imageRefs.js';
 
 /**
@@ -34,6 +34,52 @@ export async function primeImageRefs(...states) {
 }
 
 const read = (data) => importFromRedstring(typeof data === 'string' ? JSON.parse(data) : data).storeState;
+
+/**
+ * The canvas as its file would hold it. A Thing made on the canvas carries
+ * fewer fields than the same Thing read back from a file (no `x: 0`, no empty
+ * lists, `null` where the file leaves a field out), so compared as-is every
+ * Thing this person made reads as edited: a collaborator's delete of it is
+ * undone ("an edit beats a delete"), and never arrives here. Compared as the
+ * file holds it, only real edits are edits.
+ */
+const asSaved = (live) => read(new TextDecoder().decode(serializeRedstring(exportToRedstring(live))));
+
+const COLLECTIONS = ['graphs', 'nodePrototypes', 'edges', 'edgePrototypes'];
+const isPlain = (v) => v !== null && typeof v === 'object' && !(v instanceof Map) && !(v instanceof Set) && !Array.isArray(v);
+
+/** One entity: the canvas's own object if the merge left it as it was, else the merge's, keeping the canvas's value for every field the merge didn't change. */
+function keepLiveEntity(merged, saved, own) {
+  if (own === undefined || saved === undefined) return merged;
+  if (deepEqual(merged, saved)) return own;
+  if (!isPlain(merged) || !isPlain(own)) return merged;
+  const out = { ...merged };
+  for (const key of new Set([...Object.keys(own), ...Object.keys(merged)])) {
+    if (!deepEqual(merged[key], saved[key])) continue;
+    if (key in own) out[key] = own[key];
+    else delete out[key];
+  }
+  return out;
+}
+
+/**
+ * Put the canvas's own objects back wherever the merge (made on `saved`, the
+ * file form of `live`) didn't change them: fields the file doesn't carry, such
+ * as a picture fetched again from its source, stay on the canvas.
+ */
+function keepLive(merged, saved, live) {
+  const out = { ...merged };
+  for (const key of COLLECTIONS) {
+    if (!(merged[key] instanceof Map) || !(live[key] instanceof Map)) continue;
+    const next = new Map();
+    for (const [id, entity] of merged[key]) next.set(id, keepLiveEntity(entity, saved[key]?.get(id), live[key].get(id)));
+    out[key] = next;
+  }
+  for (const key of Object.keys(out)) {
+    if (!COLLECTIONS.includes(key) && key in live && deepEqual(out[key], saved[key])) out[key] = live[key];
+  }
+  return out;
+}
 
 /**
  * @param {Object} input
@@ -73,7 +119,8 @@ export async function planMerge({ baseText, localJson, applyBaseJson, remoteData
  * @returns {Object} the store state to apply
  */
 export function mergeOntoCanvas(applyBase, live, merged) {
-  return syncMerge(applyBase, live, merged, { conflictWinner: 'ours', checkDeletions: false }).merged;
+  const saved = asSaved(live);
+  return keepLive(syncMerge(applyBase, saved, merged, { conflictWinner: 'ours', checkDeletions: false }).merged, saved, live);
 }
 
 /**
@@ -91,7 +138,13 @@ export function bringInRemote({ baseText, remoteData }, live) {
   } catch (error) {
     return { ok: false, reason: `The repository copy could not be read (${error?.message || error})` };
   }
-  const { merged, report, safe, reason } = syncMerge(base, live, theirs);
+  let saved;
+  try {
+    saved = asSaved(live);
+  } catch (error) {
+    return { ok: false, reason: `This canvas could not be compared (${error?.message || error})` };
+  }
+  const { merged, report, safe, reason } = syncMerge(base, saved, theirs);
   if (!safe) return { ok: false, reason, report };
-  return { ok: true, merged, report };
+  return { ok: true, merged: keepLive(merged, saved, live), report };
 }

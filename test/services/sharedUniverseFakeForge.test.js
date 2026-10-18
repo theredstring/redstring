@@ -178,6 +178,27 @@ describe.each(Object.keys(HOSTS))('shared universe over HTTP (fake forge, %s API
     expect(gitLog(repo)).toEqual(['ben', 'ana', 'ana']);
   });
 
+  it('a Thing one person made, deleted by the other, stays deleted', async () => {
+    // Made on Ana's canvas, so her copy lacks the defaults the file writes
+    // (x: 0, empty lists): it must not read as an edit of hers.
+    const repo = `forest${++repoCounter}`;
+    const ana = makeDevice(host, repo, 'ana', forest());
+    await ana.save();
+    const ben = makeDevice(host, repo, 'ben');
+    await ben.open();
+
+    ben.edit((s) => deleteThing(s, 'bird'));
+    await ben.save();
+    expect(await ana.engine.checkRemote()).toMatchObject({ applied: true });
+    expect(names(ana.state)).toEqual(['Soil', 'Tree']);
+
+    ana.edit((s) => addThing(s, 'fungus', 'Fungus'));
+    await ana.save();
+    await ben.engine.checkRemote();
+    expect(names(ben.state)).toEqual(['Fungus', 'Soil', 'Tree']);
+    expect(sameDocument(ana.state, ben.state)).toBe(true);
+  });
+
   it('a stale write is refused by the host, never overwritten', async () => {
     const repo = `forest${++repoCounter}`;
     const ana = makeDevice(host, repo, 'ana', forest());

@@ -9,6 +9,7 @@ import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../f
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
 import { vlog } from '../utils/verboseLog.js';
+import { generateDocumentHash, generateHash } from './saveHash.js';
 import { serializeRedstring } from '../formats/universeBytes.js';
 import { GIT_READ_CAP_DESKTOP_BYTES } from './gitNativeProvider.js';
 
@@ -806,34 +807,23 @@ class GitSyncEngine {
    * Generate a hash of the store state for change detection
    * Only includes content changes, not viewport changes
    */
+  /**
+   * What decides whether there is anything to commit: the shared document
+   * (saveHash's per-entry hash, which sees the Maps and Sets inside webs and
+   * connections: positions, groups, arrow directions) plus each web's camera.
+   * Plain JSON.stringify made every Map `{}`, so moving Things, auto layout,
+   * groups and arrows never committed on their own. No `this`: universeBackend
+   * calls it unbound.
+   */
   generateStateHash(storeState) {
-    // Extract only content-related state, excluding viewport state
-    const contentState = {
-      graphs: Array.from(storeState.graphs.entries()).map(([id, graph]) => {
-        // Include viewport state at end-of-scroll (store writes occur only after scroll settles)
-        const { panOffset, zoomLevel, ...contentGraph } = graph || {};
-        const view = {
-          x: Math.round(((panOffset?.x ?? 0) + Number.EPSILON) * 100) / 100,
-          y: Math.round(((panOffset?.y ?? 0) + Number.EPSILON) * 100) / 100,
-          zoom: typeof zoomLevel === 'number' ? Math.round((zoomLevel + Number.EPSILON) * 10000) / 10000 : 1
-        };
-        return [id, { ...contentGraph, __view: view }];
-      }),
-      nodePrototypes: Array.from(storeState.nodePrototypes.entries()),
-      edges: Array.from(storeState.edges.entries())
-    };
-
-    // Create a simple hash of the content state
-    const stateString = JSON.stringify(contentState);
-
-    // Simple hash function
-    let hash = 0;
-    for (let i = 0; i < stateString.length; i++) {
-      const char = stateString.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return hash.toString();
+    const views = Array.from(storeState?.graphs?.entries?.() || []).map(([id, graph]) => {
+      const { panOffset, zoomLevel } = graph || {};
+      const x = Math.round(((panOffset?.x ?? 0) + Number.EPSILON) * 100) / 100;
+      const y = Math.round(((panOffset?.y ?? 0) + Number.EPSILON) * 100) / 100;
+      const zoom = typeof zoomLevel === 'number' ? Math.round((zoomLevel + Number.EPSILON) * 10000) / 10000 : 1;
+      return `${id}@${x},${y},${zoom}`;
+    }).join('|');
+    return `${generateDocumentHash(storeState)}:${generateHash(views)}`;
   }
 
   /**
