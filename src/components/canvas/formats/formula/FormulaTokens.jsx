@@ -5,6 +5,7 @@
  * FormulaObjectsLayer, with the same proportions.
  */
 import { memo } from 'react';
+import { subscriptOf } from './formulaChain.js';
 
 const RAISE_SCALE = 0.62;
 const RAISE_STEP = 0.5;      // in the size it is lifted from
@@ -24,16 +25,22 @@ function tokenStyle(level, prevLevel) {
   };
 }
 
-function FormulaTokens({ tokens }) {
+/** `highlight`: a Thing whose tokens are lit, with `highlightStyle`. */
+function FormulaTokens({ tokens, highlight = null, highlightStyle = null }) {
   return (
     <span className="formula-tokens">
       {tokens.map((t, i) => (
         <span
           key={t.key}
           className={['formula-token', `kind-${t.kind}`, t.prefix ? 'is-prefix' : '', t.joined ? 'is-joined' : ''].filter(Boolean).join(' ')}
-          style={tokenStyle(t.level || 0, i > 0 ? (tokens[i - 1].level || 0) : 0)}
+          style={highlight && t.protoId === highlight
+            ? { ...tokenStyle(t.level || 0, i > 0 ? (tokens[i - 1].level || 0) : 0), ...highlightStyle, borderRadius: '0.3em', opacity: 1 }
+            : tokenStyle(t.level || 0, i > 0 ? (tokens[i - 1].level || 0) : 0)}
         >
-          {t.text}
+          {(() => {
+            const sub = subscriptOf(t.text);
+            return sub ? <>{sub[0]}<sub className="formula-token-sub">{sub[1]}</sub></> : t.text;
+          })()}
         </span>
       ))}
     </span>

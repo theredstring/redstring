@@ -9,7 +9,7 @@ import { distanceToQuadraticBezier, calculateCurveControlPoint } from './paralle
 import { distanceToSelfLoop } from './selfLoopUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath, lombardiArcFor, distanceToArc } from './edgeRouting.js';
 import useGraphStore from '../../store/graphStore.js';
-import useFormatsStore, { selectStandard } from '../../components/canvas/formats/formatsStore.js';
+import { formulaDisplayNow } from '../../components/canvas/formats/formatsStore.js';
 import { sceneWithFormulas } from '../../components/canvas/formats/formula/formulaObjects.js';
 
 // Connection grab radius floors, in SCREEN pixels — see edgeHitThreshold.
@@ -68,7 +68,7 @@ export const EDGE_HOVER_STICKY_FRACTION = 0.25;
 // below); `labelTruncationRef` is read at call time.
 export function findNearestEdgeAtCanvasPoint(cx, cy, threshold, canvasScene, options = {}) {
   // Formulas shown in place draw their connections differently; test what is drawn.
-  const scene = sceneWithFormulas(canvasScene, useGraphStore.getState(), { standard: selectStandard(useFormatsStore.getState()) });
+  const scene = sceneWithFormulas(canvasScene, useGraphStore.getState(), formulaDisplayNow());
   const {
     visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,

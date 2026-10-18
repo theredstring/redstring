@@ -91,6 +91,28 @@ describe('node-group serialization round trip', () => {
   it('writes no format for a group shown as its Things', () => {
     const group = roundTrip(buildStateWithGroup({}));
     expect(group.format).toBeUndefined();
-    expect(JSON.stringify(exportToRedstring(buildStateWithGroup({})))).not.toContain('redstring:format');
+    expect(JSON.stringify(exportToRedstring(buildStateWithGroup({})))).not.toContain('"redstring:format":');
+  });
+
+  it('preserves how a Thing is written in formulas, and writes nothing for one that has no label', () => {
+    const state = buildStateWithGroup({ format: 'formula' });
+    state.nodePrototypes.get('p-a').labels = { formula: 'P' };
+    const exported = exportToRedstring(state);
+    const { storeState } = importFromRedstring(exported);
+    expect(storeState.nodePrototypes.get('p-a').labels).toEqual({ formula: 'P' });
+    expect(storeState.nodePrototypes.get('p-thing').labels).toBeUndefined();
+    expect(JSON.stringify(exported).match(/"redstring:labels":/g)).toHaveLength(1);
+  });
+
+  it('keeps labels an older build banked away, so a round trip through it loses nothing', () => {
+    const state = buildStateWithGroup({});
+    const exported = exportToRedstring(state);
+    // An older build keeps a field it doesn't know in _preserved, by version.
+    const proto = Object.values(exported.prototypeSpace?.prototypes || {}).find(p => p['@id']?.includes('p-a') || p.id === 'p-a')
+      || Object.values(exported.prototypeSpace?.prototypes || {})[1];
+    proto._preserved = { '4.0.0': { 'redstring:labels': { formula: 'P' } } };
+    const { storeState } = importFromRedstring(exported);
+    const read = [...storeState.nodePrototypes.values()].find(p => p.labels);
+    expect(read?.labels).toEqual({ formula: 'P' });
   });
 });

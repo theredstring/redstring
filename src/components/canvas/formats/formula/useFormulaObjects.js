@@ -1,5 +1,5 @@
 import useGraphStore from '../../../../store/graphStore.js';
-import useFormatsStore, { selectStandard } from '../formatsStore.js';
+import useFormatsStore, { selectStandard, selectWords } from '../formatsStore.js';
 import { computeFormulaObjects } from './formulaObjects.js';
 
 /**
@@ -9,5 +9,6 @@ import { computeFormulaObjects } from './formulaObjects.js';
  */
 export function useFormulaObjects() {
   const standard = useFormatsStore(selectStandard);
-  return useGraphStore(s => computeFormulaObjects(s, { standard }));
+  const words = useFormatsStore(selectWords);
+  return useGraphStore(s => computeFormulaObjects(s, { standard, words }));
 }

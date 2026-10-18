@@ -31,8 +31,8 @@ import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
-import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, selectStandard } from '../formats/formatsStore.js';
-import { Superscript } from 'lucide-react';
+import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setReading, selectStandard, selectWords } from '../formats/formatsStore.js';
+import { Superscript, WholeWord } from 'lucide-react';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -150,11 +150,12 @@ export default function ControlPanelsHost({ ctx }) {
   }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
 
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
-  // A plain group that reads as a formula gets the format mode: ◀ ▶ swap how
-  // it is shown (formats/). Node-groups keep their own panel.
+  // A group or Thing-group that reads as a formula of its own (an equation, not
+  // a part in its parentheses) gets the format mode: ◀ ▶ swap how it is shown
+  // (formats/). Other Thing-groups keep their own panel.
   const darkMode = useGraphStore((s) => s.darkMode);
-  const groupFormulaText = useGroupFormulaText(groupPanelTarget?.linkedNodePrototypeId ? null : groupPanelTarget?.id);
-  const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : (groupFormulaText ? "format" : "group");
+  const groupFormulaText = useGroupFormulaText(groupPanelTarget?.id);
+  const groupPanelMode = groupFormulaText ? "format" : (groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group");
   const formatOrder = groupFormats(groupFormulaText);
   const currentFormat = groupPanelTarget?.format && formatOrder.includes(groupPanelTarget.format) ? groupPanelTarget.format : 'things';
   const swapFormat = (step) => {
@@ -167,13 +168,23 @@ export default function ControlPanelsHost({ ctx }) {
   // Standard math (mc²) or every operation written (m × c ^ 2): only offered
   // when the formula has an operation the two write differently.
   const standardNotation = useFormatsStore(selectStandard);
-  const formatToggles = currentFormat === 'formula' && /[×^]/.test(groupFormulaText || '')
-    ? [{
-      key: 'notation',
-      icon: (size) => <Superscript size={size} />,
-      title: standardNotation ? 'Write Every Operation' : 'Standard Notation',
-      onClick: () => setNotation(standardNotation ? 'explicit' : 'standard'),
-    }]
+  const formulaWords = useFormatsStore(selectWords);
+  const formatToggles = currentFormat === 'formula'
+    ? [
+      // Each Thing by its real name (Pressure × Volume), or by its symbol (P V).
+      {
+        key: 'reading',
+        icon: (size) => <WholeWord size={size} />,
+        title: formulaWords ? 'Show Symbols' : 'Show Names',
+        onClick: () => setReading(formulaWords ? 'symbols' : 'names'),
+      },
+      ...(/[×^]/.test(groupFormulaText || '') ? [{
+        key: 'notation',
+        icon: (size) => <Superscript size={size} />,
+        title: standardNotation ? 'Write Every Operation' : 'Standard Notation',
+        onClick: () => setNotation(standardNotation ? 'explicit' : 'standard'),
+      }] : []),
+    ]
     : null;
   const formatAt = (step) => FORMAT_LABELS[formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length]];
 
@@ -549,6 +560,8 @@ export default function ControlPanelsHost({ ctx }) {
               hasLeftNav: formatOrder.length > 1,
               hasRightNav: formatOrder.length > 1,
               formatToggles,
+              // An equation is a Thing-group already.
+              ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined } : {}),
               leftNavLabel: `Show as ${formatAt(-1)}`,
               rightNavLabel: `Show as ${formatAt(1)}`,
               customContent: currentFormat === 'formula'

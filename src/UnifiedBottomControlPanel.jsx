@@ -1345,15 +1345,17 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Palette size={iconSize} />
                 </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onConvertToNodeGroup}
-                  title="Convert to Thing-Group"
-                  onMouseEnter={() => triggerActionHover('control-convert-nodegroup', 'Convert to Thing-Group')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <SquarePlus size={iconSize} />
-                </div>
+                {onConvertToNodeGroup && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onConvertToNodeGroup}
+                    title="Convert to Thing-Group"
+                    onMouseEnter={() => triggerActionHover('control-convert-nodegroup', 'Convert to Thing-Group')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <SquarePlus size={iconSize} />
+                  </div>
+                )}
               </>
             ) : isAbstraction ? (
               // Abstraction mode: Show abstraction actions (add, up with dot, right, edit)

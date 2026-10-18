@@ -3,6 +3,7 @@
  */
 
 import { getNodeDimensions } from '../../utils.js';
+import { isReplacedInstance } from '../../components/canvas/formats/replaced.js';
 
 /**
  * Transforms client/screen coordinates to canvas coordinates
@@ -51,6 +52,8 @@ export function clampCoordinates(x, y, canvasSize) {
  */
 export function isInsideNode(nodeData, clientX, clientY, containerRect, panOffset, zoomLevel, canvasSize, previewingNodeId = null) {
   if (!containerRect || !nodeData) return false;
+  // A Thing a format draws its own way (a formula's term) isn't there to hit.
+  if (isReplacedInstance(nodeData.id)) return false;
 
   const scaledX = (clientX - containerRect.left - panOffset.x) / zoomLevel + canvasSize.offsetX;
   const scaledY = (clientY - containerRect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;

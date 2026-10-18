@@ -16,6 +16,7 @@ import InfoPopover from '../shared/InfoPopover.jsx';
 import PanelImage, { PanelImageShimmer } from '../shared/PanelImage.jsx';
 import AboutSection from './AboutSection.jsx';
 import WebDefinitionsSection from './WebDefinitionsSection.jsx';
+import EquationsSection from '../canvas/formats/formula/EquationsSection.jsx';
 import { ABOUT_INTRO } from './aboutCopy.js';
 import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
@@ -1893,6 +1894,9 @@ const SharedPanelContent = ({
           isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>
+
+      {/* Equations: how this Thing is written in formulas, and the equations it is part of. */}
+      {!isHomeTab && <EquationsSection protoId={nodeData?.id} onOpenNode={onOpenNode} />}
 
       {/* Removed Semantic Profile section per requirements */}
     </div>

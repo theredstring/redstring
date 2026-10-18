@@ -7,9 +7,10 @@
  *     ops: [['a', 'b', 'Addition']],                       // [from, to, operation] (arrow from -> to)
  *     parts: [{ id: 'g', anchor: 'pa', name: 'a + b', type: 'Square Root', members: ['a', 'b'] }],
  *     top: ['a', 'b', 'pa'],                                // the formula group's members
+ *     labels: { Pressure: 'P' },                            // how a Thing is written in formulas
  *   })
  */
-export function formulaWeb({ things = [], ops = [], parts = [], top = null, extra = [], arrows = 'forward', format } = {}) {
+export function formulaWeb({ things = [], ops = [], parts = [], top = null, extra = [], arrows = 'forward', format, labels = {} } = {}) {
   const nodePrototypes = new Map();
   const protoNamed = (name) => {
     for (const p of nodePrototypes.values()) if (p.name === name) return p;
@@ -41,6 +42,8 @@ export function formulaWeb({ things = [], ops = [], parts = [], top = null, extr
   });
   for (const [id, name, x, y = 0] of extra) instances.set(id, { id, prototypeId: protoNamed(name).id, x, y });
   if (top) groups.set('top', { id: 'top', name: 'Formula', color: '#8B0000', memberInstanceIds: top, ...(format ? { format } : {}) });
+  // How a Thing is written in formulas, by its name: { Pressure: 'P' }.
+  for (const p of nodePrototypes.values()) if (labels[p.name]) p.labels = { formula: labels[p.name] };
   const edges = new Map(edgeList.map(e => [e.id, e]));
   return {
     activeGraphId: 'web',

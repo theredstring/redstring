@@ -5,6 +5,7 @@
  */
 import { getNodeDimensions } from '../../utils.js';
 import { placeholderIdForGroup } from '../../services/groupLayout.js';
+import { isReplacedInstance, isReplacedGroup } from '../../components/canvas/formats/replaced.js';
 
 /**
  * Which instances a live selection box covers, merged with whatever was
@@ -25,6 +26,8 @@ export function selectionInRect(rect, nodes, baseSelection, previewingNodeId) {
   nodes.forEach(nd => {
     if (nd.isGroupAnchor) return;
     if (base.has(nd.id)) return;
+    // Drawn as a formula: the formula is selected by its own tap, not by a box.
+    if (isReplacedInstance(nd.id)) return;
     const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
     const intersects = !(rect.x > nd.x + dims.currentWidth ||
       rect.x + rect.width < nd.x ||
@@ -44,6 +47,7 @@ export function selectionInRect(rect, nodes, baseSelection, previewingNodeId) {
  */
 export function groupTitleAtCanvasPoint(canvasX, canvasY, titleRects) {
   for (const [anchorId, info] of titleRects.entries()) {
+    if (isReplacedGroup(info.groupId)) continue;
     if (canvasX >= info.x && canvasX <= info.x + info.width &&
       canvasY >= info.y && canvasY <= info.y + info.height) {
       return { anchorInstanceId: anchorId, groupId: info.groupId };

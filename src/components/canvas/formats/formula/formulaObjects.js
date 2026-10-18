@@ -8,11 +8,17 @@
  * (`group.format === 'formula'`, saved with the group); everything else is
  * worked out at draw time. No position is written, so a drag or a save never
  * sees a token's place.
+ *
+ * It is drawn the way a Thing-group is: a band in its Thing's color with the
+ * equation's title on it (the Thing's name: "Ideal Gas Law", or its text while
+ * it has none), and the formula inside. Connections to the equation itself land
+ * on the title.
  */
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
-import { isGroupInsideGroup } from '../../../../services/groupLayout.js';
-import { readFormulaGroup, tokensOf, chainText } from './formulaChain.js';
+import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst } from '../../../../services/groupLayout.js';
+import { readFormulaGroup, tokensOf, chainText, subscriptOf } from './formulaChain.js';
+import { setReplaced } from '../replaced.js';
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
 export const FORMULA_FONT = 44;
@@ -26,6 +32,11 @@ const BOX_EM = 1.5;      // token box height, in its own em
 const BASELINE_EM = 0.36; // baseline below the line's middle, in the line's em
 export const FRAME_PAD_X = 0.55; // em
 export const FRAME_PAD_Y = 0.42; // em
+export const SUBSCRIPT_SCALE = 0.62;
+export const SUBSCRIPT_DROP = 0.28; // em of the token, below its baseline
+/** The title, as a Thing-group's (groupElements.jsx). */
+export const TITLE_FONT = 45;
+const G = GROUP_LAYOUT_CONSTANTS;
 
 let measureCtx = null;
 function measure(text, size) {
@@ -65,7 +76,9 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
     else if (level < prevLevel) x += RAISE_GAP_OUT * font;
     prevLevel = level;
     const [padL, padR] = padsFor(t);
-    const w = measure(t.text, size) + (padL + padR) * size;
+    const sub = subscriptOf(t.text);
+    const textW = sub ? measure(sub[0], size) + measure(sub[1], size * SUBSCRIPT_SCALE) : measure(t.text, size);
+    const w = textW + (padL + padR) * size;
     const baseline = BASELINE_EM * font - lift;
     const h = BOX_EM * size;
     const box = { x, y: baseline - BASELINE_EM * size - h / 2, w, h, size, baseline, textX: x + padL * size };
@@ -84,18 +97,25 @@ let last = null;
  *
  * @param {object} state - graphStore state
  */
-export function computeFormulaObjects(state, { standard = true } = {}) {
+export function computeFormulaObjects(state, { standard = true, words = false } = {}) {
+  const result = formulaObjectsOf(state, standard, words);
+  // What the formulas replace can't be hit (formats/replaced.js).
+  setReplaced(result.hiddenIds, result.hiddenGroupIds);
+  return result;
+}
+
+function formulaObjectsOf(state, standard, words) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
   const view = projectGraphView(state, graphId);
   if (!view?.instances || !view.groups?.size) return EMPTY;
-  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard) {
+  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.words === words) {
     return last.result;
   }
   const shownGroups = [];
   view.groups.forEach((group) => { if (group.format === 'formula') shownGroups.push(group); });
   if (shownGroups.length === 0) {
-    last = { view, protos: state.nodePrototypes, edges: state.edges, standard, result: EMPTY };
+    last = { view, protos: state.nodePrototypes, edges: state.edges, standard, words, result: EMPTY };
     return EMPTY;
   }
 
@@ -125,16 +145,36 @@ export function computeFormulaObjects(state, { standard = true } = {}) {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const tokens = tokensOf(chain, { standard });
+    const tokens = tokensOf(chain, { standard, words });
     const line = layoutFormulaLine(tokens);
     const left = cx - line.width / 2;
     const boxes = line.boxes.map(b => ({ ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy }));
+
+    // The equation: its Thing when it is a Thing-group, else the group itself.
+    const equationProto = group.linkedNodePrototypeId ? state.nodePrototypes.get(group.linkedNodePrototypeId) : null;
+    const named = equationProto?.name || group.name || '';
+    // Untitled, its name is just its text: the band carries no title, rather than say the formula twice.
+    const compact = (t) => String(t).replace(/\s+/g, '');
+    const title = named && compact(named) !== compact(chainText(chain)) ? named : '';
+    const color = equationProto?.color || group.color || null;
+    const titleH = title ? labelHeightConst(1, TITLE_FONT) : 0;
+    const titleW = title ? Math.max(G.titleMinWidth, measure(title, TITLE_FONT) + G.titlePaddingHorizontal * 2) : 0;
+    // The formula's own ground, inside a band the title sits on.
+    let innerW = line.width + 2 * FRAME_PAD_X * FORMULA_FONT;
+    innerW = Math.max(innerW, titleW + G.titlePaddingHorizontal * 2 - G.innerCanvasBorder * 2);
+    const innerH = line.height + 2 * FRAME_PAD_Y * FORMULA_FONT;
+    const inner = { x: cx - innerW / 2, y: cy - innerH / 2, w: innerW, h: innerH };
+    const bandTop = title ? inner.y - G.titleBottomMargin - titleH - G.titleTopMargin : inner.y - G.innerCanvasBorder;
     const frame = {
-      x: left - FRAME_PAD_X * FORMULA_FONT,
-      y: cy - line.height / 2 - FRAME_PAD_Y * FORMULA_FONT,
-      w: line.width + 2 * FRAME_PAD_X * FORMULA_FONT,
-      h: line.height + 2 * FRAME_PAD_Y * FORMULA_FONT,
+      x: inner.x - G.innerCanvasBorder,
+      y: bandTop,
+      w: inner.w + G.innerCanvasBorder * 2,
+      h: inner.y + inner.h + G.innerCanvasBorder - bandTop,
     };
+    // Where the equation itself is: its title, or the band's top edge without one.
+    const titleBox = title
+      ? { x: cx - titleW / 2, y: bandTop + G.titleTopMargin, w: titleW, h: titleH }
+      : { x: inner.x, y: bandTop, w: inner.w, h: G.innerCanvasBorder };
 
     // A connection from outside lands on the first token of the Thing it reaches:
     // an operand, or a part's opening parenthesis (or sign, or function name).
@@ -148,19 +188,25 @@ export function computeFormulaObjects(state, { standard = true } = {}) {
     });
 
     memberIds.forEach(id => hiddenIds.add(id));
+    if (group.anchorInstanceId && view.instances.has(group.anchorInstanceId)) {
+      hiddenIds.add(group.anchorInstanceId);
+      tokenBoxById.set(group.anchorInstanceId, { ...titleBox });
+    }
     hiddenGroupIds.add(group.id);
     const memberSet = new Set(memberIds);
     allGroups.forEach(g => { if (isGroupInsideGroup(g, group, memberSet)) hiddenGroupIds.add(g.id); });
     objects.push({
       graphId, groupId: group.id, memberIds, chain, text: chainText(chain),
-      tokens, boxes, frame, center: { x: cx, y: cy }, protoOf, groupColor: group.color,
+      tokens, boxes, frame, inner, title, titleBox, color, equationProtoId: equationProto?.id || null,
+      anchorId: group.anchorInstanceId && view.instances.has(group.anchorInstanceId) ? group.anchorInstanceId : null,
+      center: { x: cx, y: cy }, protoOf, groupColor: group.color,
     });
   }
 
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById } : EMPTY;
   // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
   const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
-  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, result } : null;
+  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, words, result } : null;
   return result;
 }
 

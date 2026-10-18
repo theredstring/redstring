@@ -53,6 +53,7 @@ export const OPERATORS = {
 export const KNOWN_FUNCTIONS = new Set([
   'sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
   'log', 'ln', 'lg', 'exp', 'abs', 'max', 'min', 'floor', 'ceil', 'gcd', 'lcm', 'det', 'lim',
+  'log_2', 'log_10',
 ]);
 
 /** A Thing typed (Is-a) as one of these reads as an operator of its own name. */

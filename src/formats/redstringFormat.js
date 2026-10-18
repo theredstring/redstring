@@ -54,7 +54,8 @@ export const VERSION_HISTORY = {
       'Inline base64 imageSrc remains fully valid on read — the two forms coexist indefinitely and locally-saved files stay single-file',
       'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block',
       'Definitions opened in place (additive, no version bump): optional instance field redstring:openDefinition { redstring:definitionIndex, redstring:xOffset, redstring:yOffset } shows that definition inside the node without copying it; optional edge fields sourceVia/destinationVia name the nodes, from the edge\'s own graph inward, through whose definitions an end is reached',
-      'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged'
+      'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged',
+      'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context. Builds that predate them show the Things and keep the labels in _preserved'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -1076,7 +1077,11 @@ const exportPrototypeEntry = (prototype, id, saved, broader, nowIso) => {
     // See the note below on why this sits at the TOP LEVEL of the prototype
     // rather than inside redstring:visualProperties with its siblings.
     ...(prototype.imageRef ? { "redstring:imageRef": prototype.imageRef } : {}),
-    ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {})
+    ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {}),
+
+    // How this Thing is written in a context, e.g. { formula: "P" } for Pressure.
+    // Additive and optional, at the top level so older builds keep it in _preserved.
+    ...(prototype.labels && Object.keys(prototype.labels).length ? { "redstring:labels": prototype.labels } : {})
   };
 
   // WHY imageRef IS NOT INSIDE redstring:visualProperties
@@ -2034,6 +2039,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           const imageRefExt =
             prototype['redstring:imageRefExt'] ?? prototype.imageRefExt ?? fromPreserved('redstring:imageRefExt');
           if (imageRefExt != null) convertedPrototype.imageRefExt = imageRefExt;
+
+          const labels = prototype['redstring:labels'] ?? prototype.labels ?? fromPreserved('redstring:labels');
+          if (labels && typeof labels === 'object' && !Array.isArray(labels)) convertedPrototype.labels = { ...labels };
 
           // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag)
           if (hasOwn(prototype, 'redstring:semanticMetadata') || hasOwn(prototype, 'semanticMetadata')) {

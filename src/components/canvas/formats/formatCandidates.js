@@ -32,6 +32,21 @@ function formulaCandidate(state, view, graphId, source, sourceId, label, contain
 }
 
 /**
+ * Whether a Thing-group is a part of a larger formula, not a formula of its own:
+ * an operation joins its Thing to something outside it.
+ */
+function isPartOf(state, view, g) {
+  if (!g?.anchorInstanceId) return false;
+  const members = new Set(g.memberInstanceIds || []);
+  return (view.edgeIds || []).some((edgeId) => {
+    const e = state.edges.get(edgeId);
+    if (!e || (e.sourceId !== g.anchorInstanceId && e.destinationId !== g.anchorInstanceId)) return false;
+    const other = e.sourceId === g.anchorInstanceId ? e.destinationId : e.sourceId;
+    return !members.has(other) && !!operationOf(e, state);
+  });
+}
+
+/**
  * The format to offer for what is in front of the user, or null.
  * Order: the selection, then the selected group, then any group (outermost
  * first, since a formula's parts are groups too), then the web.
@@ -53,18 +68,7 @@ export function findFormatCandidate(state, { selectedInstanceIds, selectedGroupI
       { id: '__selection__', memberInstanceIds: [...selectedInstanceIds] }));
   }
 
-  // A Thing-group whose Thing an operation joins to something outside it is a
-  // part of a larger formula, not a formula of its own.
-  const isPart = (g) => {
-    if (!g.anchorInstanceId) return false;
-    const members = new Set(g.memberInstanceIds || []);
-    return (view.edgeIds || []).some((edgeId) => {
-      const e = state.edges.get(edgeId);
-      if (!e || (e.sourceId !== g.anchorInstanceId && e.destinationId !== g.anchorInstanceId)) return false;
-      const other = e.sourceId === g.anchorInstanceId ? e.destinationId : e.sourceId;
-      return !members.has(other) && !!operationOf(e, state);
-    });
-  };
+  const isPart = (g) => isPartOf(state, view, g);
   const groups = view.groups ? [...view.groups.values()].filter(g => !g.isOpenDefinition && !isPart(g)) : [];
   const fromGroup = (g) => formulaCandidate(state, view, graphId, 'group', g.id, g.name || 'Group', g);
   if (selectedGroupId && view.groups?.has(selectedGroupId)) {
@@ -97,4 +101,11 @@ export function readGroupFormula(state, graphId, groupId) {
   const group = view?.groups?.get(groupId);
   if (!group || group.isOpenDefinition) return null;
   return readFormulaGroup(state, view, group);
+}
+
+/** Whether a group of the web is a part inside a larger formula (its parentheses), not one of its own. */
+export function isFormulaPart(state, graphId, groupId) {
+  if (!graphId || !groupId) return false;
+  const view = projectGraphView(state, graphId);
+  return isPartOf(state, view, view?.groups?.get(groupId));
 }

@@ -1,23 +1,38 @@
 /**
- * Build a typed formula into a web, the way formulaChain.js reads one:
+ * Build a formula into a web, the way formulaChain.js reads one:
  * - each operand a Thing, in a row, left to right;
  * - each operation a connection between neighbours, defined by the operation's
  *   Thing (Addition, Multiplication, Exponentiation...), pointing the way it reads;
  * - each part in parentheses a Thing-group nested in place, its Thing named after
  *   its term and typed by what is applied to it (Square Root, Negation, sin), or
  *   untyped for plain parentheses;
- * - a group around the whole formula, named after it and shown as the formula.
+ * - the whole equation a Thing-group too, shown as its formula: its Thing is the
+ *   equation (its title, or its text while it has none), so its definition web
+ *   holds its Things and each of them is a Component Of it.
  *
- * Names are references, as everywhere in Redstring: an operand, an operation or a
- * type that already exists by that name is placed again rather than duplicated.
- * A part's Thing is always new, since converting its group gives it a definition.
+ * Which Thing a symbol stands for:
+ * - bound (an equation from the bank): the concept's Thing, named for what it is
+ *   (Pressure) and written in formulas by its symbol (labels.formula = 'P'). It is
+ *   found again by where it came from, never by name, so a Thing of the user's
+ *   that happens to be called Pressure is never taken over;
+ * - a bare symbol (x, P, θ): a new Thing named just that, one per formula, since
+ *   the same letter means different things in different formulas. It is drawn as
+ *   plain text until it is given a meaning;
+ * - a number, a whole word (mass), an operation or a function: the Thing by that
+ *   name, reused, since those mean the same everywhere.
+ *
+ * Built from the bank, the equation's discipline (Thermodynamics) gains it too:
+ * placed in the discipline's web, which only ever gets added to.
  */
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { OPERATORS } from './formulaNotation.js';
-import { chainFromText, chainText } from './formulaChain.js';
+import { chainFromText, chainText, isSymbolText } from './formulaChain.js';
+import {
+  BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin,
+} from './bank/formulaBank.js';
 
 const OPERATOR_DESCRIPTIONS = {
   eq: 'States that its two sides are equal.',
@@ -44,27 +59,71 @@ const LABEL_CLEARANCE = 170;
 const gapFor = (opName) => Math.max(240, String(opName).length * LABEL_UNITS_PER_CHAR + LABEL_CLEARANCE);
 const ARG_GAP = 240;  // between a function's arguments, which no connection joins
 const PART_PAD = 70;  // a part's box around its contents
+const DISCIPLINE_COLUMNS = 4;
+const DISCIPLINE_CELL = { w: 560, h: 320 };
 
 // Case matters for symbols (E is not e), not for words (Mass is mass).
 const nameKey = (name) => {
   const s = String(name).trim();
   return s.length <= 3 ? s : s.toLowerCase();
 };
+const isNumber = (name) => /^\d+(\.\d+)?$/.test(String(name));
+
+const provenanceOf = (origin) => ({
+  provenance: { wasAttributedTo: BANK_AGENT, source: origin, generatedAtTime: new Date().toISOString() },
+});
+
+/** The Thing made from this bank entry before, if any (the latest, should there be several). */
+function prototypeFrom(origin) {
+  let found = null;
+  for (const p of useGraphStore.getState().nodePrototypes.values()) {
+    if (p.semanticMetadata?.provenance?.source === origin) found = p;
+  }
+  return found;
+}
+
+/** Where a Thing came from in the bank, or null. */
+export const bankOriginOf = (proto) => {
+  const source = proto?.semanticMetadata?.provenance?.source;
+  return typeof source === 'string' && source.startsWith(`${BANK_AGENT}:`) ? source : null;
+};
+
+function prototypeFromOrNew(origin, fields) {
+  const existing = prototypeFrom(origin);
+  if (existing) return existing;
+  const proto = {
+    id: uuidv4(), color: NODE_DEFAULT_COLOR, description: '', typeNodeId: null, definitionGraphIds: [],
+    ...fields, semanticMetadata: provenanceOf(origin),
+  };
+  useGraphStore.getState().addNodePrototype(proto);
+  return proto;
+}
 
 /**
  * @param {string} text - e.g. "E = m * c^2"
  * @param {string} graphId - the web to build into
  * @param {{x: number, y: number}} at - canvas point for the middle of the formula
  * @param {object} [readOptions] - how the text is read: { convention, isKnownName } (see parseFormulaText)
- * @returns {{ instanceIds: string[], groupId: string|null, text: string }}
+ * @param {object} [equation] - what the equation is, when known:
+ *   { title, description, origin, bindings: { symbol: { origin, name, label, description } } }
+ * @returns {{ instanceIds: string[], groupId: string|null, equationProtoId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
  */
-export function buildFormulaInWeb(text, graphId, at, readOptions) {
+export function buildFormulaInWeb(text, graphId, at, readOptions, equation = {}) {
   const chain = chainFromText(text, readOptions);
   const store = useGraphStore.getState();
   if (!store.graphs.get(graphId)) throw new Error('No web to add it to');
+  const bindings = equation.bindings || {};
+  const title = equation.title?.trim() || '';
+  let result = null;
+  store.withHistoryTransaction(title ? `Added ${title}` : 'Added formula', () => {
+    result = build(chain, graphId, at, bindings, title, equation);
+  });
+  return result;
+}
 
-  // Prototypes by name: operands, operations and types are reused.
+function build(chain, graphId, at, bindings, title, equation) {
+  // Prototypes by name: numbers, words, operations and types are reused.
   const protoByName = new Map();
   const prototypeNamed = (name, description = '') => {
     const key = nameKey(name);
@@ -75,16 +134,37 @@ export function buildFormulaInWeb(text, graphId, at, readOptions) {
     }
     if (!proto) {
       proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description, typeNodeId: null, definitionGraphIds: [] };
-      store.addNodePrototype(proto);
+      useGraphStore.getState().addNodePrototype(proto);
     }
     protoByName.set(key, proto);
     return proto;
   };
+  // What each operand stands for: the bound concept, a new bare symbol, or the Thing by that name.
+  const bySymbol = new Map();
+  const prototypeFor = (name) => {
+    if (bySymbol.has(name)) return bySymbol.get(name);
+    let proto;
+    const bound = bindings[name];
+    if (bound) {
+      proto = prototypeFromOrNew(bound.origin, {
+        name: bound.name, description: bound.description || '', labels: { formula: bound.label || name },
+      });
+    } else if (!isNumber(name) && isSymbolText(name)) {
+      proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description: '', typeNodeId: null, definitionGraphIds: [] };
+      useGraphStore.getState().addNodePrototype(proto);
+    } else {
+      proto = prototypeNamed(name);
+    }
+    bySymbol.set(name, proto);
+    return proto;
+  };
+  // Things mode shows Things by name, so their room is their name's.
+  const shownName = (name) => bindings[name]?.name || name;
 
   // Widths, inside out.
   const termWidth = (term) => {
     if (term.kind === 'thing') {
-      term._w = getNodeDimensions({ name: term.name }, false, null).currentWidth;
+      term._w = getNodeDimensions({ name: shownName(term.name) }, false, null).currentWidth;
       return term._w;
     }
     term.args.forEach(chainWidth);
@@ -108,9 +188,9 @@ export function buildFormulaInWeb(text, graphId, at, readOptions) {
     for (const item of c.items) {
       if (item.kind === 'op') { x += gapFor(item.name); placed.push(null); continue; }
       if (item.kind === 'thing') {
-        const proto = prototypeNamed(item.name);
+        const proto = prototypeFor(item.name);
         const id = uuidv4();
-        const h = getNodeDimensions({ name: item.name }, false, null).currentHeight;
+        const h = getNodeDimensions({ name: proto.name }, false, null).currentHeight;
         nodes.push({ instanceId: id, prototypeId: proto.id, x, y: at.y - h / 2, scale: 1 });
         placed.push(id);
         inside.push(id);
@@ -163,9 +243,67 @@ export function buildFormulaInWeb(text, graphId, at, readOptions) {
   };
 
   const { inside } = buildChain(chain, at.x - chain._w / 2);
-  const name = chainText(chain);
+  const text = chainText(chain);
+
+  // The equation's own Thing, holding the whole formula, shown as the formula.
+  const name = title || text;
+  const equationProto = equation.origin
+    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '' })
+    : { id: uuidv4(), name, color: NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] };
+  if (!equation.origin) useGraphStore.getState().addNodePrototype(equationProto);
   const groupId = useGraphStore.getState().createGroup(graphId, {
-    name, color: NODE_DEFAULT_COLOR, memberInstanceIds: inside, format: 'formula',
+    name, color: equationProto.color || NODE_DEFAULT_COLOR, memberInstanceIds: inside, format: 'formula',
   });
-  return { instanceIds: inside, groupId, text: name };
+  useGraphStore.getState().convertGroupToNodeGroup(graphId, groupId, equationProto.id, false);
+  const linked = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId)?.linkedNodePrototypeId === equationProto.id;
+
+  if (equation.discipline && linked) placeInDiscipline(equation.discipline, equationProto.id);
+  return { instanceIds: inside, groupId, equationProtoId: linked ? equationProto.id : null, text };
+}
+
+/**
+ * Put the equation in its discipline's web: the discipline's Thing (made from
+ * the bank, found by where it came from) gets a web if it has none, and the
+ * equation is placed in it unless it is there already. Nothing in it is moved
+ * or changed.
+ */
+function placeInDiscipline(discipline, equationProtoId) {
+  const proto = prototypeFromOrNew(disciplineOrigin(discipline.id), {
+    name: discipline.name, description: discipline.description || '',
+  });
+  const st = useGraphStore.getState();
+  let webId = (st.nodePrototypes.get(proto.id)?.definitionGraphIds || []).find(id => st.graphs.has(id));
+  if (!webId) webId = st.createAndAssignGraphDefinitionWithoutActivation(proto.id);
+  const web = useGraphStore.getState().graphs.get(webId);
+  if (!web) return;
+  const instances = [...(web.instances?.values() || [])];
+  if (instances.some(inst => inst.prototypeId === equationProtoId)) return;
+  const n = instances.length;
+  useGraphStore.getState().addNodeInstance(webId, equationProtoId, {
+    x: (n % DISCIPLINE_COLUMNS) * DISCIPLINE_CELL.w,
+    y: Math.floor(n / DISCIPLINE_COLUMNS) * DISCIPLINE_CELL.h,
+  });
+}
+
+/**
+ * Build an equation from the bank, fully formed: its symbols bound to their
+ * concepts, its title, and its place in its discipline's web.
+ */
+export function buildBankEquation(discipline, entry, graphId, at) {
+  const bindings = {};
+  for (const [symbol, conceptId] of Object.entries(entry.symbols)) {
+    const concept = bankConcept(conceptId);
+    if (!concept) continue;
+    bindings[symbol] = { origin: conceptOrigin(conceptId), name: concept.name, label: concept.symbol, description: concept.description };
+  }
+  return buildFormulaInWeb(entry.text, graphId, at, {
+    convention: 'math',
+    isKnownName: (n) => Object.prototype.hasOwnProperty.call(entry.symbols, n),
+  }, {
+    title: entry.title,
+    description: entry.description || '',
+    origin: equationOrigin(entry.id),
+    bindings,
+    discipline,
+  });
 }

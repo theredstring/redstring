@@ -122,7 +122,7 @@ button.format-pill:disabled {
 .formula-composer {
   position: fixed;
   z-index: 1000;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -311,4 +311,212 @@ button.format-pill:disabled {
 .format-panel-chip .formula-tokens {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A symbol's subscript (v_0, T_c): lowered, smaller, against its letter. */
+.formula-token-sub {
+  font-size: 0.62em;
+  vertical-align: -0.28em;
+  line-height: 0;
+}
+
+/* --- Equations section in the panel (formula/EquationsSection) --------- */
+
+.equations-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-right: 15px;
+  padding: 4px 0 8px;
+  font-family: 'EmOne', sans-serif;
+}
+
+.equations-written-as {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: bold;
+}
+
+.equations-written-as input {
+  flex: 0 1 140px;
+  min-width: 60px;
+  padding: 4px 10px;
+  border: 2px solid;
+  border-radius: 10px;
+  background: transparent;
+  font-family: 'EmOne', sans-serif;
+  font-size: 1rem;
+  font-weight: bold;
+  outline: none;
+}
+
+.equations-written-as input::placeholder {
+  opacity: 0.4;
+}
+
+.equations-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid;
+  border-radius: 14px;
+  background: transparent;
+  font-family: 'EmOne', sans-serif;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.92;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.equations-row:hover:not(:disabled) {
+  opacity: 1;
+  transform: scale(1.01);
+}
+
+.equations-row:disabled {
+  cursor: default;
+}
+
+.equations-row-title {
+  font-size: 0.95rem;
+  font-weight: bold;
+}
+
+.equations-row-symbol {
+  display: inline-block;
+  padding: 0 0.35em;
+  border-radius: 0.3em;
+}
+
+.equations-row-formula {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: bold;
+}
+
+/* --- The bank under New Formula (formula/FormulaBankPicker) ------------- */
+
+.format-bank {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: min(46vh, 420px);
+  overflow-y: auto;
+  padding: 8px;
+  box-sizing: border-box;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+}
+
+.format-bank-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.format-bank-chip {
+  padding: 10px 12px;
+  border: 2px solid maroon;
+  border-radius: 14px;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  text-align: center;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.format-bank-chip:hover {
+  background-color: maroon;
+  color: #DEDADA;
+}
+
+.format-bank-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 6px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.format-bank-back {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: maroon;
+  cursor: pointer;
+}
+
+.format-bank-back:hover {
+  background-color: #D0CACA;
+}
+
+.format-bank-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.format-bank-row:hover:not(:disabled) {
+  background-color: #D0CACA;
+}
+
+.format-bank-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.format-bank-row-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.format-bank-row-where {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.format-bank-row-formula {
+  flex-shrink: 0;
+  max-width: 55%;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.format-bank-row-missing {
+  font-size: 11px;
+  opacity: 0.8;
 }

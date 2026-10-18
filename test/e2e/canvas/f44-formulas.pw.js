@@ -2,14 +2,19 @@
 // of operations: its operands as Things, each operation a connection defined by
 // the operation's Thing, each part in parentheses a nested Thing-group named
 // after its term (typed Square Root, Negation... when that is what it is), all
-// in a group shown in place as the formula: one object on the canvas where the
-// Things are, which hides them and the connections among them. A connection
-// from outside lands on its Thing's token. A hovered token becomes its Thing; a
-// tap selects the formula and brings up the group panel's format mode, whose
-// arrows swap it between Things and Formula; a double tap on a token opens its
-// Thing; hold-and-drag moves it (snapping to the grid when that's on) as one
-// undo step. The offer pill (Back to Civilization's spot) shows a group as its
-// formula, and its X waves it off.
+// in the equation's own Thing-group, shown in place as the formula: one object
+// on the canvas where the Things are, titled like a Thing-group, which hides
+// them and the connections among them. A connection from outside lands on its
+// Thing's token. A token whose Thing means more than its symbol (an operation;
+// P for Pressure) unveils that Thing on hover, growing into its node; a bare
+// symbol is plain text. A tap selects the formula and brings up the group
+// panel's format mode, whose arrows swap it between Things and Formula and
+// whose toggles write it with names or every operation; a double tap on a
+// token opens its Thing; hold-and-drag moves it (snapping to the grid when
+// that's on) as one undo step. The offer pill (Back to Civilization's spot)
+// shows a group as its formula, and its X waves it off. The bank under New
+// Formula builds well-known equations fully formed, each symbol its concept's
+// Thing, listed in the Thing's Equations section and in its discipline's web.
 //
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
@@ -43,6 +48,7 @@ async function pointAt(page, locator, { click = false } = {}) {
   const { x, y } = await centerOfLocator(locator);
   if (click) await page.mouse.click(x, y); else await page.mouse.move(x, y);
 }
+const unveiled = (page) => object(page).locator('g.formula-unveil');
 const pillText = (page) => page.locator('.format-offer').innerText().then(t => t.replace(/\s+/g, ''));
 const shownNodes = (page, ids) => page.evaluate((list) =>
   list.filter(id => document.querySelector(`svg.canvas g.node[data-instance-id="${id}"]`)).length, ids);
@@ -74,9 +80,12 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   await buildFormula(page, QUADRATIC);
 
   // 9 operands and 4 parts (each a Thing-group's Thing), 8 operations, and the
-  // formula's group named after it.
+  // equation's own Thing-group, named after it while it has no title.
   const after = await activeGraphSnapshot(page);
-  const memberIds = Object.keys(after.instances).filter(id => !before.instances[id]);
+  const newIds = Object.keys(after.instances).filter(id => !before.instances[id]);
+  expect(newIds).toHaveLength(14);
+  const top = await formulaGroup(page, 'x = ');
+  const memberIds = top.members;
   expect(memberIds).toHaveLength(13);
   expect(after.edgeIds.length - before.edgeIds.length).toBe(8);
   const names = Object.values(after.groups).map(g => g.name);
@@ -117,13 +126,16 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   const twos = tokenTexts.filter({ has: page.locator('text', { hasText: /^2$/ }) });
   expect(await sizeOf(twos.first())).toBeLessThan(bSize);
 
-  // Hover lights only that token, as its Thing; a part's sign lights with its parentheses.
-  const lit = object(page).locator('g.formula-object-token rect:not([fill="transparent"])');
+  // A bare symbol is just text; an operation unveils the Thing it stands for.
   await pointAt(page, token(page, 'x'));
-  await expect(lit).toHaveCount(1);
-  await shot(page, '3-hover-operand');
+  await page.waitForTimeout(250);
+  await expect(unveiled(page)).toHaveCount(0);
+  await pointAt(page, token(page, '='));
+  await expect(unveiled(page).filter({ hasText: 'Equality' })).toHaveCount(1);
+  await shot(page, '3-hover-operation');
   await pointAt(page, token(page, '√'));
-  await expect(lit).toHaveCount(3);
+  await expect(unveiled(page).filter({ hasText: 'Square Root' })).toHaveCount(1);
+  await expect(unveiled(page)).toHaveCount(1); // the last one gone
   await shot(page, '3b-hover-part');
 
   // The formula's panel switches exponents to ^, an operation like the others.
@@ -141,7 +153,7 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   await expect(page.locator('.unified-bottom-panel.mode-connections')).toHaveCount(0);
   expect(await storeEval(page, (st) => st.selectedEdgeIds?.size ?? 0)).toBe(0);
   await pointAt(page, token(page, '^'));
-  await expect(lit).toHaveCount(1);
+  await expect(unveiled(page).filter({ hasText: 'Exponentiation' })).toHaveCount(1);
   await shot(page, '3a-caret');
   await pointAt(page, token(page, '='), { click: true });
   await panel(page).locator('.piemenu-button[title="Standard Notation"]').click();
@@ -313,4 +325,119 @@ test('F44 New Formula reads typing as math or as programming, and Enter adds it'
   await page.mouse.click(again.x, again.y, { button: 'right' });
   await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
   await expect(option('Code')).toHaveAttribute('aria-checked', 'true');
+});
+
+const openComposer = async (page, at = BARE) => {
+  await page.mouse.click(at.x, at.y, { button: 'right' });
+  await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
+  await expect(page.locator('.formula-composer input')).toBeFocused();
+};
+const protosNamed = (page, name) => storeEval(page, (st, n) => [...st.nodePrototypes.values()].filter(p => p.name === n).length, name);
+
+test('F44 the bank builds an equation fully formed, each symbol its concept', async ({ page }) => {
+  await openFixture(page, 'small');
+  await openComposer(page);
+  await shot(page, '9-bank');
+  await page.locator('.format-bank-chip', { hasText: /^Thermodynamics$/ }).click();
+  await expect(page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' })).toBeVisible();
+  await shot(page, '9a-bank-discipline');
+  await page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' }).click();
+  await expect(page.locator('.formula-composer')).toHaveCount(0);
+
+  // Titled like a Thing-group, written by symbol.
+  await expect(object(page)).toHaveCount(1);
+  await expect(object(page).locator('.formula-object-title')).toContainText('Ideal Gas Law');
+  const texts = await object(page).locator('g.formula-object-token text').allTextContents();
+  expect(texts.join(' ')).toBe('P V = n R T');
+
+  // Each symbol is its concept's Thing, written by its symbol.
+  const bound = await storeEval(page, (st) => {
+    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.format === 'formula');
+    const inst = st.graphs.get(st.activeGraphId).instances;
+    return g.memberInstanceIds.map(id => st.nodePrototypes.get(inst.get(id).prototypeId))
+      .map(p => `${p.labels?.formula}:${p.name}`).sort();
+  });
+  expect(bound).toEqual(['P:Pressure', 'R:Gas Constant', 'T:Temperature', 'V:Volume', 'n:Amount of Substance']);
+
+  // Hover unveils the real name; a double tap opens it.
+  await pointAt(page, token(page, 'P'));
+  await expect(unveiled(page).filter({ hasText: 'Pressure' })).toHaveCount(1);
+  await shot(page, '10-unveil');
+  const p = await centerOfLocator(token(page, 'P'));
+  await page.mouse.click(p.x, p.y);
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(() => storeEval(page, (st) => {
+    const tab = st.rightPanelTabs.find(t => t.isActive);
+    return tab?.nodeId ? st.nodePrototypes.get(tab.nodeId)?.name : null;
+  })).toBe('Pressure');
+  // The panel lists the equations it is in.
+  const row = page.locator('.equations-row');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('in Ideal Gas Law');
+  await expect(page.locator('.equations-written-as input')).toHaveValue('P');
+  await page.locator('.equations-section').scrollIntoViewIfNeeded();
+  await shot(page, '11-equations-section');
+
+  // The discipline gathers what was taken from it.
+  expect(await storeEval(page, (st) => {
+    const d = [...st.nodePrototypes.values()].find(x => x.name === 'Thermodynamics');
+    const web = d && st.graphs.get(d.definitionGraphIds[0]);
+    return web ? [...web.instances.values()].map(i => st.nodePrototypes.get(i.prototypeId).name) : null;
+  })).toEqual(['Ideal Gas Law']);
+
+  // A second equation from the bank finds the same Pressure; a Thing of the
+  // user's that is merely called Pressure is never taken over.
+  await storeEval(page, (st) => st.addNodePrototype({ id: 'mine-pressure', name: 'Pressure', color: '#336699', definitionGraphIds: [] }));
+  const spot = await findBareSpot(page);
+  await openComposer(page, spot);
+  await page.locator('.formula-composer input').fill('definition of pressure');
+  await page.locator('.format-bank-row', { hasText: 'Definition of Pressure' }).click();
+  await expect(object(page)).toHaveCount(2);
+  expect(await protosNamed(page, 'Pressure')).toBe(2);
+  await expect(page.locator('.equations-row')).toHaveCount(2);
+});
+
+test('F44 the formula panel writes it with names instead of symbols', async ({ page }) => {
+  await openFixture(page, 'small');
+  await openComposer(page);
+  await page.locator('.formula-composer input').fill('ohm');
+  await page.locator('.format-bank-row', { hasText: "Ohm's Law" }).click();
+  await pointAt(page, token(page, '='), { click: true });
+  await expect(panel(page)).toBeVisible();
+  await panel(page).locator('.piemenu-button[title="Show Names"]').click();
+  const line = () => object(page).locator('g.formula-object-token text').allTextContents().then(t => t.join(' '));
+  await expect.poll(line).toBe('Voltage = Current × Resistance');
+  await shot(page, '12-names');
+  await panel(page).locator('.piemenu-button[title="Show Symbols"]').click();
+  await expect.poll(line).toBe('V = I R');
+});
+
+test.describe('by touch', () => {
+  test.use({ hasTouch: true });
+
+  test('F44 a tap unveils a token, and a tap elsewhere puts it away', async ({ page }) => {
+    await openFixture(page, 'small');
+    // Built the way the bank builds it (a touch device opens the web menu by a long press instead).
+    await page.evaluate(async (at) => {
+      const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
+      const { BANK_DISCIPLINES } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+      const d = BANK_DISCIPLINES.find(x => x.id === 'electromagnetism');
+      const st = window.useGraphStore.getState();
+      // In the empty space below and right of Epsilon, on screen.
+      const near = [...st.graphs.get(st.activeGraphId).instances.values()]
+        .find(i => st.nodePrototypes.get(i.prototypeId)?.name === 'Epsilon');
+      buildBankEquation(d, d.equations.find(e => e.id === 'ohms-law'), st.activeGraphId, { x: near.x + at.dx, y: near.y + at.dy });
+    }, { dx: 380, dy: 300 });
+    await expect(object(page)).toHaveCount(1);
+    const p = await centerOfLocator(token(page, 'V'));
+    await page.touchscreen.tap(p.x, p.y);
+    await expect(unveiled(page).filter({ hasText: 'Voltage' })).toHaveCount(1);
+    // It stays: there is no hover to end.
+    await page.waitForTimeout(400);
+    await expect(unveiled(page)).toHaveCount(1);
+    await shot(page, '13-touch-unveil');
+    const away = await findBareSpot(page);
+    await page.touchscreen.tap(away.x, away.y);
+    await expect(unveiled(page)).toHaveCount(0);
+  });
 });

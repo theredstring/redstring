@@ -18,9 +18,13 @@
  * One shape in between, built from either side:
  *   Chain = { items: [Term, Op, Term, Op, Term, ...] }
  *   Op    = { kind: 'op', symbol, name, protoId?, edgeId? }
- *   Term  = { kind: 'thing', name, instanceId?, protoId? }
+ *   Term  = { kind: 'thing', name, realName?, instanceId?, protoId? }
  *         | { kind: 'part', name, apply: null | 'neg' | 'sqrt' | 'fn', fnName?, args: Chain[],
- *             anchorId?, protoId?, typeName? }
+ *             anchorId?, protoId?, typeName?, typeProtoId? }
+ *
+ * A Thing is written by its label for formulas when it has one (Pressure as P,
+ * `prototype.labels.formula`), else by its name: `name` is what the formula
+ * shows, `realName` what the Thing is called.
  *
  *   readFormulaGroup(state, view, group) -> Chain | null    (Things mode -> formula)
  *   chainFromText(text)                  -> Chain           (typed text -> what to build)
@@ -31,6 +35,12 @@ import { isGroupInsideGroup } from '../../../../services/groupLayout.js';
 import { OPERATORS, operatorKeyForName, parseFormulaText, needsParens, KNOWN_FUNCTIONS, GREEK_NAMES } from './formulaNotation.js';
 
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/** How a Thing is written in a formula: its formula label, else its name. */
+export const formulaLabelOf = (proto) => {
+  const label = proto?.labels?.formula;
+  return typeof label === 'string' && label.trim() ? label.trim() : (proto?.name || '');
+};
 const OPERATOR_TYPE_NAMES = new Set(['operator', 'operation', 'mathematical operation', 'relation']);
 const FUNCTION_TYPE_NAMES = new Set(['function', 'mathematical function']);
 
@@ -112,7 +122,7 @@ export function readFormulaGroup(state, view, group) {
       }
       const proto = state.nodePrototypes.get(inst.prototypeId);
       if (!proto) return null;
-      terms.set(id, { kind: 'thing', name: proto.name, instanceId: id, protoId: proto.id, x: inst.x, y: inst.y });
+      terms.set(id, { kind: 'thing', name: formulaLabelOf(proto), realName: proto.name, instanceId: id, protoId: proto.id, x: inst.x, y: inst.y });
     }
     for (const g of direct) {
       const term = readPart(g);
@@ -200,7 +210,7 @@ export function readFormulaGroup(state, view, group) {
     if (apply) operations++; // an applied part is an operation of its own
     return {
       kind: 'part', name: proto.name, apply, fnName, args,
-      anchorId: g.anchorInstanceId, protoId: proto.id, typeName: type?.name || null,
+      anchorId: g.anchorInstanceId, protoId: proto.id, typeName: type?.name || null, typeProtoId: type?.id || null,
     };
   };
 
@@ -261,17 +271,28 @@ const termCount = (chain) => (chain.items.length + 1) / 2;
 
 const GREEK_LETTERS = /^[\u0370-\u03FF]$/;
 const isNumberTerm = (t) => t?.kind === 'thing' && /^\d+(\.\d+)?$/.test(t.name);
-// A variable written the textbook way: one letter (x, θ), a letter with its index (x1), or a Greek name (theta).
-const isLetterTerm = (t) => t?.kind === 'thing'
-  && (/^[A-Za-z][0-9]*'*$/.test(t.name) || GREEK_LETTERS.test(t.name) || GREEK_NAMES.has(t.name));
+// A variable written the textbook way: one letter (x, θ), a letter with its index (x1, v_0), or a Greek name (theta).
+// A change in one (ΔT, Δx) is written like one.
+export const isSymbolText = (text) => /^[A-Za-z\u0370-\u03FF][0-9]*'*$/.test(text) || /^[A-Za-z\u0370-\u03FF]_[A-Za-z0-9]+$/.test(text)
+  || GREEK_LETTERS.test(text) || GREEK_NAMES.has(text) || (text.length > 1 && text.startsWith('Δ') && isSymbolText(text.slice(1)));
 const isGroupedTerm = (t) => t?.kind === 'part' && t.apply !== 'neg';
+const compact = (s) => String(s ?? '').replace(/\s+/g, '');
 
-/** Whether multiplication between these two terms goes unwritten in standard notation (2a, mc, 4ac, 2(a + b)). */
-function multipliesSideBySide(left, right) {
-  if (!left || !right || isNumberTerm(right)) return false;
-  if (!(isLetterTerm(right) || isGroupedTerm(right))) return false;
-  return isNumberTerm(left) || isLetterTerm(left) || isGroupedTerm(left);
+/** Whether a part's Thing has a name of its own ("Discriminant"), not just its term's text ("b ^ 2 − 4 × a × c"). */
+export function partIsNamed(part) {
+  if (!part?.name) return false;
+  const own = compact(part.name);
+  return own !== compact(chainText({ items: [part] })) && own !== compact(chainText(part.args[0]));
 }
+
+/** A symbol with a subscript (v_0, T_c, log_2): [base, subscript], else null. */
+export function subscriptOf(text) {
+  const m = /^([^_\s]+)_([^_\s]+)$/.exec(String(text || ''));
+  return m ? [m[1], m[2]] : null;
+}
+
+/** Whether a token's Thing means more than what is written (Pressure behind P, Addition behind +). */
+const means = (realName, text) => !!realName && norm(realName) !== norm(text);
 
 /**
  * The formula token by token. Each token:
@@ -287,7 +308,15 @@ function multipliesSideBySide(left, right) {
  * the letter or part after it (mc², 4ac, 2(a + b)). Between whole-word names, or
  * before a number, the × stays.
  */
-export function tokensOf(chain, { standard = false } = {}) {
+export function tokensOf(chain, { standard = false, words = false, plain = false } = {}) {
+  const shown = (term) => (words && term.realName ? term.realName : term.name);
+  const isLetterTerm = (t) => t?.kind === 'thing' && isSymbolText(shown(t));
+  /** Whether multiplication between these two terms goes unwritten in standard notation (2a, mc, 4ac, 2(a + b)). */
+  const multipliesSideBySide = (left, right) => {
+    if (!left || !right || isNumberTerm(right)) return false;
+    if (!(isLetterTerm(right) || isGroupedTerm(right))) return false;
+    return isNumberTerm(left) || isLetterTerm(left) || isGroupedTerm(left);
+  };
   const tokens = [];
   let k = 0;
   let joinNext = false;
@@ -305,19 +334,32 @@ export function tokensOf(chain, { standard = false } = {}) {
           joinNext = true;
           return;
         }
-        push({ text: item.symbol, kind: 'operator', target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null }, level);
+        push({
+          text: item.symbol, kind: 'operator', target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null,
+          realName: item.name, defined: !!item.protoId && means(item.name, item.symbol),
+        }, level);
       } else emitTerm(item, termLevel, termLevel > level);
     });
   };
   const emitTerm = (term, level, isExponent) => {
     if (term.kind === 'thing') {
-      push({ text: term.name, kind: 'operand', target: term.instanceId || null, protoId: term.protoId || null }, level);
+      const text = shown(term);
+      push({
+        text, kind: 'operand', target: term.instanceId || null, protoId: term.protoId || null,
+        realName: term.realName || null, defined: !!term.protoId && means(term.realName, term.name),
+      }, level);
       return;
     }
-    const own = { target: term.anchorId || null, protoId: term.protoId || null };
+    const own = { target: term.anchorId || null, protoId: term.protoId || null, realName: term.name, defined: !plain && !!term.protoId && partIsNamed(term) };
+    // A sign, root or function name stands for what is applied: the part's type (Square Root, sin).
+    const applied = (text) => ({
+      target: term.anchorId || null, protoId: term.typeProtoId || term.protoId || null,
+      realName: term.typeName || null, defined: !!term.typeProtoId && means(term.typeName, text),
+    });
     if (term.apply === 'neg' || term.apply === 'sqrt') {
       const inner = term.args[0];
-      push({ text: term.apply === 'neg' ? '−' : '√', kind: 'operator', prefix: true, ...own }, level);
+      const sign = term.apply === 'neg' ? '−' : '√';
+      push({ text: sign, kind: 'operator', prefix: true, ...applied(sign) }, level);
       const wrap = termCount(inner) > 1;
       if (wrap) push({ text: '(', kind: 'paren', ...own }, level);
       emitChain(inner, level);
@@ -325,7 +367,7 @@ export function tokensOf(chain, { standard = false } = {}) {
       return;
     }
     if (term.apply === 'fn') {
-      push({ text: term.fnName, kind: 'function', ...own }, level);
+      push({ text: term.fnName, kind: 'function', ...applied(term.fnName) }, level);
       push({ text: '(', kind: 'paren', ...own }, level);
       term.args.forEach((a, i) => {
         if (i > 0) push({ text: ',', kind: 'comma', ...own }, level);
@@ -346,7 +388,7 @@ export function tokensOf(chain, { standard = false } = {}) {
 /** The formula as one line of plain text. */
 export function chainText(chain) {
   let out = '';
-  for (const t of tokensOf(chain)) {
+  for (const t of tokensOf(chain, { plain: true })) {
     if (t.kind === 'operator' && !t.prefix) out += ` ${t.text} `;
     else if (t.kind === 'comma') out += ', ';
     else out += t.text;
