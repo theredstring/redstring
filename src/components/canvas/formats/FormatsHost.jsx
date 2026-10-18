@@ -82,6 +82,7 @@ function useLatchedPresence(value) {
 }
 
 function FormatOffer({ candidate }) {
+  const raisedExponents = useFormatsStore(s => s.raisedExponents);
   const leftPanelExpanded = useGraphStore(s => s.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(s => s.rightPanelExpanded);
   const typeListMode = useGraphStore(s => s.typeListMode);
@@ -90,7 +91,7 @@ function FormatOffer({ candidate }) {
   const { shown, phase, settle } = useLatchedPresence(candidate);
   if (!shown) return null;
 
-  const tokens = tokensOf(shown.chain);
+  const tokens = tokensOf(shown.chain, { raised: raisedExponents });
   const left = bounds.x + bounds.width / 2;
   const top = bounds.y + (mobileLandscapeShell ? 40 : 70);
   return (

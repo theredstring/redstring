@@ -15,6 +15,7 @@ import useFormatsStore, { closeFormulaComposer } from '../formatsStore.js';
 
 export default function FormulaComposer() {
   const composing = useFormatsStore(s => s.composing);
+  const raised = useFormatsStore(s => s.raisedExponents);
   const leftPanelExpanded = useGraphStore(s => s.leftPanelExpanded);
   const rightPanelExpanded = useGraphStore(s => s.rightPanelExpanded);
   const typeListMode = useGraphStore(s => s.typeListMode);
@@ -29,7 +30,7 @@ export default function FormulaComposer() {
     if (!draft.trim()) return { chain: null, error: null };
     try { return { chain: chainFromText(draft), error: null }; } catch (err) { return { chain: null, error: err.message }; }
   }, [draft]);
-  const tokens = useMemo(() => (parsed.chain ? tokensOf(parsed.chain) : null), [parsed.chain]);
+  const tokens = useMemo(() => (parsed.chain ? tokensOf(parsed.chain, { raised }) : null), [parsed.chain, raised]);
 
   const add = () => {
     if (!composing || !parsed.chain) return;

@@ -8,6 +8,9 @@ import { distanceToPolyline, edgeHitScore } from './geometryUtils.js';
 import { distanceToQuadraticBezier, calculateCurveControlPoint } from './parallelEdgeUtils.js';
 import { distanceToSelfLoop } from './selfLoopUtils.js';
 import { generateManhattanRoutingPath, generateCleanRoutingPath, lombardiArcFor, distanceToArc } from './edgeRouting.js';
+import useGraphStore from '../../store/graphStore.js';
+import useFormatsStore from '../../components/canvas/formats/formatsStore.js';
+import { sceneWithFormulas } from '../../components/canvas/formats/formula/formulaObjects.js';
 
 // Connection grab radius floors, in SCREEN pixels — see edgeHitThreshold.
 // The base radius is expressed in canvas units, which shrink on screen as you
@@ -63,7 +66,9 @@ export const EDGE_HOVER_STICKY_FRACTION = 0.25;
 //
 // `scene` is NodeCanvas's render-time view of the graph (see the destructure
 // below); `labelTruncationRef` is read at call time.
-export function findNearestEdgeAtCanvasPoint(cx, cy, threshold, scene, options = {}) {
+export function findNearestEdgeAtCanvasPoint(cx, cy, threshold, canvasScene, options = {}) {
+  // Formulas shown in place draw their connections differently; test what is drawn.
+  const scene = sceneWithFormulas(canvasScene, useGraphStore.getState(), { raised: useFormatsStore.getState().raisedExponents });
   const {
     visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,

@@ -1,4 +1,5 @@
 import useGraphStore from '../../../../store/graphStore.js';
+import useFormatsStore from '../formatsStore.js';
 import { computeFormulaObjects } from './formulaObjects.js';
 
 /**
@@ -7,5 +8,6 @@ import { computeFormulaObjects } from './formulaObjects.js';
  * of theirs.
  */
 export function useFormulaObjects() {
-  return useGraphStore(computeFormulaObjects);
+  const raised = useFormatsStore(s => s.raisedExponents);
+  return useGraphStore(s => computeFormulaObjects(s, { raised }));
 }

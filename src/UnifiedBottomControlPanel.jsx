@@ -292,6 +292,9 @@ const UnifiedBottomControlPanel = ({
   hasRightNav = false,
   leftNavLabel = 'Previous',
   rightNavLabel = 'Next',
+  // Format mode: how the current format is shown (e.g. raised exponents), as
+  // buttons before the group's own: [{ key, icon: (size) => element, title, onClick }].
+  formatToggles = null,
 
   // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
   onDismiss,
@@ -1303,6 +1306,18 @@ const UnifiedBottomControlPanel = ({
             ) : isGroup ? (
               // Group mode: Show group actions (ungroup, edit, color, convert to node-group)
               <>
+                {isFormat && Array.isArray(formatToggles) && formatToggles.map((toggle) => (
+                  <div
+                    key={toggle.key}
+                    className="piemenu-button"
+                    onClick={toggle.onClick}
+                    title={toggle.title}
+                    onMouseEnter={() => triggerActionHover(`control-format-${toggle.key}`, toggle.title)}
+                    onMouseLeave={clearActionHover}
+                  >
+                    {toggle.icon(iconSize)}
+                  </div>
+                ))}
                 <div
                   className="piemenu-button"
                   onClick={onUngroup}

@@ -36,7 +36,13 @@ const OPERATOR_DESCRIPTIONS = {
   sqrt: 'The number that, multiplied by itself, gives its contents.',
 };
 
-const GAP = 190;      // between terms: room for the operation's label on the connection
+// Between terms: room for the operation's whole label on its connection (the
+// label is drawn about this many canvas units per character, plus its pill and
+// clearance from both Things), so "Multiplication" isn't cut to "Multi...".
+const LABEL_UNITS_PER_CHAR = 26;
+const LABEL_CLEARANCE = 170;
+const gapFor = (opName) => Math.max(240, String(opName).length * LABEL_UNITS_PER_CHAR + LABEL_CLEARANCE);
+const ARG_GAP = 240;  // between a function's arguments, which no connection joins
 const PART_PAD = 70;  // a part's box around its contents
 
 // Case matters for symbols (E is not e), not for words (Mass is mass).
@@ -81,11 +87,11 @@ export function buildFormulaInWeb(text, graphId, at) {
       return term._w;
     }
     term.args.forEach(chainWidth);
-    term._w = term.args.reduce((sum, a) => sum + a._w, 0) + GAP * (term.args.length - 1) + PART_PAD * 2;
+    term._w = term.args.reduce((sum, a) => sum + a._w, 0) + ARG_GAP * (term.args.length - 1) + PART_PAD * 2;
     return term._w;
   };
   const chainWidth = (c) => {
-    c._w = c.items.reduce((sum, item) => sum + (item.kind === 'op' ? GAP : termWidth(item)), 0);
+    c._w = c.items.reduce((sum, item) => sum + (item.kind === 'op' ? gapFor(item.name) : termWidth(item)), 0);
     return c._w;
   };
   chainWidth(chain);
@@ -99,7 +105,7 @@ export function buildFormulaInWeb(text, graphId, at) {
     const nodes = [];
     const inside = [];
     for (const item of c.items) {
-      if (item.kind === 'op') { x += GAP; placed.push(null); continue; }
+      if (item.kind === 'op') { x += gapFor(item.name); placed.push(null); continue; }
       if (item.kind === 'thing') {
         const proto = prototypeNamed(item.name);
         const id = uuidv4();
@@ -136,7 +142,7 @@ export function buildFormulaInWeb(text, graphId, at) {
     const ids = [];
     part.args.forEach((arg) => {
       ids.push(...buildChain(arg, x).inside);
-      x += arg._w + GAP;
+      x += arg._w + ARG_GAP;
     });
     const st = useGraphStore.getState();
     const groupId = st.createGroup(graphId, { name: part.name, color: NODE_DEFAULT_COLOR, memberInstanceIds: ids });

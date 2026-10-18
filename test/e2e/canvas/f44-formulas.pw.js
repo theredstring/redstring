@@ -13,7 +13,7 @@
 //
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
-  test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS,
+  test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS, findBareSpot,
 } from './helpers.js';
 
 // In the small fixture's empty lower half, far enough left that a long formula
@@ -106,16 +106,42 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   }), xId);
   await shot(page, '2-in-place');
 
+  // Exponents are raised by default: no ^, the exponent smaller and lifted.
+  await expect(object(page).locator('g.formula-object-token text', { hasText: /^\^$/ })).toHaveCount(0);
+  const sizeOf = (loc) => loc.locator('text').getAttribute('font-size').then(Number);
+  const tokenTexts = object(page).locator('g.formula-object-token');
+  const bSize = await sizeOf(token(page, 'b'));
+  const twos = tokenTexts.filter({ has: page.locator('text', { hasText: /^2$/ }) });
+  expect(await sizeOf(twos.first())).toBeLessThan(bSize);
+
   // Hover lights only that token, as its Thing; a part's sign lights with its parentheses.
   const lit = object(page).locator('g.formula-object-token rect:not([fill="transparent"])');
   await pointAt(page, token(page, 'x'));
   await expect(lit).toHaveCount(1);
-  await pointAt(page, token(page, '^'));
-  await expect(lit).toHaveCount(1);
-  await shot(page, '3-hover-operation');
+  await shot(page, '3-hover-operand');
   await pointAt(page, token(page, '√'));
   await expect(lit).toHaveCount(3);
   await shot(page, '3b-hover-part');
+
+  // The formula's panel switches exponents to ^, an operation like the others.
+  await pointAt(page, token(page, '='), { click: true });
+  await expect(panel(page)).toBeVisible();
+  await panel(page).locator('.piemenu-button[title="Show Exponents as ^"]').click();
+  await expect(token(page, '^')).toHaveCount(1);
+  // The panel sits over this part of the canvas; click away to put it down and reach the token.
+  const away = await findBareSpot(page);
+  await page.mouse.click(away.x, away.y);
+  await expect(panel(page)).toHaveCount(0);
+  // Nothing hidden answers that click: not the formula's own operations, which
+  // run under the empty space around it in Things mode.
+  await expect(page.locator('.unified-bottom-panel.mode-connections')).toHaveCount(0);
+  expect(await storeEval(page, (st) => st.selectedEdgeIds?.size ?? 0)).toBe(0);
+  await pointAt(page, token(page, '^'));
+  await expect(lit).toHaveCount(1);
+  await shot(page, '3a-caret');
+  await pointAt(page, token(page, '='), { click: true });
+  await panel(page).locator('.piemenu-button[title="Show Exponents Raised"]').click();
+  await expect(object(page).locator('g.formula-object-token text', { hasText: /^\^$/ })).toHaveCount(0);
 
   // As Things: the web of operations, its parts nested Thing-groups.
   const { id } = await formulaGroup(page, 'x = ');
@@ -123,6 +149,12 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   await expect(object(page)).toHaveCount(0);
   await page.mouse.move(5, 400);
   await shot(page, '3c-as-things');
+  if (shots) {
+    // The same, zoomed out to the whole formula.
+    await page.keyboard.press('ControlOrMeta+-');
+    await page.waitForTimeout(400);
+    await shot(page, '3d-as-things-wide');
+  }
 });
 
 test('F44 a tap selects the formula; its panel swaps it to Things and back', async ({ page }) => {

@@ -259,47 +259,57 @@ const termCount = (chain) => (chain.items.length + 1) / 2;
  * The formula token by token. Each token:
  * { key, text, kind: 'operand'|'operator'|'paren'|'function'|'comma',
  *   target (what it stands for: an instance id, or `edge:<id>` for an operation),
- *   protoId (the Thing it shows), prefix? }
+ *   protoId (the Thing it shows), prefix?, level (how many times it is raised) }
+ *
+ * With `raised`, exponentiation is shown the usual way: no ^, the exponent raised
+ * a level (and a plain part as an exponent loses its parentheses, since the raise
+ * already groups it). a ^ b ^ c raises twice, which is how ^ groups.
  */
-export function tokensOf(chain) {
+export function tokensOf(chain, { raised = false } = {}) {
   const tokens = [];
   let k = 0;
-  const push = (t) => tokens.push({ key: `t${k++}`, ...t });
-  const emitChain = (c) => c.items.forEach((item) => {
-    if (item.kind === 'op') {
-      push({ text: item.symbol, kind: 'operator', target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null });
-    } else emitTerm(item);
-  });
-  const emitTerm = (term) => {
+  const push = (t, level) => tokens.push({ key: `t${k++}`, level, ...t });
+  const emitChain = (c, level) => {
+    let termLevel = level;
+    c.items.forEach((item) => {
+      if (item.kind === 'op') {
+        if (raised && item.key === 'pow') { termLevel += 1; return; }
+        termLevel = level;
+        push({ text: item.symbol, kind: 'operator', target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null }, level);
+      } else emitTerm(item, termLevel, termLevel > level);
+    });
+  };
+  const emitTerm = (term, level, isExponent) => {
     if (term.kind === 'thing') {
-      push({ text: term.name, kind: 'operand', target: term.instanceId || null, protoId: term.protoId || null });
+      push({ text: term.name, kind: 'operand', target: term.instanceId || null, protoId: term.protoId || null }, level);
       return;
     }
     const own = { target: term.anchorId || null, protoId: term.protoId || null };
     if (term.apply === 'neg' || term.apply === 'sqrt') {
       const inner = term.args[0];
-      push({ text: term.apply === 'neg' ? '−' : '√', kind: 'operator', prefix: true, ...own });
+      push({ text: term.apply === 'neg' ? '−' : '√', kind: 'operator', prefix: true, ...own }, level);
       const wrap = termCount(inner) > 1;
-      if (wrap) push({ text: '(', kind: 'paren', ...own });
-      emitChain(inner);
-      if (wrap) push({ text: ')', kind: 'paren', ...own });
+      if (wrap) push({ text: '(', kind: 'paren', ...own }, level);
+      emitChain(inner, level);
+      if (wrap) push({ text: ')', kind: 'paren', ...own }, level);
       return;
     }
     if (term.apply === 'fn') {
-      push({ text: term.fnName, kind: 'function', ...own });
-      push({ text: '(', kind: 'paren', ...own });
+      push({ text: term.fnName, kind: 'function', ...own }, level);
+      push({ text: '(', kind: 'paren', ...own }, level);
       term.args.forEach((a, i) => {
-        if (i > 0) push({ text: ',', kind: 'comma', ...own });
-        emitChain(a);
+        if (i > 0) push({ text: ',', kind: 'comma', ...own }, level);
+        emitChain(a, level);
       });
-      push({ text: ')', kind: 'paren', ...own });
+      push({ text: ')', kind: 'paren', ...own }, level);
       return;
     }
-    push({ text: '(', kind: 'paren', ...own });
-    emitChain(term.args[0]);
-    push({ text: ')', kind: 'paren', ...own });
+    if (isExponent) { emitChain(term.args[0], level); return; }
+    push({ text: '(', kind: 'paren', ...own }, level);
+    emitChain(term.args[0], level);
+    push({ text: ')', kind: 'paren', ...own }, level);
   };
-  emitChain(chain);
+  emitChain(chain, 0);
   return tokens;
 }
 

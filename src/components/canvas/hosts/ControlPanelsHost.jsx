@@ -31,7 +31,8 @@ import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
-import { showFormatInPlace, showAsThings } from '../formats/formatsStore.js';
+import useFormatsStore, { showFormatInPlace, showAsThings, setRaisedExponents } from '../formats/formatsStore.js';
+import { Superscript } from 'lucide-react';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -163,6 +164,15 @@ export default function ControlPanelsHost({ ctx }) {
     if (next === 'things') showAsThings(activeGraphId, groupPanelTarget.id);
     else showFormatInPlace({ source: 'group', sourceId: groupPanelTarget.id, graphId: activeGraphId, format: next });
   };
+  const raisedExponents = useFormatsStore((s) => s.raisedExponents);
+  const formatToggles = currentFormat === 'formula' && groupFormulaText?.includes('^')
+    ? [{
+      key: 'exponents',
+      icon: (size) => <Superscript size={size} />,
+      title: raisedExponents ? 'Show Exponents as ^' : 'Show Exponents Raised',
+      onClick: () => setRaisedExponents(!raisedExponents),
+    }]
+    : null;
   const formatAt = (step) => FORMAT_LABELS[formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length]];
 
   // Group control panel action handlers
@@ -536,6 +546,7 @@ export default function ControlPanelsHost({ ctx }) {
               onRightNav: () => swapFormat(1),
               hasLeftNav: formatOrder.length > 1,
               hasRightNav: formatOrder.length > 1,
+              formatToggles,
               leftNavLabel: `Show as ${formatAt(-1)}`,
               rightNavLabel: `Show as ${formatAt(1)}`,
               customContent: currentFormat === 'formula'

@@ -11,15 +11,17 @@ import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { readGroupFormula } from './formatCandidates.js';
 import { tokensOf } from './formula/formulaChain.js';
 import { useGroupFormulaText } from './groupFormats.js';
+import useFormatsStore from './formatsStore.js';
 import FormulaTokens from './formula/FormulaTokens.jsx';
 
 export default function FormatPanelPreview({ groupId, color, darkMode }) {
   const formulaText = useGroupFormulaText(groupId);
+  const raised = useFormatsStore(s => s.raisedExponents);
   const tokens = useMemo(() => {
     if (!formulaText) return null;
     const chain = readGroupFormula(useGraphStore.getState(), useGraphStore.getState().activeGraphId, groupId);
-    return chain ? tokensOf(chain) : null;
-  }, [formulaText, groupId]);
+    return chain ? tokensOf(chain, { raised }) : null;
+  }, [formulaText, groupId, raised]);
   if (!tokens) return null;
   const fill = color || NODE_DEFAULT_COLOR;
   return (

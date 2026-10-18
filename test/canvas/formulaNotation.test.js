@@ -50,6 +50,17 @@ describe('typed text', () => {
     expect(tokens.map(t => [t.text, t.kind])).toEqual([['c', 'operand'], ['^', 'operator'], ['2', 'operand']]);
   });
 
+  it('raises exponents the usual way when asked: no ^, a level up, the raise grouping a part', () => {
+    const levels = (t) => tokensOf(chainFromText(t), { raised: true }).map(x => [x.text, x.level]);
+    expect(levels('c^2')).toEqual([['c', 0], ['2', 1]]);
+    expect(levels('2^3^2')).toEqual([['2', 0], ['3', 1], ['2', 2]]);
+    expect(levels('b^(n+1)')).toEqual([['b', 0], ['n', 1], ['+', 1], ['1', 1]]);
+    expect(levels('a^b*c')).toEqual([['a', 0], ['b', 1], ['×', 0], ['c', 0]]);
+    expect(levels('(a+b)^2')).toEqual([['(', 0], ['a', 0], ['+', 0], ['b', 0], [')', 0], ['2', 1]]);
+    // Plain text keeps the ^.
+    expect(chainText(chainFromText('b^(n+1)'))).toBe('b ^ (n + 1)');
+  });
+
   it('turns down text that is not a formula', () => {
     expect(() => chainFromText('')).toThrow();
     expect(() => chainFromText('x')).toThrow();

@@ -18,6 +18,10 @@ import { readFormulaGroup, tokensOf, chainText } from './formulaChain.js';
 export const FORMULA_FONT = 44;
 export const FORMULA_FONT_FAMILY = 'EmOne, sans-serif';
 export const FORMULA_FONT_WEIGHT = 'bold';
+const RAISE_SCALE = 0.62;  // a raised token's size, per level
+const RAISE_STEP = 0.5;    // how far each level lifts, in the size it is lifted from
+const RAISE_GAP_IN = 0.08; // space before an exponent, in the line's em
+const RAISE_GAP_OUT = 0.18; // and after it, so what follows doesn't crowd it
 const BOX_EM = 1.5;      // token box height, in its own em
 const BASELINE_EM = 0.36; // baseline below the line's middle, in the line's em
 export const FRAME_PAD_X = 0.55; // em
@@ -50,11 +54,18 @@ function padsFor(t) {
  */
 export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
   let x = 0;
+  let prevLevel = 0;
   const boxes = tokens.map((t) => {
-    const size = font;
+    const level = t.level || 0;
+    const size = font * Math.pow(RAISE_SCALE, level);
+    let lift = 0;
+    for (let i = 0; i < level; i++) lift += RAISE_STEP * font * Math.pow(RAISE_SCALE, i);
+    if (level > prevLevel) x += RAISE_GAP_IN * font;
+    else if (level < prevLevel) x += RAISE_GAP_OUT * font;
+    prevLevel = level;
     const [padL, padR] = padsFor(t);
     const w = measure(t.text, size) + (padL + padR) * size;
-    const baseline = BASELINE_EM * font;
+    const baseline = BASELINE_EM * font - lift;
     const h = BOX_EM * size;
     const box = { x, y: baseline - BASELINE_EM * size - h / 2, w, h, size, baseline, textX: x + padL * size };
     x += w;
@@ -72,18 +83,18 @@ let last = null;
  *
  * @param {object} state - graphStore state
  */
-export function computeFormulaObjects(state) {
+export function computeFormulaObjects(state, { raised = true } = {}) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
   const view = projectGraphView(state, graphId);
   if (!view?.instances || !view.groups?.size) return EMPTY;
-  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges) {
+  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.raised === raised) {
     return last.result;
   }
   const shownGroups = [];
   view.groups.forEach((group) => { if (group.format === 'formula') shownGroups.push(group); });
   if (shownGroups.length === 0) {
-    last = { view, protos: state.nodePrototypes, edges: state.edges, result: EMPTY };
+    last = { view, protos: state.nodePrototypes, edges: state.edges, raised, result: EMPTY };
     return EMPTY;
   }
 
@@ -113,7 +124,7 @@ export function computeFormulaObjects(state) {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const tokens = tokensOf(chain);
+    const tokens = tokensOf(chain, { raised });
     const line = layoutFormulaLine(tokens);
     const left = cx - line.width / 2;
     const boxes = line.boxes.map(b => ({ ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy }));
@@ -148,7 +159,7 @@ export function computeFormulaObjects(state) {
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById } : EMPTY;
   // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
   const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
-  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, result } : null;
+  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, raised, result } : null;
   return result;
 }
 
@@ -181,4 +192,23 @@ export function filterFormulaEdges(edges, formulaObjects) {
     return !a || a !== formulaOf.get(e.destinationId);
   });
   return kept.length === edges.length ? edges : kept;
+}
+
+// The last scene handed to sceneWithFormulas, and what it became.
+let lastScene = null;
+
+/**
+ * A connection hit-test scene (see utils/canvas/edgeHitTest.js) as the canvas
+ * draws it: no connections inside a shown formula, and the ones from outside
+ * at their tokens. Without this a click on the formula's empty surroundings
+ * picked up its hidden operations, and outside connections answered where
+ * their Things used to be drawn. Returns the scene itself while nothing is shown.
+ */
+export function sceneWithFormulas(scene, state, options) {
+  const fo = computeFormulaObjects(state, options);
+  if (!fo.hiddenIds.size) return scene;
+  if (lastScene && lastScene.scene === scene && lastScene.fo === fo) return lastScene.result;
+  const result = { ...redirectEdgeCtx(scene, fo), visibleEdges: filterFormulaEdges(scene.visibleEdges || [], fo) };
+  lastScene = { scene, fo, result };
+  return result;
 }
