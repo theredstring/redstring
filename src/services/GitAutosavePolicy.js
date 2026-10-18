@@ -275,7 +275,9 @@ class GitAutosavePolicy {
       // Update API call time
       this.lastApiCallTime = Date.now();
 
-      // Execute commit through GitSyncEngine
+      // Execute commit through GitSyncEngine. Edits that arrive while it is in
+      // flight join currentBatch after these and must survive it.
+      const committedEdits = this.currentBatch.length;
       await this.performCommit(currentState);
 
       // Update commit history
@@ -289,10 +291,13 @@ class GitAutosavePolicy {
       // Clean old history (keep only last hour)
       this.cleanCommitHistory();
 
-      // Clear current batch
-      this.currentBatch = [];
+      // Clear the edits this commit covered; edits made during it go next.
+      this.currentBatch = this.currentBatch.slice(committedEdits);
       this.lastCommitTime = Date.now();
       this.retryCount = 0; // Reset retry count on success
+      if (this.currentBatch.length && !this.pendingTimeout && !this.maxTimeout) {
+        this.pendingTimeout = setTimeout(() => this.executeBatchCommit('edited_during_commit'), this.getEffectiveTimeouts().idle);
+      }
 
       this.notifyStatus('success', `Batch commit successful (${batchSize} changes)`);
 

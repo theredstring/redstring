@@ -654,6 +654,19 @@ class SaveCoordinator {
         // nothing used to clear it, so the indicator went on to report a stall
         // over a file that was already up to date.
         this.isDirty = false;
+      } else if (hash === this.lastSaveHash && this.pendingHash !== null) {
+        // Back to what was saved while a change was still waiting (edit, then
+        // undo, inside the save delay). What the waiting write will now write
+        // is this content: say so, or it would record the undone change's
+        // hash as saved, and redoing that change would then look like nothing.
+        this.pendingHash = hash;
+        this.pendingString = jsonBytes || jsonString || null;
+        this.pendingRedstringData = null;
+        this.pendingStringState = this.lastState;
+        // A write already under way may be writing the undone change: this
+        // content still has to follow it.
+        this.isDirty = true;
+        this.scheduleSave();
       }
     } else if (type === 'prime-failed') {
       // Nothing was saving; the next save simply sends the whole state.
@@ -887,6 +900,13 @@ class SaveCoordinator {
         this.scheduleSave();
       } else if (hash === this.lastSaveHash && this.pendingHash === null) {
         this.isDirty = false;
+      } else if (hash === this.lastSaveHash && this.pendingHash !== null) {
+        // Back to what was saved while a change was waiting (see handleWorkerMessage).
+        this.pendingHash = hash;
+        this.pendingString = null;
+        this.pendingRedstringData = null;
+        this.isDirty = true;
+        this.scheduleSave();
       }
     } catch (err) {
       console.warn('[SaveCoordinator] Main-thread save processing failed, scheduling anyway:', err);
@@ -1365,9 +1385,13 @@ class SaveCoordinator {
     // Never write a serialization produced from an OLDER state on behalf of
     // a newer one — drop the stale pre-serialized payload and let the
     // storage layer re-serialize from `state` directly.
+    // The hash of what is about to be written: pendingHash belongs to that
+    // older serialization, not to `state`, so it is worked out afresh.
+    let writtenHash = pendingHash;
     if (pendingString && this.pendingStringState && this.pendingStringState !== state) {
       pendingString = null;
       pendingRedstringData = null;
+      writtenHash = null;
     }
 
     // Catastrophic-shrinkage guard. Refuse to save if the new state has
@@ -1453,7 +1477,7 @@ class SaveCoordinator {
 
         if (localOutcome.status === 'saved' || localOutcome.status === 'skipped') {
           // Durable (or local persistence not applicable for this universe).
-          this._onSaveConfirmed(state, pendingHash);
+          this._onSaveConfirmed(state, writtenHash, pendingHash);
           if (manualWrite) this._settleManualSave(true);
         } else {
           // 'failed' (write error, disconnected handle) or 'blocked' (a
@@ -1494,7 +1518,13 @@ class SaveCoordinator {
    * @param {Object} state - The state that was written.
    * @param {string|null} confirmedHash - The pending hash captured at dispatch time.
    */
-  _onSaveConfirmed(state, confirmedHash) {
+  /**
+   * @param {Object} state - the state written
+   * @param {string|null} confirmedHash - its hash, when known (null: computed here)
+   * @param {string|null} [pendingAtStart] - pendingHash when the write began;
+   *   pending data is cleared only if no newer change arrived since
+   */
+  _onSaveConfirmed(state, confirmedHash, pendingAtStart = confirmedHash) {
     this.retryAttempt = 0;
     this.lastError = null;
     this.lastBlockReason = null;
@@ -1539,7 +1569,7 @@ class SaveCoordinator {
     // Only clear pending data if no NEWER change arrived while the write was
     // in flight. If the worker produced a fresh hash mid-write, that change
     // is still pending and its own scheduled save will pick it up.
-    if (this.pendingHash === confirmedHash || this.pendingHash === null) {
+    if (this.pendingHash === pendingAtStart || this.pendingHash === savedHash || this.pendingHash === null) {
       this.pendingHash = null;
       this.pendingString = null;
       this.pendingRedstringData = null;

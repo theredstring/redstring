@@ -330,6 +330,19 @@ class GitSyncEngine {
     this._noteSaved();
   }
 
+  /**
+   * A commit landed: drop the queued states it covers (`through` and
+   * everything queued before it, and any with the same content), keep the
+   * ones queued while it was in flight. Clearing the whole queue lost an edit
+   * made during a commit: it never went out until the next edit.
+   */
+  _clearCommitted(through, committedHash) {
+    const at = through ? this.pendingCommits.indexOf(through) : -1;
+    const newer = at >= 0 ? this.pendingCommits.slice(at + 1) : (through ? this.pendingCommits.filter((c) => c.timestamp > through.timestamp) : this.pendingCommits);
+    this.pendingCommits = newer.filter((c) => c.hash !== committedHash);
+    this.hasChanges = this.pendingCommits.length > 0;
+  }
+
   /** This device's changes reached the repository (what "Last saved" shows). */
   _noteSaved() {
     this.lastSavedAt = Date.now();
@@ -814,7 +827,8 @@ class GitSyncEngine {
   /**
    * What decides whether there is anything to commit: the shared document
    * (saveHash's per-entry hash, which sees the Maps and Sets inside webs and
-   * connections: positions, groups, arrow directions) plus each web's camera.
+   * connections: positions, groups, arrow directions) plus each web's camera
+   * and the duplicate-pair rulings.
    * Plain JSON.stringify made every Map `{}`, so moving Things, auto layout,
    * groups and arrows never committed on their own. No `this`: universeBackend
    * calls it unbound.
@@ -827,7 +841,10 @@ class GitSyncEngine {
       const zoom = typeof zoomLevel === 'number' ? Math.round((zoomLevel + Number.EPSILON) * 10000) / 10000 : 1;
       return `${id}@${x},${y},${zoom}`;
     }).join('|');
-    return `${generateDocumentHash(storeState)}:${generateHash(views)}`;
+    // Duplicate-pair rulings are shared too (in the file, merged), but live
+    // outside the entity maps.
+    const rulings = JSON.stringify(storeState?.mergeDismissals || {});
+    return `${generateDocumentHash(storeState)}:${generateHash(views)}:${generateHash(rulings)}`;
   }
 
   /**
@@ -1613,8 +1630,9 @@ class GitSyncEngine {
       }
 
       // Get the most recent state (always use the latest, discard intermediate states)
-      const latestState = this.pendingCommits[this.pendingCommits.length - 1].data;
-      const latestHash = this.pendingCommits[this.pendingCommits.length - 1].hash;
+      const latestEntry = this.pendingCommits[this.pendingCommits.length - 1];
+      const latestState = latestEntry.data;
+      const latestHash = latestEntry.hash;
 
       // Defense-in-depth empty-state guard. The updateState path also checks
       // this, but the auto-commit loop is the only thing that actually pushes
@@ -1700,8 +1718,7 @@ class GitSyncEngine {
         this.lastCommittedHash = latestHash;
         this.lastCommittedNodeCount = this._countNodes(latestState);
       }
-      this.hasChanges = false;
-      this.pendingCommits = [];
+      this._clearCommitted(latestEntry, latestHash);
       this.lastCommitTime = now;
       this._persistFloor();
       this._report(this.onSyncHeld, null);
@@ -1883,6 +1900,9 @@ class GitSyncEngine {
         await new Promise(r => setTimeout(r, 100));
       }
       this.isCommitInProgress = true;
+      // What's queued now is older than this state; what's queued from here on
+      // (edits made while this commit is in flight) still has to go out.
+      const queuedBefore = this.pendingCommits[this.pendingCommits.length - 1] || null;
 
       // Export + externalize images. Done after the redundancy check and inside
       // the in-progress guard so blob uploads can't overlap another commit.
@@ -1938,8 +1958,7 @@ class GitSyncEngine {
         this.lastCommittedHash = currentHash;
         this.lastCommittedNodeCount = this._countNodes(storeState);
       }
-      this.hasChanges = false;
-      this.pendingCommits = []; // Clear pending commits
+      this._clearCommitted(queuedBefore, currentHash);
       this.lastCommitTime = now; // Use original timestamp for rate limiting
       this._persistFloor();
       this._report(this.onSyncHeld, null);

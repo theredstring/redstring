@@ -34,21 +34,24 @@ const docOf = (state) => {
   return {
     ...Object.fromEntries(DOC.map((k) => [k, f[k] || new Map()])),
     graphs: withoutCameras(f.graphs || new Map()),
-    nodePrototypes: byPicture(f.nodePrototypes || new Map())
+    nodePrototypes: byPicture(f.nodePrototypes || new Map()),
+    // Shared too, outside the entity maps: "not the same Thing" rulings.
+    rulings: new Map(Object.entries(f.mergeDismissals || {}))
   };
 };
+const COMPARED = [...DOC, 'rulings'];
 
 /** The same shared universe? Compared as each would be saved; cameras and personal state aside. */
 export function sameDocument(a, b) {
   const [x, y] = [docOf(a), docOf(b)];
-  return DOC.every((k) => deepEqual(x[k], y[k]));
+  return COMPARED.every((k) => deepEqual(x[k], y[k]));
 }
 
 /** Where two universes differ, briefly, for a failure message. */
 export function describeDifference(a, b) {
   const [x, y] = [docOf(a), docOf(b)];
   const lines = [];
-  for (const k of DOC) {
+  for (const k of COMPARED) {
     const ids = new Set([...x[k].keys(), ...y[k].keys()]);
     for (const id of ids) {
       const [ea, eb] = [x[k].get(id), y[k].get(id)];

@@ -33,6 +33,8 @@ function fixture() {
   run('group Things');
   run('give a connection a type');
   run('define a Thing (open its own web)');
+  // As after a save to the repository (universeBackend._markSyncedIfShared).
+  state = within(state, () => useGraphStore.getState().markDocumentSynced()).state;
   return state;
 }
 

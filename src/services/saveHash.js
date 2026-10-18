@@ -109,7 +109,9 @@ const buildPersistedUiState = (state) => ({
   showConnectionNames: !!state.showConnectionNames,
   rightPanelTabs: Array.isArray(state.rightPanelTabs) ? state.rightPanelTabs : [],
   wizardPlansByConversation: state.wizardPlansByConversation || {},
-  wizardGoalsByConversation: state.wizardGoalsByConversation || {}
+  wizardGoalsByConversation: state.wizardGoalsByConversation || {},
+  // "Not the same Thing" rulings: in the file, and shared (syncMerge merges them).
+  mergeDismissals: state.mergeDismissals || {}
 });
 
 /** One FNV-1a step over more text, carrying on from `hash`. */

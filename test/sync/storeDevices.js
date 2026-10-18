@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 
 export const SLUG = 'forest';
 export const PATH = `universes/${SLUG}/${SLUG}.redstring`;
-const SNAPSHOT_KEYS = [...PERSISTED_STORE_KEYS, 'graphViews'];
+const SNAPSHOT_KEYS = [...PERSISTED_STORE_KEYS, 'graphViews', 'syncedDocumentIds'];
 
 // ---------------------------------------------------------------------------
 // The store, one universe at a time
@@ -137,8 +137,13 @@ export function makeDevice(host, author) {
   Object.assign(device, { provider, engine });
 
   // What the app does with a merge or a pull: applyRemoteDocument on the store.
+  // ...and after it, markDocumentSynced (universeBackend._markSyncedIfShared).
   const applyDocument = (doc) => {
-    const { state, result } = within(device.state, () => useGraphStore.getState().applyRemoteDocument(doc));
+    const { state, result } = within(device.state, () => {
+      const ok = useGraphStore.getState().applyRemoteDocument(doc);
+      if (ok) useGraphStore.getState().markDocumentSynced();
+      return ok;
+    });
     if (!result) throw new Error(`${author}: applyRemoteDocument refused`);
     device.state = state;
   };
@@ -182,6 +187,7 @@ export function makeDevice(host, author) {
     return result;
   };
   /** Save now (what autosave does once things settle). Never throws: a failed save stays pending, as in the app. */
+  engine.onSaved = () => { device.state = within(device.state, () => useGraphStore.getState().markDocumentSynced()).state; };
   device.save = async () => {
     engine.lastCommitTime = 0;
     try {
@@ -199,6 +205,7 @@ export function makeDevice(host, author) {
     const remote = await provider.readFileRawWithMeta(PATH);
     // As the app opens a universe: the store's own load.
     if (!useGraphStore.getState().loadUniverseFromFile(JSON.parse(remote.content))) throw new Error(`${author}: load failed`);
+    useGraphStore.getState().markDocumentSynced();
     device.state = snapshot();
     engine.markRemoteObserved({ sha: remote.sha, nodeCount: device.state.nodePrototypes.size, contentHash: engine.generateStateHash(device.state) });
   };

@@ -13,6 +13,7 @@
  * which never reaches the shared document.
  */
 import useGraphStore from '../../src/store/graphStore.js';
+import { duplicatePairKey } from '../../src/formats/duplicatePairKey.js';
 
 export { seededRandom, idSource } from './random.js';
 
@@ -318,6 +319,36 @@ export const ACTIONS = [
       if (chain.includes(member)) return null;
       store().addToAbstractionChain(owner, 'specificity', rng.chance(0.5) ? 'above' : 'below', member, chain.includes(owner) ? owner : (chain[0] || owner));
       return `"${nameOf(member)}" into "${nameOf(owner)}"'s chain`;
+    }
+  },
+  {
+    name: 'rule two Things not the same',
+    weight: 1,
+    run(rng) {
+      const [a, b] = [rng.pick(userPrototypeIds()), rng.pick(userPrototypeIds())];
+      if (!a || !b || a === b) return null;
+      const key = duplicatePairKey(a, b);
+      if (store().mergeDismissals?.[key]) return null;
+      store().dismissDuplicatePair(key);
+      return `"${nameOf(a)}" and "${nameOf(b)}" are not the same`;
+    }
+  },
+  {
+    name: 'close a web',
+    weight: 1,
+    personal: true,
+    run(rng) {
+      // closeGraph, then the orphan cleanup it schedules, run now: its 100 ms
+      // timer would otherwise fire on whichever device's universe the shared
+      // test store holds by then.
+      const open = [...store().openGraphIds].sort();
+      if (open.length < 2) return null;
+      const id = rng.pick(open);
+      const s = store();
+      const remaining = s.openGraphIds.filter((g) => g !== id);
+      useGraphStore.setState({ openGraphIds: remaining, activeGraphId: s.activeGraphId === id ? remaining[0] : s.activeGraphId });
+      store().cleanupOrphanedData();
+      return `close web ${id}`;
     }
   },
   {

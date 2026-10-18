@@ -1746,7 +1746,10 @@ class UniverseBackend {
         // Dynamically import graphStore from backend (outside the circular dependency)
         const { default: useGraphStore, onUniverseLoaded } = await import('../store/graphStore.js');
         if (!this._unsubscribeStoreLoads && typeof onUniverseLoaded === 'function') {
-          this._unsubscribeStoreLoads = onUniverseLoaded((state) => this._onStoreLoaded(state));
+          this._unsubscribeStoreLoads = onUniverseLoaded((state) => {
+            this._onStoreLoaded(state);
+            this._markSyncedIfShared(this.activeUniverseSlug);
+          });
         }
 
         // Validate that the store is properly initialized
@@ -1778,6 +1781,10 @@ class UniverseBackend {
           applyRemoteDocument: (docState) => {
             const store = useGraphStore.getState();
             return typeof store.applyRemoteDocument === 'function' ? store.applyRemoteDocument(docState) : false;
+          },
+          markDocumentSynced: () => {
+            const store = useGraphStore.getState();
+            if (typeof store.markDocumentSynced === 'function') store.markDocumentSynced();
           },
           loadUniverseFromFile: (storeState) => {
             try {
@@ -2354,7 +2361,10 @@ class UniverseBackend {
     // for what a merge can't settle (documentation/core-system/SHARED_UNIVERSE_SYNC.md).
     engine.onMergeRemote = (input) => this._planRemoteMerge(universeSlug, input);
     engine.onRemoteUpdate = (input) => this._applyRemoteUpdate(universeSlug, input);
-    engine.onSaved = (timestamp) => this._recordGitSaveTime(universeSlug, timestamp);
+    engine.onSaved = (timestamp) => {
+      this._markSyncedIfShared(universeSlug);
+      this._recordGitSaveTime(universeSlug, timestamp);
+    };
     // Don't bring others' changes in while a local save is mid-flight.
     engine.isLocalBusy = () => {
       try {
@@ -5248,11 +5258,17 @@ class UniverseBackend {
    */
   async _applyMergedState(universeSlug, applyBase, merged, report) {
     if (this.activeUniverseSlug !== universeSlug || !this.storeOperations?.applyRemoteDocument) return null;
+    // Never under a drag in progress (the remote watch waits the same way).
+    // The repository already holds the merge; laying it onto the canvas is a
+    // merge with what the canvas holds, so the drag's result is kept.
+    await this._waitForGestureEnd();
+    if (this.activeUniverseSlug !== universeSlug) return null;
     await primeImageRefs(this.storeOperations.getState());
     // Read again after the await, then merge and apply in one go.
     const live = this.storeOperations.getState();
     if (!live?.graphs || this.activeUniverseSlug !== universeSlug) return null;
     if (!this.storeOperations.applyRemoteDocument(mergeOntoCanvas(applyBase, live, merged))) return null;
+    this._markSyncedIfShared(universeSlug);
     this._announceRemoteChanges(universeSlug, report);
     return { state: this.storeOperations.getState(), before: live };
   }
@@ -5279,6 +5295,7 @@ class UniverseBackend {
       return null;
     }
     if (!this.storeOperations.applyRemoteDocument(result.merged)) return null;
+    this._markSyncedIfShared(universeSlug);
     this._announceRemoteChanges(universeSlug, result.report);
     return { state: this.storeOperations.getState(), before: live };
   }
@@ -5748,6 +5765,33 @@ class UniverseBackend {
     if (!slug) return;
     this._adoptStoreLineage(slug, null);
     this.gitSyncEngines.get(slug)?.invalidateRemoteObservation?.();
+  }
+
+  /** Resolves once no drag is in progress (or after a minute, whatever happens). */
+  async _waitForGestureEnd(limitMs = 60000) {
+    const started = Date.now();
+    while (Date.now() - started < limitMs) {
+      let dragging = false;
+      try { dragging = !!loadGateCoordinator?.isGlobalDragging; } catch (_) { dragging = false; }
+      if (!dragging) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  /**
+   * A Git-linked universe's store now matches (or is newer than) its
+   * repository: what it holds belongs to everyone who shares the universe,
+   * and orphan cleanup must leave it alone (graphStore.markDocumentSynced).
+   */
+  _markSyncedIfShared(universeSlug) {
+    try {
+      if (!universeSlug || universeSlug !== this.activeUniverseSlug) return;
+      const universe = this.getUniverse(universeSlug);
+      if (!universe?.gitRepo?.linkedRepo) return;
+      this.storeOperations?.markDocumentSynced?.();
+    } catch (error) {
+      umWarn('[UniverseBackend] Could not record what the repository holds:', error);
+    }
   }
 
   /** The store now holds a copy grown from `base` (null: unknown). See GitSyncEngine.adoptBase. */

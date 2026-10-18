@@ -124,3 +124,67 @@ describe('undo after someone else\'s changes arrived', () => {
     expect(sameDocument(repo, ana.state), describeDifference(repo, ana.state)).toBe(true);
   });
 });
+
+describe('undo of list edits after someone else changed the same list', () => {
+  const edge = (id, from, to) => ({ id, sourceId: from, destinationId: to, typeNodeId: 'base-connection-prototype', directionality: { arrowsToward: new Set() } });
+  const benEdges = (s, { remove = [], add = [] }) => {
+    const web = s.graphs.get('web');
+    for (const id of remove) { s.edges.delete(id); web.edgeIds = web.edgeIds.filter((e) => e !== id); }
+    for (const [id, from, to] of add) { s.edges.set(id, edge(id, from, to)); web.edgeIds = [...web.edgeIds, id]; }
+  };
+
+  async function withTwoConnections() {
+    const ctx = await setup();
+    await ctx.ana.edit((s) => {
+      s.addEdge('web', edge('ea', 'iTree', 'iBird'));
+      useGraphStore.getState().addEdge('web', edge('eb', 'iBird', 'iTree'));
+    });
+    await ctx.ana.save();
+    await settleHistory();
+    useHistoryStore.getState().clearHistory?.();
+    return ctx;
+  }
+
+  it('undoing a connection takes out that one, not whatever moved into its place', async () => {
+    const { ana, ben } = await withTwoConnections();
+    await ana.edit((s) => s.addEdge('web', edge('mine', 'iTree', 'iBird')));
+    await ana.save();
+    await ben.edit((s) => benEdges(s, { remove: ['ea'], add: [['r1', 'iBird', 'iTree']] }));
+    await ana.check();
+    expect([...ana.state.graphs.get('web').edgeIds].sort()).toEqual(['eb', 'mine', 'r1']);
+
+    await ana.undo();
+    const web = ana.state.graphs.get('web');
+    expect([...web.edgeIds].sort()).toEqual(['eb', 'r1']);
+    expect(ana.state.edges.has('mine')).toBe(false);
+    expect(ana.state.edges.has('r1')).toBe(true);
+    expect(brokenReferences(ana.state)).toEqual([]);
+  });
+
+  it('undoing a removal puts it back without dropping what they added', async () => {
+    const { ana, ben } = await withTwoConnections();
+    await ana.edit((s) => s.removeEdge('eb'));
+    await ana.save();
+    await ben.edit((s) => benEdges(s, { add: [['r2', 'iTree', 'iBird']] }));
+    await ana.check();
+    await ana.undo();
+    const web = ana.state.graphs.get('web');
+    expect([...web.edgeIds].sort()).toEqual(['ea', 'eb', 'r2']);
+    expect(brokenReferences(ana.state)).toEqual([]);
+  });
+
+  it('redo after that applies the same change by value', async () => {
+    const { ana, ben } = await withTwoConnections();
+    await ana.edit((s) => s.addEdge('web', edge('mine', 'iTree', 'iBird')));
+    await ana.save();
+    await ben.edit((s) => benEdges(s, { remove: ['ea'], add: [['r1', 'iBird', 'iTree']] }));
+    await ana.check();
+    await ana.undo();
+    const { performRedo } = await import('../../src/store/historyActions.js');
+    performRedo();
+    await settleHistory();
+    ana.state = snapshot();
+    expect([...ana.state.graphs.get('web').edgeIds].sort()).toEqual(['eb', 'mine', 'r1']);
+    expect(brokenReferences(ana.state)).toEqual([]);
+  });
+});

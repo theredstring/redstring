@@ -1340,6 +1340,7 @@ const saveCoordinatorMiddleware = (config) => {
   const emptyHistoryBatch = () => ({
     patches: [],
     inversePatches: [],
+    listChanges: new Map(), // path key -> { path, before, after } (see listLocation)
     descriptions: [],
     domain: null,
     actionTypes: new Set(),
@@ -1437,6 +1438,9 @@ const saveCoordinatorMiddleware = (config) => {
         description: finalDescription,
         patches,
         inversePatches,
+        // Lists of ids the batch changed, before and after: undo applies these
+        // by value (applyHistoryPatches), never by position.
+        listChanges: [...historyBatch.listChanges.values()].filter((l) => !sameIdList(l.before, l.after)),
         timestamp: historyBatch.timestamp,
         actionId: historyBatch.actionId,
         isWizard: historyBatch.isWizard
@@ -1451,9 +1455,10 @@ const saveCoordinatorMiddleware = (config) => {
 
     // Enhance the set function to track change context and capture patches
     const enhancedSet = (...args) => {
-      // 0. Snapshot for collapse detection
+      // 0. Snapshot for collapse detection, and the state before (for listChanges)
+      const prevState = get();
       let preCounts = null;
-      try { preCounts = countUserData(get()); } catch (_) { /* non-fatal */ }
+      try { preCounts = countUserData(prevState); } catch (_) { /* non-fatal */ }
 
       // 1. Capture patches via the global listener (hooked into our custom produce wrapper)
       let currentPatches = null;
@@ -1562,6 +1567,20 @@ const saveCoordinatorMiddleware = (config) => {
         historyBatch.patches.push(...docPatches);
         // Inverse patches prepend: (revert new, then revert old)
         historyBatch.inversePatches.unshift(...docInverse);
+        try {
+          const nextState = get();
+          for (const patch of docPatches) {
+            const listPath = listLocation(patch.path, prevState, nextState);
+            if (!listPath) continue;
+            const key = JSON.stringify(listPath);
+            const known = historyBatch.listChanges.get(key);
+            historyBatch.listChanges.set(key, {
+              path: listPath,
+              before: known ? known.before : copyIdList(valueAt(prevState, listPath)),
+              after: copyIdList(valueAt(nextState, listPath))
+            });
+          }
+        } catch (_) { /* positional patches still apply */ }
         historyBatch.descriptions.push(generateDescription(changeContext, get()));
         historyBatch.actionTypes.add(changeContext.type);
 
@@ -1688,6 +1707,125 @@ const saveCoordinatorMiddleware = (config) => {
  * by a path it didn't make (universeBackend._onStoreLoaded): a stale merge base
  * would read whatever the new store lacks as deleted.
  */
+// ---------------------------------------------------------------------------
+// Undo by value for lists of ids
+//
+// Immer records a change to an array by position: a push's inverse is "remove
+// index 2", a filter's is "put back this whole array". Once someone else's
+// changes have been merged into that list (applyRemoteDocument keeps history),
+// both are wrong: undoing a connection removed whichever id now sits at index
+// 2, and undoing a removal put back the old list, dropping their additions and
+// restoring ids they had deleted. So each history entry also keeps every list
+// of ids it touched, before and after, and undo applies the difference: take
+// out what the action added, put back what it took out, leave the rest.
+
+const valueAt = (root, path) => {
+  let value = root;
+  for (const key of path) {
+    if (value == null) return undefined;
+    value = value instanceof Map ? value.get(key) : value[key];
+  }
+  return value;
+};
+const isIdList = (value) => Array.isArray(value) && value.every((v) => typeof v === 'string' || typeof v === 'number');
+const copyIdList = (value) => (Array.isArray(value) ? [...value] : undefined);
+const sameIdList = (a, b) => (a === b) || (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => v === b[i]));
+
+/** The list of ids a patch changes (the list itself, an index in it, or its length), or null. */
+function listLocation(path, before, after) {
+  if (!Array.isArray(path)) return null;
+  for (let k = 1; k <= path.length; k++) {
+    const prefix = path.slice(0, k);
+    const [b, a] = [valueAt(before, prefix), valueAt(after, prefix)];
+    if (!Array.isArray(b) && !Array.isArray(a)) continue;
+    const rest = path.slice(k);
+    const atList = rest.length === 0 || (rest.length === 1 && (typeof rest[0] === 'number' || rest[0] === 'length'));
+    if (!atList) return null;
+    if ((b !== undefined && !isIdList(b)) || (a !== undefined && !isIdList(a))) return null;
+    return prefix;
+  }
+  return null;
+}
+
+/** Apply one list's change in `direction` ('undo' or 'redo') to a draft, by value. */
+function applyListChange(draft, { path, before, after }, direction) {
+  const from = (direction === 'undo' ? after : before) || [];
+  const to = direction === 'undo' ? before : after;
+  const target = to || [];
+  const parent = valueAt(draft, path.slice(0, -1));
+  if (parent == null || typeof parent !== 'object') return;
+  const key = path[path.length - 1];
+  const current = valueAt(draft, path);
+  const take = new Set(from.filter((v) => !target.includes(v)));
+  const result = (Array.isArray(current) ? [...current] : []).filter((v) => !take.has(v));
+  target.forEach((v, i) => {
+    if (!from.includes(v) && !result.includes(v)) result.splice(Math.min(i, result.length), 0, v);
+  });
+  if (to === undefined && result.length === 0) {
+    if (parent instanceof Map) parent.delete(key); else delete parent[key];
+  } else if (parent instanceof Map) {
+    parent.set(key, result);
+  } else {
+    parent[key] = result;
+  }
+}
+
+/** History's patches, with lists of ids changed by value (see above). */
+export function applyHistoryPatches(state, patches, { listChanges = [], direction = 'undo' } = {}) {
+  if (!listChanges.length) return applyPatches(state, patches);
+  const inList = (patch) => listChanges.some(({ path }) => path.length <= patch.path.length && path.every((k, i) => patch.path[i] === k));
+  const next = applyPatches(state, patches.filter((patch) => !inList(patch)));
+  return immerProduce(next, (draft) => {
+    for (const change of listChanges) applyListChange(draft, change, direction);
+  });
+}
+
+/**
+ * The connection types every universe starts with: the base "Connection" and
+ * the agent control-flow types. A loaded file's own types are layered on these,
+ * never on whatever the previous universe left in the store.
+ */
+function defaultEdgePrototypes() {
+  // Initialize with base "Connection" type
+  const connectionId = 'base-connection-prototype';
+  const edgePrototypes = new Map();
+  edgePrototypes.set(connectionId, {
+    id: connectionId,
+    name: 'Connection',
+    description: 'The base type for all connections. Connections are edges, relationships, verbs, actions, whatever you want them to be. They will always be at the bottom of the connection abstraction stack.',
+    color: '#000000', // Black
+    typeNodeId: null, // No parent type - this is the most basic connection type
+    definitionGraphIds: [],
+    isSpecificityChainNode: false, // Not part of any specificity chain
+    hasSpecificityChain: false // Does not define a specificity chain
+  });
+
+  // Agent control flow edge types (for agent graphs)
+  const agentEdgeTypes = [
+    { id: 'agent-delegates-to', name: 'Delegates To', color: '#E74C3C', description: 'Parent assigns subtask to child agent' },
+    { id: 'agent-reports-to', name: 'Reports To', color: '#2ECC71', description: 'Child returns results to parent agent' },
+    { id: 'agent-triggers', name: 'Triggers', color: '#F39C12', description: 'Event causes agent to fire' },
+    { id: 'agent-validates', name: 'Validates', color: '#9B59B6', description: 'Checks output of another agent' },
+    { id: 'agent-fallback-to', name: 'Fallback To', color: '#1ABC9C', description: 'If primary fails, try this agent' },
+    { id: 'agent-depends-on', name: 'Depends On', color: '#3498DB', description: 'Must wait for completion' }
+  ];
+
+  agentEdgeTypes.forEach(edgeType => {
+    edgePrototypes.set(edgeType.id, {
+      id: edgeType.id,
+      name: edgeType.name,
+      description: edgeType.description,
+      color: edgeType.color,
+      typeNodeId: connectionId, // All agent edges are subtypes of Connection
+      definitionGraphIds: [],
+      isSpecificityChainNode: false,
+      hasSpecificityChain: false
+    });
+  });
+
+  return edgePrototypes;
+}
+
 const universeLoadListeners = new Set();
 export function onUniverseLoaded(listener) {
   universeLoadListeners.add(listener);
@@ -1770,6 +1908,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     graphViews: new Map(),
     // Prototypes explicitly protected from cleanup (e.g., local Orbit catalog)
     protectedPrototypeIds: new Set(),
+    // Things and webs the universe's repository already holds (see
+    // markDocumentSynced); orphan cleanup never deletes them.
+    syncedDocumentIds: null,
     nodePrototypes: (() => {
       // Initialize with base "Thing" and "Connection" types
       const nodePrototypes = new Map();
@@ -1804,46 +1945,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
       return nodePrototypes;
     })(),
-    edgePrototypes: (() => {
-      // Initialize with base "Connection" type
-      const connectionId = 'base-connection-prototype';
-      const edgePrototypes = new Map();
-      edgePrototypes.set(connectionId, {
-        id: connectionId,
-        name: 'Connection',
-        description: 'The base type for all connections. Connections are edges, relationships, verbs, actions, whatever you want them to be. They will always be at the bottom of the connection abstraction stack.',
-        color: '#000000', // Black
-        typeNodeId: null, // No parent type - this is the most basic connection type
-        definitionGraphIds: [],
-        isSpecificityChainNode: false, // Not part of any specificity chain
-        hasSpecificityChain: false // Does not define a specificity chain
-      });
-
-      // Agent control flow edge types (for agent graphs)
-      const agentEdgeTypes = [
-        { id: 'agent-delegates-to', name: 'Delegates To', color: '#E74C3C', description: 'Parent assigns subtask to child agent' },
-        { id: 'agent-reports-to', name: 'Reports To', color: '#2ECC71', description: 'Child returns results to parent agent' },
-        { id: 'agent-triggers', name: 'Triggers', color: '#F39C12', description: 'Event causes agent to fire' },
-        { id: 'agent-validates', name: 'Validates', color: '#9B59B6', description: 'Checks output of another agent' },
-        { id: 'agent-fallback-to', name: 'Fallback To', color: '#1ABC9C', description: 'If primary fails, try this agent' },
-        { id: 'agent-depends-on', name: 'Depends On', color: '#3498DB', description: 'Must wait for completion' }
-      ];
-
-      agentEdgeTypes.forEach(edgeType => {
-        edgePrototypes.set(edgeType.id, {
-          id: edgeType.id,
-          name: edgeType.name,
-          description: edgeType.description,
-          color: edgeType.color,
-          typeNodeId: connectionId, // All agent edges are subtypes of Connection
-          definitionGraphIds: [],
-          isSpecificityChainNode: false,
-          hasSpecificityChain: false
-        });
-      });
-
-      return edgePrototypes;
-    })(),
+    edgePrototypes: defaultEdgePrototypes(),
     edges: new Map(),
 
     // Grace period tracking for soft deletion
@@ -8502,6 +8604,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * prototype was deleted, and removes edges referencing missing instances.
      * Called automatically 100ms after `toggleSavedNode` and `closeGraph`.
      */
+    /**
+     * Record that everything the store holds now is in the universe's
+     * repository (universeBackend calls this after each load, save and pull
+     * of a Git-linked universe). Orphan cleanup decides what is live from this
+     * device's open webs, bookmarks and tabs, which are each person's own: in
+     * a universe more than one device edits, that would delete whatever the
+     * others made and this device never opened, for everyone. So what the
+     * repository holds belongs to everyone and is never cleaned up; what this
+     * device made since and let go still is.
+     */
+    markDocumentSynced: () => {
+      const state = get();
+      set({
+        syncedDocumentIds: {
+          prototypes: new Set(state.nodePrototypes.keys()),
+          graphs: new Set(state.graphs.keys())
+        }
+      });
+    },
+
     cleanupOrphanedData: () => ctxSet('orphan_cleanup', produce((draft) => {
       console.log('[Store cleanupOrphanedData] Starting cleanup of orphaned data...');
 
@@ -8540,6 +8662,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       if (draft.protectedPrototypeIds) {
         draft.protectedPrototypeIds.forEach((id) => referencedPrototypeIds.add(id));
       }
+
+      // What the repository already holds (markDocumentSynced)
+      draft.syncedDocumentIds?.prototypes?.forEach((id) => referencedPrototypeIds.add(id));
 
       // Add saved prototypes
       draft.savedNodeIds.forEach(prototypeId => referencedPrototypeIds.add(prototypeId));
@@ -8666,8 +8791,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Step 2: Find all referenced graphs
       const referencedGraphIds = new Set();
 
-      // Add open graphs
+      // Add open graphs, and the webs the repository already holds
       draft.openGraphIds.forEach(graphId => referencedGraphIds.add(graphId));
+      draft.syncedDocumentIds?.graphs?.forEach((id) => referencedGraphIds.add(id));
 
       // Add definition graphs from referenced prototypes
       referencedPrototypeIds.forEach(prototypeId => {
@@ -9064,16 +9190,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // empty Map — spreading that would wipe the base "Connection" type and
         // agent edge types the store seeds at init, dangling every edge's
         // typeNodeId. Keep existing entries and layer the file's on top.
+        // Layered on the defaults, not on the store's current types: those are
+        // the previous universe's, and its custom types would be written into
+        // this one's file (and, shared, pushed to everyone).
         try {
           const incomingEdgeProtos = storeState.edgePrototypes;
-          const existingEdgeProtos = currentState.edgePrototypes;
-          if (existingEdgeProtos instanceof Map) {
-            const merged = new Map(existingEdgeProtos);
-            if (incomingEdgeProtos instanceof Map) {
-              for (const [id, proto] of incomingEdgeProtos) merged.set(id, proto);
-            }
-            storeState.edgePrototypes = merged;
+          const merged = defaultEdgePrototypes();
+          if (incomingEdgeProtos instanceof Map) {
+            for (const [id, proto] of incomingEdgeProtos) merged.set(id, proto);
           }
+          storeState.edgePrototypes = merged;
         } catch (e) {
           console.warn('[graphStore] Failed to merge edgePrototypes during load:', e);
           delete storeState.edgePrototypes; // fall back to keeping current
@@ -9118,6 +9244,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         set({
           ...storeState,
           showConnectionNames: currentState.showConnectionNames, // Preserve local view preference
+          syncedDocumentIds: null, // another universe's; universeBackend marks this one
           isUniverseLoaded: true,
           isUniverseLoading: false,
           universeLoadingError: null,
@@ -9407,6 +9534,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       graphViews: new Map(),
       nodePrototypes: new Map(),
       edges: new Map(),
+      edgePrototypes: defaultEdgePrototypes(),
       pendingDeletions: new Map(),
       gracePeriodMs: 5 * 60 * 1000, // Reset to default
       openGraphIds: [],
@@ -9418,6 +9546,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       savedGraphIds: new Set(),
       // Keyed by prototype id, so it means nothing once the prototypes are gone.
       mergeDismissals: {},
+      syncedDocumentIds: null,
         isUniverseLoaded: false,
         isUniverseLoading: false,
         universeLoadingError: null,
@@ -9741,9 +9870,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @param {import('immer').Patch[]} patches - Immer patches to apply.
      */
-    applyPatches: (patches) => {
+    applyPatches: (patches, options = {}) => {
       api.setChangeContext({ type: 'undo', ignore: true });
-      return set((state) => applyPatches(state, patches));
+      return set((state) => applyHistoryPatches(state, patches, options));
     },
 
     /**

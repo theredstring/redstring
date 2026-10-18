@@ -79,9 +79,11 @@ const useHistoryStore = create((set, get) => ({
      * made every subsequent undo re-throw on it: undo was wedged permanently.
      * Now the bad entry is stepped over instead.
      */
-    _tryApply: (applyFn, patches, entry) => {
+    _tryApply: (applyFn, patches, entry, direction) => {
         try {
-            applyFn(patches);
+            // listChanges: lists of ids the entry changed, applied by value
+            // (graphStore.applyHistoryPatches).
+            applyFn(patches, { listChanges: entry?.listChanges || [], direction });
             return true;
         } catch (error) {
             console.error(
@@ -120,7 +122,7 @@ const useHistoryStore = create((set, get) => ({
         // callback to apply patches to the relevant store (graphStore)
         // Advance past the entry either way — on failure we step over it rather
         // than retrying it forever on every subsequent Cmd+Z.
-        get()._tryApply(applyFn, entry.inversePatches, entry);
+        get()._tryApply(applyFn, entry.inversePatches, entry, 'undo');
 
         set({ currentIndex: currentIndex - 1 });
     },
@@ -149,7 +151,7 @@ const useHistoryStore = create((set, get) => ({
 
         console.log(`[History] Redoing: ${entry.description}`);
 
-        get()._tryApply(applyFn, entry.patches, entry);
+        get()._tryApply(applyFn, entry.patches, entry, 'redo');
 
         set({ currentIndex: currentIndex + 1 });
     },
