@@ -6,7 +6,7 @@ vi.mock('../../src/utils.js', async (orig) => ({
   getNodeDimensions: () => ({ currentWidth: 120, currentHeight: 100 }),
 }));
 import { projectGraphView } from '../../src/core/openDefinitions.js';
-import { readFormulaGroup, tokensOf, chainText } from '../../src/components/canvas/formats/formula/formulaChain.js';
+import { readFormulaGroup, tokensOf, chainText, expandFor } from '../../src/components/canvas/formats/formula/formulaChain.js';
 import { computeFormulaObjects } from '../../src/components/canvas/formats/formula/formulaObjects.js';
 import { equationsOf } from '../../src/components/canvas/formats/formula/formulaEquations.js';
 import { isReplacedInstance, isReplacedGroup } from '../../src/components/canvas/formats/replaced.js';
@@ -41,9 +41,35 @@ describe('formula labels', () => {
     expect(tokens.find(t => t.text === '=').realName).toBe('Equality');
   });
 
-  it('reads with names instead of symbols when asked, writing every multiplication', () => {
-    const tokens = tokensOf(chainOf(idealGas()), { standard: true, words: true });
+  it('writes a formula by names when asked, every multiplication written, operations still by symbol', () => {
+    const tokens = tokensOf(chainOf(idealGas()), { standard: true, expand: expandFor(true, null) });
     expect(tokens.map(t => t.text).join(' ')).toBe('Pressure × Volume = n × Gas Constant × Temperature');
+    expect(tokens.filter(t => t.expanded).map(t => t.text)).toEqual(['Pressure', 'Volume', 'Gas Constant', 'Temperature']);
+  });
+
+  it('switches one token on its own, keeping every token\'s key', () => {
+    const chain = chainOf(idealGas());
+    const before = tokensOf(chain, { standard: true });
+    const p = before.find(t => t.text === 'P');
+    const after = tokensOf(chain, { standard: true, expand: expandFor(false, new Set([p.flip])) });
+    expect(after.map(t => t.text).join(' ')).toBe('Pressure × V = n R T');
+    // The × that appears is the connection's own; everything else keeps its key.
+    expect(before.every(t => after.some(a => a.key === t.key))).toBe(true);
+    expect(after.find(t => t.text === '×').target).toMatch(/^edge:/);
+    // An operation by its name, and back by its symbol inside a formula shown by names.
+    const eq = before.find(t => t.text === '=');
+    expect(tokensOf(chain, { standard: true, expand: expandFor(false, new Set([eq.flip])) }).find(t => t.key === eq.key).text).toBe('Equality');
+    expect(tokensOf(chain, { standard: true, expand: expandFor(true, new Set([p.flip])) }).find(t => t.key === p.key).text).toBe('P');
+  });
+
+  it('writes a named part as its name alone when switched', () => {
+    const chain = chainOf(formulaWeb({
+      things: [['b', 'b', 0], ['c', 'c', 300], ['z', 'z', 800]],
+      parts: [{ id: 'g', anchor: 'pa', name: 'Discriminant', members: ['b', 'c'], x: 150 }],
+      ops: [['b', 'c', 'Subtraction'], ['pa', 'z', 'Addition']],
+      top: ['b', 'c', 'pa', 'z'],
+    }));
+    expect(tokensOf(chain, { standard: true, expand: expandFor(false, new Set(['pa'])) }).map(t => t.text).join(' ')).toBe('Discriminant + z');
   });
 
   it('lights a part by its own name only when it has one', () => {

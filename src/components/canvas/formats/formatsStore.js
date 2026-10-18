@@ -11,7 +11,6 @@ import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 
 const NOTATION_KEY = 'redstring_formula_notation';
 const CONVENTION_KEY = 'redstring_formula_convention';
-const READING_KEY = 'redstring_formula_reading';
 const readPref = (key, allowed, fallback) => {
   try {
     const v = localStorage.getItem(key);
@@ -31,11 +30,17 @@ const useFormatsStore = create(() => ({
    */
   notation: readPref(NOTATION_KEY, ['standard', 'explicit'], 'standard'),
   /**
-   * What a formula's terms are written as: 'symbols' (P V = n R T, the default)
-   * or 'names' (Pressure × Volume = Amount of Substance × ...), each Thing by its
-   * real name. Also a preference of this browser's.
+   * Formulas written by name (Pressure × Volume = ...) instead of by symbol
+   * (P V = n R T, the default), by group id. Each formula on its own; for the
+   * session.
    */
-  reading: readPref(READING_KEY, ['symbols', 'names'], 'symbols'),
+  namesShown: new Set(),
+  /**
+   * Tokens switched on their own, by group id: a click writes one token by its
+   * Thing's name (or, while the formula's names are shown, back by its symbol).
+   * Keys are tokens' `flip` (formulaChain.tokensOf). For the session.
+   */
+  flipped: new Map(),
   /** How New Formula reads what is typed: 'math' (the default) or 'programming'. */
   convention: readPref(CONVENTION_KEY, ['math', 'programming'], 'math'),
   /** Offer keys the user waved off this session (see formatCandidates). */
@@ -85,19 +90,30 @@ export const setConvention = (convention) => {
   useFormatsStore.setState({ convention });
 };
 
-export const setReading = (reading) => {
-  writePref(READING_KEY, reading);
-  useFormatsStore.setState({ reading });
-};
+/** Write a formula by name, or by symbol again; either way its tokens switched on their own go back. */
+export const setFormulaNames = (groupId, on) => useFormatsStore.setState((s) => {
+  const namesShown = new Set(s.namesShown);
+  if (on) namesShown.add(groupId); else namesShown.delete(groupId);
+  const flipped = new Map(s.flipped);
+  flipped.delete(groupId);
+  return { namesShown, flipped };
+});
+
+/** Switch one token of a formula between its symbol and its Thing's name. */
+export const flipFormulaToken = (groupId, flip) => useFormatsStore.setState((s) => {
+  const own = new Set(s.flipped.get(groupId) || []);
+  if (own.has(flip)) own.delete(flip); else own.add(flip);
+  const flipped = new Map(s.flipped);
+  if (own.size) flipped.set(groupId, own); else flipped.delete(groupId);
+  return { flipped };
+});
 
 /** Whether formulas show in standard notation (a selector). */
 export const selectStandard = (s) => s.notation !== 'explicit';
-/** Whether formulas show their Things by name instead of by symbol (a selector). */
-export const selectWords = (s) => s.reading === 'names';
-/** How formulas are shown now, for code outside React. */
+/** How formulas are shown now, for code outside React: computeFormulaObjects' options. */
 export const formulaDisplayNow = () => {
   const s = useFormatsStore.getState();
-  return { standard: selectStandard(s), words: selectWords(s) };
+  return { standard: selectStandard(s), namesShown: s.namesShown, flipped: s.flipped };
 };
 
 export const openFormulaComposer = (graphId, at) => useFormatsStore.setState({ composing: { graphId, at } });

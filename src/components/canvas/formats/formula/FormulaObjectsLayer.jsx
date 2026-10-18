@@ -8,15 +8,16 @@
  * it stands for entirely: they are not drawn, hit or selected while it is shown.
  *
  * It takes input the way a Thing does:
- * - a token that stands for a Thing that means more than what is written (P for
- *   Pressure, + for Addition, the parentheses of a named part) unveils it: the
- *   token grows into that Thing's node, real name and all, above the formula.
- *   With a mouse, on hover; by touch, on a tap (until a tap elsewhere). A bare
- *   symbol (an x that means nothing yet) is just text;
- * - a tap selects the formula's group, which brings up its control panel (the
- *   format mode of UnifiedBottomControlPanel, where formats are swapped);
- * - a double tap on a token opens that Thing in the panel; on the title, the
- *   equation's own Thing;
+ * - a tap on a token whose Thing means more than what is written (P for
+ *   Pressure, + for Addition, a named part's parentheses) switches it between
+ *   its symbol and its Thing, drawn by name in its color; the rest of the
+ *   formula slides aside to make room. Hover only lights it, to say it can. A
+ *   bare symbol (an x that means nothing yet) is just text;
+ * - a tap also selects the formula's group, which brings up its control panel
+ *   (the format mode of UnifiedBottomControlPanel: swap formats, write this
+ *   formula by names or every operation);
+ * - a double tap on a token opens that Thing in the panel (and switches
+ *   nothing); on the band, the equation's own Thing;
  * - hold, then drag, moves its Things together, snapping to the grid like a
  *   group drag when the grid is on. The Things are written as they move
  *   (drag-phase writes, no save, no history), so connections stay on their
@@ -30,22 +31,23 @@ import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
-import { getNodeLabelStyle } from '../../../../utils/nodeLabelStyle.js';
 import { haptic } from '../../../../services/haptics.js';
-import { NODE_DEFAULT_COLOR, NODE_CORNER_RADIUS } from '../../../../constants.js';
+import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
 import { NODE_GROUP_INTERIOR_TINT } from '../../groups/groupElements.jsx';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf } from './formulaChain.js';
+import { useGlide } from './useGlide.js';
+import { flipFormulaToken } from '../formatsStore.js';
 import {
-  FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT,
+  FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS,
 } from './formulaObjects.js';
 
 const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
-const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_MS = 320;   // a tap waits this long to switch its token, in case it is the first of two
 const LIFT_SCALE = 1.04;
-const UNVEIL_DELAY_MS = 90;  // a pointer passing over on its way somewhere unveils nothing
-const UNVEIL_SPRING = { type: 'spring', stiffness: 520, damping: 34, mass: 0.7 };
+const HOVER_TINT = 0.18;
+const FADE = { duration: 0.14 };
 const TITLE_TARGET = '__title__';
 
 /** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
@@ -84,12 +86,13 @@ function movedPositions(start, dx, dy) {
   });
 }
 
-/** A token's text, its subscript (v_0) lowered and smaller. */
+/** A token's text, its subscript (v_0) lowered and smaller; it slides to where it is put. */
 function TokenText({ text, x, y, size, fill, opacity }) {
   const sub = subscriptOf(text);
+  const at = useGlide({ x, y });
   return (
     <text
-      x={x} y={y}
+      x={at.x} y={at.y}
       fontSize={size} fontFamily={FORMULA_FONT_FAMILY} fontWeight={FORMULA_FONT_WEIGHT}
       fill={fill} opacity={opacity}
       style={{ userSelect: 'none', pointerEvents: 'none' }}
@@ -104,78 +107,72 @@ function TokenText({ text, x, y, size, fill, opacity }) {
   );
 }
 
+/** The title, gliding to stay centred on its band. */
+function TitleText({ at, children, ...rest }) {
+  const now = useGlide(at);
+  return <text x={now.x} y={now.y} {...rest}>{children}</text>;
+}
+
+/** A rectangle that glides to its new place and size. */
+function GlideRect({ r, ...rest }) {
+  const at = useGlide(r);
+  return <rect x={at.x} y={at.y} width={Math.max(0, at.w)} height={Math.max(0, at.h)} {...rest} />;
+}
+
 /**
- * A token growing into the Thing it stands for: from the token's box to the
- * node's, centred on the token, the symbol fading as the real name comes in.
- * Drawn over the formula and never hit, so the pointer still finds the tokens
- * under it.
+ * One token, placed by sliding: when a token near it switches between its
+ * symbol and its name, it moves to its new place rather than jumping there. A
+ * token written by name is its Thing: a pill in its color, grown from the
+ * symbol's box.
  */
-function Unveil({ token, box, proto, theme, textSettings }) {
-  const fill = proto?.color || NODE_DEFAULT_COLOR;
-  const name = token.realName;
-  const dims = getNodeDimensions({ name }, false, null);
-  const w = dims.currentWidth;
-  const h = dims.currentHeight;
-  const cx = box.x + box.w / 2;
-  const cy = box.y + box.h / 2;
-  const from = { x: box.x, y: box.y, width: box.w, height: box.h, rx: Math.min(box.h * 0.4, box.w / 2) };
-  const to = { x: cx - w / 2, y: cy - h / 2, width: w, height: h, rx: NODE_CORNER_RADIUS };
-  const color = getTextColor(fill, theme.darkMode);
-  const label = getNodeLabelStyle({ textSettings, color, unexpandedDims: dims });
+function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
+  const defined = !!t.target && !!t.defined;
+  const shape = useGlide(b.pill
+    ? { x: b.pill.x - o.x, y: b.pill.y - o.y, w: b.pill.w, h: b.pill.h, rx: b.pill.h * PILL_RADIUS, a: 1 }
+    : { x: b.x - o.x, y: b.y - o.y, w: b.w, h: b.h, rx: Math.min(b.h * 0.4, b.w / 2), a: hot ? HOVER_TINT : 0 });
   return (
     <motion.g
-      className="formula-unveil"
-      pointerEvents="none"
-      initial={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 0.12 } }}
-      style={{ filter: 'drop-shadow(0px 8px 14px rgba(0, 0, 0, 0.22))' }}
+      className={`formula-object-token${defined ? ' is-defined' : ''}${t.expanded ? ' is-expanded' : ''}`}
+      data-formula-target={t.target || undefined}
+      data-formula-proto={t.protoId || undefined}
+      data-formula-defined={defined ? 'true' : undefined}
+      data-formula-flip={defined && t.flip ? t.flip : undefined}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, transition: FADE }}
+      transition={FADE}
+      onPointerEnter={defined ? onEnter : undefined}
+      onPointerLeave={defined ? onLeave : undefined}
+      style={defined ? undefined : { cursor: 'default' }}
     >
-      <motion.rect initial={from} animate={to} exit={from} transition={UNVEIL_SPRING} fill={fill} />
-      <motion.g initial={{ opacity: 1 }} animate={{ opacity: 0 }} transition={{ duration: 0.12 }}>
-        <TokenText text={token.text} x={box.textX} y={box.baseline} size={box.size} fill={color} />
-      </motion.g>
-      <motion.foreignObject
-        x={to.x} y={to.y} width={w} height={h}
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.07, duration: 0.16 }}
-      >
-        <div
-          data-formula-unveil={token.target}
-          style={{
-            width: '100%', height: '100%', boxSizing: 'border-box', padding: label.containerPadding,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none',
-          }}
-        >
-          <span style={{ ...label.typography, maxWidth: label.wrapMaxWidth || undefined, overflowWrap: 'break-word', userSelect: 'none' }}>
-            {name}
-          </span>
-        </div>
-      </motion.foreignObject>
+      <rect
+        x={shape.x} y={shape.y} width={Math.max(0, shape.w)} height={Math.max(0, shape.h)}
+        rx={Math.max(0, shape.rx)} fill={fill} fillOpacity={shape.a}
+      />
+      <AnimatePresence initial={false}>
+        <motion.g key={t.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: FADE }} transition={FADE}>
+          <TokenText
+            text={t.text} x={b.textX - o.x} y={b.baseline - o.y} size={b.size}
+            fill={t.expanded ? onBand : textColor}
+            opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
+          />
+        </motion.g>
+      </AnimatePresence>
     </motion.g>
   );
 }
 
-function FormulaObject({ obj, theme, selected, textSettings }) {
-  // The token unveiled now: { target, by: 'hover' | 'tap' }.
-  const [unveiled, setUnveiled] = useState(null);
+function FormulaObject({ obj, theme, selected }) {
+  const [hoverKey, setHoverKey] = useState(null);
   const [lifted, setLifted] = useState(false);
   const pressRef = useRef(null);
-  const hoverTimerRef = useRef(null);
-  const hoverEndedAtRef = useRef(0);
   const lastTapRef = useRef({ target: null, at: 0 });
-  const rootRef = useRef(null);
+  const flipTimerRef = useRef(null);
 
   useEffect(() => () => {
     if (pressRef.current?.timer) clearTimeout(pressRef.current.timer);
-    clearTimeout(hoverTimerRef.current);
+    clearTimeout(flipTimerRef.current);
   }, []);
-
-  // Unveiled by a tap: it stays until a tap anywhere else.
-  useEffect(() => {
-    if (unveiled?.by !== 'tap') return undefined;
-    const away = (e) => { if (!rootRef.current?.contains(e.target)) setUnveiled(null); };
-    document.addEventListener('pointerdown', away, true);
-    return () => document.removeEventListener('pointerdown', away, true);
-  }, [unveiled]);
 
   const writePositions = (positions, contextOptions) => {
     useGraphStore.getState().updateMultipleNodeInstancePositions(obj.graphId, positions, contextOptions);
@@ -186,12 +183,12 @@ function FormulaObject({ obj, theme, selected, textSettings }) {
     e.stopPropagation();
     const scale = e.currentTarget.getScreenCTM?.()?.a || 1;
     const tokenEl = e.target.closest?.('[data-formula-target]');
-    const target = tokenEl?.getAttribute('data-formula-target') || null;
-    const protoId = tokenEl?.getAttribute('data-formula-proto') || null;
-    const defined = tokenEl?.getAttribute('data-formula-defined') === 'true';
     const press = {
-      pointerId: e.pointerId, pointerType: e.pointerType, startX: e.clientX, startY: e.clientY, scale,
-      target, protoId, defined, lifted: false, moved: false, frame: 0,
+      pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, scale,
+      target: tokenEl?.getAttribute('data-formula-target') || null,
+      protoId: tokenEl?.getAttribute('data-formula-proto') || null,
+      flip: tokenEl?.getAttribute('data-formula-flip') || null,
+      lifted: false, moved: false, frame: 0,
     };
     const delay = useGraphStore.getState().mouseSettings?.nodeLiftDelay ?? 250;
     press.timer = setTimeout(() => {
@@ -207,8 +204,7 @@ function FormulaObject({ obj, theme, selected, textSettings }) {
       });
       press.lifted = true;
       setLifted(true);
-      setUnveiled(null);
-      clearTimeout(hoverTimerRef.current);
+      setHoverKey(null);
       haptic('nodeLift');
     }, delay);
     pressRef.current = press;
@@ -257,39 +253,30 @@ function FormulaObject({ obj, theme, selected, textSettings }) {
       return;
     }
     if (cancelled || press.cancelled) return;
-    // A tap. Twice on the same token opens its Thing; otherwise it selects the formula.
+    // A tap. Twice on the same token opens its Thing; once switches it (if it
+    // can be), after waiting to see that it was only once. Either way the
+    // formula is selected.
     const now = performance.now();
     const last = lastTapRef.current;
+    clearTimeout(flipTimerRef.current);
     if (press.target && last.target === press.target && now - last.at < DOUBLE_TAP_MS) {
       lastTapRef.current = { target: null, at: 0 };
       openThingInPanel(press.protoId);
       return;
     }
     lastTapRef.current = { target: press.target, at: now };
-    // By touch there is no hover: a tap unveils (and a second tap elsewhere moves it).
-    if (press.pointerType === 'touch' && press.defined && press.target !== TITLE_TARGET) {
-      setUnveiled({ target: press.target, by: 'tap' });
-    }
     selectGroup(obj.groupId);
+    if (press.flip && press.target !== TITLE_TARGET) {
+      const { flip } = press;
+      flipTimerRef.current = setTimeout(() => flipFormulaToken(obj.groupId, flip), DOUBLE_TAP_MS);
+    }
   };
 
-  const hoverIn = (target) => (e) => {
+  const hoverIn = (key) => (e) => {
     if (e.pointerType === 'touch' || pressRef.current?.lifted) return;
-    clearTimeout(hoverTimerRef.current);
-    // Sliding from one token to the next unveils the next at once.
-    const sliding = performance.now() - hoverEndedAtRef.current < UNVEIL_DELAY_MS * 2;
-    if (sliding) { setUnveiled({ target, by: 'hover' }); return; }
-    hoverTimerRef.current = setTimeout(() => setUnveiled({ target, by: 'hover' }), UNVEIL_DELAY_MS);
+    setHoverKey(key);
   };
-  const hoverOut = (target) => (e) => {
-    if (e.pointerType === 'touch') return;
-    clearTimeout(hoverTimerRef.current);
-    setUnveiled((prev) => {
-      if (prev?.by !== 'hover' || prev.target !== target) return prev;
-      hoverEndedAtRef.current = performance.now();
-      return null;
-    });
-  };
+  const hoverOut = (key) => () => setHoverKey(prev => (prev === key ? null : prev));
 
   const color = obj.color || NODE_DEFAULT_COLOR;
   const onBand = getTextColor(color, theme.darkMode);
@@ -298,13 +285,13 @@ function FormulaObject({ obj, theme, selected, textSettings }) {
   const { frame, inner, titleBox } = obj;
   const cx = frame.x + frame.w / 2;
   const cy = frame.y + frame.h / 2;
-  // The token drawn grown: the first of the tokens standing for that Thing.
-  const unveiledIndex = unveiled ? obj.tokens.findIndex(t => t.target === unveiled.target && t.defined) : -1;
-  const unveiledToken = unveiledIndex >= 0 ? obj.tokens[unveiledIndex] : null;
+  // Drawn relative to the formula's middle, so moving it moves it at once and
+  // only a change of its own layout slides.
+  const o = obj.center;
+  const box = (r) => ({ x: r.x - o.x, y: r.y - o.y, w: r.w, h: r.h });
 
   return (
     <g
-      ref={rootRef}
       className={`formula-object${selected ? ' is-selected' : ''}${lifted ? ' is-lifted' : ''}`}
       data-formula-group={obj.groupId}
       transform={lifted ? `translate(${cx} ${cy}) scale(${LIFT_SCALE}) translate(${-cx} ${-cy})` : undefined}
@@ -319,68 +306,49 @@ function FormulaObject({ obj, theme, selected, textSettings }) {
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
       style={{ cursor: lifted ? 'grabbing' : 'pointer', filter: lifted ? 'drop-shadow(0px 10px 15px rgba(0, 0, 0, 0.2))' : undefined }}
     >
-      {selected && (
-        <rect
-          x={frame.x - 10} y={frame.y - 10} width={frame.w + 20} height={frame.h + 20}
-          rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
-        />
-      )}
-      {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
-      <g
-        className="formula-object-title"
-        data-formula-target={TITLE_TARGET}
-        data-formula-proto={obj.equationProtoId || undefined}
-      >
-        <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} rx={G.nodeGroupCornerRadius} fill={color} />
-        {obj.title && (
-          <text
-            x={titleBox.x + titleBox.w / 2} y={titleBox.y + titleBox.h / 2}
-            fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
-            fill={onBand} textAnchor="middle" dominantBaseline="central"
-            style={{ userSelect: 'none', pointerEvents: 'none' }}
-          >
-            {obj.title}
-          </text>
-        )}
-      </g>
-      <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} rx={G.innerCanvasCornerRadius} fill={ground} />
-      {obj.tokens.map((t, i) => {
-        const b = obj.boxes[i];
-        const target = t.target || null;
-        const defined = !!target && !!t.defined;
-        return (
-          <g
-            key={t.key}
-            className={`formula-object-token${defined ? ' is-defined' : ''}`}
-            data-formula-target={target || undefined}
-            data-formula-proto={t.protoId || undefined}
-            data-formula-defined={defined ? 'true' : undefined}
-            onPointerEnter={defined ? hoverIn(target) : undefined}
-            onPointerLeave={defined ? hoverOut(target) : undefined}
-            style={defined ? undefined : { cursor: lifted ? 'grabbing' : 'default' }}
-          >
-            <rect x={b.x} y={b.y} width={b.w} height={b.h} fill="transparent" />
-            {t.text && (
-              <TokenText
-                text={t.text} x={b.textX} y={b.baseline} size={b.size} fill={textColor}
-                opacity={t.kind === 'paren' ? 0.75 : 1}
-              />
-            )}
-          </g>
-        );
-      })}
-      <AnimatePresence>
-        {unveiledToken && !lifted && (
-          <Unveil
-            key={unveiledToken.target}
-            token={unveiledToken}
-            box={obj.boxes[unveiledIndex]}
-            proto={obj.protoOf.get(unveiledToken.protoId)}
-            theme={theme}
-            textSettings={textSettings}
+      <g transform={`translate(${o.x} ${o.y})`}>
+        {selected && (
+          <GlideRect
+            r={{ x: frame.x - 10 - o.x, y: frame.y - 10 - o.y, w: frame.w + 20, h: frame.h + 20 }}
+            rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
           />
         )}
-      </AnimatePresence>
+        {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
+        <g
+          className="formula-object-title"
+          data-formula-target={TITLE_TARGET}
+          data-formula-proto={obj.equationProtoId || undefined}
+        >
+          <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={color} />
+          {obj.title && (
+            <TitleText
+              at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
+              fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
+              fill={onBand} textAnchor="middle" dominantBaseline="central"
+              style={{ userSelect: 'none', pointerEvents: 'none' }}
+            >
+              {obj.title}
+            </TitleText>
+          )}
+        </g>
+        <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} />
+        <AnimatePresence initial={false}>
+          {obj.tokens.map((t, i) => (
+            <Token
+              key={t.key}
+              t={t}
+              b={obj.boxes[i]}
+              o={o}
+              fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+              textColor={textColor}
+              onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
+              hot={hoverKey === t.key && !lifted}
+              onEnter={hoverIn(t.key)}
+              onLeave={hoverOut(t.key)}
+            />
+          ))}
+        </AnimatePresence>
+      </g>
     </g>
   );
 }
@@ -388,7 +356,6 @@ function FormulaObject({ obj, theme, selected, textSettings }) {
 function FormulaObjectsLayer() {
   const formulaObjects = useFormulaObjects();
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
-  const textSettings = useGraphStore(s => s.textSettings);
   const theme = useTheme();
   if (!formulaObjects.objects.length) return null;
   const hideGroups = [...formulaObjects.hiddenGroupIds].map(id => `[data-group-id=${JSON.stringify(id)}]`).join(',');
@@ -396,10 +363,7 @@ function FormulaObjectsLayer() {
     <g className="formula-objects-layer">
       {hideGroups && <style>{`${hideGroups}{display:none}`}</style>}
       {formulaObjects.objects.map(obj => (
-        <FormulaObject
-          key={obj.groupId} obj={obj} theme={theme} textSettings={textSettings}
-          selected={selectedGroupId === obj.groupId}
-        />
+        <FormulaObject key={obj.groupId} obj={obj} theme={theme} selected={selectedGroupId === obj.groupId} />
       ))}
     </g>
   );

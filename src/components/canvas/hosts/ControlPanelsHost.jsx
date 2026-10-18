@@ -31,7 +31,7 @@ import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
-import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setReading, selectStandard, selectWords } from '../formats/formatsStore.js';
+import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
 import { Superscript, WholeWord } from 'lucide-react';
 import {
   onCarouselClose,
@@ -168,15 +168,15 @@ export default function ControlPanelsHost({ ctx }) {
   // Standard math (mc²) or every operation written (m × c ^ 2): only offered
   // when the formula has an operation the two write differently.
   const standardNotation = useFormatsStore(selectStandard);
-  const formulaWords = useFormatsStore(selectWords);
+  const formulaNames = useFormatsStore((s) => !!groupPanelTarget && s.namesShown.has(groupPanelTarget.id));
   const formatToggles = currentFormat === 'formula'
     ? [
-      // Each Thing by its real name (Pressure × Volume), or by its symbol (P V).
+      // This formula's Things by their names (Pressure × Volume), or by their symbols (P V).
       {
         key: 'reading',
         icon: (size) => <WholeWord size={size} />,
-        title: formulaWords ? 'Show Symbols' : 'Show Names',
-        onClick: () => setReading(formulaWords ? 'symbols' : 'names'),
+        title: formulaNames ? 'Show Symbols' : 'Show Names',
+        onClick: () => setFormulaNames(groupPanelTarget.id, !formulaNames),
       },
       ...(/[×^]/.test(groupFormulaText || '') ? [{
         key: 'notation',

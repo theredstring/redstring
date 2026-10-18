@@ -296,9 +296,13 @@ const means = (realName, text) => !!realName && norm(realName) !== norm(text);
 
 /**
  * The formula token by token. Each token:
- * { key, text, kind: 'operand'|'operator'|'paren'|'function'|'comma',
+ * { key (stable while the formula is the same: what it stands for, not where it is),
+ *   text, kind: 'operand'|'operator'|'paren'|'function'|'comma',
  *   target (what it stands for: an instance id, or `edge:<id>` for an operation),
- *   protoId (the Thing it shows), prefix?, level (how many times it is raised),
+ *   protoId (the Thing it shows), realName (that Thing's name),
+ *   defined (its Thing means more than what is written: Pressure behind P),
+ *   flip (what switches it between its symbol and its name, when it is defined),
+ *   expanded? (written by its name), prefix?, level (how many times it is raised),
  *   joined? (written right against the token before: multiplied side by side) }
  *
  * With `standard`, it is written the way math usually is: exponentiation with
@@ -307,21 +311,36 @@ const means = (realName, text) => !!realName && norm(realName) !== norm(text);
  * is how ^ groups), and multiplication unwritten between a number or a letter and
  * the letter or part after it (mc², 4ac, 2(a + b)). Between whole-word names, or
  * before a number, the × stays.
+ *
+ * `expand(flip, kind)` says which defined tokens are written by name instead
+ * ('operand', 'operator', 'apply' for a sign, root or function, 'part' for a
+ * named part, which is then written as its name alone: Discriminant).
  */
-export function tokensOf(chain, { standard = false, words = false, plain = false } = {}) {
-  const shown = (term) => (words && term.realName ? term.realName : term.name);
-  const isLetterTerm = (t) => t?.kind === 'thing' && isSymbolText(shown(t));
+export function tokensOf(chain, { standard = false, expand = null, plain = false } = {}) {
+  const expanded = (flip, kind) => !plain && !!expand && !!flip && expand(flip, kind);
+  const operandShown = (term) => !!term.protoId && means(term.realName, term.name) && expanded(term.instanceId, 'operand');
+  const partShown = (term) => term.kind === 'part' && !plain && !!term.protoId && !!term.anchorId
+    && partIsNamed(term) && expanded(term.anchorId, 'part');
+  const isLetterTerm = (t) => t?.kind === 'thing' && !operandShown(t) && isSymbolText(t.name);
+  const isGrouped = (t) => isGroupedTerm(t) && !partShown(t);
   /** Whether multiplication between these two terms goes unwritten in standard notation (2a, mc, 4ac, 2(a + b)). */
   const multipliesSideBySide = (left, right) => {
     if (!left || !right || isNumberTerm(right)) return false;
-    if (!(isLetterTerm(right) || isGroupedTerm(right))) return false;
-    return isNumberTerm(left) || isLetterTerm(left) || isGroupedTerm(left);
+    if (!(isLetterTerm(right) || isGrouped(right))) return false;
+    return isNumberTerm(left) || isLetterTerm(left) || isGrouped(left);
   };
   const tokens = [];
+  const seen = new Map();
   let k = 0;
   let joinNext = false;
   const push = (t, level) => {
-    tokens.push({ key: `t${k++}`, level, ...t, ...(joinNext ? { joined: true } : {}) });
+    // Keyed by what it stands for, so it keeps its key when the tokens around it change.
+    const role = t.kind === 'paren' ? t.text : t.kind === 'comma' ? ',' : t.kind;
+    const base = t.target ? `${t.target}|${role}` : `n${k}`;
+    const n = seen.get(base) || 0;
+    seen.set(base, n + 1);
+    k++;
+    tokens.push({ key: n ? `${base}#${n}` : base, level, ...t, ...(joinNext ? { joined: true } : {}) });
     joinNext = false;
   };
   const emitChain = (c, level) => {
@@ -334,32 +353,48 @@ export function tokensOf(chain, { standard = false, words = false, plain = false
           joinNext = true;
           return;
         }
+        const target = item.edgeId ? `edge:${item.edgeId}` : null;
+        const defined = !!item.protoId && means(item.name, item.symbol);
+        const named = defined && expanded(target, 'operator');
         push({
-          text: item.symbol, kind: 'operator', target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null,
-          realName: item.name, defined: !!item.protoId && means(item.name, item.symbol),
+          text: named ? item.name : item.symbol, kind: 'operator', target, protoId: item.protoId || null,
+          realName: item.name, defined, flip: defined ? target : null, ...(named ? { expanded: true } : {}),
         }, level);
       } else emitTerm(item, termLevel, termLevel > level);
     });
   };
   const emitTerm = (term, level, isExponent) => {
     if (term.kind === 'thing') {
-      const text = shown(term);
+      const defined = !!term.protoId && means(term.realName, term.name);
+      const named = operandShown(term);
       push({
-        text, kind: 'operand', target: term.instanceId || null, protoId: term.protoId || null,
-        realName: term.realName || null, defined: !!term.protoId && means(term.realName, term.name),
+        text: named ? term.realName : term.name, kind: 'operand', target: term.instanceId || null, protoId: term.protoId || null,
+        realName: term.realName || null, defined, flip: defined ? term.instanceId : null, ...(named ? { expanded: true } : {}),
       }, level);
       return;
     }
-    const own = { target: term.anchorId || null, protoId: term.protoId || null, realName: term.name, defined: !plain && !!term.protoId && partIsNamed(term) };
+    const partDefined = !plain && !!term.protoId && partIsNamed(term);
+    const own = { target: term.anchorId || null, protoId: term.protoId || null, realName: term.name, defined: partDefined, flip: partDefined ? term.anchorId : null };
+    if (partShown(term)) {
+      // A named part, written as its name: the chunk it is (Discriminant).
+      push({ text: term.name, kind: 'operand', ...own, expanded: true }, level);
+      return;
+    }
     // A sign, root or function name stands for what is applied: the part's type (Square Root, sin).
-    const applied = (text) => ({
-      target: term.anchorId || null, protoId: term.typeProtoId || term.protoId || null,
-      realName: term.typeName || null, defined: !!term.typeProtoId && means(term.typeName, text),
-    });
+    const applied = (text) => {
+      const defined = !!term.typeProtoId && means(term.typeName, text);
+      const flip = defined && term.anchorId ? `apply:${term.anchorId}` : null;
+      const named = defined && expanded(flip, 'apply');
+      return {
+        text: named ? term.typeName : text,
+        target: term.anchorId || null, protoId: term.typeProtoId || term.protoId || null,
+        realName: term.typeName || null, defined, flip, ...(named ? { expanded: true } : {}),
+      };
+    };
     if (term.apply === 'neg' || term.apply === 'sqrt') {
       const inner = term.args[0];
       const sign = term.apply === 'neg' ? '−' : '√';
-      push({ text: sign, kind: 'operator', prefix: true, ...applied(sign) }, level);
+      push({ kind: 'operator', prefix: true, ...applied(sign) }, level);
       const wrap = termCount(inner) > 1;
       if (wrap) push({ text: '(', kind: 'paren', ...own }, level);
       emitChain(inner, level);
@@ -367,7 +402,7 @@ export function tokensOf(chain, { standard = false, words = false, plain = false
       return;
     }
     if (term.apply === 'fn') {
-      push({ text: term.fnName, kind: 'function', ...applied(term.fnName) }, level);
+      push({ kind: 'function', ...applied(term.fnName) }, level);
       push({ text: '(', kind: 'paren', ...own }, level);
       term.args.forEach((a, i) => {
         if (i > 0) push({ text: ',', kind: 'comma', ...own }, level);
@@ -383,6 +418,16 @@ export function tokensOf(chain, { standard = false, words = false, plain = false
   };
   emitChain(chain, 0);
   return tokens;
+}
+
+/**
+ * What a formula's display state expands: every defined operand while its
+ * names are shown, and whatever was switched on its own (switching one back
+ * while names are shown writes that one by its symbol again).
+ */
+export function expandFor(namesShown, flipped) {
+  if (!namesShown && !flipped?.size) return null;
+  return (flip, kind) => ((namesShown && kind === 'operand') !== !!flipped?.has(flip));
 }
 
 /** The formula as one line of plain text. */

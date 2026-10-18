@@ -17,7 +17,7 @@
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst } from '../../../../services/groupLayout.js';
-import { readFormulaGroup, tokensOf, chainText, subscriptOf } from './formulaChain.js';
+import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
@@ -60,13 +60,21 @@ function padsFor(t) {
   return [0.1, 0.1];
 }
 
+// A token written by its Thing's name is drawn as that Thing, a pill in its color.
+const PILL_EM = 1.7;     // height, in the token's em
+const PILL_PAD = 0.5;    // inside, either side of the name
+const PILL_MARGIN = 0.14; // outside, either side
+export const PILL_RADIUS = 0.4; // of its height, as a node's corners are of its
+
 /**
  * Where each token goes on one line, relative to the line's left end and
- * vertical middle. Each box: { x, y, w, h, size, baseline } in canvas units.
+ * vertical middle. Each box: { x, y, w, h, size, baseline, textX, pill? } in
+ * canvas units; `pill` ({ x, y, w, h }) for a token written by name.
  */
 export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
   let x = 0;
   let prevLevel = 0;
+  let reach = BOX_EM * font / 2; // how far the line reaches above and below its middle
   const boxes = tokens.map((t) => {
     const level = t.level || 0;
     const size = font * Math.pow(RAISE_SCALE, level);
@@ -75,17 +83,27 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
     if (level > prevLevel) x += RAISE_GAP_IN * font;
     else if (level < prevLevel) x += RAISE_GAP_OUT * font;
     prevLevel = level;
-    const [padL, padR] = padsFor(t);
     const sub = subscriptOf(t.text);
     const textW = sub ? measure(sub[0], size) + measure(sub[1], size * SUBSCRIPT_SCALE) : measure(t.text, size);
-    const w = textW + (padL + padR) * size;
     const baseline = BASELINE_EM * font - lift;
+    const middle = baseline - BASELINE_EM * size;
+    if (t.expanded) {
+      const ph = PILL_EM * size;
+      const pill = { x: x + PILL_MARGIN * size, y: middle - ph / 2, w: textW + 2 * PILL_PAD * size, h: ph };
+      const w = pill.w + 2 * PILL_MARGIN * size;
+      reach = Math.max(reach, Math.abs(pill.y), Math.abs(pill.y + ph));
+      const box = { x, y: pill.y, w, h: ph, size, baseline, textX: pill.x + PILL_PAD * size, pill };
+      x += w;
+      return box;
+    }
+    const [padL, padR] = padsFor(t);
+    const w = textW + (padL + padR) * size;
     const h = BOX_EM * size;
-    const box = { x, y: baseline - BASELINE_EM * size - h / 2, w, h, size, baseline, textX: x + padL * size };
+    const box = { x, y: middle - h / 2, w, h, size, baseline, textX: x + padL * size };
     x += w;
     return box;
   });
-  return { boxes, width: x, height: BOX_EM * font };
+  return { boxes, width: x, height: 2 * reach };
 }
 
 const EMPTY = Object.freeze({ objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), tokenBoxById: new Map() });
@@ -97,25 +115,28 @@ let last = null;
  *
  * @param {object} state - graphStore state
  */
-export function computeFormulaObjects(state, { standard = true, words = false } = {}) {
-  const result = formulaObjectsOf(state, standard, words);
+export function computeFormulaObjects(state, { standard = true, namesShown = NO_NAMES, flipped = NO_FLIPS } = {}) {
+  const result = formulaObjectsOf(state, standard, namesShown, flipped);
   // What the formulas replace can't be hit (formats/replaced.js).
   setReplaced(result.hiddenIds, result.hiddenGroupIds);
   return result;
 }
 
-function formulaObjectsOf(state, standard, words) {
+const NO_NAMES = new Set();
+const NO_FLIPS = new Map();
+
+function formulaObjectsOf(state, standard, namesShown, flipped) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
   const view = projectGraphView(state, graphId);
   if (!view?.instances || !view.groups?.size) return EMPTY;
-  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.words === words) {
+  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
     return last.result;
   }
   const shownGroups = [];
   view.groups.forEach((group) => { if (group.format === 'formula') shownGroups.push(group); });
   if (shownGroups.length === 0) {
-    last = { view, protos: state.nodePrototypes, edges: state.edges, standard, words, result: EMPTY };
+    last = { view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result: EMPTY };
     return EMPTY;
   }
 
@@ -145,10 +166,13 @@ function formulaObjectsOf(state, standard, words) {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const tokens = tokensOf(chain, { standard, words });
+    const tokens = tokensOf(chain, { standard, expand: expandFor(namesShown.has(group.id), flipped.get(group.id)) });
     const line = layoutFormulaLine(tokens);
     const left = cx - line.width / 2;
-    const boxes = line.boxes.map(b => ({ ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy }));
+    const boxes = line.boxes.map(b => ({
+      ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy,
+      ...(b.pill ? { pill: { ...b.pill, x: b.pill.x + left, y: b.pill.y + cy } } : {}),
+    }));
 
     // The equation: its Thing when it is a Thing-group, else the group itself.
     const equationProto = group.linkedNodePrototypeId ? state.nodePrototypes.get(group.linkedNodePrototypeId) : null;
@@ -206,7 +230,7 @@ function formulaObjectsOf(state, standard, words) {
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById } : EMPTY;
   // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
   const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
-  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, words, result } : null;
+  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result } : null;
   return result;
 }
 

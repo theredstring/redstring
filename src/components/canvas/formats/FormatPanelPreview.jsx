@@ -9,20 +9,21 @@ import useGraphStore from '../../../store/graphStore.js';
 import { getTextColor } from '../../../utils/colorUtils.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { readGroupFormula } from './formatCandidates.js';
-import { tokensOf } from './formula/formulaChain.js';
+import { tokensOf, expandFor } from './formula/formulaChain.js';
 import { useGroupFormulaText } from './groupFormats.js';
-import useFormatsStore, { selectStandard, selectWords } from './formatsStore.js';
+import useFormatsStore, { selectStandard } from './formatsStore.js';
 import FormulaTokens from './formula/FormulaTokens.jsx';
 
 export default function FormatPanelPreview({ groupId, color, darkMode }) {
   const formulaText = useGroupFormulaText(groupId);
   const standard = useFormatsStore(selectStandard);
-  const words = useFormatsStore(selectWords);
+  const names = useFormatsStore(s => s.namesShown.has(groupId));
+  const flipped = useFormatsStore(s => s.flipped.get(groupId));
   const tokens = useMemo(() => {
     if (!formulaText) return null;
     const chain = readGroupFormula(useGraphStore.getState(), useGraphStore.getState().activeGraphId, groupId);
-    return chain ? tokensOf(chain, { standard, words }) : null;
-  }, [formulaText, groupId, standard, words]);
+    return chain ? tokensOf(chain, { standard, expand: expandFor(names, flipped) }) : null;
+  }, [formulaText, groupId, standard, names, flipped]);
   if (!tokens) return null;
   const fill = color || NODE_DEFAULT_COLOR;
   return (

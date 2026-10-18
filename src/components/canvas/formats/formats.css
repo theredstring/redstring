@@ -335,6 +335,7 @@ button.format-pill:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
   font-size: 0.9rem;
   font-weight: bold;
 }

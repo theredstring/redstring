@@ -2864,82 +2864,90 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
-        memberInstances.forEach(({ instId, instance }) => {
-          const newInstId = uuidv4();
-          instanceIdMap.set(instId, newInstId);
-          defGraphData.instances.set(newInstId, {
-            id: newInstId,
-            prototypeId: instance.prototypeId,
-            x: instance.x,
-            y: instance.y,
-            scale: instance.scale || 1.0
+        // Linking to a definition the Thing already has (the same equation placed
+        // again): no second definition web, the group reads as that one.
+        const reuseIndex = contextOptions.useDefinitionIndex;
+        const reuseGraphId = Number.isInteger(reuseIndex) ? prototype.definitionGraphIds?.[reuseIndex] : null;
+        const reusing = !!reuseGraphId && draft.graphs.has(reuseGraphId);
+        if (reusing) definitionIndex = reuseIndex;
+        if (!reusing) {
+          memberInstances.forEach(({ instId, instance }) => {
+            const newInstId = uuidv4();
+            instanceIdMap.set(instId, newInstId);
+            defGraphData.instances.set(newInstId, {
+              id: newInstId,
+              prototypeId: instance.prototypeId,
+              x: instance.x,
+              y: instance.y,
+              scale: instance.scale || 1.0
+            });
           });
-        });
 
-        // Copy edges between group members to the definition graph with remapped instance IDs
-        const memberInstIds = new Set(group.memberInstanceIds || []);
-        graph.edgeIds?.forEach(edgeId => {
-          const edge = draft.edges.get(edgeId);
-          if (!edge) return;
+          // Copy edges between group members to the definition graph with remapped instance IDs
+          const memberInstIds = new Set(group.memberInstanceIds || []);
+          graph.edgeIds?.forEach(edgeId => {
+            const edge = draft.edges.get(edgeId);
+            if (!edge) return;
 
-          const sourceMapped = memberInstIds.has(edge.sourceId) ? instanceIdMap.get(edge.sourceId) : null;
-          const destMapped = memberInstIds.has(edge.destinationId) ? instanceIdMap.get(edge.destinationId) : null;
+            const sourceMapped = memberInstIds.has(edge.sourceId) ? instanceIdMap.get(edge.sourceId) : null;
+            const destMapped = memberInstIds.has(edge.destinationId) ? instanceIdMap.get(edge.destinationId) : null;
 
-          if (sourceMapped && destMapped) {
-            const newEdgeId = uuidv4();
-            const normalizedDirectionality = normalizeEdgeDirectionality(edge.directionality);
-            const newArrowsToward = new Set(normalizedDirectionality.arrowsToward || []);
+            if (sourceMapped && destMapped) {
+              const newEdgeId = uuidv4();
+              const normalizedDirectionality = normalizeEdgeDirectionality(edge.directionality);
+              const newArrowsToward = new Set(normalizedDirectionality.arrowsToward || []);
 
-            if (newArrowsToward.has(edge.sourceId)) {
-              newArrowsToward.delete(edge.sourceId);
-              newArrowsToward.add(sourceMapped);
-            }
-            if (newArrowsToward.has(edge.destinationId)) {
-              newArrowsToward.delete(edge.destinationId);
-              newArrowsToward.add(destMapped);
-            }
-
-            const newEdgeData = {
-              ...edge,
-              id: newEdgeId,
-              sourceId: sourceMapped,
-              destinationId: destMapped,
-              directionality: {
-                ...normalizedDirectionality,
-                arrowsToward: newArrowsToward
+              if (newArrowsToward.has(edge.sourceId)) {
+                newArrowsToward.delete(edge.sourceId);
+                newArrowsToward.add(sourceMapped);
               }
-            };
-            newEdgeData.graphId = defGraphId;
-
-            if (Array.isArray(edge.definitionNodeIds)) {
-              newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
-            }
-            if (edge.metadata && typeof edge.metadata === 'object') {
-              try {
-                newEdgeData.metadata = JSON.parse(JSON.stringify(edge.metadata));
-              } catch {
-                newEdgeData.metadata = { ...edge.metadata };
+              if (newArrowsToward.has(edge.destinationId)) {
+                newArrowsToward.delete(edge.destinationId);
+                newArrowsToward.add(destMapped);
               }
-            }
 
-            draft.edges.set(newEdgeId, newEdgeData);
-            defGraphData.edgeIds.push(newEdgeId);
+              const newEdgeData = {
+                ...edge,
+                id: newEdgeId,
+                sourceId: sourceMapped,
+                destinationId: destMapped,
+                directionality: {
+                  ...normalizedDirectionality,
+                  arrowsToward: newArrowsToward
+                }
+              };
+              newEdgeData.graphId = defGraphId;
+
+              if (Array.isArray(edge.definitionNodeIds)) {
+                newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
+              }
+              if (edge.metadata && typeof edge.metadata === 'object') {
+                try {
+                  newEdgeData.metadata = JSON.parse(JSON.stringify(edge.metadata));
+                } catch {
+                  newEdgeData.metadata = { ...edge.metadata };
+                }
+              }
+
+              draft.edges.set(newEdgeId, newEdgeData);
+              defGraphData.edgeIds.push(newEdgeId);
+            }
+          });
+
+          draft.graphs.set(defGraphId, defGraphData);
+
+          // Add definition to prototype
+          if (!Array.isArray(prototype.definitionGraphIds)) {
+            prototype.definitionGraphIds = [];
           }
-        });
-
-        draft.graphs.set(defGraphId, defGraphData);
-
-        // Add definition to prototype
-        if (!Array.isArray(prototype.definitionGraphIds)) {
-          prototype.definitionGraphIds = [];
+          prototype.definitionGraphIds.push(defGraphId);
+          definitionIndex = prototype.definitionGraphIds.length - 1;
         }
-        prototype.definitionGraphIds.push(defGraphId);
-        definitionIndex = prototype.definitionGraphIds.length - 1;
 
         // Update group with node-group properties
         group.linkedNodePrototypeId = prototypeId;
         group.linkedDefinitionIndex = definitionIndex;
-        group.definitionFingerprint = contentFingerprint(draft, draft.graphs.get(defGraphId));
+        group.definitionFingerprint = contentFingerprint(draft, draft.graphs.get(reusing ? reuseGraphId : defGraphId));
         group.hasCustomLayout = false; // Start with default syncing
         // Identity now belongs to the prototype — the group mirrors it from here on.
         group.name = prototype.name;

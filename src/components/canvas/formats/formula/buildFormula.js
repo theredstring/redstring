@@ -247,6 +247,7 @@ function build(chain, graphId, at, bindings, title, equation) {
 
   // The equation's own Thing, holding the whole formula, shown as the formula.
   const name = title || text;
+  const before = equation.origin ? prototypeFrom(equation.origin) : null;
   const equationProto = equation.origin
     ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '' })
     : { id: uuidv4(), name, color: NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] };
@@ -254,7 +255,12 @@ function build(chain, graphId, at, bindings, title, equation) {
   const groupId = useGraphStore.getState().createGroup(graphId, {
     name, color: equationProto.color || NODE_DEFAULT_COLOR, memberInstanceIds: inside, format: 'formula',
   });
-  useGraphStore.getState().convertGroupToNodeGroup(graphId, groupId, equationProto.id, false);
+  // The same equation again is the same Thing with the same definition: its
+  // first web, not a copy of it each time it is placed.
+  const st = useGraphStore.getState();
+  const known = before && (st.nodePrototypes.get(before.id)?.definitionGraphIds || []).findIndex(id => st.graphs.has(id));
+  st.convertGroupToNodeGroup(graphId, groupId, equationProto.id, false, '', undefined,
+    Number.isInteger(known) && known >= 0 ? { useDefinitionIndex: known } : {});
   const linked = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId)?.linkedNodePrototypeId === equationProto.id;
 
   if (equation.discipline && linked) placeInDiscipline(equation.discipline, equationProto.id);
