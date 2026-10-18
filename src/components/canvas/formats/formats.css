@@ -1,0 +1,248 @@
+/* Formats: the offer pill and the formula view. The pill is Back to
+   Civilization's (BackToCivilization.css) so the two read as one family. */
+
+.format-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 20px;
+  padding: 8px 16px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button.format-pill:hover:not(:disabled) {
+  background-color: #D0CACA;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+button.format-pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- Offer ------------------------------------------------------------- */
+
+.format-offer {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.format-offer.is-in {
+  animation: format-offer-pop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.format-offer.is-steady {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.format-offer.is-out {
+  animation: format-offer-shrink 150ms cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+}
+
+@keyframes format-offer-pop {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  70% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+@keyframes format-offer-shrink {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+}
+
+.format-offer-pill {
+  padding: 0;
+  gap: 0;
+  cursor: default;
+  overflow: hidden;
+}
+
+.format-offer-pill:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.format-offer-main,
+.format-offer-dismiss {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.format-offer-main {
+  gap: 8px;
+  padding: 8px 12px 8px 14px;
+}
+
+.format-offer-dismiss {
+  padding: 8px 12px 8px 10px;
+}
+
+.format-offer-main:hover,
+.format-offer-dismiss:hover {
+  background-color: #D0CACA;
+}
+
+.format-offer-divider {
+  width: 2px;
+  align-self: stretch;
+  background-color: maroon;
+  opacity: 0.25;
+}
+
+.format-offer-preview {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: bold;
+  line-height: 1;
+}
+
+/* --- New Formula composer --------------------------------------------- */
+
+.formula-composer {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.formula-composer-card {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  cursor: default;
+}
+
+.formula-composer-card input {
+  width: min(320px, 50vw);
+  padding: 8px 6px 8px 16px;
+  border: none;
+  background: transparent;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  outline: none;
+}
+
+.formula-composer-card input::placeholder {
+  color: maroon;
+  opacity: 0.4;
+}
+
+.formula-composer-add {
+  align-self: stretch;
+  padding: 0 14px;
+  border: none;
+  border-left: 2px solid rgba(128, 0, 0, 0.25);
+  border-right: 2px solid rgba(128, 0, 0, 0.25);
+  background: none;
+  color: maroon;
+  font: inherit;
+  cursor: pointer;
+}
+
+.formula-composer-add:hover:not(:disabled) {
+  background-color: #D0CACA;
+}
+
+.formula-composer-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.formula-composer-preview {
+  min-height: 20px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+/* --- Formula object on the canvas (formula/FormulaObjectsLayer) -------- */
+
+.formula-object-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  font-family: 'EmOne', sans-serif;
+  color: var(--fo-text);
+}
+
+.formula-object-chip {
+  padding: 8px 22px;
+  border-radius: 18px;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.formula-object-role {
+  font-size: 16px;
+  color: var(--fo-muted);
+}
+
+.formula-object-description {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+/* --- Token previews (formula/FormulaTokens) ---------------------------- */
+
+.formula-tokens {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.formula-token {
+  position: relative;
+  display: inline-block;
+  padding: 0 0.1em;
+}
+
+.formula-token.kind-operator {
+  padding: 0 0.3em;
+}
+
+/* A sign or root sits against what it applies to. */
+.formula-token.kind-operator.is-prefix {
+  padding: 0 0.04em 0 0.1em;
+}
+
+.formula-token.kind-comma {
+  padding: 0 0.35em 0 0;
+}
+
+.formula-token.kind-paren {
+  padding: 0 0.03em;
+  opacity: 0.75;
+}
+
+.formula-token.is-raise {
+  padding: 0;
+  width: 0.08em;
+}

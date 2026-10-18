@@ -80,4 +80,17 @@ describe('node-group serialization round trip', () => {
     const group = roundTrip(buildStateWithGroup({}));
     expect(group.emptyPlaceholderOrigin).toBeUndefined();
   });
+
+  it('preserves format, so a group shown as a formula stays one after a reload', () => {
+    const group = roundTrip(buildStateWithGroup({ format: 'formula' }));
+    expect(group.format).toBe('formula');
+    const exported = exportToRedstring(buildStateWithGroup({ format: 'formula' }));
+    expect(JSON.stringify(exported)).toContain('"redstring:format":"formula"');
+  });
+
+  it('writes no format for a group shown as its Things', () => {
+    const group = roundTrip(buildStateWithGroup({}));
+    expect(group.format).toBeUndefined();
+    expect(JSON.stringify(exportToRedstring(buildStateWithGroup({})))).not.toContain('redstring:format');
+  });
 });

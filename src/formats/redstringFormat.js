@@ -948,6 +948,9 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
             // can tell an edit made here from one made elsewhere. Optional.
             ...(group.definitionFingerprint ? { "redstring:definitionFingerprint": group.definitionFingerprint } : {}),
             ...(group.emptyPlaceholderOrigin ? { "redstring:emptyPlaceholderOrigin": group.emptyPlaceholderOrigin } : {}),
+            // How the group is shown instead of as its Things ('formula'). Optional;
+            // a build that doesn't know it shows the Things.
+            ...(group.format ? { "redstring:format": group.format } : {}),
             // RDF-style membership relationships
             "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
               "@id": toIri(memberId)
@@ -1717,7 +1720,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 hasCustomLayout: group['redstring:hasCustomLayout'] ?? group.hasCustomLayout,
                 anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId,
                 definitionFingerprint: group['redstring:definitionFingerprint'] || group.definitionFingerprint || undefined,
-                emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined
+                emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined,
+                format: group['redstring:format'] || group.format || undefined
               };
             } else {
               // Legacy format
@@ -1739,7 +1743,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 hasCustomLayout: group.hasCustomLayout,
                 anchorInstanceId: group.anchorInstanceId,
                 definitionFingerprint: group.definitionFingerprint || undefined,
-                emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined
+                emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined,
+                format: group.format || undefined
               };
             }
             

@@ -14,7 +14,7 @@ import {
   openPieMenu, marqueeModifier,
 } from './helpers.js';
 
-const CANVAS_MENU = ['Auto Layout Web', 'Snap to Grid', 'Ask The Wizard', 'Merge Duplicates', 'Condense Things', 'Force Simulation', 'Refresh'];
+const CANVAS_MENU = ['Auto Layout Web', 'Snap to Grid', 'Ask The Wizard', 'New Formula', 'Merge Duplicates', 'Condense Things', 'Force Simulation', 'Refresh'];
 const nodeMenu = (saveLabel) => ['Open Web', 'Decompose', 'Generalize / Specify', 'Delete', 'Edit', saveLabel, 'Color', 'Semantic Orbit'];
 const BACKDROP_GUARD_MS = 300;
 

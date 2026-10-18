@@ -8,13 +8,15 @@
  * labels placed before them (placedLabelsRef), so their order matters until
  * placement is computed up front (P3.05).
  */
-import React, { Profiler, useRef } from 'react';
+import React, { Profiler, useMemo, useRef } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { edgeZSlotFor } from '../../../services/groupLayout.js';
 import { renderConnectionEdge } from '../renderConnectionEdge.jsx';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import EdgeTransitionLayer from '../edges/EdgeTransitionLayer.jsx';
 import BoxMorphLayer from './BoxMorphLayer.jsx';
+import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
+import { redirectEdgeCtx, filterFormulaEdges } from '../formats/formula/formulaObjects.js';
 
 /**
  * @param {object} p
@@ -25,7 +27,13 @@ import BoxMorphLayer from './BoxMorphLayer.jsx';
  * @param {Map} p.nestedRegularGroupsByDepth  groupElements.nestedRegularByDepth
  * @param {{ current: object }} p.edgePerfRef  the window.__edgePerf accumulator
  */
-export default function EdgeLayer({ ctx, visibleEdges, edgeZSlots, nodeGroupShellsByDepth, nestedRegularGroupsByDepth, edgePerfRef }) {
+export default function EdgeLayer({ ctx: canvasCtx, visibleEdges: canvasEdges, edgeZSlots, nodeGroupShellsByDepth, nestedRegularGroupsByDepth, edgePerfRef }) {
+  // Formulas shown in place: their inner connections go, and connections from
+  // outside land on the token their Thing became. Both are the inputs
+  // unchanged (same identity) while no formula is shown.
+  const formulaObjects = useFormulaObjects();
+  const ctx = useMemo(() => redirectEdgeCtx(canvasCtx, formulaObjects), [canvasCtx, formulaObjects]);
+  const visibleEdges = useMemo(() => filterFormulaEdges(canvasEdges, formulaObjects), [canvasEdges, formulaObjects]);
   const hoveredEdgeInfo = useCanvasUIStore((s) => s.hoveredEdgeInfo);
   const spawnDropEdgeId = useCanvasUIStore((s) => s.spawnDropEdgeId);
   // --- Connection z-order -------------------------------------------------

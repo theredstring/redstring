@@ -2360,7 +2360,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags (isDragging, phase, etc.).
      * @returns {string|null} The new group ID, or null if the graph was not found.
      */
-    createGroup: (graphId, { name = 'Group', color = '#8B0000', memberInstanceIds = [] } = {}, contextOptions = {}) => {
+    createGroup: (graphId, { name = 'Group', color = '#8B0000', memberInstanceIds = [], format } = {}, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_create', target: 'group', ...contextOptions });
       let createdGroupId = null;
       set(produce((draft) => {
@@ -2378,6 +2378,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           name,
           color,
           memberInstanceIds: Array.from(new Set(memberInstanceIds)),
+          // Shown as this format instead of as its Things (formats/; 'formula').
+          ...(format ? { format } : {}),
           semanticMetadata: {
             type: 'Group',
             relationships: memberInstanceIds.map(memberId => ({

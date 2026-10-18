@@ -4,7 +4,7 @@
  * over as `ctx`, with the same callback dependencies, so every action sees what
  * it saw before.
  */
-import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, LayoutGrid, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, LayoutGrid, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sigma, Sparkles, Trash2 } from 'lucide-react';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { getNodeDimensions } from '../../../utils.js';
@@ -14,6 +14,7 @@ import { webFacts } from '../../../wizard/prompts/facts.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestRefresh } from '../dialogs/refresh.js';
+import { openFormulaComposer } from '../formats/formatsStore.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -54,6 +55,19 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
         });
       }
     }] : []),
+    // Types a formula and builds it here as Things (formats/formula).
+    {
+      label: 'New Formula',
+      icon: <Sigma size={14} />,
+      action: () => {
+        if (!activeGraphId) return;
+        const rect = containerRef.current?.getBoundingClientRect();
+        const at = rect && typeof clientX === 'number' && typeof clientY === 'number'
+          ? clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize)
+          : { x: 0, y: 0 };
+        openFormulaComposer(activeGraphId, at);
+      }
+    },
     // The merge modal is mounted here in NodeCanvas, but go through the same
     // event the other entry points use so there is one opener.
     {

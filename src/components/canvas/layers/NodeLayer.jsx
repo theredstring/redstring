@@ -18,6 +18,8 @@ import Node from '../../../Node.jsx';
 import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
 import { showContextMenu } from '../../GlobalContextMenu';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import FormulaObjectsLayer from '../formats/formula/FormulaObjectsLayer.jsx';
+import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 
 function NodeLayer({
   part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, marqueeActive,
@@ -32,6 +34,8 @@ function NodeLayer({
   const editingNodeIdOnCanvas = useCanvasUIStore((s) => s.editingNodeIdOnCanvas);
   const nodeDefinitionIndices = useCanvasUIStore((s) => s.nodeDefinitionIndices);
   const semanticOrbitActive = useCanvasUIStore((s) => s.semanticOrbitActive);
+  // Things shown as a formula are drawn by their formula object instead.
+  const formulaHiddenIds = useFormulaObjects().hiddenIds;
 
   // Helper function to get description content for a node when previewing
   const getNodeDescriptionContent = (node, isNodePreviewing) => {
@@ -70,7 +74,8 @@ function NodeLayer({
     node.id !== nodeIdToKeepActiveForStacking &&
     node.id !== draggingNodeId &&
     visibleNodeIds.has(node.id) &&
-    !node.isGroupAnchor
+    !node.isGroupAnchor &&
+    !formulaHiddenIds.has(node.id)
   );
   // Split into normal nodes and thing-group member nodes for z-ordering
   const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIds.has(n.id));
@@ -81,7 +86,7 @@ function NodeLayer({
   // panel, search, a connection) must not pop the full Thing up at the tab.
   const findDrawable = (id) => {
     const n = id ? nodes.find(node => node.id === id) : null;
-    return n && !n.isGroupAnchor ? n : null;
+    return n && !n.isGroupAnchor && !formulaHiddenIds.has(n.id) ? n : null;
   };
   const activeNodeToRender = findDrawable(nodeIdToKeepActiveForStacking);
   const draggingNodeToRender = findDrawable(draggingNodeId);
@@ -144,6 +149,9 @@ function NodeLayer({
 
         {/* Thing-group member nodes (above normal nodes) */}
         {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
+
+        {/* Formulas shown in place, where their Things were (formats/formula) */}
+        <FormulaObjectsLayer />
       </>
     );
   }
