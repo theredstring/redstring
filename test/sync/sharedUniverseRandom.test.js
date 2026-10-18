@@ -119,6 +119,13 @@ describe('at the same time', () => {
         for (const d of devices) await d.check();
       }
 
+      // The one conflict that is the design: the merge stops and asks when one
+      // side removed most of the universe (its guard against a failed load
+      // emptying the repository), which random deleting in a small universe
+      // can do. Any other conflict is a failure.
+      const SAFETY = /removed \d+ of \d+ Things and webs/;
+      if (devices.some((d) => d.conflicts && d.notices.some((n) => SAFETY.test(n)))) return;
+
       const repo = fromFile(host.current(PATH).content);
       for (const d of devices) {
         expect(d.conflicts, failure(seed, log, `${d.author} was asked to resolve a conflict (${d.notices.slice(-3).join(' | ')})`)).toBe(0);

@@ -14,23 +14,7 @@
  */
 import useGraphStore from '../../src/store/graphStore.js';
 
-/** mulberry32: a small seeded random source. */
-export function seededRandom(seed) {
-  let a = seed >>> 0;
-  const next = () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  return {
-    next,
-    int: (n) => Math.floor(next() * n),
-    pick: (list) => (list.length ? list[Math.floor(next() * list.length)] : undefined),
-    chance: (p) => next() < p
-  };
-}
+export { seededRandom, idSource } from './random.js';
 
 const store = () => useGraphStore.getState();
 const sorted = (iterable) => [...iterable].sort();
@@ -325,6 +309,18 @@ export const ACTIONS = [
     }
   },
   {
+    name: 'put a Thing in another\'s abstraction chain',
+    weight: 1,
+    run(rng) {
+      const [owner, member] = [rng.pick(userPrototypeIds()), rng.pick(userPrototypeIds())];
+      if (!owner || !member || owner === member) return null;
+      const chain = store().nodePrototypes.get(owner)?.abstractionChains?.specificity || [];
+      if (chain.includes(member)) return null;
+      store().addToAbstractionChain(owner, 'specificity', rng.chance(0.5) ? 'above' : 'below', member, chain.includes(owner) ? owner : (chain[0] || owner));
+      return `"${nameOf(member)}" into "${nameOf(owner)}"'s chain`;
+    }
+  },
+  {
     name: 'bookmark a Thing',
     weight: 1,
     personal: true,
@@ -348,10 +344,4 @@ export function runRandomAction(rng, ids, { exclude = [] } = {}) {
     if (description) return { action, description };
   }
   return null;
-}
-
-/** Deterministic new IDs, unique per person (`ana-thing-3`). */
-export function idSource(prefix) {
-  let n = 0;
-  return { next: (kind) => `${prefix}-${kind}-${++n}` };
 }
