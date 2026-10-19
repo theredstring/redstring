@@ -584,7 +584,33 @@ button.format-pill:disabled {
   white-space: nowrap;
 }
 
-.format-bank-row-missing {
+.format-bank-loading,
+.format-bank-source {
+  padding: 8px 12px;
+  font-family: 'EmOne', sans-serif;
   font-size: 11px;
-  opacity: 0.8;
+  color: maroon;
+  opacity: 0.65;
+}
+
+.format-bank-source {
+  padding: 8px 2px 0;
+  text-align: right;
+}
+
+.format-bank-more {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.format-bank-more:hover {
+  text-decoration: underline;
 }

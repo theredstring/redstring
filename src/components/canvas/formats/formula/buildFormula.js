@@ -28,6 +28,7 @@ import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
 import { getNodeDimensions } from '../../../../utils.js';
+import { canonicalizeLink, LINK_STATES } from '../../../../formats/linkState.js';
 import { OPERATORS } from './formulaNotation.js';
 import { chainFromText, chainText, isSymbolText } from './formulaChain.js';
 import {
@@ -99,31 +100,56 @@ const nameKey = (name) => {
 };
 const isNumber = (name) => /^\d+(\.\d+)?$/.test(String(name));
 
-const provenanceOf = (origin) => ({
+/** Where a bank Thing came from, and the web address it is (as an import records one: an exact link). */
+const metadataOf = (origin, link) => ({
   provenance: { wasAttributedTo: BANK_AGENT, source: origin, generatedAtTime: new Date().toISOString() },
+  ...(link ? { linkConfirmations: { [canonicalizeLink(link)]: { state: LINK_STATES.EXACT, by: BANK_AGENT } } } : {}),
 });
 
-/** The Thing made from this bank entry before, if any (the latest, should there be several). */
-function prototypeFrom(origin) {
+/**
+ * The Thing made from this bank entry before, if any (the latest, should
+ * there be several): by where it came from, or, for a concept, a Thing
+ * exactly linked to the same Wikidata item (an ontology import's). Never by name.
+ */
+function prototypeFrom(origin, link) {
   let found = null;
+  let linked = null;
+  const key = link ? canonicalizeLink(link) : null;
   for (const p of useGraphStore.getState().nodePrototypes.values()) {
     if (p.semanticMetadata?.provenance?.source === origin) found = p;
+    else if (key && (p.externalLinks || []).some(l => canonicalizeLink(l) === key)
+      && p.semanticMetadata?.linkConfirmations?.[key]?.state === LINK_STATES.EXACT) linked = p;
   }
-  return found;
+  return found || linked;
 }
 
 /** Where a Thing came from in the bank, or null. */
 export const bankOriginOf = (proto) => {
-  const source = proto?.semanticMetadata?.provenance?.source;
-  return typeof source === 'string' && source.startsWith(`${BANK_AGENT}:`) ? source : null;
+  const prov = proto?.semanticMetadata?.provenance;
+  return prov?.wasAttributedTo === BANK_AGENT && typeof prov.source === 'string' ? prov.source : null;
 };
 
-function prototypeFromOrNew(origin, fields) {
-  const existing = prototypeFrom(origin);
-  if (existing) return existing;
+/**
+ * The bank's Thing for `origin`, made if there is none. One that exists is
+ * only ever added to: given the formula label and description it lacks, never
+ * changed where it already says something.
+ */
+function prototypeFromOrNew(origin, fields, link = null) {
+  const existing = prototypeFrom(origin, link);
+  if (existing) {
+    const addLabel = fields.labels?.formula && !existing.labels?.formula;
+    const addDescription = fields.description && !String(existing.description || '').trim();
+    if (addLabel || addDescription) {
+      useGraphStore.getState().updateNodePrototype(existing.id, (draft) => {
+        if (addLabel) draft.labels = { ...(draft.labels || {}), formula: fields.labels.formula };
+        if (addDescription) draft.description = fields.description;
+      });
+    }
+    return useGraphStore.getState().nodePrototypes.get(existing.id) || existing;
+  }
   const proto = {
     id: uuidv4(), color: NODE_DEFAULT_COLOR, description: '', typeNodeId: null, definitionGraphIds: [],
-    ...fields, semanticMetadata: provenanceOf(origin),
+    ...fields, ...(link ? { externalLinks: [link] } : {}), semanticMetadata: metadataOf(origin, link),
   };
   useGraphStore.getState().addNodePrototype(proto);
   return proto;
@@ -135,7 +161,9 @@ function prototypeFromOrNew(origin, fields) {
  * @param {{x: number, y: number}} at - canvas point for the middle of the formula
  * @param {object} [readOptions] - how the text is read: { convention, isKnownName } (see parseFormulaText)
  * @param {object} [equation] - what the equation is, when known:
- *   { title, description, origin, bindings: { symbol: { origin, name, label, description } } }
+ *   { title, description, origin, link, discipline,
+ *     bindings: { symbol: { origin, link, name, label, description } } }
+ *   (`link`: the web address the Thing is, recorded as an exact link)
  * @returns {{ instanceIds: string[], groupId: string|null, equationProtoId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
  */
@@ -181,7 +209,7 @@ function build(chain, graphId, at, bindings, title, equation) {
     if (bound) {
       proto = prototypeFromOrNew(bound.origin, {
         name: bound.name, description: bound.description || '', labels: { formula: bound.label || name },
-      });
+      }, bound.link || null);
     } else if (!isNumber(name) && isSymbolText(name)) {
       proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description: '', typeNodeId: null, definitionGraphIds: [] };
       useGraphStore.getState().addNodePrototype(proto);
@@ -282,7 +310,7 @@ function build(chain, graphId, at, bindings, title, equation) {
   const name = title || text;
   const before = equation.origin ? prototypeFrom(equation.origin) : null;
   const equationProto = equation.origin
-    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '' })
+    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '' }, equation.link || null)
     : { id: uuidv4(), name, color: NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] };
   if (!equation.origin) useGraphStore.getState().addNodePrototype(equationProto);
   const groupId = useGraphStore.getState().createGroup(graphId, {
@@ -326,14 +354,17 @@ function placeInDiscipline(discipline, equationProtoId) {
 
 /**
  * Build an equation from the bank, fully formed: its symbols bound to their
- * concepts, its title, and its place in its discipline's web.
+ * concepts, its title, its description, and its place in its discipline's
+ * web. The bank must be loaded (loadFormulaBank) for its concepts.
  */
 export function buildBankEquation(discipline, entry, graphId, at) {
   const bindings = {};
   for (const [symbol, conceptId] of Object.entries(entry.symbols)) {
     const concept = bankConcept(conceptId);
     if (!concept) continue;
-    bindings[symbol] = { origin: conceptOrigin(conceptId), name: concept.name, label: concept.symbol, description: concept.description };
+    bindings[symbol] = {
+      origin: conceptOrigin(conceptId), link: concept.source, name: concept.name, label: concept.symbol, description: concept.description,
+    };
   }
   return buildFormulaInWeb(entry.text, graphId, at, {
     convention: 'math',
@@ -342,6 +373,9 @@ export function buildBankEquation(discipline, entry, graphId, at) {
     title: entry.title,
     description: entry.description || '',
     origin: equationOrigin(entry.id),
+    // The item is the law itself (Ideal Gas Law), unless it is one of its own
+    // concepts (capacitance, C = Q/V): then that concept's Thing holds the link.
+    link: entry.defines ? null : entry.source,
     bindings,
     discipline,
   });

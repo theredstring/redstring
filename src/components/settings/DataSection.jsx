@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore }
 import useGraphStore from '../../store/graphStore.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ActionRow from './ActionRow.jsx';
+import FormulaBankRows from './FormulaBankRows.jsx';
 import { formatBytes } from '../../utils/formatBytes.js';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
 import { getAutoSaveMode, setAutoSaveMode, subscribeAutoSaveMode, AUTO_SAVE_MAX_ITEMS, AUTO_SAVE_MAX_BYTES } from '../../services/autoSaveMode.js';
@@ -156,6 +157,10 @@ const DataSection = ({ onCloseSettings }) => {
           return repaired > 0 ? `Repaired ${plural(repaired, 'link', 'links')}` : 'Nothing needed repair';
         })}
       />
+
+      <hr className="settings-section-divider" />
+
+      <FormulaBankRows />
 
       <hr className="settings-section-divider" />
 

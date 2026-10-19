@@ -414,17 +414,25 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await openFixture(page, 'small');
   await openComposer(page);
   await shot(page, '9-bank');
-  await page.locator('.format-bank-chip', { hasText: /^Thermodynamics$/ }).click();
-  await expect(page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' })).toBeVisible();
+  // Disciplines from Wikidata, each listing its best known first.
+  await page.locator('.format-bank-chip', { hasText: /^Physics$/ }).click();
+  await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toBeVisible();
   await shot(page, '9a-bank-discipline');
+  // Typed words find an equation by title.
+  await page.locator('.formula-composer input').fill('ideal gas law');
   await page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' }).click();
   await expect(page.locator('.formula-composer')).toHaveCount(0);
 
-  // Titled like a Thing-group, written by symbol.
+  // Titled like a Thing-group, written by symbol, the way Wikidata writes it.
   await expect(object(page)).toHaveCount(1);
   await expect(object(page).locator('.formula-object-title')).toContainText('Ideal Gas Law');
   const texts = await object(page).locator('g.formula-object-token text').allTextContents();
-  expect(texts.join(' ')).toBe('P V = n R T');
+  expect(texts.join(' ')).toBe('p V = n R T');
+  // Its bio is the item's description, and it links to where it came from.
+  expect(await storeEval(page, (st) => {
+    const p = [...st.nodePrototypes.values()].find(x => x.name === 'Ideal Gas Law');
+    return { description: p.description, links: p.externalLinks };
+  })).toEqual({ description: 'Equation of state of a hypothetical ideal gas.', links: ['http://www.wikidata.org/entity/Q191785'] });
 
   // Each symbol is its concept's Thing, written by its symbol.
   const bound = await storeEval(page, (st) => {
@@ -433,11 +441,11 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
     return g.memberInstanceIds.map(id => st.nodePrototypes.get(inst.get(id).prototypeId))
       .map(p => `${p.labels?.formula}:${p.name}`).sort();
   });
-  expect(bound).toEqual(['P:Pressure', 'R:Gas Constant', 'T:Temperature', 'V:Volume', 'n:Amount of Substance']);
+  expect(bound).toEqual(['R:Molar Gas Constant', 'T:Thermodynamic Temperature', 'V:Volume', 'n:Amount of Substance', 'p:Pressure']);
 
   // A click writes it by its real name, the rest sliding aside; again, back.
   const vBefore = (await centerOfLocator(token(page, 'V'))).x;
-  await pointAt(page, token(page, 'P'), { click: true });
+  await pointAt(page, token(page, 'p'), { click: true });
   await expect(token(page, 'Pressure')).toHaveCount(1);
   await expect.poll(async () => (await centerOfLocator(token(page, 'V'))).x).toBeGreaterThan(vBefore + 40);
   // The equals sign is the standard one: nothing to switch.
@@ -445,10 +453,10 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await putPanelDown(page);
   await shot(page, '10-switched');
   await pointAt(page, token(page, 'Pressure'), { click: true });
-  await expect(token(page, 'P')).toHaveCount(1);
+  await expect(token(page, 'p')).toHaveCount(1);
   await putPanelDown(page);
   // A double tap opens it, and switches nothing.
-  const p = await centerOfLocator(token(page, 'P'));
+  const p = await centerOfLocator(token(page, 'p'));
   await page.mouse.click(p.x, p.y);
   await page.mouse.click(p.x, p.y);
   await expect.poll(() => storeEval(page, (st) => {
@@ -461,13 +469,13 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   const row = page.locator('.equations-row');
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('in Ideal Gas Law');
-  await expect(page.locator('.equations-written-as input')).toHaveValue('P');
+  await expect(page.locator('.equations-written-as input')).toHaveValue('p');
   await page.locator('.equations-section').scrollIntoViewIfNeeded();
   await shot(page, '11-equations-section');
 
   // The discipline gathers what was taken from it.
   expect(await storeEval(page, (st) => {
-    const d = [...st.nodePrototypes.values()].find(x => x.name === 'Thermodynamics');
+    const d = [...st.nodePrototypes.values()].find(x => x.name === 'Physics');
     const web = d && st.graphs.get(d.definitionGraphIds[0]);
     return web ? [...web.instances.values()].map(i => st.nodePrototypes.get(i.prototypeId).name) : null;
   })).toEqual(['Ideal Gas Law']);
@@ -477,8 +485,8 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await storeEval(page, (st) => st.addNodePrototype({ id: 'mine-pressure', name: 'Pressure', color: '#336699', definitionGraphIds: [] }));
   const spot = await findBareSpot(page);
   await openComposer(page, spot);
-  await page.locator('.formula-composer input').fill('definition of pressure');
-  await page.locator('.format-bank-row', { hasText: 'Definition of Pressure' }).click();
+  await page.locator('.formula-composer input').fill('definition of enthalpy');
+  await page.locator('.format-bank-row', { hasText: 'Definition of Enthalpy' }).click();
   await expect(object(page)).toHaveCount(2);
   expect(await protosNamed(page, 'Pressure')).toBe(2);
   await expect(page.locator('.equations-row')).toHaveCount(2);
@@ -489,10 +497,10 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   expect(await definitions()).toEqual([1]);
   await page.evaluate(async () => {
     const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
-    const { BANK_DISCIPLINES } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
-    const d = BANK_DISCIPLINES.find(x => x.id === 'thermodynamics');
+    const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+    const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
     const st = window.useGraphStore.getState();
-    buildBankEquation(d, d.equations.find(e => e.id === 'ideal-gas-law'), st.activeGraphId, { x: -2000, y: -2000 });
+    buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: -2000, y: -2000 });
   });
   await expect(object(page)).toHaveCount(3);
   expect(await definitions()).toEqual([1]);
@@ -510,11 +518,12 @@ test('F44 the formula panel writes it with names instead of symbols', async ({ p
   await expect(panel(page)).toBeVisible();
   await panel(page).locator('.piemenu-button[title="Show Names"]').click();
   const line = () => object(page).locator('g.formula-object-token text').allTextContents().then(t => t.join(' '));
-  await expect.poll(line).toBe('Voltage = Current × Resistance');
+  // I = V/R, a fraction: its bar has no text.
+  await expect.poll(line).toBe('Electric Current = Voltage Electrical Resistance');
   // Only this formula: its names are its own.
   await shot(page, '12-names');
   await panel(page).locator('.piemenu-button[title="Show Symbols"]').click();
-  await expect.poll(line).toBe('V = I R');
+  await expect.poll(line).toBe('I = V R');
 });
 
 test.describe('by touch', () => {
@@ -525,13 +534,13 @@ test.describe('by touch', () => {
     // Built the way the bank builds it (a touch device opens the web menu by a long press instead).
     await page.evaluate(async (at) => {
       const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
-      const { BANK_DISCIPLINES } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
-      const d = BANK_DISCIPLINES.find(x => x.id === 'electromagnetism');
+      const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+      const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
       const st = window.useGraphStore.getState();
       // In the empty space below and right of Epsilon, on screen.
       const near = [...st.graphs.get(st.activeGraphId).instances.values()]
         .find(i => st.nodePrototypes.get(i.prototypeId)?.name === 'Epsilon');
-      buildBankEquation(d, d.equations.find(e => e.id === 'ohms-law'), st.activeGraphId, { x: near.x + at.dx, y: near.y + at.dy });
+      buildBankEquation(d, d.equations.find(e => e.id === 'Q41591'), st.activeGraphId, { x: near.x + at.dx, y: near.y + at.dy });
     }, { dx: 380, dy: 300 });
     await expect(object(page)).toHaveCount(1);
     const p = await centerOfLocator(token(page, 'V'));

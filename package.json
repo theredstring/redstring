@@ -59,6 +59,8 @@
     "setup:gcp": "./deployment/gcp/setup.sh",
     "test": "vitest",
     "test:ci": "node scripts/check-known-failures.mjs",
+    "formula-bank:fetch": "node scripts/formula-bank/fetch-wikidata.mjs",
+    "formula-bank:build": "node scripts/formula-bank/build-bank.mjs",
     "lint:undef": "node scripts/check-undefined-names.mjs",
     "test:headless": "vitest run test/headless/",
     "druid": "node scripts/druid-life.mjs",

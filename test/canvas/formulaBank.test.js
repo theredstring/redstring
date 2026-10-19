@@ -1,10 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import {
-  BANK_DISCIPLINES, BANK_CONCEPT_IDS, bankConcept, bankEquations,
-} from '../../src/components/canvas/formats/formula/bank/formulaBank.js';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { loadFormulaBank } from '../../src/components/canvas/formats/formula/bank/formulaBank.js';
 import { chainFromText, chainText } from '../../src/components/canvas/formats/formula/formulaChain.js';
 
 const isNumber = (name) => /^\d+(\.\d+)?$/.test(name);
+const WIKIDATA = /^http:\/\/www\.wikidata\.org\/entity\/Q\d+$/;
 
 /** Every Thing a chain names, parts included. */
 function thingNames(chain, out = []) {
@@ -15,71 +14,76 @@ function thingNames(chain, out = []) {
   return out;
 }
 
+let bank;
+beforeAll(async () => { bank = await loadFormulaBank(); });
+
 const readEntry = (equation) => chainFromText(equation.text, {
   convention: 'math',
   isKnownName: (n) => Object.prototype.hasOwnProperty.call(equation.symbols, n),
 });
 
-const writable = bankEquations().filter(({ equation }) => !equation.unsupported);
-
-describe('the formula bank', () => {
-  it('has disciplines of equations, each with an id and a title of its own', () => {
-    expect(BANK_DISCIPLINES.length).toBeGreaterThanOrEqual(10);
-    expect(writable.length).toBeGreaterThanOrEqual(80);
-    const ids = bankEquations().map(({ equation }) => equation.id);
+describe('the formula bank, populated from Wikidata', () => {
+  it('has disciplines of equations, each its own', () => {
+    expect(bank.disciplines.length).toBeGreaterThanOrEqual(3);
+    expect(bank.equations.length).toBeGreaterThanOrEqual(300);
+    const ids = bank.equations.map(({ equation }) => equation.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(new Set(BANK_DISCIPLINES.map(d => d.id)).size).toBe(BANK_DISCIPLINES.length);
-    for (const { equation } of bankEquations()) expect(equation.title?.trim()).toBeTruthy();
+    expect(new Set(bank.disciplines.map(d => d.id)).size).toBe(bank.disciplines.length);
   });
 
-  it.each(writable.map(({ discipline, equation }) => [`${discipline.name}: ${equation.title}`, equation]))(
-    'reads %s, every symbol bound to a concept',
-    (_, equation) => {
-      const chain = readEntry(equation);
-      const names = thingNames(chain).filter(n => !isNumber(n));
-      // Every symbol written is bound, and every binding is written.
-      expect(names.filter(n => !(n in equation.symbols))).toEqual([]);
-      expect(Object.keys(equation.symbols).filter(s => !names.includes(s))).toEqual([]);
-      // Each binding names a concept written by that very symbol.
-      for (const [symbol, conceptId] of Object.entries(equation.symbols)) {
-        const concept = bankConcept(conceptId);
-        expect(concept, `${symbol} -> ${conceptId}`).toBeTruthy();
-        expect(concept.symbol).toBe(symbol);
+  it('gives every equation a title, a description for its bio, and the item it came from', () => {
+    const lacking = bank.equations.filter(({ equation: e }) => !e.title?.trim() || !e.description?.trim() || !WIKIDATA.test(e.source));
+    expect(lacking.map(({ equation }) => equation.id)).toEqual([]);
+  });
+
+  it('reads every equation, each symbol in it tied to one concept written by that symbol', () => {
+    const problems = [];
+    for (const { equation } of bank.equations) {
+      let chain;
+      try { chain = readEntry(equation); } catch (err) { problems.push(`${equation.id}: ${err.message}`); continue; }
+      const names = [...new Set(thingNames(chain).filter(n => !isNumber(n)))];
+      const untied = names.filter(n => !(n in equation.symbols));
+      if (untied.length) problems.push(`${equation.id}: untied ${untied.join(', ')}`);
+      const unused = Object.keys(equation.symbols).filter(s => !names.includes(s));
+      if (unused.length) problems.push(`${equation.id}: unused ${unused.join(', ')}`);
+      const concepts = Object.values(equation.symbols);
+      if (new Set(concepts).size !== concepts.length) problems.push(`${equation.id}: a concept written two ways`);
+      for (const [symbol, q] of Object.entries(equation.symbols)) {
+        const concept = bank.concepts[q];
+        if (!concept) problems.push(`${equation.id}: no concept ${q}`);
+        else if (concept.symbol !== symbol) problems.push(`${equation.id}: ${symbol} for ${concept.name}, written ${concept.symbol}`);
       }
-      expect(chainText(chain)).toBeTruthy();
-    },
-  );
-
-  it('titles each equation apart from the concepts in it, so its Thing is never mistaken for one', () => {
-    const names = new Set(BANK_CONCEPT_IDS.map(id => bankConcept(id).name.toLowerCase()));
-    expect(bankEquations().filter(({ equation }) => names.has(equation.title.toLowerCase())).map(({ equation }) => equation.title)).toEqual([]);
-  });
-
-    it('uses every concept it defines', () => {
-    const used = new Set(bankEquations().flatMap(({ equation }) => Object.values(equation.symbols)));
-    expect(BANK_CONCEPT_IDS.filter(id => !used.has(id))).toEqual([]);
-  });
-
-  it('lets one letter mean different things, each its own concept', () => {
-    // The letters that mean the most, and what they mean.
-    const meanings = new Map();
-    for (const id of BANK_CONCEPT_IDS) {
-      const { symbol, name } = bankConcept(id);
-      if (!meanings.has(symbol)) meanings.set(symbol, new Set());
-      meanings.get(symbol).add(name);
+      if (!chainText(chain)) problems.push(`${equation.id}: no text`);
     }
-    expect([...meanings.get('P')].sort()).toEqual(['Power', 'Pressure', 'Price', 'Price Level', 'Principal']);
-    expect([...meanings.get('c')].sort()).toEqual(['Constant Term', 'Hypotenuse', 'Molar Concentration', 'Specific Heat', 'Speed of Light']);
-    expect([...meanings.get('π')].sort()).toEqual(['Inflation Rate', 'Pi', 'Profit']);
-    expect(meanings.get('λ').size).toBe(3); // wavelength, decay constant, arrival rate
-    // A discipline alone doesn't settle it: in mechanics W is weight and work.
-    const mechanics = BANK_DISCIPLINES.find(d => d.id === 'mechanics');
-    const w = new Set(mechanics.equations.filter(e => e.symbols.W).map(e => e.symbols.W));
-    expect([...w].sort()).toEqual(['weight', 'work']);
+    expect(problems).toEqual([]);
   });
 
-  it('lists what the notation cannot write yet', () => {
-    const missing = new Set(bankEquations().filter(({ equation }) => equation.unsupported).map(({ equation }) => equation.unsupported));
-    expect([...missing].sort()).toEqual(['conditional probability (|)', 'derivatives', 'Σ', '±', '∫'].sort());
+  it('names every concept and links it to its item, and uses every concept it lists', () => {
+    const used = new Set(bank.equations.flatMap(({ equation }) => Object.values(equation.symbols)));
+    for (const [q, concept] of Object.entries(bank.concepts)) {
+      expect(concept.name?.trim(), q).toBeTruthy();
+      expect(concept.source).toBe(`http://www.wikidata.org/entity/${q}`);
+      expect(used.has(q), q).toBe(true);
+    }
+  });
+
+  it('titles an equation that defines one of its own concepts apart from it', () => {
+    const names = new Set(Object.values(bank.concepts).map(c => c.name.toLowerCase()));
+    const clashing = bank.equations.filter(({ equation }) => names.has(equation.title.toLowerCase()) && !equation.defines);
+    // An item that is the law itself (Ideal Gas Law) isn't one of its concepts, so its title can stand.
+    for (const { equation } of clashing) expect(Object.values(equation.symbols)).not.toContain(equation.id);
+    for (const { equation } of bank.equations.filter(x => x.equation.defines)) {
+      expect(equation.title.startsWith('Definition of ')).toBe(true);
+      expect(Object.values(equation.symbols)).toContain(equation.defines);
+    }
+  });
+
+  it('holds the classics', () => {
+    const byId = new Map(bank.equations.map(({ equation }) => [equation.id, equation]));
+    expect(byId.get('Q191785')?.title).toBe('Ideal Gas Law');
+    expect(byId.get('Q35875')?.title).toBe('Mass–Energy Equivalence');
+    expect(byId.get('Q41591')?.title).toBe("Ohm's Law");
+    // Not yet: a and b both mean "cathetus", and a Thing is written one way.
+    expect(byId.has('Q11518')).toBe(false);
   });
 });
