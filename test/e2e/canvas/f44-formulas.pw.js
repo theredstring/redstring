@@ -328,6 +328,20 @@ test('F44 a logarithm is an operation: its base a Thing of its own, lowered afte
   await shot(page, '10-logarithms');
 });
 
+test('F44 a function is a Thing that says what it is, and a Thing of the same name keeps its own words', async ({ page }) => {
+  await openFixture(page, 'small');
+  // A cos the universe already has, described its own way.
+  await storeEval(page, (st) => st.addNodePrototype({
+    id: 'own-cos', name: 'cos', color: '#8B0000', description: 'My own cos.', typeNodeId: null, definitionGraphIds: [],
+  }));
+  await buildFormula(page, 'y = sin(x) + cos(x)');
+  const said = await storeEval(page, (st) => Object.fromEntries(
+    [...st.nodePrototypes.values()].filter(p => p.name === 'sin' || p.name === 'cos').map(p => [p.name, p.description]),
+  ));
+  expect(said.sin).toMatch(/^Sine: /);
+  expect(said.cos).toBe('My own cos.');
+});
+
 test('F44 the offer shows a group in place, and its X waves it off', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'a + b * c');

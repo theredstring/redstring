@@ -54,6 +54,33 @@ const OPERATOR_DESCRIPTIONS = {
   log10: 'The power 10 must be raised to to give its contents.',
 };
 
+// What each function a formula can apply is, for its Thing (sin, ln...).
+const FUNCTION_DESCRIPTIONS = {
+  sin: 'Sine: for an angle in a right triangle, the opposite side over the hypotenuse.',
+  cos: 'Cosine: for an angle in a right triangle, the adjacent side over the hypotenuse.',
+  tan: 'Tangent: for an angle in a right triangle, the opposite side over the adjacent; sine over cosine.',
+  sec: 'Secant: one over the cosine of an angle.',
+  csc: 'Cosecant: one over the sine of an angle.',
+  cot: 'Cotangent: one over the tangent of an angle; cosine over sine.',
+  arcsin: 'Arcsine: the angle whose sine is its argument.',
+  arccos: 'Arccosine: the angle whose cosine is its argument.',
+  arctan: 'Arctangent: the angle whose tangent is its argument.',
+  sinh: 'Hyperbolic sine: half the difference of e to the argument and e to its negative.',
+  cosh: 'Hyperbolic cosine: half the sum of e to the argument and e to its negative.',
+  tanh: 'Hyperbolic tangent: the hyperbolic sine over the hyperbolic cosine.',
+  lg: 'The logarithm to base 10 (base 2 in some computing texts).',
+  exp: 'The exponential function: e raised to its argument.',
+  abs: 'Absolute value: how far its argument is from zero, never negative.',
+  max: 'Maximum: the largest of its arguments.',
+  min: 'Minimum: the smallest of its arguments.',
+  floor: 'Floor: the largest whole number not above its argument.',
+  ceil: 'Ceiling: the smallest whole number not below its argument.',
+  gcd: 'Greatest common divisor: the largest whole number dividing all of its arguments.',
+  lcm: 'Least common multiple: the smallest whole number all of its arguments divide.',
+  det: 'Determinant: the number a square matrix scales areas or volumes by.',
+  lim: 'Limit: the value its expression approaches.',
+};
+
 // Between terms: room for the operation's whole label on its connection (the
 // label is drawn about this many canvas units per character, plus its pill and
 // clearance from both Things), so "Multiplication" isn't cut to "Multi...".
@@ -138,6 +165,9 @@ function build(chain, graphId, at, bindings, title, equation) {
     if (!proto) {
       proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description, typeNodeId: null, definitionGraphIds: [] };
       useGraphStore.getState().addNodePrototype(proto);
+    } else if (description && !String(proto.description || '').trim()) {
+      // Only ever added: a Thing that already says what it is keeps its own words.
+      useGraphStore.getState().updateNodePrototype(proto.id, (draft) => { draft.description = description; });
     }
     protoByName.set(key, proto);
     return proto;
@@ -235,7 +265,7 @@ function build(chain, graphId, at, bindings, title, equation) {
     if (part.apply && part.apply !== 'fn') {
       typeNodeId = prototypeNamed(OPERATORS[part.apply].name, OPERATOR_DESCRIPTIONS[part.apply]).id;
     } else if (part.apply === 'fn') {
-      typeNodeId = prototypeNamed(part.fnName).id;
+      typeNodeId = prototypeNamed(part.fnName, FUNCTION_DESCRIPTIONS[part.fnName] || '').id;
     }
     const thing = { id: uuidv4(), name: part.name, color: NODE_DEFAULT_COLOR, description: '', typeNodeId, definitionGraphIds: [] };
     st.addNodePrototype(thing);
