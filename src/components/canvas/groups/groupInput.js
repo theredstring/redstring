@@ -11,8 +11,41 @@
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { placeholderIdForGroup } from '../../../services/groupLayout.js';
 
+// The mounted canvas's group input (there is one canvas), for things that are
+// groups underneath but drawn their own way: a formula is a Thing-group, and
+// its press starts the same group drag a title's does (formats/formula).
+let canvasGroupInput = null;
+
+/**
+ * The live group input: { handlers, isDragging() }, or null before the canvas
+ * mounts. Reusing it is how something drawn its own way gets the canvas's own
+ * hold-to-drag (edge panning, zoom and keyboard panning mid-drag, grid snap,
+ * the drop's single undo step) instead of a copy of it.
+ */
+export const getCanvasGroupInput = () => canvasGroupInput;
+
 /** @param {{ current: object }} ctxRef */
 export function createGroupInputHandlers(ctxRef) {
+  const handlers = createHandlers(ctxRef);
+  canvasGroupInput = {
+    handlers,
+    isDragging: () => !!ctxRef.current?.nodeDrag?.draggingNodeInfoRef?.current,
+    /**
+     * A touch on the group that was a tap, handled by its owner: what the
+     * title's own tap does first (stop the long press, drop the touch's
+     * document listeners, keep the canvas from reading it as a tap of its
+     * own), without the title's selection or rename.
+     */
+    claimTouchTap(entry) {
+      handlers.titleTouchCancel(entry);
+      ctxRef.current?.groupTouchCleanupRef?.current?.();
+      if (ctxRef.current?.ignoreCanvasClick) ctxRef.current.ignoreCanvasClick.current = true;
+    },
+  };
+  return handlers;
+}
+
+function createHandlers(ctxRef) {
   return {
     titleClick(e, entry) {
       const { group, effectiveGroupName } = entry;

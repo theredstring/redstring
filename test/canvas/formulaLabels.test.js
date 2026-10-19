@@ -33,12 +33,11 @@ describe('formula labels', () => {
     expect(chain.items[0]).toMatchObject({ name: 'P', realName: 'Pressure' });
   });
 
-  it('marks what means more than what is written; a bare symbol is just text', () => {
+  it('marks what means more than what is written; a bare symbol, or a standard operation, is just text', () => {
     const tokens = tokensOf(chainOf(idealGas()), { standard: true });
     expect(tokens.map(t => [t.text, !!t.defined])).toEqual([
-      ['P', true], ['V', true], ['=', true], ['n', false], ['R', true], ['T', true],
+      ['P', true], ['V', true], ['=', false], ['n', false], ['R', true], ['T', true],
     ]);
-    expect(tokens.find(t => t.text === '=').realName).toBe('Equality');
   });
 
   it('writes a formula by names when asked, every multiplication written, operations still by symbol', () => {
@@ -56,9 +55,9 @@ describe('formula labels', () => {
     // The × that appears is the connection's own; everything else keeps its key.
     expect(before.every(t => after.some(a => a.key === t.key))).toBe(true);
     expect(after.find(t => t.text === '×').target).toMatch(/^edge:/);
-    // An operation by its name, and back by its symbol inside a formula shown by names.
-    const eq = before.find(t => t.text === '=');
-    expect(tokensOf(chain, { standard: true, expand: expandFor(false, new Set([eq.flip])) }).find(t => t.key === eq.key).text).toBe('Equality');
+    // A standard operation has nothing to switch; inside a formula shown by
+    // names, a switched token goes back to its symbol.
+    expect(before.find(t => t.text === '=').flip).toBe(null);
     expect(tokensOf(chain, { standard: true, expand: expandFor(true, new Set([p.flip])) }).find(t => t.key === p.key).text).toBe('P');
   });
 

@@ -9,29 +9,29 @@
  *
  * It takes input the way a Thing does:
  * - a tap on a token whose Thing means more than what is written (P for
- *   Pressure, + for Addition, a named part's parentheses) switches it between
- *   its symbol and its Thing, drawn by name in its color; the rest of the
- *   formula slides aside to make room. Hover only lights it, to say it can. A
- *   bare symbol (an x that means nothing yet) is just text;
+ *   Pressure, a named part's parentheses) switches it between its symbol and
+ *   its Thing, drawn by name in its color; the rest of the formula slides
+ *   aside to make room. Hover only lights it, to say it can. A bare symbol (an
+ *   x that means nothing yet) and the standard operations (+, =, √) are just
+ *   text;
  * - a tap also selects the formula's group, which brings up its control panel
  *   (the format mode of UnifiedBottomControlPanel: swap formats, write this
  *   formula by names or every operation);
  * - a double tap on a token opens that Thing in the panel (and switches
  *   nothing); on the band, the equation's own Thing;
- * - hold, then drag, moves its Things together, snapping to the grid like a
- *   group drag when the grid is on. The Things are written as they move
- *   (drag-phase writes, no save, no history), so connections stay on their
- *   tokens; the drop is one undo step.
+ * - hold, then drag, is the canvas's own group drag, the one a Thing-group's
+ *   title starts (groupInput.getCanvasGroupInput): edge panning, panning and
+ *   zooming mid-drag, grid snap, one undo step. It moves this object with
+ *   the group because the object carries one of its Things' ids, as that
+ *   Thing's own element would.
  */
 import { memo, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import useGraphStore from '../../../../store/graphStore.js';
 import useCanvasUIStore from '../../../../store/canvasUIStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
-import { getNodeDimensions } from '../../../../utils.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
-import { haptic } from '../../../../services/haptics.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
 import { NODE_GROUP_INTERIOR_TINT } from '../../groups/groupElements.jsx';
@@ -39,13 +39,13 @@ import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf } from './formulaChain.js';
 import { useGlide } from './useGlide.js';
 import { flipFormulaToken } from '../formatsStore.js';
+import { getCanvasGroupInput } from '../../groups/groupInput.js';
 import {
   FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS,
 } from './formulaObjects.js';
 
 const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
 const DOUBLE_TAP_MS = 320;   // a tap waits this long to switch its token, in case it is the first of two
-const LIFT_SCALE = 1.04;
 const HOVER_TINT = 0.18;
 const FADE = { duration: 0.14 };
 const TITLE_TARGET = '__title__';
@@ -72,18 +72,6 @@ function openThingInPanel(protoId) {
   if (!prototype) return;
   st.openRightPanelNodeTab(prototype.id, prototype.name);
   if (!st.rightPanelExpanded) st.setRightPanelExpanded(true);
-}
-
-/** Where each Thing goes for a drag of (dx, dy): per Thing, snapped like a group drag's members. */
-function movedPositions(start, dx, dy) {
-  const { mode, size } = useGraphStore.getState().gridSettings || {};
-  const snap = mode && mode !== 'off' && size > 0;
-  return start.map(({ id, x, y, w, h }) => {
-    if (!snap) return { instanceId: id, x: x + dx, y: y + dy };
-    const cx = Math.round((x + dx + w / 2) / size) * size;
-    const cy = Math.round((y + dy + h / 2) / size) * size;
-    return { instanceId: id, x: cx - w / 2, y: cy - h / 2 };
-  });
 }
 
 /** A token's text, its subscript (v_0) lowered and smaller; it slides to where it is put. */
@@ -162,97 +150,73 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
   );
 }
 
+/**
+ * The formula's group as the canvas's group input takes it: the entry a title
+ * press passes (groupInput.js), read fresh from the store when pressed.
+ */
+function groupEntryOf(obj) {
+  const st = useGraphStore.getState();
+  const view = projectGraphView(st, obj.graphId);
+  const group = view?.groups?.get(obj.groupId);
+  if (!group) return null;
+  const members = (group.memberInstanceIds || []).map(id => view.instances.get(id)).filter(Boolean);
+  return { group, members, isNodeGroup: !!group.linkedNodePrototypeId, effectiveGroupName: obj.title || group.name };
+}
+
 function FormulaObject({ obj, theme, selected }) {
   const [hoverKey, setHoverKey] = useState(null);
-  const [lifted, setLifted] = useState(false);
   const pressRef = useRef(null);
   const lastTapRef = useRef({ target: null, at: 0 });
   const flipTimerRef = useRef(null);
 
-  useEffect(() => () => {
-    if (pressRef.current?.timer) clearTimeout(pressRef.current.timer);
-    clearTimeout(flipTimerRef.current);
-  }, []);
+  useEffect(() => () => clearTimeout(flipTimerRef.current), []);
 
-  const writePositions = (positions, contextOptions) => {
-    useGraphStore.getState().updateMultipleNodeInstancePositions(obj.graphId, positions, contextOptions);
-  };
-
+  // A press is the canvas's own: held, it lifts the formula into the group drag
+  // a Thing-group's title starts (edge panning, panning and zooming mid-drag,
+  // grid snap, one undo step), which moves this object with the group because
+  // it carries one of its Things' ids. Only a tap is the formula's own.
   const onPointerDown = (e) => {
     if (e.button !== 0) return;
-    e.stopPropagation();
-    const scale = e.currentTarget.getScreenCTM?.()?.a || 1;
     const tokenEl = e.target.closest?.('[data-formula-target]');
-    const press = {
-      pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, scale,
+    pressRef.current = {
+      pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
       target: tokenEl?.getAttribute('data-formula-target') || null,
       protoId: tokenEl?.getAttribute('data-formula-proto') || null,
       flip: tokenEl?.getAttribute('data-formula-flip') || null,
-      lifted: false, moved: false, frame: 0,
     };
-    const delay = useGraphStore.getState().mouseSettings?.nodeLiftDelay ?? 250;
-    press.timer = setTimeout(() => {
-      // Lift: the Things' resting places, for the drag and for the drop's undo.
-      const st = useGraphStore.getState();
-      const view = projectGraphView(st, obj.graphId);
-      // The equation's own anchor rides along, so it is where its Things are when they are shown again.
-      press.start = (obj.anchorId ? [...obj.memberIds, obj.anchorId] : obj.memberIds).map((id) => {
-        const inst = view.instances.get(id);
-        const proto = st.nodePrototypes.get(inst.prototypeId);
-        const dims = getNodeDimensions({ ...proto, ...inst, name: proto?.name }, false, null);
-        return { id, x: inst.x, y: inst.y, w: dims.currentWidth, h: dims.currentHeight };
-      });
-      press.lifted = true;
-      setLifted(true);
-      setHoverKey(null);
-      haptic('nodeLift');
-    }, delay);
-    pressRef.current = press;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setHoverKey(null);
+    if (e.pointerType === 'touch') return; // the touch handlers below take it
+    const input = getCanvasGroupInput();
+    const entry = groupEntryOf(obj);
+    if (input && entry) input.handlers.titleMouseDown(e, entry);
+  };
+  const onMouseUp = () => {
+    const input = getCanvasGroupInput();
+    const entry = groupEntryOf(obj);
+    if (input && entry) input.handlers.titleMouseUp(entry);
+  };
+  const onTouchStart = (e) => {
+    const input = getCanvasGroupInput();
+    const entry = groupEntryOf(obj);
+    if (input && entry) input.handlers.titleTouchStart(e, entry);
+    else e.stopPropagation();
+  };
+  const onTouchEnd = (e) => {
+    const input = getCanvasGroupInput();
+    if (!input || input.isDragging()) return; // the drag's own end takes it
+    const entry = groupEntryOf(obj);
+    if (entry) input.claimTouchTap(entry);
+    e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
   };
 
-  const onPointerMove = (e) => {
-    const press = pressRef.current;
-    if (!press || press.pointerId !== e.pointerId) return;
-    const sx = e.clientX - press.startX;
-    const sy = e.clientY - press.startY;
-    if (!press.lifted) {
-      // Moving before the lift isn't a hold: nothing happens, as with a group's title.
-      if (Math.hypot(sx, sy) > MOVE_SLOP_PX) { clearTimeout(press.timer); press.cancelled = true; }
-      return;
-    }
-    press.moved = true;
-    press.dx = sx / press.scale;
-    press.dy = sy / press.scale;
-    if (press.frame) return;
-    press.frame = requestAnimationFrame(() => {
-      press.frame = 0;
-      if (pressRef.current !== press) return;
-      writePositions(movedPositions(press.start, press.dx, press.dy), { isDragging: true, phase: 'move', ignore: true, skipSave: true });
-    });
-  };
-
-  const endPress = (e, cancelled) => {
+  const onPointerUp = (e) => {
     const press = pressRef.current;
     if (!press || press.pointerId !== e.pointerId) return;
     pressRef.current = null;
-    clearTimeout(press.timer);
-    if (press.frame) cancelAnimationFrame(press.frame);
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (press.lifted) {
-      setLifted(false);
-      if (press.moved && !cancelled) {
-        // One undo step: back to where they were without recording, then the move.
-        const from = press.start.map(({ id, x, y }) => ({ instanceId: id, x, y }));
-        writePositions(from, { ignore: true, skipSave: true });
-        writePositions(movedPositions(press.start, press.dx, press.dy), { finalize: true, historyLabel: 'Move Formula' });
-        haptic('nodeDrop');
-      } else if (press.moved) {
-        writePositions(press.start.map(({ id, x, y }) => ({ instanceId: id, x, y })), { ignore: true, skipSave: true });
-      }
-      return;
-    }
-    if (cancelled || press.cancelled) return;
+    const input = getCanvasGroupInput();
+    if (input?.isDragging()) return; // a drag, which the canvas finishes
+    if (Math.hypot(e.clientX - press.startX, e.clientY - press.startY) > MOVE_SLOP_PX) return;
     // A tap. Twice on the same token opens its Thing; once switches it (if it
     // can be), after waiting to see that it was only once. Either way the
     // formula is selected.
@@ -273,7 +237,7 @@ function FormulaObject({ obj, theme, selected }) {
   };
 
   const hoverIn = (key) => (e) => {
-    if (e.pointerType === 'touch' || pressRef.current?.lifted) return;
+    if (e.pointerType === 'touch' || pressRef.current) return;
     setHoverKey(key);
   };
   const hoverOut = (key) => () => setHoverKey(prev => (prev === key ? null : prev));
@@ -283,8 +247,6 @@ function FormulaObject({ obj, theme, selected }) {
   const ground = blendColors(theme.surface.bg, color, NODE_GROUP_INTERIOR_TINT);
   const textColor = theme.canvas.textPrimary;
   const { frame, inner, titleBox } = obj;
-  const cx = frame.x + frame.w / 2;
-  const cy = frame.y + frame.h / 2;
   // Drawn relative to the formula's middle, so moving it moves it at once and
   // only a change of its own layout slides.
   const o = obj.center;
@@ -292,19 +254,22 @@ function FormulaObject({ obj, theme, selected }) {
 
   return (
     <g
-      className={`formula-object${selected ? ' is-selected' : ''}${lifted ? ' is-lifted' : ''}`}
+      className={`formula-object${selected ? ' is-selected' : ''}`}
       data-formula-group={obj.groupId}
-      transform={lifted ? `translate(${cx} ${cy}) scale(${LIFT_SCALE}) translate(${-cx} ${-cy})` : undefined}
+      // The canvas's group drag moves what carries a dragged Thing's id. The
+      // formula is drawn from its Things, so it rides on one of them.
+      data-instance-id={obj.dragProxyId || undefined}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={(e) => endPress(e, false)}
-      onPointerCancel={(e) => endPress(e, true)}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => { pressRef.current = null; }}
       onMouseDown={(e) => e.stopPropagation()}
-      onTouchStart={(e) => e.stopPropagation()}
+      onMouseUp={onMouseUp}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
-      style={{ cursor: lifted ? 'grabbing' : 'pointer', filter: lifted ? 'drop-shadow(0px 10px 15px rgba(0, 0, 0, 0.2))' : undefined }}
+      style={{ cursor: 'pointer' }}
     >
       <g transform={`translate(${o.x} ${o.y})`}>
         {selected && (
@@ -342,7 +307,7 @@ function FormulaObject({ obj, theme, selected }) {
               fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
               textColor={textColor}
               onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
-              hot={hoverKey === t.key && !lifted}
+              hot={hoverKey === t.key}
               onEnter={hoverIn(t.key)}
               onLeave={hoverOut(t.key)}
             />

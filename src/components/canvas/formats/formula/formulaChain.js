@@ -354,7 +354,9 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
           return;
         }
         const target = item.edgeId ? `edge:${item.edgeId}` : null;
-        const defined = !!item.protoId && means(item.name, item.symbol);
+        // The standard operations (+, =, ×...) mean the same everywhere: only
+        // an operation of one's own has more to show.
+        const defined = item.key === 'custom' && !!item.protoId && means(item.name, item.symbol);
         const named = defined && expanded(target, 'operator');
         push({
           text: named ? item.name : item.symbol, kind: 'operator', target, protoId: item.protoId || null,
@@ -380,9 +382,10 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
       push({ text: term.name, kind: 'operand', ...own, expanded: true }, level);
       return;
     }
-    // A sign, root or function name stands for what is applied: the part's type (Square Root, sin).
+    // A sign, root or function name stands for what is applied: the part's type
+    // (Square Root, sin). A sign or a root is standard, as the operations are.
     const applied = (text) => {
-      const defined = !!term.typeProtoId && means(term.typeName, text);
+      const defined = term.apply === 'fn' && !!term.typeProtoId && means(term.typeName, text);
       const flip = defined && term.anchorId ? `apply:${term.anchorId}` : null;
       const named = defined && expanded(flip, 'apply');
       return {

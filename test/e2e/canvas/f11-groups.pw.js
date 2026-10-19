@@ -95,11 +95,16 @@ test('F11 group a selection from the bottom panel, then drag the group', async (
   expect(after.groups[groupId].memberInstanceIds.slice().sort()).toEqual(['i-alpha', 'i-beta']);
 });
 
-test('F11 dragging an existing group moves exactly its members', async ({ page }) => {
+test('F11 dragging an existing group moves exactly its members, as one undo step', async ({ page }) => {
   await openFixture(page, 'small');
   const before = await activeGraphSnapshot(page);
   const [pairId, pair] = Object.entries(before.groups).find(([, g]) => g.name === 'Pair');
   await dragGroupByLabel(page, pairId, { x: 250, y: -40 });
   const after = await activeGraphSnapshot(page);
   expectMovedTogether(before, after, pair.memberInstanceIds);
+
+  // The move is undoable, in one step.
+  const at = (snap) => pair.memberInstanceIds.map(id => ({ x: snap.instances[id].x, y: snap.instances[id].y }));
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => at(await activeGraphSnapshot(page))).toEqual(at(before));
 });

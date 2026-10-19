@@ -106,7 +106,7 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
   return { boxes, width: x, height: 2 * reach };
 }
 
-const EMPTY = Object.freeze({ objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), tokenBoxById: new Map() });
+const EMPTY = Object.freeze({ objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), tokenBoxById: new Map(), standIns: new Map() });
 
 let last = null;
 
@@ -117,8 +117,8 @@ let last = null;
  */
 export function computeFormulaObjects(state, { standard = true, namesShown = NO_NAMES, flipped = NO_FLIPS } = {}) {
   const result = formulaObjectsOf(state, standard, namesShown, flipped);
-  // What the formulas replace can't be hit (formats/replaced.js).
-  setReplaced(result.hiddenIds, result.hiddenGroupIds);
+  // What the formulas replace can't be hit, and is drawn at its token (formats/replaced.js).
+  setReplaced(result.hiddenIds, result.hiddenGroupIds, result.standIns);
   return result;
 }
 
@@ -223,11 +223,22 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
       graphId, groupId: group.id, memberIds, chain, text: chainText(chain),
       tokens, boxes, frame, inner, title, titleBox, color, equationProtoId: equationProto?.id || null,
       anchorId: group.anchorInstanceId && view.instances.has(group.anchorInstanceId) ? group.anchorInstanceId : null,
+      // One of its Things (not a part's anchor, whose drag position is derived):
+      // the canvas's drag moves the formula as it moves that Thing.
+      dragProxyId: memberIds.find(id => !view.instances.get(id)?.isGroupAnchor) || null,
       center: { x: cx, y: cy }, protoOf, groupColor: group.color,
     });
   }
 
-  const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById } : EMPTY;
+  // Each token box, with the Thing whose drag carries the formula it is in.
+  const standIns = new Map();
+  for (const o of objects) {
+    for (const id of [...o.memberIds, o.anchorId]) {
+      const box = id && tokenBoxById.get(id);
+      if (box) standIns.set(id, { ...box, rideOn: o.dragProxyId });
+    }
+  }
+  const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns } : EMPTY;
   // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
   const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
   last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result } : null;

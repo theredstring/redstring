@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
+import { standInFor } from '../components/canvas/formats/replaced.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
@@ -999,12 +1000,29 @@ export const useNodeDrag = ({
       let sDims = curBaseDims.get(edge.sourceId) || getNodeDimensions(sStored, false, null);
       let dDims = curBaseDims.get(edge.destinationId) || getNodeDimensions(dStored, false, null);
 
+      // A Thing a format draws its own way (a formula's term) is drawn at its
+      // stand-in (its token), carried by the drag of the Thing the format rides
+      // on: the same end the settled render gives the connection.
+      const standInEnd = (id) => {
+        const standIn = standInFor(id);
+        if (!standIn) return null;
+        const rideStored = curNodeById.get(standIn.rideOn);
+        const ride = rideStored && dragPos.get(standIn.rideOn);
+        const dx = ride ? ride.x - rideStored.x : 0;
+        const dy = ride ? ride.y - rideStored.y : 0;
+        return { pos: { x: standIn.x + dx, y: standIn.y + dy }, dims: { currentWidth: standIn.w, currentHeight: standIn.h } };
+      };
+      const sStandIn = standInEnd(edge.sourceId);
+      const dStandIn = standInEnd(edge.destinationId);
+      if (sStandIn) { sPos = sStandIn.pos; sDims = sStandIn.dims; }
+      if (dStandIn) { dPos = dStandIn.pos; dDims = dStandIn.dims; }
+
       // Thing-group anchors render as their title box (synced into anchorPositionUpdatesRef
       // each React frame), NOT the stored instance position + default node dims. Mirror that
       // here so the drag-time line and label exactly match the settled (drop) render — and so
       // the label can be pushed off the group's outer bounds the same way.
-      let sAnchor = sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
-      let eAnchor = dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
+      let sAnchor = sStored.isGroupAnchor && !sStandIn ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
+      let eAnchor = dStored.isGroupAnchor && !dStandIn ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
       // The pill wins UNCONDITIONALLY, including when the anchor carries a drag
       // position of its own. It used to defer to `dragPos` (`if
       // (!dragPos.has(id))`), and that is the whole of "connections into a
@@ -2959,8 +2977,11 @@ export const useNodeDrag = ({
     // --- Cleanup function: clears DOM transforms, resets scale, nulls drag state ---
     // Deferred to after zoom-restore animation if applicable, otherwise runs immediately.
     const performCleanup = () => {
-      // Flush positions to store (deferred to avoid double-offset during zoom-restore)
-      if (finalUpdates.length > 0) {
+      // Flush positions to store (deferred to avoid double-offset during zoom-restore).
+      // Not for a group drag: its finalized write below carries the same
+      // positions, and landing them here first, unrecorded, left that write with
+      // nothing to change, so a group's move never reached undo.
+      if (finalUpdates.length > 0 && !groupDragUpdates) {
         storeActions.updateMultipleNodeInstancePositions(
           activeGraphId, finalUpdates, { isDragging: true, phase: 'move' }
         );

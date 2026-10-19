@@ -5,9 +5,10 @@
 // in the equation's own Thing-group, shown in place as the formula: one object
 // on the canvas where the Things are, titled like a Thing-group, which hides
 // them and the connections among them. A connection from outside lands on its
-// Thing's token. A click on a token whose Thing means more than its symbol (an
-// operation; P for Pressure) switches it to that Thing, drawn by name, the rest
-// sliding aside (hover only lights it); a bare symbol is plain text. A tap
+// Thing's token. A click on a token whose Thing means more than its symbol (P
+// for Pressure) switches it to that Thing, drawn by name, the rest sliding
+// aside (hover only lights it); a bare symbol, or a standard operation, is
+// plain text. A tap
 // selects the formula and brings up the group panel's format mode, whose
 // arrows swap it between Things and Formula and whose toggles write this
 // formula by names or every operation; a double tap on a token opens its Thing; hold-and-drag moves it (snapping to the grid when
@@ -48,6 +49,9 @@ async function pointAt(page, locator, { click = false } = {}) {
   const { x, y } = await centerOfLocator(locator);
   if (click) await page.mouse.click(x, y); else await page.mouse.move(x, y);
 }
+const liftedTransform = () => currentPage.locator('svg.canvas g.formula-object').evaluate(el => el.style.transform || '');
+let currentPage = null;
+test.beforeEach(({ page }) => { currentPage = page; });
 const expanded = (page) => object(page).locator('g.formula-object-token.is-expanded');
 // The group panel comes up over the lower canvas when the formula is selected: put it down.
 const putPanelDown = async (page) => {
@@ -132,33 +136,13 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   const twos = tokenTexts.filter({ has: page.locator('text', { hasText: /^2$/ }) });
   expect(await sizeOf(twos.first())).toBeLessThan(bSize);
 
-  // Hover only lights a token; a click switches an operation to the Thing it
-  // stands for, the rest of the formula sliding aside to make room.
-  await pointAt(page, token(page, '='));
-  await page.waitForTimeout(500);
-  await expect(expanded(page)).toHaveCount(0);
-  const bBefore = (await centerOfLocator(token(page, 'b'))).x;
+  // Typed, its letters mean nothing yet and its operations are the standard
+  // ones: all of it is text, and a click switches nothing.
+  await expect(object(page).locator('g.formula-object-token.is-defined')).toHaveCount(0);
   await pointAt(page, token(page, '='), { click: true });
-  await expect(token(page, 'Equality')).toHaveCount(1);
-  await expect.poll(async () => (await centerOfLocator(token(page, 'b'))).x).toBeGreaterThan(bBefore + 60);
-  await putPanelDown(page);
-  await shot(page, '3-click-operation');
-  await pointAt(page, token(page, '√'), { click: true });
-  await expect(token(page, 'Square Root')).toHaveCount(1);
-  await putPanelDown(page);
-  await shot(page, '3b-click-root');
-  // A bare symbol switches nothing; a switched token switches back.
-  await pointAt(page, token(page, 'x'), { click: true });
   await page.waitForTimeout(500);
-  await expect(expanded(page)).toHaveCount(2);
-  await putPanelDown(page);
-  for (const name of ['Equality', 'Square Root']) {
-    await pointAt(page, token(page, name), { click: true });
-    await expect(token(page, name)).toHaveCount(0);
-    await putPanelDown(page);
-  }
   await expect(expanded(page)).toHaveCount(0);
-  await expect.poll(async () => (await centerOfLocator(token(page, 'b'))).x).toBeCloseTo(bBefore, 0);
+  await putPanelDown(page);
 
   // The formula's panel switches exponents to ^, an operation like the others.
   // (A bare symbol selects the formula without switching anything.)
@@ -250,8 +234,9 @@ test('F44 hold and drag moves the formula, snapping to the grid, as one undo ste
   await page.mouse.move(p.x, p.y);
   await page.mouse.down();
   await page.waitForTimeout(NODE_LIFT_DELAY_MS + 120);
-  await expect(object(page)).toHaveClass(/is-lifted/);
+  // Lifted by the canvas's own group drag, which moves it as it moves a Thing.
   await page.mouse.move(p.x - 120, p.y - 80, { steps: 10 });
+  await expect.poll(liftedTransform).toContain('translate');
   await shot(page, '6-dragging');
   await page.mouse.up();
   const moved = await positionsOf(page, members);
@@ -278,13 +263,32 @@ test('F44 hold and drag moves the formula, snapping to the grid, as one undo ste
     await page.waitForTimeout(NODE_LIFT_DELAY_MS + 120);
     await page.mouse.move(q.x + ddx, q.y + ddy, { steps: 6 });
     await page.mouse.up();
-    await expect(object(page)).not.toHaveClass(/is-lifted/);
+    await expect.poll(liftedTransform).toBe('');
   };
   await nudge(30, 20);
   const onGrid = await positionsOf(page, members);
   expect(onGrid).not.toEqual(start);
   await nudge(25, -20);
   expect(await positionsOf(page, members)).toEqual(onGrid);
+
+  // Held still at the canvas's edge, the view pans and the formula keeps going with it.
+  await storeEval(page, (st) => st.setGridMode('off'));
+  const before = await positionsOf(page, members);
+  const q = await centerOfLocator(token(page, '+'));
+  const area = await page.locator('.canvas-area').boundingBox();
+  const carried = () => object(page).evaluate(el => Number(/translate\(([-\d.]+)px/.exec(el.style.transform)?.[1] ?? 0));
+  await page.mouse.move(q.x, q.y);
+  await page.mouse.down();
+  await page.waitForTimeout(NODE_LIFT_DELAY_MS + 120);
+  await page.mouse.move(area.x + area.width - 6, q.y, { steps: 12 });
+  await page.waitForTimeout(250);
+  const early = await carried();
+  await page.waitForTimeout(600);
+  const late = await carried();
+  await page.mouse.up();
+  expect(late).toBeGreaterThan(early + 20);
+  const after = await positionsOf(page, members);
+  expect(after[0].x).toBeGreaterThan(before[0].x + late * 0.9);
 });
 
 test('F44 the offer shows a group in place, and its X waves it off', async ({ page }) => {
@@ -381,8 +385,12 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   expect(bound).toEqual(['P:Pressure', 'R:Gas Constant', 'T:Temperature', 'V:Volume', 'n:Amount of Substance']);
 
   // A click writes it by its real name, the rest sliding aside; again, back.
+  const vBefore = (await centerOfLocator(token(page, 'V'))).x;
   await pointAt(page, token(page, 'P'), { click: true });
   await expect(token(page, 'Pressure')).toHaveCount(1);
+  await expect.poll(async () => (await centerOfLocator(token(page, 'V'))).x).toBeGreaterThan(vBefore + 40);
+  // The equals sign is the standard one: nothing to switch.
+  await expect(object(page).locator('g.formula-object-token.is-defined', { has: page.locator('text', { hasText: /^=$/ }) })).toHaveCount(0);
   await putPanelDown(page);
   await shot(page, '10-switched');
   await pointAt(page, token(page, 'Pressure'), { click: true });
