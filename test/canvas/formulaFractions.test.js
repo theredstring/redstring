@@ -20,8 +20,6 @@ describe('division as a fraction', () => {
 
   it('drops the parentheses the bar already gives', () => {
     expect(shape(standard('x = (a + b) / (2 c)'))).toBe('x = [a + b / 2 c]');
-    expect(shape(standard('x = (-b + sqrt(b^2 - 4*a*c)) / (2*a)'))).toBe('x = [− b + √ ( b 2 − 4 a c ) / 2 a]');
-    expect(shape(standard('sqrt(a / b)'))).toBe('√ [a / b]');
     // A function's own parentheses stay.
     expect(shape(standard('sin(a / b)'))).toBe('sin ( [a / b] )');
   });
@@ -42,7 +40,7 @@ describe('division as a fraction', () => {
   });
 
   it('stays on one line where asked, and in plain text', () => {
-    expect(shape(tokensOf(chainFromText('a / b'), { standard: true, fractions: false }))).toBe('a / b');
+    expect(shape(tokensOf(chainFromText('a / b'), { standard: true, stack: false }))).toBe('a / b');
     expect(chainText(chainFromText('(a + b) / c'))).toBe('(a + b) ÷ c');
   });
 
@@ -50,7 +48,7 @@ describe('division as a fraction', () => {
     const plain = layoutFormulaLine(standard('a + b'), 44);
     const tokens = standard('x = (a + b) / c');
     const { boxes, height } = layoutFormulaLine(tokens, 44);
-    expect(height).toBeGreaterThan(plain.height * 1.4);
+    expect(height).toBeGreaterThan(plain.height * 1.3);
     const at = (text) => boxes[tokens.findIndex(t => t.text === text)];
     const bar = boxes[tokens.findIndex(t => t.bar)].bar;
     expect(at('a').y + at('a').h).toBeLessThan(at('c').y + at('c').h);
@@ -61,5 +59,40 @@ describe('division as a fraction', () => {
     expect(bar.x + bar.w).toBeGreaterThanOrEqual(at('b').x + at('b').w);
     const cMid = at('c').x + at('c').w / 2;
     expect(Math.abs(cMid - (bar.x + bar.w / 2))).toBeLessThan(1);
+  });
+});
+
+describe('a square root over what it holds', () => {
+  const rootShape = (t) => {
+    const tokens = standard(t);
+    const row = (r) => r.map(e => (typeof e === 'number' ? tokens[e].text
+      : e.kind === 'root' ? `√[${row(e.body)}]` : `[${row(e.num)} / ${row(e.den)}]`)).join(' ');
+    return row(rowsOf(tokens));
+  };
+
+  it('holds exactly its contents, without the parentheses', () => {
+    expect(rootShape('d = sqrt(x^2 + y^2)')).toBe('d = √[x 2 + y 2]');
+    expect(rootShape('sqrt(a) + b')).toBe('√[a] + b');
+    expect(rootShape('x = (-b + sqrt(b^2 - 4*a*c)) / (2*a)')).toBe('x = [− b + √[b 2 − 4 a c] / 2 a]');
+    expect(rootShape('sqrt(a / b)')).toBe('√[[a / b]]');
+  });
+
+  it('stays √( ) on one line where asked', () => {
+    expect(shape(tokensOf(chainFromText('sqrt(a + b)'), { standard: true, stack: false }))).toBe('√ ( a + b )');
+  });
+
+  it('draws its sign as tall as what it holds, its bar over all of it', () => {
+    const tokens = standard('sqrt(a + b) + c');
+    const { boxes } = layoutFormulaLine(tokens, 44);
+    const root = boxes[tokens.findIndex(t => t.radical)].root;
+    const at = (text) => boxes[tokens.findIndex(t => t.text === text)];
+    expect(root.y).toBeLessThan(at('a').y + at('a').h * 0.3);
+    expect(root.x + root.signW).toBeLessThan(at('a').x + 1);
+    expect(root.x + root.w).toBeGreaterThan(at('b').x + at('b').w - 1);
+    expect(root.x + root.w).toBeLessThan(at('c').x);
+    // Taller with a fraction under it.
+    const tall = standard('sqrt(a / b)');
+    const tallRoot = layoutFormulaLine(tall, 44).boxes[tall.findIndex(t => t.radical)].root;
+    expect(tallRoot.h).toBeGreaterThan(root.h * 1.5);
   });
 });

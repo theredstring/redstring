@@ -304,8 +304,10 @@ const isOneFraction = (chain) => {
 };
 
 /**
- * A formula's tokens as rows and fractions, for laying them out: a row is a
- * list of entries, each a token's index or { id, num: row, bar: index, den: row }.
+ * A formula's tokens as rows, fractions and roots, for laying them out: a row
+ * is a list of entries, each a token's index,
+ * { kind: 'fraction', id, num: row, bar: index, den: row } or
+ * { kind: 'root', id, sign: index, body: row }.
  */
 export function rowsOf(tokens) {
   const build = (indices, depth) => {
@@ -314,23 +316,26 @@ export function rowsOf(tokens) {
     while (i < indices.length) {
       const at = indices[i];
       const t = tokens[at];
-      const mark = t.fractions?.[depth];
-      const id = mark ? mark.split(':')[0] : (t.bar && (t.fractions?.length || 0) === depth ? t.bar : null);
+      const depthOf = (u) => u.inside?.length || 0;
+      // The token that draws a fraction or a root (its bar, its sign) is just outside it.
+      const ownerOf = (u) => (depthOf(u) === depth ? (u.bar || u.radical || null) : null);
+      const mark = t.inside?.[depth];
+      const id = mark ? mark.split(':')[0] : ownerOf(t);
       if (!id) { row.push(at); i++; continue; }
-      const num = [];
-      const den = [];
-      let bar = null;
+      const parts = { num: [], den: [], in: [] };
+      let owner = null;
       while (i < indices.length) {
         const j = indices[i];
         const u = tokens[j];
-        const m = u.fractions?.[depth];
-        if (m === `${id}:num`) num.push(j);
-        else if (m === `${id}:den`) den.push(j);
-        else if (!m && u.bar === id) bar = j;
+        const m = u.inside?.[depth];
+        if (m && m.startsWith(`${id}:`)) parts[m.slice(id.length + 1)].push(j);
+        else if (!m && ownerOf(u) === id) owner = j;
         else break;
         i++;
       }
-      row.push({ id, num: build(num, depth + 1), bar, den: build(den, depth + 1) });
+      row.push(id.startsWith('r')
+        ? { kind: 'root', id, sign: owner, body: build(parts.in, depth + 1) }
+        : { kind: 'fraction', id, num: build(parts.num, depth + 1), bar: owner, den: build(parts.den, depth + 1) });
     }
     return row;
   };
@@ -388,7 +393,7 @@ const means = (realName, text) => !!realName && norm(realName) !== norm(text);
  * ('operand', 'operator', 'apply' for a sign, root or function, 'part' for a
  * named part, which is then written as its name alone: Discriminant).
  */
-export function tokensOf(chain, { standard = false, expand = null, plain = false, fractions: stacking = standard } = {}) {
+export function tokensOf(chain, { standard = false, expand = null, plain = false, stack: stacking = standard } = {}) {
   const stack = standard && stacking && !plain;
   const expanded = (flip, kind) => !plain && !!expand && !!flip && expand(flip, kind);
   const operandShown = (term) => !!term.protoId && means(term.realName, term.name) && expanded(term.instanceId, 'operand');
@@ -414,8 +419,9 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
   let k = 0;
   let joinNext = false;
   let lowered = 0; // inside a logarithm's base
-  const fractions = []; // the fractions a token is inside, outermost first: 'f0:num', 'f1:den'
-  let fractionCount = 0;
+  // The fractions and roots a token is inside, outermost first: 'f0:num', 'f1:den', 'r2:in'.
+  const inside = [];
+  let boxCount = 0;
   // Division is stacked as a fraction on the line itself, not in an exponent or a base.
   const stacksHere = (level) => stack && level === 0 && !lowered;
   const push = (t, level) => {
@@ -427,7 +433,7 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
     k++;
     tokens.push({
       key: n ? `${base}#${n}` : base, level, ...t, ...(joinNext ? { joined: true } : {}), ...(lowered ? { sub: true } : {}),
-      ...(fractions.length ? { fractions: [...fractions] } : {}),
+      ...(inside.length ? { inside: [...inside] } : {}),
     });
     joinNext = false;
   };
@@ -475,14 +481,14 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
     }
     if (op.key === 'div' && stacksHere(level)) {
       // Numerator over denominator, the bar between them standing for the division.
-      const id = `f${fractionCount++}`;
-      fractions.push(`${id}:num`);
+      const id = `f${boxCount++}`;
+      inside.push(`${id}:num`);
       emitBare(items, node.left, level);
-      fractions.pop();
+      inside.pop();
       push({ ...opToken(op), bar: id }, level);
-      fractions.push(`${id}:den`);
+      inside.push(`${id}:den`);
       emitBare(items, node.right, level);
-      fractions.pop();
+      inside.pop();
       return;
     }
     emitNode(items, node.left, level);
@@ -525,6 +531,15 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
       // A sign or a root sits against what it applies to; ln and log are
       // written as functions are, their parentheses always.
       const inner = term.args[0];
+      if (term.apply === 'sqrt' && stack && !lowered) {
+        // Drawn over what it holds: the sign grows to its height, the bar spans it.
+        const id = `r${boxCount++}`;
+        push({ kind: 'operator', prefix: true, ...applied(prefixOp.symbol), radical: id }, level);
+        inside.push(`${id}:in`);
+        emitBare(inner.items, treeOfItems(inner.items), level);
+        inside.pop();
+        return;
+      }
       push(prefixOp.word
         ? { kind: 'function', ...applied(prefixOp.symbol) }
         : { kind: 'operator', prefix: true, ...applied(prefixOp.symbol) }, level);

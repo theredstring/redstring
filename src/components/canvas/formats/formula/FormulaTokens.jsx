@@ -1,6 +1,7 @@
 /**
- * A formula as a line of HTML text, token by token, exponents raised and
- * divisions stacked as fractions when the tokens say so (tokensOf with `standard`). The offer pill, the panel chip and the
+ * A formula as a line of HTML text, token by token, exponents raised,
+ * divisions stacked as fractions and roots drawn over what they hold when the
+ * tokens say so (tokensOf with `standard`). The offer pill, the panel chip and the
  * New Formula card use it; the formula on the canvas is drawn by
  * FormulaObjectsLayer, with the same proportions.
  */
@@ -26,6 +27,8 @@ function tokenStyle(level, prevLevel, sub) {
   return {
     ...(level || sub ? { fontSize: `${scale}em`, top: `${-lift / scale}em` } : {}),
     ...(gap ? { marginLeft: `${gap / scale}em` } : {}),
+    // Raised, it sits against its base.
+    ...(level > prevLevel ? { paddingLeft: '0.02em' } : {}),
   };
 }
 
@@ -36,6 +39,19 @@ const classOf = (t) => ['formula-token', `kind-${t.kind}`, t.prefix ? 'is-prefix
 function Row({ row, tokens, highlight, highlightStyle }) {
   let prevLevel = 0;
   return row.map((entry) => {
+    if (typeof entry !== 'number' && entry.kind === 'root') {
+      prevLevel = tokens[entry.sign].level || 0;
+      // The sign stretches to the height of what it holds; the bar is the body's
+      // top edge. Unsized itself: what it holds carries its own size and lift.
+      return (
+        <span key={tokens[entry.sign].key} className="formula-root">
+          <svg className="formula-root-sign" viewBox="0 0 10 20" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points="0.5,11.6 2.2,10 5,19.5 10,0.4" vectorEffect="non-scaling-stroke" />
+          </svg>
+          <span className="formula-root-body"><Row row={entry.body} tokens={tokens} highlight={highlight} highlightStyle={highlightStyle} /></span>
+        </span>
+      );
+    }
     if (typeof entry !== 'number') {
       prevLevel = 0;
       const bar = entry.bar !== null ? tokens[entry.bar] : null;

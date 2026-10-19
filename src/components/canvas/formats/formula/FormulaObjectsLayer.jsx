@@ -112,6 +112,19 @@ function GlideRect({ r, ...rest }) {
   return <rect x={at.x} y={at.y} width={Math.max(0, at.w)} height={Math.max(0, at.h)} {...rest} />;
 }
 
+/** A square root's sign, as tall as what it holds, its bar running over all of it. */
+function GlideRoot({ r, stroke }) {
+  const at = useGlide(r);
+  const hook = (fx, fy) => `${at.x + at.signW * fx},${at.y + at.h * fy}`;
+  return (
+    <polyline
+      points={`${hook(0, 0.58)} ${hook(0.22, 0.5)} ${hook(0.5, 1)} ${hook(1, 0)} ${at.x + at.w},${at.y}`}
+      fill="none" stroke={stroke} strokeWidth={at.stroke} strokeLinejoin="round" strokeLinecap="round"
+      style={{ pointerEvents: 'none' }}
+    />
+  );
+}
+
 /**
  * One token, placed by sliding: when a token near it switches between its
  * symbol and its name, it moves to its new place rather than jumping there. A
@@ -143,7 +156,9 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
         x={shape.x} y={shape.y} width={Math.max(0, shape.w)} height={Math.max(0, shape.h)}
         rx={Math.max(0, shape.rx)} fill={fill} fillOpacity={shape.a}
       />
-      {b.bar ? (
+      {b.root ? (
+        <GlideRoot r={{ ...b.root, x: b.root.x - o.x, y: b.root.y - o.y }} stroke={textColor} />
+      ) : b.bar ? (
         // A division stacked as a fraction: its token is the bar.
         <GlideRect
           r={{ x: b.bar.x - o.x, y: b.bar.y - o.y, w: b.bar.w, h: b.bar.h }}

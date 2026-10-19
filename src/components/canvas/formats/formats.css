@@ -307,6 +307,33 @@ button.format-pill:disabled {
   white-space: nowrap;
 }
 
+/* A square root over what it holds: the sign stretched to its height, its
+   bar the body's top edge. */
+.formula-root {
+  display: inline-flex;
+  align-items: baseline;
+  margin: 0 0.06em 0 0.1em;
+}
+
+.formula-root-sign {
+  align-self: stretch;
+  flex: none;
+  width: 0.55em;
+  height: auto;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.formula-root-body {
+  border-top: 0.075em solid currentColor;
+  padding: 0.12em 0.08em 0 0.08em;
+  white-space: nowrap;
+}
+
 .formula-frac-bar {
   align-self: stretch;
   height: 0.07em;

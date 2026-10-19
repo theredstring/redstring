@@ -37,27 +37,67 @@ export const SUBSCRIPT_SCALE = 0.62;
 export const SUBSCRIPT_DROP = 0.28; // em of the token, below its baseline
 // A fraction, in the line's em: numerator and denominator centred over each
 // other, the bar a little wider than both and level with the minus sign.
-const INK_EM = 0.42;         // how far a token's letters reach above and below its middle, in its own em
-const FRACTION_GAP = 0.12;   // between the bar and the letters above and below it
+const FRACTION_GAP = 0.14;   // between the bar and the letters above and below it
 const FRACTION_BAR = 0.07;   // the bar's thickness
 const FRACTION_OVERHANG = 0.14; // the bar past the wider of the two
 const FRACTION_MARGIN = 0.12; // either side of the fraction
 const FRACTION_AXIS = 0.08;  // the bar below the line's middle, where − and = sit
 const BAR_HIT_EM = 0.5;      // the bar's box, for pointing at the division
 const LINE_CLEAR = 0.12;     // between a fraction's letters and the frame
+// A root, in its sign's em: the sign as tall as what it holds, its bar over all of it.
+const ROOT_LEAD = 0.1;       // before the sign
+const ROOT_SIGN_W = 0.6;     // the sign's hook, up to where the bar starts
+const ROOT_PAD = 0.08;       // between the hook and what it holds
+const ROOT_GAP = 0.14;       // between the bar and the letters under it
+const ROOT_DROP = 0.1;       // the hook's foot below the letters
+const ROOT_OVERHANG = 0.08;  // the bar past what it holds
+const ROOT_TRAIL = 0.1;      // after it
+const ROOT_STROKE = 0.075;
 /** The title, as a Thing-group's (groupElements.jsx). */
 export const TITLE_FONT = 45;
 const G = GROUP_LAYOUT_CONSTANTS;
 
 let measureCtx = null;
-function measure(text, size) {
-  if (!text) return 0;
+function ensureMeasure() {
   if (measureCtx === null) {
     try {
       // undefined, not null, when there's no 2D context: null means "not tried yet".
       measureCtx = (typeof document !== 'undefined' && document.createElement('canvas').getContext('2d')) || undefined;
     } catch { measureCtx = undefined; }
   }
+  return measureCtx;
+}
+
+// Without a canvas to measure on (tests), letters that hang below the line, by sight.
+const DESCENDERS = /[gjpqyβγζημξρςφχψ,]/;
+/** How far one run of text's letters reach above and below its baseline. */
+function inkOfRun(text, size) {
+  const ctx = ensureMeasure();
+  if (ctx) {
+    ctx.font = `${FORMULA_FONT_WEIGHT} ${size}px ${FORMULA_FONT_FAMILY}`;
+    const m = ctx.measureText(text);
+    if (Number.isFinite(m.actualBoundingBoxAscent)) return { above: m.actualBoundingBoxAscent, below: m.actualBoundingBoxDescent };
+  }
+  return { above: 0.72 * size, below: (DESCENDERS.test(text) ? 0.22 : 0.02) * size };
+}
+
+/**
+ * How far a token's letters reach above and below its baseline, measured from
+ * the font as TeX measures a glyph's height and depth: a q's tail and a
+ * subscript (k_e) reach below it, so a fraction's bar clears them.
+ */
+function inkOf(text, size) {
+  const sub = subscriptOf(text);
+  if (!sub) return inkOfRun(text, size);
+  const main = inkOfRun(sub[0], size);
+  const low = inkOfRun(sub[1], size * SUBSCRIPT_SCALE);
+  const drop = SUBSCRIPT_DROP * size;
+  return { above: Math.max(main.above, low.above - drop), below: Math.max(main.below, drop + low.below) };
+}
+
+function measure(text, size) {
+  if (!text) return 0;
+  ensureMeasure();
   if (!measureCtx) return text.length * size * 0.62;
   measureCtx.font = `${FORMULA_FONT_WEIGHT} ${size}px ${FORMULA_FONT_FAMILY}`;
   return measureCtx.measureText(text).width;
@@ -82,9 +122,10 @@ export const PILL_RADIUS = 0.4; // of its height, as a node's corners are of its
 
 /**
  * Where each token goes, relative to the line's left end and vertical middle.
- * Each box: { x, y, w, h, size, baseline, textX, pill?, bar? } in canvas units;
- * `pill` ({ x, y, w, h }) for a token written by name, `bar` for a division
- * stacked as a fraction (its token is the bar). `top` and `bottom` are how far
+ * Each box: { x, y, w, h, size, baseline, textX, pill?, bar?, root? } in canvas
+ * units; `pill` ({ x, y, w, h }) for a token written by name, `bar` for a
+ * division stacked as a fraction (its token is the bar), `root` ({ x, y, w, h,
+ * signW, stroke }) for a square root drawn over what it holds (its token is the sign). `top` and `bottom` are how far
  * the line reaches above and below its middle (negative above).
  */
 export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
@@ -96,6 +137,7 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
         ...b, x: b.x + dx, y: b.y + dy, textX: b.textX + dx, baseline: b.baseline + dy,
         ...(b.pill ? { pill: { ...b.pill, x: b.pill.x + dx, y: b.pill.y + dy } } : {}),
         ...(b.bar ? { bar: { ...b.bar, x: b.bar.x + dx, y: b.bar.y + dy } } : {}),
+        ...(b.root ? { root: { ...b.root, x: b.root.x + dx, y: b.root.y + dy } } : {}),
       };
     }
   };
@@ -108,6 +150,31 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
     const indices = [];
     const boxEm = depth > 0 ? STACKED_BOX_EM : BOX_EM;
     for (const entry of row) {
+      if (typeof entry !== 'number' && entry.kind === 'root') {
+        const sign = tokens[entry.sign];
+        const level = sign.level || 0;
+        const size = font * Math.pow(RAISE_SCALE, level);
+        if (level > prevLevel) x += RAISE_GAP_IN * font;
+        else if (level < prevLevel) x += RAISE_GAP_OUT * font;
+        prevLevel = level;
+        const body = layRow(entry.body, depth + 1);
+        const stroke = ROOT_STROKE * size;
+        const barY = body.top - ROOT_GAP * size;
+        const footY = body.bottom + ROOT_DROP * size;
+        const signX = x + ROOT_LEAD * size;
+        const bodyX = signX + ROOT_SIGN_W * size + ROOT_PAD * size;
+        move(body.indices, bodyX, 0);
+        const end = bodyX + body.width + ROOT_OVERHANG * size;
+        boxes[entry.sign] = {
+          x, y: barY, w: end - x, h: footY - barY, size, baseline: footY, textX: signX,
+          root: { x: signX, y: barY, w: end - signX, h: footY - barY, signW: ROOT_SIGN_W * size, stroke },
+        };
+        indices.push(entry.sign, ...body.indices);
+        top = Math.min(top, barY - stroke / 2);
+        bottom = Math.max(bottom, footY + stroke / 2);
+        x = end + ROOT_TRAIL * size;
+        continue;
+      }
       if (typeof entry !== 'number') {
         const num = layRow(entry.num, depth + 1);
         const den = layRow(entry.den, depth + 1);
@@ -159,8 +226,9 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
         const [padL, padR] = padsFor(t);
         const h = boxEm * size;
         box = { x, y: middle - h / 2, w: textW + (padL + padR) * size, h, size, baseline, textX: x + padL * size };
-        top = Math.min(top, middle - INK_EM * size);
-        bottom = Math.max(bottom, middle + INK_EM * size);
+        const ink = inkOf(t.text, size);
+        top = Math.min(top, baseline - ink.above);
+        bottom = Math.max(bottom, baseline + ink.below);
       }
       boxes[entry] = box;
       indices.push(entry);
@@ -244,6 +312,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
       ...b, x: b.x + left, y: b.y + lineY, textX: b.textX + left, baseline: b.baseline + lineY,
       ...(b.pill ? { pill: { ...b.pill, x: b.pill.x + left, y: b.pill.y + lineY } } : {}),
       ...(b.bar ? { bar: { ...b.bar, x: b.bar.x + left, y: b.bar.y + lineY } } : {}),
+      ...(b.root ? { root: { ...b.root, x: b.root.x + left, y: b.root.y + lineY } } : {}),
     }));
 
     // The equation: its Thing when it is a Thing-group, else the group itself.
