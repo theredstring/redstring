@@ -6,9 +6,11 @@
  * A term is a Thing, or a Thing-group (a node-group) standing for a part in
  * parentheses: the group's Thing is named after its term, its members are the
  * term's own chain, and connections attach to it. The Thing's type (Is-a) says
- * what the part is: typed Square Root, Negation, sin... it reads as that applied
- * to its contents (√(…), −b, sin(x)); typed anything else (Discriminant), or
- * nothing, it reads as parentheses.
+ * what the part is: typed Square Root, Negation, Natural Logarithm, sin... it
+ * reads as that applied to its contents (√(…), −b, ln(x), sin(x)); typed
+ * anything else (Discriminant), or nothing, it reads as parentheses. A
+ * logarithm with a base is an operation like the rest, b —Logarithm→ x,
+ * written log_b(x).
  *
  * The chain reads in arrow order (each connection points from the term before to
  * the term after), or left to right on the canvas without arrows. It is the
@@ -19,7 +21,7 @@
  *   Chain = { items: [Term, Op, Term, Op, Term, ...] }
  *   Op    = { kind: 'op', symbol, name, protoId?, edgeId? }
  *   Term  = { kind: 'thing', name, realName?, instanceId?, protoId? }
- *         | { kind: 'part', name, apply: null | 'neg' | 'sqrt' | 'fn', fnName?, args: Chain[],
+ *         | { kind: 'part', name, apply: null | 'neg' | 'sqrt' | 'ln' | 'log10' | 'fn', fnName?, args: Chain[],
  *             anchorId?, protoId?, typeName?, typeProtoId? }
  *
  * A Thing is written by its label for formulas when it has one (Pressure as P,
@@ -44,11 +46,10 @@ export const formulaLabelOf = (proto) => {
 const OPERATOR_TYPE_NAMES = new Set(['operator', 'operation', 'mathematical operation', 'relation']);
 const FUNCTION_TYPE_NAMES = new Set(['function', 'mathematical function']);
 
-/** What a part's type makes it: applied as a sign, a root, a function, or plain parentheses. */
+/** What a part's type makes it: applied as a sign, a root, a logarithm, a function, or plain parentheses. */
 export function applicationOf(typeName, typeTypeName) {
   const key = operatorKeyForName(typeName);
-  if (key === 'neg') return { apply: 'neg' };
-  if (key === 'sqrt') return { apply: 'sqrt' };
+  if (key && OPERATORS[key].notation === 'prefix') return { apply: key };
   if (KNOWN_FUNCTIONS.has(norm(typeName)) || FUNCTION_TYPE_NAMES.has(norm(typeTypeName))) {
     return { apply: 'fn', fnName: String(typeName).trim() };
   }
@@ -268,6 +269,73 @@ function chainOfNode(node) {
 // ---------------------------------------------------------------------------
 
 const termCount = (chain) => (chain.items.length + 1) / 2;
+const isLogOp = (item) => item?.kind === 'op' && item.key === 'log';
+/** Whether a chain is one logarithm, log_b(x): it brackets itself, as a function does. */
+const isOneApplication = (chain) => chain.items.length === 3 && isLogOp(chain.items[1]);
+
+const precedenceOf = (item) => OPERATORS[item.key] || { prec: 2, assoc: 'left' }; // an operation of one's own: as + binds
+/**
+ * A chain's items as the tree its precedence makes: { at } for the term at
+ * items[at], { op, left, right } for the operation at items[op]. The chain is
+ * its formula's text, so this is how that text groups (a + b × c is
+ * a + (b × c); a ^ b ^ c is a ^ (b ^ c)).
+ */
+export function treeOfItems(items) {
+  let i = 0;
+  const parse = (minPrec) => {
+    let left = { at: i };
+    i += 1;
+    while (i < items.length) {
+      const { prec, assoc } = precedenceOf(items[i]);
+      if (prec < minPrec) break;
+      const op = i;
+      i += 1;
+      left = { op, left, right: parse(assoc === 'right' ? prec : prec + 0.5) };
+    }
+    return left;
+  };
+  return parse(0);
+}
+
+/** Whether a chain is one division, a over b: a fraction groups itself. */
+const isOneFraction = (chain) => {
+  const tree = treeOfItems(chain.items);
+  return tree.op !== undefined && chain.items[tree.op].key === 'div';
+};
+
+/**
+ * A formula's tokens as rows and fractions, for laying them out: a row is a
+ * list of entries, each a token's index or { id, num: row, bar: index, den: row }.
+ */
+export function rowsOf(tokens) {
+  const build = (indices, depth) => {
+    const row = [];
+    let i = 0;
+    while (i < indices.length) {
+      const at = indices[i];
+      const t = tokens[at];
+      const mark = t.fractions?.[depth];
+      const id = mark ? mark.split(':')[0] : (t.bar && (t.fractions?.length || 0) === depth ? t.bar : null);
+      if (!id) { row.push(at); i++; continue; }
+      const num = [];
+      const den = [];
+      let bar = null;
+      while (i < indices.length) {
+        const j = indices[i];
+        const u = tokens[j];
+        const m = u.fractions?.[depth];
+        if (m === `${id}:num`) num.push(j);
+        else if (m === `${id}:den`) den.push(j);
+        else if (!m && u.bar === id) bar = j;
+        else break;
+        i++;
+      }
+      row.push({ id, num: build(num, depth + 1), bar, den: build(den, depth + 1) });
+    }
+    return row;
+  };
+  return build(tokens.map((_, i) => i), 0);
+}
 
 const GREEK_LETTERS = /^[\u0370-\u03FF]$/;
 const isNumberTerm = (t) => t?.kind === 'thing' && /^\d+(\.\d+)?$/.test(t.name);
@@ -305,6 +373,10 @@ const means = (realName, text) => !!realName && norm(realName) !== norm(text);
  *   expanded? (written by its name), prefix?, level (how many times it is raised),
  *   joined? (written right against the token before: multiplied side by side) }
  *
+ * A logarithm is written applied, log_b(x): its symbol, its base lowered after
+ * it (those tokens `sub`), and what it is taken of in parentheses (a part
+ * there losing its own, which the logarithm's already give it).
+ *
  * With `standard`, it is written the way math usually is: exponentiation with
  * no ^, the exponent raised a level (a plain part as an exponent losing its
  * parentheses, since the raise already groups it; a ^ b ^ c raising twice, which
@@ -316,23 +388,36 @@ const means = (realName, text) => !!realName && norm(realName) !== norm(text);
  * ('operand', 'operator', 'apply' for a sign, root or function, 'part' for a
  * named part, which is then written as its name alone: Discriminant).
  */
-export function tokensOf(chain, { standard = false, expand = null, plain = false } = {}) {
+export function tokensOf(chain, { standard = false, expand = null, plain = false, fractions: stacking = standard } = {}) {
+  const stack = standard && stacking && !plain;
   const expanded = (flip, kind) => !plain && !!expand && !!flip && expand(flip, kind);
   const operandShown = (term) => !!term.protoId && means(term.realName, term.name) && expanded(term.instanceId, 'operand');
   const partShown = (term) => term.kind === 'part' && !plain && !!term.protoId && !!term.anchorId
     && partIsNamed(term) && expanded(term.anchorId, 'part');
   const isLetterTerm = (t) => t?.kind === 'thing' && !operandShown(t) && isSymbolText(t.name);
   const isGrouped = (t) => isGroupedTerm(t) && !partShown(t);
-  /** Whether multiplication between these two terms goes unwritten in standard notation (2a, mc, 4ac, 2(a + b)). */
-  const multipliesSideBySide = (left, right) => {
-    if (!left || !right || isNumberTerm(right)) return false;
-    if (!(isLetterTerm(right) || isGrouped(right))) return false;
-    return isNumberTerm(left) || isLetterTerm(left) || isGrouped(left);
+  /**
+   * Whether the multiplication at items[idx] goes unwritten in standard
+   * notation (2a, mc, 4ac, 2(a + b), B log₂(…)). A term that is a logarithm's
+   * base starts with "log", and one that is its argument ends with ")".
+   */
+  const multipliesSideBySide = (items, idx) => {
+    const left = items[idx - 1];
+    const right = items[idx + 1];
+    if (!left || !right) return false;
+    const rightApplied = isLogOp(items[idx + 2]);
+    if (!rightApplied && (isNumberTerm(right) || !(isLetterTerm(right) || isGrouped(right)))) return false;
+    return isLogOp(items[idx - 2]) || isNumberTerm(left) || isLetterTerm(left) || isGrouped(left);
   };
   const tokens = [];
   const seen = new Map();
   let k = 0;
   let joinNext = false;
+  let lowered = 0; // inside a logarithm's base
+  const fractions = []; // the fractions a token is inside, outermost first: 'f0:num', 'f1:den'
+  let fractionCount = 0;
+  // Division is stacked as a fraction on the line itself, not in an exponent or a base.
+  const stacksHere = (level) => stack && level === 0 && !lowered;
   const push = (t, level) => {
     // Keyed by what it stands for, so it keeps its key when the tokens around it change.
     const role = t.kind === 'paren' ? t.text : t.kind === 'comma' ? ',' : t.kind;
@@ -340,30 +425,71 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
     const n = seen.get(base) || 0;
     seen.set(base, n + 1);
     k++;
-    tokens.push({ key: n ? `${base}#${n}` : base, level, ...t, ...(joinNext ? { joined: true } : {}) });
+    tokens.push({
+      key: n ? `${base}#${n}` : base, level, ...t, ...(joinNext ? { joined: true } : {}), ...(lowered ? { sub: true } : {}),
+      ...(fractions.length ? { fractions: [...fractions] } : {}),
+    });
     joinNext = false;
   };
-  const emitChain = (c, level) => {
-    let termLevel = level;
-    c.items.forEach((item, idx) => {
-      if (item.kind === 'op') {
-        if (standard && item.key === 'pow') { termLevel += 1; return; }
-        termLevel = level;
-        if (standard && item.key === 'mul' && multipliesSideBySide(c.items[idx - 1], c.items[idx + 1])) {
-          joinNext = true;
-          return;
-        }
-        const target = item.edgeId ? `edge:${item.edgeId}` : null;
-        // The standard operations (+, =, ×...) mean the same everywhere: only
-        // an operation of one's own has more to show.
-        const defined = item.key === 'custom' && !!item.protoId && means(item.name, item.symbol);
-        const named = defined && expanded(target, 'operator');
-        push({
-          text: named ? item.name : item.symbol, kind: 'operator', target, protoId: item.protoId || null,
-          realName: item.name, defined, flip: defined ? target : null, ...(named ? { expanded: true } : {}),
-        }, level);
-      } else emitTerm(item, termLevel, termLevel > level);
-    });
+  // A logarithm's own tokens (its symbol, its parentheses): standard, as the operations are.
+  const logToken = (item, text, kind) => ({
+    text, kind, target: item.edgeId ? `edge:${item.edgeId}` : null, protoId: item.protoId || null,
+    realName: item.name, defined: false, flip: null,
+  });
+  // An operation written as one token (+, =, ÷), or by its name when it has one and is switched.
+  const opToken = (item, text = item.symbol) => {
+    const target = item.edgeId ? `edge:${item.edgeId}` : null;
+    // The standard operations (+, =, ×...) mean the same everywhere: only
+    // an operation of one's own has more to show.
+    const defined = item.key === 'custom' && !!item.protoId && means(item.name, item.symbol);
+    const named = defined && expanded(target, 'operator');
+    return {
+      text: named ? item.name : text, kind: 'operator', target, protoId: item.protoId || null,
+      realName: item.name, defined, flip: defined ? target : null, ...(named ? { expanded: true } : {}),
+    };
+  };
+  // Written from the tree the chain's precedence makes, so a fraction knows
+  // all of its numerator (a b ÷ c is ab over c) and an exponent all of itself.
+  const emitChain = (c, level) => emitNode(c.items, treeOfItems(c.items), level);
+  const emitBare = (items, node, level) => (
+    node.at !== undefined ? emitTerm(items[node.at], level, true) : emitNode(items, node, level)
+  );
+  const emitNode = (items, node, level) => {
+    if (node.at !== undefined) { emitTerm(items[node.at], level, false); return; }
+    const op = items[node.op];
+    if (isLogOp(op)) {
+      // log, the base lowered after it, then what it is taken of in its parentheses.
+      push({ ...logToken(op, OPERATORS.log.symbol, 'function'), subNext: true }, level);
+      lowered++;
+      emitNode(items, node.left, level);
+      lowered--;
+      push(logToken(op, '(', 'paren'), level);
+      emitBare(items, node.right, level);
+      push(logToken(op, ')', 'paren'), level);
+      return;
+    }
+    if (standard && op.key === 'pow') {
+      emitNode(items, node.left, level);
+      emitBare(items, node.right, level + 1);
+      return;
+    }
+    if (op.key === 'div' && stacksHere(level)) {
+      // Numerator over denominator, the bar between them standing for the division.
+      const id = `f${fractionCount++}`;
+      fractions.push(`${id}:num`);
+      emitBare(items, node.left, level);
+      fractions.pop();
+      push({ ...opToken(op), bar: id }, level);
+      fractions.push(`${id}:den`);
+      emitBare(items, node.right, level);
+      fractions.pop();
+      return;
+    }
+    emitNode(items, node.left, level);
+    if (standard && op.key === 'mul' && multipliesSideBySide(items, node.op)) joinNext = true;
+    // In an exponent a division is written on the line, as a slash.
+    else push(opToken(op, standard && op.key === 'div' ? '/' : op.symbol), level);
+    emitNode(items, node.right, level);
   };
   const emitTerm = (term, level, isExponent) => {
     if (term.kind === 'thing') {
@@ -394,11 +520,15 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
         realName: term.typeName || null, defined, flip, ...(named ? { expanded: true } : {}),
       };
     };
-    if (term.apply === 'neg' || term.apply === 'sqrt') {
+    const prefixOp = term.apply && term.apply !== 'fn' ? OPERATORS[term.apply] : null;
+    if (prefixOp) {
+      // A sign or a root sits against what it applies to; ln and log are
+      // written as functions are, their parentheses always.
       const inner = term.args[0];
-      const sign = term.apply === 'neg' ? '−' : '√';
-      push({ kind: 'operator', prefix: true, ...applied(sign) }, level);
-      const wrap = termCount(inner) > 1;
+      push(prefixOp.word
+        ? { kind: 'function', ...applied(prefixOp.symbol) }
+        : { kind: 'operator', prefix: true, ...applied(prefixOp.symbol) }, level);
+      const wrap = prefixOp.word || (termCount(inner) > 1 && !isOneApplication(inner) && !(stacksHere(level) && isOneFraction(inner)));
       if (wrap) push({ text: '(', kind: 'paren', ...own }, level);
       emitChain(inner, level);
       if (wrap) push({ text: ')', kind: 'paren', ...own }, level);
@@ -414,7 +544,8 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
       push({ text: ')', kind: 'paren', ...own }, level);
       return;
     }
-    if (isExponent) { emitChain(term.args[0], level); return; }
+    // Raised, or a fraction of its own, it is grouped already: no parentheses.
+    if (isExponent || (stacksHere(level) && isOneFraction(term.args[0]))) { emitChain(term.args[0], level); return; }
     push({ text: '(', kind: 'paren', ...own }, level);
     emitChain(term.args[0], level);
     push({ text: ')', kind: 'paren', ...own }, level);
@@ -436,7 +567,10 @@ export function expandFor(namesShown, flipped) {
 /** The formula as one line of plain text. */
 export function chainText(chain) {
   let out = '';
+  let lowered = false;
   for (const t of tokensOf(chain, { plain: true })) {
+    if (t.sub && !lowered) out += '_'; // a logarithm's base: log_2(x)
+    lowered = !!t.sub;
     if (t.kind === 'operator' && !t.prefix) out += ` ${t.text} `;
     else if (t.kind === 'comma') out += ', ';
     else out += t.text;

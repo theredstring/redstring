@@ -17,6 +17,10 @@
  * notation: 'infix' (a + b + c) or 'prefix' (−a, √a).
  * prec: binding strength for parentheses. assoc: how equal-strength children nest.
  * arity: [min, max] operands.
+ * word: a prefix operation written as a function is (ln(x)): by its symbol, its
+ *   parentheses always.
+ * applied: an infix operation written as a function of its second operand, the
+ *   first lowered after its symbol: the logarithm, log_b(x), for b —Logarithm→ x.
  */
 export const OPERATORS = {
   eq: { symbol: '=', name: 'Equality', notation: 'infix', prec: 1, assoc: 'none', arity: [2, 2],
@@ -47,12 +51,21 @@ export const OPERATORS = {
     aliases: ['^', '**', 'power', 'exponent', 'exponentiation', 'to the power of', 'raised to'] },
   sqrt: { symbol: '√', name: 'Square Root', notation: 'prefix', prec: 6, assoc: 'none', arity: [1, 1],
     aliases: ['√', 'sqrt', 'square root'] },
+  // Exponentiation's inverse, so built the same way: base, then what it is taken of.
+  log: { symbol: 'log', name: 'Logarithm', notation: 'infix', applied: true, prec: 7, assoc: 'none', arity: [2, 2],
+    aliases: ['logarithm', 'log base', 'logarithm base'] },
+  ln: { symbol: 'ln', name: 'Natural Logarithm', notation: 'prefix', word: true, prec: 6, assoc: 'none', arity: [1, 1],
+    aliases: ['ln', 'natural logarithm', 'natural log'] },
+  // log with no base: base 10, as the sciences write it (pH = −log[H⁺]).
+  log10: { symbol: 'log', name: 'Common Logarithm', notation: 'prefix', word: true, prec: 6, assoc: 'none', arity: [1, 1],
+    aliases: ['log', 'common logarithm', 'common log'] },
 };
 
 /** Function names that read as f(x) without being declared as functions. */
 export const KNOWN_FUNCTIONS = new Set([
   'sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
   'log', 'ln', 'lg', 'exp', 'abs', 'max', 'min', 'floor', 'ceil', 'gcd', 'lcm', 'det', 'lim',
+  // Formulas built before the logarithm had a base of its own typed their parts by these.
   'log_2', 'log_10',
 ]);
 
@@ -72,6 +85,22 @@ const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 export function operatorKeyForName(name) {
   return ALIAS_INDEX.get(norm(name)) || null;
 }
+
+/** The operation a word applies to what follows it (sqrt, ln, log), or null. */
+function appliedWordKey(word) {
+  const key = operatorKeyForName(word);
+  return key && key !== 'neg' && OPERATORS[key].notation === 'prefix' ? key : null;
+}
+
+/** The base a written logarithm names (log_2 and log2 -> '2', log_b -> 'b'), or null. */
+export function logBaseOf(word) {
+  const w = String(word ?? '');
+  const m = /^log_(.+)$/.exec(w) || /^log(2|10)$/.exec(w);
+  return m ? m[1] : null;
+}
+
+/** Whether a word is applied to what follows it: a function, sqrt, ln, or log with its base. */
+const isAppliedWord = (word) => KNOWN_FUNCTIONS.has(word) || !!appliedWordKey(word) || logBaseOf(word) !== null;
 
 function precOf(node) {
   if (node.kind === 'op') return node.op.prec;
@@ -139,8 +168,8 @@ const FUNCTION_LETTERS = new Set(['f', 'g', 'h']);
  */
 function splitMathName(token, isKnownName) {
   const word = token.value;
-  if (token.quoted || word.includes('_') || isKnownName(word) || GREEK_NAMES.has(word) || KNOWN_FUNCTIONS.has(word) || operatorKeyForName(word) === 'sqrt') {
-    return [{ ...token, fn: KNOWN_FUNCTIONS.has(word) || operatorKeyForName(word) === 'sqrt' }];
+  if (token.quoted || word.includes('_') || isKnownName(word) || GREEK_NAMES.has(word) || isAppliedWord(word)) {
+    return [{ ...token, fn: isAppliedWord(word) }];
   }
   const pieces = [];
   let i = 0;
@@ -220,10 +249,18 @@ export function parseFormulaText(text, { convention = 'math', isKnownName = () =
     return left;
   };
 
+  const opNode = (key, children) => ({ kind: 'op', name: OPERATORS[key].name, op: { key, ...OPERATORS[key] }, children });
   const applyTo = (name, args) => {
-    if (operatorKeyForName(name) === 'sqrt' && args.length === 1) {
-      return { kind: 'op', name: OPERATORS.sqrt.name, op: { key: 'sqrt', ...OPERATORS.sqrt }, children: args };
+    // log_b(x): the Logarithm of x, base b. Code writes the base second,
+    // log(x, b), and log(x) alone is the natural logarithm there.
+    const base = logBaseOf(name);
+    if (base !== null && args.length === 1) {
+      return opNode('log', [{ kind: 'leaf', name: base }, args[0]]);
     }
+    if (!math && name === 'log' && args.length === 2) return opNode('log', [args[1], args[0]]);
+    if (!math && name === 'log' && args.length === 1) return opNode('ln', args);
+    const key = appliedWordKey(name);
+    if (key && args.length === 1) return opNode(key, args);
     return { kind: 'fn', name, children: args };
   };
 

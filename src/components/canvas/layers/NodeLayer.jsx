@@ -22,7 +22,7 @@ import FormulaObjectsLayer from '../formats/formula/FormulaObjectsLayer.jsx';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 
 function NodeLayer({
-  part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, marqueeActive,
+  part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, draggingGroupId, marqueeActive,
   activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
 }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
@@ -151,7 +151,7 @@ function NodeLayer({
         {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
 
         {/* Formulas shown in place, where their Things were (formats/formula) */}
-        <FormulaObjectsLayer />
+        <FormulaObjectsLayer draggingGroupId={draggingGroupId} />
       </>
     );
   }

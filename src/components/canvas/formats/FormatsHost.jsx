@@ -91,7 +91,7 @@ function FormatOffer({ candidate }) {
   const { shown, phase, settle } = useLatchedPresence(candidate);
   if (!shown) return null;
 
-  const tokens = tokensOf(shown.chain, { standard });
+  const tokens = tokensOf(shown.chain, { standard, fractions: false });
   const left = bounds.x + bounds.width / 2;
   const top = bounds.y + (mobileLandscapeShell ? 40 : 70);
   return (

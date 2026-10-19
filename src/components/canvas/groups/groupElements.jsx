@@ -23,10 +23,11 @@ export const NODE_GROUP_INTERIOR_TINT = 0.07;
  * A lifted group's shadow, fast form only — see groupLiftShadow.js. Plain
  * fills and strokes in their own <g>, so the drag's `:scope > rect` lookups of
  * the box's own rects never see them, and it moves them via
- * placeGroupLiftShadow.
+ * placeGroupLiftShadow. A format drawn in a group's place (formats/formula)
+ * wears the same one.
  * @param {'box'|'outline'|'pill'} kind
  */
-function groupLiftShadow(kind, box, cornerR, transform) {
+export function groupLiftShadow(kind, box, cornerR, transform) {
   return (
     <g data-group-shadow={kind} pointerEvents="none" transform={transform}>
       {GROUP_LIFT_SHADOW_LAYERS.map((layer, i) => {

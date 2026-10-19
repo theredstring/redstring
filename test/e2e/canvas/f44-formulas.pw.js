@@ -114,6 +114,13 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   expect((await formulaGroup(page, 'x = ')).format).toBe('formula');
   await expect(object(page)).toHaveCount(1);
   expect(await shownNodes(page, memberIds)).toBe(0);
+  // The division stacked as a fraction: −b + √(…) over 2a.
+  const rows = await object(page).evaluate((el) => {
+    const ys = (t) => [...el.querySelectorAll('g.formula-object-token text')].filter(n => n.textContent === t).map(n => n.getBBox().y);
+    return { four: ys('4')[0], two: ys('2').at(-1), divide: ys('÷').length };
+  });
+  expect(rows.four).toBeLessThan(rows.two);
+  expect(rows.divide).toBe(0);
 
   // A connection from outside lands on its Thing's token.
   const xId = await storeEval(page, (st, ids) => {
@@ -237,8 +244,11 @@ test('F44 hold and drag moves the formula, snapping to the grid, as one undo ste
   // Lifted by the canvas's own group drag, which moves it as it moves a Thing.
   await page.mouse.move(p.x - 120, p.y - 80, { steps: 10 });
   await expect.poll(liftedTransform).toContain('translate');
+  // Lifted as a Thing-group is, over the group's own shadow.
+  await expect(object(page).locator('[data-group-shadow="box"]')).toHaveCount(1);
   await shot(page, '6-dragging');
   await page.mouse.up();
+  await expect(object(page).locator('[data-group-shadow]')).toHaveCount(0);
   const moved = await positionsOf(page, members);
   const dx = moved[0].x - start[0].x;
   const dy = moved[0].y - start[0].y;
@@ -289,6 +299,33 @@ test('F44 hold and drag moves the formula, snapping to the grid, as one undo ste
   expect(late).toBeGreaterThan(early + 20);
   const after = await positionsOf(page, members);
   expect(after[0].x).toBeGreaterThan(before[0].x + late * 0.9);
+});
+
+test('F44 a logarithm is an operation: its base a Thing of its own, lowered after log', async ({ page }) => {
+  await openFixture(page, 'small');
+  await buildFormula(page, 'y = log_2(x) + ln(x)');
+  const { members } = await formulaGroup(page, 'y = ');
+  // log_2(x) is 2 —Logarithm→ x, as 2^x is 2 —Exponentiation→ x; ln(x) is a
+  // part typed Natural Logarithm, as √ is a part typed Square Root.
+  const built = await storeEval(page, (st, ids) => {
+    const g = st.graphs.get(st.activeGraphId);
+    const ops = g.edgeIds.map(id => st.edges.get(id)).filter(e => ids.includes(e.sourceId))
+      .map(e => st.nodePrototypes.get(e.definitionNodeIds?.[0])?.name).sort();
+    const types = [...g.groups.values()].map(gr => st.nodePrototypes.get(st.nodePrototypes.get(gr.linkedNodePrototypeId)?.typeNodeId)?.name).filter(Boolean);
+    return { ops, types };
+  }, members);
+  expect(built.ops).toEqual(['Addition', 'Equality', 'Logarithm']);
+  expect(built.types).toEqual(['Natural Logarithm']);
+  await expect(object(page)).toHaveCount(1);
+  // The base drawn smaller than its "log", and neither switches to a name.
+  const sizes = await object(page).evaluate((el) => {
+    const size = (t) => Number([...el.querySelectorAll('g.formula-object-token text')].find(n => n.textContent === t)?.getAttribute('font-size'));
+    return { log: size('log'), base: size('2'), ln: size('ln') };
+  });
+  expect(sizes.base).toBeLessThan(sizes.log);
+  expect(sizes.ln).toBe(sizes.log);
+  await expect(object(page).locator('g.formula-object-token.is-defined', { hasText: /^(log|ln)$/ })).toHaveCount(0);
+  await shot(page, '10-logarithms');
 });
 
 test('F44 the offer shows a group in place, and its X waves it off', async ({ page }) => {

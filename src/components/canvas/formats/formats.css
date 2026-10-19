@@ -264,29 +264,69 @@ button.format-pill:disabled {
 .formula-token {
   position: relative;
   display: inline-block;
-  padding: 0 0.1em;
+  padding: 0 0.13em;
 }
 
 .formula-token.kind-operator {
-  padding: 0 0.3em;
+  padding: 0 0.34em;
 }
 
 /* Multiplied side by side (mc, 4ac): right against what it multiplies. */
 .formula-token.is-joined {
-  padding-left: 0.02em;
+  padding-left: 0.05em;
+}
+
+/* A function's name keeps a little room from what it multiplies (B log₂, 2 sin). */
+.formula-token.kind-function.is-joined {
+  padding-left: 0.2em;
+}
+
+/* A logarithm's base, lowered against its "log". */
+.formula-token.is-before-lowered {
+  padding-right: 0.02em;
+}
+
+.formula-token.is-lowered {
+  padding: 0 0.07em 0 0.03em;
+}
+
+/* A division stacked as a fraction: numerator over denominator, the bar
+   level with the minus sign and a little wider than both. */
+.formula-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0.12em;
+  line-height: 1.05;
+}
+
+.formula-frac-num,
+.formula-frac-den {
+  display: block;
+  white-space: nowrap;
+}
+
+.formula-frac-bar {
+  align-self: stretch;
+  height: 0.07em;
+  min-height: 1px;
+  margin: 0.1em 0;
+  border-radius: 1em;
+  background: currentColor;
 }
 
 /* A sign or root sits against what it applies to. */
 .formula-token.kind-operator.is-prefix {
-  padding: 0 0.04em 0 0.1em;
+  padding: 0 0.06em 0 0.13em;
 }
 
 .formula-token.kind-comma {
-  padding: 0 0.35em 0 0;
+  padding: 0 0.38em 0 0;
 }
 
 .formula-token.kind-paren {
-  padding: 0 0.03em;
+  padding: 0 0.05em;
   opacity: 0.75;
 }
 

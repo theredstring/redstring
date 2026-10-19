@@ -17,23 +17,34 @@
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst } from '../../../../services/groupLayout.js';
-import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor } from './formulaChain.js';
+import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
 export const FORMULA_FONT = 44;
 export const FORMULA_FONT_FAMILY = 'EmOne, sans-serif';
 export const FORMULA_FONT_WEIGHT = 'bold';
-const RAISE_SCALE = 0.62;  // a raised token's size, per level
+const RAISE_SCALE = 0.7;   // a raised token's size, per level
 const RAISE_STEP = 0.5;    // how far each level lifts, in the size it is lifted from
-const RAISE_GAP_IN = 0.08; // space before an exponent, in the line's em
+const RAISE_GAP_IN = -0.05; // before an exponent, in the line's em: drawn in against its base
 const RAISE_GAP_OUT = 0.18; // and after it, so what follows doesn't crowd it
 const BOX_EM = 1.5;      // token box height, in its own em
+const STACKED_BOX_EM = 1.15; // in a fraction, where the rows above and below are close
 const BASELINE_EM = 0.36; // baseline below the line's middle, in the line's em
 export const FRAME_PAD_X = 0.55; // em
 export const FRAME_PAD_Y = 0.42; // em
 export const SUBSCRIPT_SCALE = 0.62;
 export const SUBSCRIPT_DROP = 0.28; // em of the token, below its baseline
+// A fraction, in the line's em: numerator and denominator centred over each
+// other, the bar a little wider than both and level with the minus sign.
+const INK_EM = 0.42;         // how far a token's letters reach above and below its middle, in its own em
+const FRACTION_GAP = 0.12;   // between the bar and the letters above and below it
+const FRACTION_BAR = 0.07;   // the bar's thickness
+const FRACTION_OVERHANG = 0.14; // the bar past the wider of the two
+const FRACTION_MARGIN = 0.12; // either side of the fraction
+const FRACTION_AXIS = 0.08;  // the bar below the line's middle, where − and = sit
+const BAR_HIT_EM = 0.5;      // the bar's box, for pointing at the division
+const LINE_CLEAR = 0.12;     // between a fraction's letters and the frame
 /** The title, as a Thing-group's (groupElements.jsx). */
 export const TITLE_FONT = 45;
 const G = GROUP_LAYOUT_CONSTANTS;
@@ -53,11 +64,14 @@ function measure(text, size) {
 }
 
 function padsFor(t) {
-  if (t.joined) return [0.02, t.kind === 'operator' ? 0.3 : 0.1];
-  if (t.kind === 'operator') return t.prefix ? [0.1, 0.04] : [0.3, 0.3];
-  if (t.kind === 'comma') return [0, 0.35];
-  if (t.kind === 'paren') return [0.03, 0.03];
-  return [0.1, 0.1];
+  if (t.sub) return [0.03, 0.07]; // a logarithm's base, against its "log"
+  if (t.subNext) return [t.joined ? 0.2 : 0.13, 0.02];
+  // A function's name keeps a little room from what it multiplies (B log₂, 2 sin).
+  if (t.joined) return [t.kind === 'function' ? 0.2 : 0.05, t.kind === 'operator' ? 0.34 : 0.13];
+  if (t.kind === 'operator') return t.prefix ? [0.13, 0.06] : [0.34, 0.34];
+  if (t.kind === 'comma') return [0, 0.38];
+  if (t.kind === 'paren') return [0.05, 0.05];
+  return [0.13, 0.13];
 }
 
 // A token written by its Thing's name is drawn as that Thing, a pill in its color.
@@ -67,43 +81,98 @@ const PILL_MARGIN = 0.14; // outside, either side
 export const PILL_RADIUS = 0.4; // of its height, as a node's corners are of its
 
 /**
- * Where each token goes on one line, relative to the line's left end and
- * vertical middle. Each box: { x, y, w, h, size, baseline, textX, pill? } in
- * canvas units; `pill` ({ x, y, w, h }) for a token written by name.
+ * Where each token goes, relative to the line's left end and vertical middle.
+ * Each box: { x, y, w, h, size, baseline, textX, pill?, bar? } in canvas units;
+ * `pill` ({ x, y, w, h }) for a token written by name, `bar` for a division
+ * stacked as a fraction (its token is the bar). `top` and `bottom` are how far
+ * the line reaches above and below its middle (negative above).
  */
 export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
-  let x = 0;
-  let prevLevel = 0;
-  let reach = BOX_EM * font / 2; // how far the line reaches above and below its middle
-  const boxes = tokens.map((t) => {
-    const level = t.level || 0;
-    const size = font * Math.pow(RAISE_SCALE, level);
-    let lift = 0;
-    for (let i = 0; i < level; i++) lift += RAISE_STEP * font * Math.pow(RAISE_SCALE, i);
-    if (level > prevLevel) x += RAISE_GAP_IN * font;
-    else if (level < prevLevel) x += RAISE_GAP_OUT * font;
-    prevLevel = level;
-    const sub = subscriptOf(t.text);
-    const textW = sub ? measure(sub[0], size) + measure(sub[1], size * SUBSCRIPT_SCALE) : measure(t.text, size);
-    const baseline = BASELINE_EM * font - lift;
-    const middle = baseline - BASELINE_EM * size;
-    if (t.expanded) {
-      const ph = PILL_EM * size;
-      const pill = { x: x + PILL_MARGIN * size, y: middle - ph / 2, w: textW + 2 * PILL_PAD * size, h: ph };
-      const w = pill.w + 2 * PILL_MARGIN * size;
-      reach = Math.max(reach, Math.abs(pill.y), Math.abs(pill.y + ph));
-      const box = { x, y: pill.y, w, h: ph, size, baseline, textX: pill.x + PILL_PAD * size, pill };
-      x += w;
-      return box;
+  const boxes = new Array(tokens.length);
+  const move = (indices, dx, dy) => {
+    for (const i of indices) {
+      const b = boxes[i];
+      boxes[i] = {
+        ...b, x: b.x + dx, y: b.y + dy, textX: b.textX + dx, baseline: b.baseline + dy,
+        ...(b.pill ? { pill: { ...b.pill, x: b.pill.x + dx, y: b.pill.y + dy } } : {}),
+        ...(b.bar ? { bar: { ...b.bar, x: b.bar.x + dx, y: b.bar.y + dy } } : {}),
+      };
     }
-    const [padL, padR] = padsFor(t);
-    const w = textW + (padL + padR) * size;
-    const h = BOX_EM * size;
-    const box = { x, y: middle - h / 2, w, h, size, baseline, textX: x + padL * size };
-    x += w;
-    return box;
-  });
-  return { boxes, width: x, height: 2 * reach };
+  };
+  // One row from x = 0: its width, how far its letters reach (top, bottom), and its tokens.
+  const layRow = (row, depth) => {
+    let x = 0;
+    let prevLevel = 0;
+    let top = 0;
+    let bottom = 0;
+    const indices = [];
+    const boxEm = depth > 0 ? STACKED_BOX_EM : BOX_EM;
+    for (const entry of row) {
+      if (typeof entry !== 'number') {
+        const num = layRow(entry.num, depth + 1);
+        const den = layRow(entry.den, depth + 1);
+        x += (prevLevel > 0 ? RAISE_GAP_OUT : 0) * font + FRACTION_MARGIN * font;
+        prevLevel = 0;
+        const w = Math.max(num.width, den.width) + 2 * FRACTION_OVERHANG * font;
+        const barY = FRACTION_AXIS * font;
+        const barH = FRACTION_BAR * font;
+        const numDy = barY - barH / 2 - FRACTION_GAP * font - num.bottom;
+        const denDy = barY + barH / 2 + FRACTION_GAP * font - den.top;
+        move(num.indices, x + (w - num.width) / 2, numDy);
+        move(den.indices, x + (w - den.width) / 2, denDy);
+        if (entry.bar !== null) {
+          const hitH = BAR_HIT_EM * font;
+          boxes[entry.bar] = {
+            x, y: barY - hitH / 2, w, h: hitH, size: font, baseline: barY, textX: x,
+            bar: { x, y: barY - barH / 2, w, h: barH },
+          };
+          indices.push(entry.bar);
+        }
+        indices.push(...num.indices, ...den.indices);
+        top = Math.min(top, num.top + numDy);
+        bottom = Math.max(bottom, den.bottom + denDy);
+        x += w + FRACTION_MARGIN * font;
+        continue;
+      }
+      const t = tokens[entry];
+      const level = t.level || 0;
+      const levelSize = font * Math.pow(RAISE_SCALE, level);
+      // A logarithm's base is lowered and smaller, as a subscript is.
+      const size = t.sub ? levelSize * SUBSCRIPT_SCALE : levelSize;
+      let lift = 0;
+      for (let i = 0; i < level; i++) lift += RAISE_STEP * font * Math.pow(RAISE_SCALE, i);
+      if (level > prevLevel) x += RAISE_GAP_IN * font;
+      else if (level < prevLevel) x += RAISE_GAP_OUT * font;
+      prevLevel = level;
+      const sub = subscriptOf(t.text);
+      const textW = sub ? measure(sub[0], size) + measure(sub[1], size * SUBSCRIPT_SCALE) : measure(t.text, size);
+      const baseline = BASELINE_EM * font - lift + (t.sub ? SUBSCRIPT_DROP * levelSize : 0);
+      const middle = baseline - BASELINE_EM * size;
+      let box;
+      if (t.expanded) {
+        const ph = PILL_EM * size;
+        const pill = { x: x + PILL_MARGIN * size, y: middle - ph / 2, w: textW + 2 * PILL_PAD * size, h: ph };
+        box = { x, y: pill.y, w: pill.w + 2 * PILL_MARGIN * size, h: ph, size, baseline, textX: pill.x + PILL_PAD * size, pill };
+        top = Math.min(top, pill.y);
+        bottom = Math.max(bottom, pill.y + ph);
+      } else {
+        const [padL, padR] = padsFor(t);
+        const h = boxEm * size;
+        box = { x, y: middle - h / 2, w: textW + (padL + padR) * size, h, size, baseline, textX: x + padL * size };
+        top = Math.min(top, middle - INK_EM * size);
+        bottom = Math.max(bottom, middle + INK_EM * size);
+      }
+      boxes[entry] = box;
+      indices.push(entry);
+      x += box.w;
+    }
+    return { width: x, top, bottom, indices };
+  };
+  const line = layRow(rowsOf(tokens), 0);
+  // A plain line is as tall as its tokens' boxes; a fraction makes it taller.
+  const top = Math.min(-BOX_EM * font / 2, line.top - LINE_CLEAR * font);
+  const bottom = Math.max(BOX_EM * font / 2, line.bottom + LINE_CLEAR * font);
+  return { boxes, width: line.width, height: bottom - top, top, bottom };
 }
 
 const EMPTY = Object.freeze({ objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), tokenBoxById: new Map(), standIns: new Map() });
@@ -169,9 +238,12 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
     const tokens = tokensOf(chain, { standard, expand: expandFor(namesShown.has(group.id), flipped.get(group.id)) });
     const line = layoutFormulaLine(tokens);
     const left = cx - line.width / 2;
+    // Centred on its middle: a tall numerator and a short denominator share the room evenly.
+    const lineY = cy - (line.top + line.bottom) / 2;
     const boxes = line.boxes.map(b => ({
-      ...b, x: b.x + left, y: b.y + cy, textX: b.textX + left, baseline: b.baseline + cy,
-      ...(b.pill ? { pill: { ...b.pill, x: b.pill.x + left, y: b.pill.y + cy } } : {}),
+      ...b, x: b.x + left, y: b.y + lineY, textX: b.textX + left, baseline: b.baseline + lineY,
+      ...(b.pill ? { pill: { ...b.pill, x: b.pill.x + left, y: b.pill.y + lineY } } : {}),
+      ...(b.bar ? { bar: { ...b.bar, x: b.bar.x + left, y: b.bar.y + lineY } } : {}),
     }));
 
     // The equation: its Thing when it is a Thing-group, else the group itself.

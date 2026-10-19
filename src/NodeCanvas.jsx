@@ -3335,7 +3335,7 @@ function NodeCanvas() {
 
   const nodeLayerProps = {
     nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds: groupLayouts.thingGroupMemberIds,
-    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart,
+    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart, draggingGroupId: draggingNodeInfo?.groupId ?? null,
     activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
   };
 

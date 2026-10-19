@@ -4,8 +4,8 @@
  * - each operation a connection between neighbours, defined by the operation's
  *   Thing (Addition, Multiplication, Exponentiation...), pointing the way it reads;
  * - each part in parentheses a Thing-group nested in place, its Thing named after
- *   its term and typed by what is applied to it (Square Root, Negation, sin), or
- *   untyped for plain parentheses;
+ *   its term and typed by what is applied to it (Square Root, Negation, Natural
+ *   Logarithm, sin), or untyped for plain parentheses;
  * - the whole equation a Thing-group too, shown as its formula: its Thing is the
  *   equation (its title, or its text while it has none), so its definition web
  *   holds its Things and each of them is a Component Of it.
@@ -49,6 +49,9 @@ const OPERATOR_DESCRIPTIONS = {
   neg: 'The opposite of its contents.',
   pow: 'The first raised to the power of the second.',
   sqrt: 'The number that, multiplied by itself, gives its contents.',
+  log: 'The power the first must be raised to to give the second.',
+  ln: 'The power e must be raised to to give its contents.',
+  log10: 'The power 10 must be raised to to give its contents.',
 };
 
 // Between terms: room for the operation's whole label on its connection (the
@@ -229,7 +232,7 @@ function build(chain, graphId, at, bindings, title, equation) {
     const groupId = st.createGroup(graphId, { name: part.name, color: NODE_DEFAULT_COLOR, memberInstanceIds: ids });
     // The part's Thing: named after its term, typed by what is applied to it.
     let typeNodeId = null;
-    if (part.apply === 'neg' || part.apply === 'sqrt') {
+    if (part.apply && part.apply !== 'fn') {
       typeNodeId = prototypeNamed(OPERATORS[part.apply].name, OPERATOR_DESCRIPTIONS[part.apply]).id;
     } else if (part.apply === 'fn') {
       typeNodeId = prototypeNamed(part.fnName).id;

@@ -23,7 +23,8 @@
  *   title starts (groupInput.getCanvasGroupInput): edge panning, panning and
  *   zooming mid-drag, grid snap, one undo step. It moves this object with
  *   the group because the object carries one of its Things' ids, as that
- *   Thing's own element would.
+ *   Thing's own element would. While it is the dragged group it lifts as a
+ *   Thing-group does: scaled up a little, over the group's own shadow.
  */
 import { memo, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -33,8 +34,10 @@ import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
+import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
-import { NODE_GROUP_INTERIOR_TINT } from '../../groups/groupElements.jsx';
+import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupElements.jsx';
+import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf } from './formulaChain.js';
 import { useGlide } from './useGlide.js';
@@ -47,7 +50,9 @@ import {
 const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
 const DOUBLE_TAP_MS = 320;   // a tap waits this long to switch its token, in case it is the first of two
 const HOVER_TINT = 0.18;
+const HOVER_REACH = 0.14;    // a hovered token's tint past its box, either side, in its em
 const FADE = { duration: 0.14 };
+const LIFT_SCALE = 1.05;     // a dragged Thing-group's (groupElements)
 const TITLE_TARGET = '__title__';
 
 /** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
@@ -115,9 +120,10 @@ function GlideRect({ r, ...rest }) {
  */
 function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
   const defined = !!t.target && !!t.defined;
+  const reach = hot ? HOVER_REACH * b.size : 0;
   const shape = useGlide(b.pill
     ? { x: b.pill.x - o.x, y: b.pill.y - o.y, w: b.pill.w, h: b.pill.h, rx: b.pill.h * PILL_RADIUS, a: 1 }
-    : { x: b.x - o.x, y: b.y - o.y, w: b.w, h: b.h, rx: Math.min(b.h * 0.4, b.w / 2), a: hot ? HOVER_TINT : 0 });
+    : { x: b.x - o.x - reach, y: b.y - o.y, w: b.w + 2 * reach, h: b.h, rx: Math.min(b.h * 0.4, (b.w + 2 * reach) / 2), a: hot ? HOVER_TINT : 0 });
   return (
     <motion.g
       className={`formula-object-token${defined ? ' is-defined' : ''}${t.expanded ? ' is-expanded' : ''}`}
@@ -137,15 +143,23 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
         x={shape.x} y={shape.y} width={Math.max(0, shape.w)} height={Math.max(0, shape.h)}
         rx={Math.max(0, shape.rx)} fill={fill} fillOpacity={shape.a}
       />
-      <AnimatePresence initial={false}>
-        <motion.g key={t.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: FADE }} transition={FADE}>
-          <TokenText
-            text={t.text} x={b.textX - o.x} y={b.baseline - o.y} size={b.size}
-            fill={t.expanded ? onBand : textColor}
-            opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
-          />
-        </motion.g>
-      </AnimatePresence>
+      {b.bar ? (
+        // A division stacked as a fraction: its token is the bar.
+        <GlideRect
+          r={{ x: b.bar.x - o.x, y: b.bar.y - o.y, w: b.bar.w, h: b.bar.h }}
+          rx={b.bar.h / 2} fill={textColor} style={{ pointerEvents: 'none' }}
+        />
+      ) : (
+        <AnimatePresence initial={false}>
+          <motion.g key={t.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: FADE }} transition={FADE}>
+            <TokenText
+              text={t.text} x={b.textX - o.x} y={b.baseline - o.y} size={b.size}
+              fill={t.expanded ? onBand : textColor}
+              opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
+            />
+          </motion.g>
+        </AnimatePresence>
+      )}
     </motion.g>
   );
 }
@@ -163,7 +177,7 @@ function groupEntryOf(obj) {
   return { group, members, isNodeGroup: !!group.linkedNodePrototypeId, effectiveGroupName: obj.title || group.name };
 }
 
-function FormulaObject({ obj, theme, selected }) {
+function FormulaObject({ obj, theme, selected, lifted }) {
   const [hoverKey, setHoverKey] = useState(null);
   const pressRef = useRef(null);
   const lastTapRef = useRef({ target: null, at: 0 });
@@ -251,6 +265,15 @@ function FormulaObject({ obj, theme, selected }) {
   // only a change of its own layout slides.
   const o = obj.center;
   const box = (r) => ({ x: r.x - o.x, y: r.y - o.y, w: r.w, h: r.h });
+  const liftShadow = useGraphStore(st => (lifted ? (st.liftedThingShadow ?? DEFAULT_LIFTED_THING_SHADOW) : null));
+  // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
+  const lx = frame.x + frame.w / 2 - o.x;
+  const ly = frame.y + frame.h / 2 - o.y;
+  const liftStyle = {
+    transform: lifted ? `translate(${lx}px, ${ly}px) scale(${LIFT_SCALE}) translate(${-lx}px, ${-ly}px)` : 'none',
+    transformOrigin: '0px 0px',
+    transition: lifted ? 'none' : 'transform 0.2s ease-out',
+  };
 
   return (
     <g
@@ -272,53 +295,57 @@ function FormulaObject({ obj, theme, selected }) {
       style={{ cursor: 'pointer' }}
     >
       <g transform={`translate(${o.x} ${o.y})`}>
-        {selected && (
-          <GlideRect
-            r={{ x: frame.x - 10 - o.x, y: frame.y - 10 - o.y, w: frame.w + 20, h: frame.h + 20 }}
-            rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
-          />
-        )}
-        {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
-        <g
-          className="formula-object-title"
-          data-formula-target={TITLE_TARGET}
-          data-formula-proto={obj.equationProtoId || undefined}
-        >
-          <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={color} />
-          {obj.title && (
-            <TitleText
-              at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
-              fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
-              fill={onBand} textAnchor="middle" dominantBaseline="central"
-              style={{ userSelect: 'none', pointerEvents: 'none' }}
-            >
-              {obj.title}
-            </TitleText>
-          )}
-        </g>
-        <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} />
-        <AnimatePresence initial={false}>
-          {obj.tokens.map((t, i) => (
-            <Token
-              key={t.key}
-              t={t}
-              b={obj.boxes[i]}
-              o={o}
-              fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
-              textColor={textColor}
-              onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
-              hot={hoverKey === t.key}
-              onEnter={hoverIn(t.key)}
-              onLeave={hoverOut(t.key)}
+        <g style={liftStyle}>
+          {lifted && groupLiftShadowOn(liftShadow) && groupLiftShadow('box', box(frame), G.nodeGroupCornerRadius)}
+          {selected && (
+            <GlideRect
+              r={{ x: frame.x - 10 - o.x, y: frame.y - 10 - o.y, w: frame.w + 20, h: frame.h + 20 }}
+              rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
             />
-          ))}
-        </AnimatePresence>
+          )}
+          {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
+          <g
+            className="formula-object-title"
+            data-formula-target={TITLE_TARGET}
+            data-formula-proto={obj.equationProtoId || undefined}
+          >
+            <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={color} />
+            {obj.title && (
+              <TitleText
+                at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
+                fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
+                fill={onBand} textAnchor="middle" dominantBaseline="central"
+                style={{ userSelect: 'none', pointerEvents: 'none' }}
+              >
+                {obj.title}
+              </TitleText>
+            )}
+          </g>
+          <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} />
+          <AnimatePresence initial={false}>
+            {obj.tokens.map((t, i) => (
+              <Token
+                key={t.key}
+                t={t}
+                b={obj.boxes[i]}
+                o={o}
+                fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+                textColor={textColor}
+                onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
+                hot={hoverKey === t.key}
+                onEnter={hoverIn(t.key)}
+                onLeave={hoverOut(t.key)}
+              />
+            ))}
+          </AnimatePresence>
+        </g>
       </g>
     </g>
   );
 }
 
-function FormulaObjectsLayer() {
+/** `draggingGroupId`: the group the canvas's drag is carrying, if any. */
+function FormulaObjectsLayer({ draggingGroupId = null }) {
   const formulaObjects = useFormulaObjects();
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   const theme = useTheme();
@@ -328,7 +355,10 @@ function FormulaObjectsLayer() {
     <g className="formula-objects-layer">
       {hideGroups && <style>{`${hideGroups}{display:none}`}</style>}
       {formulaObjects.objects.map(obj => (
-        <FormulaObject key={obj.groupId} obj={obj} theme={theme} selected={selectedGroupId === obj.groupId} />
+        <FormulaObject
+          key={obj.groupId} obj={obj} theme={theme}
+          selected={selectedGroupId === obj.groupId} lifted={draggingGroupId === obj.groupId}
+        />
       ))}
     </g>
   );

@@ -22,7 +22,7 @@ export default function FormatPanelPreview({ groupId, color, darkMode }) {
   const tokens = useMemo(() => {
     if (!formulaText) return null;
     const chain = readGroupFormula(useGraphStore.getState(), useGraphStore.getState().activeGraphId, groupId);
-    return chain ? tokensOf(chain, { standard, expand: expandFor(names, flipped) }) : null;
+    return chain ? tokensOf(chain, { standard, fractions: false, expand: expandFor(names, flipped) }) : null;
   }, [formulaText, groupId, standard, names, flipped]);
   if (!tokens) return null;
   const fill = color || NODE_DEFAULT_COLOR;
