@@ -20,6 +20,7 @@
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
   test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS, findBareSpot, camera,
+  nodeBox, centerOf,
 } from './helpers.js';
 
 // In the small fixture's empty lower half, far enough left that a long formula
@@ -577,6 +578,71 @@ test('F44 MathModDB fills in a discipline: its model under each equation, its qu
   expect(await storeEval(page, (st) => [...st.nodePrototypes.values()]
     .find(p => p.name === 'Rate of Change of Removed in the SIR Model')?.description))
     .toBe('Rate of change of removed individuals in the continuous-time SIR model. Part of the Susceptible Infectious Removed Model.');
+});
+
+test('F44 a formula takes connections like a node group, and its hidden Things take none', async ({ page }) => {
+  await openFixture(page, 'small');
+  // The Ideal Gas Law, built from the bank below Epsilon.
+  await page.evaluate(async () => {
+    const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
+    const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+    const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
+    const st = window.useGraphStore.getState();
+    const near = st.graphs.get(st.activeGraphId).instances.get('i-epsilon');
+    buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
+  });
+  await expect(object(page)).toHaveCount(1);
+  await page.waitForTimeout(800); // past the entrance
+  const formula = await storeEval(page, (st) => {
+    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.format === 'formula');
+    return { anchorId: g.anchorInstanceId, members: [...g.memberInstanceIds] };
+  });
+  const edgesNow = () => storeEval(page, (st) => [...st.edges.values()].map(e => `${e.sourceId}>${e.destinationId}`));
+  const before = new Set(await edgesNow());
+  const drawFrom = async (from, to) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 16; i++) await page.mouse.move(from.x + ((to.x - from.x) * i) / 16, from.y + ((to.y - from.y) * i) / 16);
+    await page.mouse.up();
+  };
+
+  // Onto it, anywhere on it: the connection is to the equation's Thing, and stops at its band.
+  const box = await object(page).boundingBox();
+  const onFormula = { x: box.x + box.width * 0.7, y: box.y + box.height * 0.7 };
+  await drawFrom(centerOf(await nodeBox(page, 'i-gamma')), onFormula);
+  await expect.poll(edgesNow).toContain(`i-gamma>${formula.anchorId}`);
+  await shot(page, '16-connected-to-formula');
+  const edgeId = await storeEval(page, (st, a) => [...st.edges.values()].find(e => e.sourceId === 'i-gamma' && e.destinationId === a).id, formula.anchorId);
+  const line = await page.locator(`svg.canvas [data-edge-id="${edgeId}"]`).first().boundingBox();
+  // Its end is at the formula, not where the group's title would have been.
+  const end = await object(page).boundingBox();
+  expect(line.x + line.width).toBeGreaterThan(end.x - 30);
+  expect(line.y + line.height).toBeGreaterThan(end.y - 30);
+
+  // From it: a quick drag off the formula draws a connection from the equation's Thing.
+  await drawFrom({ x: box.x + box.width * 0.3, y: box.y + box.height * 0.5 }, centerOf(await nodeBox(page, 'i-alpha')));
+  await expect.poll(edgesNow).toContain(`${formula.anchorId}>i-alpha`);
+  // Those two and nothing else: never from or to one of its hidden Things.
+  expect((await edgesNow()).filter(e => !before.has(e)).sort())
+    .toEqual([`${formula.anchorId}>i-alpha`, `i-gamma>${formula.anchorId}`].sort());
+
+  // Its Things can't be selected where they used to be: not by a selection, the keyboard or by type.
+  expect(await page.evaluate(async (ids) => {
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    ui.getState().setSelectedInstanceIds(new Set(ids));
+    return ui.getState().selectedInstanceIds.size;
+  }, formula.members)).toBe(0);
+
+  // A Thing dropped on it isn't offered as one of its Things.
+  expect(await page.evaluate(async () => {
+    const { findGroupDropTarget } = await import('/src/components/canvas/groups/groupDropTarget.js');
+    const st = window.useGraphStore.getState();
+    const g = st.graphs.get(st.activeGraphId);
+    const nodes = [...g.instances.values()];
+    const f = [...g.groups.values()].find(x => x.format === 'formula');
+    const m = g.instances.get(f.memberInstanceIds[0]);
+    return findGroupDropTarget({ point: { x: m.x + 10, y: m.y + 10 }, groups: [...g.groups.values()], nodes, groupDepths: new Map(), gridSize: 200 })?.id === f.id;
+  })).toBe(false);
 });
 
 test('F44 a bank this device kept in an older shape gives way to the one shipped', async ({ page }) => {

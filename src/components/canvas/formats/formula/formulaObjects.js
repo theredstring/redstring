@@ -333,7 +333,7 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
   return { boxes, width: line.width, height: bottom - top, top, bottom };
 }
 
-const EMPTY = Object.freeze({ objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), tokenBoxById: new Map(), standIns: new Map() });
+const EMPTY = Object.freeze({ objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), tokenBoxById: new Map(), standIns: new Map(), anchors: new Map() });
 
 let last = null;
 
@@ -345,7 +345,7 @@ let last = null;
 export function computeFormulaObjects(state, { standard = true, namesShown = NO_NAMES, flipped = NO_FLIPS } = {}) {
   const result = formulaObjectsOf(state, standard, namesShown, flipped);
   // What the formulas replace can't be hit, and is drawn at its token (formats/replaced.js).
-  setReplaced(result.hiddenIds, result.hiddenGroupIds, result.standIns);
+  setReplaced(result.hiddenIds, result.hiddenGroupIds, result.standIns, result.anchors);
   return result;
 }
 
@@ -469,7 +469,10 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
       if (box) standIns.set(id, { ...box, rideOn: o.dragProxyId });
     }
   }
-  const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns } : EMPTY;
+  // Each formula, whole, where its group's anchor is: connections are drawn from it and dropped on it.
+  const anchors = new Map();
+  for (const o of objects) if (o.anchorId) anchors.set(o.anchorId, { ...o.frame, groupId: o.groupId });
+  const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns, anchors } : EMPTY;
   // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
   const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
   last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result } : null;

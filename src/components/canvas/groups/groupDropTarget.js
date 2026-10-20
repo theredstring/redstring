@@ -6,6 +6,7 @@
  */
 import { getNodeDimensions } from '../../../utils.js';
 import { collectAncestorGroupIds } from '../../../services/groupLayout.js';
+import { isReplacedGroup } from '../formats/replaced.js';
 
 /**
  * The innermost group whose drop box contains `point` (a node centre, in canvas
@@ -20,6 +21,8 @@ export function findGroupDropTarget({ point, excludeNodeId, groups, nodes, group
   let targetDepth = -1;
   for (const group of groups) {
     if (excludeNodeId && group.memberInstanceIds.includes(excludeNodeId)) continue;
+    // A group drawn as a formula (and its parts) is written, not joined by landing on it.
+    if (isReplacedGroup(group.id)) continue;
     const depth = groupDepths.get(group.id) ?? 0;
     // `>=` so a later sibling at the same depth still wins, preserving
     // the previous reverse-insertion tie-break.

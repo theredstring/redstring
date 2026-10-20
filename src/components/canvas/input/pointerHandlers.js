@@ -23,6 +23,9 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
 import { queueEdgeHandoff } from '../edges/edgeTransitions.js';
 import { isJustAfterNodeDrop } from './dropCooldown.js';
+import { anchorBoxOf, isReplacedInstance } from '../formats/replaced.js';
+
+const insideBox = (b, p) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
 
 /** @param {{ current: object }} ctxRef */
 export function createPointerHandlers(ctxRef) {
@@ -178,17 +181,21 @@ export function createPointerHandlers(ctxRef) {
     const srcNode = nodes.find(n => n.id === armedInstanceId);
     if (!srcNode) return false;
 
+    // For anchor nodes (thing group titles), use title dimensions from
+    // anchorPositionUpdatesRef; for a group drawn as a formula, the formula.
+    const anchorInfo = srcNode.isGroupAnchor ? anchorBoxOf(srcNode.id, anchorPositionUpdatesRef.current) : null;
+
     // Allow both patterns:
     // 1) Move outside the node (original behavior)
     // 2) Quick drag while still inside the node (desktop-friendly)
-    const leftNodeArea = !isInsideNode(srcNode, clientX, clientY);
+    const leftNodeArea = isReplacedInstance(srcNode.id) && anchorInfo && containerRef.current
+      ? !insideBox(anchorInfo, clientToCanvas(clientX, clientY, containerRef.current.getBoundingClientRect(), panOffsetRef.current, zoomLevelRef.current, canvasSize))
+      : !isInsideNode(srcNode, clientX, clientY);
     if (!leftNodeArea && !startedOnNode.current) return false;
 
     clearTimeout(longPressTimeout.current);
     clearTimeout(groupLongPressTimeout.current); // Cancel group drag if connection drawing starts
     mouseInsideNode.current = false;
-    // For anchor nodes (thing group titles), use title dimensions from anchorPositionUpdatesRef
-    const anchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
     const startNodeDims = anchorInfo
       ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
       : getNodeDimensions(srcNode, previewingNodeId === srcNode.id, null);

@@ -7,6 +7,7 @@
  */
 import { create } from 'zustand';
 import useGraphStore from '../../../store/graphStore.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 
 const NOTATION_KEY = 'redstring_formula_notation';
@@ -59,10 +60,12 @@ export const dismissFormatOffer = (key) => useFormatsStore.setState((s) => {
 /**
  * Show a candidate as its format, in place. A group is marked; a selection or
  * a whole web first becomes a group (named after its formula), since the
- * format lives on a group.
+ * format lives on a group. The Things it was made from are no longer there to
+ * be selected (the formula is, by its tap), so the selection is let go.
  */
 export function showFormatInPlace(candidate) {
   const store = useGraphStore.getState();
+  useCanvasUIStore.getState().setSelectedInstanceIds(new Set());
   if (candidate.source === 'group') {
     store.updateGroup(candidate.graphId, candidate.sourceId, (g) => { g.format = candidate.format; });
     return candidate.sourceId;

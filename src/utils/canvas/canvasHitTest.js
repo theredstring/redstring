@@ -5,7 +5,7 @@
  */
 import { getNodeDimensions } from '../../utils.js';
 import { placeholderIdForGroup } from '../../services/groupLayout.js';
-import { isReplacedInstance, isReplacedGroup } from '../../components/canvas/formats/replaced.js';
+import { isReplacedInstance, isReplacedGroup, formatAnchorAt } from '../../components/canvas/formats/replaced.js';
 
 /**
  * Which instances a live selection box covers, merged with whatever was
@@ -40,12 +40,15 @@ export function selectionInRect(rect, nodes, baseSelection, previewingNodeId) {
 }
 
 /**
- * The thing group whose title pill contains a canvas point, or null.
+ * The thing group whose title pill contains a canvas point, or null. A group
+ * drawn as a format (a formula) is there as the whole of what is drawn.
  * @param {Map<string, { x: number, y: number, width: number, height: number, groupId: string }>} titleRects
  *   anchor instance id → title pill rect (NodeCanvas's anchorPositionUpdatesRef)
  * @returns {{ anchorInstanceId: string, groupId: string } | null}
  */
 export function groupTitleAtCanvasPoint(canvasX, canvasY, titleRects) {
+  const format = formatAnchorAt(canvasX, canvasY);
+  if (format) return format;
   for (const [anchorId, info] of titleRects.entries()) {
     if (isReplacedGroup(info.groupId)) continue;
     if (canvasX >= info.x && canvasX <= info.x + info.width &&

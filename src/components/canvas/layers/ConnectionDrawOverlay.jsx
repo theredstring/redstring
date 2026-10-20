@@ -10,6 +10,7 @@ import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../../constants';
 import { isValidColor } from '../../../ai/palettes.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import useGraphStore from '../../../store/graphStore.js';
+import { anchorBoxOf } from '../formats/replaced.js';
 
 // The drop-target halo is a stack of rounded rects, each offset outward from the
 // node's outline with its corner radius grown faster than the offset, so the
@@ -42,12 +43,19 @@ export default function ConnectionDrawOverlay({ ctx }) {
   const glowNodeId = !isDrawing ? null
     : selfLoopPreviewActive ? sourceId
     : dropTargetId !== sourceId ? dropTargetId : null;
-  const glowNode = glowNodeId ? nodes.find(n => n.id === glowNodeId && !n.isGroupAnchor) : null;
-  const glowDims = glowNode ? (baseDimsById.get(glowNode.id) || getNodeDimensions(glowNode, false, null)) : null;
+  const target = glowNodeId ? nodes.find(n => n.id === glowNodeId) : null;
+  // A group drawn as a formula glows as the formula (a node group's own title doesn't).
+  const format = target?.isGroupAnchor ? anchorBoxOf(target.id, null) : null;
+  const glowNode = target && (!target.isGroupAnchor || format)
+    ? (format ? { ...target, x: format.x - NODE_BG_INSET, y: format.y - NODE_BG_INSET } : target)
+    : null;
+  const glowDims = !glowNode ? null
+    : format ? { currentWidth: format.width + 2 * NODE_BG_INSET, currentHeight: format.height + 2 * NODE_BG_INSET }
+      : (baseDimsById.get(glowNode.id) || getNodeDimensions(glowNode, false, null));
   const glowColor = glowNode && isValidColor(glowNode.color) ? glowNode.color : NODE_DEFAULT_COLOR;
   // The node's visible background rect: inset from its box, with the corner
   // radius Node.jsx gives it.
-  const glowRadius = Math.max(0, NODE_CORNER_RADIUS * nodeScale * (glowNode?.sizeMul ?? 1) - NODE_BG_INSET);
+  const glowRadius = Math.max(0, NODE_CORNER_RADIUS * nodeScale * (format ? 1 : (glowNode?.sizeMul ?? 1)) - NODE_BG_INSET);
 
   return (
     <Profiler id="ConnectionDrawOverlay" onRender={onRenderProbe}>

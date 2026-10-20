@@ -5,6 +5,7 @@
  * useConnectionDraw controller.
  */
 import { getNodeDimensions } from '../../../utils.js';
+import { anchorBoxOf } from '../formats/replaced.js';
 
 /** Move the in-progress connection's endpoint (a DOM write, not React state). */
 export function writeDrawingConnectionEnd(ctx, canvasX, canvasY) {
@@ -19,7 +20,7 @@ export function writeDrawingConnectionEnd(ctx, canvasX, canvasY) {
   const srcNode = draw ? nodesRef.current?.find(n => n.id === draw.sourceInstanceId) : null;
   if (!srcNode) return;
 
-  const anchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
+  const anchorInfo = srcNode.isGroupAnchor ? anchorBoxOf(srcNode.id, anchorPositionUpdatesRef.current) : null;
   const dims = anchorInfo
     ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
     : getNodeDimensions(srcNode, false, null);

@@ -55,6 +55,7 @@
 import { create } from 'zustand';
 import { readPersistedPanelWidth } from '../utils/canvas/panelWidth.js';
 import { reducePie } from '../components/canvas/pie/pieMachine.js';
+import { isReplacedInstance } from '../components/canvas/formats/replaced.js';
 
 // ─── Equality helpers ─────────────────────────────────────────────────────────
 
@@ -423,6 +424,16 @@ function withoutGroupAnchors(ids, set, get) {
   return new Set([...ids].filter((id) => !anchors.has(id)));
 }
 
+/**
+ * A Thing a format draws its own way (a formula's term) isn't there to select:
+ * the format is selected as its group, by its own tap. Nothing selects it
+ * where it used to be (select by type, a box, the keyboard).
+ */
+function withoutReplaced(ids) {
+  if (!ids.size || ![...ids].some(isReplacedInstance)) return ids;
+  return new Set([...ids].filter((id) => !isReplacedInstance(id)));
+}
+
 /** Test helper: clear every pending timer, the queue and the handler. */
 export function resetPieRunner() {
   for (const id of pieKeyedTimers.values()) clearTimeout(id);
@@ -480,7 +491,7 @@ const useCanvasUIStore = create((set, get) => ({
   // rule in the same write (P5.02b step 6; it was a NodeCanvas effect).
   setSelectedInstanceIds: (valueOrUpdater) => {
     const prev = get().selectedInstanceIds;
-    const next = withoutGroupAnchors(toSet(resolveNext(valueOrUpdater, prev)), set, get);
+    const next = withoutReplaced(withoutGroupAnchors(toSet(resolveNext(valueOrUpdater, prev)), set, get));
     if (setsEqual(prev, next)) return;
     get().dispatchPie({ type: 'SELECTION_CHANGED', ids: next });
   },
@@ -553,7 +564,7 @@ const useCanvasUIStore = create((set, get) => ({
     // setter above, so anchors are swapped for their group here too.
     if (event?.type === 'PIE_TARGET' && event.selection !== undefined) {
       const asked = toSet(event.selection);
-      const selection = withoutGroupAnchors(asked, set, get);
+      const selection = withoutReplaced(withoutGroupAnchors(asked, set, get));
       const droppedTarget = asked.has(event.id) && !selection.has(event.id);
       event = { ...event, selection, id: droppedTarget ? null : event.id };
     }

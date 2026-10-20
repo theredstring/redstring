@@ -7,6 +7,44 @@
  * The code below is that pass's computation, moved verbatim.
  */
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
+import { isReplacedGroup, standInFor, anchorBoxOf } from '../formats/replaced.js';
+
+/**
+ * Publish a layout to the refs the rest of the canvas reads (drag, gamepad,
+ * edges, the anchor flush). Rebuilt, not accumulated: a group that is gone (or
+ * has become undrawable — emptied, or its layout bailed) must leave no rect
+ * behind, or the controller keeps aiming at a pill nobody draws.
+ *
+ * A group drawn as a format (formats/replaced.js) has no pill to aim at, and
+ * its anchor is where the format draws it: a formula's own anchor is its
+ * title, with the formula's band as the box a connection stops at, the way a
+ * node group's shell is; a part's anchor inside it is its token. So drawing,
+ * hit testing and dragging all put a connection into it in the same place.
+ */
+export function publishGroupLayouts(layouts, titleRectsRef, anchorPositionsRef) {
+  titleRectsRef.current.clear();
+  for (const [id, r] of layouts.titleRects) if (!isReplacedGroup(id)) titleRectsRef.current.set(id, r);
+  for (const [id, a] of layouts.anchorPositions) {
+    anchorPositionsRef.current.set(id, isReplacedGroup(a.groupId) ? formatAnchorPosition(id, a) : a);
+  }
+}
+
+/**
+ * Where a format draws a group's anchor, as an anchorPositions record (the
+ * pill: its title or token; outerBounds and shellRect: the formula's band), or
+ * `pill` when no format draws it. `dx`/`dy`: how far a drag has carried it.
+ */
+export function formatAnchorPosition(anchorId, pill, dx = 0, dy = 0) {
+  const standIn = standInFor(anchorId);
+  if (!standIn) return pill;
+  const found = anchorBoxOf(anchorId, null);
+  const drawn = found ? { ...found, x: found.x + dx, y: found.y + dy } : null;
+  return {
+    x: standIn.x + dx, y: standIn.y + dy, width: standIn.w, height: standIn.h, groupId: pill?.groupId ?? found?.groupId ?? null,
+    outerBounds: drawn ? { x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height } : null,
+    shellRect: drawn ? { x: drawn.x, y: drawn.y, w: drawn.width, h: drawn.height, r: GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius } : null,
+  };
+}
 
 /**
  * @returns {{

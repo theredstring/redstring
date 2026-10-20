@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { standInFor } from '../components/canvas/formats/replaced.js';
+import { standInFor, isReplacedGroup } from '../components/canvas/formats/replaced.js';
+import { formatAnchorPosition } from '../components/canvas/groups/groupLayouts.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
@@ -1003,14 +1004,24 @@ export const useNodeDrag = ({
       // A Thing a format draws its own way (a formula's term) is drawn at its
       // stand-in (its token), carried by the drag of the Thing the format rides
       // on: the same end the settled render gives the connection.
+      const rideDelta = (standIn) => {
+        const rideStored = curNodeById.get(standIn.rideOn);
+        const ride = rideStored && dragPos.get(standIn.rideOn);
+        return ride ? { dx: ride.x - rideStored.x, dy: ride.y - rideStored.y } : { dx: 0, dy: 0 };
+      };
       const standInEnd = (id) => {
         const standIn = standInFor(id);
         if (!standIn) return null;
-        const rideStored = curNodeById.get(standIn.rideOn);
-        const ride = rideStored && dragPos.get(standIn.rideOn);
-        const dx = ride ? ride.x - rideStored.x : 0;
-        const dy = ride ? ride.y - rideStored.y : 0;
+        const { dx, dy } = rideDelta(standIn);
         return { pos: { x: standIn.x + dx, y: standIn.y + dy }, dims: { currentWidth: standIn.w, currentHeight: standIn.h } };
+      };
+      // A group's anchor a format draws (a formula's title) is the format's,
+      // carried the same way: its band is the box the connection stops at.
+      const formatAnchorEnd = (id) => {
+        const standIn = standInFor(id);
+        if (!standIn) return null;
+        const { dx, dy } = rideDelta(standIn);
+        return formatAnchorPosition(id, null, dx, dy);
       };
       const sStandIn = standInEnd(edge.sourceId);
       const dStandIn = standInEnd(edge.destinationId);
@@ -1021,8 +1032,10 @@ export const useNodeDrag = ({
       // each React frame), NOT the stored instance position + default node dims. Mirror that
       // here so the drag-time line and label exactly match the settled (drop) render — and so
       // the label can be pushed off the group's outer bounds the same way.
-      let sAnchor = sStored.isGroupAnchor && !sStandIn ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
-      let eAnchor = dStored.isGroupAnchor && !dStandIn ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
+      let sAnchor = !sStored.isGroupAnchor ? null
+        : sStandIn ? formatAnchorEnd(edge.sourceId) : anchorPositionUpdatesRef?.current?.get(edge.sourceId);
+      let eAnchor = !dStored.isGroupAnchor ? null
+        : dStandIn ? formatAnchorEnd(edge.destinationId) : anchorPositionUpdatesRef?.current?.get(edge.destinationId);
       // The pill wins UNCONDITIONALLY, including when the anchor carries a drag
       // position of its own. It used to defer to `dragPos` (`if
       // (!dragPos.has(id))`), and that is the whole of "connections into a
@@ -1761,7 +1774,8 @@ export const useNodeDrag = ({
       // frame has to keep its rect current or the crosshair is testing against
       // where the title WAS at the last commit. Plain groups included — they are
       // absent from the anchor map below and would otherwise never update.
-      if (groupTitleRectsRef?.current) {
+      // A group drawn as a format has no pill: the format is where it is (groupLayouts.publishGroupLayouts).
+      if (groupTitleRectsRef?.current && !isReplacedGroup(groupId)) {
         groupTitleRectsRef.current.set(groupId, {
           x: labelX, y: labelY,
           width: groupLabelWidth, height: groupLabelHeight,
@@ -1770,7 +1784,7 @@ export const useNodeDrag = ({
         });
       }
 
-      if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current) {
+      if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current && !isReplacedGroup(groupId)) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
           x: labelX, y: labelY,

@@ -30,7 +30,7 @@ import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
-import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js';
+import { computeGroupLayouts, publishGroupLayouts } from './components/canvas/groups/groupLayouts.js';
 import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
 import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
@@ -3512,13 +3512,8 @@ function NodeCanvas() {
     theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers, liftedThingShadow: useGraphStore.getState().liftedThingShadow,
   }), [groupLayouts, groupStructure, draggingGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
 
-  // Publish the layout to the refs the rest of the canvas reads (drag, gamepad,
-  // edges, the anchor flush). Rebuilt, not accumulated: a group that is gone (or
-  // has become undrawable — emptied, or its layout bailed) must leave no rect
-  // behind, or the controller keeps aiming at a pill nobody draws.
-  groupTitleRectsRef.current.clear();
-  for (const [id, r] of groupLayouts.titleRects) groupTitleRectsRef.current.set(id, r);
-  for (const [id, a] of groupLayouts.anchorPositions) anchorPositionUpdatesRef.current.set(id, a);
+  // Publish the layout to the refs the rest of the canvas reads (groupLayouts.js).
+  publishGroupLayouts(groupLayouts, groupTitleRectsRef, anchorPositionUpdatesRef);
   nodeGroupBackgroundsByDepthRef.current = groupElements.backgroundsByDepth;
   nodeGroupTitlesRef.current = groupElements.titles;
   thingGroupMemberIdsRef.current = groupLayouts.thingGroupMemberIds;
