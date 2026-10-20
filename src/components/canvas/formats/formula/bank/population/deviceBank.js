@@ -1,6 +1,6 @@
 /**
  * The formula bank this device updated for itself (Settings → Data → Formula
- * Bank → Update from Wikidata), kept in IndexedDB: the bank, its report, and
+ * Bank → Update from Wikidata), kept in IndexedDB: the bank, its report, what its sections are missing, and
  * the disciplines its classes were traced to, so the next update need not
  * trace them again. Without it, the app uses the bank it shipped with.
  *
@@ -42,14 +42,15 @@ async function run(mode, action) {
   });
 }
 
-/** @param {'bank'|'report'|'classes'} key */
+/** @param {'bank'|'report'|'known'|'classes'} key */
 export const readDeviceBank = (key) => run('readonly', store => store.get(key));
 
-/** Keep an updated bank, its report and its traced classes. Resolves true once kept. */
-export async function writeDeviceBank({ bank, report, classes }) {
+/** Keep an updated bank, its report, what its sections are missing and its traced classes. Resolves true once kept. */
+export async function writeDeviceBank({ bank, report, known, classes }) {
   const kept = await run('readwrite', (store) => {
     store.put(bank, 'bank');
     store.put(report, 'report');
+    store.put(known, 'known');
     return store.put(classes, 'classes');
   });
   return kept !== null;
@@ -58,5 +59,6 @@ export async function writeDeviceBank({ bank, report, classes }) {
 /** Forget the updated bank (the traced classes stay, to speed the next update). */
 export const clearDeviceBank = () => run('readwrite', (store) => {
   store.delete('bank');
+  store.delete('known');
   return store.delete('report');
 });

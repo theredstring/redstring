@@ -8,9 +8,10 @@
  *     parts: [{ id: 'g', anchor: 'pa', name: 'a + b', type: 'Square Root', members: ['a', 'b'] }],
  *     top: ['a', 'b', 'pa'],                                // the formula group's members
  *     labels: { Pressure: 'P' },                            // how a Thing is written in formulas
+ *     instanceLabels: { q1: 'q_1' },                        // how one instance is written, over its Thing's label
  *   })
  */
-export function formulaWeb({ things = [], ops = [], parts = [], top = null, extra = [], arrows = 'forward', format, labels = {} } = {}) {
+export function formulaWeb({ things = [], ops = [], parts = [], top = null, extra = [], arrows = 'forward', format, labels = {}, instanceLabels = {} } = {}) {
   const nodePrototypes = new Map();
   const protoNamed = (name) => {
     for (const p of nodePrototypes.values()) if (p.name === name) return p;
@@ -19,7 +20,10 @@ export function formulaWeb({ things = [], ops = [], parts = [], top = null, extr
     return p;
   };
   const instances = new Map();
-  for (const [id, name, x, y = 0] of things) instances.set(id, { id, prototypeId: protoNamed(name).id, x, y });
+  for (const [id, name, x, y = 0] of things) {
+    // How this one is written where it stands (q_1 for Electric Charge): { q1: 'q_1' }.
+    instances.set(id, { id, prototypeId: protoNamed(name).id, x, y, ...(instanceLabels[id] ? { labels: { formula: instanceLabels[id] } } : {}) });
+  }
   const groups = new Map();
   for (const part of parts) {
     const proto = { id: `p-part-${part.id}`, name: part.name, color: '#8B0000', typeNodeId: part.type ? protoNamed(part.type).id : null };

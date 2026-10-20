@@ -6,7 +6,7 @@
  * FormulaObjectsLayer, with the same proportions.
  */
 import { memo, useMemo } from 'react';
-import { subscriptOf, rowsOf } from './formulaChain.js';
+import { subscriptOf, rowsOf, vectorOf } from './formulaChain.js';
 
 const RAISE_SCALE = 0.7;
 const RAISE_STEP = 0.5;      // in the size it is lifted from
@@ -15,15 +15,16 @@ const RAISE_GAP_OUT = 0.18;
 const SUBSCRIPT_SCALE = 0.62; // a logarithm's base, as formulaObjects lowers it
 const SUBSCRIPT_DROP = 0.28;  // in the size it is lowered from
 
-/** Size, lift and the gap before a token, in the token's own em. */
-function tokenStyle(level, prevLevel, sub) {
+/** Size, lift and the gap before a token, in the token's own em (a sum's limits small, unlifted). */
+function tokenStyle(level, prevLevel, sub, script) {
   const levelScale = Math.pow(RAISE_SCALE, level);
-  const scale = sub ? levelScale * SUBSCRIPT_SCALE : levelScale;
+  const scale = (sub ? levelScale * SUBSCRIPT_SCALE : levelScale) * (script ? RAISE_SCALE : 1);
   let lift = 0;
   for (let i = 0; i < level; i++) lift += RAISE_STEP * Math.pow(RAISE_SCALE, i);
   if (sub) lift -= SUBSCRIPT_DROP * levelScale;
   const gap = level > prevLevel ? RAISE_GAP_IN : level < prevLevel ? RAISE_GAP_OUT : 0;
-  if (!level && !gap && !sub) return undefined;
+  if (!level && !gap && !sub && !script) return undefined;
+  if (script && !level && !sub) return { fontSize: `${scale}em`, ...(gap ? { marginLeft: `${gap / scale}em` } : {}) };
   return {
     ...(level || sub ? { fontSize: `${scale}em`, top: `${-lift / scale}em` } : {}),
     ...(gap ? { marginLeft: `${gap / scale}em` } : {}),
@@ -38,7 +39,32 @@ const classOf = (t) => ['formula-token', `kind-${t.kind}`, t.prefix ? 'is-prefix
 /** One row of tokens and fractions (rowsOf), exponents raised against the token before them. */
 function Row({ row, tokens, highlight, highlightStyle }) {
   let prevLevel = 0;
+  const rowOf = (r) => <Row row={r} tokens={tokens} highlight={highlight} highlightStyle={highlightStyle} />;
   return row.map((entry) => {
+    if (typeof entry !== 'number' && entry.kind === 'big') {
+      const sign = tokens[entry.sign];
+      prevLevel = sign.level || 0;
+      // ∑ and lim over what they run over; ∫ with its limits at its side.
+      return (
+        <span key={sign.key} className={`formula-big ${entry.scripts ? 'is-scripts' : 'is-limits'}${sign.kind === 'function' ? ' is-word' : ''}`}>
+          {entry.scripts ? (
+            <>
+              <span className="formula-big-sign">{sign.text}</span>
+              <span className="formula-big-scripts">
+                <span className="formula-big-over">{rowOf(entry.over)}</span>
+                <span className="formula-big-under">{rowOf(entry.under)}</span>
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="formula-big-over">{rowOf(entry.over)}</span>
+              <span className="formula-big-sign">{sign.text}</span>
+              <span className="formula-big-under">{rowOf(entry.under)}</span>
+            </>
+          )}
+        </span>
+      );
+    }
     if (typeof entry !== 'number' && entry.kind === 'root') {
       prevLevel = tokens[entry.sign].level || 0;
       // The sign stretches to the height of what it holds; the bar is the body's
@@ -64,16 +90,18 @@ function Row({ row, tokens, highlight, highlightStyle }) {
       );
     }
     const t = tokens[entry];
-    const style = tokenStyle(t.level || 0, prevLevel, t.sub);
+    const style = tokenStyle(t.level || 0, prevLevel, t.sub, t.script);
     prevLevel = t.level || 0;
     const sub = subscriptOf(t.text);
+    const { letter, vector } = vectorOf(sub ? sub[0] : t.text);
+    const shown = vector ? <span className="formula-vec">{letter}</span> : letter;
     return (
       <span
         key={t.key}
         className={classOf(t)}
         style={highlight && t.protoId === highlight ? { ...style, ...highlightStyle, borderRadius: '0.3em', opacity: 1 } : style}
       >
-        {sub ? <>{sub[0]}<sub className="formula-token-sub">{sub[1]}</sub></> : t.text}
+        {sub ? <>{shown}<sub className="formula-token-sub">{sub[1]}</sub></> : shown}
       </span>
     );
   });

@@ -473,12 +473,16 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await page.locator('.equations-section').scrollIntoViewIfNeeded();
   await shot(page, '11-equations-section');
 
-  // The discipline gathers what was taken from it.
-  expect(await storeEval(page, (st) => {
-    const d = [...st.nodePrototypes.values()].find(x => x.name === 'Physics');
+  // Its section gathers it, and the discipline its section.
+  const webOf = (name) => storeEval(page, (st, n) => {
+    const d = [...st.nodePrototypes.values()].find(x => x.name === n);
     const web = d && st.graphs.get(d.definitionGraphIds[0]);
     return web ? [...web.instances.values()].map(i => st.nodePrototypes.get(i.prototypeId).name) : null;
-  })).toEqual(['Ideal Gas Law']);
+  }, name);
+  expect(await webOf('Physics')).toEqual(['Thermodynamics']);
+  expect(await webOf('Thermodynamics')).toEqual(['Ideal Gas Law']);
+  expect(await storeEval(page, (st) => [...st.nodePrototypes.values()].find(x => x.name === 'Thermodynamics').externalLinks))
+    .toEqual(['http://www.wikidata.org/entity/Q11473']);
 
   // A second equation from the bank finds the same Pressure; a Thing of the
   // user's that is merely called Pressure is never taken over.
@@ -507,6 +511,61 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   expect(await storeEval(page, (st) => [...st.graphs.get(st.activeGraphId).groups.values()]
     .filter(g => g.format === 'formula' && st.nodePrototypes.get(g.linkedNodePrototypeId)?.name === 'Ideal Gas Law')
     .map(g => g.linkedDefinitionIndex))).toEqual([0, 0]);
+});
+
+test('F44 a discipline narrows to a section, which says what it knows of and doesn\'t write yet', async ({ page }) => {
+  await openFixture(page, 'small');
+  await openComposer(page);
+  await page.locator('.format-bank-chip', { hasText: /^Physics$/ }).click();
+  await page.locator('.format-bank-section', { hasText: /^Thermodynamics$/ }).click();
+  await expect(page.locator('.format-bank-head')).toContainText('Physics: Thermodynamics');
+  await expect(page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' })).toBeVisible();
+  await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(0);
+  await expect(page.locator('.format-bank-known-row').first()).toBeVisible();
+  await shot(page, '9b-bank-section');
+  // A discipline with nothing written yet still says what its sections know of.
+  await page.locator('.format-bank-back').click();
+  await page.locator('.format-bank-back').click();
+  await page.locator('.format-bank-chip', { hasText: /^Biology$/ }).click();
+  await expect(page.locator('.format-bank')).toContainText('No equations written here yet.');
+  await page.locator('.format-bank-section', { hasText: /^Population Genetics$/ }).click();
+  await expect(page.locator('.format-bank-known-row', { hasText: 'Hardy–Weinberg Principle' })).toContainText('Wikidata has no formula for it');
+  await shot(page, '9c-bank-known');
+});
+
+test('F44 the bank writes calculus as the textbook does, and a concept two ways where an equation does', async ({ page }) => {
+  await openFixture(page, 'small');
+  const build = (id, at) => page.evaluate(async ({ q, dx, dy }) => {
+    const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
+    const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+    const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
+    const st = window.useGraphStore.getState();
+    const near = [...st.graphs.get(st.activeGraphId).instances.values()]
+      .find(i => st.nodePrototypes.get(i.prototypeId)?.name === 'Epsilon');
+    buildBankEquation(d, d.equations.find(e => e.id === q), st.activeGraphId, { x: near.x + dx, y: near.y + dy });
+  }, { q: id, ...at });
+  // P = dE/dt: a fraction whose bar is the derivative.
+  await build('Q25342', { dx: 380, dy: 300 });
+  await expect(object(page)).toHaveCount(1);
+  expect((await object(page).locator('g.formula-object-token text').allTextContents()).join(' ')).toBe('P = d E d t');
+  expect((await centerOfLocator(token(page, 'E'))).y).toBeLessThan((await centerOfLocator(token(page, 't'))).y - 20);
+  expect(await storeEval(page, (st) => [...st.nodePrototypes.values()].some(p => p.name === 'Derivative'
+    && /How fast the first changes/.test(p.description)))).toBe(true);
+  await shot(page, '14-derivative');
+  // Coulomb's law: q₁ and q₂ are both Electric Charge, which the bank writes Q.
+  await build('Q11773690', { dx: 380, dy: 900 });
+  await expect(object(page)).toHaveCount(2);
+  const charges = await storeEval(page, (st) => {
+    const g = [...st.graphs.get(st.activeGraphId).groups.values()]
+      .find(x => x.format === 'formula' && st.nodePrototypes.get(x.linkedNodePrototypeId)?.name === 'Definition of Coulomb Force');
+    const inst = st.graphs.get(st.activeGraphId).instances;
+    return g.memberInstanceIds.map(id => inst.get(id))
+      .filter(i => st.nodePrototypes.get(i.prototypeId)?.name === 'Electric Charge')
+      .map(i => `${i.labels?.formula}/${st.nodePrototypes.get(i.prototypeId).labels?.formula}`).sort();
+  });
+  expect(charges).toEqual(['q_1/Q', 'q_2/Q']);
+  await expect(protosNamed(page, 'Electric Charge')).resolves.toBe(1);
+  await shot(page, '15-two-ways');
 });
 
 test('F44 the formula panel writes it with names instead of symbols', async ({ page }) => {
@@ -562,11 +621,11 @@ test('F44 Data settings show where the formula bank came from, and what it left 
   const source = page.locator('.settings-row', { hasText: 'Update from Wikidata' });
   await expect(source).toContainText(/^Update from Wikidata[\s\S]*\d+ from Wikidata, with the app/);
   await page.locator('.settings-row', { hasText: 'Left Out' }).getByRole('button', { name: 'Show' }).click();
-  const reason = page.getByRole('button', { name: /^Two symbols for one concept/ });
+  const reason = page.getByRole('button', { name: /^Formula not writable yet/ });
   await expect(reason).toBeVisible();
   await reason.click();
   // Each item left out says why, and opens on Wikidata.
-  await expect(page.locator('.formula-bank-left-out', { hasText: 'Pythagorean theorem' })).toContainText('a, b → cathetus');
+  await expect(page.locator('.formula-bank-left-out', { hasText: /^sample variance/ })).toContainText("can't write accents");
   // No device bank yet: nothing to go back from.
   await expect(page.locator('.settings-row', { hasText: 'Use the Built-In Bank' })).toHaveCount(0);
 });

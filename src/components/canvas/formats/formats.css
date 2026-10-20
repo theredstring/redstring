@@ -343,6 +343,80 @@ button.format-pill:disabled {
   background: currentColor;
 }
 
+/* A sum's ∑ and a limit's lim over what they run over; an integral's ∫ with
+   its limits at its side. The limits size themselves (FormulaTokens). */
+.formula-big {
+  display: inline-flex;
+  vertical-align: middle;
+  align-items: center;
+  margin: 0 0.1em;
+  line-height: 1;
+}
+
+.formula-big.is-limits {
+  flex-direction: column;
+}
+
+.formula-big-sign {
+  font-size: 1.45em;
+  line-height: 1;
+}
+
+.formula-big.is-scripts .formula-big-sign {
+  font-size: 1.6em;
+}
+
+.formula-big.is-word .formula-big-sign {
+  font-size: 1em;
+  padding: 0 0.13em;
+}
+
+.formula-big-over,
+.formula-big-under {
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.formula-big-scripts {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-self: stretch;
+  margin-left: -0.08em;
+}
+
+.formula-big-scripts .formula-big-under {
+  margin-left: -0.3em;
+}
+
+/* A vector's arrow over its letter (F⃗), drawn rather than left to the font. */
+.formula-vec {
+  position: relative;
+  display: inline-block;
+}
+
+.formula-vec::after {
+  content: '';
+  position: absolute;
+  left: 0.08em;
+  right: 0.02em;
+  top: -0.14em;
+  height: 0.06em;
+  min-height: 1px;
+  background: currentColor;
+  border-radius: 1em;
+}
+
+.formula-vec::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: calc(-0.14em - 0.09em);
+  border-left: 0.16em solid currentColor;
+  border-top: 0.12em solid transparent;
+  border-bottom: 0.12em solid transparent;
+}
+
 /* A sign or root sits against what it applies to. */
 .formula-token.kind-operator.is-prefix {
   padding: 0 0.06em 0 0.13em;
@@ -510,6 +584,87 @@ button.format-pill:disabled {
 .format-bank-chip:hover {
   background-color: maroon;
   color: #DEDADA;
+}
+
+/* A discipline's sections, to narrow it to one. */
+.format-bank-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0 4px 6px;
+}
+
+.format-bank-section {
+  padding: 5px 10px;
+  border: 1.5px solid maroon;
+  border-radius: 12px;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.format-bank-section:hover {
+  background-color: maroon;
+  color: #DEDADA;
+}
+
+.format-bank-section.is-more {
+  border-style: dashed;
+}
+
+/* What a section knows of and the bank doesn't write yet: each opens its article. */
+.format-bank-known {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1.5px solid rgba(128, 0, 0, 0.25);
+}
+
+.format-bank-known-head {
+  padding: 2px 12px 4px;
+  font-size: 11px;
+  font-weight: bold;
+  opacity: 0.65;
+}
+
+.format-bank-known-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.format-bank-known-row:hover {
+  background-color: #D0CACA;
+}
+
+.format-bank-known-title {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.format-bank-known-why {
+  flex-shrink: 0;
+  max-width: 50%;
+  overflow: hidden;
+  font-size: 10px;
+  opacity: 0.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .format-bank-head {

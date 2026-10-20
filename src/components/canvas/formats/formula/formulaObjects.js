@@ -17,7 +17,7 @@
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst } from '../../../../services/groupLayout.js';
-import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf } from './formulaChain.js';
+import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf, VECTOR_MARK } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
@@ -53,6 +53,19 @@ const ROOT_DROP = 0.1;       // the hook's foot below the letters
 const ROOT_OVERHANG = 0.08;  // the bar past what it holds
 const ROOT_TRAIL = 0.1;      // after it
 const ROOT_STROKE = 0.075;
+// A sum's ∑, an integral's ∫ and a limit's lim, in the size of the line they are on.
+const SUM_SCALE = 1.45;      // ∑, drawn larger than the letters it runs over
+const INTEGRAL_SCALE = 1.6;  // ∫, taller still
+const BIG_MARGIN = 0.1;      // either side of the sign and its limits
+const BIG_GAP = 0.06;        // between ∑ (or lim) and the limits over and under it
+const INTEGRAL_KERN = -0.12; // its upper limit in against the ∫'s top, which leans right
+const INTEGRAL_UNDER = -0.34; // and its lower limit further in, under the lean
+const BIG_PAD = 0.06;        // the sign's box, past its ink
+// A vector's arrow over its letter, in the letter's em.
+const ARROW_RISE = 0.14;     // above the letter's top
+const ARROW_INSET = 0.08;    // in from either side of the letter
+const ARROW_HEAD = 0.13;
+export const ARROW_STROKE = 0.065;
 /** The title, as a Thing-group's (groupElements.jsx). */
 export const TITLE_FONT = 45;
 const G = GROUP_LAYOUT_CONSTANTS;
@@ -69,16 +82,38 @@ function ensureMeasure() {
 }
 
 // Without a canvas to measure on (tests), letters that hang below the line, by sight.
-const DESCENDERS = /[gjpqyβγζημξρςφχψ,]/;
-/** How far one run of text's letters reach above and below its baseline. */
+const DESCENDERS = /[gjpqyβγζημξρςφχψ,∫]/;
+const unmarked = (text) => String(text).split(VECTOR_MARK).join('');
+/** How far one run of text's letters reach above and below its baseline (a vector's arrow too). */
 function inkOfRun(text, size) {
   const ctx = ensureMeasure();
+  const arrow = String(text).includes(VECTOR_MARK) ? (ARROW_RISE + ARROW_HEAD) * size : 0;
   if (ctx) {
     ctx.font = `${FORMULA_FONT_WEIGHT} ${size}px ${FORMULA_FONT_FAMILY}`;
-    const m = ctx.measureText(text);
-    if (Number.isFinite(m.actualBoundingBoxAscent)) return { above: m.actualBoundingBoxAscent, below: m.actualBoundingBoxDescent };
+    const m = ctx.measureText(unmarked(text));
+    if (Number.isFinite(m.actualBoundingBoxAscent)) return { above: m.actualBoundingBoxAscent + arrow, below: m.actualBoundingBoxDescent };
   }
-  return { above: 0.72 * size, below: (DESCENDERS.test(text) ? 0.22 : 0.02) * size };
+  return { above: 0.72 * size + arrow, below: (DESCENDERS.test(text) ? 0.22 : 0.02) * size };
+}
+
+/**
+ * A vector's arrow over its letter (F⃗), drawn rather than left to the font,
+ * which rarely places U+20D7 well: from just inside the letter's left to just
+ * inside its right, a little above its top. `x` is where the letter starts.
+ */
+export function arrowOver(letter, x, baseline, size) {
+  const w = measure(letter, size);
+  const ctx = ensureMeasure();
+  let above = 0.72 * size;
+  if (ctx) {
+    ctx.font = `${FORMULA_FONT_WEIGHT} ${size}px ${FORMULA_FONT_FAMILY}`;
+    const m = ctx.measureText(letter);
+    if (Number.isFinite(m.actualBoundingBoxAscent)) above = m.actualBoundingBoxAscent;
+  }
+  const y = baseline - above - ARROW_RISE * size;
+  const x1 = x + ARROW_INSET * size;
+  const x2 = x + Math.max(w - ARROW_INSET * size, ARROW_INSET * size + 0.3 * size);
+  return { x1, x2, y, head: ARROW_HEAD * size, stroke: ARROW_STROKE * size };
 }
 
 /**
@@ -97,10 +132,11 @@ function inkOf(text, size) {
 
 function measure(text, size) {
   if (!text) return 0;
+  const shown = unmarked(text);
   ensureMeasure();
-  if (!measureCtx) return text.length * size * 0.62;
+  if (!measureCtx) return shown.length * size * 0.62;
   measureCtx.font = `${FORMULA_FONT_WEIGHT} ${size}px ${FORMULA_FONT_FAMILY}`;
-  return measureCtx.measureText(text).width;
+  return measureCtx.measureText(shown).width;
 }
 
 function padsFor(t) {
@@ -125,8 +161,10 @@ export const PILL_RADIUS = 0.4; // of its height, as a node's corners are of its
  * Each box: { x, y, w, h, size, baseline, textX, pill?, bar?, root? } in canvas
  * units; `pill` ({ x, y, w, h }) for a token written by name, `bar` for a
  * division stacked as a fraction (its token is the bar), `root` ({ x, y, w, h,
- * signW, stroke }) for a square root drawn over what it holds (its token is the sign). `top` and `bottom` are how far
- * the line reaches above and below its middle (negative above).
+ * signW, stroke }) for a square root drawn over what it holds (its token is the sign). A sum's ∑, an
+ * integral's ∫ or a limit's lim is its token's text, drawn larger, its limits
+ * placed around it. `top` and `bottom` are how far the line reaches above and
+ * below its middle (negative above).
  */
 export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
   const boxes = new Array(tokens.length);
@@ -150,6 +188,58 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
     const indices = [];
     const boxEm = depth > 0 ? STACKED_BOX_EM : BOX_EM;
     for (const entry of row) {
+      if (typeof entry !== 'number' && entry.kind === 'big') {
+        const sign = tokens[entry.sign];
+        const level = sign.level || 0;
+        const base = font * Math.pow(RAISE_SCALE, level);
+        if (level > prevLevel) x += RAISE_GAP_IN * font;
+        else if (level < prevLevel) x += RAISE_GAP_OUT * font;
+        prevLevel = level;
+        // lim is a word on the line; ∑ and ∫ are larger, centred where − sits.
+        const word = sign.kind === 'function';
+        const size = word ? base : base * (entry.scripts ? INTEGRAL_SCALE : SUM_SCALE);
+        const textW = measure(sign.text, size);
+        const ink = inkOfRun(sign.text, size);
+        const baseline = word ? BASELINE_EM * font : FRACTION_AXIS * font + (ink.above - ink.below) / 2;
+        const signTop = baseline - ink.above;
+        const signBottom = baseline + ink.below;
+        const over = layRow(entry.over, depth + 1);
+        const under = layRow(entry.under, depth + 1);
+        const left = x + BIG_MARGIN * base;
+        let signX;
+        let end;
+        let overDy = 0;
+        let underDy = 0;
+        if (entry.scripts) {
+          // ∫ₐᵇ: the limits at its side, the upper level with its top, the lower with its foot.
+          signX = left;
+          const overX = signX + textW + INTEGRAL_KERN * base;
+          const underX = signX + textW + INTEGRAL_UNDER * base;
+          overDy = signTop - over.top;
+          underDy = signBottom - under.bottom;
+          move(over.indices, overX, overDy);
+          move(under.indices, underX, underDy);
+          end = Math.max(signX + textW, over.indices.length ? overX + over.width : 0, under.indices.length ? underX + under.width : 0);
+        } else {
+          // ∑ and lim: what they run over centred under them, where they stop over them.
+          const w = Math.max(textW, over.width, under.width);
+          signX = left + (w - textW) / 2;
+          overDy = signTop - BIG_GAP * base - over.bottom;
+          underDy = signBottom + BIG_GAP * base - under.top;
+          move(over.indices, left + (w - over.width) / 2, overDy);
+          move(under.indices, left + (w - under.width) / 2, underDy);
+          end = left + w;
+        }
+        const pad = BIG_PAD * size;
+        boxes[entry.sign] = {
+          x: signX - pad, y: signTop - pad, w: textW + 2 * pad, h: signBottom - signTop + 2 * pad, size, baseline, textX: signX,
+        };
+        indices.push(entry.sign, ...over.indices, ...under.indices);
+        top = Math.min(top, signTop, over.indices.length ? over.top + overDy : 0);
+        bottom = Math.max(bottom, signBottom, under.indices.length ? under.bottom + underDy : 0);
+        x = end + BIG_MARGIN * base;
+        continue;
+      }
       if (typeof entry !== 'number' && entry.kind === 'root') {
         const sign = tokens[entry.sign];
         const level = sign.level || 0;
@@ -204,8 +294,8 @@ export function layoutFormulaLine(tokens, font = FORMULA_FONT) {
       const t = tokens[entry];
       const level = t.level || 0;
       const levelSize = font * Math.pow(RAISE_SCALE, level);
-      // A logarithm's base is lowered and smaller, as a subscript is.
-      const size = t.sub ? levelSize * SUBSCRIPT_SCALE : levelSize;
+      // A logarithm's base is lowered and smaller, as a subscript is; a sum's limits are small.
+      const size = (t.sub ? levelSize * SUBSCRIPT_SCALE : levelSize) * (t.script ? RAISE_SCALE : 1);
       let lift = 0;
       for (let i = 0; i < level; i++) lift += RAISE_STEP * font * Math.pow(RAISE_SCALE, i);
       if (level > prevLevel) x += RAISE_GAP_IN * font;

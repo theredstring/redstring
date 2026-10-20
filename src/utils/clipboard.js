@@ -27,7 +27,8 @@ export function copySelection(selectedInstanceIds, graph, nodePrototypes, edges)
       prototypeId: instance.prototypeId,
       x: instance.x,
       y: instance.y,
-      scale: instance.scale || 1
+      scale: instance.scale || 1,
+      ...(instance.labels ? { labels: instance.labels } : {})
     });
 
     totalX += instance.x;
@@ -318,7 +319,8 @@ export function pasteClipboard(
       prototypeId: node.prototypeId,
       x: pos.x,
       y: pos.y,
-      scale: node.scale
+      scale: node.scale,
+      ...(node.labels ? { labels: node.labels } : {})
     };
   });
 

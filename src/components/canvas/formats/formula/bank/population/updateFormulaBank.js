@@ -42,10 +42,10 @@ export async function updateFormulaBankFromWikidata() {
       onProgress: ({ stage, done = 0, total = 0 }) => set({ stage, done, total }),
     });
     set({ stage: 'Building the bank', done: 0, total: 0 });
-    const { bank, report } = buildBank(snapshot);
+    const { bank, report, known } = buildBank(snapshot);
     const traced = {};
-    for (const [id, c] of Object.entries(snapshot.classes)) traced[id] = { leadsTo: c.leadsTo, marks: c.marks };
-    const kept = await adoptDeviceFormulaBank({ bank, report, classes: traced });
+    for (const [id, c] of Object.entries(snapshot.classes)) traced[id] = { leadsTo: c.leadsTo, marks: c.marks, ...(c.byInstance ? { byInstance: true } : {}) };
+    const kept = await adoptDeviceFormulaBank({ bank, report, known, classes: traced });
     set({
       running: false, stage: null,
       result: { accepted: report.accepted, total: report.total, kept },
@@ -60,9 +60,10 @@ export async function updateFormulaBankFromWikidata() {
 async function shippedClasses() {
   try {
     const m = await import('../bank.classes.json');
-    const { traced, leads } = m.default || m;
+    const { traced, leads, byInstance = [] } = m.default || m;
     const classes = {};
     for (const id of traced) classes[id] = { leadsTo: leads[id]?.[0] || [], marks: leads[id]?.[1] || [] };
+    for (const id of byInstance) if (classes[id]) classes[id].byInstance = true;
     return classes;
   } catch {
     return null;

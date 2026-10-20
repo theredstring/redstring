@@ -33,18 +33,47 @@ describe('LaTeX in', () => {
     expect(latexSymbolName('\\varepsilon_0')).toBe('ε_0');
     expect(latexSymbolName('k_\\text{B}')).toBe('k_B');
     expect(latexSymbolName('\\hbar')).toBe('ħ');
-    // A chunk, or a vector, is not one symbol.
+    // A vector is one symbol, its arrow written after its letter.
+    expect(latexSymbolName('\\boldsymbol{F}')).toBe('F\u20D7');
+    expect(latexSymbolName('\\boldsymbol{F}_{\\mathrm{g}}')).toBe('F\u20D7_g');
+    // A chunk is not one symbol.
     expect(latexSymbolName('\\frac1{4\\pi\\varepsilon_0}')).toBe(null);
-    expect(latexSymbolName('\\boldsymbol{F}')).toBe(null);
+  });
+
+  it('reads derivatives, differentials, integrals, sums and limits', () => {
+    expect(read('\\rho = \\frac{\\mathrm{d} m}{\\mathrm{d} V}')).toBe('ρ = derivative(m, V)');
+    expect(read('P = \\frac{dE}{dt}')).toBe('P = derivative(E, t)');
+    expect(read('\\frac{\\partial^2 u}{\\partial t^2} = c^2 u')).toBe('partial(partial(u, t), t) = c ^ 2 × u');
+    expect(read('\\mathrm{d}Q = I \\mathrm{d}t')).toBe('differential(Q) = I × differential(t)');
+    expect(read('A=\\int dA')).toBe('A = integral(1, A)');
+    expect(read('J = \\int r^{2} \\mathrm{d} m')).toBe('J = integral(r ^ 2, m)');
+    expect(read('W = \\int_a^b F \\, \\mathrm{d}x')).toBe('W = integral(F, x, a, b)');
+    expect(read('W = \\int_{\\Gamma} \\boldsymbol{F} \\cdot \\mathrm{d} \\boldsymbol{r}')).toBe('W = lineintegral(F\u20D7, r\u20D7, Γ)');
+    expect(read('I = \\frac{1}{2} \\sum_i{z_i^2 b_i}')).toBe('I = 1 ÷ 2 × sum(z_i ^ 2 × b_i, i)');
+    expect(read('S = \\sum_{i = 1}^n a_i')).toBe('S = sum(a_i, i, 1, n)');
+    expect(read('\\mathrm{e} = \\lim_{n \\to \\infty} \\left(1 + \\frac{1}{n}\\right)^n')).toBe('e = lim((1 + 1 ÷ n) ^ n, n, ∞)');
+    // A fraction that only looks like one stays a fraction.
+    expect(read('r = \\frac{d}{2}')).toBe('r = d ÷ 2');
+    // What a sum or an integral runs over needs no meaning of its own.
+    expect(latexToFormula('S = \\sum_{i = 1}^n a_i').bound).toEqual(['i']);
+  });
+
+  it('reads vectors, and · and × between two of them as their products', () => {
+    expect(read('\\boldsymbol{F} = m \\boldsymbol{a}')).toBe('F\u20D7 = m × a\u20D7');
+    expect(read('\\boldsymbol{L} = \\boldsymbol{r} \\times \\boldsymbol{p}')).toBe('L\u20D7 = r\u20D7 ⨯ p\u20D7');
+    expect(read('W = \\boldsymbol{F} \\cdot \\boldsymbol{s}')).toBe('W = F\u20D7 ⋅ s\u20D7');
+    expect(read('\\boldsymbol{F} = q (\\boldsymbol{E} + \\boldsymbol{v} \\times \\boldsymbol{B})')).toBe('F\u20D7 = q × (E\u20D7 + v\u20D7 ⨯ B\u20D7)');
+    // A number times a vector is multiplication.
+    expect(read('\\boldsymbol{F} = m \\cdot \\boldsymbol{a}')).toBe('F\u20D7 = m × a\u20D7');
   });
 
   it('refuses what the notation can\'t write yet, saying what', () => {
-    expect(refusal('\\sigma = \\frac{\\mathrm{d} Q}{\\mathrm{d} A}')).toMatch(/derivatives/);
     expect(refusal('x = \\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}')).toMatch(/±/);
-    expect(refusal('\\boldsymbol{p} = m \\boldsymbol{v}')).toMatch(/vectors/);
-    expect(refusal('H = -\\sum_i p_i \\log_2 p_i')).toMatch(/sums/);
-    expect(refusal('A = \\int F \\, ds')).toMatch(/integrals/);
-    expect(refusal('\\rho \\mathbf{v}')).toMatch(/vectors|not an equation/);
+    expect(refusal('\\nabla \\cdot \\boldsymbol{E} = \\rho')).toMatch(/derivatives/);
+    expect(refusal('\\Phi = \\oint \\boldsymbol{B} \\cdot \\mathrm{d}\\boldsymbol{A}')).toMatch(/integrals/);
+    expect(refusal('P = \\prod_i p_i')).toMatch(/products/);
+    expect(refusal('y = f(x)')).toMatch(/can't tell/);
+    expect(refusal('\\rho \\mathbf{v}')).toMatch(/not an equation/);
     expect(refusal('E = h \\nu')).toBe(null);
   });
 });

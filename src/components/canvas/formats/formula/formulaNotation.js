@@ -14,13 +14,22 @@
 // ---------------------------------------------------------------------------
 
 /**
- * notation: 'infix' (a + b + c) or 'prefix' (−a, √a).
+ * notation: 'infix' (a + b + c), 'prefix' (−a, √a), or 'applied': an
+ *   operation on several things at once, each in its place (the derivative of
+ *   m with respect to V; the integral of f over x from a to b), built as a part
+ *   whose arguments are those things in order, the way f(x, y) is.
  * prec: binding strength for parentheses. assoc: how equal-strength children nest.
- * arity: [min, max] operands.
+ * arity: [min, max] operands; `counts`, for an applied operation, the numbers
+ *   of arguments it takes (a sum of p, over i, or over i from 1 to n).
  * word: a prefix operation written as a function is (ln(x)): by its symbol, its
  *   parentheses always.
  * applied: an infix operation written as a function of its second operand, the
  *   first lowered after its symbol: the logarithm, log_b(x), for b —Logarithm→ x.
+ * typed: the word that writes it in a line of text, as a function: an
+ *   operation drawn in ways a line can't hold (dm over dV, ∫ with its limits)
+ *   is typed derivative(m, V), integral(f, x, a, b).
+ * text: the symbol that types it, where the one drawn means something else in
+ *   text (· is multiplication; ⋅ is the scalar product, drawn ·).
  */
 export const OPERATORS = {
   eq: { symbol: '=', name: 'Equality', notation: 'infix', prec: 1, assoc: 'none', arity: [2, 2],
@@ -47,6 +56,12 @@ export const OPERATORS = {
     aliases: ['÷', '/', 'divide', 'division', 'divided by', 'quotient'] },
   neg: { symbol: '−', name: 'Negation', notation: 'prefix', prec: 4, assoc: 'none', arity: [1, 1],
     aliases: ['negation', 'negative', 'opposite'] },
+  // Of two vectors: the number (a⃗ · b⃗) and the vector (a⃗ × b⃗) they make.
+  // Drawn as multiplication is; typed ⋅ and ⨯, since · and × type it.
+  dot: { symbol: '·', text: '⋅', name: 'Scalar Product', notation: 'infix', prec: 3, assoc: 'left', arity: [2, 2],
+    aliases: ['⋅', 'scalar product', 'dot product', 'inner product'] },
+  cross: { symbol: '×', text: '⨯', name: 'Vector Product', notation: 'infix', prec: 3, assoc: 'left', arity: [2, 2],
+    aliases: ['⨯', 'vector product', 'cross product'] },
   pow: { symbol: '^', name: 'Exponentiation', notation: 'infix', prec: 5, assoc: 'right', arity: [2, 2],
     aliases: ['^', '**', 'power', 'exponent', 'exponentiation', 'to the power of', 'raised to'] },
   sqrt: { symbol: '√', name: 'Square Root', notation: 'prefix', prec: 6, assoc: 'none', arity: [1, 1],
@@ -59,7 +74,30 @@ export const OPERATORS = {
   // log with no base: base 10, as the sciences write it (pH = −log[H⁺]).
   log10: { symbol: 'log', name: 'Common Logarithm', notation: 'prefix', word: true, prec: 6, assoc: 'none', arity: [1, 1],
     aliases: ['log', 'common logarithm', 'common log'] },
+  // dQ: an amount of Q too small to see, written against it.
+  diff: { symbol: 'd', name: 'Differential', notation: 'prefix', typed: 'differential', prec: 6, assoc: 'none', arity: [1, 1],
+    aliases: ['differential'] },
+  // What calculus does to a thing, each written over or around what it takes.
+  deriv: { symbol: 'd', name: 'Derivative', notation: 'applied', typed: 'derivative', counts: [2], prec: 10, assoc: 'none', arity: [2, 2],
+    aliases: ['derivative'], roles: ['of', 'with respect to'] },
+  pderiv: { symbol: '∂', name: 'Partial Derivative', notation: 'applied', typed: 'partial', counts: [2], prec: 10, assoc: 'none', arity: [2, 2],
+    aliases: ['partial derivative'], roles: ['of', 'with respect to'] },
+  integral: { symbol: '∫', name: 'Integral', notation: 'applied', typed: 'integral', counts: [2, 3, 4], prec: 10, assoc: 'none', arity: [2, 4],
+    aliases: ['integral', 'integration'], roles: ['of', 'over', 'from', 'to'] },
+  // ∫ F⃗ · dr⃗: along a path, what a field does in the direction of each step (work, voltage).
+  lineint: { symbol: '∫', name: 'Line Integral', notation: 'applied', typed: 'lineintegral', counts: [2, 3, 4], prec: 10, assoc: 'none', arity: [2, 4],
+    aliases: ['line integral', 'path integral'], roles: ['of', 'along', 'from', 'to'] },
+  sum: { symbol: '∑', name: 'Summation', notation: 'applied', typed: 'sum', counts: [1, 2, 4], prec: 10, assoc: 'none', arity: [1, 4],
+    aliases: ['summation', 'sigma notation'], roles: ['of', 'over', 'from', 'to'] },
+  lim: { symbol: 'lim', name: 'Limit', notation: 'applied', typed: 'lim', counts: [3], prec: 10, assoc: 'none', arity: [3, 3],
+    aliases: ['limit'], roles: ['of', 'as', 'approaches'] },
 };
+
+/** The operation a typed word writes (derivative, integral, sum...), by that word. */
+const TYPED = Object.fromEntries(Object.entries(OPERATORS).filter(([, op]) => op.typed).map(([key, op]) => [op.typed, key]));
+
+/** What a line of text writes an operation's symbol as: ⋅ for the scalar product, which is drawn ·. */
+export const textSymbolOf = (key) => OPERATORS[key]?.text || OPERATORS[key]?.symbol;
 
 /** Function names that read as f(x) without being declared as functions. */
 export const KNOWN_FUNCTIONS = new Set([
@@ -99,11 +137,11 @@ export function logBaseOf(word) {
   return m ? m[1] : null;
 }
 
-/** Whether a word is applied to what follows it: a function, sqrt, ln, or log with its base. */
-const isAppliedWord = (word) => KNOWN_FUNCTIONS.has(word) || !!appliedWordKey(word) || logBaseOf(word) !== null;
+/** Whether a word is applied to what follows it: a function, sqrt, ln, log with its base, or an operation's typed word. */
+const isAppliedWord = (word) => KNOWN_FUNCTIONS.has(word) || !!appliedWordKey(word) || logBaseOf(word) !== null || !!TYPED[word];
 
 function precOf(node) {
-  if (node.kind === 'op') return node.op.prec;
+  if (node.kind === 'op' && node.op.notation !== 'applied') return node.op.prec;
   return 10; // leaves and f(x) bind tightest
 }
 
@@ -126,7 +164,8 @@ export function needsParens(parent, child, index) {
 // Parsing text into a tree (to build a formula from what someone types)
 // ---------------------------------------------------------------------------
 
-const TOKEN_RE = /\s*(?:"([^"]*)"|(\d+(?:\.\d+)?)|([A-Za-z_Ͱ-Ͽ⁰-₟][A-Za-z0-9_Ͱ-Ͽ']*)|(<=|>=|!=|==|~=|\*\*|[-+*/^=<>(),×÷·−≠≤≥≈√]))/y;
+// A name may carry a vector's arrow (F⃗, U+20D7), and ∞ is a name of its own.
+const TOKEN_RE = /\s*(?:"([^"]*)"|(\d+(?:\.\d+)?)|([A-Za-z_Ͱ-Ͽ⁰-₟∞](?:[A-Za-z0-9_Ͱ-Ͽ']|\u20D7)*)|(<=|>=|!=|==|~=|\*\*|[-+*/^=<>(),×÷·−≠≤≥≈√⋅⨯]))/y;
 
 function tokenize(text) {
   const out = [];
@@ -180,8 +219,9 @@ function splitMathName(token, isKnownName) {
       if (KNOWN_FUNCTIONS.has(piece) || GREEK_NAMES.has(piece) || isKnownName(piece)) { found = piece; break; }
     }
     if (!found) {
-      // One letter, keeping digits right after it (x1, x2: written for x₁, x₂) and primes (f').
-      found = /^[^0-9'][0-9]*'*/.exec(word.slice(i))[0];
+      // One letter, keeping its vector arrow (F⃗), digits right after it (x1,
+      // x2: written for x₁, x₂) and primes (f').
+      found = /^(?!\u20D7)[^0-9'](?:\u20D7)?[0-9]*'*/.exec(word.slice(i))[0];
     }
     pieces.push({ type: 'name', value: found, fn: KNOWN_FUNCTIONS.has(found) });
     i += found.length;
@@ -192,7 +232,7 @@ function splitMathName(token, isKnownName) {
 const INFIX_BY_SYMBOL = {
   '=': 'eq', '==': 'eq', '≠': 'ne', '!=': 'ne', '<': 'lt', '>': 'gt', '≤': 'le', '<=': 'le', '≥': 'ge', '>=': 'ge',
   '≈': 'approx', '~=': 'approx', '+': 'add', '-': 'sub', '−': 'sub', '*': 'mul', '×': 'mul', '·': 'mul',
-  '/': 'div', '÷': 'div', '^': 'pow', '**': 'pow',
+  '/': 'div', '÷': 'div', '^': 'pow', '**': 'pow', '⋅': 'dot', '⨯': 'cross',
 };
 
 /** How typed text is read: 'math' (standard equations) or 'programming' (code-style names). */
@@ -259,7 +299,13 @@ export function parseFormulaText(text, { convention = 'math', isKnownName = () =
     }
     if (!math && name === 'log' && args.length === 2) return opNode('log', [args[1], args[0]]);
     if (!math && name === 'log' && args.length === 1) return opNode('ln', args);
-    const key = appliedWordKey(name);
+    // derivative(m, V), integral(f, x, a, b), sum(a_i, i, 1, n), lim(f, n, ∞), differential(Q).
+    const typed = TYPED[name];
+    if (typed && OPERATORS[typed].notation === 'applied') {
+      if (OPERATORS[typed].counts.includes(args.length)) return opNode(typed, args);
+      if (name !== 'lim') throw new Error(`${name}() takes ${OPERATORS[typed].counts.join(' or ')} things (${OPERATORS[typed].roles.slice(0, Math.max(...OPERATORS[typed].counts)).join(', ')})`);
+    }
+    const key = typed && OPERATORS[typed].notation === 'prefix' ? typed : appliedWordKey(name);
     if (key && args.length === 1) return opNode(key, args);
     return { kind: 'fn', name, children: args };
   };

@@ -7,19 +7,25 @@
  *   latexToFormula('F = G {m_1 m_2 \\over r^2}')  -> 'F = G * ((m_1 * m_2) / (r ^ 2))'
  *   latexSymbolName('m_{\\mathrm f}')               -> 'm_f'
  *
- * What it reads: numbers; letters and Greek letters, with subscripts (v_0,
- * E_{\mathrm H}) and primes; + − ± (refused) × · ÷ / and side by side;
- * = ≠ < > ≤ ≥ ≈; powers; \frac, \over, \sqrt; parentheses and brackets,
- * \left and \right; sin, cos, ln, log with or without a base, exp and the
- * other functions formulas know; spacing and \displaystyle, which change
- * nothing.
+ * What it reads: numbers and ∞; letters and Greek letters, with subscripts
+ * (v_0, E_{\mathrm H}) and primes; vectors (\boldsymbol F, \mathbf n,
+ * \vec v: F⃗); + − ± (refused) × · ÷ / and side by side, · and × between two
+ * vectors being their scalar and vector products; = ≠ < > ≤ ≥ ≈; powers;
+ * \frac, \over, \sqrt; derivatives written as fractions (dm/dV, ∂²u/∂t²,
+ * d/dt of what follows) and differentials (dQ); integrals with their limits
+ * and differential (∫ r² dm, ∫ₐᵇ, ∫_S over a surface, ∫ F⃗ · dr⃗ along a
+ * path); sums (∑_{i=1}^n, ∑_i, ∑) and limits (lim_{n→∞}); parentheses and
+ * brackets, \left and \right; sin, cos, ln, log with or without a base, exp
+ * and the other functions formulas know; spacing and \displaystyle, which
+ * change nothing.
  *
- * What it refuses, with a reason it says: sums, integrals, derivatives and
- * differentials, limits, vectors and other accented letters, sets, logic,
- * matrices, units, ± — what the formula notation can't write yet. A refusal
- * is an Error whose message names what was missing ("\\int").
+ * What it refuses, with a reason it says: double and closed integrals,
+ * products (∏), ∇, accented letters, sets, logic, matrices, units, ± — what
+ * the formula notation can't write yet. A refusal is an Error whose message
+ * names what was missing ("\\oint").
  */
 import { KNOWN_FUNCTIONS } from '../formulaNotation.js';
+import { VECTOR_MARK } from '../formulaChain.js';
 
 const GREEK = {
   alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
@@ -41,13 +47,16 @@ const RELATIONS = {
   geqslant: '>=', approx: '~=',
 };
 const RELATION_OPS = new Set(Object.values(RELATIONS));
+// Letters that name functions more often than quantities: f(x) is never f times x here.
+const FUNCTION_LETTERS = new Set(['f', 'g', 'h', 'F', 'G', 'φ', 'ψ']);
 // Upright text inside these is a name or a subscript, not letters side by side.
 const TEXT_FONTS = new Set(['mathrm', 'text', 'textrm', 'rm', 'operatorname', 'mathsf', 'textit', 'mathit']);
 // Refused, by what they are.
+// Bold or arrowed, one letter is a vector.
+const VECTOR_FONTS = new Set(['boldsymbol', 'vec', 'mathbf', 'bm', 'overrightarrow', 'vv']);
 const REFUSED = {
-  sum: 'sums', prod: 'products', int: 'integrals', iint: 'integrals', iiint: 'integrals', oint: 'integrals',
-  partial: 'derivatives', nabla: 'derivatives', lim: 'limits', infty: 'infinity',
-  boldsymbol: 'vectors', vec: 'vectors', mathbf: 'vectors', bm: 'vectors',
+  prod: 'products', iint: 'integrals', iiint: 'integrals', oint: 'integrals', oiint: 'integrals',
+  partial: 'derivatives', nabla: 'derivatives',
   hat: 'accents', tilde: 'accents', bar: 'accents', dot: 'accents', ddot: 'accents', overline: 'accents',
   widehat: 'accents', widetilde: 'accents', underline: 'accents',
   in: 'sets', notin: 'sets', subset: 'sets', subseteq: 'sets', cup: 'sets', cap: 'sets', setminus: 'sets',
@@ -105,6 +114,31 @@ function parser(tex) {
   const isCmd = (t, ...names) => !!t?.cmd && names.includes(t.cmd);
   const isSym = (t, ...syms) => !!t?.sym && syms.includes(t.sym);
   const skipIgnored = () => { while (peek()?.cmd && IGNORED.has(peek().cmd)) next(); };
+  let integrand = 0; // reading what an integral integrates: a d and a name end it
+
+  /** The index after any ignored tokens from j. */
+  const skipFrom = (j) => { while (toks[j]?.cmd && IGNORED.has(toks[j].cmd)) j++; return j; };
+  /**
+   * The d of a differential or a derivative at j, upright (\mathrm d,
+   * \mathrm{d}) or, where a name follows it, plain (dx), or ∂: { mark, end }, else null.
+   */
+  const dMarkAt = (j, plainNeedsName = true) => {
+    j = skipFrom(j);
+    const t = toks[j];
+    if (isCmd(t, 'partial')) return { mark: '∂', end: j + 1 };
+    if (t?.cmd && TEXT_FONTS.has(t.cmd)) {
+      const a = toks[j + 1];
+      if (a?.letter === 'd') return { mark: 'd', end: j + 2 };
+      if (isSym(a, '{') && toks[j + 2]?.letter === 'd' && isSym(toks[j + 3], '}')) return { mark: 'd', end: j + 4 };
+      return null;
+    }
+    if (t?.letter === 'd') {
+      if (!plainNeedsName) return { mark: 'd', end: j + 1 };
+      const u = toks[skipFrom(j + 1)];
+      if (u?.letter || (u?.cmd && (GREEK[u.cmd] || VECTOR_FONTS.has(u.cmd)))) return { mark: 'd', end: j + 1 };
+    }
+    return null;
+  };
   const refuseIf = (t) => {
     if (t?.cmd && REFUSED[t.cmd]) throw new Error(`can't write ${REFUSED[t.cmd]} (\\${t.cmd})`);
   };
@@ -159,6 +193,20 @@ function parser(tex) {
     return readText();
   };
 
+  /** Whether the parentheses opening at j hold a sum or a difference, and no list. */
+  const holdsSum = (j) => {
+    let depth = 0;
+    let sum = false;
+    for (; j < toks.length; j++) {
+      const t = toks[j];
+      if (isSym(t, '(', '{', '[')) depth++;
+      else if (isSym(t, ')', '}', ']')) { if (--depth === 0) return sum; }
+      else if (depth === 1 && isSym(t, ',')) return false;
+      else if (depth === 1 && isSym(t, '+', '-') && !isSym(toks[j - 1], '(')) sum = true;
+    }
+    return false;
+  };
+
   /** A letter (or Greek letter, or upright name) with its subscripts and primes. */
   const readName = (base) => {
     let name = base;
@@ -180,9 +228,81 @@ function parser(tex) {
       if (isSym(t, "'")) { next(); name += "'"; continue; }
       break;
     }
-    // σ(n): a function applied, or σ times n? Not guessed.
-    if (isSym(peek(), '(')) throw new Error(`can't tell if ${name}( multiplies or applies`);
+    // σ(n): a function applied, or σ times n? Not guessed, unless the
+    // parentheses hold a sum (q(E⃗ + v⃗ × B⃗)), which a quantity multiplies.
+    if (isSym(peek(), '(') && (FUNCTION_LETTERS.has(name) || !holdsSum(i))) throw new Error(`can't tell if ${name}( multiplies or applies`);
     return { t: 'name', v: name };
+  };
+
+  /** A vector: one letter, bold or arrowed (\boldsymbol{F}_{\mathrm g} -> F⃗_g). */
+  const readVector = () => {
+    const letter = readText();
+    if (!/^[A-Za-zͰ-Ͽ]$/.test(letter)) throw new Error(`can't write a vector named ${letter}`);
+    return readName(`${letter}${VECTOR_MARK}`);
+  };
+
+  /** What a differential is of: one name (dQ, dt, dr⃗). */
+  const readDifferentialOf = () => {
+    skipIgnored();
+    const t = next();
+    if (t?.letter) return readName(t.letter);
+    if (t?.cmd && GREEK[t.cmd]) return readName(GREEK[t.cmd]);
+    if (t?.cmd && VECTOR_FONTS.has(t.cmd)) return readVector();
+    if (isSym(t, '^')) throw new Error('can\'t write differentials of more than one dimension');
+    throw new Error('a d with nothing after it');
+  };
+
+  /**
+   * \frac{\mathrm d m}{\mathrm d V} (dm/dV), \frac{\partial^2 u}{\partial t^2},
+   * \frac{\mathrm d}{\mathrm d t} X: a derivative, or null (and nothing read)
+   * when the fraction is just a fraction.
+   */
+  const tryDerivative = () => {
+    const save = i;
+    const fail = () => { i = save; return null; };
+    try {
+      skipIgnored();
+      if (!isSym(next(), '{')) return fail();
+      const top = dMarkAt(i, false);
+      if (!top) return fail();
+      i = top.end;
+      let order = 1;
+      skipIgnored();
+      if (isSym(peek(), '^')) {
+        next();
+        const n = readGroup();
+        if (n.t !== 'num') return fail();
+        order = Number(n.v);
+      }
+      skipIgnored();
+      let of = null;
+      if (!isSym(peek(), '}')) of = readExpr();
+      skipIgnored();
+      if (!isSym(next(), '}')) return fail();
+      skipIgnored();
+      if (!isSym(next(), '{')) return fail();
+      const bottom = dMarkAt(i, false);
+      if (!bottom || bottom.mark !== top.mark) return fail();
+      i = bottom.end;
+      let wrt = readPower();
+      if (order > 1) {
+        if (wrt.t === 'op' && wrt.op === '^' && wrt.b.t === 'num' && Number(wrt.b.v) === order) wrt = wrt.a;
+        else return fail();
+      }
+      skipIgnored();
+      if (wrt.t !== 'name' || !isSym(next(), '}')) return fail();
+      // d/dt of what follows it.
+      if (!of) of = readPower();
+      return { t: 'deriv', partial: top.mark === '∂', of, wrt, order };
+    } catch {
+      return fail();
+    }
+  };
+
+  /** A sum's or an integral's limit, after _ or ^: one token, or a group. */
+  const readScript = () => {
+    skipIgnored();
+    return isSym(peek(), '{') ? readGroup() : readAtom();
   };
 
   const readGroup = () => {
@@ -260,9 +380,16 @@ function parser(tex) {
     }
     if (t.cmd) {
       if (GREEK[t.cmd]) return readName(GREEK[t.cmd]);
+      if (VECTOR_FONTS.has(t.cmd)) return readVector();
+      if (t.cmd === 'infty') return { t: 'num', v: '∞' };
+      if (t.cmd === 'int') return readIntegral();
+      if (t.cmd === 'sum') return readSumOf();
+      if (t.cmd === 'lim') return readLimit();
       if (t.cmd === 'hbar') return readName('ħ');
       if (t.cmd === 'ell') return readName('ℓ');
       if (t.cmd === 'frac' || t.cmd === 'dfrac' || t.cmd === 'tfrac') {
+        const derivative = tryDerivative();
+        if (derivative) return derivative;
         const a = readGroup();
         const b = readGroup();
         return { t: 'op', op: '/', a, b };
@@ -277,7 +404,8 @@ function parser(tex) {
       }
       if (TEXT_FONTS.has(t.cmd)) {
         const text = readText();
-        if (text === 'd') throw new Error("can't write derivatives (d)");
+        // dQ: a differential.
+        if (text === 'd') return { t: 'diff', a: readDifferentialOf() };
         if (KNOWN_FUNCTIONS.has(text) && text !== 'lim') return applyFunction(text);
         // Upright letters are one name (Re, the Reynolds number); a unit
         // (ft) is one too, and is refused later for meaning nothing tied.
@@ -287,6 +415,75 @@ function parser(tex) {
     }
     throw new Error(`unexpected ${t.sym}`);
   };
+
+  /** ∫, its limits, what it integrates, and its d: ∫ₐᵇ f dx, ∫_S B⃗ · e⃗ dA, ∫ F⃗ · dr⃗. */
+  function readIntegral() {
+    let from = null;
+    let to = null;
+    for (let k = 0; k < 2; k++) {
+      skipIgnored();
+      if (isSym(peek(), '_') && !from) { next(); from = readScript(); } else if (isSym(peek(), '^') && !to) { next(); to = readScript(); }
+    }
+    if (to && !from) throw new Error('can\'t write an integral with only an upper limit');
+    integrand++;
+    let body;
+    try {
+      skipIgnored();
+      body = dMarkAt(i) ? { t: 'num', v: '1' } : readSum();
+    } finally {
+      integrand--;
+    }
+    skipIgnored();
+    // Along a path: what it integrates · dr⃗.
+    const along = isCmd(peek(), 'cdot') && !!dMarkAt(i + 1);
+    if (along) next();
+    const d = dMarkAt(i);
+    if (!d || d.mark !== 'd') throw new Error('can\'t find the integral\'s d');
+    i = d.end;
+    const over = readDifferentialOf();
+    return { t: along ? 'lineint' : 'int', body, over, from, to };
+  }
+
+  /** ∑ over what it runs over (i, or i = 1), up to where it stops, of the product after it. */
+  function readSumOf() {
+    let over = null;
+    let from = null;
+    let to = null;
+    for (let k = 0; k < 2; k++) {
+      skipIgnored();
+      if (isSym(peek(), '_') && !over) {
+        next();
+        const under = readScript();
+        if (under.t === 'name') over = under;
+        else if (under.t === 'op' && under.op === '=' && under.a.t === 'name') { over = under.a; from = under.b; }
+        else throw new Error('can\'t write sums over sets');
+      } else if (isSym(peek(), '^') && !to) { next(); to = readScript(); }
+    }
+    if ((from && !to) || (to && !from)) throw new Error('can\'t write a sum with only one limit');
+    skipIgnored();
+    const body = isSym(peek(), '{') ? readGroup() : readProduct();
+    return { t: 'sum', body, over, from, to };
+  }
+
+  /** lim, what approaches what under it (n \to \infty), of the product after it. */
+  function readLimit() {
+    skipIgnored();
+    if (!isSym(next(), '_')) throw new Error('can\'t write a limit without what it approaches');
+    skipIgnored();
+    const braced = isSym(peek(), '{');
+    if (braced) next();
+    skipIgnored();
+    const v = next();
+    const over = v?.letter ? readName(v.letter) : v?.cmd && GREEK[v.cmd] ? readName(GREEK[v.cmd]) : null;
+    if (!over) throw new Error('can\'t write a limit of more than one name');
+    skipIgnored();
+    if (!isCmd(next(), 'to', 'rightarrow')) throw new Error('can\'t write a limit without →');
+    const to = readSum();
+    skipIgnored();
+    if (braced && !isSym(next(), '}')) throw new Error('missing }');
+    const body = readProduct();
+    return { t: 'lim', body, over, to };
+  }
 
   const readPower = () => {
     let base = readAtom();
@@ -305,15 +502,21 @@ function parser(tex) {
   const startsFactor = (t) => !!t && (t.num || t.letter || isSym(t, '(', '[', '{')
     || (t.cmd && !TIMES.has(t.cmd) && !RELATIONS[t.cmd] && t.cmd !== 'div' && t.cmd !== 'over' && !isCmd(t, 'right')));
 
-  const readProduct = () => {
+  function readProduct() {
     let left = readPower();
     for (;;) {
       skipIgnored();
       const t = peek();
       if (!t) break;
+      // What an integral integrates ends at its d (or its · dr⃗).
+      if (integrand > 0 && (dMarkAt(i) || (isCmd(t, 'cdot') && dMarkAt(i + 1)))) break;
       if ((t.cmd && TIMES.has(t.cmd)) || isSym(t, '*')) {
         next();
-        left = { t: 'op', op: '*', a: left, b: readPower() };
+        const right = readPower();
+        // Between two vectors, · and × are their scalar and vector products.
+        const vectors = isVector(left) && isVector(right);
+        const op = vectors && t.cmd === 'cdot' ? 'dot' : vectors && t.cmd === 'times' ? 'cross' : '*';
+        left = { t: 'op', op, a: left, b: right };
         continue;
       }
       if (isSym(t, '/') || isCmd(t, 'div')) {
@@ -329,9 +532,9 @@ function parser(tex) {
       break;
     }
     return left;
-  };
+  }
 
-  const readSum = () => {
+  function readSum() {
     skipIgnored();
     let left;
     if (isSym(peek(), '-')) { next(); left = { t: 'neg', a: readProduct() }; }
@@ -349,7 +552,7 @@ function parser(tex) {
       break;
     }
     return left;
-  };
+  }
 
   // A relation, or { a \over b }.
   function readExpr() {
@@ -396,12 +599,30 @@ function parser(tex) {
   };
 }
 
+/** Whether a tree stands for a vector: F⃗, m a⃗, a⃗ × b⃗, dr⃗ (not a⃗ · b⃗, a number). */
+function isVector(node) {
+  switch (node?.t) {
+    case 'name': return node.v.split('_')[0].endsWith(VECTOR_MARK);
+    case 'neg': case 'diff': return isVector(node.a);
+    case 'deriv': return isVector(node.of);
+    case 'int': case 'sum': case 'lim': return isVector(node.body);
+    case 'op':
+      if (node.op === 'cross') return true;
+      if (node.op === '*' || node.op === '+' || node.op === '-') return isVector(node.a) || isVector(node.b);
+      if (node.op === '/') return isVector(node.a);
+      return false;
+    default: return false;
+  }
+}
+
 /** How a name is written in formula text: whole, quoted when the reader would split it. */
 function nameText(name) {
-  if (/^[A-Za-zͰ-Ͽ]'*$/.test(name)) return name;
-  if (/^[A-Za-zͰ-Ͽ]_[A-Za-z0-9Ͱ-Ͽ]+$/.test(name)) return name;
+  if (/^[A-Za-zͰ-Ͽ]\u20D7?'*$/.test(name)) return name;
+  if (/^[A-Za-zͰ-Ͽ]\u20D7?_[A-Za-z0-9Ͱ-Ͽ]+$/.test(name)) return name;
   return `"${name}"`;
 }
+
+const OP_TEXT = { dot: '⋅', cross: '⨯' };
 
 function textOf(node) {
   switch (node.t) {
@@ -414,23 +635,44 @@ function textOf(node) {
       if (!/^[A-Za-z0-9Ͱ-Ͽ]+$/.test(node.base)) throw new Error('a logarithm whose base is not a name or a number');
       return `log_${node.base}(${textOf(node.a)})`;
     }
-    case 'op': return `(${textOf(node.a)}) ${node.op} (${textOf(node.b)})`;
+    case 'op': return `(${textOf(node.a)}) ${OP_TEXT[node.op] || node.op} (${textOf(node.b)})`;
+    case 'diff': return `differential(${textOf(node.a)})`;
+    case 'deriv': {
+      let text = textOf(node.of);
+      for (let k = 0; k < node.order; k++) text = `${node.partial ? 'partial' : 'derivative'}(${text}, ${textOf(node.wrt)})`;
+      return text;
+    }
+    case 'int': case 'lineint':
+      return `${node.t === 'int' ? 'integral' : 'lineintegral'}(${[node.body, node.over, node.from, node.to].filter(Boolean).map(textOf).join(', ')})`;
+    case 'sum': return `sum(${[node.body, node.over, node.from, node.to].filter(Boolean).map(textOf).join(', ')})`;
+    case 'lim': return `lim(${textOf(node.body)}, ${textOf(node.over)}, ${textOf(node.to)})`;
     default: throw new Error('unknown');
   }
 }
 
+const PARTS = ['a', 'b', 'of', 'wrt', 'body', 'over', 'from', 'to'];
+
 /** Every name a tree uses, in order. */
 function namesOf(node, out = []) {
   if (node.t === 'name') out.push(node.v);
-  for (const k of ['a', 'b']) if (node[k]) namesOf(node[k], out);
+  for (const k of PARTS) if (node[k] && typeof node[k] === 'object') namesOf(node[k], out);
   if (node.t === 'log' && !/^\d+$/.test(node.base)) out.push(node.base);
+  return out;
+}
+
+/** The names a sum, a limit or an integral runs over: i in ∑ᵢ, n in lim_{n→∞}, x in ∫ dx. */
+function boundOf(node, out = new Set()) {
+  if (['sum', 'lim', 'int', 'lineint'].includes(node.t) && node.over?.t === 'name') out.add(node.over.v);
+  for (const k of PARTS) if (node[k] && typeof node[k] === 'object') boundOf(node[k], out);
   return out;
 }
 
 /**
  * @param {string} tex
- * @returns {{ text: string, names: string[] }} the formula as New Formula
- *   reads it (convention 'math', its names kept whole), and its names
+ * @returns {{ text: string, names: string[], bound: string[] }} the formula as
+ *   New Formula reads it (convention 'math', its names kept whole), its
+ *   names, and which of them a sum, a limit or an integral runs over (i in
+ *   ∑ᵢ aᵢ: a place holder, which needs no meaning of its own)
  * @throws {Error} what it can't write, as a short reason
  */
 export function latexToFormula(tex) {
@@ -438,7 +680,7 @@ export function latexToFormula(tex) {
   if (tree.t !== 'op' || !['=', '!=', '<', '>', '<=', '>=', '~='].includes(tree.op)) {
     throw new Error('not an equation or inequality');
   }
-  return { text: textOf(tree), names: [...new Set(namesOf(tree))] };
+  return { text: textOf(tree), names: [...new Set(namesOf(tree))], bound: [...boundOf(tree)] };
 }
 
 /** The name a symbol is written by (m_{\mathrm f} -> 'm_f'), or null when it isn't one symbol. */

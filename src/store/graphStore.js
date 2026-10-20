@@ -5439,7 +5439,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             prototypeId: node.prototypeId,
             x: node.x,
             y: node.y,
-            scale: node.scale || 1
+            scale: node.scale || 1,
+            // How this one is written where it stands (q₁ for Electric Charge): see formulaLabelOf.
+            ...(node.labels ? { labels: { ...node.labels } } : {})
           });
         }
 

@@ -55,7 +55,7 @@ export const VERSION_HISTORY = {
       'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block',
       'Definitions opened in place (additive, no version bump): optional instance field redstring:openDefinition { redstring:definitionIndex, redstring:xOffset, redstring:yOffset } shows that definition inside the node without copying it; optional edge fields sourceVia/destinationVia name the nodes, from the edge\'s own graph inward, through whose definitions an end is reached',
       'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged',
-      'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context. Builds that predate them show the Things and keep the labels in _preserved'
+      'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context; the same field on an instance is how that one is written where it stands (q_1 for Electric Charge), over its Thing\'s. Builds that predate them show the Things and keep the labels in _preserved'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -875,6 +875,10 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
         // Group anchor properties (for thing-group connection routing)
         "redstring:isGroupAnchor": instance.isGroupAnchor || false,
         "redstring:anchorForGroupId": instance.anchorForGroupId || null,
+
+        // How this one is written where it stands, over its Thing's own label
+        // (q₁ for Electric Charge in Coulomb's law). Additive, like openDefinition.
+        ...(instance.labels && Object.keys(instance.labels).length ? { "redstring:labels": instance.labels } : {}),
 
         // Shown open in place: which of its prototype's definitions, and where that
         // definition's origin sits relative to this graph (core/openDefinitions.js).
@@ -1822,6 +1826,11 @@ export const importFromRedstring = (redstringData, storeActions) => {
             }
             if (instance['redstring:anchorForGroupId']) {
               convertedInstance.anchorForGroupId = instance['redstring:anchorForGroupId'];
+            }
+
+            const instanceLabels = instance['redstring:labels'];
+            if (instanceLabels && typeof instanceLabels === 'object' && !Array.isArray(instanceLabels)) {
+              convertedInstance.labels = { ...instanceLabels };
             }
 
             // Shown open in place (core/openDefinitions.js)

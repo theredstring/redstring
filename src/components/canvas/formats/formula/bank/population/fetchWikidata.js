@@ -5,14 +5,22 @@
  * those name, how widely each item is written about, and which discipline
  * each class leads to. buildBank.js turns this snapshot into the bank.
  *
+ * Also the known results around them (every theorem, law, equation, formula
+ * and model with an English Wikipedia article), whether or not Wikidata writes
+ * them as formulas yet, so each section can say what it is missing; and, for
+ * every item, the topics of its Wikipedia categories (Population genetics,
+ * Graph theory: a category's "main topic", P301), which say what field an
+ * item is in far more often than Wikidata's own "studied by" does.
+ *
  * Runs wherever fetch does: the app (Settings → Data → Formula Bank) and the
  * scripts (scripts/formula-bank). Wikidata is CC0; nothing here is written by
  * hand, and each item keeps its Q number.
  */
-import { DISCIPLINE_ROOTS, MARKERS } from './disciplines.js';
+import { DISCIPLINE_ROOTS, MARKERS, RESULT_KINDS, RESULT_CLASS_KINDS } from './disciplines.js';
 
 const SPARQL = 'https://query.wikidata.org/sparql';
 const API = 'https://www.wikidata.org/w/api.php';
+const WIKIPEDIA_API = 'https://en.wikipedia.org/w/api.php';
 const BATCH = 50;
 const TRACE_BATCH = 20;
 const PAUSE_MS = 200;
@@ -27,6 +35,7 @@ const P = {
   studiedBy: 'P2579',
   partOf: 'P361',
   quantitySymbol: 'P416',
+  mainTopic: 'P301',
 };
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -68,7 +77,7 @@ const idOf = (iri) => iri.split('/').pop();
  * @param {object} [options.previous] - an earlier snapshot, whose classes'
  *   disciplines are kept rather than traced again
  * @param {AbortSignal} [options.signal]
- * @returns {Promise<object>} { source, fetchedAt, items, concepts, classes }
+ * @returns {Promise<object>} { source, fetchedAt, items, concepts, known, classes }
  */
 export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous = null, signal } = {}) {
   const report = (stage, done, total) => onProgress?.({ stage, done, total });
@@ -155,6 +164,98 @@ export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous 
     concepts[id] = concept;
   }
 
+  // Known results: each kind's subclasses' instances with an English article.
+  // Read lightly (labels here, a few statements by query): there are thousands.
+  report('Finding known results');
+  const knownFound = {};
+  await inParallel(Object.keys(RESULT_KINDS).map(k => [k]), async ([kind]) => {
+    const is = RESULT_CLASS_KINDS.has(kind) ? `wdt:${P.instanceOf}|wdt:${P.subclassOf}` : `wdt:${P.instanceOf}`;
+    const data = await sparql(`SELECT ?item ?n WHERE { ?k wdt:${P.subclassOf}* wd:${kind} . ?item ${is} ?k . ?art schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . ?item wikibase:sitelinks ?n . }`);
+    for (const b of data.results.bindings) {
+      const id = idOf(b.item.value);
+      // A lemma is a theorem too: the narrower kind says more.
+      if (!items[id] && !knownFound[id]) knownFound[id] = { n: Number(b.n.value), kind: RESULT_KINDS[kind] };
+    }
+  }, (done, total) => report('Finding known results', done, total));
+  const knownIds = Object.keys(knownFound);
+  const rawKnown = await entities(knownIds, 'labels|descriptions|sitelinks', 'Reading known results');
+  const known = {};
+  for (const id of knownIds) {
+    const e = rawKnown[id];
+    if (!e || e.missing !== undefined || !label(e)) continue;
+    known[id] = {
+      id, label: label(e), description: description(e), wikipedia: wikipedia(e), sitelinks: knownFound[id].n,
+      kind: knownFound[id].kind, hasFormula: false, instanceOf: [], subclassOf: [], studiedBy: [], partOf: [],
+    };
+  }
+  const statementOf = { [P.instanceOf]: 'instanceOf', [P.subclassOf]: 'subclassOf', [P.studiedBy]: 'studiedBy', [P.partOf]: 'partOf' };
+  await inParallel(chunked(Object.keys(known), 200), async (chunk) => {
+    const values = chunk.map(q => `wd:${q}`).join(' ');
+    const data = await sparql(`SELECT ?item ?p ?v WHERE { VALUES ?item { ${values} } VALUES ?p { ${Object.keys(statementOf).map(x => `wdt:${x}`).join(' ')} } ?item ?p ?v . FILTER(isIRI(?v)) }`);
+    for (const b of data.results.bindings) {
+      const field = statementOf[b.p.value.split('/').pop()];
+      known[idOf(b.item.value)][field].push(idOf(b.v.value));
+    }
+    const formulas = await sparql(`SELECT DISTINCT ?item WHERE { VALUES ?item { ${values} } ?item wdt:${P.definingFormula} ?f . }`);
+    for (const b of formulas.results.bindings) known[idOf(b.item.value)].hasFormula = true;
+  }, (done, total) => report('Reading known results', done, total));
+  for (const k of Object.values(known)) [...k.instanceOf, ...k.subclassOf, ...k.studiedBy, ...k.partOf].forEach(c => classIds.add(c));
+
+  // What each article's Wikipedia categories are about: Hardy–Weinberg
+  // principle is in "Population genetics", whose main topic is the field.
+  // A category with no main topic ("Lemmas in graph theory") counts by its
+  // own categories' ("Graph theory"), one step up.
+  async function categoriesOf(titles, stage) {
+    const out = {};
+    await inParallel(chunked([...new Set(titles)], 50), async (chunk) => {
+      let cont = {};
+      for (let tries = 0; cont && tries < 20; tries++) {
+        const params = new URLSearchParams({
+          action: 'query', format: 'json', origin: '*', prop: 'categories', clshow: '!hidden', cllimit: 'max',
+          redirects: '1', titles: chunk.join('|'), ...cont,
+        });
+        const data = await getJson(`${WIKIPEDIA_API}?${params}`);
+        const renamed = {};
+        for (const r of [...(data.query?.normalized || []), ...(data.query?.redirects || [])]) renamed[r.to] = renamed[r.from] || r.from;
+        for (const page of Object.values(data.query?.pages || {})) {
+          const asked = renamed[page.title] || page.title;
+          out[asked] = out[asked] || [];
+          (page.categories || []).forEach(c => out[asked].push(c.title));
+        }
+        cont = data.continue || null;
+      }
+    }, (done, total) => report(stage, done, total));
+    return out;
+  }
+  async function topicsOf(categoryTitles, stage) {
+    const out = {};
+    await inParallel(chunked([...new Set(categoryTitles)], 50), async (chunk) => {
+      const url = `${API}?action=wbgetentities&format=json&origin=*&maxlag=15&sites=enwiki&sitefilter=enwiki&props=claims|sitelinks&titles=${encodeURIComponent(chunk.join('|'))}`;
+      let data = await getJson(url);
+      for (let tries = 0; data.error?.code === 'maxlag' && tries < 20; tries++) {
+        await sleep(Math.max(1000, (data.error.lag || 5) * 1000));
+        data = await getJson(url);
+      }
+      for (const e of Object.values(data.entities || {})) {
+        const title = e?.sitelinks?.enwiki?.title;
+        if (title) out[title] = itemValues(e, P.mainTopic);
+      }
+    }, (done, total) => report(stage, done, total));
+    return out;
+  }
+  const withArticle = [...Object.values(items), ...Object.values(known)].filter(x => x.wikipedia);
+  const categories = await categoriesOf(withArticle.map(x => x.wikipedia), 'Reading Wikipedia categories');
+  const topicOf = await topicsOf(Object.values(categories).flat(), 'Reading what categories are about');
+  const untopical = [...new Set(Object.values(categories).flat())].filter(c => !topicOf[c]?.length);
+  const parents = await categoriesOf(untopical, 'Reading categories one step up');
+  const parentTopicOf = await topicsOf(Object.values(parents).flat().filter(c => !(c in topicOf)), 'Reading what those are about');
+  const topicsOfCategory = (c) => (topicOf[c]?.length ? topicOf[c]
+    : (parents[c] || []).flatMap(p => topicOf[p] || parentTopicOf[p] || []));
+  for (const x of withArticle) {
+    x.topics = [...new Set((categories[x.wikipedia] || []).flatMap(topicsOfCategory))];
+    x.topics.forEach(c => classIds.add(c));
+  }
+
   const rawClasses = await entities([...classIds], 'labels|descriptions', 'Reading fields and kinds');
   const classes = {};
   for (const id of classIds) {
@@ -176,11 +277,12 @@ export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous 
   // reaches its discipline (thermodynamics -> physics) without part of's
   // longer chains reaching everything. Classes an earlier snapshot traced keep their trace.
   const roots = Object.keys(DISCIPLINE_ROOTS).map(q => `wd:${q}`).join(' ');
-  const known = previous?.classes || {};
+  const traced = previous?.classes || {};
   const toTrace = Object.keys(classes).filter((c) => {
-    if (known[c]?.leadsTo !== undefined && known[c]?.marks !== undefined) {
-      classes[c].leadsTo = known[c].leadsTo;
-      classes[c].marks = known[c].marks;
+    if (traced[c]?.leadsTo !== undefined && traced[c]?.marks !== undefined) {
+      classes[c].leadsTo = traced[c].leadsTo;
+      classes[c].marks = traced[c].marks;
+      if (traced[c].byInstance) classes[c].byInstance = true;
       return false;
     }
     classes[c].leadsTo = [];
@@ -191,6 +293,16 @@ export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous 
     const data = await sparql(`SELECT DISTINCT ?c ?root WHERE { VALUES ?c { ${chunk.map(q => `wd:${q}`).join(' ')} } VALUES ?root { ${roots} } ?c wdt:P279*/wdt:P361?/wdt:P279* ?root . }`);
     for (const b of data.results.bindings) classes[idOf(b.c.value)].leadsTo.push(idOf(b.root.value));
   }, (done, total) => report('Sorting into disciplines', done, total));
+
+  // A field Wikidata types rather than places (category theory, an instance
+  // of "branch of mathematics") leads nowhere by subclass and part of: what
+  // it is an instance of says, once.
+  const unplaced = Object.keys(classes).filter(c => !classes[c].leadsTo.length && !classes[c].byInstance);
+  await inParallel(chunked(unplaced, TRACE_BATCH), async (chunk) => {
+    const data = await sparql(`SELECT DISTINCT ?c ?root WHERE { VALUES ?c { ${chunk.map(q => `wd:${q}`).join(' ')} } VALUES ?root { ${roots} } ?c wdt:P31/wdt:P279*/wdt:P361?/wdt:P279* ?root . }`);
+    for (const b of data.results.bindings) classes[idOf(b.c.value)].leadsTo.push(idOf(b.root.value));
+  }, (done, total) => report('Sorting fields by what they are', done, total));
+  unplaced.forEach((c) => { classes[c].byInstance = true; });
 
   // Markers (unit of measurement): subclass of alone, which is quick.
   const markers = Object.keys(MARKERS).map(q => `wd:${q}`).join(' ');
@@ -203,6 +315,6 @@ export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous 
     source: 'Wikidata (CC0), https://www.wikidata.org',
     fetchedAt: new Date().toISOString(),
     query: `items with ${P.inDefiningFormula} qualified by ${P.symbolRepresents}`,
-    items, concepts, classes,
+    items, concepts, known, classes,
   };
 }

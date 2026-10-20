@@ -8,7 +8,8 @@
  *   node scripts/formula-bank/build-bank.mjs
  *
  * Writes the bank the app ships with (bank.generated.json), its report
- * (bank.report.json, shown in Settings → Data), the disciplines its classes
+ * (bank.report.json, shown in Settings → Data), what each of its sections
+ * knows of and doesn't have yet (bank.known.json), the disciplines its classes
  * were traced to (bank.classes.json, so an update in the app starts from
  * them), and REPORT.md beside this script, to read.
  */
@@ -21,16 +22,18 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const BANK_DIR = resolve(HERE, '../../src/components/canvas/formats/formula/bank');
 
 const snapshot = JSON.parse(readFileSync(resolve(HERE, 'wikidata-snapshot.json'), 'utf8'));
-const { bank, report } = buildBank(snapshot);
+const { bank, report, known } = buildBank(snapshot);
 writeFileSync(resolve(BANK_DIR, 'bank.generated.json'), `${JSON.stringify(bank, null, 1)}\n`);
 writeFileSync(resolve(BANK_DIR, 'bank.report.json'), `${JSON.stringify(report)}\n`);
+writeFileSync(resolve(BANK_DIR, 'bank.known.json'), `${JSON.stringify(known)}\n`);
 // The disciplines each class was traced to, so an update in the app traces
 // only the classes that are new since (the slow part of fetching).
 const leads = {};
 for (const [id, c] of Object.entries(snapshot.classes)) {
   if (c.leadsTo?.length || c.marks?.length) leads[id] = [c.leadsTo || [], c.marks || []];
 }
-writeFileSync(resolve(BANK_DIR, 'bank.classes.json'), `${JSON.stringify({ traced: Object.keys(snapshot.classes), leads })}\n`);
+const byInstance = Object.keys(snapshot.classes).filter(id => snapshot.classes[id].byInstance);
+writeFileSync(resolve(BANK_DIR, 'bank.classes.json'), `${JSON.stringify({ traced: Object.keys(snapshot.classes), leads, byInstance })}\n`);
 
 const lines = [
   '# Formula bank build report',
@@ -41,7 +44,9 @@ const lines = [
   '',
   '## By discipline',
   '',
-  ...report.byDiscipline.map(([d, n]) => `- ${d}: ${n}`),
+  ...bank.disciplines.map(d => `- ${d.name}: ${d.equations.length}${d.sections.length ? ` (${d.sections.slice(0, 6).map(x => `${x.name} ${x.equations}`).join(', ')}${d.sections.length > 6 ? ', ...' : ''})` : ''}`),
+  '',
+  `Known and not yet in the bank: ${Object.values(known.sections).reduce((n, list) => n + list.length, 0)} results across ${Object.keys(known.sections).length} sections (bank.known.json).`,
   '',
   '## Left out',
   '',

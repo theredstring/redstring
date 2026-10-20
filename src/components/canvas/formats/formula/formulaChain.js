@@ -25,8 +25,9 @@
  *             anchorId?, protoId?, typeName?, typeProtoId? }
  *
  * A Thing is written by its label for formulas when it has one (Pressure as P,
- * `prototype.labels.formula`), else by its name: `name` is what the formula
- * shows, `realName` what the Thing is called.
+ * `prototype.labels.formula`), else by its name; an instance's own label wins
+ * over its Thing's (q₁ and q₂ both Electric Charge). `name` is what the
+ * formula shows, `realName` what the Thing is called.
  *
  *   readFormulaGroup(state, view, group) -> Chain | null    (Things mode -> formula)
  *   chainFromText(text)                  -> Chain           (typed text -> what to build)
@@ -34,22 +35,33 @@
  *   chainText(chain)                     -> "a + b × c"
  */
 import { isGroupInsideGroup } from '../../../../services/groupLayout.js';
-import { OPERATORS, operatorKeyForName, parseFormulaText, needsParens, KNOWN_FUNCTIONS, GREEK_NAMES } from './formulaNotation.js';
+import {
+  OPERATORS, operatorKeyForName, parseFormulaText, needsParens, KNOWN_FUNCTIONS, GREEK_NAMES, textSymbolOf,
+} from './formulaNotation.js';
 
 const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-/** How a Thing is written in a formula: its formula label, else its name. */
-export const formulaLabelOf = (proto) => {
-  const label = proto?.labels?.formula;
-  return typeof label === 'string' && label.trim() ? label.trim() : (proto?.name || '');
+const labelIn = (x) => {
+  const label = x?.labels?.formula;
+  return typeof label === 'string' && label.trim() ? label.trim() : null;
 };
+/**
+ * How a Thing is written in a formula: this instance's own label when it has
+ * one (q₁ and q₂, both Electric Charge, in Coulomb's law), else its Thing's
+ * formula label (q), else its name.
+ */
+export const formulaLabelOf = (proto, instance = null) => labelIn(instance) || labelIn(proto) || proto?.name || '';
 const OPERATOR_TYPE_NAMES = new Set(['operator', 'operation', 'mathematical operation', 'relation']);
 const FUNCTION_TYPE_NAMES = new Set(['function', 'mathematical function']);
 
-/** What a part's type makes it: applied as a sign, a root, a logarithm, a function, or plain parentheses. */
+/**
+ * What a part's type makes it: applied as a sign, a root, a logarithm, a
+ * derivative, an integral, a sum (each of its arguments in its place), a
+ * function, or plain parentheses.
+ */
 export function applicationOf(typeName, typeTypeName) {
   const key = operatorKeyForName(typeName);
-  if (key && OPERATORS[key].notation === 'prefix') return { apply: key };
+  if (key && (OPERATORS[key].notation === 'prefix' || OPERATORS[key].notation === 'applied')) return { apply: key };
   if (KNOWN_FUNCTIONS.has(norm(typeName)) || FUNCTION_TYPE_NAMES.has(norm(typeTypeName))) {
     return { apply: 'fn', fnName: String(typeName).trim() };
   }
@@ -123,7 +135,7 @@ export function readFormulaGroup(state, view, group) {
       }
       const proto = state.nodePrototypes.get(inst.prototypeId);
       if (!proto) return null;
-      terms.set(id, { kind: 'thing', name: formulaLabelOf(proto), realName: proto.name, instanceId: id, protoId: proto.id, x: inst.x, y: inst.y });
+      terms.set(id, { kind: 'thing', name: formulaLabelOf(proto, inst), realName: proto.name, instanceId: id, protoId: proto.id, x: inst.x, y: inst.y });
     }
     for (const g of direct) {
       const term = readPart(g);
@@ -207,7 +219,9 @@ export function readFormulaGroup(state, view, group) {
     const { apply, fnName } = applicationOf(type?.name, typeType?.name);
     const args = readContent(g, true);
     if (!args) return null;
-    if (apply !== 'fn' && args.length !== 1) return null;
+    // A derivative holds what it is of and what it is with respect to, side by side; a sign, one thing.
+    const counts = apply && apply !== 'fn' ? (OPERATORS[apply].counts || [1]) : null;
+    if (counts && !counts.includes(args.length)) return null;
     if (apply) operations++; // an applied part is an operation of its own
     return {
       kind: 'part', name: proto.name, apply, fnName, args,
@@ -242,8 +256,8 @@ function termOfNode(node, parent, index) {
     const part = { kind: 'part', apply: 'fn', fnName: node.name, typeName: node.name, args };
     return { ...part, name: chainText({ items: [part] }) };
   }
-  if (node.op.notation === 'prefix') {
-    const part = { kind: 'part', apply: node.op.key, typeName: node.op.name, args: [chainOfNode(node.children[0])] };
+  if (node.op.notation === 'prefix' || node.op.notation === 'applied') {
+    const part = { kind: 'part', apply: node.op.key, typeName: node.op.name, args: node.children.map(chainOfNode) };
     return { ...part, name: chainText({ items: [part] }) };
   }
   // An operation as an operand: inline when precedence already groups it, else a part.
@@ -306,8 +320,12 @@ const isOneFraction = (chain) => {
 /**
  * A formula's tokens as rows, fractions and roots, for laying them out: a row
  * is a list of entries, each a token's index,
- * { kind: 'fraction', id, num: row, bar: index, den: row } or
- * { kind: 'root', id, sign: index, body: row }.
+ * { kind: 'fraction', id, num: row, bar: index, den: row },
+ * { kind: 'root', id, sign: index, body: row } or
+ * { kind: 'big', id, sign: index, over: row, under: row, scripts }: a sum's ∑
+ * or a limit's lim with what it runs over below and above it, or (`scripts`)
+ * an integral's ∫ with its limits at its side. What it applies to follows it
+ * in the row.
  */
 export function rowsOf(tokens) {
   const build = (indices, depth) => {
@@ -318,11 +336,11 @@ export function rowsOf(tokens) {
       const t = tokens[at];
       const depthOf = (u) => u.inside?.length || 0;
       // The token that draws a fraction or a root (its bar, its sign) is just outside it.
-      const ownerOf = (u) => (depthOf(u) === depth ? (u.bar || u.radical || null) : null);
+      const ownerOf = (u) => (depthOf(u) === depth ? (u.bar || u.radical || u.big || null) : null);
       const mark = t.inside?.[depth];
       const id = mark ? mark.split(':')[0] : ownerOf(t);
       if (!id) { row.push(at); i++; continue; }
-      const parts = { num: [], den: [], in: [] };
+      const parts = { num: [], den: [], in: [], over: [], under: [] };
       let owner = null;
       while (i < indices.length) {
         const j = indices[i];
@@ -333,9 +351,13 @@ export function rowsOf(tokens) {
         else break;
         i++;
       }
-      row.push(id.startsWith('r')
-        ? { kind: 'root', id, sign: owner, body: build(parts.in, depth + 1) }
-        : { kind: 'fraction', id, num: build(parts.num, depth + 1), bar: owner, den: build(parts.den, depth + 1) });
+      if (id.startsWith('r')) row.push({ kind: 'root', id, sign: owner, body: build(parts.in, depth + 1) });
+      else if (id.startsWith('b')) {
+        row.push({
+          kind: 'big', id, sign: owner, over: build(parts.over, depth + 1), under: build(parts.under, depth + 1),
+          scripts: tokens[owner]?.bigScripts === true,
+        });
+      } else row.push({ kind: 'fraction', id, num: build(parts.num, depth + 1), bar: owner, den: build(parts.den, depth + 1) });
     }
     return row;
   };
@@ -343,11 +365,18 @@ export function rowsOf(tokens) {
 }
 
 const GREEK_LETTERS = /^[\u0370-\u03FF]$/;
-const isNumberTerm = (t) => t?.kind === 'thing' && /^\d+(\.\d+)?$/.test(t.name);
-// A variable written the textbook way: one letter (x, θ), a letter with its index (x1, v_0), or a Greek name (theta).
-// A change in one (ΔT, Δx) is written like one.
-export const isSymbolText = (text) => /^[A-Za-z\u0370-\u03FF][0-9]*'*$/.test(text) || /^[A-Za-z\u0370-\u03FF]_[A-Za-z0-9]+$/.test(text)
+const isNumberTerm = (t) => t?.kind === 'thing' && (/^\d+(\.\d+)?$/.test(t.name) || t.name === '∞');
+/** A vector's arrow, written after its letter (F⃗, U+20D7). */
+export const VECTOR_MARK = '\u20D7';
+// A variable written the textbook way: one letter (x, θ), a letter with its index (x1, v_0), or a Greek name (theta),
+// any of them a vector (F⃗, F⃗_g). A change in one (ΔT, Δx) is written like one.
+export const isSymbolText = (text) => /^[A-Za-z\u0370-\u03FF]\u20D7?[0-9]*'*$/.test(text) || /^[A-Za-z\u0370-\u03FF]\u20D7?_[A-Za-z0-9]+$/.test(text)
   || GREEK_LETTERS.test(text) || GREEK_NAMES.has(text) || (text.length > 1 && text.startsWith('Δ') && isSymbolText(text.slice(1)));
+/** A symbol's letter and whether it is a vector: 'F⃗' -> { letter: 'F', vector: true }. */
+export const vectorOf = (text) => {
+  const t = String(text ?? '');
+  return t.endsWith(VECTOR_MARK) ? { letter: t.slice(0, -1), vector: true } : { letter: t, vector: false };
+};
 const isGroupedTerm = (t) => t?.kind === 'part' && t.apply !== 'neg';
 const compact = (s) => String(s ?? '').replace(/\s+/g, '');
 
@@ -419,6 +448,7 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
   let k = 0;
   let joinNext = false;
   let lowered = 0; // inside a logarithm's base
+  let scripted = 0; // in a sum's, an integral's or a limit's limits
   // The fractions and roots a token is inside, outermost first: 'f0:num', 'f1:den', 'r2:in'.
   const inside = [];
   let boxCount = 0;
@@ -433,6 +463,7 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
     k++;
     tokens.push({
       key: n ? `${base}#${n}` : base, level, ...t, ...(joinNext ? { joined: true } : {}), ...(lowered ? { sub: true } : {}),
+      ...(scripted ? { script: true } : {}),
       ...(inside.length ? { inside: [...inside] } : {}),
     });
     joinNext = false;
@@ -443,7 +474,7 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
     realName: item.name, defined: false, flip: null,
   });
   // An operation written as one token (+, =, ÷), or by its name when it has one and is switched.
-  const opToken = (item, text = item.symbol) => {
+  const opToken = (item, text = plain ? textSymbolOf(item.key) || item.symbol : item.symbol) => {
     const target = item.edgeId ? `edge:${item.edgeId}` : null;
     // The standard operations (+, =, ×...) mean the same everywhere: only
     // an operation of one's own has more to show.
@@ -494,7 +525,7 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
     emitNode(items, node.left, level);
     if (standard && op.key === 'mul' && multipliesSideBySide(items, node.op)) joinNext = true;
     // In an exponent a division is written on the line, as a slash.
-    else push(opToken(op, standard && op.key === 'div' ? '/' : op.symbol), level);
+    else push(opToken(op, standard && op.key === 'div' ? '/' : undefined), level);
     emitNode(items, node.right, level);
   };
   const emitTerm = (term, level, isExponent) => {
@@ -527,6 +558,9 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
       };
     };
     const prefixOp = term.apply && term.apply !== 'fn' ? OPERATORS[term.apply] : null;
+    // In a line of text, what is drawn some other way is typed as a function: derivative(m, V).
+    if (prefixOp?.typed && plain) { emitCall(term, prefixOp.typed, applied, own, level); return; }
+    if (prefixOp?.notation === 'applied') { emitApplied(term, prefixOp, applied, own, level); return; }
     if (prefixOp) {
       // A sign or a root sits against what it applies to; ln and log are
       // written as functions are, their parentheses always.
@@ -549,22 +583,126 @@ export function tokensOf(chain, { standard = false, expand = null, plain = false
       if (wrap) push({ text: ')', kind: 'paren', ...own }, level);
       return;
     }
-    if (term.apply === 'fn') {
-      push({ kind: 'function', ...applied(term.fnName) }, level);
-      push({ text: '(', kind: 'paren', ...own }, level);
-      term.args.forEach((a, i) => {
-        if (i > 0) push({ text: ',', kind: 'comma', ...own }, level);
-        emitChain(a, level);
-      });
-      push({ text: ')', kind: 'paren', ...own }, level);
-      return;
-    }
+    if (term.apply === 'fn') { emitCall(term, term.fnName, applied, own, level); return; }
     // Raised, or a fraction of its own, it is grouped already: no parentheses.
     if (isExponent || (stacksHere(level) && isOneFraction(term.args[0]))) { emitChain(term.args[0], level); return; }
     push({ text: '(', kind: 'paren', ...own }, level);
     emitChain(term.args[0], level);
     push({ text: ')', kind: 'paren', ...own }, level);
   };
+  // A function, or an operation typed as one: its name, then its arguments in parentheses.
+  function emitCall(term, name, applied, own, level) {
+    push({ kind: 'function', ...applied(name) }, level);
+    push({ text: '(', kind: 'paren', ...own }, level);
+    term.args.forEach((a, i) => {
+      if (i > 0) push({ text: ',', kind: 'comma', ...own }, level);
+      emitChain(a, level);
+    });
+    push({ text: ')', kind: 'paren', ...own }, level);
+  }
+  // What a sum, an integral or a limit applies to: in parentheses when it is a sum itself.
+  const looseUnder = (c) => {
+    if (c.items.length === 1) return false;
+    const tree = treeOfItems(c.items);
+    return precedenceOf(c.items[tree.op]).prec < OPERATORS.mul.prec;
+  };
+  function emitWrapped(c, own, level, wrap) {
+    if (wrap) push({ text: '(', kind: 'paren', ...own }, level);
+    emitChain(c, level);
+    if (wrap) push({ text: ')', kind: 'paren', ...own }, level);
+  }
+  // Written small, under or over its sign (or lowered and raised beside it, on a line).
+  function emitLimit(c, level, where, id) {
+    if (!c) return;
+    if (id) {
+      inside.push(`${id}:${where}`);
+      scripted++;
+      emitChain(c, level);
+      scripted--;
+      inside.pop();
+    } else if (where === 'under') {
+      lowered++;
+      emitChain(c, level);
+      lowered--;
+    } else emitChain(c, level + 1);
+  }
+  /**
+   * A derivative, an integral, a sum or a limit, drawn as the textbook draws
+   * it: dm over dV (∂²u over ∂t², taken twice); ∫ with its limits at its side,
+   * what it integrates, then d and what it is over (· dr⃗ along a path); ∑ and lim with what they
+   * run over under them. On a line (an exponent, a preview) the fraction is
+   * dm/dV and the limits are lowered and raised beside the sign.
+   */
+  function emitApplied(term, op, applied, own, level) {
+    const sign = (text, extra = {}) => ({ kind: 'operator', prefix: true, ...applied(text), ...extra });
+    const plainToken = (text, kind = 'operator') => ({ text, kind, target: own.target, protoId: null, realName: null, defined: false, flip: null });
+    const stacked = stacksHere(level);
+    if (op === OPERATORS.deriv || op === OPERATORS.pderiv) {
+      let [of] = term.args;
+      const wrt = term.args[1];
+      let order = 1;
+      // The same derivative taken again: written once, with how many times.
+      while (of.items.length === 1 && of.items[0].kind === 'part' && of.items[0].apply === term.apply
+        && chainText(of.items[0].args[1]) === chainText(wrt)) {
+        of = of.items[0].args[0];
+        order++;
+      }
+      const onTop = of.items.length === 1 && of.items[0].kind === 'thing';
+      const times = (lvl) => { if (order > 1) push(plainToken(String(order), 'operand'), lvl + 1); };
+      const id = stacked ? `f${boxCount++}` : null;
+      if (id) inside.push(`${id}:num`);
+      push(sign(op.symbol), level);
+      times(level);
+      if (onTop) emitChain(of, level);
+      if (id) {
+        inside.pop();
+        push({ ...plainToken('/'), bar: id }, level);
+        inside.push(`${id}:den`);
+      } else push(plainToken('/'), level);
+      push(sign(op.symbol), level);
+      emitWrapped(wrt, own, level, wrt.items.length > 1);
+      times(level);
+      if (id) inside.pop();
+      if (!onTop) emitWrapped(of, own, level, true);
+      return;
+    }
+    const [body, over] = term.args;
+    const id = stacked ? `b${boxCount++}` : null;
+    if (op === OPERATORS.integral || op === OPERATORS.lineint) {
+      const [, , from, to] = term.args;
+      push(sign(op.symbol, { ...(id ? { big: id, bigScripts: true } : {}), ...(!id && from ? { subNext: true } : {}) }), level);
+      emitLimit(from, level, 'under', id);
+      emitLimit(to, level, 'over', id);
+      // ∫ dA: of 1, which goes unwritten.
+      const ofOne = body.items.length === 1 && body.items[0].kind === 'thing' && body.items[0].name === '1';
+      if (!(standard && ofOne)) emitWrapped(body, own, level, looseUnder(body));
+      // Along a path, the field in the direction of each step: F⃗ · dr⃗.
+      if (op === OPERATORS.lineint) push(plainToken(OPERATORS.dot.symbol), level);
+      push(sign(OPERATORS.diff.symbol), level);
+      emitWrapped(over, own, level, over.items.length > 1);
+      return;
+    }
+    if (op === OPERATORS.sum) {
+      const [, , from, to] = term.args;
+      push(sign(op.symbol, { ...(id ? { big: id } : {}), ...(!id && over ? { subNext: true } : {}) }), level);
+      if (over) {
+        // Under it: what it runs over, and where it starts (i = 1).
+        const under = from
+          ? { items: [...over.items, { kind: 'op', key: 'eq', symbol: '=', name: OPERATORS.eq.name }, ...from.items] }
+          : over;
+        emitLimit(under, level, 'under', id);
+      }
+      emitLimit(to, level, 'over', id);
+      emitWrapped(body, own, level, looseUnder(body));
+      return;
+    }
+    // lim, and under it what approaches what: n → ∞.
+    const [, , to] = term.args;
+    push({ kind: 'function', ...applied(op.symbol), ...(id ? { big: id } : { subNext: true }) }, level);
+    const under = { items: [...over.items, { kind: 'op', key: 'approaches', symbol: '→', name: 'Approaches' }, ...to.items] };
+    emitLimit(under, level, 'under', id);
+    emitWrapped(body, own, level, looseUnder(body));
+  }
   emitChain(chain, 0);
   return tokens;
 }

@@ -15,6 +15,11 @@
  * Formula builds it fully formed (buildFormula.js), and from then on it is
  * ordinary Things to edit. Nothing ever recognizes typed text as one of these.
  *
+ * Each discipline is divided into sections (Thermodynamics, Graph Theory),
+ * and each section says what it knows of that the bank doesn't have yet
+ * (loadFormulaBankKnown): the results Wikidata names but doesn't write, or
+ * writes without saying what its symbols mean.
+ *
  * Each concept becomes one Thing, named for what it is (Pressure), written by
  * its symbol in formulas (its formula label, p), and linked to its Wikidata
  * item, so it is the same Thing in every equation that uses it, and the same
@@ -48,6 +53,7 @@ function indexBank(data, from) {
 }
 
 const builtIn = () => import('./bank.generated.json').then(m => indexBank(m.default || m, 'built-in'));
+const builtInKnown = () => import('./bank.known.json').then(m => m.default || m);
 
 function setBank(next) {
   bank = next;
@@ -86,9 +92,23 @@ export async function loadFormulaBankReport() {
   return m.default || m;
 }
 
+/**
+ * What each section knows of that the bank doesn't have yet, by
+ * 'discipline/Q' (bank.known.json, or this device's): [Q, title, wikipedia,
+ * why] each, best known first. Loaded on asking, kept apart from the bank.
+ */
+export async function loadFormulaBankKnown() {
+  const current = await loadFormulaBank();
+  if (current.from === 'device') {
+    const own = await readDeviceBank('known');
+    if (own) return own;
+  }
+  return builtInKnown();
+}
+
 /** Use a bank this device built (population/updateFormulaBank.js), and keep it. */
-export async function adoptDeviceFormulaBank({ bank: next, report, classes }) {
-  const kept = await writeDeviceBank({ bank: next, report, classes });
+export async function adoptDeviceFormulaBank({ bank: next, report, known, classes }) {
+  const kept = await writeDeviceBank({ bank: next, report, known, classes });
   setBank(indexBank(next, 'device'));
   return kept;
 }

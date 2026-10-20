@@ -39,12 +39,12 @@ import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js
 import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupElements.jsx';
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
-import { subscriptOf } from './formulaChain.js';
+import { subscriptOf, vectorOf } from './formulaChain.js';
 import { useGlide } from './useGlide.js';
 import { flipFormulaToken } from '../formatsStore.js';
 import { getCanvasGroupInput } from '../../groups/groupInput.js';
 import {
-  FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS,
+  FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS, arrowOver,
 } from './formulaObjects.js';
 
 const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
@@ -79,24 +79,41 @@ function openThingInPanel(protoId) {
   if (!st.rightPanelExpanded) st.setRightPanelExpanded(true);
 }
 
-/** A token's text, its subscript (v_0) lowered and smaller; it slides to where it is put. */
+/** A vector's arrow over its letter (F⃗). */
+function VectorArrow({ letter, x, y, size, stroke }) {
+  const a = arrowOver(letter, x, y, size);
+  const h = a.head;
+  return (
+    <path
+      d={`M${a.x1},${a.y} L${a.x2},${a.y} M${a.x2 - h},${a.y - h * 0.7} L${a.x2},${a.y} L${a.x2 - h},${a.y + h * 0.7}`}
+      fill="none" stroke={stroke} strokeWidth={a.stroke} strokeLinecap="round" strokeLinejoin="round"
+      style={{ pointerEvents: 'none' }}
+    />
+  );
+}
+
+/** A token's text, its subscript (v_0) lowered and smaller, a vector's arrow over it; it slides to where it is put. */
 function TokenText({ text, x, y, size, fill, opacity }) {
   const sub = subscriptOf(text);
+  const { letter, vector } = vectorOf(sub ? sub[0] : text);
   const at = useGlide({ x, y });
   return (
-    <text
-      x={at.x} y={at.y}
-      fontSize={size} fontFamily={FORMULA_FONT_FAMILY} fontWeight={FORMULA_FONT_WEIGHT}
-      fill={fill} opacity={opacity}
-      style={{ userSelect: 'none', pointerEvents: 'none' }}
-    >
-      {sub ? (
-        <>
-          {sub[0]}
-          <tspan dy={size * SUBSCRIPT_DROP} fontSize={size * SUBSCRIPT_SCALE}>{sub[1]}</tspan>
-        </>
-      ) : text}
-    </text>
+    <>
+      <text
+        x={at.x} y={at.y}
+        fontSize={size} fontFamily={FORMULA_FONT_FAMILY} fontWeight={FORMULA_FONT_WEIGHT}
+        fill={fill} opacity={opacity}
+        style={{ userSelect: 'none', pointerEvents: 'none' }}
+      >
+        {sub ? (
+          <>
+            {letter}
+            <tspan dy={size * SUBSCRIPT_DROP} fontSize={size * SUBSCRIPT_SCALE}>{sub[1]}</tspan>
+          </>
+        ) : letter}
+      </text>
+      {vector && <VectorArrow letter={letter} x={at.x} y={at.y} size={size} stroke={fill} />}
+    </>
   );
 }
 

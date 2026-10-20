@@ -17,7 +17,10 @@ import { fetchFormulaSnapshot } from '../../src/components/canvas/formats/formul
 const HERE = dirname(fileURLToPath(import.meta.url));
 const outArg = process.argv.indexOf('--out');
 const OUT = resolve(outArg > 0 ? process.argv[outArg + 1] : `${HERE}/wikidata-snapshot.json`);
-const previous = !process.argv.includes('--fresh') && existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : null;
+// The snapshot written last (where this one goes, else the usual place) keeps its classes' traces.
+const DEFAULT_OUT = `${HERE}/wikidata-snapshot.json`;
+const PREVIOUS = [OUT, DEFAULT_OUT].find(f => existsSync(f));
+const previous = !process.argv.includes('--fresh') && PREVIOUS ? JSON.parse(readFileSync(PREVIOUS, 'utf8')) : null;
 
 let lastStage = null;
 const snapshot = await fetchFormulaSnapshot({
