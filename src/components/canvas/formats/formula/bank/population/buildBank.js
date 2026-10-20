@@ -168,7 +168,7 @@ function bioOf(item) {
  * @returns {{ bank: object, report: { source, fetchedAt, total, accepted, concepts,
  *   byDiscipline: [string, number][], byReason: [string, number][], whyNot: [string, number][],
  *   rejected: { id, label, reason, detail }[] },
- *   known: { sections: { 'discipline/Q': [Q, title, wikipedia, why][] } } }} the bank, the
+ *   known: { sections: { 'discipline/Q': [Q, title, wikipedia, why, description][] } } }} the bank, the
  *   report, and what each section knows of that the bank doesn't have yet
  */
 export function buildBank(snap) {
@@ -428,7 +428,7 @@ export function buildBank(snap) {
   // What each section knows of and the bank doesn't have yet, best known first:
   // what is left to write, and why it isn't written.
   for (const p of placed.filter(q => !q.c && q.section).sort(byFame)) {
-    sectionIn(disciplineOfId(p.d), p.section).missing.push([p.x.id, titleCase(p.x.label), p.x.wikipedia || null, p.why]);
+    sectionIn(disciplineOfId(p.d), p.section).missing.push([p.x.id, titleCase(p.x.label), p.x.wikipedia || null, p.why, sentence(p.x.description || '')]);
   }
 
   const conceptTable = {};

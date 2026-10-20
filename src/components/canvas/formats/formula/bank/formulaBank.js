@@ -111,7 +111,7 @@ export async function loadFormulaBankReport() {
 /**
  * What each section knows of that the bank doesn't have yet, by
  * 'discipline/Q' (bank.known.json, or this device's): [Q, title, wikipedia,
- * why] each, best known first. Loaded on asking, kept apart from the bank.
+ * why, description] each, best known first. Loaded on asking, kept apart from the bank.
  */
 export async function loadFormulaBankKnown() {
   const current = await loadFormulaBank();

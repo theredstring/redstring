@@ -685,9 +685,8 @@ button.format-pill:disabled {
 
 .format-bank-known-row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 2px;
   padding: 6px 12px;
   border: none;
   border-radius: 10px;
@@ -700,6 +699,13 @@ button.format-pill:disabled {
 
 .format-bank-known-row:hover {
   background-color: #D0CACA;
+}
+
+.format-bank-known-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .format-bank-known-title {
@@ -754,6 +760,34 @@ button.format-pill:disabled {
 .format-bank-row-where {
   font-size: 11px;
   opacity: 0.65;
+}
+
+/* What it is, in a line or two; the whole of it on hover. */
+.format-bank-row-about,
+.format-bank-known-about {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.35;
+  opacity: 0.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.format-bank-known-about {
+  font-size: 10.5px;
+}
+
+/* What a chosen section is, over its list. */
+.format-bank-about {
+  padding: 8px 12px 4px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11.5px;
+  font-weight: normal;
+  line-height: 1.4;
+  color: maroon;
+  opacity: 0.85;
 }
 
 .format-bank-row-formula {

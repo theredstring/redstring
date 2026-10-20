@@ -74,11 +74,21 @@ function Choice({ on, dim, onClick, title, children }) {
   );
 }
 
+/**
+ * An equation's description as its row says it: the bio, less the model it is
+ * part of when the row names that already.
+ */
+function aboutOf(entry) {
+  const about = entry.description || '';
+  return entry.model ? about.replace(` Part of the ${entry.model}.`, '') : about;
+}
+
 /** `where`: the section it is in, when listed apart from it (a search); else the model it is part of. */
 function EquationRow({ discipline, entry, standard, onPick, where }) {
   const tokens = useMemo(() => readEntry(entry, standard), [entry, standard]);
   if (!tokens) return null;
   const note = where || entry.model;
+  const about = aboutOf(entry);
   return (
     <button
       type="button"
@@ -89,6 +99,7 @@ function EquationRow({ discipline, entry, standard, onPick, where }) {
       <span className="format-bank-row-title">
         {entry.title}
         {note && <span className="format-bank-row-where">{note}</span>}
+        {about && <span className="format-bank-row-about">{about}</span>}
       </span>
       <span className="format-bank-row-formula"><FormulaTokens tokens={tokens} /></span>
     </button>
@@ -122,7 +133,7 @@ function KnownInSection({ bank, discipline, section }) {
         <span>Known, not written yet</span>
         <span className="format-bank-group-count">{list.length}</span>
       </div>
-      {list.slice(0, shown).map(([q, title, article, why]) => (
+      {list.slice(0, shown).map(([q, title, article, why, about]) => (
         <button
           key={q}
           type="button"
@@ -130,8 +141,11 @@ function KnownInSection({ bank, discipline, section }) {
           onClick={() => openExternalUrl(article ? `${WIKIPEDIA}${encodeURIComponent(article.replace(/ /g, '_'))}` : itemPage(q))}
           title={article ? `Open ${article} on Wikipedia` : isMathModDBId(q) ? 'Open it on MathModDB' : `Open ${q} on Wikidata`}
         >
-          <span className="format-bank-known-title">{title}</span>
-          <span className="format-bank-known-why">{why}</span>
+          <span className="format-bank-known-head">
+            <span className="format-bank-known-title">{title}</span>
+            <span className="format-bank-known-why">{why}</span>
+          </span>
+          {about && <span className="format-bank-known-about">{about}</span>}
         </button>
       ))}
       {list.length > shown && (
@@ -252,6 +266,7 @@ export default function FormulaBankPicker({ query, standard, onPick }) {
           <EquationRow key={equation.id} discipline={d} entry={equation} standard={standard} onPick={onPick} where={equation.section || d.name} />
         )) : section ? (
           <>
+            {section.description && <div className="format-bank-about">{section.description}</div>}
             {discipline.equations.filter(e => e.sectionId === section.id).map(entry => (
               <EquationRow key={entry.id} discipline={discipline} entry={entry} standard={standard} onPick={onPick} />
             ))}
