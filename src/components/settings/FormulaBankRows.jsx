@@ -9,16 +9,16 @@ import {
 import {
   getFormulaBankUpdate, subscribeFormulaBankUpdate, updateFormulaBankFromWikidata, stopFormulaBankUpdate,
 } from '../canvas/formats/formula/bank/population/updateFormulaBank.js';
+import { itemPage, isMathModDBId } from '../canvas/formats/formula/bank/population/sources.js';
 
 /**
  * Settings → Data → Formula Bank: where the equations New Formula offers come
- * from, updating them from Wikidata on this device, and what was left out of
+ * from, updating them from Wikidata and MathModDB on this device, and what was left out of
  * them and why. The bank is populated, never written by hand
  * (formats/formula/bank/formulaBank.js); this is where that shows.
  */
 
 const ITEMS_SHOWN = 60;
-const WIKIDATA_ITEM = 'https://www.wikidata.org/wiki/';
 const count = (n) => Number(n || 0).toLocaleString();
 const dateOf = (iso) => {
   const d = iso ? new Date(iso) : null;
@@ -51,8 +51,8 @@ function Reason({ reason, n, items, theme }) {
               key={item.id}
               type="button"
               className="formula-bank-left-out"
-              onClick={() => openExternalUrl(`${WIKIDATA_ITEM}${item.id}`)}
-              title={`Open ${item.id} on Wikidata`}
+              onClick={() => openExternalUrl(itemPage(item.id))}
+              title={isMathModDBId(item.id) ? 'Open it on MathModDB' : `Open ${item.id} on Wikidata`}
               style={{
                 display: 'block', width: '100%', padding: '3px 0', border: 'none', background: 'none', cursor: 'pointer',
                 textAlign: 'left', font: 'inherit', fontSize: '0.74rem', color: theme.canvas.textPrimary,
@@ -123,14 +123,14 @@ export default function FormulaBankRows() {
       : update.result
         ? `Updated: ${count(update.result.accepted)} of ${count(update.result.total)} items are in${update.result.kept ? '' : '. Not kept on this device: storage is off.'}`
         : bank
-          ? `${count(equations)} from Wikidata, ${bank.from === 'device' ? 'updated on this device' : 'with the app'}${when ? `, ${when}` : ''}`
+          ? `${count(equations)} from Wikidata and MathModDB, ${bank.from === 'device' ? 'updated on this device' : 'with the app'}${when ? `, ${when}` : ''}`
           : 'Loading…';
 
   return (
     <>
       <div className="settings-section-subtitle">Formula Bank</div>
       <ActionRow
-        title="Update from Wikidata"
+        title="Update from Wikidata and MathModDB"
         description={status}
         actionLabel={update.running ? 'Stop' : 'Update'}
         onClick={update.running ? stopFormulaBankUpdate : updateFormulaBankFromWikidata}

@@ -538,11 +538,45 @@ test('F44 the bank\'s choices stay in its header; its sections group the list, w
   await expect(body.locator('.format-bank-known-row').first()).toBeVisible();
   await shot(page, '9b-bank-section');
   // A discipline with nothing written yet still says what its sections know of.
-  await top.locator('.format-bank-choice', { hasText: /^Biology$/ }).click();
+  await top.locator('.format-bank-choice', { hasText: /^Economics$/ }).click();
   await expect(body).toContainText('No equations written here yet.');
+  // A section with nothing written yet says what it knows of.
+  await top.locator('.format-bank-choice', { hasText: /^Biology$/ }).click();
   await top.locator('.format-bank-choice', { hasText: /^Population Genetics$/ }).click();
   await expect(body.locator('.format-bank-known-row', { hasText: 'Hardy–Weinberg Principle' })).toContainText('Wikidata has no formula for it');
   await shot(page, '9c-bank-known');
+});
+
+test('F44 MathModDB fills in a discipline: its model under each equation, its quantities Things of their own', async ({ page }) => {
+  await openFixture(page, 'small');
+  await openComposer(page);
+  const top = page.locator('.format-bank-top');
+  const body = page.locator('.format-bank-body');
+  await top.locator('.format-bank-choice', { hasText: /^Epidemiology$/ }).click();
+  const row = body.locator('.format-bank-row', { hasText: 'Rate of Change of Removed in the SIR Model' });
+  await expect(row).toContainText('Susceptible Infectious Removed Model');
+  await shot(page, '9d-bank-mathmoddb');
+  await row.click();
+  await expect(object(page)).toHaveCount(1);
+  expect((await object(page).locator('g.formula-object-token text').allTextContents()).join(' ')).toBe('d R d t = γ I');
+  const things = await storeEval(page, (st) => {
+    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.format === 'formula');
+    const inst = st.graphs.get(st.activeGraphId).instances;
+    return g.memberInstanceIds.map(id => st.nodePrototypes.get(inst.get(id).prototypeId))
+      .filter(p => p.labels?.formula)
+      .map(p => `${p.labels.formula}:${p.name}:${p.externalLinks?.[0] || ''}`).sort();
+  });
+  // Time is Wikidata's; the rest are MathModDB's own, linked there.
+  expect(things).toEqual([
+    'I:Number of Infectious Individuals:https://portal.mardi4nfdi.de/entity/Q6673881',
+    'R:Number of Removed Individuals:https://portal.mardi4nfdi.de/entity/Q6673895',
+    't:Time:http://www.wikidata.org/entity/Q11471',
+    'γ:Relative Removal Rate:https://portal.mardi4nfdi.de/entity/Q6673878',
+  ]);
+  // Its bio says what model it is part of.
+  expect(await storeEval(page, (st) => [...st.nodePrototypes.values()]
+    .find(p => p.name === 'Rate of Change of Removed in the SIR Model')?.description))
+    .toBe('Rate of change of removed individuals in the continuous-time SIR model. Part of the Susceptible Infectious Removed Model.');
 });
 
 test('F44 a bank this device kept in an older shape gives way to the one shipped', async ({ page }) => {
@@ -649,13 +683,13 @@ test('F44 Data settings show where the formula bank came from, and what it left 
   await page.evaluate(() => window.dispatchEvent(new Event('openSettingsModal')));
   await expect(page.locator('.canvas-modal')).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'data' } })));
-  const source = page.locator('.settings-row', { hasText: 'Update from Wikidata' });
-  await expect(source).toContainText(/^Update from Wikidata[\s\S]*\d+ from Wikidata, with the app/);
+  const source = page.locator('.settings-row', { hasText: 'Update from Wikidata and MathModDB' });
+  await expect(source).toContainText(/^Update from Wikidata and MathModDB[\s\S]*\d+ from Wikidata and MathModDB, with the app/);
   await page.locator('.settings-row', { hasText: 'Left Out' }).getByRole('button', { name: 'Show' }).click();
   const reason = page.getByRole('button', { name: /^Formula not writable yet/ });
   await expect(reason).toBeVisible();
   await reason.click();
-  // Each item left out says why, and opens on Wikidata.
+  // Each item left out says why, and opens where it came from.
   await expect(page.locator('.formula-bank-left-out', { hasText: /^sample variance/ })).toContainText("can't write accents");
   // No device bank yet: nothing to go back from.
   await expect(page.locator('.settings-row', { hasText: 'Use the Built-In Bank' })).toHaveCount(0);

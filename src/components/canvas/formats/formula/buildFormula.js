@@ -35,11 +35,11 @@ import { getNodeDimensions } from '../../../../utils.js';
 import { canonicalizeLink, LINK_STATES } from '../../../../formats/linkState.js';
 import { OPERATORS } from './formulaNotation.js';
 import { chainFromText, chainText, isSymbolText, formulaLabelOf } from './formulaChain.js';
+import { markFormulaSpawn } from './formulaSpawn.js';
 import {
   BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin,
 } from './bank/formulaBank.js';
-
-const WIKIDATA_ITEM = 'http://www.wikidata.org/entity/';
+import { itemIri } from './bank/population/sources.js';
 
 const OPERATOR_DESCRIPTIONS = {
   eq: 'States that its two sides are equal.',
@@ -193,6 +193,8 @@ export function buildFormulaInWeb(text, graphId, at, readOptions, equation = {})
   store.withHistoryTransaction(title ? `Added ${title}` : 'Added formula', () => {
     result = build(chain, graphId, at, bindings, title, equation);
   });
+  // Drawn for the first time, it comes in the way a new Thing does.
+  markFormulaSpawn(result?.groupId);
   return result;
 }
 
@@ -350,7 +352,7 @@ function build(chain, graphId, at, bindings, title, equation) {
  * Put the equation where it belongs: in its section's web (Thermodynamics),
  * the section in its discipline's (Physics); without a section, in the
  * discipline's. Each of those Things (made from the bank, found by where it
- * came from; a section is its Wikidata item) gets a web if it has none, and
+ * came from; a section is its Wikidata or MathModDB item) gets a web if it has none, and
  * what goes in it is placed unless it is there already. Nothing in them is
  * moved or changed.
  */
@@ -359,7 +361,7 @@ function placeInDiscipline(discipline, section, equationProtoId) {
     name: discipline.name, description: discipline.description || '',
   });
   if (!section) { placeIn(disciplineProto.id, equationProtoId); return; }
-  const link = `${WIKIDATA_ITEM}${section.id}`;
+  const link = itemIri(section.id);
   const sectionProto = prototypeFromOrNew(conceptOrigin(section.id), {
     name: section.name, description: section.description || '',
   }, link);

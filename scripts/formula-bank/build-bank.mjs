@@ -10,8 +10,8 @@
  * Writes the bank the app ships with (bank.generated.json), its report
  * (bank.report.json, shown in Settings → Data), what each of its sections
  * knows of and doesn't have yet (bank.known.json), the disciplines its classes
- * were traced to (bank.classes.json, so an update in the app starts from
- * them), and REPORT.md beside this script, to read.
+ * were traced to and the MathModDB items it read (bank.classes.json, so an
+ * update in the app starts from them), and REPORT.md beside this script, to read.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -33,7 +33,10 @@ for (const [id, c] of Object.entries(snapshot.classes)) {
   if (c.leadsTo?.length || c.marks?.length) leads[id] = [c.leadsTo || [], c.marks || []];
 }
 const byInstance = Object.keys(snapshot.classes).filter(id => snapshot.classes[id].byInstance);
-writeFileSync(resolve(BANK_DIR, 'bank.classes.json'), `${JSON.stringify({ traced: Object.keys(snapshot.classes), leads, byInstance })}\n`);
+// MathModDB's disciplines, problems, models and formulas: where the app's update reads down from.
+const m = snapshot.mathmoddb;
+const mathmoddb = m ? [m.disciplines, m.problems, m.models, m.formulas].flatMap(Object.keys) : [];
+writeFileSync(resolve(BANK_DIR, 'bank.classes.json'), `${JSON.stringify({ traced: Object.keys(snapshot.classes), leads, byInstance, mathmoddb })}\n`);
 
 const lines = [
   '# Formula bank build report',

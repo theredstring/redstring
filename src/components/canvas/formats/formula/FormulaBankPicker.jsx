@@ -1,5 +1,5 @@
 /**
- * The bank under New Formula (bank/formulaBank.js, populated from Wikidata).
+ * The bank under New Formula (bank/formulaBank.js, populated from Wikidata and MathModDB).
  * A fixed header holds every choice: the disciplines, then the chosen
  * discipline's sections (Thermodynamics, Graph Theory). Under it the list
  * scrolls: a discipline's equations grouped by section, best known first, or
@@ -15,12 +15,12 @@ import {
 import { chainFromText, tokensOf } from './formulaChain.js';
 import FormulaTokens from './FormulaTokens.jsx';
 import { openExternalUrl } from '../../../../utils/safeUrl.js';
+import { itemPage, isMathModDBId } from './bank/population/sources.js';
 
 const MAX_MATCHES = 8;
 const PER_SECTION = 4;  // a section's best known in a discipline's list; the rest in the section
 const KNOWN_SHOWN = 12; // a section's known results not written yet, before "more"
 const WIKIPEDIA = 'https://en.wikipedia.org/wiki/';
-const WIKIDATA = 'https://www.wikidata.org/wiki/';
 
 function readEntry(entry, standard) {
   try {
@@ -74,9 +74,11 @@ function Choice({ on, dim, onClick, title, children }) {
   );
 }
 
+/** `where`: the section it is in, when listed apart from it (a search); else the model it is part of. */
 function EquationRow({ discipline, entry, standard, onPick, where }) {
   const tokens = useMemo(() => readEntry(entry, standard), [entry, standard]);
   if (!tokens) return null;
+  const note = where || entry.model;
   return (
     <button
       type="button"
@@ -86,7 +88,7 @@ function EquationRow({ discipline, entry, standard, onPick, where }) {
     >
       <span className="format-bank-row-title">
         {entry.title}
-        {where && <span className="format-bank-row-where">{where}</span>}
+        {note && <span className="format-bank-row-where">{note}</span>}
       </span>
       <span className="format-bank-row-formula"><FormulaTokens tokens={tokens} /></span>
     </button>
@@ -125,8 +127,8 @@ function KnownInSection({ bank, discipline, section }) {
           key={q}
           type="button"
           className="format-bank-known-row"
-          onClick={() => openExternalUrl(article ? `${WIKIPEDIA}${encodeURIComponent(article.replace(/ /g, '_'))}` : `${WIKIDATA}${q}`)}
-          title={article ? `Open ${article} on Wikipedia` : `Open ${q} on Wikidata`}
+          onClick={() => openExternalUrl(article ? `${WIKIPEDIA}${encodeURIComponent(article.replace(/ /g, '_'))}` : itemPage(q))}
+          title={article ? `Open ${article} on Wikipedia` : isMathModDBId(q) ? 'Open it on MathModDB' : `Open ${q} on Wikidata`}
         >
           <span className="format-bank-known-title">{title}</span>
           <span className="format-bank-known-why">{why}</span>
@@ -208,6 +210,7 @@ export default function FormulaBankPicker({ query, standard, onPick }) {
     const found = bank.equations.filter(({ discipline: d, equation }) => (
       equation.title.toLowerCase().includes(q) || d.name.toLowerCase().includes(q)
       || (equation.section || '').toLowerCase().includes(q)
+      || (equation.model || '').toLowerCase().includes(q)
     ));
     return found.length ? found.slice(0, MAX_MATCHES) : null;
   }, [bank, query]);
@@ -219,7 +222,7 @@ export default function FormulaBankPicker({ query, standard, onPick }) {
   const pickDiscipline = (id) => { setDisciplineId(id); setSectionId(null); };
 
   return (
-    <div className="format-bank" aria-label="Equations from Wikidata">
+    <div className="format-bank" aria-label="Equations from Wikidata and MathModDB">
       {!matches && (
         <div className="format-bank-top">
           <ChoiceRow label="Disciplines">
@@ -260,7 +263,7 @@ export default function FormulaBankPicker({ query, standard, onPick }) {
         ) : (
           <div className="format-bank-loading">No equations written here yet. Its sections say what they know of.</div>
         )}
-        <div className="format-bank-source">From Wikidata</div>
+        <div className="format-bank-source">From Wikidata and MathModDB (CC BY 4.0)</div>
       </div>
     </div>
   );

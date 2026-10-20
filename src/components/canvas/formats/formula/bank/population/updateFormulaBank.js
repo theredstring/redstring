@@ -36,8 +36,11 @@ export async function updateFormulaBankFromWikidata() {
     // Classes traced before keep their disciplines (the slow part, skipped):
     // this device's last update's, else the ones the app shipped with.
     const classes = await readDeviceBank('classes') || await shippedClasses();
+    // MathModDB, read down from the items the app shipped with and the last update found.
+    const seeds = [...new Set([...(await shippedMathModDB()), ...((await readDeviceBank('mathmoddb')) || [])])];
     const snapshot = await fetchFormulaSnapshot({
       previous: classes ? { classes } : null,
+      mathModDBSeeds: seeds,
       signal: controller.signal,
       onProgress: ({ stage, done = 0, total = 0 }) => set({ stage, done, total }),
     });
@@ -45,7 +48,9 @@ export async function updateFormulaBankFromWikidata() {
     const { bank, report, known } = buildBank(snapshot);
     const traced = {};
     for (const [id, c] of Object.entries(snapshot.classes)) traced[id] = { leadsTo: c.leadsTo, marks: c.marks, ...(c.byInstance ? { byInstance: true } : {}) };
-    const kept = await adoptDeviceFormulaBank({ bank, report, known, classes: traced });
+    const m = snapshot.mathmoddb;
+    const mathmoddb = m ? [m.disciplines, m.problems, m.models, m.formulas].flatMap(Object.keys) : seeds;
+    const kept = await adoptDeviceFormulaBank({ bank, report, known, classes: traced, mathmoddb });
     set({
       running: false, stage: null,
       result: { accepted: report.accepted, total: report.total, kept },
@@ -54,6 +59,15 @@ export async function updateFormulaBankFromWikidata() {
     set({ running: false, stage: null, error: controller?.signal.aborted ? 'Stopped' : (error?.message || 'The update did not finish') });
   } finally {
     controller = null;
+  }
+}
+
+async function shippedMathModDB() {
+  try {
+    const m = await import('../bank.classes.json');
+    return (m.default || m).mathmoddb || [];
+  } catch {
+    return [];
   }
 }
 

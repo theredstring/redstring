@@ -33,8 +33,9 @@ import useCanvasUIStore from '../../../../store/canvasUIStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
-import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
+import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE } from '../../../../constants.js';
 import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
+import { formulaSpawnStart, SPAWN_MS } from './formulaSpawn.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
 import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupElements.jsx';
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
@@ -53,6 +54,35 @@ const HOVER_TINT = 0.18;
 const HOVER_REACH = 0.14;    // a hovered token's tint past its box, either side, in its em
 const FADE = { duration: 0.14 };
 const LIFT_SCALE = 1.05;     // a dragged Thing-group's (groupElements)
+// Coming in, as the plus sign morphs into a new Thing (PlusSign.jsx): its
+// rounded square grows into the band over the morph's 400 ms, on its curve,
+// the band's color coming in faster; then the title, the ground, and the
+// tokens one after another.
+const MORPH_SHARE = 400 / SPAWN_MS;   // the band's part of it
+const PLUS_LIGHT = '#DEDADA';
+const PLUS_STROKE = 'maroon';
+const easeMorph = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const mixColor = (from, to, t) => { try { return blendColors(from, to, t); } catch { return to; } };
+
+const reducedMotion = () => { try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
+
+/** How far a just-built formula is into coming in: 0 to 1, or 1 when it isn't coming in. */
+function useSpawn(groupId) {
+  const [start] = useState(() => (reducedMotion() ? null : formulaSpawnStart(groupId)));
+  const [t, setT] = useState(() => (start === null ? 1 : clamp01((performance.now() - start) / SPAWN_MS)));
+  useEffect(() => {
+    if (start === null) return undefined;
+    let frame = requestAnimationFrame(function step(now) {
+      const next = clamp01((now - start) / SPAWN_MS);
+      setT(next);
+      if (next < 1) frame = requestAnimationFrame(step);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [start]);
+  return t;
+}
 const TITLE_TARGET = '__title__';
 
 /** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
@@ -148,7 +178,7 @@ function GlideRoot({ r, stroke }) {
  * token written by name is its Thing: a pill in its color, grown from the
  * symbol's box.
  */
-function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
+function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter = 1 }) {
   const defined = !!t.target && !!t.defined;
   const reach = hot ? HOVER_REACH * b.size : 0;
   const shape = useGlide(b.pill
@@ -169,6 +199,10 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
       onPointerLeave={defined ? onLeave : undefined}
       style={defined ? undefined : { cursor: 'default' }}
     >
+      <g
+        opacity={enter}
+        transform={enter < 1 ? `translate(0 ${(1 - enter) * 0.3 * b.size})` : undefined}
+      >
       <rect
         x={shape.x} y={shape.y} width={Math.max(0, shape.w)} height={Math.max(0, shape.h)}
         rx={Math.max(0, shape.rx)} fill={fill} fillOpacity={shape.a}
@@ -192,6 +226,7 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave }) {
           </motion.g>
         </AnimatePresence>
       )}
+      </g>
     </motion.g>
   );
 }
@@ -298,6 +333,30 @@ function FormulaObject({ obj, theme, selected, lifted }) {
   const o = obj.center;
   const box = (r) => ({ x: r.x - o.x, y: r.y - o.y, w: r.w, h: r.h });
   const liftShadow = useGraphStore(st => (lifted ? (st.liftedThingShadow ?? DEFAULT_LIFTED_THING_SHADOW) : null));
+  // Just built: the plus sign's morph, into this band.
+  const spawn = useSpawn(obj.groupId);
+  const spawning = spawn < 1;
+  const grown = easeMorph(clamp01(spawn / MORPH_SHARE));
+  const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
+  const plusSize = PLUS_SIGN_SIZE * plusScale;
+  const plusStroke = Math.max(1, 10 * plusScale);
+  const f = box(frame);
+  const fcx = f.x + f.w / 2;
+  const fcy = f.y + f.h / 2;
+  const morph = {
+    x: lerp(fcx - plusSize / 2, f.x, grown), y: lerp(fcy - plusSize / 2, f.y, grown),
+    w: lerp(plusSize, f.w, grown), h: lerp(plusSize, f.h, grown),
+    rx: lerp(plusSize / 2, G.nodeGroupCornerRadius, grown),
+  };
+  const titleIn = spawning ? clamp01((grown - 0.2) * 1.25) : 1;
+  const groundIn = spawning ? clamp01((grown - 0.35) / 0.5) : 1;
+  // Each token after the one before it, left to right, once the band has mostly grown.
+  const tokenIn = (i) => {
+    if (!spawning) return 1;
+    const n = Math.max(1, obj.tokens.length - 1);
+    return easeMorph(clamp01((spawn - (0.45 + 0.3 * (i / n))) / 0.25));
+  };
+  const clipId = `formula-spawn-${obj.groupId}`;
   // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
   const lx = frame.x + frame.w / 2 - o.x;
   const ly = frame.y + frame.h / 2 - o.y;
@@ -335,25 +394,36 @@ function FormulaObject({ obj, theme, selected, lifted }) {
               rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
             />
           )}
+          {/* A mask, not a clip: it hides what hasn't grown in yet without
+              hiding it from a click, so the formula takes input from its first frame. */}
+          {spawning && (
+            <defs>
+              <mask id={clipId} maskUnits="userSpaceOnUse" x={f.x - 50} y={f.y - 50} width={f.w + 100} height={f.h + 100}>
+                <rect x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx} fill="white" />
+              </mask>
+            </defs>
+          )}
+          <g mask={spawning ? `url(#${clipId})` : undefined}>
           {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
           <g
             className="formula-object-title"
             data-formula-target={TITLE_TARGET}
             data-formula-proto={obj.equationProtoId || undefined}
           >
-            <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={color} />
+            <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={spawning ? mixColor(PLUS_LIGHT, color, grown * 1.5) : color} />
             {obj.title && (
               <TitleText
                 at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
                 fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
                 fill={onBand} textAnchor="middle" dominantBaseline="central"
+                opacity={titleIn}
                 style={{ userSelect: 'none', pointerEvents: 'none' }}
               >
                 {obj.title}
               </TitleText>
             )}
           </g>
-          <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} />
+          <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />
           <AnimatePresence initial={false}>
             {obj.tokens.map((t, i) => (
               <Token
@@ -367,9 +437,27 @@ function FormulaObject({ obj, theme, selected, lifted }) {
                 hot={hoverKey === t.key}
                 onEnter={hoverIn(t.key)}
                 onLeave={hoverOut(t.key)}
+                enter={tokenIn(i)}
               />
             ))}
           </AnimatePresence>
+          </g>
+          {/* The plus sign it grew from: its outline turning the band's color, its cross fading first. */}
+          {spawning && (
+            <g style={{ pointerEvents: 'none' }}>
+              <rect
+                x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx}
+                fill="none" stroke={mixColor('#800000', color, grown)} strokeWidth={plusStroke} opacity={1 - grown}
+              />
+              {[[-1, 0, 1, 0], [0, -1, 0, 1]].map(([x1, y1, x2, y2]) => (
+                <line
+                  key={`${x1}${y1}`}
+                  x1={fcx + x1 * morph.w / 4} y1={fcy + y1 * morph.w / 4} x2={fcx + x2 * morph.w / 4} y2={fcy + y2 * morph.w / 4}
+                  stroke={PLUS_STROKE} strokeWidth={plusStroke} strokeLinecap="round" opacity={Math.max(0, 1 - grown * 4)}
+                />
+              ))}
+            </g>
+          )}
         </g>
       </g>
     </g>

@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { loadFormulaBank, loadFormulaBankKnown } from '../../src/components/canvas/formats/formula/bank/formulaBank.js';
 import { chainFromText, chainText } from '../../src/components/canvas/formats/formula/formulaChain.js';
+import { itemIri, isMathModDBId } from '../../src/components/canvas/formats/formula/bank/population/sources.js';
 
 const isNumber = (name) => /^\d+(\.\d+)?$/.test(name) || name === '∞';
-const WIKIDATA = /^http:\/\/www\.wikidata\.org\/entity\/Q\d+$/;
+const ITEM_ID = /^(mardi:)?Q\d+$/;
 
 /** Every Thing a chain names, parts included. */
 function thingNames(chain, out = []) {
@@ -22,7 +23,7 @@ const readEntry = (equation) => chainFromText(equation.text, {
   isKnownName: (n) => Object.prototype.hasOwnProperty.call(equation.symbols, n) || !!equation.placeHolders?.includes(n),
 });
 
-describe('the formula bank, populated from Wikidata', () => {
+describe('the formula bank, populated from Wikidata and MathModDB', () => {
   it('has disciplines of equations, each its own', () => {
     expect(bank.disciplines.length).toBeGreaterThanOrEqual(3);
     expect(bank.equations.length).toBeGreaterThanOrEqual(300);
@@ -32,7 +33,8 @@ describe('the formula bank, populated from Wikidata', () => {
   });
 
   it('gives every equation a title, a description for its bio, and the item it came from', () => {
-    const lacking = bank.equations.filter(({ equation: e }) => !e.title?.trim() || !e.description?.trim() || !WIKIDATA.test(e.source));
+    const lacking = bank.equations.filter(({ equation: e }) => !e.title?.trim() || !e.description?.trim()
+      || !ITEM_ID.test(e.id) || e.source !== itemIri(e.id));
     expect(lacking.map(({ equation }) => equation.id)).toEqual([]);
   });
 
@@ -82,7 +84,7 @@ describe('the formula bank, populated from Wikidata', () => {
       const [disciplineId, sectionId] = key.split('/');
       expect(bank.disciplines.find(d => d.id === disciplineId)?.sections.some(x => x.id === sectionId), key).toBe(true);
       for (const [q, title, , why] of list) {
-        expect(q).toMatch(/^Q\d+$/);
+        expect(q).toMatch(ITEM_ID);
         expect(title?.trim()).toBeTruthy();
         expect(why?.trim()).toBeTruthy();
       }
@@ -97,7 +99,8 @@ describe('the formula bank, populated from Wikidata', () => {
     const used = new Set(bank.equations.flatMap(({ equation }) => Object.values(equation.symbols)));
     for (const [q, concept] of Object.entries(bank.concepts)) {
       expect(concept.name?.trim(), q).toBeTruthy();
-      expect(concept.source).toBe(`http://www.wikidata.org/entity/${q}`);
+      expect(q).toMatch(ITEM_ID);
+      expect(concept.source).toBe(itemIri(q));
       expect(used.has(q), q).toBe(true);
     }
   });
@@ -111,6 +114,24 @@ describe('the formula bank, populated from Wikidata', () => {
       expect(equation.title.startsWith('Definition of ')).toBe(true);
       expect(Object.values(equation.symbols)).toContain(equation.defines);
     }
+  });
+
+  it('fills in from MathModDB, its quantities joining Wikidata\'s concepts where they are Wikidata\'s', () => {
+    const byId = new Map(bank.equations.map(({ discipline, equation }) => [equation.id, { discipline, equation }]));
+    // dR/dt = γI: a discipline Wikidata leads nowhere, its own; t is Wikidata's time.
+    const sir = byId.get('mardi:Q6674294');
+    expect(sir.discipline.name).toBe('Epidemiology');
+    expect(sir.equation.text).toBe('derivative(R, t) = γ × I');
+    expect(sir.equation.model).toBe('Susceptible Infectious Removed Model');
+    expect(sir.equation.symbols.t).toBe('Q11471');
+    expect(isMathModDBId(sir.equation.symbols.R)).toBe(true);
+    expect(bank.concepts[sir.equation.symbols.R].source).toBe('https://portal.mardi4nfdi.de/entity/Q6673895');
+    // Enzyme kinetics, a section of chemistry.
+    const chemistry = bank.disciplines.find(d => d.id === 'chemistry');
+    const enzymes = chemistry.sections.find(x => x.name === 'Enzyme Kinetics');
+    expect(enzymes.equations).toBeGreaterThan(50);
+    // Hooke's law is in both: once, Wikidata's.
+    expect(bank.equations.filter(({ equation }) => equation.text === 'F = k × Δl').map(({ equation }) => equation.id)).toEqual(['Q170282']);
   });
 
   it('holds the classics', () => {

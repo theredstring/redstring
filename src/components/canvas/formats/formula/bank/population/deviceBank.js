@@ -42,13 +42,17 @@ async function run(mode, action) {
   });
 }
 
-/** @param {'bank'|'report'|'known'|'classes'} key */
+/** @param {'bank'|'report'|'known'|'classes'|'mathmoddb'} key */
 export const readDeviceBank = (key) => run('readonly', store => store.get(key));
 
-/** Keep an updated bank, its report, what its sections are missing and its traced classes. Resolves true once kept. */
-export async function writeDeviceBank({ bank, report, known, classes }) {
+/**
+ * Keep an updated bank, its report, what its sections are missing, its traced
+ * classes and the MathModDB items it read. Resolves true once kept.
+ */
+export async function writeDeviceBank({ bank, report, known, classes, mathmoddb = [] }) {
   const kept = await run('readwrite', (store) => {
     store.put(bank, 'bank');
+    store.put(mathmoddb, 'mathmoddb');
     store.put(report, 'report');
     store.put(known, 'known');
     return store.put(classes, 'classes');

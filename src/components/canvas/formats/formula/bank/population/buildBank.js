@@ -16,13 +16,19 @@
  * where most write p): each concept has one symbol across the bank, the way
  * most of its equations write it, and an equation that writes it otherwise
  * keeps its own symbol on the instance (buildFormula.js).
+ *
+ * MathModDB's formulas (snapshot.mathmoddb) fill in where Wikidata is thin,
+ * read the same way (fromMathModDB): a quantity that is also a Wikidata item
+ * is that item's concept, the same Thing as in Wikidata's equations; one
+ * that isn't is a concept of its own, named as MathModDB names it. An item
+ * both have is Wikidata's.
  */
 import { latexToFormula, latexSymbolName } from '../../latex/latexToFormula.js';
 import { chainFromText, chainText } from '../../formulaChain.js';
 import { DISCIPLINE_ROOTS, KIND_ROOTS, DISCIPLINE_ORDER, isFieldLike, BANK_FORMAT } from './disciplines.js';
-
-const WD = 'http://www.wikidata.org/entity/';
+import { itemIri, mathModDBId, isMathModDBId } from './sources.js';
 const MIN_MISSING = 3; // a section with no equation yet shows when it knows of this many
+const MIN_OWN_DISCIPLINE = 3; // a MathModDB discipline the bank's don't hold stands on its own with this many
 
 // Symbols every formula means the same way, when Wikidata leaves them untied.
 const ALWAYS = { π: 'Q167' };
@@ -34,17 +40,127 @@ const SMALL_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'by', 'for', 'from', 
 function titleCase(label) {
   return String(label).split(/(\s+|-|–)/).map((w, i) => {
     if (!w.trim() || w === '-' || w === '–') return w;
-    if (/[A-Z]/.test(w.slice(1)) || /^[^a-z]/.test(w)) return w; // pH, SI, Coulomb's, 2D
-    if (i > 0 && SMALL_WORDS.has(w)) return w;
-    return w[0].toUpperCase() + w.slice(1);
+    const [, open, word] = w.match(/^(\(?)(.*)$/s); // "(spring)" as "spring"
+    if (/[A-Z]/.test(word.slice(1)) || /^[^a-z]/.test(word)) return w; // pH, SI, Coulomb's, 2D
+    if (i > 0 && !open && SMALL_WORDS.has(word)) return w;
+    return open + word[0].toUpperCase() + word.slice(1);
   }).join('');
 }
 /** A description as a bio: a sentence. */
 function sentence(text) {
-  const t = String(text).trim();
+  const t = String(text).replace(/\s+/g, ' ').trim();
   if (!t) return '';
   const s = t[0].toUpperCase() + t.slice(1);
   return /[.!?]$/.test(s) ? s : `${s}.`;
+}
+
+// A formula that sets a model up rather than stating it: not an equation of the bank's.
+const SETUP_ROLES = /initial condition|boundary condition|computational domain|coupling condition/i;
+
+/**
+ * MathModDB's formulas as items the way Wikidata's are, and its quantities
+ * as concepts. A formula's section is the nearest discipline above it
+ * (enzyme kinetics, through its model and research problem), as "studied by";
+ * the disciplines above that (chemical kinetics, chemistry) count toward its
+ * discipline. Its model (Michaelis–Menten model) goes with it.
+ */
+function fromMathModDB(snap) {
+  const m = snap.mathmoddb;
+  const items = {};
+  const concepts = {};
+  if (!m) return { items, concepts, fields: new Set() };
+  const up = new Map();
+  const link = (parent, child) => { if (!up.has(child)) up.set(child, []); up.get(child).push(parent); };
+  const roles = new Map();
+  for (const d of Object.values(m.disciplines)) [...d.problems, ...d.narrower].forEach(c => link(d.id, c));
+  for (const p of Object.values(m.problems)) [...p.models, ...p.narrower].forEach(c => link(p.id, c));
+  for (const x of [...Object.values(m.models), ...Object.values(m.formulas)]) {
+    // What a model assumes (a steady state, a small angle) is under it too.
+    [...x.narrower, ...x.assumes].forEach(c => link(x.id, c));
+    for (const c of x.contains) {
+      link(x.id, c.id);
+      if (!roles.has(c.id)) roles.set(c.id, new Set());
+      c.roles.forEach(r => m.roles[r] && roles.get(c.id).add(m.roles[r]));
+    }
+  }
+  // Up from a formula: the first models and the first disciplines met, then every discipline above those.
+  const above = (id) => {
+    const seen = new Set([id]);
+    let frontier = [id];
+    const models = [];
+    const nearest = [];
+    while (frontier.length && !nearest.length) {
+      const next = [];
+      const level = [];
+      for (const x of frontier) {
+        for (const p of up.get(x) || []) {
+          if (seen.has(p)) continue;
+          seen.add(p);
+          if (m.disciplines[p]) nearest.push(p);
+          else next.push(p);
+          if (m.models[p]?.label) level.push(m.models[p].label);
+        }
+      }
+      if (!models.length) models.push(...level);
+      frontier = next;
+    }
+    const broader = [];
+    for (let f = nearest; f.length;) {
+      const next = [];
+      for (const x of f) for (const p of up.get(x) || []) if (m.disciplines[p] && !seen.has(p)) { seen.add(p); broader.push(p); next.push(p); }
+      f = next;
+    }
+    const wikidata = (ids) => [...new Set(ids.map(x => m.disciplines[x].wikidata).filter(q => q && snap.classes[q]))];
+    return { models: [...new Set(models)], nearest: wikidata(nearest), broader: wikidata(broader) };
+  };
+  const conceptOf = (q) => {
+    const quantity = m.quantities[q];
+    if (quantity?.wikidata && snap.concepts[quantity.wikidata]) return quantity.wikidata;
+    const id = mathModDBId(q);
+    concepts[id] = concepts[id] || {
+      id, label: quantity?.label || null, description: quantity?.description || null,
+      instanceOf: [], subclassOf: [], studiedBy: [], source: itemIri(id),
+    };
+    return id;
+  };
+  for (const f of Object.values(m.formulas)) {
+    const id = mathModDBId(f.id);
+    const { models, nearest, broader } = above(f.id);
+    items[id] = {
+      id,
+      label: f.label,
+      description: f.description || f.longDescription || null,
+      longDescription: f.longDescription && f.longDescription !== f.description ? f.longDescription : null,
+      wikipedia: null,
+      formulas: f.formulas,
+      symbols: f.symbols.map(sym => ({ tex: sym.tex, represents: sym.represents.map(conceptOf) })),
+      instanceOf: [], subclassOf: [], partOf: [], topics: [],
+      studiedBy: nearest,
+      broader,
+      sitelinks: 0,
+      roles: [...(roles.get(f.id) || [])],
+      models,
+      ...(f.wikidata ? { sameAs: f.wikidata } : {}),
+    };
+  }
+  const fields = new Set(Object.values(m.disciplines).map(d => d.wikidata).filter(Boolean));
+  return { items, concepts, fields };
+}
+
+const MODELS_NAMED = 3;
+const listed = (names) => (names.length < 2 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+/** An equation's bio: what it is, what more its source says, and the models it is part of. */
+function bioOf(item) {
+  const models = (item.models || []).map(titleCase);
+  const named = models.slice(0, MODELS_NAMED).map(x => `the ${x}`);
+  const inModels = !models.length ? ''
+    : models.length === 1 ? `Part of the ${models[0]}.`
+      : `Used in ${models.length > MODELS_NAMED ? `${models.length} models, among them ${listed(named)}` : listed(named)}.`;
+  return [
+    sentence(item.description),
+    item.longDescription ? sentence(item.longDescription) : '',
+    inModels,
+  ].filter(Boolean).join(' ');
 }
 
 /**
@@ -56,9 +172,13 @@ function sentence(text) {
  *   report, and what each section knows of that the bank doesn't have yet
  */
 export function buildBank(snap) {
-  const { items, concepts, classes } = snap;
+  const { classes } = snap;
+  const mathModDB = fromMathModDB(snap);
+  const items = { ...snap.items, ...mathModDB.items };
+  const concepts = { ...snap.concepts, ...mathModDB.concepts };
   const rejected = [];
-  const reject = (item, reason, detail = '') => rejected.push({ id: item.id, label: item.label, reason, detail });
+  // `quiet`: not a result a section is missing (an initial condition, a test).
+  const reject = (item, reason, detail = '', quiet = false) => rejected.push({ id: item.id, label: item.label, reason, detail, ...(quiet ? { quiet } : {}) });
 
   // A unit's definition (1 N = 1 kg·m/s²) relates units, not quantities.
   const isUnitClass = (id) => (classes[id]?.marks || []).includes('unit');
@@ -68,6 +188,8 @@ export function buildBank(snap) {
   const candidates = [];
   for (const item of Object.values(items)) {
     if (!item.label) { reject(item, 'no title'); continue; }
+    if (item.roles?.some(r => SETUP_ROLES.test(r))) { reject(item, 'sets its model up', item.roles.join(', '), true); continue; }
+    if (/^test\b/i.test(item.label)) { reject(item, 'a test', '', true); continue; }
     // Only the item itself: constants (c, h, even π) are units too in some vocabularies.
     if (isUnit(item)) {
       reject(item, 'a unit\'s definition');
@@ -121,9 +243,27 @@ export function buildBank(snap) {
     candidates.push({ item, formula, symbols, shown, placeHolders });
   }
 
+  // An item both sources have is Wikidata's; MathModDB's fills in where
+  // Wikidata's didn't get in. Both have it when MathModDB says it is
+  // Wikidata's item, or writes the same formula of the same concepts (Hooke's law).
+  const sameness = (c) => `${c.formula}|${Object.entries(c.symbols).sort().join(';')}`;
+  const fromWikidata = new Map();
+  for (const c of candidates.filter(x => !isMathModDBId(x.item.id))) {
+    fromWikidata.set(c.item.id, c.item.id);
+    fromWikidata.set(sameness(c), c.item.id);
+  }
+  const accepted = candidates.filter((c) => {
+    if (!isMathModDBId(c.item.id)) return true;
+    const same = (c.item.sameAs && fromWikidata.get(c.item.sameAs)) || fromWikidata.get(sameness(c));
+    if (!same) return true;
+    reject(c.item, 'in the bank from Wikidata', same, true);
+    return false;
+  });
+  const covered = new Set(accepted.map(c => c.item.sameAs).filter(Boolean));
+
   // Pass 2: each concept's symbol across the bank, the way most of its equations write it.
   const uses = {};
-  for (const c of candidates) for (const [n, q] of Object.entries(c.symbols)) {
+  for (const c of accepted) for (const [n, q] of Object.entries(c.symbols)) {
     uses[q] = uses[q] || {};
     uses[q][n] = (uses[q][n] || 0) + (c.item.sitelinks || 0) + 1;
   }
@@ -131,7 +271,6 @@ export function buildBank(snap) {
   for (const [q, counts] of Object.entries(uses)) {
     symbolOf[q] = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
   }
-  const accepted = candidates;
 
   // Disciplines. What an item says of itself decides: the fields it is
   // studied by most, then what kind of thing it is (a physical law, a
@@ -144,7 +283,9 @@ export function buildBank(snap) {
     return [...new Set((classes[classId]?.leadsTo || [])
       .filter(r => kind || !KIND_ROOTS.has(r)).map(r => DISCIPLINE_ROOTS[r]).filter(Boolean))];
   };
-  const isField = (id) => !DISCIPLINE_ROOTS[id] && !KIND_ROOTS.has(id) && isFieldLike(classes[id]?.label, classes[id]?.description);
+  // A discipline MathModDB names is a field, whatever it is called (medical imaging).
+  const isField = (id) => !DISCIPLINE_ROOTS[id] && !KIND_ROOTS.has(id)
+    && (mathModDB.fields.has(id) || isFieldLike(classes[id]?.label, classes[id]?.description));
   const scoreOf = (pairs) => {
     const field = {};
     const kind = {};
@@ -166,11 +307,30 @@ export function buildBank(snap) {
       .sort((a, b) => b[1] - a[1] || DISCIPLINE_ORDER.indexOf(a[0]) - DISCIPLINE_ORDER.indexOf(b[0]))[0]?.[0] || null;
   };
   // A category's topic counts when it is a field (Graph theory), not a thing (Voltage, Albert Einstein).
-  const ownDiscipline = (x) => bestOf(scoreOf([
+  const ownDiscipline = (x) => declaredDiscipline(x) || bestOf(scoreOf([
     ...x.studiedBy.map(id => [id, 3, false]),
+    // The disciplines MathModDB puts above its own (chemical kinetics, then chemistry).
+    ...(x.broader || []).map(id => [id, 2, false]),
     ...[...x.instanceOf, ...(x.subclassOf || [])].map(id => [id, 2, true]),
     ...(x.topics || []).filter(isField).map(id => [id, 1, false]),
   ]));
+  // A discipline MathModDB names that leads to none of the bank's
+  // (epidemiology: Wikidata has it only as a science) is a discipline of its
+  // own, once it holds a few equations; one alone goes where its concepts are.
+  const unledName = (x) => {
+    if (!x.studiedBy?.length || !isMathModDBId(x.id)) return null;
+    const leads = [...x.studiedBy, ...(x.broader || [])].some(id => rootsOf(id, false).length);
+    return leads ? null : titleCase(classes[x.studiedBy[0]].label);
+  };
+  const unledCount = {};
+  for (const c of accepted) {
+    const name = unledName(c.item);
+    if (name) unledCount[name] = (unledCount[name] || 0) + 1;
+  }
+  function declaredDiscipline(x) {
+    const name = unledName(x);
+    return name && unledCount[name] >= MIN_OWN_DISCIPLINE ? name : null;
+  }
   // An equation that says nothing of itself is where its concepts are.
   const disciplineOf = (c) => {
     const own = ownDiscipline(c.item);
@@ -202,12 +362,13 @@ export function buildBank(snap) {
   const acceptedIds = new Set(accepted.map(c => c.item.id));
   for (const c of accepted) placed.push({ x: c.item, d: disciplineOf(c), c });
   for (const r of rejected) {
+    if (r.quiet || covered.has(r.id)) continue;
     const x = items[r.id];
     const d = x && ownDiscipline(x);
     if (d) placed.push({ x, d, why: r.detail ? `${r.reason}: ${r.detail}` : r.reason });
   }
   for (const k of Object.values(snap.known || {})) {
-    if (acceptedIds.has(k.id)) continue;
+    if (acceptedIds.has(k.id) || covered.has(k.id)) continue;
     const d = ownDiscipline(k);
     if (d) placed.push({ x: k, d, why: k.hasFormula ? 'Wikidata doesn\'t say what its symbols mean' : 'Wikidata has no formula for it' });
   }
@@ -235,7 +396,10 @@ export function buildBank(snap) {
     return disc.sections.get(id);
   };
   const usedConcepts = new Set();
-  const byFame = (a, b) => (b.x.sitelinks || 0) - (a.x.sitelinks || 0) || String(a.x.label).localeCompare(b.x.label);
+  // A model's constraints (positive solutions) after its equations: MathModDB says nothing of fame.
+  const isConstraint = (x) => (x.roles || []).some(r => /constraint/i.test(r));
+  const byFame = (a, b) => (b.x.sitelinks || 0) - (a.x.sitelinks || 0)
+    || isConstraint(a.x) - isConstraint(b.x) || String(a.x.label).localeCompare(b.x.label);
   for (const p of placed.filter(q => q.c).sort(byFame)) {
     const { c } = p;
     const disc = disciplineOfId(p.d);
@@ -248,14 +412,16 @@ export function buildBank(snap) {
       // that concept's definition: its own Thing is the concept's.
       title: selfDefined ? `Definition of ${label}` : label,
       ...(selfDefined ? { defines: c.item.id } : {}),
-      description: sentence(c.item.description),
+      description: bioOf(c.item),
       text: c.formula,
       symbols: c.symbols,
       // Names a sum or an integral runs over that mean nothing of their own (i in ∑ᵢ).
       ...(c.placeHolders.length ? { placeHolders: c.placeHolders } : {}),
       ...(p.section ? { section: sectionName(p.section), sectionId: p.section } : {}),
+      // The model it is part of (SIR Model), when it is one model's.
+      ...(c.item.models?.length === 1 ? { model: titleCase(c.item.models[0]) } : {}),
       ...(c.item.wikipedia ? { wikipedia: c.item.wikipedia } : {}),
-      source: `${WD}${c.item.id}`,
+      source: itemIri(c.item.id),
     });
     Object.values(c.symbols).forEach(q => usedConcepts.add(q));
   }
@@ -272,7 +438,7 @@ export function buildBank(snap) {
       name: titleCase(c?.label || ALWAYS_LABELS[q]),
       symbol: symbolOf[q],
       description: sentence(c?.description || ''),
-      source: `${WD}${q}`,
+      source: itemIri(q),
     };
   }
 
@@ -322,7 +488,9 @@ export function buildBank(snap) {
     byDiscipline: bank.disciplines.map(d => [d.name, d.equations.length]),
     byReason: Object.entries(byReason).sort((a, b) => b[1] - a[1]),
     whyNot: Object.entries(whyNot).sort((a, b) => b[1] - a[1]),
-    rejected: rejected.sort((a, b) => a.reason.localeCompare(b.reason) || a.id.localeCompare(b.id)),
+    // Wikidata's first, then MathModDB's, by number.
+    rejected: rejected.sort((a, b) => a.reason.localeCompare(b.reason)
+      || isMathModDBId(a.id) - isMathModDBId(b.id) || a.id.localeCompare(b.id)),
   };
   return { bank, report, known };
 }

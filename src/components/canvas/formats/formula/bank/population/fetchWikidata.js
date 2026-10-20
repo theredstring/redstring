@@ -12,11 +12,17 @@
  * Graph theory: a category's "main topic", P301), which say what field an
  * item is in far more often than Wikidata's own "studied by" does.
  *
+ * With MathModDB's seeds, MathModDB's models too (fetchMathModDB.js), read
+ * first: the Wikidata items its quantities and disciplines name are read
+ * along with the bank's own, so its formulas join Wikidata's concepts and
+ * sections (buildBank.js).
+ *
  * Runs wherever fetch does: the app (Settings → Data → Formula Bank) and the
- * scripts (scripts/formula-bank). Wikidata is CC0; nothing here is written by
- * hand, and each item keeps its Q number.
+ * scripts (scripts/formula-bank). Wikidata is CC0, MathModDB CC BY 4.0;
+ * nothing here is written by hand, and each item keeps its number.
  */
 import { DISCIPLINE_ROOTS, MARKERS, RESULT_KINDS, RESULT_CLASS_KINDS } from './disciplines.js';
+import { fetchMathModDB } from './fetchMathModDB.js';
 
 const SPARQL = 'https://query.wikidata.org/sparql';
 const API = 'https://www.wikidata.org/w/api.php';
@@ -76,11 +82,16 @@ const idOf = (iri) => iri.split('/').pop();
  * @param {(step: {stage: string, done?: number, total?: number}) => void} [options.onProgress]
  * @param {object} [options.previous] - an earlier snapshot, whose classes'
  *   disciplines are kept rather than traced again
+ * @param {string[]} [options.mathModDBSeeds] - MathModDB items to read down
+ *   from (fetchMathModDB.js); none, and MathModDB isn't read
  * @param {AbortSignal} [options.signal]
- * @returns {Promise<object>} { source, fetchedAt, items, concepts, known, classes }
+ * @returns {Promise<object>} { source, fetchedAt, items, concepts, known, classes, mathmoddb }
  */
-export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous = null, signal } = {}) {
+export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous = null, mathModDBSeeds = null, signal } = {}) {
   const report = (stage, done, total) => onProgress?.({ stage, done, total });
+  const mathmoddb = mathModDBSeeds?.length
+    ? await fetchMathModDB({ seeds: mathModDBSeeds, headers, onProgress, signal })
+    : null;
 
   async function getJson(url, tries = 4) {
     for (let i = 0; ; i++) {
@@ -148,6 +159,11 @@ export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous 
     items[id] = item;
   }
 
+  // MathModDB's quantities and disciplines that are Wikidata's too: its formulas' concepts and sections.
+  if (mathmoddb) {
+    Object.values(mathmoddb.quantities).forEach(q => q.wikidata && conceptIds.add(q.wikidata));
+    Object.values(mathmoddb.disciplines).forEach(d => d.wikidata && classIds.add(d.wikidata));
+  }
   const rawConcepts = await entities([...conceptIds], 'labels|descriptions|claims|sitelinks', 'Reading concepts');
   const concepts = {};
   for (const id of conceptIds) {
@@ -312,9 +328,10 @@ export async function fetchFormulaSnapshot({ headers = {}, onProgress, previous 
   }, (done, total) => report('Finding units', done, total));
 
   return {
-    source: 'Wikidata (CC0), https://www.wikidata.org',
+    source: mathmoddb ? `Wikidata (CC0), https://www.wikidata.org; ${mathmoddb.source}` : 'Wikidata (CC0), https://www.wikidata.org',
     fetchedAt: new Date().toISOString(),
     query: `items with ${P.inDefiningFormula} qualified by ${P.symbolRepresents}`,
     items, concepts, known, classes,
+    ...(mathmoddb ? { mathmoddb } : {}),
   };
 }

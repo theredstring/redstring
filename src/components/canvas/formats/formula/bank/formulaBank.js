@@ -2,7 +2,9 @@
  * The formula bank: well-known equations by discipline, each symbol tied to the
  * concept it stands for there. Populated, never written by hand: the
  * equations, their titles and descriptions, and what each symbol means all
- * come from Wikidata (population/fetchWikidata.js takes a snapshot,
+ * come from Wikidata and, where Wikidata is thin (models of epidemics, enzyme
+ * reactions, materials), from MathModDB on the MaRDI portal
+ * (population/fetchWikidata.js and fetchMathModDB.js take a snapshot,
  * population/buildBank.js reads its LaTeX into the bank, with a report of
  * everything it left out and why).
  *
@@ -22,20 +24,21 @@
  *
  * Each concept becomes one Thing, named for what it is (Pressure), written by
  * its symbol in formulas (its formula label, p), and linked to its Wikidata
- * item, so it is the same Thing in every equation that uses it, and the same
- * Thing an ontology import of that item makes. Loaded on first use, so the
+ * item (or MathModDB's, for a quantity Wikidata doesn't have), so it is the
+ * same Thing in every equation that uses it, from either source, and the
+ * same Thing an ontology import of that item makes. Loaded on first use, so the
  * bank's data stays out of the app's start.
  */
 import { readDeviceBank, writeDeviceBank, clearDeviceBank } from './population/deviceBank.js';
 import { BANK_FORMAT } from './population/disciplines.js';
+import { itemIri } from './population/sources.js';
 
 export const BANK_AGENT = 'formula-bank';
-const WIKIDATA_ENTITY = 'http://www.wikidata.org/entity/';
 
-/** Where a concept's Thing comes from: its Wikidata item. */
-export const conceptOrigin = (q) => `${WIKIDATA_ENTITY}${q}`;
+/** Where a concept's Thing comes from: its item (Wikidata's, or MathModDB's). */
+export const conceptOrigin = (id) => itemIri(id);
 /** Where an equation's Thing comes from: its item's defining formula. */
-export const equationOrigin = (q) => `${WIKIDATA_ENTITY}${q}#formula`;
+export const equationOrigin = (id) => `${itemIri(id)}#formula`;
 export const disciplineOrigin = (id) => `${BANK_AGENT}:discipline/${id}`;
 
 let bank = null;
@@ -45,7 +48,7 @@ const listeners = new Set();
 function indexBank(data, from) {
   const disciplines = Object.freeze(data.disciplines.map(d => Object.freeze({
     ...d,
-    description: `Equations of ${d.name.toLowerCase()}, from Wikidata.`,
+    description: `Equations of ${d.name.toLowerCase()}.`,
   })));
   const equations = disciplines.flatMap(discipline => discipline.equations.map(equation => ({ discipline, equation })));
   return Object.freeze({
@@ -120,8 +123,8 @@ export async function loadFormulaBankKnown() {
 }
 
 /** Use a bank this device built (population/updateFormulaBank.js), and keep it. */
-export async function adoptDeviceFormulaBank({ bank: next, report, known, classes }) {
-  const kept = await writeDeviceBank({ bank: next, report, known, classes });
+export async function adoptDeviceFormulaBank({ bank: next, report, known, classes, mathmoddb }) {
+  const kept = await writeDeviceBank({ bank: next, report, known, classes, mathmoddb });
   setBank(indexBank(next, 'device'));
   return kept;
 }
