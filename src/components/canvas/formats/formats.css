@@ -547,11 +547,9 @@ button.format-pill:disabled {
 .format-bank {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   width: min(520px, calc(100vw - 32px));
-  max-height: min(46vh, 420px);
-  overflow-y: auto;
-  padding: 8px;
+  max-height: min(52vh, 480px);
+  overflow: hidden;
   box-sizing: border-box;
   background-color: #DEDADA;
   border: 2px solid maroon;
@@ -561,41 +559,35 @@ button.format-pill:disabled {
   font-family: 'EmOne', sans-serif;
 }
 
-.format-bank-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 6px;
-}
-
-.format-bank-chip {
-  padding: 10px 12px;
-  border: 2px solid maroon;
-  border-radius: 14px;
-  background: none;
-  color: maroon;
-  font-family: 'EmOne', sans-serif;
-  font-size: 12px;
-  font-weight: bold;
-  text-align: center;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.format-bank-chip:hover {
-  background-color: maroon;
-  color: #DEDADA;
-}
-
-/* A discipline's sections, to narrow it to one. */
-.format-bank-sections {
+/* Every choice, fixed at the top: the disciplines, then the chosen one's
+   sections. The list scrolls under it. */
+.format-bank-top {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding: 0 4px 6px;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 10px 8px;
+  border-bottom: 2px solid maroon;
 }
 
-.format-bank-section {
-  padding: 5px 10px;
+.format-bank-choices {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* Faded at the right: more choices scroll in from there. */
+  padding-right: 20px;
+  mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+}
+
+.format-bank-choices::-webkit-scrollbar {
+  display: none;
+}
+
+.format-bank-choice {
+  flex-shrink: 0;
+  padding: 5px 11px;
   border: 1.5px solid maroon;
   border-radius: 12px;
   background: none;
@@ -603,17 +595,84 @@ button.format-pill:disabled {
   font-family: 'EmOne', sans-serif;
   font-size: 11px;
   font-weight: bold;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
-.format-bank-section:hover {
+.format-bank-choices:first-child .format-bank-choice {
+  font-size: 12px;
+}
+
+.format-bank-choice:hover {
+  background-color: #D0CACA;
+}
+
+.format-bank-choice:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.format-bank-choice.is-on {
   background-color: maroon;
   color: #DEDADA;
 }
 
-.format-bank-section.is-more {
-  border-style: dashed;
+/* Nothing written in it yet: it only knows of results. */
+.format-bank-choice.is-dim:not(.is-on) {
+  opacity: 0.5;
+}
+
+.format-bank-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px 8px;
+}
+
+/* A section's equations under its name; the name opens the section. */
+.format-bank-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.format-bank-group + .format-bank-group {
+  margin-top: 6px;
+}
+
+.format-bank-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 6px 12px 4px;
+  border: none;
+  border-bottom: 1.5px solid rgba(128, 0, 0, 0.25);
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.format-bank-group-head:hover:not(.is-static) {
+  background-color: #D0CACA;
+  border-radius: 10px 10px 0 0;
+}
+
+.format-bank-group-head.is-static {
+  cursor: default;
+}
+
+.format-bank-group-count {
+  opacity: 0.6;
 }
 
 /* What a section knows of and the bank doesn't write yet: each opens its article. */
@@ -621,16 +680,7 @@ button.format-pill:disabled {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1.5px solid rgba(128, 0, 0, 0.25);
-}
-
-.format-bank-known-head {
-  padding: 2px 12px 4px;
-  font-size: 11px;
-  font-weight: bold;
-  opacity: 0.65;
+  margin-top: 8px;
 }
 
 .format-bank-known-row {
@@ -665,30 +715,6 @@ button.format-pill:disabled {
   opacity: 0.6;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.format-bank-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 4px 6px;
-  font-size: 13px;
-  font-weight: bold;
-}
-
-.format-bank-back {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px;
-  border: none;
-  border-radius: 10px;
-  background: none;
-  color: maroon;
-  cursor: pointer;
-}
-
-.format-bank-back:hover {
-  background-color: #D0CACA;
 }
 
 .format-bank-row {

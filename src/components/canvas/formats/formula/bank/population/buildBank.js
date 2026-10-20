@@ -19,7 +19,7 @@
  */
 import { latexToFormula, latexSymbolName } from '../../latex/latexToFormula.js';
 import { chainFromText, chainText } from '../../formulaChain.js';
-import { DISCIPLINE_ROOTS, KIND_ROOTS, DISCIPLINE_ORDER, isFieldLike } from './disciplines.js';
+import { DISCIPLINE_ROOTS, KIND_ROOTS, DISCIPLINE_ORDER, isFieldLike, BANK_FORMAT } from './disciplines.js';
 
 const WD = 'http://www.wikidata.org/entity/';
 const MIN_MISSING = 3; // a section with no equation yet shows when it knows of this many
@@ -283,6 +283,7 @@ export function buildBank(snap) {
     .filter(([, disc]) => disc.equations.length || [...disc.sections.values()].some(shownSection))
     .sort((a, b) => b[1].equations.length - a[1].equations.length || a[0].localeCompare(b[0]));
   const bank = {
+    format: BANK_FORMAT,
     source: snap.source,
     fetchedAt: snap.fetchedAt,
     disciplines: shown.map(([name, disc]) => ({

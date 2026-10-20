@@ -27,6 +27,7 @@
  * bank's data stays out of the app's start.
  */
 import { readDeviceBank, writeDeviceBank, clearDeviceBank } from './population/deviceBank.js';
+import { BANK_FORMAT } from './population/disciplines.js';
 
 export const BANK_AGENT = 'formula-bank';
 const WIKIDATA_ENTITY = 'http://www.wikidata.org/entity/';
@@ -61,12 +62,24 @@ function setBank(next) {
   listeners.forEach(fn => fn());
 }
 
-/** The bank, loading it if it hasn't been: this device's own, else the one shipped. */
+/**
+ * Whether a bank this device kept still stands over the one shipped: built in
+ * the shape this app reads (sections and all), and no older than the shipped
+ * one. An app update that ships a newer bank, or a newer shape, wins.
+ */
+const deviceStands = (own, shipped) => !!own?.disciplines && own.format === BANK_FORMAT
+  && !(Date.parse(shipped.fetchedAt) > Date.parse(own.fetchedAt));
+
+/** The bank, loading it if it hasn't been: this device's own while it stands, else the one shipped. */
 export function loadFormulaBank() {
   if (!loading) {
-    loading = readDeviceBank('bank')
-      .then(own => (own?.disciplines ? indexBank(own, 'device') : builtIn()))
-      .catch(builtIn)
+    loading = Promise.all([readDeviceBank('bank').catch(() => null), builtIn()])
+      .then(([own, shipped]) => {
+        if (deviceStands(own, shipped)) return indexBank(own, 'device');
+        // Set aside for good, so Settings says where the bank came from and the next update starts clean.
+        if (own) clearDeviceBank().catch(() => {});
+        return shipped;
+      })
       .then((b) => { bank = b; listeners.forEach(fn => fn()); return b; });
   }
   return loading;

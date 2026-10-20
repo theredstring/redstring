@@ -19,7 +19,7 @@
 //
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
-  test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS, findBareSpot,
+  test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS, findBareSpot, camera,
 } from './helpers.js';
 
 // In the small fixture's empty lower half, far enough left that a long formula
@@ -414,10 +414,9 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await openFixture(page, 'small');
   await openComposer(page);
   await shot(page, '9-bank');
-  // Disciplines from Wikidata, each listing its best known first.
-  await page.locator('.format-bank-chip', { hasText: /^Physics$/ }).click();
-  await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toBeVisible();
-  await shot(page, '9a-bank-discipline');
+  // Disciplines from Wikidata, the largest open, each listing its best known first.
+  await expect(page.locator('.format-bank-choice.is-on', { hasText: /^Physics$/ })).toHaveCount(1);
+  await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(1);
   // Typed words find an equation by title.
   await page.locator('.formula-composer input').fill('ideal gas law');
   await page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' }).click();
@@ -513,24 +512,56 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
     .map(g => g.linkedDefinitionIndex))).toEqual([0, 0]);
 });
 
-test('F44 a discipline narrows to a section, which says what it knows of and doesn\'t write yet', async ({ page }) => {
+test('F44 the bank\'s choices stay in its header; its sections group the list, which the wheel scrolls', async ({ page }) => {
   await openFixture(page, 'small');
   await openComposer(page);
-  await page.locator('.format-bank-chip', { hasText: /^Physics$/ }).click();
-  await page.locator('.format-bank-section', { hasText: /^Thermodynamics$/ }).click();
-  await expect(page.locator('.format-bank-head')).toContainText('Physics: Thermodynamics');
-  await expect(page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' })).toBeVisible();
-  await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(0);
-  await expect(page.locator('.format-bank-known-row').first()).toBeVisible();
+  const top = page.locator('.format-bank-top');
+  const body = page.locator('.format-bank-body');
+  // Physics, grouped by section, each section's name over its best known.
+  await expect(page.locator('.format-bank-group-head', { hasText: 'Thermodynamics' })).toHaveCount(1);
+  await shot(page, '9a-bank-discipline');
+  // The wheel scrolls the list, not the canvas; the header stays where it is.
+  const before = await camera(page);
+  const topBox = await top.boundingBox();
+  const at = await body.boundingBox();
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeGreaterThan(100);
+  await page.waitForTimeout(300);
+  expect(await camera(page)).toEqual(before);
+  expect((await top.boundingBox()).y).toBe(topBox.y);
+  // A section's name opens it: its equations, then what it knows of and doesn't write yet.
+  await top.locator('.format-bank-choice', { hasText: /^Thermodynamics$/ }).click();
+  await expect(top.locator('.format-bank-choice.is-on', { hasText: /^Thermodynamics$/ })).toHaveCount(1);
+  await expect(body.locator('.format-bank-row', { hasText: 'Ideal Gas Law' })).toBeVisible();
+  await expect(body.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(0);
+  await expect(body.locator('.format-bank-known-row').first()).toBeVisible();
   await shot(page, '9b-bank-section');
   // A discipline with nothing written yet still says what its sections know of.
-  await page.locator('.format-bank-back').click();
-  await page.locator('.format-bank-back').click();
-  await page.locator('.format-bank-chip', { hasText: /^Biology$/ }).click();
-  await expect(page.locator('.format-bank')).toContainText('No equations written here yet.');
-  await page.locator('.format-bank-section', { hasText: /^Population Genetics$/ }).click();
-  await expect(page.locator('.format-bank-known-row', { hasText: 'Hardy–Weinberg Principle' })).toContainText('Wikidata has no formula for it');
+  await top.locator('.format-bank-choice', { hasText: /^Biology$/ }).click();
+  await expect(body).toContainText('No equations written here yet.');
+  await top.locator('.format-bank-choice', { hasText: /^Population Genetics$/ }).click();
+  await expect(body.locator('.format-bank-known-row', { hasText: 'Hardy–Weinberg Principle' })).toContainText('Wikidata has no formula for it');
   await shot(page, '9c-bank-known');
+});
+
+test('F44 a bank this device kept in an older shape gives way to the one shipped', async ({ page }) => {
+  await openFixture(page, 'small');
+  // What an update before sections existed left on the device: four disciplines, no sections.
+  await page.evaluate(async () => {
+    const { writeDeviceBank } = await import('/src/components/canvas/formats/formula/bank/population/deviceBank.js');
+    const old = ['Physics', 'Mathematics', 'Computing', 'Chemistry'].map(name => ({ id: name.toLowerCase(), name, equations: [] }));
+    await writeDeviceBank({ bank: { source: 'old', fetchedAt: '2026-10-19T00:00:00Z', disciplines: old, concepts: {} }, report: {}, known: {}, classes: {} });
+  });
+  await openFixture(page, 'small');
+  await openComposer(page);
+  await expect(page.locator('.format-bank-top .format-bank-choice', { hasText: /^Biology$/ })).toHaveCount(1);
+  await expect(page.locator('.format-bank-group-head', { hasText: 'Thermodynamics' })).toHaveCount(1);
+  // Cleared, so nothing on the device stands over the shipped bank again.
+  expect(await page.evaluate(async () => {
+    const { readDeviceBank } = await import('/src/components/canvas/formats/formula/bank/population/deviceBank.js');
+    return readDeviceBank('bank');
+  })).toBe(null);
 });
 
 test('F44 the bank writes calculus as the textbook does, and a concept two ways where an equation does', async ({ page }) => {

@@ -1,4 +1,10 @@
 /**
+ * The shape the bank is built in: 2 has sections and what each knows of. A
+ * bank a device kept in an older shape is set aside for the one shipped.
+ */
+export const BANK_FORMAT = 2;
+
+/**
  * The disciplines the bank sorts by: Wikidata items a field (thermodynamics)
  * or a class (theorem, physical law) leads up to through subclass of / part
  * of. Listed first wins a tie. A field's roots (physics, chemistry) count only
