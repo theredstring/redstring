@@ -553,3 +553,20 @@ test.describe('by touch', () => {
     await expect(expanded(page)).toHaveCount(0);
   });
 });
+
+test('F44 Data settings show where the formula bank came from, and what it left out and why', async ({ page }) => {
+  await openFixture(page, 'small');
+  await page.evaluate(() => window.dispatchEvent(new Event('openSettingsModal')));
+  await expect(page.locator('.canvas-modal')).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'data' } })));
+  const source = page.locator('.settings-row', { hasText: 'Update from Wikidata' });
+  await expect(source).toContainText(/^Update from Wikidata[\s\S]*\d+ from Wikidata, with the app/);
+  await page.locator('.settings-row', { hasText: 'Left Out' }).getByRole('button', { name: 'Show' }).click();
+  const reason = page.getByRole('button', { name: /^Two symbols for one concept/ });
+  await expect(reason).toBeVisible();
+  await reason.click();
+  // Each item left out says why, and opens on Wikidata.
+  await expect(page.locator('.formula-bank-left-out', { hasText: 'Pythagorean theorem' })).toContainText('a, b → cathetus');
+  // No device bank yet: nothing to go back from.
+  await expect(page.locator('.settings-row', { hasText: 'Use the Built-In Bank' })).toHaveCount(0);
+});

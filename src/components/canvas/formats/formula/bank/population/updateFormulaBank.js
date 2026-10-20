@@ -33,8 +33,9 @@ export async function updateFormulaBankFromWikidata() {
   controller = new AbortController();
   set({ ...IDLE, running: true, stage: 'Starting' });
   try {
-    // Classes traced last time keep their disciplines: the slow part, skipped.
-    const classes = await readDeviceBank('classes');
+    // Classes traced before keep their disciplines (the slow part, skipped):
+    // this device's last update's, else the ones the app shipped with.
+    const classes = await readDeviceBank('classes') || await shippedClasses();
     const snapshot = await fetchFormulaSnapshot({
       previous: classes ? { classes } : null,
       signal: controller.signal,
@@ -53,6 +54,18 @@ export async function updateFormulaBankFromWikidata() {
     set({ running: false, stage: null, error: controller?.signal.aborted ? 'Stopped' : (error?.message || 'The update did not finish') });
   } finally {
     controller = null;
+  }
+}
+
+async function shippedClasses() {
+  try {
+    const m = await import('../bank.classes.json');
+    const { traced, leads } = m.default || m;
+    const classes = {};
+    for (const id of traced) classes[id] = { leadsTo: leads[id]?.[0] || [], marks: leads[id]?.[1] || [] };
+    return classes;
+  } catch {
+    return null;
   }
 }
 

@@ -8,8 +8,9 @@
  *   node scripts/formula-bank/build-bank.mjs
  *
  * Writes the bank the app ships with (bank.generated.json), its report
- * (bank.report.json, shown in Settings → Data), and REPORT.md beside this
- * script, to read.
+ * (bank.report.json, shown in Settings → Data), the disciplines its classes
+ * were traced to (bank.classes.json, so an update in the app starts from
+ * them), and REPORT.md beside this script, to read.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -23,6 +24,13 @@ const snapshot = JSON.parse(readFileSync(resolve(HERE, 'wikidata-snapshot.json')
 const { bank, report } = buildBank(snapshot);
 writeFileSync(resolve(BANK_DIR, 'bank.generated.json'), `${JSON.stringify(bank, null, 1)}\n`);
 writeFileSync(resolve(BANK_DIR, 'bank.report.json'), `${JSON.stringify(report)}\n`);
+// The disciplines each class was traced to, so an update in the app traces
+// only the classes that are new since (the slow part of fetching).
+const leads = {};
+for (const [id, c] of Object.entries(snapshot.classes)) {
+  if (c.leadsTo?.length || c.marks?.length) leads[id] = [c.leadsTo || [], c.marks || []];
+}
+writeFileSync(resolve(BANK_DIR, 'bank.classes.json'), `${JSON.stringify({ traced: Object.keys(snapshot.classes), leads })}\n`);
 
 const lines = [
   '# Formula bank build report',
