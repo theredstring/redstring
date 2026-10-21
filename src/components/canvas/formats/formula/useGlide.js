@@ -13,9 +13,10 @@ export const glideEase = (t) => 1 - Math.pow(1 - t, 3);
  * @param {Record<string, number>} target - where the numbers should be
  * @param {Record<string, number>} [from] - where they start, the first time
  *   (else where they should be)
+ * @param {number} [ms] - how long a glide takes
  * @returns {Record<string, number>} where they are now
  */
-export function useGlide(target, from = null) {
+export function useGlide(target, from = null, ms = GLIDE_MS) {
   const key = Object.keys(target).map(k => `${k}:${target[k]}`).join('|');
   const [now, setNow] = useState(from ?? target);
   const ref = useRef({ current: from ?? target, frame: 0 });
@@ -34,7 +35,7 @@ export function useGlide(target, from = null) {
     const start = performance.now();
     cancelAnimationFrame(glide.frame);
     const step = (t) => {
-      const p = Math.min(1, (t - start) / GLIDE_MS);
+      const p = Math.min(1, (t - start) / ms);
       const e = glideEase(p);
       const next = {};
       for (const k of keys) next[k] = from[k] + (target[k] - from[k]) * e;

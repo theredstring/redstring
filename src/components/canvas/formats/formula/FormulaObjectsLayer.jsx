@@ -65,6 +65,18 @@ const easeMorph = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const mixColor = (from, to, t) => { try { return blendColors(from, to, t); } catch { return to; } };
+// WCAG relative luminance of a #rrggbb color, and the contrast between two.
+const luminance = (hex) => {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const c = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+  return 0.2126 * c((n >> 16) & 255) + 0.7152 * c((n >> 8) & 255) + 0.0722 * c(n & 255);
+};
+const contrast = (a, b) => {
+  const la = luminance(a);
+  const lb = luminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+};
+const COLOR_TURN = 0.5; // how sharply a token's text turns color as the pill under it fills or empties
 
 const reducedMotion = () => { try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 
@@ -166,38 +178,49 @@ const IN_DELAY = 0.22; // of MORPH_MS: no letter comes into a pill before this
 const OUT_STAGGER = 0.14; // of MORPH_MS: the first leaving letter starts this much after the last
 const OUT_MS = 0.14; // of MORPH_MS: how long each leaving letter takes
 const GOING_MS = 90; // a token leaving the formula (the × between names) fading out
+const FILL_MS = GLIDE_MS * 0.6; // a token's fill (its pill's color, its hover tint) coming in or going
+const SWAP_MS = GLIDE_MS * 0.4; // a token drawn another way (a fraction's bar as ÷) crossing over
 const prefersReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /**
- * What a token's text looked like and how far it is through becoming what it
- * is (`p`, 0 to 1): `from` is null once it has. A change mid-way starts from
+ * What a token's text is turning from and into, and how far it is (`p`, 0 to
+ * 1): `from` is null once it has. Sent back mid-way (Show Names, then at once
+ * Show Symbols), the same change runs backwards from where it is, so nothing
+ * that had not come in yet flashes in; any other change mid-way starts from
  * what it was becoming.
  */
+const lookKey = (look) => `${look.text}\u0000${look.fill}\u0000${look.opacity}\u0000${look.pill}`;
 function useTextMorph(look) {
-  const key = `${look.text}\u0000${look.fill}\u0000${look.opacity}\u0000${look.pill}`;
-  const [state, setState] = useState({ key, from: null, p: 1 });
-  const ref = useRef({ key, look, frame: 0 });
+  const key = lookKey(look);
+  const [state, setState] = useState({ key, from: null, to: look, p: 1 });
+  const ref = useRef({ key, look, frame: 0, from: null, to: look, p: 1 });
   useEffect(() => {
     const m = ref.current;
     if (m.key === key) return undefined;
-    const from = m.look;
+    const back = m.from && m.p < 1 && lookKey(m.from) === key;
+    const run = back ? { from: m.from, to: m.to, p0: m.p, dir: -1 } : { from: m.look, to: look, p0: 0, dir: 1 };
     m.key = key;
     m.look = look;
     cancelAnimationFrame(m.frame);
-    if (prefersReducedMotion()) { setState({ key, from: null, p: 1 }); return undefined; }
+    const settle = () => { m.from = null; m.to = look; m.p = 1; setState({ key, from: null, to: look, p: 1 }); };
+    if (prefersReducedMotion()) { settle(); return undefined; }
     const start = performance.now();
     const step = (now) => {
-      const p = Math.min(1, (now - start) / MORPH_MS);
-      setState({ key, from: p < 1 ? from : null, p });
-      if (p < 1) m.frame = requestAnimationFrame(step);
+      const p = clamp01(run.p0 + (run.dir * (now - start)) / MORPH_MS);
+      if (run.dir > 0 ? p >= 1 : p <= 0) { settle(); return; }
+      m.from = run.from; m.to = run.to; m.p = p;
+      setState({ key, from: run.from, to: run.to, p });
+      m.frame = requestAnimationFrame(step);
     };
     m.frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(m.frame);
     // `key` stands for `look`'s values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  // The render the change arrives in, before the effect: all of what it was.
-  return state.key === key ? state : { key, from: ref.current.look, p: 0 };
+  if (state.key === key) return state;
+  // The render the change arrives in, before the effect: as it was.
+  const m = ref.current;
+  return m.from && m.p < 1 ? { key, from: m.from, to: m.to, p: m.p } : { key, from: m.look, to: look, p: 0 };
 }
 
 const isPlain = (text) => !subscriptOf(text) && !vectorOf(text).vector;
@@ -210,22 +233,36 @@ const lettersOf = (text) => [...String(text)];
  * each comes in a little after the pill's growing edge has passed it and the
  * pill has had a moment to fill, so no letter stands in a pill too small for
  * it. Going back they leave at once, right to left, ahead of the shrinking
- * edge, never left behind it. A plain symbol coming or going fades meanwhile.
- * Its color crosses over as the pill fills in. Written another way (a
- * subscript, a vector's arrow), the two cross-fade instead.
+ * edge, never left behind it. A plain symbol coming or going fades meanwhile;
+ * with no letter in common with the name (p, Pressure), the two swap in place.
+ * Its color turns as the pill under it fills or empties, when the color it
+ * is going to reads better there than the one it had, so it never sinks into
+ * a half-filled pill. Written another way (a subscript, a vector's arrow), the
+ * two cross-fade instead.
  *
  * @param {number} [reveal] - where the pill's text currently ends (its glided
  *   right edge, less its padding), in the same space as `x`
+ * @param {string} [under] - the color under the text now (the ground, as
+ *   far as the pill has filled in)
  * @param {{x: number, y: number}} [start] - where a token that has just come
  *   into the formula starts
  */
-function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal = null, start = null }) {
-  const at = useGlide({ x, y }, start);
-  const { from, p } = useTextMorph({ text, fill, opacity, pill });
+function TokenText({ text, x, y, size: sized, fill, opacity = 1, pill = false, reveal = null, under = null, start = null }) {
+  // Its size glides too (an exponent written inline after ^ grows to the line's).
+  const at = useGlide({ x, y, size: sized }, start && { ...start, size: sized });
+  const { size } = at;
+  const { from, to: toward, p } = useTextMorph({ text, fill, opacity, pill });
   if (!from) return <TokenTextAt text={text} at={at} size={size} fill={fill} opacity={opacity} />;
-  // The pill's fill and the color cross over together (useGlide's curve).
+  // What it is turning into (sent back mid-way, what it was turning into, run backwards).
+  ({ text, fill, opacity, pill } = toward);
   const filled = glideEase(Math.min(1, (p * MORPH_MS) / GLIDE_MS));
-  const color = from.fill === fill ? fill : mixColor(from.fill, fill, filled);
+  let turned = filled;
+  if (under && from.fill !== fill) {
+    try { turned = smooth(clamp01(0.5 + Math.log(contrast(fill, under) / contrast(from.fill, under)) / COLOR_TURN)); } catch { /* not hex: on the glide's curve */ }
+    // Where the two read about the same, it still ends on its own color.
+    turned = Math.max(turned, smooth(clamp01((p - 0.6) / 0.4)));
+  }
+  const color = from.fill === fill ? fill : mixColor(from.fill, fill, turned);
   const alpha = from.opacity + (opacity - from.opacity) * filled;
   if (!isPlain(text) || !isPlain(from.text)) {
     return (
@@ -248,15 +285,27 @@ function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal =
     const end = measure(letters.join(''), size) - fade;
     return clamp01((reveal - (at.x + Math.max(right - fade, Math.min(right + lag, end)))) / fade);
   };
-  // Coming into a pill: once the edge is well past, and not before the pill has begun to fill.
-  const comingIn = (i) => (pill
-    ? Math.min(passed(to, i, LETTER_LAG_EM * size), smooth(clamp01((p - IN_DELAY) / 0.4)))
-    : smooth(clamp01((p - 0.2) / 0.4)));
   // Leaving a pill: quickly, the last letter first, and gone before the edge reaches it.
   const going = was.length - shared;
-  const goingOut = (i) => (from.pill
-    ? Math.min(passed(was, i, -fade), 1 - smooth(clamp01((p - OUT_STAGGER * (was.length - 1 - i) / Math.max(1, going)) / OUT_MS)))
-    : 1 - smooth(clamp01(p / 0.4)));
+  const outAt = (i) => OUT_STAGGER * (was.length - 1 - i) / Math.max(1, going);
+  // Nothing in common (p, Pressure): the symbol and the name's first letter
+  // swap in place, the one mostly gone as the other comes, so the token is
+  // never empty and the two never stand over each other.
+  const swapping = shared === 0 && was.length > 0 && to.length > 0;
+  const swapAt = from.pill ? outAt(0) : 0;
+  const goingOut = (i) => {
+    if (swapping && i === 0) return 1 - smooth(clamp01((p - swapAt) / OUT_MS));
+    return from.pill
+      ? Math.min(passed(was, i, -fade), 1 - smooth(clamp01((p - outAt(i)) / OUT_MS)))
+      : 1 - smooth(clamp01(p / 0.4));
+  };
+  // Coming into a pill: once the edge is well past, and not before the pill has begun to fill.
+  const comingIn = (i) => {
+    if (swapping && i === 0) return smooth(clamp01((p - swapAt - OUT_MS * 0.6) / OUT_MS));
+    return pill
+      ? Math.min(passed(to, i, LETTER_LAG_EM * size), smooth(clamp01((p - IN_DELAY) / 0.4)))
+      : smooth(clamp01((p - (from.pill && shared === 0 ? outAt(0) : 0.2)) / 0.4));
+  };
   const textProps = {
     x: at.x, y: at.y, fontSize: size, fontFamily: FORMULA_FONT_FAMILY, fontWeight: FORMULA_FONT_WEIGHT,
     fill: color, opacity: alpha, style: { userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' },
@@ -283,15 +332,15 @@ function TitleText({ at, children, ...rest }) {
   return <text x={now.x} y={now.y} {...rest}>{children}</text>;
 }
 
-/** A rectangle that glides to its new place and size. */
-function GlideRect({ r, ...rest }) {
-  const at = useGlide(r);
+/** A rectangle that glides to its new place and size (from `from`, when it first shows). */
+function GlideRect({ r, from = null, ...rest }) {
+  const at = useGlide(r, from);
   return <rect x={at.x} y={at.y} width={Math.max(0, at.w)} height={Math.max(0, at.h)} {...rest} />;
 }
 
 /** A square root's sign, as tall as what it holds, its bar running over all of it. */
-function GlideRoot({ r, stroke }) {
-  const at = useGlide(r);
+function GlideRoot({ r, from = null, stroke }) {
+  const at = useGlide(r, from);
   const hook = (fx, fy) => `${at.x + at.signW * fx},${at.y + at.h * fy}`;
   return (
     <polyline
@@ -300,6 +349,39 @@ function GlideRoot({ r, stroke }) {
       style={{ pointerEvents: 'none' }}
     />
   );
+}
+
+/** Fades in or out as `on` says; from `from` (0 or 1) when it first shows, else at once. */
+function Fade({ on, from = null, children }) {
+  const { a } = useGlide({ a: on ? 1 : 0 }, from === null ? null : { a: from }, SWAP_MS);
+  return <g opacity={a}>{children}</g>;
+}
+
+const drawnAs = (b) => (b.root ? 'root' : b.bar ? 'bar' : 'text');
+
+/**
+ * How a token is drawn (`kind`: a root's sign, a fraction's bar, or text) and,
+ * a moment after that changes (writing every operation turns the bar into ÷
+ * and the sign into √), how it was drawn and where (`was`), so the one can
+ * turn into the other where they are instead of one vanishing and the other
+ * standing at its end from the start.
+ */
+function useDrawnAs(b) {
+  const kind = drawnAs(b);
+  const last = useRef(b);
+  const [state, setState] = useState({ kind, was: null });
+  let now = state;
+  if (state.kind !== kind) {
+    now = { kind, was: { kind: state.kind, b: last.current } };
+    setState(now);
+  }
+  useEffect(() => { last.current = b; });
+  useEffect(() => {
+    if (!now.was) return undefined;
+    const timer = setTimeout(() => setState(s => (s === now ? { kind: s.kind, was: null } : s)), GLIDE_MS + 40);
+    return () => clearTimeout(timer);
+  }, [now]);
+  return now;
 }
 
 const shapeOf = (b, o, hot) => {
@@ -318,9 +400,15 @@ const shapeOf = (b, o, hot) => {
  * do (`from`, where it starts), and going, closes into that gap, fading at once
  * (`going`), so the formula never stays wider than what it is becoming.
  */
-function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter = 1, from = null, going = false }) {
+function Token({ t, b, o, fill, ground, textColor, onBand, hot, onEnter, onLeave, enter = 1, from = null, going = false }) {
   const defined = !going && !!t.target && !!t.defined;
-  const shape = useGlide(shapeOf(b, o, hot && !going), from && shapeOf(from, o, false));
+  const { a, ...outline } = shapeOf(b, o, hot && !going);
+  const was = from && shapeOf(from, o, false);
+  const shape = useGlide(outline, was);
+  // Its fill comes in, or goes, ahead of its outline, so no half-filled box trails behind.
+  const tint = useGlide({ a }, was && { a: was.a }, FILL_MS).a;
+  const drawn = useDrawnAs(b);
+  const { kind } = drawn;
   const fade = going
     ? { opacity: 0, transition: { duration: (GOING_MS / 1000), ease: 'easeOut' } }
     : { opacity: 1, transition: from ? { duration: (MORPH_MS * 0.4) / 1000, delay: (MORPH_MS * IN_DELAY) / 1000 } : FADE };
@@ -343,26 +431,66 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter 
       >
       <rect
         x={shape.x} y={shape.y} width={Math.max(0, shape.w)} height={Math.max(0, shape.h)}
-        rx={Math.max(0, shape.rx)} fill={fill} fillOpacity={shape.a}
+        rx={Math.max(0, shape.rx)} fill={fill} fillOpacity={tint}
       />
-      {b.root ? (
-        <GlideRoot r={{ ...b.root, x: b.root.x - o.x, y: b.root.y - o.y }} stroke={textColor} />
-      ) : b.bar ? (
-        // A division stacked as a fraction: its token is the bar.
-        <GlideRect
-          r={{ x: b.bar.x - o.x, y: b.bar.y - o.y, w: b.bar.w, h: b.bar.h }}
-          rx={b.bar.h / 2} fill={textColor} style={{ pointerEvents: 'none' }}
-        />
-      ) : (
-        <TokenText
-          text={t.text} x={b.textX - o.x} y={b.baseline - o.y} size={b.size}
-          fill={t.expanded ? onBand : textColor}
-          opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
-          pill={!!b.pill}
-          reveal={shape.x + shape.w - PILL_PAD * b.size}
-          start={from && { x: from.textX - o.x, y: from.baseline - o.y }}
-        />
-      )}
+      {[kind, ...(drawn.was && drawn.was.kind !== kind ? [drawn.was.kind] : [])].map(k => {
+        // Drawn this way now, or a moment ago: what it is becoming starts where
+        // the other was, and the other goes to where it is going, fading.
+        const current = k === kind;
+        const other = drawn.was && (current ? drawn.was.b : b);
+        const mine = current ? b : drawn.was.b;
+        const into = !current && other;
+        const fromOther = current && other;
+        if (k === 'root') {
+          const r = mine.root;
+          // The sign over the √ written as text: as wide as its letter, where it is.
+          const onLetter = (x) => {
+            const w = Math.max(1, x.w - 2 * (x.textX - x.x));
+            return { x: x.textX - o.x, y: x.y - o.y, w, h: x.h, signW: w, stroke: r.stroke };
+          };
+          return (
+            <Fade key={k} on={current} from={fromOther ? 0 : null}>
+              <GlideRoot
+                r={into ? onLetter(into) : { ...r, x: r.x - o.x, y: r.y - o.y }}
+                from={fromOther && onLetter(other)}
+                stroke={textColor}
+              />
+            </Fade>
+          );
+        }
+        if (k === 'bar') {
+          // A division stacked as a fraction: its token is the bar.
+          const bar = mine.bar;
+          const across = (x) => ({ x: x.x - o.x, y: x.y + x.h / 2 - bar.h / 2 - o.y, w: x.w, h: bar.h });
+          return (
+            <Fade key={k} on={current} from={fromOther ? 0 : null}>
+              <GlideRect
+                r={into ? across(into) : { x: bar.x - o.x, y: bar.y - o.y, w: bar.w, h: bar.h }}
+                from={fromOther && across(other)}
+                rx={bar.h / 2} fill={textColor} style={{ pointerEvents: 'none' }}
+              />
+            </Fade>
+          );
+        }
+        // Text where the other is: on a bar's middle, at a root's sign.
+        const textAt = (x) => (x.bar
+          ? { x: x.bar.x + x.bar.w / 2 - mine.w / 2 + (mine.textX - mine.x) - o.x, y: x.bar.y + x.bar.h / 2 + (mine.baseline - (mine.y + mine.h / 2)) - o.y }
+          : { x: x.textX - o.x, y: x.baseline - o.y });
+        const at = into ? textAt(into) : { x: mine.textX - o.x, y: mine.baseline - o.y };
+        return (
+          <Fade key={k} on={current} from={fromOther ? 0 : null}>
+            <TokenText
+              text={t.text} x={at.x} y={at.y} size={mine.size}
+              fill={t.expanded ? onBand : textColor}
+              opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
+              pill={!!mine.pill}
+              reveal={shape.x + shape.w - PILL_PAD * mine.size}
+              under={ground && mixColor(ground, fill, clamp01(tint))}
+              start={from ? { x: from.textX - o.x, y: from.baseline - o.y } : fromOther ? textAt(other) : null}
+            />
+          </Fade>
+        );
+      })}
       </g>
     </motion.g>
   );
@@ -476,7 +604,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
       protoId: tokenEl?.getAttribute('data-formula-proto') || null,
       flip: tokenEl?.getAttribute('data-formula-flip') || null,
     };
-    setHoverKey(null);
+    // A tap keeps its token lit while it waits to switch, so the pill grows out
+    // of the lit box; a hold that lifts the formula drops it (`lifted`, below).
     if (e.pointerType === 'touch') return; // the touch handlers below take it
     const input = getCanvasGroupInput();
     const entry = groupEntryOf(obj);
@@ -626,9 +755,10 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
             b={obj.boxes[i]}
             o={o}
             fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+            ground={ground}
             textColor={textColor}
             onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
-            hot={hoverKey === t.key}
+            hot={!lifted && hoverKey === t.key}
             onEnter={hoverIn(t.key)}
             onLeave={hoverOut(t.key)}
             enter={tokenIn(i)}
@@ -641,6 +771,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
             b={b}
             o={o}
             fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+            ground={ground}
             textColor={textColor}
             onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
             hot={false}
