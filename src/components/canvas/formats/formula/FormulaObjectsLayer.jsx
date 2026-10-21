@@ -158,9 +158,13 @@ function TokenTextAt({ text, at, size, fill, opacity }) {
   );
 }
 
-const MORPH_MS = 340;
+const MORPH_MS = 240;
 const smooth = (t) => t * t * (3 - 2 * t);
 const REVEAL_EM = 0.6; // how far behind a pill's edge a letter takes to come fully in
+const LETTER_LAG_EM = 0.3; // how far a pill's edge is past a letter before it starts to come in
+const IN_DELAY = 0.22; // of MORPH_MS: no letter comes into a pill before this
+const OUT_STAGGER = 0.14; // of MORPH_MS: the first leaving letter starts this much after the last
+const OUT_MS = 0.14; // of MORPH_MS: how long each leaving letter takes
 const prefersReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /**
@@ -201,10 +205,11 @@ const lettersOf = (text) => [...String(text)];
 /**
  * A token's text, sliding to where it is put, and changing letter by letter
  * when it switches between its symbol and its Thing's name. What the two share
- * stays (the P of Pressure). The name's other letters are uncovered by its
- * pill: each comes in as the pill's growing edge passes it, and going back
- * each leaves as the shrinking edge reaches it, so no letter is ever outside
- * the pill or left behind it. A plain symbol coming or going fades meanwhile.
+ * stays (the P of Pressure). The name's other letters wait for their pill:
+ * each comes in a little after the pill's growing edge has passed it and the
+ * pill has had a moment to fill, so no letter stands in a pill too small for
+ * it. Going back they leave at once, right to left, ahead of the shrinking
+ * edge, never left behind it. A plain symbol coming or going fades meanwhile.
  * Its color crosses over as the pill fills in. Written another way (a
  * subscript, a vector's arrow), the two cross-fade instead.
  *
@@ -223,7 +228,7 @@ function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal =
     return (
       <>
         <TokenTextAt text={from.text} at={at} size={size} fill={color} opacity={alpha * (1 - smooth(clamp01(p * 2)))} />
-        <TokenTextAt text={text} at={at} size={size} fill={color} opacity={alpha * smooth(clamp01(p * 1.6 - 0.3))} />
+        <TokenTextAt text={text} at={at} size={size} fill={color} opacity={alpha * smooth(clamp01((p - (pill ? IN_DELAY : 0.2)) / 0.45))} />
       </>
     );
   }
@@ -231,12 +236,24 @@ function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal =
   const was = lettersOf(from.text);
   let shared = 0;
   while (shared < to.length && shared < was.length && to[shared] === was[shared]) shared++;
-  // A letter in a pill shows as far as the pill's edge has passed its own right edge.
+  // How far the pill's edge has passed a letter's right edge (plus `lag`, but no
+  // further than where the edge ends up, less REVEAL_EM), over REVEAL_EM.
   const fade = REVEAL_EM * size;
-  const uncovered = (letters, i) => (reveal == null ? 1
-    : clamp01((reveal - (at.x + measure(letters.slice(0, i + 1).join(''), size) - fade)) / fade));
-  const comingIn = (i) => (pill ? uncovered(to, i) : smooth(clamp01((p - 0.1) / 0.45)));
-  const goingOut = (i) => (from.pill ? uncovered(was, i) : 1 - smooth(clamp01(p / 0.4)));
+  const passed = (letters, i, lag) => {
+    if (reveal == null) return 1;
+    const right = measure(letters.slice(0, i + 1).join(''), size);
+    const end = measure(letters.join(''), size) - fade;
+    return clamp01((reveal - (at.x + Math.max(right - fade, Math.min(right + lag, end)))) / fade);
+  };
+  // Coming into a pill: once the edge is well past, and not before the pill has begun to fill.
+  const comingIn = (i) => (pill
+    ? Math.min(passed(to, i, LETTER_LAG_EM * size), smooth(clamp01((p - IN_DELAY) / 0.4)))
+    : smooth(clamp01((p - 0.2) / 0.4)));
+  // Leaving a pill: quickly, the last letter first, and gone before the edge reaches it.
+  const going = was.length - shared;
+  const goingOut = (i) => (from.pill
+    ? Math.min(passed(was, i, -fade), 1 - smooth(clamp01((p - OUT_STAGGER * (was.length - 1 - i) / Math.max(1, going)) / OUT_MS)))
+    : 1 - smooth(clamp01(p / 0.4)));
   const textProps = {
     x: at.x, y: at.y, fontSize: size, fontFamily: FORMULA_FONT_FAMILY, fontWeight: FORMULA_FONT_WEIGHT,
     fill: color, opacity: alpha, style: { userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' },

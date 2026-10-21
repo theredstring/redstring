@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-export const GLIDE_MS = 280;
+export const GLIDE_MS = 200;
 export const glideEase = (t) => 1 - Math.pow(1 - t, 3);
 
 /**
