@@ -8,7 +8,7 @@ last_reviewed: 2026-09-25
 
 ## Summary
 
-These documents cover testing setup, the NodeCanvas refactoring work (Oct 2025), pre-release audit, onboarding flow fixes, and miscellaneous UI improvements. Most documents here are historical — they describe work that was completed and is now reflected in the codebase. The actively-used documents are `../documentation/dev-ops/TESTING_ONBOARDING.md` and the record of the pre-1.0 NodeCanvas refactor in `../documentation/dev-ops/nodecanvas-refactor/` (closed; the architecture it produced is in `../documentation/core-system/CANVAS_ARCHITECTURE.md`), which supersedes the Oct-2025 refactor files. Key code paths: `test/`, `src/NodeCanvas.jsx` (post-refactor), `src/components/AlphaOnboardingModal.jsx`.
+These documents cover testing setup, the NodeCanvas refactoring work (Oct 2025), pre-release audit, onboarding flow fixes, and miscellaneous UI improvements. Most documents here are historical — they describe work that was completed and is now reflected in the codebase. The actively-used documents are `../documentation/dev-ops/CODE_SIGNING.md`, `../documentation/dev-ops/TESTING_ONBOARDING.md` and the record of the pre-1.0 NodeCanvas refactor in `../documentation/dev-ops/nodecanvas-refactor/` (closed; the architecture it produced is in `../documentation/core-system/CANVAS_ARCHITECTURE.md`), which supersedes the Oct-2025 refactor files. Key code paths: `test/`, `src/NodeCanvas.jsx` (post-refactor), `src/components/AlphaOnboardingModal.jsx`.
 
 ---
 
@@ -16,6 +16,7 @@ These documents cover testing setup, the NodeCanvas refactoring work (Oct 2025),
 
 | File | Summary | Key for |
 |------|---------|---------|
+| [CODE_SIGNING.md](../documentation/dev-ops/CODE_SIGNING.md) | How each platform's releases are signed (macOS Developer ID + notarization, iOS, Android, Windows, Linux), the yearly Developer ID renewal, the notarization API key, and the Team ID rule the updater depends on | Renewing or replacing a signing certificate; changing release credentials or the Apple Account Holder; first Android or Windows signing |
 | [TESTING_ONBOARDING.md](../documentation/dev-ops/TESTING_ONBOARDING.md) | How to use the `?testing=true` URL parameter to bypass onboarding in tests; test mode behavior | Writing or running automated tests that need to skip the onboarding flow |
 
 ---

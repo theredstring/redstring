@@ -16,6 +16,8 @@ const SECRET_SAMPLES = [
   'data/queues/goals.jsonl',
   'backup.redstring',
   '.dev.vars',
+  'InterfaithCert2026.p12', 'AuthKey_ABC123DEF4.p8', 'windows-signing.pfx',
+  'upload-keystore.jks', 'release.keystore', 'CertificateSigningRequest.certSigningRequest',
 ];
 
 const IGNORE_FILES = ['.gitignore', '.dockerignore', '.gcloudignore'];
@@ -38,7 +40,7 @@ describe('security invariants: ignore files and tracked secrets', () => {
       [/(^|\/)github\.env(\..*)?$/, 'GitHub App credentials'],
       [/(^|\/)\.env(?!\.example$)(\..*)?$/, 'environment secrets'],
       [/(^|\/)\.dev\.vars$/, 'Wrangler local secrets'],
-      [/\.(pem|p12|pfx|key)$/i, 'private key / certificate'],
+      [/\.(pem|p12|pfx|key|p8|jks|keystore|certSigningRequest)$/i, 'private key / certificate'],
       [/^data\/queues\//, 'queue journals (have held API keys)'],
       [/^data\/analytics\//, 'user analytics (GitHub logins)'],
       [/(^|\/)backup\.redstring$/, 'personal universe backup'],

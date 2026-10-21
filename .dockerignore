@@ -42,6 +42,13 @@ github.env*
 *.pem
 *.key
 *private-key*
+# Signing certificates and keys (Apple .p12/.p8/CSR, Windows .pfx, Android keystores)
+*.p12
+*.p8
+*.pfx
+*.jks
+*.keystore
+*.certSigningRequest
 .dev.vars
 .env.github-app
 data/
