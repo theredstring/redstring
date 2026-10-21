@@ -27,7 +27,7 @@
  *   Thing-group does: scaled up a little, over the group's own shadow.
  */
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import useGraphStore from '../../../../store/graphStore.js';
 import useCanvasUIStore from '../../../../store/canvasUIStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
@@ -158,13 +158,14 @@ function TokenTextAt({ text, at, size, fill, opacity }) {
   );
 }
 
-const MORPH_MS = 240;
+const MORPH_MS = 290;
 const smooth = (t) => t * t * (3 - 2 * t);
 const REVEAL_EM = 0.6; // how far behind a pill's edge a letter takes to come fully in
 const LETTER_LAG_EM = 0.3; // how far a pill's edge is past a letter before it starts to come in
 const IN_DELAY = 0.22; // of MORPH_MS: no letter comes into a pill before this
 const OUT_STAGGER = 0.14; // of MORPH_MS: the first leaving letter starts this much after the last
 const OUT_MS = 0.14; // of MORPH_MS: how long each leaving letter takes
+const GOING_MS = 90; // a token leaving the formula (the × between names) fading out
 const prefersReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /**
@@ -215,9 +216,11 @@ const lettersOf = (text) => [...String(text)];
  *
  * @param {number} [reveal] - where the pill's text currently ends (its glided
  *   right edge, less its padding), in the same space as `x`
+ * @param {{x: number, y: number}} [start] - where a token that has just come
+ *   into the formula starts
  */
-function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal = null }) {
-  const at = useGlide({ x, y });
+function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal = null, start = null }) {
+  const at = useGlide({ x, y }, start);
   const { from, p } = useTextMorph({ text, fill, opacity, pill });
   if (!from) return <TokenTextAt text={text} at={at} size={size} fill={fill} opacity={opacity} />;
   // The pill's fill and the color cross over together (useGlide's curve).
@@ -299,18 +302,28 @@ function GlideRoot({ r, stroke }) {
   );
 }
 
+const shapeOf = (b, o, hot) => {
+  const reach = hot ? HOVER_REACH * b.size : 0;
+  return b.pill
+    ? { x: b.pill.x - o.x, y: b.pill.y - o.y, w: b.pill.w, h: b.pill.h, rx: b.pill.h * PILL_RADIUS, a: 1 }
+    : { x: b.x - o.x - reach, y: b.y - o.y, w: b.w + 2 * reach, h: b.h, rx: Math.min(b.h * 0.4, (b.w + 2 * reach) / 2), a: hot ? HOVER_TINT : 0 };
+};
+
 /**
  * One token, placed by sliding: when a token near it switches between its
  * symbol and its name, it moves to its new place rather than jumping there. A
  * token written by name is its Thing: a pill in its color, grown from the
- * symbol's box.
+ * symbol's box. A token that only some ways of writing it have (the × between
+ * names) opens out of the gap it comes into, appearing as the names' letters
+ * do (`from`, where it starts), and going, closes into that gap, fading at once
+ * (`going`), so the formula never stays wider than what it is becoming.
  */
-function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter = 1 }) {
-  const defined = !!t.target && !!t.defined;
-  const reach = hot ? HOVER_REACH * b.size : 0;
-  const shape = useGlide(b.pill
-    ? { x: b.pill.x - o.x, y: b.pill.y - o.y, w: b.pill.w, h: b.pill.h, rx: b.pill.h * PILL_RADIUS, a: 1 }
-    : { x: b.x - o.x - reach, y: b.y - o.y, w: b.w + 2 * reach, h: b.h, rx: Math.min(b.h * 0.4, (b.w + 2 * reach) / 2), a: hot ? HOVER_TINT : 0 });
+function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter = 1, from = null, going = false }) {
+  const defined = !going && !!t.target && !!t.defined;
+  const shape = useGlide(shapeOf(b, o, hot && !going), from && shapeOf(from, o, false));
+  const fade = going
+    ? { opacity: 0, transition: { duration: (GOING_MS / 1000), ease: 'easeOut' } }
+    : { opacity: 1, transition: from ? { duration: (MORPH_MS * 0.4) / 1000, delay: (MORPH_MS * IN_DELAY) / 1000 } : FADE };
   return (
     <motion.g
       className={`formula-object-token${defined ? ' is-defined' : ''}${t.expanded ? ' is-expanded' : ''}`}
@@ -318,13 +331,11 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter 
       data-formula-proto={t.protoId || undefined}
       data-formula-defined={defined ? 'true' : undefined}
       data-formula-flip={defined && t.flip ? t.flip : undefined}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: FADE }}
-      transition={FADE}
+      initial={from ? { opacity: 0 } : false}
+      animate={fade}
       onPointerEnter={defined ? onEnter : undefined}
       onPointerLeave={defined ? onLeave : undefined}
-      style={defined ? undefined : { cursor: 'default' }}
+      style={going ? { pointerEvents: 'none' } : defined ? undefined : { cursor: 'default' }}
     >
       <g
         opacity={enter}
@@ -349,6 +360,7 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter 
           opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
           pill={!!b.pill}
           reveal={shape.x + shape.w - PILL_PAD * b.size}
+          start={from && { x: from.textX - o.x, y: from.baseline - o.y }}
         />
       )}
       </g>
@@ -367,6 +379,74 @@ function groupEntryOf(obj) {
   if (!group) return null;
   const members = (group.memberInstanceIds || []).map(id => view.instances.get(id)).filter(Boolean);
   return { group, members, isNodeGroup: !!group.linkedNodePrototypeId, effectiveGroupName: obj.title || group.name };
+}
+
+const NO_CHANGES = { coming: new Map(), going: [] };
+
+/** A token's box moved by (dx, dy), whatever it draws. */
+function shiftBox(b, dx, dy) {
+  const by = (r) => r && { ...r, x: r.x + dx, y: r.y + dy };
+  return {
+    ...b, x: b.x + dx, y: b.y + dy, textX: b.textX + dx, baseline: b.baseline + dy,
+    ...(b.pill ? { pill: by(b.pill) } : {}), ...(b.root ? { root: by(b.root) } : {}), ...(b.bar ? { bar: by(b.bar) } : {}),
+  };
+}
+
+/**
+ * Where a token only one of two layouts has (`here`, its boxes by key, the
+ * token at `i` of `keys`) sits in the other (`there`): centred in the gap
+ * between its nearest neighbours that both have, moved as they move.
+ */
+function intoGap(keys, i, here, there) {
+  const own = here.get(keys[i]);
+  let left = null;
+  let right = null;
+  for (let j = i - 1; j >= 0 && !left; j--) if (there.has(keys[j])) left = keys[j];
+  for (let j = i + 1; j < keys.length && !right; j++) if (there.has(keys[j])) right = keys[j];
+  const near = left ?? right;
+  if (!near) return own;
+  const dy = there.get(near).baseline - here.get(near).baseline;
+  const l = left && there.get(left);
+  const r = right && there.get(right);
+  const gap = l && r && Math.abs(l.baseline - r.baseline) < 1 ? (l.x + l.w + r.x) / 2
+    : l ? l.x + l.w : r.x;
+  return shiftBox(own, gap - (own.x + own.w / 2), dy);
+}
+
+/**
+ * The tokens a change of how the formula is written brings in and takes out
+ * (the × only names have): where each one coming starts (`coming`, by key),
+ * and those going, kept a moment, each with where it closes into. Boxes as
+ * the formula's are, the old ones moved onto its middle now.
+ */
+function useTokenChanges(obj) {
+  const [state, setState] = useState({ obj, changes: NO_CHANGES });
+  if (state.obj !== obj) {
+    const was = state.obj;
+    const boxesOf = (x, shift = { x: 0, y: 0 }) => new Map(x.tokens.map((t, i) => [t.key, shiftBox(x.boxes[i], shift.x, shift.y)]));
+    const now = boxesOf(obj);
+    const before = boxesOf(was, { x: obj.center.x - was.center.x, y: obj.center.y - was.center.y });
+    const coming = new Map();
+    const going = [];
+    const nowKeys = obj.tokens.map(t => t.key);
+    const wasKeys = was.tokens.map(t => t.key);
+    // A formula drawn anew (opened, rebuilt) just shows: only a few tokens changing is a change of writing.
+    const kept = nowKeys.filter(k => before.has(k)).length;
+    if (kept > 0 && kept >= Math.min(nowKeys.length, wasKeys.length) / 2) {
+      nowKeys.forEach((k, i) => { if (!before.has(k)) coming.set(k, intoGap(nowKeys, i, now, before)); });
+      was.tokens.forEach((t, i) => { if (!now.has(t.key)) going.push({ t, b: intoGap(wasKeys, i, before, now) }); });
+    }
+    // Still going from a change before, unless back again.
+    const still = state.changes.going.filter(g => !now.has(g.t.key) && !going.some(x => x.t.key === g.t.key));
+    setState({ obj, changes: coming.size || going.length || still.length ? { coming, going: [...still, ...going] } : NO_CHANGES });
+  }
+  const { going } = state.changes;
+  useEffect(() => {
+    if (!going.length) return undefined;
+    const timer = setTimeout(() => setState(s => (s.changes.going === going ? { ...s, changes: { ...s.changes, going: [] } } : s)), GLIDE_MS + 40);
+    return () => clearTimeout(timer);
+  }, [going]);
+  return state.changes;
 }
 
 /**
@@ -487,6 +567,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
     const n = Math.max(1, obj.tokens.length - 1);
     return easeMorph(clamp01((spawn - (0.45 + 0.3 * (i / n))) / 0.25));
   };
+  const tokenChanges = useTokenChanges(obj);
   const clipId = `formula-${leaving ? 'leave' : 'spawn'}-${obj.groupId}`;
   // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
   const lx = frame.x + frame.w / 2 - o.x;
@@ -537,23 +618,35 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
           )}
         </g>
         <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />
-        <AnimatePresence initial={false}>
-          {obj.tokens.map((t, i) => (
-            <Token
-              key={t.key}
-              t={t}
-              b={obj.boxes[i]}
-              o={o}
-              fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
-              textColor={textColor}
-              onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
-              hot={hoverKey === t.key}
-              onEnter={hoverIn(t.key)}
-              onLeave={hoverOut(t.key)}
-              enter={tokenIn(i)}
-            />
-          ))}
-        </AnimatePresence>
+        {/* One list, so a token going keeps gliding from where it was. */}
+        {[...obj.tokens.map((t, i) => (
+          <Token
+            key={t.key}
+            t={t}
+            b={obj.boxes[i]}
+            o={o}
+            fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+            textColor={textColor}
+            onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
+            hot={hoverKey === t.key}
+            onEnter={hoverIn(t.key)}
+            onLeave={hoverOut(t.key)}
+            enter={tokenIn(i)}
+            from={tokenChanges.coming.get(t.key) || null}
+          />
+        )), ...tokenChanges.going.map(({ t, b }) => (
+          <Token
+            key={t.key}
+            t={t}
+            b={b}
+            o={o}
+            fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+            textColor={textColor}
+            onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
+            hot={false}
+            going
+          />
+        ))]}
         </g>
         {/* The plus sign it grew from: its outline turning the band's color, its cross fading first. */}
         {spawning && !leaving && (

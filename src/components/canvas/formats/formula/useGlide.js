@@ -6,17 +6,19 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-export const GLIDE_MS = 200;
+export const GLIDE_MS = 240;
 export const glideEase = (t) => 1 - Math.pow(1 - t, 3);
 
 /**
  * @param {Record<string, number>} target - where the numbers should be
+ * @param {Record<string, number>} [from] - where they start, the first time
+ *   (else where they should be)
  * @returns {Record<string, number>} where they are now
  */
-export function useGlide(target) {
+export function useGlide(target, from = null) {
   const key = Object.keys(target).map(k => `${k}:${target[k]}`).join('|');
-  const [now, setNow] = useState(target);
-  const ref = useRef({ current: target, frame: 0 });
+  const [now, setNow] = useState(from ?? target);
+  const ref = useRef({ current: from ?? target, frame: 0 });
 
   useEffect(() => {
     const glide = ref.current;
