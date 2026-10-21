@@ -2558,6 +2558,50 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} groupId - ID of the group to delete.
      * @param {Object} [contextOptions] - Save context flags.
      */
+    /**
+     * Delete a group and everything in it, as one undo step: its Things, its
+     * anchor, every group inside it (a formula's parts) with theirs, and every
+     * connection touching any of them. What deleteGroup leaves standing
+     * (ungrouping), this takes with it.
+     */
+    deleteGroupAndContents: (graphId, groupId, contextOptions = {}) => {
+      api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        const group = graph?.groups?.get(groupId);
+        if (!group) return;
+        const instanceIds = new Set(group.memberInstanceIds || []);
+        if (group.anchorInstanceId) instanceIds.add(group.anchorInstanceId);
+        // A group is inside when all its Things are (and so its anchor goes too).
+        const groupIds = new Set([groupId]);
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const [id, g] of graph.groups) {
+            if (groupIds.has(id) || !g.memberInstanceIds?.length) continue;
+            if (!g.memberInstanceIds.every(m => instanceIds.has(m))) continue;
+            groupIds.add(id);
+            if (g.anchorInstanceId) instanceIds.add(g.anchorInstanceId);
+            grew = true;
+          }
+        }
+        const edgeIds = new Set();
+        for (const [edgeId, edge] of draft.edges) if (edgeTouches(edge, instanceIds)) edgeIds.add(edgeId);
+        edgeIds.forEach(edgeId => draft.edges.delete(edgeId));
+        dropEdgeIdsEverywhere(draft, edgeIds);
+        instanceIds.forEach((id) => {
+          graph.instances.delete(id);
+          draft.pendingDeletions?.delete(id);
+        });
+        groupIds.forEach(id => graph.groups.delete(id));
+        // Out of any group it sat in.
+        for (const g of graph.groups.values()) {
+          if (g.memberInstanceIds?.some(m => instanceIds.has(m))) {
+            g.memberInstanceIds = g.memberInstanceIds.filter(m => !instanceIds.has(m));
+          }
+        }
+      }));
+    },
+
     deleteGroup: (graphId, groupId, contextOptions = {}) => {
       // An open box's group is the view of an open node: removing it closes the node.
       const openAnchorId = anchorIdFromOpenGroupId(groupId);

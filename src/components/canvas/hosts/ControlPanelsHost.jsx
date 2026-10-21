@@ -30,6 +30,7 @@ import { expandNodeInPlace } from '../actions/expandInPlace.js';
 import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
+import { deleteFormula } from '../formats/formula/deleteFormula.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
 import { Superscript, WholeWord } from 'lucide-react';
@@ -199,6 +200,14 @@ export default function ControlPanelsHost({ ctx }) {
 
     }
   }, [activeGraphId, selectedGroup, storeActions.deleteGroup, setGroupControlPanelVisible]);
+
+  // A formula's Delete: the equation, its Things and its parts, playing its exit.
+  const handleFormulaDelete = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    deleteFormula(activeGraphId, selectedGroup.id);
+    setSelectedGroup(null);
+    setGroupControlPanelVisible(false);
+  }, [activeGraphId, selectedGroup, setGroupControlPanelVisible]);
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
@@ -560,6 +569,7 @@ export default function ControlPanelsHost({ ctx }) {
               hasLeftNav: formatOrder.length > 1,
               hasRightNav: formatOrder.length > 1,
               formatToggles,
+              ...(currentFormat === 'formula' ? { onDelete: handleFormulaDelete } : {}),
               // An equation is a Thing-group already.
               ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined } : {}),
               leftNavLabel: `Show as ${formatAt(-1)}`,

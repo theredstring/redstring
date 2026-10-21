@@ -26,7 +26,7 @@
  *   Thing's own element would. While it is the dragged group it lifts as a
  *   Thing-group does: scaled up a little, over the group's own shadow.
  */
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import useGraphStore from '../../../../store/graphStore.js';
 import useCanvasUIStore from '../../../../store/canvasUIStore.js';
@@ -35,7 +35,7 @@ import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
 import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE } from '../../../../constants.js';
 import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
-import { formulaSpawnStart, SPAWN_MS } from './formulaSpawn.js';
+import { formulaSpawnStart, SPAWN_MS, LEAVE_MS, leavingFormulasNow, subscribeLeavingFormulas } from './formulaSpawn.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
 import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupElements.jsx';
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
@@ -68,18 +68,30 @@ const mixColor = (from, to, t) => { try { return blendColors(from, to, t); } cat
 
 const reducedMotion = () => { try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 
-/** How far a just-built formula is into coming in: 0 to 1, or 1 when it isn't coming in. */
-function useSpawn(groupId) {
-  const [start] = useState(() => (reducedMotion() ? null : formulaSpawnStart(groupId)));
-  const [t, setT] = useState(() => (start === null ? 1 : clamp01((performance.now() - start) / SPAWN_MS)));
+/**
+ * How far a just-built formula is into coming in: 0 to 1, or 1 when it isn't
+ * coming in. A deleted one (`leavingStart`) goes the other way, 1 to 0, over
+ * its exit.
+ */
+function useSpawn(groupId, leavingStart = null) {
+  const leaving = leavingStart !== null;
+  const [start] = useState(() => (leaving ? leavingStart : reducedMotion() ? null : formulaSpawnStart(groupId)));
+  const span = leaving ? LEAVE_MS : SPAWN_MS;
+  const at = (now) => {
+    const p = clamp01((now - start) / span);
+    return leaving ? 1 - p : p;
+  };
+  const [t, setT] = useState(() => (start === null ? 1 : at(performance.now())));
   useEffect(() => {
     if (start === null) return undefined;
     let frame = requestAnimationFrame(function step(now) {
-      const next = clamp01((now - start) / SPAWN_MS);
+      const next = at(now);
       setT(next);
-      if (next < 1) frame = requestAnimationFrame(step);
+      if (leaving ? next > 0 : next < 1) frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
+    // `at` stands for `start`, `span` and `leaving`, which don't change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start]);
   return t;
 }
@@ -340,7 +352,13 @@ function groupEntryOf(obj) {
   return { group, members, isNodeGroup: !!group.linkedNodePrototypeId, effectiveGroupName: obj.title || group.name };
 }
 
-function FormulaObject({ obj, theme, selected, lifted }) {
+/**
+ * One formula on the canvas. `leavingStart`: it was just deleted, and this is
+ * what it was drawn as, playing its entrance backwards from then (its tokens
+ * leaving right to left, its band shrinking away to nothing) and taking no input.
+ */
+function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
+  const leaving = leavingStart !== null;
   const [hoverKey, setHoverKey] = useState(null);
   const pressRef = useRef(null);
   const lastTapRef = useRef({ target: null, at: 0 });
@@ -429,12 +447,12 @@ function FormulaObject({ obj, theme, selected, lifted }) {
   const o = obj.center;
   const box = (r) => ({ x: r.x - o.x, y: r.y - o.y, w: r.w, h: r.h });
   const liftShadow = useGraphStore(st => (lifted ? (st.liftedThingShadow ?? DEFAULT_LIFTED_THING_SHADOW) : null));
-  // Just built: the plus sign's morph, into this band.
-  const spawn = useSpawn(obj.groupId);
+  // Just built: the plus sign's morph, into this band. Just deleted: back out of it, to nothing.
+  const spawn = useSpawn(obj.groupId, leavingStart);
   const spawning = spawn < 1;
   const grown = easeMorph(clamp01(spawn / MORPH_SHARE));
   const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
-  const plusSize = PLUS_SIGN_SIZE * plusScale;
+  const plusSize = leaving ? 0 : PLUS_SIGN_SIZE * plusScale;
   const plusStroke = Math.max(1, 10 * plusScale);
   const f = box(frame);
   const fcx = f.x + f.w / 2;
@@ -452,7 +470,7 @@ function FormulaObject({ obj, theme, selected, lifted }) {
     const n = Math.max(1, obj.tokens.length - 1);
     return easeMorph(clamp01((spawn - (0.45 + 0.3 * (i / n))) / 0.25));
   };
-  const clipId = `formula-spawn-${obj.groupId}`;
+  const clipId = `formula-${leaving ? 'leave' : 'spawn'}-${obj.groupId}`;
   // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
   const lx = frame.x + frame.w / 2 - o.x;
   const ly = frame.y + frame.h / 2 - o.y;
@@ -462,6 +480,90 @@ function FormulaObject({ obj, theme, selected, lifted }) {
     transition: lifted ? 'none' : 'transform 0.2s ease-out',
   };
 
+  const drawing = () => (
+    <g transform={`translate(${o.x} ${o.y})`}>
+      <g style={liftStyle}>
+        {lifted && groupLiftShadowOn(liftShadow) && groupLiftShadow('box', box(frame), G.nodeGroupCornerRadius)}
+        {selected && (
+          <GlideRect
+            r={{ x: frame.x - 10 - o.x, y: frame.y - 10 - o.y, w: frame.w + 20, h: frame.h + 20 }}
+            rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
+          />
+        )}
+        {/* A mask, not a clip: it hides what hasn't grown in yet without
+            hiding it from a click, so the formula takes input from its first frame. */}
+        {spawning && (
+          <defs>
+            <mask id={clipId} maskUnits="userSpaceOnUse" x={f.x - 50} y={f.y - 50} width={f.w + 100} height={f.h + 100}>
+              <rect x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx} fill="white" />
+            </mask>
+          </defs>
+        )}
+        <g mask={spawning ? `url(#${clipId})` : undefined}>
+        {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
+        <g
+          className="formula-object-title"
+          data-formula-target={TITLE_TARGET}
+          data-formula-proto={obj.equationProtoId || undefined}
+        >
+          <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={spawning ? mixColor(PLUS_LIGHT, color, grown * 1.5) : color} />
+          {obj.title && (
+            <TitleText
+              at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
+              fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
+              fill={onBand} textAnchor="middle" dominantBaseline="central"
+              opacity={titleIn}
+              style={{ userSelect: 'none', pointerEvents: 'none' }}
+            >
+              {obj.title}
+            </TitleText>
+          )}
+        </g>
+        <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />
+        <AnimatePresence initial={false}>
+          {obj.tokens.map((t, i) => (
+            <Token
+              key={t.key}
+              t={t}
+              b={obj.boxes[i]}
+              o={o}
+              fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
+              textColor={textColor}
+              onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
+              hot={hoverKey === t.key}
+              onEnter={hoverIn(t.key)}
+              onLeave={hoverOut(t.key)}
+              enter={tokenIn(i)}
+            />
+          ))}
+        </AnimatePresence>
+        </g>
+        {/* The plus sign it grew from: its outline turning the band's color, its cross fading first. */}
+        {spawning && !leaving && (
+          <g style={{ pointerEvents: 'none' }}>
+            <rect
+              x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx}
+              fill="none" stroke={mixColor('#800000', color, grown)} strokeWidth={plusStroke} opacity={1 - grown}
+            />
+            {[[-1, 0, 1, 0], [0, -1, 0, 1]].map(([x1, y1, x2, y2]) => (
+              <line
+                key={`${x1}${y1}`}
+                x1={fcx + x1 * morph.w / 4} y1={fcy + y1 * morph.w / 4} x2={fcx + x2 * morph.w / 4} y2={fcy + y2 * morph.w / 4}
+                stroke={PLUS_STROKE} strokeWidth={plusStroke} strokeLinecap="round" opacity={Math.max(0, 1 - grown * 4)}
+              />
+            ))}
+          </g>
+        )}
+      </g>
+    </g>
+  );
+  if (leaving) {
+    return (
+      <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={clamp01(grown * 3)}>
+        {drawing()}
+      </g>
+    );
+  }
   return (
     <g
       className={`formula-object${selected ? ' is-selected' : ''}`}
@@ -481,81 +583,7 @@ function FormulaObject({ obj, theme, selected, lifted }) {
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
       style={{ cursor: 'pointer' }}
     >
-      <g transform={`translate(${o.x} ${o.y})`}>
-        <g style={liftStyle}>
-          {lifted && groupLiftShadowOn(liftShadow) && groupLiftShadow('box', box(frame), G.nodeGroupCornerRadius)}
-          {selected && (
-            <GlideRect
-              r={{ x: frame.x - 10 - o.x, y: frame.y - 10 - o.y, w: frame.w + 20, h: frame.h + 20 }}
-              rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
-            />
-          )}
-          {/* A mask, not a clip: it hides what hasn't grown in yet without
-              hiding it from a click, so the formula takes input from its first frame. */}
-          {spawning && (
-            <defs>
-              <mask id={clipId} maskUnits="userSpaceOnUse" x={f.x - 50} y={f.y - 50} width={f.w + 100} height={f.h + 100}>
-                <rect x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx} fill="white" />
-              </mask>
-            </defs>
-          )}
-          <g mask={spawning ? `url(#${clipId})` : undefined}>
-          {/* The band is the equation itself: a double tap on it, or its title, opens its Thing. */}
-          <g
-            className="formula-object-title"
-            data-formula-target={TITLE_TARGET}
-            data-formula-proto={obj.equationProtoId || undefined}
-          >
-            <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={spawning ? mixColor(PLUS_LIGHT, color, grown * 1.5) : color} />
-            {obj.title && (
-              <TitleText
-                at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
-                fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
-                fill={onBand} textAnchor="middle" dominantBaseline="central"
-                opacity={titleIn}
-                style={{ userSelect: 'none', pointerEvents: 'none' }}
-              >
-                {obj.title}
-              </TitleText>
-            )}
-          </g>
-          <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />
-          <AnimatePresence initial={false}>
-            {obj.tokens.map((t, i) => (
-              <Token
-                key={t.key}
-                t={t}
-                b={obj.boxes[i]}
-                o={o}
-                fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
-                textColor={textColor}
-                onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
-                hot={hoverKey === t.key}
-                onEnter={hoverIn(t.key)}
-                onLeave={hoverOut(t.key)}
-                enter={tokenIn(i)}
-              />
-            ))}
-          </AnimatePresence>
-          </g>
-          {/* The plus sign it grew from: its outline turning the band's color, its cross fading first. */}
-          {spawning && (
-            <g style={{ pointerEvents: 'none' }}>
-              <rect
-                x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx}
-                fill="none" stroke={mixColor('#800000', color, grown)} strokeWidth={plusStroke} opacity={1 - grown}
-              />
-              {[[-1, 0, 1, 0], [0, -1, 0, 1]].map(([x1, y1, x2, y2]) => (
-                <line
-                  key={`${x1}${y1}`}
-                  x1={fcx + x1 * morph.w / 4} y1={fcy + y1 * morph.w / 4} x2={fcx + x2 * morph.w / 4} y2={fcy + y2 * morph.w / 4}
-                  stroke={PLUS_STROKE} strokeWidth={plusStroke} strokeLinecap="round" opacity={Math.max(0, 1 - grown * 4)}
-                />
-              ))}
-            </g>
-          )}
-        </g>
-      </g>
+      {drawing()}
     </g>
   );
 }
@@ -564,8 +592,11 @@ function FormulaObject({ obj, theme, selected, lifted }) {
 function FormulaObjectsLayer({ draggingGroupId = null }) {
   const formulaObjects = useFormulaObjects();
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
+  const activeGraphId = useGraphStore(s => s.activeGraphId);
+  const leavingAll = useSyncExternalStore(subscribeLeavingFormulas, leavingFormulasNow);
+  const leaving = leavingAll.filter(l => l.obj.graphId === activeGraphId);
   const theme = useTheme();
-  if (!formulaObjects.objects.length) return null;
+  if (!formulaObjects.objects.length && !leaving.length) return null;
   const hideGroups = [...formulaObjects.hiddenGroupIds].map(id => `[data-group-id=${JSON.stringify(id)}]`).join(',');
   return (
     <g className="formula-objects-layer">
@@ -575,6 +606,9 @@ function FormulaObjectsLayer({ draggingGroupId = null }) {
           key={obj.groupId} obj={obj} theme={theme}
           selected={selectedGroupId === obj.groupId} lifted={draggingGroupId === obj.groupId}
         />
+      ))}
+      {leaving.map(({ obj, start }) => (
+        <FormulaObject key={`leaving-${obj.groupId}-${start}`} obj={obj} theme={theme} leavingStart={start} />
       ))}
     </g>
   );

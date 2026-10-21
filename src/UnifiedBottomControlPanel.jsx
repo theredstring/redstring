@@ -1356,6 +1356,17 @@ const UnifiedBottomControlPanel = ({
                     <SquarePlus size={iconSize} />
                   </div>
                 )}
+                {isFormat && onDelete && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onDelete}
+                    title="Delete"
+                    onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Trash2 size={iconSize} />
+                  </div>
+                )}
               </>
             ) : isAbstraction ? (
               // Abstraction mode: Show abstraction actions (add, up with dot, right, edit)

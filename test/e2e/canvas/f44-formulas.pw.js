@@ -677,6 +677,45 @@ test('F44 connections on a formula follow it while it is dragged, to another for
   await page.mouse.up();
 });
 
+test('F44 the panel deletes a formula, its Things and its parts, playing its entrance backwards, as one undo step', async ({ page }) => {
+  await openFixture(page, 'small');
+  await buildFormula(page, 'x = (a + b) * c');
+  const { id, members } = await formulaGroup(page, 'x = (a + b)');
+  const before = await activeGraphSnapshot(page);
+  const anchorId = await storeEval(page, (st, gid) => st.graphs.get(st.activeGraphId).groups.get(gid).anchorInstanceId, id);
+  await storeEval(page, (st, a) => st.addEdge(st.activeGraphId, { id: 'e-out', sourceId: a, destinationId: 'i-gamma' }), anchorId);
+  await page.waitForTimeout(800); // past the entrance
+
+  await pointAt(page, token(page, '='), { click: true });
+  await expect(panel(page)).toBeVisible();
+  await panel(page).locator('.piemenu-button[title="Delete"]').click();
+  // Its exit plays where it was, and takes no input meanwhile.
+  await expect(page.locator('svg.canvas g.formula-object.is-leaving')).toHaveCount(1);
+  await page.waitForTimeout(150);
+  await shot(page, '18-deleting');
+  await expect(page.locator('svg.canvas g.formula-object')).toHaveCount(0);
+  await expect(panel(page)).toHaveCount(0);
+  // Gone: the group, its part, its Things and anchors, and the connection to Gamma; Gamma stays.
+  const after = await storeEval(page, (st, gid) => {
+    const g = st.graphs.get(st.activeGraphId);
+    return { group: g.groups.has(gid), groups: [...g.groups.keys()].sort(), instances: [...g.instances.keys()], edge: st.edges.has('e-out') };
+  }, id);
+  expect(after.group).toBe(false);
+  expect(after.edge).toBe(false);
+  expect(after.instances.filter(i => members.includes(i) || i === anchorId)).toEqual([]);
+  expect(after.instances).toContain('i-gamma');
+  // Every other group stays; its part, (a + b), went with it.
+  const others = Object.keys(before.groups).filter(gid => gid !== id
+    && !before.groups[gid].memberInstanceIds.every(m => members.includes(m))).sort();
+  expect(Object.keys(before.groups).length - others.length).toBe(2);
+  expect(after.groups).toEqual(others);
+  // One undo brings all of it back.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(object(page)).toHaveCount(1);
+  expect(await storeEval(page, (st, gid) => st.graphs.get(st.activeGraphId).groups.get(gid)?.format, id)).toBe('formula');
+  expect(await storeEval(page, () => window.useGraphStore.getState().edges.has('e-out'))).toBe(true);
+});
+
 test('F44 a bank this device kept in an older shape gives way to the one shipped', async ({ page }) => {
   await openFixture(page, 'small');
   // What an update before sections existed left on the device: four disciplines, no sections.
