@@ -6,8 +6,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
-const DURATION_MS = 280;
-const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+export const GLIDE_MS = 280;
+export const glideEase = (t) => 1 - Math.pow(1 - t, 3);
 
 /**
  * @param {Record<string, number>} target - where the numbers should be
@@ -32,8 +32,8 @@ export function useGlide(target) {
     const start = performance.now();
     cancelAnimationFrame(glide.frame);
     const step = (t) => {
-      const p = Math.min(1, (t - start) / DURATION_MS);
-      const e = easeOut(p);
+      const p = Math.min(1, (t - start) / GLIDE_MS);
+      const e = glideEase(p);
       const next = {};
       for (const k of keys) next[k] = from[k] + (target[k] - from[k]) * e;
       glide.current = next;

@@ -41,11 +41,11 @@ import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupEle
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf, vectorOf } from './formulaChain.js';
-import { useGlide } from './useGlide.js';
+import { useGlide, GLIDE_MS, glideEase } from './useGlide.js';
 import { flipFormulaToken } from '../formatsStore.js';
 import { getCanvasGroupInput } from '../../groups/groupInput.js';
 import {
-  FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS, arrowOver,
+  FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS, PILL_PAD, arrowOver, measure,
 } from './formulaObjects.js';
 
 const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
@@ -122,11 +122,10 @@ function VectorArrow({ letter, x, y, size, stroke }) {
   );
 }
 
-/** A token's text, its subscript (v_0) lowered and smaller, a vector's arrow over it; it slides to where it is put. */
-function TokenText({ text, x, y, size, fill, opacity }) {
+/** A token's text, its subscript (v_0) lowered and smaller, a vector's arrow over it. */
+function TokenTextAt({ text, at, size, fill, opacity }) {
   const sub = subscriptOf(text);
   const { letter, vector } = vectorOf(sub ? sub[0] : text);
-  const at = useGlide({ x, y });
   return (
     <>
       <text
@@ -143,6 +142,105 @@ function TokenText({ text, x, y, size, fill, opacity }) {
         ) : letter}
       </text>
       {vector && <VectorArrow letter={letter} x={at.x} y={at.y} size={size} stroke={fill} />}
+    </>
+  );
+}
+
+const MORPH_MS = 340;
+const smooth = (t) => t * t * (3 - 2 * t);
+const REVEAL_EM = 0.6; // how far behind a pill's edge a letter takes to come fully in
+const prefersReducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/**
+ * What a token's text looked like and how far it is through becoming what it
+ * is (`p`, 0 to 1): `from` is null once it has. A change mid-way starts from
+ * what it was becoming.
+ */
+function useTextMorph(look) {
+  const key = `${look.text}\u0000${look.fill}\u0000${look.opacity}\u0000${look.pill}`;
+  const [state, setState] = useState({ key, from: null, p: 1 });
+  const ref = useRef({ key, look, frame: 0 });
+  useEffect(() => {
+    const m = ref.current;
+    if (m.key === key) return undefined;
+    const from = m.look;
+    m.key = key;
+    m.look = look;
+    cancelAnimationFrame(m.frame);
+    if (prefersReducedMotion()) { setState({ key, from: null, p: 1 }); return undefined; }
+    const start = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - start) / MORPH_MS);
+      setState({ key, from: p < 1 ? from : null, p });
+      if (p < 1) m.frame = requestAnimationFrame(step);
+    };
+    m.frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(m.frame);
+    // `key` stands for `look`'s values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  // The render the change arrives in, before the effect: all of what it was.
+  return state.key === key ? state : { key, from: ref.current.look, p: 0 };
+}
+
+const isPlain = (text) => !subscriptOf(text) && !vectorOf(text).vector;
+const lettersOf = (text) => [...String(text)];
+
+/**
+ * A token's text, sliding to where it is put, and changing letter by letter
+ * when it switches between its symbol and its Thing's name. What the two share
+ * stays (the P of Pressure). The name's other letters are uncovered by its
+ * pill: each comes in as the pill's growing edge passes it, and going back
+ * each leaves as the shrinking edge reaches it, so no letter is ever outside
+ * the pill or left behind it. A plain symbol coming or going fades meanwhile.
+ * Its color crosses over as the pill fills in. Written another way (a
+ * subscript, a vector's arrow), the two cross-fade instead.
+ *
+ * @param {number} [reveal] - where the pill's text currently ends (its glided
+ *   right edge, less its padding), in the same space as `x`
+ */
+function TokenText({ text, x, y, size, fill, opacity = 1, pill = false, reveal = null }) {
+  const at = useGlide({ x, y });
+  const { from, p } = useTextMorph({ text, fill, opacity, pill });
+  if (!from) return <TokenTextAt text={text} at={at} size={size} fill={fill} opacity={opacity} />;
+  // The pill's fill and the color cross over together (useGlide's curve).
+  const filled = glideEase(Math.min(1, (p * MORPH_MS) / GLIDE_MS));
+  const color = from.fill === fill ? fill : mixColor(from.fill, fill, filled);
+  const alpha = from.opacity + (opacity - from.opacity) * filled;
+  if (!isPlain(text) || !isPlain(from.text)) {
+    return (
+      <>
+        <TokenTextAt text={from.text} at={at} size={size} fill={color} opacity={alpha * (1 - smooth(clamp01(p * 2)))} />
+        <TokenTextAt text={text} at={at} size={size} fill={color} opacity={alpha * smooth(clamp01(p * 1.6 - 0.3))} />
+      </>
+    );
+  }
+  const to = lettersOf(text);
+  const was = lettersOf(from.text);
+  let shared = 0;
+  while (shared < to.length && shared < was.length && to[shared] === was[shared]) shared++;
+  // A letter in a pill shows as far as the pill's edge has passed its own right edge.
+  const fade = REVEAL_EM * size;
+  const uncovered = (letters, i) => (reveal == null ? 1
+    : clamp01((reveal - (at.x + measure(letters.slice(0, i + 1).join(''), size) - fade)) / fade));
+  const comingIn = (i) => (pill ? uncovered(to, i) : smooth(clamp01((p - 0.1) / 0.45)));
+  const goingOut = (i) => (from.pill ? uncovered(was, i) : 1 - smooth(clamp01(p / 0.4)));
+  const textProps = {
+    x: at.x, y: at.y, fontSize: size, fontFamily: FORMULA_FONT_FAMILY, fontWeight: FORMULA_FONT_WEIGHT,
+    fill: color, opacity: alpha, style: { userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' },
+  };
+  return (
+    <>
+      {was.length > shared && (
+        <text {...textProps}>
+          {shared > 0 && <tspan fillOpacity={0}>{was.slice(0, shared).join('')}</tspan>}
+          {was.slice(shared).map((c, i) => <tspan key={i} fillOpacity={goingOut(shared + i)}>{c}</tspan>)}
+        </text>
+      )}
+      <text {...textProps}>
+        {shared > 0 && <tspan>{to.slice(0, shared).join('')}</tspan>}
+        {to.slice(shared).map((c, i) => <tspan key={i} fillOpacity={comingIn(shared + i)}>{c}</tspan>)}
+      </text>
     </>
   );
 }
@@ -216,15 +314,13 @@ function Token({ t, b, o, fill, textColor, onBand, hot, onEnter, onLeave, enter 
           rx={b.bar.h / 2} fill={textColor} style={{ pointerEvents: 'none' }}
         />
       ) : (
-        <AnimatePresence initial={false}>
-          <motion.g key={t.text} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: FADE }} transition={FADE}>
-            <TokenText
-              text={t.text} x={b.textX - o.x} y={b.baseline - o.y} size={b.size}
-              fill={t.expanded ? onBand : textColor}
-              opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
-            />
-          </motion.g>
-        </AnimatePresence>
+        <TokenText
+          text={t.text} x={b.textX - o.x} y={b.baseline - o.y} size={b.size}
+          fill={t.expanded ? onBand : textColor}
+          opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
+          pill={!!b.pill}
+          reveal={shape.x + shape.w - PILL_PAD * b.size}
+        />
       )}
       </g>
     </motion.g>

@@ -39,6 +39,23 @@ describe('formula objects', () => {
     expect(filterFormulaEdges(state.edgeList, none)).toBe(state.edgeList);
   });
 
+  it('gives the same object for the same web while its font loads, and works it out again once loaded', () => {
+    // React reads a store snapshot twice and loops forever if it differs.
+    const fonts = { status: 'loading' };
+    Object.defineProperty(document, 'fonts', { value: fonts, configurable: true });
+    try {
+      const state = webState();
+      const early = computeFormulaObjects(state);
+      expect(computeFormulaObjects(state)).toBe(early);
+      fonts.status = 'loaded';
+      const loaded = computeFormulaObjects(state);
+      expect(loaded).not.toBe(early);
+      expect(computeFormulaObjects(state)).toBe(loaded);
+    } finally {
+      delete document.fonts;
+    }
+  });
+
   it('hides a formula group, its parts and its operations', () => {
     const fo = computeFormulaObjects(webState());
     expect(fo.objects).toHaveLength(1);

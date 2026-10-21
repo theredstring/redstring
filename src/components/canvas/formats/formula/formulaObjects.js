@@ -130,7 +130,8 @@ function inkOf(text, size) {
   return { above: Math.max(main.above, low.above - drop), below: Math.max(main.below, drop + low.below) };
 }
 
-function measure(text, size) {
+/** How wide a run of a formula's text is at a size, as its layout measures it (and its text morph, letter by letter). */
+export function measure(text, size) {
   if (!text) return 0;
   const shown = unmarked(text);
   ensureMeasure();
@@ -152,7 +153,7 @@ function padsFor(t) {
 
 // A token written by its Thing's name is drawn as that Thing, a pill in its color.
 const PILL_EM = 1.7;     // height, in the token's em
-const PILL_PAD = 0.5;    // inside, either side of the name
+export const PILL_PAD = 0.5;    // inside, either side of the name
 const PILL_MARGIN = 0.14; // outside, either side
 export const PILL_RADIUS = 0.4; // of its height, as a node's corners are of its
 
@@ -352,12 +353,20 @@ export function computeFormulaObjects(state, { standard = true, namesShown = NO_
 const NO_NAMES = new Set();
 const NO_FLIPS = new Map();
 
+/** Whether EmOne has loaded: widths measured before are the fallback font's. */
+export const formulaFontsReady = () => typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
+
 function formulaObjectsOf(state, standard, namesShown, flipped) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
   const view = projectGraphView(state, graphId);
   if (!view?.instances || !view.groups?.size) return EMPTY;
-  if (last && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
+  // Measured before EmOne has loaded, the widths are the fallback font's: kept
+  // only until it has (useFormulaObjects re-reads then), never past it. Kept
+  // all the same, so the same inputs give the same object (React re-reads a
+  // store snapshot and loops forever on one that is new each time).
+  const fontsReady = formulaFontsReady();
+  if (last && last.fontsReady === fontsReady && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
     return last.result;
   }
   const shownGroups = [];
@@ -473,9 +482,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   const anchors = new Map();
   for (const o of objects) if (o.anchorId) anchors.set(o.anchorId, { ...o.frame, groupId: o.groupId });
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns, anchors } : EMPTY;
-  // Measured before EmOne has loaded, the widths are the fallback font's: don't keep them.
-  const fontsReady = typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
-  last = fontsReady ? { view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result } : null;
+  last = { fontsReady, view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
   return result;
 }
 

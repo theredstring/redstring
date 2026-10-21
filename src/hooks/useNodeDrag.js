@@ -1784,6 +1784,9 @@ export const useNodeDrag = ({
         });
       }
 
+      // A formula's anchor moves with it all the same: its connections are redrawn
+      // (at the formula, useNodeDrag's formatAnchorEnd), only no pill is written for it.
+      if (layout.isNodeGroup && group.anchorInstanceId && isReplacedGroup(groupId)) affectedAnchorIds.add(group.anchorInstanceId);
       if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current && !isReplacedGroup(groupId)) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {

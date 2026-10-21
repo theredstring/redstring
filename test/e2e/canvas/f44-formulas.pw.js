@@ -645,6 +645,38 @@ test('F44 a formula takes connections like a node group, and its hidden Things t
   })).toBe(false);
 });
 
+test('F44 connections on a formula follow it while it is dragged, to another formula too', async ({ page }) => {
+  await openFixture(page, 'small');
+  await page.evaluate(async () => {
+    const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
+    const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+    const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
+    const st = window.useGraphStore.getState();
+    const near = st.graphs.get(st.activeGraphId).instances.get('i-epsilon');
+    buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
+    buildBankEquation(d, d.equations.find(e => e.id === 'Q41591'), st.activeGraphId, { x: near.x + 1400, y: near.y + 520 });
+    const s2 = window.useGraphStore.getState();
+    const [a, b] = [...s2.graphs.get(s2.activeGraphId).groups.values()].filter(g => g.format === 'formula');
+    s2.addEdge(s2.activeGraphId, { id: 'e-ff', sourceId: a.anchorInstanceId, destinationId: b.anchorInstanceId });
+    s2.addEdge(s2.activeGraphId, { id: 'e-fn', sourceId: a.anchorInstanceId, destinationId: 'i-gamma' });
+  });
+  await expect(object(page)).toHaveCount(2);
+  await page.waitForTimeout(800); // past the entrances
+  const d = (id) => page.locator(`svg.canvas [data-edge-id="${id}"] path`).first().getAttribute('d');
+  const before = [await d('e-ff'), await d('e-fn')];
+  const box = await object(page).filter({ hasText: 'Ideal Gas Law' }).boundingBox();
+  const at = { x: box.x + box.width / 2, y: box.y + 20 };
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.waitForTimeout(NODE_LIFT_DELAY_MS + 150);
+  for (let i = 1; i <= 10; i++) await page.mouse.move(at.x, at.y + i * 12);
+  await page.waitForTimeout(100);
+  // Mid-drag, both have moved with it: to the other formula, and to a Thing.
+  expect([await d('e-ff'), await d('e-fn')].map((x, i) => x !== before[i])).toEqual([true, true]);
+  await shot(page, '17-dragging-connected');
+  await page.mouse.up();
+});
+
 test('F44 a bank this device kept in an older shape gives way to the one shipped', async ({ page }) => {
   await openFixture(page, 'small');
   // What an update before sections existed left on the device: four disciplines, no sections.
