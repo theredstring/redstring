@@ -35,8 +35,13 @@
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  pointer-events: auto;
+  /* Only its pills take clicks; beside them, the backdrop's, which closes. */
+  pointer-events: none;
   touch-action: manipulation;
+}
+
+.unified-selector-prompt > * {
+  pointer-events: auto;
 }
 
 .unified-selector-label {
@@ -113,6 +118,37 @@
 }
 
 .unified-selector-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The type filter at the title's right: a node of the type it names, as wide
+   as its name. */
+.unified-selector-type-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 50%;
+  padding: 4px 10px 4px 12px;
+  border: none;
+  border-radius: 10px;
+  font-family: 'EmOne', sans-serif;
+  font-size: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: filter 0.15s ease;
+}
+
+.unified-selector-type-filter:hover {
+  filter: brightness(1.1);
+}
+
+.unified-selector-type-filter-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

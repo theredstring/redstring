@@ -81,6 +81,13 @@ body {
   background-color: transparent !important;
 }
 
+/* A row with a fill of its own keeps it, lightened, instead of the tint. */
+.context-menu-item[data-filled="true"]:hover:not([data-disabled="true"]),
+.context-menu-item[data-filled="true"].gamepad-menu-focus:not([data-disabled="true"]) {
+  background-color: var(--context-menu-fill) !important;
+  filter: brightness(1.1);
+}
+
 /* Arrow animation for edge hover */
 @keyframes arrowFadeIn {
   from {

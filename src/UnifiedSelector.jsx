@@ -2,12 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { sanitizeColor } from './utils/safeColor.js';
 import { cssImageUrl } from './utils/safeUrl.js';
 import { createPortal } from 'react-dom';
-import { Palette, Plus, ChevronLeft, Search } from 'lucide-react';
+import { Palette, Plus, ChevronLeft, ChevronDown, Search } from 'lucide-react';
 import { NODE_DEFAULT_COLOR } from './constants';
 import { getTextColor } from './utils/colorUtils';
 import { LIGHT_MODE_BG_COLOR } from './utils/themeColors';
 import useGraphStore from "./store/graphStore.js";
 import ColorPicker from './ColorPicker';
+import ContextMenu from './components/ContextMenu';
 import useViewportBounds from './hooks/useViewportBounds';
 import useMobileDetection from './hooks/useMobileDetection';
 import { useTheme } from './hooks/useTheme.js';
@@ -91,18 +92,58 @@ const UnifiedSelector = ({
   const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation' || mode === 'formula-creation');
   const showGrid = !!gridContent || mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || mode === 'web-creation' || showCreateNewOption || onNodeSelect;
 
-  const filteredPrototypes = React.useMemo(() => {
-    let prototypes = Array.from(nodePrototypesMap.values());
+  const allowedPrototypes = React.useMemo(() => {
+    const prototypes = Array.from(nodePrototypesMap.values());
     // Restrict to allowed ids if provided
     if (allowedPrototypeIds && (allowedPrototypeIds.size || allowedPrototypeIds.length)) {
       const allowedSet = allowedPrototypeIds instanceof Set ? allowedPrototypeIds : new Set(allowedPrototypeIds);
-      prototypes = prototypes.filter(p => allowedSet.has(p.id));
+      return prototypes.filter(p => allowedSet.has(p.id));
     }
+    return prototypes;
+  }, [nodePrototypesMap, allowedPrototypeIds]);
+
+  // The box of Things, unless a caller has its own control at the title's
+  // right, can be narrowed to one type: the types the left panel's Things tab
+  // groups by. Untyped Things are Things, which All Types already covers.
+  const showTypeFilter = showGrid && !gridContent && !headerAside;
+  const [typeFilterId, setTypeFilterId] = useState(null);
+  const [typeMenuRect, setTypeMenuRect] = useState(null);
+  const typeOptions = React.useMemo(() => {
+    if (!showTypeFilter) return [];
+    const types = new Map();
+    for (const p of allowedPrototypes) {
+      const typeId = p.typeNodeId;
+      if (!typeId || typeId === 'base-thing-prototype' || types.has(typeId)) continue;
+      const type = nodePrototypesMap.get(typeId);
+      if (type) types.set(typeId, type);
+    }
+    return [...types.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [showTypeFilter, allowedPrototypes, nodePrototypesMap]);
+  // A type that has since lost its last Thing (or was deleted) is All Types.
+  const activeType = typeOptions.find(t => t.id === typeFilterId) || null;
+  // Memoized: the menu re-measures, and re-arms its tap guard, on new options.
+  const typeMenuOptions = React.useMemo(() => [
+    { label: 'All Types', active: !activeType, dividerAfter: true, sticky: true, value: null },
+    ...typeOptions.map(type => {
+      const fill = sanitizeColor(type.color, NODE_DEFAULT_COLOR);
+      return {
+        label: type.name || 'Untitled',
+        active: activeType?.id === type.id,
+        value: type.id,
+        fill,
+        textColor: getTextColor(fill, theme.darkMode),
+      };
+    }),
+  ], [typeOptions, activeType, theme.darkMode]);
+
+  const filteredPrototypes = React.useMemo(() => {
+    let prototypes = allowedPrototypes;
+    if (activeType) prototypes = prototypes.filter(p => p.typeNodeId === activeType.id);
     // Always use 'name' for live search when typing, fallback to searchTerm for initial filter
     const searchText = name || searchTerm;
     if (!searchText) return prototypes;
     return prototypes.filter(p => p.name && p.name.toLowerCase().includes(searchText.toLowerCase()));
-  }, [nodePrototypesMap, name, searchTerm]);
+  }, [allowedPrototypes, activeType, name, searchTerm]);
 
   const handleSubmit = useCallback(() => {
     if (name.trim() && canSubmit && onSubmit) {
@@ -410,13 +451,15 @@ const UnifiedSelector = ({
         )}
 
         {showGrid && (
+          // Clicks beside the box fall through to the backdrop, which closes.
           <div
-            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%', minHeight: 0, pointerEvents: 'auto' }}
+            style={{ flex: 1, overflow: 'hidden', display: 'flex', justifyContent: 'center', width: '100%', minHeight: 0, pointerEvents: 'none' }}
           >
             {/* Outer rounded rectangle */}
             <div
               onPointerDown={(e) => e.stopPropagation()} // Isolate from canvas
               style={{
+                pointerEvents: 'auto',
                 width: isSmallScreen ? '100%' : `${gridOuterWidth}px`,
                 maxWidth: `${gridOuterWidth}px`,
                 height: '100%',
@@ -448,8 +491,54 @@ const UnifiedSelector = ({
                 }}
               >
                 <div className="unified-selector-header-row">
-                  <span className="unified-selector-header-title">{title}</span>
+                  {onBack ? (
+                    // A page with a way back says so beside its title too.
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                      <span style={{ display: 'contents' }} onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}>
+                        <PanelIconButton
+                          icon={ChevronLeft}
+                          size={18}
+                          strokeWidth={2.75}
+                          color="maroon"
+                          onClick={onBack}
+                          title="Back to Things"
+                          style={{ flexShrink: 0, touchAction: 'manipulation' }}
+                        />
+                      </span>
+                      <span className="unified-selector-header-title">{title}</span>
+                    </span>
+                  ) : (
+                    <span className="unified-selector-header-title">{title}</span>
+                  )}
                   {headerAside}
+                  {showTypeFilter && typeOptions.length > 0 && (() => {
+                    // Shaped like a node of the type it names, as wide as
+                    // its name.
+                    const fill = sanitizeColor(
+                      activeType ? activeType.color : nodePrototypesMap.get('base-thing-prototype')?.color,
+                      NODE_DEFAULT_COLOR
+                    );
+                    return (
+                      <button
+                        type="button"
+                        className="unified-selector-type-filter"
+                        style={{ backgroundColor: fill, color: getTextColor(fill, theme.darkMode) }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTypeMenuRect(e.currentTarget.getBoundingClientRect());
+                        }}
+                      >
+                        <span className="unified-selector-type-filter-label">
+                          {activeType ? (activeType.name || 'Untitled') : 'All Types'}
+                        </span>
+                        <ChevronDown
+                          size={14}
+                          strokeWidth={2.75}
+                          style={{ flexShrink: 0, transition: 'transform 0.15s ease', transform: typeMenuRect ? 'rotate(180deg)' : 'none' }}
+                        />
+                      </button>
+                    );
+                  })()}
                 </div>
                 {headerContent}
               </div>
@@ -595,6 +684,32 @@ const UnifiedSelector = ({
           </div>
         )}
       </div>
+
+      {typeMenuRect && (
+        // The left panel's menu, raised over this overlay (the global one
+        // sits under it), and kept from the canvas behind.
+        <div
+          style={{ position: 'fixed', zIndex: 1000000 }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          <ContextMenu
+            x={typeMenuRect.right}
+            y={typeMenuRect.bottom + 4}
+            grow="left"
+            // Down to just above the window's bottom edge.
+            maxHeight={Math.max(200, window.innerHeight - typeMenuRect.bottom - 28)}
+            options={typeMenuOptions}
+            onSelect={(option) => {
+              setTypeFilterId(option.value);
+              scrollContainerRef.current?.scrollTo({ top: 0 });
+            }}
+            onClose={() => setTypeMenuRect(null)}
+          />
+        </div>
+      )}
 
       {colorPickerVisible && (
         <ColorPicker

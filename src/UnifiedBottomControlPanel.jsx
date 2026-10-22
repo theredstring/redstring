@@ -519,6 +519,17 @@ const UnifiedBottomControlPanel = ({
   // UnifiedBottomControlPanel.css — the glyph has to grow with the bubble or a
   // wider button just buys more empty margin around the same small icon.
   const iconSize = mobileState.isMobile ? 18 : 22;
+  const groupUngroupButton = (
+    <div
+      className="piemenu-button"
+      onClick={onUngroup}
+      title="Ungroup"
+      onMouseEnter={() => triggerActionHover('control-ungroup', 'Ungroup')}
+      onMouseLeave={clearActionHover}
+    >
+      <Ungroup size={iconSize} />
+    </div>
+  );
 
   // Upper bound for any renderer containerWidth — keeps us from asking for more
   // space than the segment actually offers. On mobile the panel reserves 8px
@@ -1347,15 +1358,19 @@ const UnifiedBottomControlPanel = ({
                     {toggle.icon(iconSize)}
                   </div>
                 ))}
-                <div
-                  className="piemenu-button"
-                  onClick={onUngroup}
-                  title="Ungroup"
-                  onMouseEnter={() => triggerActionHover('control-ungroup', 'Ungroup')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <Ungroup size={iconSize} />
-                </div>
+                {/* A formula follows a Thing-group's order: Combine, Edit, Color, Ungroup, Delete. */}
+                {isFormat && onCombineNodeGroup && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onCombineNodeGroup}
+                    title="Combine Into Thing"
+                    onMouseEnter={() => triggerActionHover('control-combine', 'Combine Into Thing')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Combine size={iconSize} />
+                  </div>
+                )}
+                {!isFormat && groupUngroupButton}
                 <div
                   className="piemenu-button"
                   onClick={onGroupEdit}
@@ -1385,6 +1400,7 @@ const UnifiedBottomControlPanel = ({
                     <SquarePlus size={iconSize} />
                   </div>
                 )}
+                {isFormat && groupUngroupButton}
                 {isFormat && onDelete && (
                   <div
                     className="piemenu-button"

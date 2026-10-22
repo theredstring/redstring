@@ -10,7 +10,8 @@
  *
  * Just deleted: what was drawn is kept a moment, to play the entrance
  * backwards (its tokens leaving right to left, then its band shrinking away),
- * since the store no longer has it to draw.
+ * since the store no longer has it to draw. Combined into its Thing, the band
+ * shrinks onto that node instead (condenseFormula).
  */
 export const SPAWN_MS = 640;
 export const LEAVE_MS = 480;
@@ -36,22 +37,31 @@ const emit = () => listeners.forEach(fn => fn());
 
 /**
  * Keep a formula's drawing (a formulaObjects object) to play its exit, from
- * now. Gone again once it has played.
+ * now. Gone again once it has played. Returns `{ into(rect) }`, to aim the
+ * exit at a node's painted background ({ x, y, w, h, r, color }, world
+ * coordinates) rather than at nothing.
  */
 export function markFormulaLeaving(obj) {
-  if (!obj) return;
-  const entry = { obj, start: performance.now() };
-  leaving = [...leaving.filter(l => l.obj.groupId !== obj.groupId), entry];
+  if (!obj) return null;
+  const start = performance.now();
+  const mine = (l) => l.obj === obj && l.start === start;
+  leaving = [...leaving.filter(l => l.obj.groupId !== obj.groupId), { obj, start, into: null }];
   emit();
   setTimeout(() => {
-    if (!leaving.includes(entry)) return;
-    const rest = leaving.filter(l => l !== entry);
+    if (!leaving.some(mine)) return;
+    const rest = leaving.filter(l => !mine(l));
     leaving = rest.length ? rest : NONE;
     emit();
   }, LEAVE_MS + 40);
+  return {
+    into(rect) {
+      leaving = leaving.map(l => (mine(l) ? { ...l, into: rect } : l));
+      emit();
+    },
+  };
 }
 
-/** The formulas playing their exit: { obj, start }[]. */
+/** The formulas playing their exit: { obj, start, into }[]. */
 export const leavingFormulasNow = () => leaving;
 
 export function subscribeLeavingFormulas(fn) {

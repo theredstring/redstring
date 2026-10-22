@@ -34,7 +34,8 @@ import { NODE_DEFAULT_COLOR } from '../../../../constants.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { canonicalizeLink, LINK_STATES } from '../../../../formats/linkState.js';
 import { OPERATORS } from './formulaNotation.js';
-import { chainFromText, chainText, isSymbolText, formulaLabelOf } from './formulaChain.js';
+import { chainFromText, chainText, isSymbolText, formulaLabelOf, readFormulaGroup } from './formulaChain.js';
+import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { markFormulaSpawn } from './formulaSpawn.js';
 import {
   BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin,
@@ -177,10 +178,12 @@ function prototypeFromOrNew(origin, fields, link = null) {
  * @param {{x: number, y: number}} at - canvas point for the middle of the formula
  * @param {object} [readOptions] - how the text is read: { convention, isKnownName } (see parseFormulaText)
  * @param {object} [equation] - what the equation is, when known:
- *   { title, description, origin, link, discipline, section, color,
- *     bindings: { symbol: { origin, link, name, label, description } } }
+ *   { title, description, origin, link, discipline, section, color, protoId,
+ *     bindings: { symbol: { origin, link, name, label, description } | { protoId, label } | { name, label, description } } }
  *   (`link`: the web address the Thing is, recorded as an exact link;
- *   `color`: the equation's Thing's, when it is made new here)
+ *   `color`: the equation's Thing's, when it is made new here;
+ *   `protoId`: a Thing the universe has already, to be the equation, or what a symbol stands for;
+ *   a binding with only a name: a new Thing by that name)
  * @returns {{ instanceIds: string[], groupId: string|null, equationProtoId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
  */
@@ -199,7 +202,8 @@ export function buildFormulaInWeb(text, graphId, at, readOptions, equation = {})
   return result;
 }
 
-function build(chain, graphId, at, bindings, title, equation) {
+// Build the formula's Things, parts and operations, centred on `at`: every instance inside it.
+function buildTerms(chain, graphId, at, bindings) {
   // Prototypes by name: numbers, words, operations and types are reused.
   const protoByName = new Map();
   const prototypeNamed = (name, description = '') => {
@@ -225,10 +229,27 @@ function build(chain, graphId, at, bindings, title, equation) {
     if (bySymbol.has(name)) return bySymbol.get(name);
     let proto;
     const bound = bindings[name];
-    if (bound) {
+    const own = bound?.protoId ? useGraphStore.getState().nodePrototypes.get(bound.protoId) : null;
+    if (own) {
+      // A Thing of the universe's own (the wizard's P for Pressure): only ever
+      // added to, as a bank Thing is, given the formula label it lacks.
+      if (!own.labels?.formula) {
+        useGraphStore.getState().updateNodePrototype(own.id, (draft) => {
+          draft.labels = { ...(draft.labels || {}), formula: bound.label || name };
+        });
+      }
+      proto = useGraphStore.getState().nodePrototypes.get(own.id) || own;
+    } else if (bound?.origin) {
       proto = prototypeFromOrNew(bound.origin, {
         name: bound.name, description: bound.description || '', labels: { formula: bound.label || name },
       }, bound.link || null);
+    } else if (bound?.name) {
+      // A meaning with nothing to find it by: a new Thing named for what it is.
+      proto = {
+        id: uuidv4(), name: String(bound.name), color: NODE_DEFAULT_COLOR, description: bound.description || '',
+        typeNodeId: null, definitionGraphIds: [], labels: { formula: bound.label || name },
+      };
+      useGraphStore.getState().addNodePrototype(proto);
     } else if (!isNumber(name) && isSymbolText(name)) {
       proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description: '', typeNodeId: null, definitionGraphIds: [] };
       useGraphStore.getState().addNodePrototype(proto);
@@ -325,15 +346,25 @@ function build(chain, graphId, at, bindings, title, equation) {
   };
 
   const { inside } = buildChain(chain, at.x - chain._w / 2);
-  const text = chainText(chain);
+  return { inside, text: chainText(chain) };
+}
 
-  // The equation's own Thing, holding the whole formula, shown as the formula.
+function build(chain, graphId, at, bindings, title, equation) {
+  const { inside, text } = buildTerms(chain, graphId, at, bindings);
+
+  // The equation's own Thing, holding the whole formula, shown as the formula:
+  // one the universe has already when named (the Ideal Gas Law it wrote down
+  // before it had the formula), else the bank's, else a new one.
   const name = title || text;
-  const before = equation.origin ? prototypeFrom(equation.origin) : null;
-  const equationProto = equation.origin
+  const given = equation.protoId ? useGraphStore.getState().nodePrototypes.get(equation.protoId) : null;
+  const before = given ? null : equation.origin ? prototypeFrom(equation.origin) : null;
+  const equationProto = given || (equation.origin
     ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '', ...(equation.color ? { color: equation.color } : {}) }, equation.link || null)
-    : { id: uuidv4(), name, color: equation.color || NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] };
-  if (!equation.origin) useGraphStore.getState().addNodePrototype(equationProto);
+    : { id: uuidv4(), name, color: equation.color || NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] });
+  if (given && equation.description && !String(given.description || '').trim()) {
+    useGraphStore.getState().updateNodePrototype(given.id, (draft) => { draft.description = equation.description; });
+  }
+  if (!given && !equation.origin) useGraphStore.getState().addNodePrototype(equationProto);
   const groupId = useGraphStore.getState().createGroup(graphId, {
     name, color: equationProto.color || NODE_DEFAULT_COLOR, memberInstanceIds: inside, format: 'formula',
   });
@@ -347,6 +378,106 @@ function build(chain, graphId, at, bindings, title, equation) {
 
   if (equation.discipline && linked) placeInDiscipline(equation.discipline, equation.section || null, equationProto.id);
   return { instanceIds: inside, groupId, equationProtoId: linked ? equationProto.id : null, text };
+}
+
+/**
+ * Write a formula of the web over again, in place: the same equation (its
+ * group, its Thing, every connection to the whole of it) holding new Things,
+ * centred where the old ones were, its definition saved over. A connection
+ * from outside to a term goes to the new term standing for the same Thing
+ * (Pressure, still in it); to one the new formula no longer has, it goes with
+ * that term. Untitled, the equation's name follows its text. One undo step.
+ *
+ * @param {object} [options] - { title, bindings } as buildFormulaInWeb's equation
+ * @returns {{ groupId: string, equationProtoId: string|null, text: string }}
+ * @throws {Error} when the text isn't a formula, or the group isn't one
+ */
+export function rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title = '', bindings = {} } = {}) {
+  const chain = chainFromText(text, readOptions);
+  const store = useGraphStore.getState();
+  const graph = store.graphs.get(graphId);
+  const group = graph?.groups?.get(groupId);
+  if (!group || group.format !== 'formula') throw new Error('No formula there to rewrite');
+  const oldIds = new Set(group.memberInstanceIds || []);
+  const equationProto = group.linkedNodePrototypeId ? store.nodePrototypes.get(group.linkedNodePrototypeId) : null;
+  // Untitled (named for its text), it is named for its new text after.
+  const compact = (t) => String(t || '').replace(/\s+/g, '');
+  const before = readFormulaGroupText(store, graphId, group);
+  const untitled = !!equationProto && before !== null && compact(before) === compact(equationProto.name);
+
+  // Centred where its Things were.
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const id of oldIds) {
+    const inst = graph.instances.get(id);
+    if (!inst || inst.isGroupAnchor) continue;
+    const dims = getNodeDimensions({ name: store.nodePrototypes.get(inst.prototypeId)?.name || '' }, false, null);
+    minX = Math.min(minX, inst.x); minY = Math.min(minY, inst.y);
+    maxX = Math.max(maxX, inst.x + dims.currentWidth); maxY = Math.max(maxY, inst.y + dims.currentHeight);
+  }
+  const at = Number.isFinite(minX) ? { x: (minX + maxX) / 2, y: (minY + maxY) / 2 } : { x: 0, y: 0 };
+
+  // Its parentheses, and the connections reaching a term from outside.
+  const parts = [...graph.groups.values()].filter(g => g.id !== groupId
+    && g.memberInstanceIds?.length && g.memberInstanceIds.every(id => oldIds.has(id)));
+  const reaching = [];
+  for (const edgeId of graph.edgeIds || []) {
+    const e = store.edges.get(edgeId);
+    if (!e) continue;
+    const a = oldIds.has(e.sourceId);
+    const b = oldIds.has(e.destinationId);
+    if (a !== b) reaching.push({ id: edgeId, end: a ? 'sourceId' : 'destinationId', protoId: graph.instances.get(a ? e.sourceId : e.destinationId)?.prototypeId });
+  }
+
+  let result = null;
+  const label = equationProto?.name ? `Rewrote ${equationProto.name}` : 'Rewrote formula';
+  store.withHistoryTransaction(label, () => {
+    const { inside, text: newText } = buildTerms(chain, graphId, at, bindings);
+    const st = useGraphStore.getState();
+    // The new Things join the group before the old ones leave it, so it is never empty.
+    st.addInstancesToGroup(graphId, groupId, inside);
+
+    const newByProto = new Map();
+    for (const id of inside) {
+      const protoId = useGraphStore.getState().graphs.get(graphId)?.instances.get(id)?.prototypeId;
+      if (protoId && !newByProto.has(protoId)) newByProto.set(protoId, id);
+    }
+    for (const { id, end, protoId } of reaching) {
+      const to = newByProto.get(protoId);
+      if (!to) continue;
+      st.updateEdge(id, (draft) => {
+        const from = draft[end];
+        draft[end] = to;
+        const arrows = draft.directionality?.arrowsToward;
+        if (arrows instanceof Set && arrows.has(from)) { arrows.delete(from); arrows.add(to); }
+        else if (Array.isArray(arrows) && arrows.includes(from)) draft.directionality.arrowsToward = arrows.map(x => (x === from ? to : x));
+      });
+    }
+
+    for (const part of parts) {
+      if (useGraphStore.getState().graphs.get(graphId)?.groups?.has(part.id)) st.deleteGroupAndContents(graphId, part.id);
+    }
+    const left = [...oldIds].filter(id => useGraphStore.getState().graphs.get(graphId)?.instances.has(id));
+    if (left.length) st.removeMultipleNodeInstances(graphId, left);
+
+    const name = title?.trim() || (untitled ? newText : '');
+    if (name && equationProto) {
+      st.updateNodePrototype(equationProto.id, (draft) => { draft.name = name; });
+      st.updateGroup(graphId, groupId, (draft) => { draft.name = name; });
+    }
+    if (equationProto) st.updateDefinitionFromNodeGroup(graphId, groupId);
+    result = { groupId, equationProtoId: equationProto?.id || null, text: newText };
+  });
+  markFormulaSpawn(groupId);
+  return result;
+}
+
+/** The text a group read as in a state, or null. */
+function readFormulaGroupText(state, graphId, group) {
+  try {
+    const view = projectGraphView(state, graphId);
+    const chain = view && readFormulaGroup(state, view, view.groups?.get(group.id) || group);
+    return chain ? chainText(chain) : null;
+  } catch { return null; }
 }
 
 /**

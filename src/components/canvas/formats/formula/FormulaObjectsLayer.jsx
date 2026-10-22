@@ -547,8 +547,10 @@ function useTokenChanges(obj) {
  * One formula on the canvas. `leavingStart`: it was just deleted, and this is
  * what it was drawn as, playing its entrance backwards from then (its tokens
  * leaving right to left, its band shrinking away to nothing) and taking no input.
+ * `into`: it was combined into its Thing, and the band shrinks onto that node's
+ * painted background instead ({ x, y, w, h, r, color }, condenseFormula).
  */
-function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
+function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into = null }) {
   const leaving = leavingStart !== null;
   const [hoverKey, setHoverKey] = useState(null);
   const pressRef = useRef(null);
@@ -641,7 +643,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
   const o = obj.center;
   const box = (r) => ({ x: r.x - o.x, y: r.y - o.y, w: r.w, h: r.h });
   const liftShadow = useGraphStore(st => (lifted ? (st.liftedThingShadow ?? DEFAULT_LIFTED_THING_SHADOW) : null));
-  // Just built: the plus sign's morph, into this band. Just deleted: back out of it, to nothing.
+  // Just built: the plus sign's morph, into this band. Just deleted: back out of
+  // it, to nothing. Combined into its Thing: down onto that node.
   const spawn = useSpawn(obj.groupId, leavingStart);
   const spawning = spawn < 1;
   const grown = easeMorph(clamp01(spawn / MORPH_SHARE));
@@ -651,10 +654,19 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
   const f = box(frame);
   const fcx = f.x + f.w / 2;
   const fcy = f.y + f.h / 2;
+  const end = into
+    ? { ...box(into), rx: into.r }
+    : { x: fcx - plusSize / 2, y: fcy - plusSize / 2, w: plusSize, h: plusSize, rx: plusSize / 2 };
   const morph = {
-    x: lerp(fcx - plusSize / 2, f.x, grown), y: lerp(fcy - plusSize / 2, f.y, grown),
-    w: lerp(plusSize, f.w, grown), h: lerp(plusSize, f.h, grown),
-    rx: lerp(plusSize / 2, G.nodeGroupCornerRadius, grown),
+    x: lerp(end.x, f.x, grown), y: lerp(end.y, f.y, grown),
+    w: lerp(end.w, f.w, grown), h: lerp(end.h, f.h, grown),
+    rx: lerp(end.rx, G.nodeGroupCornerRadius, grown),
+  };
+  // What the mask has to reach: the band, and the node it may shrink onto.
+  const reach = {
+    x: Math.min(f.x, end.x) - 50, y: Math.min(f.y, end.y) - 50,
+    w: Math.max(f.x + f.w, end.x + end.w) - Math.min(f.x, end.x) + 100,
+    h: Math.max(f.y + f.h, end.y + end.h) - Math.min(f.y, end.y) + 100,
   };
   const titleIn = spawning ? clamp01((grown - 0.2) * 1.25) : 1;
   // Each of the title's letters only once the growing band holds it (the middle
@@ -706,7 +718,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
             hiding it from a click, so the formula takes input from its first frame. */}
         {spawning && (
           <defs>
-            <mask id={clipId} maskUnits="userSpaceOnUse" x={f.x - 50} y={f.y - 50} width={f.w + 100} height={f.h + 100}>
+            <mask id={clipId} maskUnits="userSpaceOnUse" x={reach.x} y={reach.y} width={reach.w} height={reach.h}>
               <rect x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx} fill="white" />
             </mask>
           </defs>
@@ -720,7 +732,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
         >
           {/* Selected, it wears a selected Thing's black stroke. */}
           <GlideRect
-            r={box(frame)} rx={G.nodeGroupCornerRadius} fill={spawning ? mixColor(PLUS_LIGHT, color, grown * 1.5) : color}
+            r={box(frame)} rx={G.nodeGroupCornerRadius}
+            fill={!spawning ? color : into ? mixColor(into.color, color, grown) : mixColor(PLUS_LIGHT, color, grown * 1.5)}
             stroke={selected ? 'black' : 'none'} strokeWidth={SELECTION_STROKE}
           />
           {obj.title && (
@@ -837,8 +850,8 @@ function FormulaObjectsLayer({ draggingGroupId = null }) {
           selected={selectedGroupId === obj.groupId} lifted={draggingGroupId === obj.groupId}
         />
       ))}
-      {leaving.map(({ obj, start }) => (
-        <FormulaObject key={`leaving-${obj.groupId}-${start}`} obj={obj} theme={theme} leavingStart={start} />
+      {leaving.map(({ obj, start, into }) => (
+        <FormulaObject key={`leaving-${obj.groupId}-${start}`} obj={obj} theme={theme} leavingStart={start} into={into} />
       ))}
     </g>
   );

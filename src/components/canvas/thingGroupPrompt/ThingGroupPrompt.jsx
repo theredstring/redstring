@@ -184,11 +184,8 @@ export default function ThingGroupPrompt({ plusSign, setPlusSign, handleNodeSele
         setDialogColorPickerVisible(false);
         setPlusSign(ps => ps && { ...ps, mode: 'morph', tempName: name, selectedColor: color, openDefinition: 0 });
       }}
-      onNodeSelect={(picked) => {
-        const thing = useGraphStore.getState().nodePrototypes.get(picked.id) || picked;
-        if (websOf(thing, useGraphStore.getState().graphs).length === 0) open(thing, 0);
-        else showThingWebs(thing.id);
-      }}
+      // Always the Web step, even when New Web is its only choice.
+      onNodeSelect={(picked) => showThingWebs(picked.id)}
       title="Pick or name a Thing"
     />
   );

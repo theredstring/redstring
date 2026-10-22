@@ -31,6 +31,7 @@ import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { deleteFormula } from '../formats/formula/deleteFormula.js';
+import { condenseFormula } from '../formats/formula/condenseFormula.js';
 import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
@@ -215,6 +216,16 @@ export default function ControlPanelsHost({ ctx }) {
     setSelectedGroup(null);
     setGroupControlPanelVisible(false);
   }, [activeGraphId, selectedGroup, setGroupControlPanelVisible]);
+
+  // A formula's Combine Into Thing: saved into its Thing's definition, its band
+  // folding into the node, which is left selected (as a Thing-group's Combine).
+  const handleFormulaCondense = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    const nodeId = condenseFormula(activeGraphId, selectedGroup.id);
+    setGroupControlPanelVisible(false);
+    setSelectedGroup(null);
+    if (nodeId) setSelectedInstanceIds(new Set([nodeId]));
+  }, [activeGraphId, selectedGroup, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
 
   // A Thing-group's Delete: the group and its Things, shrinking away.
   const handleNodeGroupDelete = useCallback(() => {
@@ -587,6 +598,8 @@ export default function ControlPanelsHost({ ctx }) {
               hasRightNav: formatOrder.length > 1,
               formatToggles,
               ...(currentFormat === 'formula' ? { onDelete: handleFormulaDelete } : {}),
+              // Combined into its Thing, an equation folds as a Thing-group does; a plain group has no Thing to fold into.
+              ...(currentFormat === 'formula' ? { onCombineNodeGroup: isThingGroup ? handleFormulaCondense : undefined } : {}),
               // An equation is a Thing-group already.
               ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined } : {}),
               leftNavLabel: `Show as ${formatAt(-1)}`,
