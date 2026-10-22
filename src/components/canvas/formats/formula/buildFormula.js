@@ -212,8 +212,9 @@ export function buildFormulaInWeb(text, graphId, at, readOptions, equation = {})
 }
 
 // Build the formula's Things, parts and operations, centred on `at`: every instance inside it.
-// `newColor`: the color for each term Thing made new here (webColors.js), else the default.
-function buildTerms(chain, graphId, at, bindings, newColor = null) {
+// `newColor`: the color for each term Thing and part made new here (webColors.js), else
+// the default; without it a part is `partColor`, the equation's.
+function buildTerms(chain, graphId, at, bindings, newColor = null, partColor = null) {
   const colorFor = (bound) => bound?.color || newColor?.() || NODE_DEFAULT_COLOR;
   // Prototypes by name: numbers, words, operations and types are reused.
   const protoByName = new Map();
@@ -342,7 +343,8 @@ function buildTerms(chain, graphId, at, bindings, newColor = null) {
       x += arg._w + ARG_GAP;
     });
     const st = useGraphStore.getState();
-    const groupId = st.createGroup(graphId, { name: part.name, color: NODE_DEFAULT_COLOR, memberInstanceIds: ids });
+    const color = newColor?.() || partColor || NODE_DEFAULT_COLOR;
+    const groupId = st.createGroup(graphId, { name: part.name, color, memberInstanceIds: ids });
     // The part's Thing: named after its term, typed by what is applied to it.
     let typeNodeId = null;
     if (part.apply && part.apply !== 'fn') {
@@ -350,7 +352,7 @@ function buildTerms(chain, graphId, at, bindings, newColor = null) {
     } else if (part.apply === 'fn') {
       typeNodeId = prototypeNamed(part.fnName, FUNCTION_DESCRIPTIONS[part.fnName] || '').id;
     }
-    const thing = { id: uuidv4(), name: part.name, color: NODE_DEFAULT_COLOR, description: '', typeNodeId, definitionGraphIds: [] };
+    const thing = { id: uuidv4(), name: part.name, color, description: '', typeNodeId, definitionGraphIds: [] };
     st.addNodePrototype(thing);
     st.convertGroupToNodeGroup(graphId, groupId, thing.id, false);
     const anchorId = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId)?.anchorInstanceId;
@@ -370,7 +372,7 @@ function build(chain, graphId, at, bindings, title, equation) {
   const given = equation.protoId ? useGraphStore.getState().nodePrototypes.get(equation.protoId) : null;
   const before = given ? null : equation.origin ? prototypeFrom(equation.origin) : null;
   const color = given || before ? null : (equation.color || equation.newColor?.() || null);
-  const { inside, text } = buildTerms(chain, graphId, at, bindings, equation.newColor);
+  const { inside, text } = buildTerms(chain, graphId, at, bindings, equation.newColor, color || (given || before)?.color);
 
   const name = title || text;
   const equationProto = given || (equation.origin
@@ -446,7 +448,7 @@ export function rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title
   let result = null;
   const label = equationProto?.name ? `Rewrote ${equationProto.name}` : 'Rewrote formula';
   store.withHistoryTransaction(label, () => {
-    const { inside, text: newText } = buildTerms(chain, graphId, at, bindings, newColor);
+    const { inside, text: newText } = buildTerms(chain, graphId, at, bindings, newColor, equationProto?.color || group.color);
     const st = useGraphStore.getState();
     // The new Things join the group before the old ones leave it, so it is never empty.
     st.addInstancesToGroup(graphId, groupId, inside);

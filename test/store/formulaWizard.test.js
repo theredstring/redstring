@@ -14,6 +14,7 @@ import {
 import { formulasForWizard, findFormula, equationOf } from '../../src/components/canvas/formats/formula/formulaSnapshot.js';
 import { deleteFormula } from '../../src/components/canvas/formats/formula/deleteFormula.js';
 import { PALETTES } from '../../src/ai/palettes.js';
+import { buildFormulaInWeb } from '../../src/components/canvas/formats/formula/buildFormula.js';
 import { NODE_DEFAULT_COLOR } from '../../src/constants.js';
 
 // What the wizard does to formulas, against the store: written with meanings,
@@ -244,6 +245,28 @@ describe('the colors of a formula the wizard writes', () => {
     expect(colors).toContain(colorOf(bySymbol.V.protoId));
     expect(colorOf('p-pressure')).toBe(colors[0]);
     expect(st().graphs.get('main').groups.get(built.groupId).color.toLowerCase()).toBe(colorOf(built.equationProtoId));
+  });
+
+  // A formula's parentheses: the Thing-groups inside it, and their Things.
+  const partsOf = (graphId, groupId) => [...st().graphs.get(graphId).groups.values()].filter(g => g.id !== groupId);
+
+  it('colors its parentheses the same way, nested ones too', () => {
+    colored('main', 'p-a', 'A', colors[0]);
+    colored('main', 'p-b', 'B', colors[1], 400);
+    const built = addFormulaForWizard({ graphId: 'main', text: 'y = a * (b + (c - d))', title: 'Nested' });
+    const parts = partsOf('main', built.groupId);
+    expect(parts.length).toBe(2);
+    for (const g of parts) {
+      expect(colors).toContain(g.color.toLowerCase());
+      expect(colorOf(g.linkedNodePrototypeId)).toBe(g.color.toLowerCase());
+    }
+  });
+
+  it('without the web\'s colors (New Formula), its parentheses are the equation\'s color', () => {
+    const built = buildFormulaInWeb('y = a * (b + c)', 'main', { x: 0, y: 0 }, { convention: 'math' }, { title: 'Picked', color: '#1965b5' });
+    const [part] = partsOf('main', built.groupId);
+    expect(part.color).toBe('#1965b5');
+    expect(colorOf(part.linkedNodePrototypeId)).toBe('#1965b5');
   });
 
   it('stays in the color of a web of one color', () => {
