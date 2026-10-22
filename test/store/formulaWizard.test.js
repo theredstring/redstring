@@ -12,6 +12,9 @@ import {
   foldFormulaForWizard, deleteFormulaForWizard, rewriteFormulaForWizard, addBankFormulaForWizard,
 } from '../../src/components/canvas/formats/formula/formulaWizard.js';
 import { formulasForWizard, findFormula, equationOf } from '../../src/components/canvas/formats/formula/formulaSnapshot.js';
+import { deleteFormula } from '../../src/components/canvas/formats/formula/deleteFormula.js';
+import { PALETTES } from '../../src/ai/palettes.js';
+import { NODE_DEFAULT_COLOR } from '../../src/constants.js';
 
 // What the wizard does to formulas, against the store: written with meanings,
 // placed like a Thing, folded and opened, rewritten in place, deleted.
@@ -191,6 +194,17 @@ describe('the wizard deleting a formula', () => {
     deleteFormulaForWizard({ graphId: 'other', ref: 'Distribution' });
     expect(st().graphs.get('other').instances.size).toBe(0);
   });
+
+  it('the panel\'s Delete on a formula open in place removes that placement', () => {
+    addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
+    st().collapseNodeGroupIntoDefinition('main', formulasIn('main')[0].groupId);
+    placeEquation({ graphId: 'other', ref: 'Distribution' });
+    const [f] = formulasIn('other');
+    expect(f.groupId).toBe(`open:${f.anchorId}`);
+    expect(deleteFormula('other', f.groupId)).toBe(true);
+    expect(st().graphs.get('other').instances.has(f.anchorId)).toBe(false);
+    expect(formulasIn('other')).toHaveLength(0);
+  });
 });
 
 describe('the wizard building from the bank', () => {
@@ -202,5 +216,68 @@ describe('the wizard building from the bank', () => {
     const [f] = formulasIn('main');
     expect(f.title).toBe('Ideal Gas Law');
     expect(f.terms.map(t => t.thing)).toContain('Pressure');
+  });
+});
+
+describe('the colors of a formula the wizard writes', () => {
+  beforeEach(() => { vi.useFakeTimers(); reset(); });
+
+  const [paletteName, palette] = Object.entries(PALETTES).find(([, p]) => Object.keys(p.colors).length >= 3);
+  const colors = Object.values(palette.colors).map(c => c.toLowerCase());
+  const colored = (graphId, protoId, name, color, x = 0) => {
+    st().addNodePrototype({ id: protoId, name, color, definitionGraphIds: [] });
+    st().addNodeInstance(graphId, protoId, { x, y: -2000 }, `${protoId}-in-${graphId}`);
+  };
+  const colorOf = (protoId) => String(st().nodePrototypes.get(protoId)?.color).toLowerCase();
+
+  it('takes the palette the web is in, for what it makes new; what it reuses keeps its own', () => {
+    colored('main', 'p-pressure', 'Pressure', colors[0]);
+    colored('main', 'p-gas', 'Gas', colors[1], 400);
+    const built = addFormulaForWizard({
+      graphId: 'main', text: 'P V = n R T', title: 'Ideal Gas Law',
+      meanings: [{ symbol: 'P', thing: 'Pressure' }, { symbol: 'V', thing: 'Volume' }],
+    });
+    const [f] = formulasIn('main');
+    const bySymbol = Object.fromEntries(f.terms.map(t => [t.symbol, t]));
+    // The equation in a color of the web's palette the web is not already using.
+    expect(colors.slice(2)).toContain(colorOf(built.equationProtoId));
+    expect(colors).toContain(colorOf(bySymbol.V.protoId));
+    expect(colorOf('p-pressure')).toBe(colors[0]);
+    expect(st().graphs.get('main').groups.get(built.groupId).color.toLowerCase()).toBe(colorOf(built.equationProtoId));
+  });
+
+  it('stays in the color of a web of one color', () => {
+    colored('main', 'p-a', 'A', NODE_DEFAULT_COLOR);
+    colored('main', 'p-b', 'B', NODE_DEFAULT_COLOR, 400);
+    const built = addFormulaForWizard({ graphId: 'main', text: 'F = m a', title: 'Second Law' });
+    expect(colorOf(built.equationProtoId)).toBe(NODE_DEFAULT_COLOR.toLowerCase());
+  });
+
+  it('takes the color asked for, over the web\'s', () => {
+    colored('main', 'p-a', 'A', colors[0]);
+    colored('main', 'p-b', 'B', colors[1], 400);
+    const built = addFormulaForWizard({
+      graphId: 'main', text: 'F = m a', title: 'Second Law', color: '#123456',
+      meanings: [{ symbol: 'F', thing: 'Force', color: '#654321' }],
+    });
+    const f = formulasIn('main')[0];
+    expect(colorOf(built.equationProtoId)).toBe('#123456');
+    expect(colorOf(f.terms.find(t => t.symbol === 'F').protoId)).toBe('#654321');
+  });
+
+  it('in an empty web, takes the color of the Thing the web is', () => {
+    st().addNodePrototype({ id: 'p-thermo', name: 'Thermodynamics', color: '#22752d', definitionGraphIds: ['other'] });
+    useGraphStore.setState((s) => ({ graphs: new Map(s.graphs).set('other', { ...web('other'), definingNodeIds: ['p-thermo'] }) }));
+    const built = addFormulaForWizard({ graphId: 'other', text: 'U = Q - W', title: 'First Law' });
+    expect(colorOf(built.equationProtoId)).toBe('#22752d');
+  });
+
+  it(`is told the palette by the tool (${paletteName})`, async () => {
+    const { addFormula } = await import('../../src/wizard/tools/addFormula.js');
+    const colorName = Object.keys(palette.colors)[1];
+    const result = await addFormula({ text: 'F = m a', palette: paletteName, color: colorName }, { graphs: [{ id: 'main' }], nodePrototypes: [], activeGraphId: 'main' });
+    expect(result.color.toLowerCase()).toBe(colors[1]);
+    const none = await addFormula({ text: 'F = m a' }, { graphs: [{ id: 'main' }], nodePrototypes: [], activeGraphId: 'main' });
+    expect(none.color).toBe('');
   });
 });

@@ -1,5 +1,6 @@
 import { resolveGraphId } from './resolveGraphId.js';
 import { readFormulaText } from './utils/formulas.js';
+import { resolvePaletteColor } from '../../ai/palettes.js';
 
 /**
  * addFormula - Write a formula into a web, shown as its formula, or build one
@@ -15,13 +16,17 @@ import { readFormulaText } from './utils/formulas.js';
  *
  * The text is read here as the canvas will read it, so a formula it can't
  * build is refused before anything is written. The store side
- * (toolResultApplier: 'addFormula') builds it, by name.
+ * (toolResultApplier: 'addFormula') builds it, by name. `color` (from
+ * `palette`) is the equation's, a meaning's `color` its new Thing's; without,
+ * what is made new takes the web's colors (formats/formula/webColors.js).
  */
 export async function addFormula(args, graphState) {
-  const { text, bankId, title, description, meanings, forThing, convention, targetGraphId } = args || {};
+  const { text, bankId, title, description, meanings, forThing, convention, targetGraphId, color, palette } = args || {};
   const { graphs = [], nodePrototypes = [], activeGraphId } = graphState || {};
   const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
   if (!graphId) throw new Error('No web to add the formula to. Create or open one first.');
+  // Only what was asked for: resolvePaletteColor makes up a color for nothing.
+  const colorOf = (c) => (c ? resolvePaletteColor(palette, String(c)) : '');
 
   if (bankId) {
     let bank;
@@ -42,6 +47,7 @@ export async function addFormula(args, graphState) {
       title: entry.title,
       text: entry.formula,
       canonicalText: entry.formula,
+      color: colorOf(color),
       terms: Object.entries(entry.meanings).map(([symbol, thing]) => ({ symbol, thing })),
       created: true,
       summary: `Adds "${entry.title}" (${entry.formula}) from the formula bank, its symbols tied to what they mean, filed under ${entry.section || entry.discipline}.`,
@@ -58,7 +64,11 @@ export async function addFormula(args, graphState) {
   });
   const cleanMeanings = (Array.isArray(meanings) ? meanings : [])
     .filter(m => m?.symbol && m?.thing)
-    .map(m => ({ symbol: String(m.symbol).trim(), thing: String(m.thing).trim(), ...(m.description ? { description: String(m.description) } : {}) }));
+    .map(m => ({
+      symbol: String(m.symbol).trim(), thing: String(m.thing).trim(),
+      ...(m.description ? { description: String(m.description) } : {}),
+      ...(m.color ? { color: colorOf(m.color) } : {}),
+    }));
   // Titled as one of its own symbols' Things (K for Kinetic Energy, titled
   // Kinetic Energy), the equation would be a second Thing of that name.
   let name = String(title || forThing || '').trim();
@@ -74,6 +84,7 @@ export async function addFormula(args, graphState) {
     meanings: cleanMeanings,
     forThing: forThing ? String(forThing).trim() : '',
     convention: convention === 'programming' ? 'programming' : 'math',
+    color: colorOf(color),
     terms: read.terms,
     created: true,
     summary: `Adds ${name ? `"${name}": ` : ''}${read.text}${cleanMeanings.length ? `, with ${cleanMeanings.map(m => `${m.symbol} = ${m.thing}`).join(', ')}` : ''}.`

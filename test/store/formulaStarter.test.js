@@ -8,7 +8,7 @@ vi.mock('../../src/utils.js', async (orig) => ({
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
 import { loadFormulaBank } from '../../src/components/canvas/formats/formula/bank/formulaBank.js';
-import { starterPlan, mergeFormulaStarter } from '../../src/components/canvas/formats/formula/bank/formulaStarter.js';
+import { starterPlan, mergeFormulaStarter, formulaStarterHere } from '../../src/components/canvas/formats/formula/bank/formulaStarter.js';
 import { buildBankEquation } from '../../src/components/canvas/formats/formula/buildFormula.js';
 import { formulasForWizard } from '../../src/components/canvas/formats/formula/formulaSnapshot.js';
 
@@ -64,6 +64,16 @@ describe('the formula starter', () => {
     expect(namesIn(webOf('Formulas'))).toEqual(['Physics']);
     // Built apart, it opens no webs here.
     expect(st().openGraphIds).toEqual(['main']);
+  });
+
+  it('the universe says it was added by holding Formulas, not by a field', async () => {
+    expect(formulaStarterHere()).toBe(false);
+    // An equation of the bank's built by hand (the wizard's way) isn't the starter.
+    const { discipline, equation } = bank.equations.find(({ equation: e }) => e.id === BOYLE);
+    buildBankEquation(discipline, equation, 'main', { x: 0, y: 0 });
+    expect(formulaStarterHere()).toBe(false);
+    mergeFormulaStarter(await buildApart([IDEAL_GAS]));
+    expect(formulaStarterHere()).toBe(true);
   });
 
   it('plans only what the universe lacks, and adds nothing twice', async () => {

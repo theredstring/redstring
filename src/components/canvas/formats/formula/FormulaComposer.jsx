@@ -8,8 +8,10 @@
  * the ones whose titles match the words, or a formula, read token by token,
  * which Enter or + builds as Things at the spot that was right-clicked
  * (buildFormula.js), shown as its formula. Picking one places that equation
- * there (formulaWizard's placeEquation). The bank itself is offered only once
- * it is added (Settings → Data → Formula Starter).
+ * there (formulaWizard's placeEquation). The bank itself is listed only once
+ * it is added: while the universe has none of it and no equations, the box
+ * offers it in place of the list (StarterOffer), then only from the Starter
+ * choice in the header, as Settings → Data → Formula Starter does.
  */
 import { useMemo, useRef, useState } from 'react';
 import UnifiedSelector from '../../../../UnifiedSelector';
@@ -20,7 +22,9 @@ import { buildFormulaInWeb } from './buildFormula.js';
 import { placeEquation } from './formulaWizard.js';
 import { useUniverseEquations } from './universeEquations.js';
 import FormulaTokens from './FormulaTokens.jsx';
-import BankList, { BankChoices, useBankBrowse, useBankMatches } from './FormulaBankPicker.jsx';
+import BankList, { BankChoices, useBankBrowse, useBankMatches, useFormulaBank } from './FormulaBankPicker.jsx';
+import StarterOffer from './StarterOffer.jsx';
+import { formulaStarterHere } from './bank/formulaStarter.js';
 import useFormatsStore, { closeFormulaComposer, setConvention, selectStandard } from '../formatsStore.js';
 
 const CONVENTION_OPTIONS = [
@@ -74,6 +78,15 @@ export default function FormulaComposer() {
   const knownNames = useMemo(knownNamesNow, []);
   const bank = useUniverseEquations();
   const browse = useBankBrowse(bank);
+  const wholeBank = useFormulaBank();
+  const nodePrototypes = useGraphStore(s => s.nodePrototypes);
+  // Added once already: the universe holds its Formulas Thing.
+  const starterHere = useMemo(() => formulaStarterHere({ nodePrototypes }), [nodePrototypes]);
+  // The bank's disciplines not all here yet: the Starter choice offers the rest.
+  const moreInBank = useMemo(() => !!wholeBank && wholeBank.disciplines.some((d) => (
+    d.equations.length > (bank?.disciplines.find(x => x.id === d.id)?.equations.length || 0)
+  )), [wholeBank, bank]);
+  const [starterOpen, setStarterOpen] = useState(false);
 
   const readOptions = useMemo(() => ({ convention, isKnownName: (n) => knownNames.has(n) }), [convention, knownNames]);
   // Words with no operation in them ("ideal gas") are a search of the bank, not
@@ -85,6 +98,16 @@ export default function FormulaComposer() {
   }, [draft, readOptions, looksLikeWords]);
   const tokens = useMemo(() => (parsed.chain ? tokensOf(parsed.chain, { standard }) : null), [parsed.chain, standard]);
   const matches = useBankMatches(bank, looksLikeWords ? draft : '');
+  const first = !!bank && !starterHere && bank.disciplines.length === 0;
+  const offering = !!bank && !tokens && !matches && (first || starterOpen);
+
+  // A discipline chosen in the header closes the starter.
+  const choices = { ...browse, pickDiscipline: (id) => { setStarterOpen(false); browse.pickDiscipline(id); } };
+  // Added from the header: open the first of them.
+  const added = (ids) => {
+    setStarterOpen(false);
+    if (!first && ids[0]) browse.pickDiscipline(ids[0]);
+  };
 
   // The selector hears Enter twice (its field and the page), so whichever is
   // second finds the composer already closed and builds nothing.
@@ -127,13 +150,21 @@ export default function FormulaComposer() {
           onChange={(next) => { setConvention(next); inputRef.current?.focus(); }}
         />
       )}
-      headerContent={!tokens && !matches ? <BankChoices bank={bank} browse={browse} /> : null}
+      headerContent={!tokens && !matches && !first ? (
+        <BankChoices
+          bank={bank}
+          browse={choices}
+          starter={moreInBank ? { on: starterOpen, toggle: () => setStarterOpen(o => !o) } : null}
+        />
+      ) : null}
       gridContent={tokens ? (
         <div className="formula-preview"><FormulaTokens tokens={tokens} /></div>
       ) : (
         <>
           {parsed.error && <div className="formula-preview-error">{parsed.error}</div>}
-          <BankList bank={bank} browse={browse} matches={matches} standard={standard} onPick={pick} />
+          {offering
+            ? <StarterOffer first={first} onAdded={added} />
+            : <BankList bank={bank} browse={browse} matches={matches} standard={standard} onPick={pick} />}
         </>
       )}
     />

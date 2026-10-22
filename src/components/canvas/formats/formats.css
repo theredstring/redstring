@@ -810,3 +810,60 @@ button.format-pill:disabled {
   justify-content: center;
   margin-top: 2px;
 }
+
+/* The formula starter offered in the box (formula/StarterOffer): the bank's
+   disciplines to add, a line saying what that adds, Add, and its progress. */
+.format-starter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.format-starter-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.format-starter-choices .format-bank-choice:disabled {
+  cursor: default;
+}
+
+.format-starter-count {
+  margin-left: 3px;
+  opacity: 0.6;
+}
+
+.format-starter-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.format-starter-note {
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  color: maroon;
+  opacity: 0.75;
+}
+
+.format-starter-bar {
+  height: 3px;
+  border-radius: 2px;
+  background-color: rgba(128, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.format-starter-bar > span {
+  display: block;
+  height: 100%;
+  background-color: maroon;
+  transition: width 0.2s ease;
+}
+
+.format-bank-choice-icon {
+  margin-right: 3px;
+  vertical-align: -1px;
+}

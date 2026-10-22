@@ -11,7 +11,7 @@
  * equations across them. Picking one places that equation.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import {
   loadFormulaBank, formulaBankNow, subscribeFormulaBank, loadFormulaBankKnown,
 } from './bank/formulaBank.js';
@@ -285,20 +285,30 @@ export function useBankMatches(bank, query) {
   }, [bank, query]);
 }
 
-/** The disciplines, then the open one's sections: the box's header. */
-export function BankChoices({ bank, browse }) {
+/**
+ * The disciplines, then the open one's sections: the box's header. `starter`
+ * ({ on, toggle }), when the bank has more to add, ends the disciplines with
+ * the Formula Starter's choice.
+ */
+export function BankChoices({ bank, browse, starter = null }) {
   const { discipline, section, pickDiscipline, pickSection } = browse;
-  if (!bank) return null;
+  if (!bank || (!bank.disciplines.length && !starter)) return null;
+  const onStarter = !!starter?.on;
   // Sections with equations first; the ones that only know of results after, dimmer.
-  const sections = [...(discipline?.sections || [])].sort((a, b) => (b.equations > 0) - (a.equations > 0));
+  const sections = onStarter ? [] : [...(discipline?.sections || [])].sort((a, b) => (b.equations > 0) - (a.equations > 0));
   return (
     <div className="format-bank-top">
       <ChoiceRow label="Disciplines">
         {bank.disciplines.map(d => (
-          <Choice key={d.id} on={d.id === discipline?.id} dim={!d.equations.length} onClick={() => pickDiscipline(d.id)} title={`${d.equations.length} equations`}>
+          <Choice key={d.id} on={!onStarter && d.id === discipline?.id} dim={!d.equations.length} onClick={() => pickDiscipline(d.id)} title={`${d.equations.length} equations`}>
             {d.name}
           </Choice>
         ))}
+        {starter && (
+          <Choice on={onStarter} dim={!onStarter} onClick={starter.toggle} title="Add more from the Formula Starter">
+            <Plus size={11} strokeWidth={3} className="format-bank-choice-icon" />Starter
+          </Choice>
+        )}
       </ChoiceRow>
       {sections.length > 0 && (
         <ChoiceRow label="Sections">
@@ -331,7 +341,7 @@ export default function BankList({ bank, browse, matches, standard, onPick }) {
   if (!bank.disciplines.length) {
     return (
       <div className="format-bank-body">
-        <div className="format-bank-loading">No equations in this universe yet. Write one, or add the Formula Starter (Settings → Data).</div>
+        <div className="format-bank-loading">No equations in this universe yet. Write one, or add some from the Starter.</div>
       </div>
     );
   }

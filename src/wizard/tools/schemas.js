@@ -695,7 +695,8 @@ export function getToolDefinitions(options = {}) {
                             properties: {
                                 symbol: { type: 'string', description: 'The symbol as written in the text' },
                                 thing: { type: 'string', description: 'The Thing it stands for' },
-                                description: { type: 'string', description: 'What that Thing is, when it is new' }
+                                description: { type: 'string', description: 'What that Thing is, when it is new' },
+                                color: { type: 'string', description: 'That Thing\'s color, when it is new: a color name from `palette`. Omit to take the web\'s colors.' }
                             },
                             required: ['symbol', 'thing']
                         }
@@ -703,6 +704,8 @@ export function getToolDefinitions(options = {}) {
                     forThing: { type: 'string', description: 'An existing Thing whose formula this is (the "Ideal Gas Law" already in the web), so it becomes that Thing\'s formula instead of a new equation Thing.' },
                     bankId: { type: 'string', description: 'A bankId from searchFormulaBank (e.g. "Q191785"), instead of text: the equation is built with its title, description and every symbol tied to what it means.' },
                     convention: { type: 'string', enum: ['math', 'programming'], description: '"math" (default): letters side by side multiply. "programming": names are whole words, * multiplies.' },
+                    palette: { type: 'string', description: `Palette for \`color\`. Available: ${PALETTE_LIST}.` },
+                    color: { type: 'string', description: 'The equation\'s color, a color name from `palette`. Omit to match the web: what the formula makes new takes the colors the web already uses.' },
                     targetGraphId: { type: 'string', description: 'Web to add it to (default: active).' }
                 },
                 required: []

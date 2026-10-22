@@ -38,7 +38,7 @@ import { chainFromText, chainText, isSymbolText, formulaLabelOf, readFormulaGrou
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { markFormulaSpawn } from './formulaSpawn.js';
 import {
-  BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin,
+  BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin, STARTER_ORIGIN,
 } from './bank/formulaBank.js';
 import { itemIri } from './bank/population/sources.js';
 
@@ -186,10 +186,11 @@ function prototypeFromOrNew(origin, fields, link = null) {
  * @param {{x: number, y: number}} at - canvas point for the middle of the formula
  * @param {object} [readOptions] - how the text is read: { convention, isKnownName } (see parseFormulaText)
  * @param {object} [equation] - what the equation is, when known:
- *   { title, description, origin, link, discipline, section, color, protoId,
- *     bindings: { symbol: { origin, link, name, label, description } | { protoId, label } | { name, label, description } } }
+ *   { title, description, origin, link, discipline, section, color, newColor, protoId,
+ *     bindings: { symbol: { origin, link, name, label, description, color } | { protoId, label } | { name, label, description, color } } }
  *   (`link`: the web address the Thing is, recorded as an exact link;
- *   `color`: the equation's Thing's, when it is made new here;
+ *   `color`: the equation's Thing's, when it is made new here, and a binding's its Thing's;
+ *   `newColor`: () => the color for each other Thing made new here (webColors.js), the default without;
  *   `protoId`: a Thing the universe has already, to be the equation, or what a symbol stands for;
  *   a binding with only a name: a new Thing by that name)
  * @returns {{ instanceIds: string[], groupId: string|null, equationProtoId: string|null, text: string }}
@@ -211,7 +212,9 @@ export function buildFormulaInWeb(text, graphId, at, readOptions, equation = {})
 }
 
 // Build the formula's Things, parts and operations, centred on `at`: every instance inside it.
-function buildTerms(chain, graphId, at, bindings) {
+// `newColor`: the color for each term Thing made new here (webColors.js), else the default.
+function buildTerms(chain, graphId, at, bindings, newColor = null) {
+  const colorFor = (bound) => bound?.color || newColor?.() || NODE_DEFAULT_COLOR;
   // Prototypes by name: numbers, words, operations and types are reused.
   const protoByName = new Map();
   const prototypeNamed = (name, description = '') => {
@@ -248,18 +251,20 @@ function buildTerms(chain, graphId, at, bindings) {
       }
       proto = useGraphStore.getState().nodePrototypes.get(own.id) || own;
     } else if (bound?.origin) {
+      const fresh = !prototypeFrom(bound.origin, bound.link || null);
       proto = prototypeFromOrNew(bound.origin, {
         name: bound.name, description: bound.description || '', labels: { formula: bound.label || name },
+        ...(fresh ? { color: colorFor(bound) } : {}),
       }, bound.link || null);
     } else if (bound?.name) {
       // A meaning with nothing to find it by: a new Thing named for what it is.
       proto = {
-        id: uuidv4(), name: String(bound.name), color: NODE_DEFAULT_COLOR, description: bound.description || '',
+        id: uuidv4(), name: String(bound.name), color: colorFor(bound), description: bound.description || '',
         typeNodeId: null, definitionGraphIds: [], labels: { formula: bound.label || name },
       };
       useGraphStore.getState().addNodePrototype(proto);
     } else if (!isNumber(name) && isSymbolText(name)) {
-      proto = { id: uuidv4(), name: String(name), color: NODE_DEFAULT_COLOR, description: '', typeNodeId: null, definitionGraphIds: [] };
+      proto = { id: uuidv4(), name: String(name), color: colorFor(null), description: '', typeNodeId: null, definitionGraphIds: [] };
       useGraphStore.getState().addNodePrototype(proto);
     } else {
       proto = prototypeNamed(name);
@@ -358,17 +363,19 @@ function buildTerms(chain, graphId, at, bindings) {
 }
 
 function build(chain, graphId, at, bindings, title, equation) {
-  const { inside, text } = buildTerms(chain, graphId, at, bindings);
-
   // The equation's own Thing, holding the whole formula, shown as the formula:
   // one the universe has already when named (the Ideal Gas Law it wrote down
-  // before it had the formula), else the bank's, else a new one.
-  const name = title || text;
+  // before it had the formula), else the bank's, else a new one. Made new, it
+  // takes the first of the web's colors (`newColor`), its terms the rest.
   const given = equation.protoId ? useGraphStore.getState().nodePrototypes.get(equation.protoId) : null;
   const before = given ? null : equation.origin ? prototypeFrom(equation.origin) : null;
+  const color = given || before ? null : (equation.color || equation.newColor?.() || null);
+  const { inside, text } = buildTerms(chain, graphId, at, bindings, equation.newColor);
+
+  const name = title || text;
   const equationProto = given || (equation.origin
-    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '', ...(equation.color ? { color: equation.color } : {}) }, equation.link || null)
-    : { id: uuidv4(), name, color: equation.color || NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] });
+    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '', ...(color ? { color } : {}) }, equation.link || null)
+    : { id: uuidv4(), name, color: color || NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] });
   if (given && equation.description && !String(given.description || '').trim()) {
     useGraphStore.getState().updateNodePrototype(given.id, (draft) => { draft.description = equation.description; });
   }
@@ -396,11 +403,11 @@ function build(chain, graphId, at, bindings, title, equation) {
  * (Pressure, still in it); to one the new formula no longer has, it goes with
  * that term. Untitled, the equation's name follows its text. One undo step.
  *
- * @param {object} [options] - { title, bindings } as buildFormulaInWeb's equation
+ * @param {object} [options] - { title, bindings, newColor } as buildFormulaInWeb's equation
  * @returns {{ groupId: string, equationProtoId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula, or the group isn't one
  */
-export function rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title = '', bindings = {} } = {}) {
+export function rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title = '', bindings = {}, newColor = null } = {}) {
   const chain = chainFromText(text, readOptions);
   const store = useGraphStore.getState();
   const graph = store.graphs.get(graphId);
@@ -439,7 +446,7 @@ export function rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title
   let result = null;
   const label = equationProto?.name ? `Rewrote ${equationProto.name}` : 'Rewrote formula';
   store.withHistoryTransaction(label, () => {
-    const { inside, text: newText } = buildTerms(chain, graphId, at, bindings);
+    const { inside, text: newText } = buildTerms(chain, graphId, at, bindings, newColor);
     const st = useGraphStore.getState();
     // The new Things join the group before the old ones leave it, so it is never empty.
     st.addInstancesToGroup(graphId, groupId, inside);
@@ -540,7 +547,7 @@ export function bankHomeOf(discipline, entry) {
 
 /** The Thing the formula starter places every discipline in, Formulas, and its web. */
 export function formulaStarterRoot() {
-  const proto = prototypeFromOrNew(`${BANK_AGENT}:starter`, {
+  const proto = prototypeFromOrNew(STARTER_ORIGIN, {
     name: 'Formulas', description: 'Equations of every discipline, from Wikidata and MathModDB.',
   });
   return { protoId: proto.id, webId: webOf(proto.id) };
@@ -571,9 +578,9 @@ export function placeIn(holderProtoId, protoId) {
  * Build an equation from the bank, fully formed: its symbols bound to their
  * concepts, its title, its description, and its place in its discipline's
  * web. The bank must be loaded (loadFormulaBank) for its concepts. `color`:
- * the equation's Thing's, if it is new.
+ * the equation's Thing's, if it is new; `newColor`: as buildFormulaInWeb's.
  */
-export function buildBankEquation(discipline, entry, graphId, at, color = null) {
+export function buildBankEquation(discipline, entry, graphId, at, { color = null, newColor = null } = {}) {
   const bindings = {};
   for (const [symbol, conceptId] of Object.entries(entry.symbols)) {
     const concept = bankConcept(conceptId);
@@ -594,6 +601,7 @@ export function buildBankEquation(discipline, entry, graphId, at, color = null) 
     link: entry.defines ? null : entry.source,
     bindings,
     color,
+    newColor,
     discipline,
     section: sectionOf(discipline, entry),
   });

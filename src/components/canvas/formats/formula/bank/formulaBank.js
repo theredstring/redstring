@@ -40,6 +40,8 @@ export const conceptOrigin = (id) => itemIri(id);
 /** Where an equation's Thing comes from: its item's defining formula. */
 export const equationOrigin = (id) => `${itemIri(id)}#formula`;
 export const disciplineOrigin = (id) => `${BANK_AGENT}:discipline/${id}`;
+/** Where the formula starter's Formulas Thing comes from: its being here says the starter was added. */
+export const STARTER_ORIGIN = `${BANK_AGENT}:starter`;
 
 let bank = null;
 let loading = null;

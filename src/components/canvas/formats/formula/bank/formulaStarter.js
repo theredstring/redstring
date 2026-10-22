@@ -23,7 +23,7 @@ import {
 } from '../buildFormula.js';
 import { spotBelow } from '../formulaPlacement.js';
 import { equationOf } from '../formulaSnapshot.js';
-import { formulaBankNow, loadFormulaBank } from './formulaBank.js';
+import { formulaBankNow, loadFormulaBank, STARTER_ORIGIN } from './formulaBank.js';
 
 // Between formulas stacked in a web, canvas units: a formula's band and title with room around.
 const ROW = 520;
@@ -47,6 +47,15 @@ export function starterPlan(bank, disciplineIds) {
   });
   const concepts = new Set(fresh.flatMap(({ equation }) => Object.values(equation.symbols || {})));
   return { equations: fresh.length, already: entries.length - fresh.length, concepts: concepts.size, entries: fresh };
+}
+
+/**
+ * Whether the starter was added to this universe: its Formulas Thing is here.
+ * The universe says so by what it holds, not by a field kept beside it.
+ */
+export function formulaStarterHere(state = useGraphStore.getState()) {
+  for (const p of state.nodePrototypes.values()) if (bankOriginOf(p) === STARTER_ORIGIN) return true;
+  return false;
 }
 
 /** Build these entries into the store this module's builder writes to. */

@@ -2073,10 +2073,10 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       if (!graphId || !store.graphs.has(graphId)) throw new Error('No web to work in');
       if (result.action === 'addFormula') {
         const built = result.bankId
-          ? addBankFormulaForWizard({ graphId, ref: result.bankId })
+          ? addBankFormulaForWizard({ graphId, ref: result.bankId, color: result.color })
           : addFormulaForWizard({
             graphId, text: result.text, title: result.title, description: result.description,
-            meanings: result.meanings, forThing: result.forThing, convention: result.convention,
+            meanings: result.meanings, forThing: result.forThing, convention: result.convention, color: result.color,
           });
         if (built && typeof built.then === 'function') built.catch(fail);
       } else if (result.action === 'placeFormula') {

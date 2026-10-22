@@ -20,6 +20,7 @@ import { deleteFormula } from './deleteFormula.js';
 import { loadFormulaBank, formulaBankNow } from './bank/formulaBank.js';
 import { findBankEquation } from './bank/searchBank.js';
 import { expandNodeInPlace } from '../../actions/expandInPlace.js';
+import { webColorPicker } from './webColors.js';
 
 /** A Thing by name, the web's own first, the last match (MEMORY: never the first). */
 function thingNamed(state, graphId, name) {
@@ -39,8 +40,8 @@ function thingNamed(state, graphId, name) {
 
 /**
  * What each symbol means, as the builder's bindings: a Thing the universe has
- * by that name, else a new one named for it. A meaning that is just the
- * symbol again ("x" is "x") leaves it a bare symbol.
+ * by that name, else a new one named for it (in its `color`, when given). A
+ * meaning that is just the symbol again ("x" is "x") leaves it a bare symbol.
  */
 export function bindingsFor(state, graphId, meanings = []) {
   const bindings = {};
@@ -51,7 +52,7 @@ export function bindingsFor(state, graphId, meanings = []) {
     const own = thingNamed(state, graphId, thing);
     bindings[symbol] = own
       ? { protoId: own.id, label: symbol }
-      : { name: thing, label: symbol, description: String(m?.description || '') };
+      : { name: thing, label: symbol, description: String(m?.description || ''), ...(m?.color ? { color: String(m.color) } : {}) };
   }
   return bindings;
 }
@@ -69,10 +70,11 @@ function readOptionsFor(state, bindings, convention = 'math') {
 
 /**
  * Write a formula into a web. `forThing`: a Thing the universe has whose
- * formula this is (the Ideal Gas Law already on the canvas). Returns what
- * buildFormulaInWeb does.
+ * formula this is (the Ideal Gas Law already on the canvas). `color`: the
+ * equation's; what is made new without one takes the web's colors
+ * (webColors.js). Returns what buildFormulaInWeb does.
  */
-export function addFormulaForWizard({ graphId, text, title = '', description = '', meanings = [], forThing = '', convention = 'math' }) {
+export function addFormulaForWizard({ graphId, text, title = '', description = '', meanings = [], forThing = '', convention = 'math', color = '' }) {
   const state = useGraphStore.getState();
   if (!state.graphs.get(graphId)) throw new Error('No web to add the formula to');
   const bindings = bindingsFor(state, graphId, meanings);
@@ -81,6 +83,8 @@ export function addFormulaForWizard({ graphId, text, title = '', description = '
     title: title || holder?.name || '',
     description,
     bindings,
+    ...(color ? { color } : {}),
+    newColor: webColorPicker(state, graphId).next,
     ...(holder ? { protoId: holder.id } : {}),
   });
 }
@@ -91,9 +95,9 @@ export function addFormulaForWizard({ graphId, text, title = '', description = '
  * wizard's tool loaded it to find the entry), so what the wizard does next
  * finds it there.
  */
-export function addBankFormulaForWizard({ graphId, ref }) {
+export function addBankFormulaForWizard({ graphId, ref, color = '' }) {
   const bank = formulaBankNow();
-  if (!bank) return loadFormulaBank().then(() => addBankFormulaForWizard({ graphId, ref }));
+  if (!bank) return loadFormulaBank().then(() => addBankFormulaForWizard({ graphId, ref, color }));
   const found = findBankEquation(bank, ref);
   if (!found) throw new Error(`No equation "${ref}" in the formula bank`);
   const state = useGraphStore.getState();
@@ -101,7 +105,9 @@ export function addBankFormulaForWizard({ graphId, ref }) {
   // The universe has this one already (the starter, an earlier ask): that equation, placed here.
   const thing = bankEquationThing(found.equation);
   if (thing && equationOf(state, thing)) return placeEquation({ graphId, ref: thing.id });
-  return buildBankEquation(found.discipline, found.equation, graphId, spotBelow(state, graphId));
+  return buildBankEquation(found.discipline, found.equation, graphId, spotBelow(state, graphId), {
+    color: color || null, newColor: webColorPicker(state, graphId).next,
+  });
 }
 
 /**
@@ -194,7 +200,8 @@ export function rewriteFormulaForWizard({ graphId, ref, text, title = '', meanin
   if (!f) throw new Error(`No formula "${ref}" in this web`);
   const bindings = bindingsFor(state, graphId, meanings);
   const readOptions = readOptionsFor(state, bindings, convention);
-  if (f.shown === 'formula') return rewriteFormulaInWeb(graphId, f.groupId, text, readOptions, { title, bindings });
+  const newColor = webColorPicker(state, graphId).next;
+  if (f.shown === 'formula') return rewriteFormulaInWeb(graphId, f.groupId, text, readOptions, { title, bindings, newColor });
 
   // Folded or open: its definition is what is rewritten, through a copy of it here.
   const proto = state.nodePrototypes.get(f.equationProtoId);
@@ -205,7 +212,7 @@ export function rewriteFormulaForWizard({ graphId, ref, text, title = '', meanin
   const groupId = state.decomposeNodeToGroup(graphId, proto.id, eq.index, f.anchorId);
   if (!groupId) throw new Error(`Could not open "${f.title}" to rewrite it`);
   useGraphStore.getState().updateGroup(graphId, groupId, (draft) => { draft.format = 'formula'; });
-  const result = rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title, bindings });
+  const result = rewriteFormulaInWeb(graphId, groupId, text, readOptions, { title, bindings, newColor });
   const nodeId = useGraphStore.getState().collapseNodeGroupIntoDefinition(graphId, groupId);
   if (nodeId && f.shown === 'open') {
     expandNodeInPlace({ viewGraphId: graphId, prototypeId: proto.id, definitionIndex: eq.index, instanceId: nodeId });

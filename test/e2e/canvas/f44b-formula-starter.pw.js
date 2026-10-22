@@ -34,9 +34,10 @@ test('F44b the formula starter: nothing offered until added; then listed, and pl
   test.setTimeout(120_000);
   await openFixture(page, 'small');
 
-  // Nothing from the bank yet.
+  // Nothing from the bank yet: the box offers the starter instead of a list.
   await openComposer(page);
-  await expect(page.locator('.format-bank-body')).toContainText('No equations in this universe yet');
+  await expect(page.locator('.format-starter')).toContainText('No equations here yet');
+  await expect(page.locator('.format-bank-row')).toHaveCount(0);
   await shot(page, 's1-empty');
   await page.keyboard.press('Escape');
   await expect(page.locator('.formula-selector')).toHaveCount(0);
@@ -110,4 +111,52 @@ test('F44b the formula starter: nothing offered until added; then listed, and pl
   expect(again).toBe(0);
   expect(await storeEval(page, (st) => st.nodePrototypes.size)).toBe(things);
   expect(await named(page, 'Formulas')).toBe(1);
+});
+
+// The starter offered in New Formula's box, while the universe has none of it
+// and no equations: choose, Add (it asks once more), and the box lists them.
+// From then on the universe says it was added (its Formulas Thing), so the box
+// offers it only from the Starter choice, which adds only what isn't here.
+test('F44b the box offers the starter when there are no equations, then lists them', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openFixture(page, 'small');
+  const offer = page.locator('.formula-selector .format-starter');
+  const press = async (locator) => {
+    const b = await locator.boundingBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  };
+
+  await openComposer(page);
+  await expect(offer).toBeVisible();
+  await shot(page, 'b1-offer');
+  const add = offer.locator('.format-starter-add');
+  await expect(add).toBeDisabled();
+  await press(offer.locator('.format-bank-choice', { hasText: /^Epidemiology/ }));
+  await expect(offer.locator('.format-starter-note')).toContainText(/14 equations, about [\d.]+ MB/);
+  await press(add);
+  await expect(add).toContainText('Add 14?');
+  await shot(page, 'b2-armed');
+  await press(add);
+
+  // Added: the box lists them where the offer was, and stays open.
+  await expect(page.locator('.format-bank-choice.is-on', { hasText: /^Epidemiology$/ })).toHaveCount(1, { timeout: 60_000 });
+  await expect(offer).toHaveCount(0);
+  await expect(page.locator('.formula-selector .format-bank-row').first()).toBeVisible();
+  expect(await named(page, 'Formulas')).toBe(1);
+  expect(await webOf(page, 'Formulas')).toEqual(['Epidemiology']);
+  await shot(page, 'b3-listed');
+
+  // Opened again: listed, not offered. The Starter choice offers the rest.
+  await page.keyboard.press('Escape');
+  await openComposer(page);
+  await expect(offer).toHaveCount(0);
+  const starter = page.locator('.format-bank-choice', { hasText: /^Starter$/ });
+  await press(starter);
+  await expect(offer).toContainText("Adds only what isn't here");
+  await expect(offer.locator('.format-bank-choice', { hasText: /^Epidemiology/ })).toBeDisabled();
+  await shot(page, 'b4-more');
+  // A discipline chosen in the header goes back to the list.
+  await press(page.locator('.format-bank-top .format-bank-choice', { hasText: /^Epidemiology$/ }));
+  await expect(offer).toHaveCount(0);
+  await expect(page.locator('.formula-selector .format-bank-row').first()).toBeVisible();
 });
