@@ -50,9 +50,11 @@ export const useWebCardCornerRadius = (ref, sizingName, { border = 0, fallbackWi
  *
  * `sizingName` sizes the frame (the defining Thing's name, as the canvas sizes
  * it); `title` is what the band says. `drawWeb={false}` leaves the well
- * empty (a card scrolled far out of view), at the same size.
+ * empty (a card scrolled far out of view), at the same size. `newWeb` draws
+ * the well as an empty definition's on the canvas (Node.jsx), a + over
+ * "New Web", for a card that makes one.
  */
-const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = true }) => {
+const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = true, newWeb = false }) => {
   const theme = useTheme();
   const textSettings = useGraphStore((s) => s.textSettings);
   const nodeScale = textSettings?.nodeScale ?? 1;
@@ -123,7 +125,12 @@ const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = tru
         </text>
       ))}
       <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} rx={inner.r} ry={inner.r} fill={theme.canvas.bg} />
-      {!drawWeb ? null : nodes?.length > 0 ? (
+      {newWeb ? (
+        <g fill={theme.canvas.textSecondary} fontFamily="'EmOne', sans-serif" fontWeight="bold" textAnchor="middle">
+          <text x={inner.x + inner.w / 2} y={inner.y + inner.h / 2 - 22 * nodeScale} dominantBaseline="central" fontSize={108 * nodeScale}>+</text>
+          <text x={inner.x + inner.w / 2} y={inner.y + inner.h / 2 + 62 * nodeScale} dominantBaseline="central" fontSize={36 * nodeScale}>New Web</text>
+        </g>
+      ) : !drawWeb ? null : nodes?.length > 0 ? (
         <g transform={`translate(${inner.x}, ${inner.y})`}>
           <InnerNetwork
             nodes={nodes}

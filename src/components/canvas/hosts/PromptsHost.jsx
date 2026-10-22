@@ -16,6 +16,7 @@ import { attachOneShotOutcome } from '../../../services/oneShot.js';
 import { submitAbstraction } from '../actions/abstractionSubmit.js';
 import { suggestConnectionName, fillAbstractionNameSuggestion, suggestEdgeArrowDirectionWith } from '../actions/oneShotSuggestions.js';
 import { performInstanceSwapWith } from '../actions/instanceSwap.js';
+import ThingGroupPrompt from '../thingGroupPrompt/ThingGroupPrompt.jsx';
 
 export default function PromptsHost({ ctx }) {
   const {
@@ -314,6 +315,14 @@ export default function PromptsHost({ ctx }) {
         );
       })()}
 
+      {/* New Thing Group, from the plus sign's bubble (thingGroupPrompt/). */}
+      <ThingGroupPrompt
+        plusSign={plusSign}
+        setPlusSign={setPlusSign}
+        handleNodeSelection={handleNodeSelection}
+        leftPanelExpanded={leftPanelExpanded}
+        rightPanelExpanded={rightPanelExpanded}
+      />
     </Profiler>
   );
 }

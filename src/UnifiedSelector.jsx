@@ -3,7 +3,7 @@ import { sanitizeHtml } from './utils/sanitizeHtml.js';
 import { sanitizeColor } from './utils/safeColor.js';
 import { cssImageUrl } from './utils/safeUrl.js';
 import { createPortal } from 'react-dom';
-import { X, Palette, Plus } from 'lucide-react';
+import { X, Palette, Plus, ChevronLeft } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
 import { getTextColor } from './utils/colorUtils';
 import useGraphStore from "./store/graphStore.js";
@@ -34,7 +34,12 @@ const UnifiedSelector = ({
   rightPanelExpanded = true,
   gridTitle = 'Browse All Things',
   searchOnly = false,
-  allowedPrototypeIds = null
+  allowedPrototypeIds = null,
+  // A page of something else in the grid's box (its own cards) instead of the
+  // Things, with a back arrow by the title and no name field: a second step
+  // that keeps the first step's layout (canvas/thingGroupPrompt).
+  gridContent = null,
+  onBack = null,
 }) => {
   const theme = useTheme();
   const [name, setName] = useState(initialName);
@@ -68,7 +73,7 @@ const UnifiedSelector = ({
   // the dialog authors a new defining Thing, the grid hands the job to one that
   // already exists.
   const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation');
-  const showGrid = mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || mode === 'web-creation' || showCreateNewOption || onNodeSelect;
+  const showGrid = !!gridContent || mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || mode === 'web-creation' || showCreateNewOption || onNodeSelect;
 
   const filteredPrototypes = React.useMemo(() => {
     let prototypes = Array.from(nodePrototypesMap.values());
@@ -320,7 +325,21 @@ const UnifiedSelector = ({
               justifyContent: 'space-between',
               marginBottom: isSmallScreen ? '15px' : '10px'
             }}>
-              <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif", color: theme.canvas.textPrimary }}>{title}</strong>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+                {onBack && (
+                  <span style={{ display: 'contents' }} onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}>
+                    <PanelIconButton
+                      icon={ChevronLeft}
+                      size={closeIconSize}
+                      color={theme.canvas.textPrimary}
+                      onClick={onBack}
+                      title="Back"
+                      style={{ minWidth: iconButtonHitSize, minHeight: iconButtonHitSize, flexShrink: 0, marginLeft: '-8px' }}
+                    />
+                  </span>
+                )}
+                <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif", color: theme.canvas.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</strong>
+              </div>
               {/*
                 display: contents so this adds no box to the header row — it
                 exists only to catch the button's touchend on the way up and
@@ -355,7 +374,7 @@ const UnifiedSelector = ({
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(subtitle) }}
               />
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>
+            {!gridContent && <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>
               {!searchOnly && (
                 <PanelIconButton
                   icon={Palette}
@@ -435,7 +454,7 @@ const UnifiedSelector = ({
                   />
                 </span>
               )}
-            </div>
+            </div>}
           </div>
         )}
 
@@ -497,7 +516,7 @@ const UnifiedSelector = ({
                   }}
                   className="unified-selector-scroll"
                 >
-                  <div
+                  {gridContent || <div
                     style={{
                       display: 'grid',
                       gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
@@ -607,7 +626,7 @@ const UnifiedSelector = ({
                         </span>
                       </div>
                     ))}
-                  </div>
+                  </div>}
                 </div>
               </div>
             </div>

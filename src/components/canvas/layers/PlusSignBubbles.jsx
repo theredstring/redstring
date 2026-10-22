@@ -4,15 +4,17 @@
  * pop out once the plus has turned in, and go back into it as soon as the plus
  * is used (named, morphing) or dismissed.
  *
- * Only one for now: New Formula, the same as the canvas right-click's, placed
- * where the plus sign is.
+ * New Formula, the same as the canvas right-click's, placed where the plus
+ * sign is. New Thing Group: choose a Thing and which Web of it opens there
+ * (thingGroupPrompt/); the plus sign waits meanwhile, then becomes it.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Sigma } from 'lucide-react';
+import { PackageOpen, Sigma } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
 import { PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../constants';
 import { haptic } from '../../../services/haptics.js';
 import { openFormulaComposer } from '../formats/formatsStore.js';
+import { openThingGroupPrompt } from '../thingGroupPrompt/thingGroupPrompt.js';
 
 const BUBBLE_SHARE = 0.46; // diameter, of the plus sign's
 const GAP_SHARE = 0.14; // between the plus and a bubble, of the plus sign's size
@@ -133,6 +135,11 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, gestureBlockRef
     setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
   };
 
+  const newThingGroup = () => {
+    setPlusSign(ps => ps && { ...ps, prompting: true });
+    openThingGroupPrompt();
+  };
+
   return (
     <g transform={`translate(${plusSign.x}, ${plusSign.y})`}>
       <Bubble
@@ -143,6 +150,17 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, gestureBlockRef
         icon={Sigma}
         label="New Formula"
         onActivate={newFormula}
+        gestureBlockRef={gestureBlockRef}
+        isPanningOrZoomingRef={isPanningOrZoomingRef}
+      />
+      <Bubble
+        index={1}
+        plusSize={plusSize}
+        scale={scale}
+        shown={shown}
+        icon={PackageOpen}
+        label="New Thing Group"
+        onActivate={newThingGroup}
         gestureBlockRef={gestureBlockRef}
         isPanningOrZoomingRef={isPanningOrZoomingRef}
       />
