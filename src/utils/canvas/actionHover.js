@@ -43,3 +43,8 @@ export function setActionHover(button) {
 
 /** The button currently shown, or null. */
 export const getActionHoverItem = () => useCanvasUIStore.getState().activePieMenuItemForVision;
+
+/** Take the label down if it is still `id`'s (a button going away, or left). */
+export function clearActionHoverIf(id) {
+  if (getActionHoverItem()?.id === id) setActionHover(null);
+}

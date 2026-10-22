@@ -301,6 +301,11 @@ const ConnectionControlPanel = ({
   const heldPieMenu = (singleEdgeSelected && pieMenuButtons?.length)
     ? { buttons: pieMenuButtons, edgeId: pieMenuTargetEdgeId }
     : (nothingSelected ? lastPieMenuButtonsRef.current : null);
+  // The same for the connections themselves: with nothing selected the panel is
+  // only here to fly out, so it leaves showing what it last held.
+  const lastTriplesRef = useRef([]);
+  if (triples.length > 0) lastTriplesRef.current = triples;
+  const shownTriples = nothingSelected ? lastTriplesRef.current : triples;
 
   return (
     <UnifiedBottomControlPanel
@@ -311,7 +316,7 @@ const ConnectionControlPanel = ({
       onAnimationComplete={onAnimationComplete}
 
       // Connection mode props
-      triples={triples}
+      triples={shownTriples}
       onToggleLeftArrow={handleToggleLeftArrow}
       onToggleRightArrow={handleToggleRightArrow}
       onPredicateClick={handlePredicateClick}

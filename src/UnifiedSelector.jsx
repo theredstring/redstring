@@ -24,7 +24,7 @@ const UnifiedSelector = ({
   onSubmit,
   initialName = '',
   initialColor = null,
-  // The prompt's one line of copy, a call to action ("Name a Thing"). It
+  // The prompt's one line of copy, a call to action ("Choose a Thing"). It
   // heads the box of Things; with no box, it sits above the name field.
   title,
   placeholder = '',
@@ -244,6 +244,9 @@ const UnifiedSelector = ({
           touchAction: 'manipulation'
         }}
         onPointerDown={(e) => e.stopPropagation()} // Stop propagation on backdrop too to prevent canvas panning
+        // Portaled to body but still inside the canvas's React tree, so a wheel
+        // here would bubble to the canvas's onWheel and pan it underneath.
+        onWheel={(e) => e.stopPropagation()}
         onTouchEnd={(e) => {
           if (e.target === e.currentTarget) {
             // Cancel the compat mouse sequence before it can reach the canvas
@@ -286,6 +289,7 @@ const UnifiedSelector = ({
           gap: isSmallScreen ? '12px' : '18px',
           pointerEvents: 'none'
         }}
+        onWheel={(e) => e.stopPropagation()}
       >
         {showDialog && (
           // The name field as a pill: the formula composer's (formats.css), so
@@ -343,7 +347,7 @@ const UnifiedSelector = ({
                   className="unified-selector-control"
                   type="text"
                   value={name}
-                  placeholder={placeholder}
+                  placeholder={placeholder || (searchOnly ? 'Search' : 'Search or Name...')}
                   onChange={(e) => setName(e.target.value)}
                   // Going back to the name puts the colour picker away.
                   onFocus={() => setColorPickerVisible(false)}

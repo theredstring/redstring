@@ -2328,7 +2328,7 @@ const Panel = memo(
             }}
             initialName={typeNamePrompt.name}
             initialColor={typeNamePrompt.color}
-            title={`Name a type for ${typeNamePrompt.targetNodeName}`}
+            title={`Choose a type for ${typeNamePrompt.targetNodeName}`}
             searchTerm={typeNamePrompt.name}
             showCreateNewOption={true}
           />

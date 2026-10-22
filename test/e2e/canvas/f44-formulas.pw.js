@@ -823,6 +823,8 @@ test('F44 the formula panel writes it with names instead of symbols', async ({ p
   const line = () => object(page).locator('g.formula-object-token text').allTextContents().then(t => t.join(' '));
   // I = V/R, a fraction: its bar has no text.
   await expect.poll(line).toBe('Electric Current = Voltage Electrical Resistance');
+  // The panel's own line stays by symbol.
+  await expect(panel(page).locator('.format-panel-formula .formula-tokens')).toHaveText(/^\s*I\s*=\s*V\s*\/?\s*R\s*$/);
   // Only this formula: its names are its own.
   await shot(page, '12-names');
   await panel(page).locator('.piemenu-button[title="Show Symbols"]').click();

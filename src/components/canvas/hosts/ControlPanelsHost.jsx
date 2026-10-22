@@ -138,17 +138,20 @@ export default function ControlPanelsHost({ ctx }) {
   if (selectedNodePrototypes.length > 0) lastSelectedNodePrototypesRef.current = selectedNodePrototypes;
   const lastSelectedNodePrototypes = lastSelectedNodePrototypesRef.current;
 
-  // Use last selected prototypes if current ones are empty but panel is still visible
-  const nodePrototypesForPanel = useMemo(() => {
-    if (selectedNodePrototypes.length > 0) {
-      return selectedNodePrototypes;
-    }
-    // If no current selection but panel is still visible (during exit animation), use last known selection
-    if (nodeControlPanelVisible && lastSelectedNodePrototypes.length > 0) {
-      return lastSelectedNodePrototypes;
-    }
-    return [];
-  }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
+  // With nothing selected the panel is only mounted to fly out, so it keeps
+  // showing the last selection rather than leaving empty.
+  const nodePrototypesForPanel = selectedNodePrototypes.length > 0 ? selectedNodePrototypes : lastSelectedNodePrototypes;
+
+  // The selected connections that still exist. A selection can outlive what it
+  // names (a Thing deleted with its connections, an undo, a web switch); the
+  // panels go by what is there, so one with nothing left in it leaves.
+  const liveSelectedEdge = selectedEdgeId ? edgesMap.get(selectedEdgeId) : undefined;
+  const liveSelectedEdges = useMemo(
+    () => Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean),
+    [selectedEdgeIds, edgesMap]
+  );
+  const liveNodeCount = selectedNodePrototypes.length;
+  const liveEdgeSelected = Boolean(liveSelectedEdge) || liveSelectedEdges.length > 0;
 
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
   // A group or Thing-group that reads as a formula of its own (an equation, not
@@ -425,12 +428,12 @@ export default function ControlPanelsHost({ ctx }) {
 
   // --- Node Control Panel Management ---
   useEffect(() => {
-    const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
+    const nodesSelected = liveNodeCount > 0;
+    const edgeSelected = liveEdgeSelected;
     const isBoxSelecting = marqueeActive;
     // Also show while previewing/decomposing a node, even if it isn't in selectedInstanceIds —
     // the panel switches to 'decompose' mode in that case (see NodeControlPanel render).
-    const multipleSelected = selectedInstanceIds.size > 1;
+    const multipleSelected = liveNodeCount > 1;
     const panelAllowed = nodesSelected
       ? (multipleSelected ? showMultipleNodesControlPanel : showNodeControlPanel)
       : (previewingNodeId ? showNodeControlPanel : false);
@@ -448,12 +451,12 @@ export default function ControlPanelsHost({ ctx }) {
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, marqueeActive, previewingNodeId, showNodeControlPanel, showMultipleNodesControlPanel]);
+  }, [liveNodeCount, liveEdgeSelected, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, marqueeActive, previewingNodeId, showNodeControlPanel, showMultipleNodesControlPanel]);
 
   // --- Connection Control Panel Management (multi-edge selection only) ---
   useEffect(() => {
-    const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
+    const nodesSelected = liveNodeCount > 0;
+    const edgeSelected = liveEdgeSelected;
     const shouldShow = Boolean(showConnectionControlPanel && edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setConnectionControlPanelShouldShow(true);
@@ -468,7 +471,7 @@ export default function ControlPanelsHost({ ctx }) {
     } else if (!shouldShow && connectionControlPanelVisible) {
       setConnectionControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible, showConnectionControlPanel]);
+  }, [liveNodeCount, liveEdgeSelected, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible, showConnectionControlPanel]);
 
 
   // --- Group Control Panel Management ---
@@ -590,8 +593,8 @@ export default function ControlPanelsHost({ ctx }) {
       {
         (connectionControlPanelShouldShow || connectionControlPanelVisible) && (
           <ConnectionControlPanel
-            selectedEdge={edgesMap.get(selectedEdgeId)}
-            selectedEdges={Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean)}
+            selectedEdge={liveSelectedEdge}
+            selectedEdges={liveSelectedEdges}
             isVisible={connectionControlPanelVisible}
             typeListOpen={typeListVisible}
             onAnimationComplete={handleConnectionControlPanelAnimationComplete}

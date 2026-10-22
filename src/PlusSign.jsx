@@ -3,6 +3,11 @@ import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE, PLUS_SIGN_AN
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
 import { safeImageSrc } from './utils/safeUrl.js';
+import { setActionHover, clearActionHoverIf } from './utils/canvas/actionHover.js';
+
+// The plus's own label, in the chip the pie menus' buttons raise (its bubbles
+// raise theirs: PlusSignBubbles).
+const HOVER = { id: 'plus-sign', label: 'Add Thing' };
 
 const PlusSign = ({
   plusSign,
@@ -58,8 +63,15 @@ const PlusSign = ({
     // past the pan/zoom guards and the 300ms dedupe, so this is the one place
     // that means "the plus was actually activated".
     haptic('menuSelect');
+    clearActionHoverIf(HOVER.id);
     onClick?.();
   };
+
+  // Down once it stops being a button (named, morphing, going) or goes.
+  useEffect(() => {
+    if (plusSign.mode !== 'appear' || plusSign.prompting) clearActionHoverIf(HOVER.id);
+  }, [plusSign.mode, plusSign.prompting]);
+  useEffect(() => () => clearActionHoverIf(HOVER.id), []);
 
   useEffect(() => {
     // 'preparing': the node's image is decoding before the morph — hold the plus.
@@ -320,6 +332,8 @@ const PlusSign = ({
       onMouseDown={(e) => {
         sawMouseDownRef.current = true;
       }}
+      onMouseEnter={() => { if (plusSign.mode === 'appear' && !plusSign.prompting) setActionHover(HOVER); }}
+      onMouseLeave={() => clearActionHoverIf(HOVER.id)}
       onPointerDown={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();

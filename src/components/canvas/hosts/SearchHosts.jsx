@@ -124,7 +124,7 @@ function SearchHosts() {
           onClose={closeNewWeb}
           onSubmit={submitNewWeb}
           onNodeSelect={pickNewWebDefiner}
-          title="Name the Thing this Web defines"
+          title="Choose the Thing this Web defines"
         />
       )}
     </Profiler>

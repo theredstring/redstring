@@ -91,7 +91,7 @@
 
 .unified-selector-pill input::placeholder {
   color: maroon;
-  opacity: 0.4;
+  opacity: 0.25;
 }
 
 .unified-selector-pill-icon {

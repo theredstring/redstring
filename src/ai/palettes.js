@@ -48,15 +48,6 @@ export const PALETTES = {
             "red": "#A72706"
         }
     },
-    "teal-gradient": {
-        name: "Teal Gradient",
-        colors: {
-            "darkest": "#203b34",
-            "dark": "#2f523d",
-            "mid": "#97B067",
-            "light": "#dfe362"
-        }
-    },
     "retro": {
         name: "Retro",
         colors: {
@@ -66,22 +57,13 @@ export const PALETTES = {
             "red": "#f24738"
         }
     },
-    "beige-gradient": {
-        name: "Beige Gradient",
-        colors: {
-            "darkest": "#4b4534",
-            "dark": "#615745",
-            "mid": "#786c59",
-            "light": "#e1cdad"
-        }
-    },
     "brown-rainbow": {
         name: "Brown Rainbow",
         colors: {
             "brown": "#4f2215",
             "orange": "#d66b00",
             "red": "#c42f21",
-            "tan": "#967159"
+            "gold": "#d1a728"
         }
     },
     "taffy": {
@@ -109,6 +91,24 @@ export const PALETTES = {
             "lime": "#81a607",
             "orange": "#d46d00",
             "red": "#bd2626"
+        }
+    },
+    "green-gradient": {
+        name: "Green Gradient",
+        colors: {
+            "darkest": "#203b34",
+            "dark": "#2f523d",
+            "mid": "#97B067",
+            "light": "#dfe362"
+        }
+    },
+    "beige-gradient": {
+        name: "Beige Gradient",
+        colors: {
+            "darkest": "#4b4534",
+            "dark": "#615745",
+            "mid": "#786c59",
+            "light": "#e1cdad"
         }
     },
     "purple-gradient": {

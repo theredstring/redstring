@@ -8,7 +8,8 @@
  * sign is. New Thing Group: choose a Thing and which Web of it opens there
  * (thingGroupPrompt/); the plus sign waits meanwhile, then becomes it. And,
  * last, while something is copied: Paste, as the right-click's, centred there;
- * one Thing copied, the plus sign morphs into it as it does into a chosen Thing.
+ * one Thing copied, the plus sign morphs into it as it does into a chosen Thing;
+ * more, they grow out of it (spawn/nodeSpawn.js).
  */
 import { useEffect, useRef, useState } from 'react';
 import { ClipboardPaste, Sigma } from 'lucide-react';
@@ -17,8 +18,10 @@ import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { pasteClipboard, pasteLabelFor } from '../../../utils/clipboard.js';
 import { getNodeDimensions } from '../../../utils.js';
+import { queueNodeSpawn } from '../spawn/nodeSpawn.js';
 import { PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../constants';
 import { haptic } from '../../../services/haptics.js';
+import { setActionHover, clearActionHoverIf } from '../../../utils/canvas/actionHover.js';
 import { openFormulaComposer } from '../formats/formatsStore.js';
 import { openThingGroupPrompt } from '../thingGroupPrompt/thingGroupPrompt.js';
 
@@ -39,6 +42,12 @@ function Bubble({ index, plusSize, scale, shown, icon: Icon, label, onActivate, 
   const moved = useRef(false);
   const start = useRef(null);
   const lastFire = useRef(0);
+  // Its label, in the chip the pie menus' buttons raise.
+  const hoverId = `plus-bubble-${index}`;
+  useEffect(() => {
+    if (!shown) clearActionHoverIf(hoverId);
+    return () => clearActionHoverIf(hoverId);
+  }, [shown, hoverId]);
 
   // Same guards as the plus sign's own press: not during or just after a pan or
   // pinch, only for a press that started here, and once per press.
@@ -49,6 +58,7 @@ function Bubble({ index, plusSize, scale, shown, icon: Icon, label, onActivate, 
     if (now - lastFire.current < 300) return;
     lastFire.current = now;
     haptic('menuSelect');
+    clearActionHoverIf(hoverId);
     onActivate();
   };
   const track = (cx, cy) => {
@@ -77,6 +87,8 @@ function Bubble({ index, plusSize, scale, shown, icon: Icon, label, onActivate, 
         WebkitTapHighlightColor: 'transparent',
       }}
       onMouseDown={(e) => e.stopPropagation()}
+      onMouseEnter={() => { if (shown) setActionHover({ id: hoverId, label }); }}
+      onMouseLeave={() => clearActionHoverIf(hoverId)}
       onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
       onPointerDown={(e) => {
         halt(e);
@@ -111,7 +123,6 @@ function Bubble({ index, plusSize, scale, shown, icon: Icon, label, onActivate, 
         moved.current = true;
       }}
     >
-      <title>{label}</title>
       <g className="pie-bubble-hover">
         {/* A touch-sized target even when the bubble is drawn small. */}
         <circle r={Math.max(22, size / 2)} fill="transparent" stroke="none" />
@@ -168,7 +179,16 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, clipboardRef, h
     });
     const result = pasteClipboard(clip, store.activeGraphId, { x: plusSign.x - halfW, y: plusSign.y - halfH }, store, graph, getNodeDimensions);
     setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
-    if (result?.newInstanceIds?.length) useCanvasUIStore.getState().setSelectedInstanceIds(new Set(result.newInstanceIds));
+    if (!result?.newInstanceIds?.length) return;
+    // They come out of the plus sign as it goes.
+    const placed = useGraphStore.getState().graphs.get(store.activeGraphId)?.instances;
+    queueNodeSpawn({
+      instanceIds: result.newInstanceIds,
+      edgeIds: result.newEdgeIds,
+      origin: { x: plusSign.x, y: plusSign.y },
+      positions: new Map(result.newInstanceIds.map(id => [id, placed?.get(id)]).filter(([, p]) => p)),
+    });
+    useCanvasUIStore.getState().setSelectedInstanceIds(new Set(result.newInstanceIds));
   };
 
   const newThingGroup = () => {
@@ -184,7 +204,7 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, clipboardRef, h
         scale={scale}
         shown={shown}
         icon={Sigma}
-        label="New Formula"
+        label="Add Formula"
         onActivate={newFormula}
         gestureBlockRef={gestureBlockRef}
         isPanningOrZoomingRef={isPanningOrZoomingRef}
@@ -195,7 +215,7 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, clipboardRef, h
         scale={scale}
         shown={shown}
         icon={GraphStar}
-        label="New Thing Group"
+        label="Add Web"
         onActivate={newThingGroup}
         gestureBlockRef={gestureBlockRef}
         isPanningOrZoomingRef={isPanningOrZoomingRef}

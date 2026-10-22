@@ -172,7 +172,7 @@ export default function PromptsHost({ ctx }) {
               onNodeSelect={handleNodeSelection}
               initialName={nodeNamePrompt.name}
               initialColor={nodeNamePrompt.color}
-              title="Name a Thing"
+              title="Choose a Thing"
               searchTerm={nodeNamePrompt.name}
             />
           );
@@ -217,7 +217,7 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={connectionNamePrompt.name}
               initialColor={connectionNamePrompt.color}
-              title="Name a Connection"
+              title="Choose a Connection"
               placeholder="e.g. supports"
               searchTerm={connectionNamePrompt.name}
             />
@@ -276,7 +276,7 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={nodeGroupPrompt.name}
               initialColor={nodeGroupPrompt.color}
-              title="Name the Thing this Group defines"
+              title="Choose the Thing this Group defines"
               searchTerm={nodeGroupPrompt.name}
             />
           );
@@ -305,7 +305,7 @@ export default function PromptsHost({ ctx }) {
             }}
             initialName={abstractionPrompt.name}
             initialColor={abstractionPrompt.color}
-            title={`Name a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} Thing`}
+            title={`Choose a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} Thing`}
             abstractionDirection={abstractionPrompt.direction}
           />
         );

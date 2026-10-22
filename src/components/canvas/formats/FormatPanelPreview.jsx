@@ -2,12 +2,13 @@
  * The group control panel's format mode (UnifiedBottomControlPanel mode
  * "format"): what tells the panel a group reads as a formula, and the formula
  * it shows while the group is shown as one, written as the canvas writes it
- * (its text, no chip). ◀ ▶ in the panel swap formats.
+ * (its text, no chip), always by its symbols, whatever the canvas has written
+ * by name. ◀ ▶ in the panel swap formats.
  */
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import useGraphStore from '../../../store/graphStore.js';
 import { readGroupFormula } from './formatCandidates.js';
-import { tokensOf, expandFor } from './formula/formulaChain.js';
+import { tokensOf } from './formula/formulaChain.js';
 import { useGroupFormulaText } from './groupFormats.js';
 import useFormatsStore, { selectStandard } from './formatsStore.js';
 import FormulaTokens from './formula/FormulaTokens.jsx';
@@ -46,13 +47,11 @@ function useFitTokens(boxRef, tokens) {
 export default function FormatPanelPreview({ groupId }) {
   const formulaText = useGroupFormulaText(groupId);
   const standard = useFormatsStore(selectStandard);
-  const names = useFormatsStore(s => s.namesShown.has(groupId));
-  const flipped = useFormatsStore(s => s.flipped.get(groupId));
   const tokens = useMemo(() => {
     if (!formulaText) return null;
     const chain = readGroupFormula(useGraphStore.getState(), useGraphStore.getState().activeGraphId, groupId);
-    return chain ? tokensOf(chain, { standard, stack: false, expand: expandFor(names, flipped) }) : null;
-  }, [formulaText, groupId, standard, names, flipped]);
+    return chain ? tokensOf(chain, { standard, stack: false }) : null;
+  }, [formulaText, groupId, standard]);
   const boxRef = useRef(null);
   useFitTokens(boxRef, tokens);
   if (!tokens) return null;

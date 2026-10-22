@@ -20,6 +20,7 @@ import { showContextMenu } from '../../GlobalContextMenu';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import FormulaObjectsLayer from '../formats/formula/FormulaObjectsLayer.jsx';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
+import NodeSpawnLayer from '../spawn/NodeSpawnLayer.jsx';
 
 function NodeLayer({
   part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, draggingGroupId, marqueeActive,
@@ -152,6 +153,9 @@ function NodeLayer({
 
         {/* Formulas shown in place, where their Things were (formats/formula) */}
         <FormulaObjectsLayer draggingGroupId={draggingGroupId} />
+
+        {/* Things just added in a batch grow in (spawn/nodeSpawn.js) */}
+        <NodeSpawnLayer />
       </>
     );
   }

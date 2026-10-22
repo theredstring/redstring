@@ -341,13 +341,13 @@ Choose a palette and use its color names for all \`color\` fields. Use palette n
 - **piedmont**: dark-green, olive, tan, orange
 - **coastal-plain**: navy-blue, blue, sky-blue, tan
 - **safari**: green, tan, orange, red
-- **teal-gradient**: darkest, dark, mid, light
 - **retro**: teal, yellow, orange, red
-- **beige-gradient**: darkest, dark, mid, light
-- **brown-rainbow**: brown, orange, red, tan
+- **brown-rainbow**: brown, orange, red, gold
 - **taffy**: pink, navy, blue, teal
 - **sunset**: blue, purple, pink, orange
 - **tropical**: green, lime, orange, red
+- **green-gradient**: darkest, dark, mid, light
+- **beige-gradient**: darkest, dark, mid, light
 - **purple-gradient**: darkest, dark, mid, light
 `;
 
