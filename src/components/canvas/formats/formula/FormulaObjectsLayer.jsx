@@ -37,7 +37,7 @@ import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../.
 import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
 import { formulaSpawnStart, SPAWN_MS, LEAVE_MS, leavingFormulasNow, subscribeLeavingFormulas } from './formulaSpawn.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
-import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupElements.jsx';
+import { NODE_GROUP_INTERIOR_TINT, GROUP_SELECTION_STROKE as SELECTION_STROKE, groupLiftShadow } from '../../groups/groupElements.jsx';
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf, vectorOf } from './formulaChain.js';
@@ -702,12 +702,6 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
     <g transform={`translate(${o.x} ${o.y})`}>
       <g style={liftStyle}>
         {lifted && groupLiftShadowOn(liftShadow) && groupLiftShadow('box', box(frame), G.nodeGroupCornerRadius)}
-        {selected && (
-          <GlideRect
-            r={{ x: frame.x - 10 - o.x, y: frame.y - 10 - o.y, w: frame.w + 20, h: frame.h + 20 }}
-            rx={G.nodeGroupCornerRadius + 10} fill="none" stroke={color} strokeOpacity={0.35} strokeWidth={8}
-          />
-        )}
         {/* A mask, not a clip: it hides what hasn't grown in yet without
             hiding it from a click, so the formula takes input from its first frame. */}
         {spawning && (
@@ -724,7 +718,11 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
           data-formula-target={TITLE_TARGET}
           data-formula-proto={obj.equationProtoId || undefined}
         >
-          <GlideRect r={box(frame)} rx={G.nodeGroupCornerRadius} fill={spawning ? mixColor(PLUS_LIGHT, color, grown * 1.5) : color} />
+          {/* Selected, it wears a selected Thing's black stroke. */}
+          <GlideRect
+            r={box(frame)} rx={G.nodeGroupCornerRadius} fill={spawning ? mixColor(PLUS_LIGHT, color, grown * 1.5) : color}
+            stroke={selected ? 'black' : 'none'} strokeWidth={SELECTION_STROKE}
+          />
           {obj.title && (
             <TitleText
               at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}

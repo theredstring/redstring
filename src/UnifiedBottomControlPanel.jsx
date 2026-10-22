@@ -1319,6 +1319,17 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Ungroup size={iconSize} />
                 </div>
+                {onDelete && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onDelete}
+                    title="Delete"
+                    onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Trash2 size={iconSize} />
+                  </div>
+                )}
               </>
             ) : isGroup ? (
               // Group mode: Show group actions (ungroup, edit, color, convert to node-group)

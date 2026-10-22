@@ -116,15 +116,18 @@ function FittedFormula({ tokens }) {
   );
 }
 
-/** More of a list: the panels' Show More pill. `opens`: it opens the section rather than lengthening the list. */
-function ShowMore({ count, opens = false, onClick }) {
+/**
+ * The panels' outlined pill under a list: Show More lengthens it where it is;
+ * a section's pill (`label`, ChevronRight) opens the section instead, and says so.
+ */
+function MorePill({ label, icon = ChevronDown, onClick }) {
   return (
     <div className="format-bank-more">
       <PanelIconButton
         className="unified-selector-control"
-        icon={opens ? ChevronRight : ChevronDown}
+        icon={icon}
         size={14}
-        label={`Show More (${count})`}
+        label={label}
         labelPosition="left"
         labelFontSize={11}
         variant="outline"
@@ -204,7 +207,7 @@ function KnownInSection({ bank, discipline, section }) {
       ))}
       </div>
       {list.length > shown && (
-        <ShowMore count={list.length - shown} onClick={() => setShown(s => s + KNOWN_SHOWN * 4)} />
+        <MorePill label={`Show More (${list.length - shown})`} onClick={() => setShown(s => s + KNOWN_SHOWN * 4)} />
       )}
     </div>
   );
@@ -233,7 +236,7 @@ function GroupedBySection({ discipline, standard, onPick, onSection }) {
             ))}
           </div>
           {entries.length > PER_SECTION && (
-            <ShowMore count={entries.length - PER_SECTION} opens onClick={() => onSection(section.id)} />
+            <MorePill label={`All of ${section.name} (${entries.length})`} icon={ChevronRight} onClick={() => onSection(section.id)} />
           )}
         </div>
       ))}
@@ -249,7 +252,7 @@ function GroupedBySection({ discipline, standard, onPick, onSection }) {
             ))}
           </div>
           {groups.rest.length > restShown && (
-            <ShowMore count={groups.rest.length - restShown} onClick={() => setRestShown(n => n + PER_SECTION * 10)} />
+            <MorePill label={`Show More (${groups.rest.length - restShown})`} onClick={() => setRestShown(n => n + PER_SECTION * 10)} />
           )}
         </div>
       )}

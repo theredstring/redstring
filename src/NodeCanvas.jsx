@@ -3505,9 +3505,9 @@ function NodeCanvas() {
   const groupInputHandlers = useMemo(() => createGroupInputHandlers(groupInputCtxRef), [groupInputCtxRef]);
   const draggingGroupId = draggingNodeInfo?.groupId ?? null;
   const groupElements = useMemo(() => buildGroupElements({
-    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, editingGroupId, tempGroupName,
+    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName,
     theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers, liftedThingShadow: useGraphStore.getState().liftedThingShadow,
-  }), [groupLayouts, groupStructure, draggingGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
+  }), [groupLayouts, groupStructure, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
 
   // Publish the layout to the refs the rest of the canvas reads (groupLayouts.js).
   publishGroupLayouts(groupLayouts, groupTitleRectsRef, anchorPositionUpdatesRef);

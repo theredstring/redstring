@@ -18,6 +18,8 @@ import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from
 
 // Node-group interiors take this much of the group colour over the canvas.
 export const NODE_GROUP_INTERIOR_TINT = 0.07;
+// A selected Thing-group's band (and a formula's) wears a selected Thing's black stroke, this wide.
+export const GROUP_SELECTION_STROKE = 12;
 
 /**
  * A lifted group's shadow, fast form only — see groupLiftShadow.js. Plain
@@ -48,7 +50,7 @@ export function groupLiftShadow(kind, box, cornerR, transform) {
 }
 
 export function buildGroupElements({
-  groupLayouts, groupDepths, draggingGroupId, editingGroupId, tempGroupName,
+  groupLayouts, groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName,
   theme, gridActive, gridPatternId, groupEditInputRef, handlers, liftedThingShadow,
 }) {
   const { entries: groupEntries, groupCount, groupLabelScale, groupLabelFontSize } = groupLayouts;
@@ -251,7 +253,8 @@ export function buildGroupElements({
               via the title label. The interior is canvas: handleCanvasClick
               treats a click on .node-group-interior like one on bare canvas. */}
           <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
-            rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none"
+            rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor}
+            stroke={selectedGroupId === group.id ? 'black' : 'none'} strokeWidth={GROUP_SELECTION_STROKE}
             pointerEvents="none" />
           <rect
             className="node-group-interior"

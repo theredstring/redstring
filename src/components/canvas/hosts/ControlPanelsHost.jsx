@@ -31,6 +31,7 @@ import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { deleteFormula } from '../formats/formula/deleteFormula.js';
+import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
 import { Superscript, WholeWord } from 'lucide-react';
@@ -214,6 +215,14 @@ export default function ControlPanelsHost({ ctx }) {
     setSelectedGroup(null);
     setGroupControlPanelVisible(false);
   }, [activeGraphId, selectedGroup, setGroupControlPanelVisible]);
+
+  // A Thing-group's Delete: the group and its Things, shrinking away.
+  const handleNodeGroupDelete = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    deleteNodeGroup(activeGraphId, selectedGroup.id, captureDeletionGhosts);
+    setSelectedGroup(null);
+    setGroupControlPanelVisible(false);
+  }, [activeGraphId, selectedGroup, captureDeletionGhosts, setGroupControlPanelVisible]);
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
@@ -559,6 +568,7 @@ export default function ControlPanelsHost({ ctx }) {
             onAnimationComplete={handleGroupControlPanelAnimationComplete}
             selectedGroup={groupPanelTarget}
             onUngroup={handleGroupPanelUngroup}
+            {...(groupPanelMode === 'nodegroup' ? { onDelete: handleNodeGroupDelete } : {})}
             onGroupEdit={handleGroupPanelEdit}
             onGroupColor={handleGroupPanelColor}
             onConvertToNodeGroup={handleGroupPanelConvertToNodeGroup}
