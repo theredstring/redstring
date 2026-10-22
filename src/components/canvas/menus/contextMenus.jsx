@@ -8,7 +8,7 @@ import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Gri
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { getNodeDimensions } from '../../../utils.js';
-import { pasteClipboard } from '../../../utils/clipboard.js';
+import { pasteClipboard, pasteLabelFor } from '../../../utils/clipboard.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { webFacts } from '../../../wizard/prompts/facts.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
@@ -110,41 +110,11 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
   ];
 
   // Paste — only when the clipboard holds Redstring-ready node content and
-  // there's an active graph to drop it into. The label reflects the shape of
-  // what was copied (connections between selected nodes are captured on copy):
-  //   1 node                              → Paste Thing
-  //   many nodes, no connections          → Paste Things
-  //   exactly 2 nodes + 1 directed edge   → Paste Triplet
-  //   many nodes + any connections        → Paste Web
+  // there's an active graph to drop it into, named for what was copied
+  // (pasteLabelFor).
   const clip = clipboardRef.current;
-  if (activeGraphId && Array.isArray(clip?.nodes) && clip.nodes.length > 0) {
-    const nodeCount = clip.nodes.length;
-    const edges = Array.isArray(clip.edges) ? clip.edges : [];
-    const edgeCount = edges.length;
-
-    // A triplet is strictly subject → connection → object: exactly 2 nodes,
-    // exactly 1 connection between them, pointing exactly one way.
-    // Everything else with connections is a Web. Specifically NOT a triplet:
-    //   - more than 2 nodes
-    //   - undirected connection (0 arrows)
-    //   - doubly-connected / bidirectional (2 arrows)
-    const soleEdgeArrows = edgeCount === 1
-      ? edges[0]?.edgeData?.directionality?.arrowsToward
-      : null;
-    const arrowCount = soleEdgeArrows instanceof Set
-      ? soleEdgeArrows.size
-      : (Array.isArray(soleEdgeArrows) ? soleEdgeArrows.length : 0);
-    const isTriplet = nodeCount === 2 && edgeCount === 1 && arrowCount === 1;
-
-    let pasteLabel;
-    if (edgeCount === 0) {
-      pasteLabel = nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
-    } else if (isTriplet) {
-      pasteLabel = 'Paste Triplet';
-    } else {
-      pasteLabel = 'Paste Web';
-    }
-
+  const pasteLabel = pasteLabelFor(clip);
+  if (activeGraphId && pasteLabel) {
     options.push({
       label: pasteLabel,
       icon: <ClipboardPaste size={14} />,

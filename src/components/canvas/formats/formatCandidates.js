@@ -48,12 +48,12 @@ function isPartOf(state, view, g) {
 
 /**
  * Whether a group is an equation, shown as a formula or not: shown as one, or
- * linked to one while shown as its Things, or a Thing-group that reads as a
- * whole formula (an equation is its Thing).
+ * linked to one while shown as its Things, or a Thing-group (or a Thing opened
+ * in place) that reads as a whole formula (an equation is its Thing).
  */
 function isEquationGroup(state, view, g) {
   if (g.format || g.linkedFormat) return true;
-  return !!g.linkedNodePrototypeId && !g.isOpenDefinition && !isPartOf(state, view, g) && !!readFormulaGroup(state, view, g);
+  return !!g.linkedNodePrototypeId && !isPartOf(state, view, g) && !!readFormulaGroup(state, view, g);
 }
 
 /** Whether a web is the definition of an equation's Thing (its formula, as Things). */
@@ -61,6 +61,10 @@ function definesEquation(state, graphId) {
   const defines = state.graphs.get(graphId)?.definingNodeIds;
   if (!defines?.length) return false;
   for (const [otherId, other] of state.graphs) {
+    // A node folded from an equation keeps how it was shown (graphStore.moveFormat).
+    for (const inst of other.instances?.values() || []) {
+      if ((inst.format || inst.linkedFormat) && defines.includes(inst.prototypeId)) return true;
+    }
     for (const g of other.groups?.values() || []) {
       if (!defines.includes(g.linkedNodePrototypeId)) continue;
       if (g.format || g.linkedFormat) return true;
@@ -122,13 +126,13 @@ export function findFormatCandidate(state, { selectedInstanceIds, selectedGroupI
 
 /**
  * The formula a group reads as, or null: what the group control panel's format
- * mode swaps to.
+ * mode swaps to. A Thing opened in place reads as its definition does.
  */
 export function readGroupFormula(state, graphId, groupId) {
   if (!graphId || !groupId) return null;
   const view = projectGraphView(state, graphId);
   const group = view?.groups?.get(groupId);
-  if (!group || group.isOpenDefinition) return null;
+  if (!group) return null;
   return readFormulaGroup(state, view, group);
 }
 

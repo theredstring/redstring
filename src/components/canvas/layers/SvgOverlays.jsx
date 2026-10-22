@@ -13,7 +13,7 @@ export default function SvgOverlays({ ctx }) {
   const {
     selectionStart, setMarqueeRectEl, plusSign, handlePlusSignClick, handleMorphDone, setPlusSign,
     gestureBlockRef, isPanningOrZooming, getPlusSignMorphTarget, textSettings, videoAnimation,
-    handleVideoAnimationComplete,
+    handleVideoAnimationComplete, clipboardRef, handleNodeSelection,
   } = ctx;
 
   return (
@@ -33,6 +33,8 @@ export default function SvgOverlays({ ctx }) {
         <PlusSignBubbles
           plusSign={plusSign}
           setPlusSign={setPlusSign}
+          clipboardRef={clipboardRef}
+          handleNodeSelection={handleNodeSelection}
           gestureBlockRef={gestureBlockRef}
           isPanningOrZoomingRef={isPanningOrZooming}
         />

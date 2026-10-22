@@ -6,12 +6,17 @@
  *
  * New Formula, the same as the canvas right-click's, placed where the plus
  * sign is. New Thing Group: choose a Thing and which Web of it opens there
- * (thingGroupPrompt/); the plus sign waits meanwhile, then becomes it.
+ * (thingGroupPrompt/); the plus sign waits meanwhile, then becomes it. And,
+ * last, while something is copied: Paste, as the right-click's, centred there;
+ * one Thing copied, the plus sign morphs into it as it does into a chosen Thing.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Sigma } from 'lucide-react';
+import { ClipboardPaste, Sigma } from 'lucide-react';
 import GraphStar from './graphStarIcon.js';
 import useGraphStore from '../../../store/graphStore.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { pasteClipboard, pasteLabelFor } from '../../../utils/clipboard.js';
+import { getNodeDimensions } from '../../../utils.js';
 import { PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../constants';
 import { haptic } from '../../../services/haptics.js';
 import { openFormulaComposer } from '../formats/formatsStore.js';
@@ -117,7 +122,7 @@ function Bubble({ index, plusSize, scale, shown, icon: Icon, label, onActivate, 
   );
 }
 
-export default function PlusSignBubbles({ plusSign, setPlusSign, gestureBlockRef, isPanningOrZoomingRef }) {
+export default function PlusSignBubbles({ plusSign, setPlusSign, clipboardRef, handleNodeSelection, gestureBlockRef, isPanningOrZoomingRef }) {
   const scale = useGraphStore(s => s.textSettings?.plusSignScale ?? 1.0);
   const plusSize = PLUS_SIGN_SIZE * scale;
   // Mounted hidden, then shown, so they pop out rather than appear in place.
@@ -134,6 +139,36 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, gestureBlockRef
     // Where the right-click would have put it: the spot the plus sign marks.
     openFormulaComposer(graphId, { x: plusSign.x, y: plusSign.y });
     setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+  };
+
+  // Every clipboard write bumps clipboardVersion, so this follows a copy.
+  useCanvasUIStore(s => s.clipboardVersion);
+  const pasteLabel = pasteLabelFor(clipboardRef?.current);
+
+  const paste = () => {
+    const clip = clipboardRef?.current;
+    const store = useGraphStore.getState();
+    const graph = store.graphs.get(store.activeGraphId);
+    if (!clip || !graph) return;
+    // One Thing: the plus sign becomes it (the selector's path, images and all).
+    const only = clip.nodes.length === 1 ? store.nodePrototypes.get(clip.nodes[0].prototypeId) : null;
+    if (only && !clip.edges?.length) {
+      setPlusSign(ps => ps && { ...ps, pastedLabels: clip.nodes[0].labels || null });
+      handleNodeSelection(only);
+      return;
+    }
+    // Paste lines up the copied Things' corners on its point; move that point
+    // so their middle lands where the plus sign is, as a Thing made from it does.
+    let halfW = 0;
+    let halfH = 0;
+    clip.nodes.forEach((n) => {
+      const dims = getNodeDimensions({ ...store.nodePrototypes.get(n.prototypeId), scale: n.scale }, false, null);
+      halfW += dims.currentWidth / 2 / clip.nodes.length;
+      halfH += dims.currentHeight / 2 / clip.nodes.length;
+    });
+    const result = pasteClipboard(clip, store.activeGraphId, { x: plusSign.x - halfW, y: plusSign.y - halfH }, store, graph, getNodeDimensions);
+    setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+    if (result?.newInstanceIds?.length) useCanvasUIStore.getState().setSelectedInstanceIds(new Set(result.newInstanceIds));
   };
 
   const newThingGroup = () => {
@@ -165,6 +200,19 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, gestureBlockRef
         gestureBlockRef={gestureBlockRef}
         isPanningOrZoomingRef={isPanningOrZoomingRef}
       />
+      {pasteLabel && (
+        <Bubble
+          index={2}
+          plusSize={plusSize}
+          scale={scale}
+          shown={shown}
+          icon={ClipboardPaste}
+          label={pasteLabel}
+          onActivate={paste}
+          gestureBlockRef={gestureBlockRef}
+          isPanningOrZoomingRef={isPanningOrZoomingRef}
+        />
+      )}
     </g>
   );
 }

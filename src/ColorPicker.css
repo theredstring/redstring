@@ -128,6 +128,7 @@
 .color-picker-palettes {
   max-height: 232px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0 -6px;
   padding: 3px 6px;
   display: flex;

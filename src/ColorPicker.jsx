@@ -364,6 +364,27 @@ const ColorPicker = ({
     };
   }, [isPicking, applySampledColor]);
 
+  // A wheel over the picker is the picker's. Stopped natively on the panel so it
+  // reaches neither the canvas (whose React onWheel would otherwise get it
+  // through the tree) nor a selector's own wheel listener, and its default is
+  // cancelled unless the palette list can still scroll that way, so nothing
+  // underneath scrolls either. While the eyedropper is armed the wheel is left
+  // alone: panning and zooming to find a colour is part of picking.
+  useEffect(() => {
+    const panel = pickerRef.current;
+    if (!isVisible || isPicking || !panel) return;
+    const onWheel = (e) => {
+      e.stopPropagation();
+      const list = e.target.closest?.('.color-picker-palettes');
+      const canScroll = list && (e.deltaY < 0
+        ? list.scrollTop > 0
+        : list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+      if (!canScroll) e.preventDefault();
+    };
+    panel.addEventListener('wheel', onWheel, { passive: false });
+    return () => panel.removeEventListener('wheel', onWheel);
+  }, [isVisible, isPicking]);
+
   // A picker that goes away mid-pick leaves no listeners behind.
   useEffect(() => {
     if (!isVisible && isPicking) {

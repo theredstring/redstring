@@ -34,6 +34,7 @@ import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from '
 import { importFromRedstring } from '../formats/redstringFormat.js';
 import { userDataCounts } from '../formats/userDataCounts.js';
 import { mergeUniverses } from '../formats/mergeUniverses.js';
+import { restoreFormulaParts } from '../components/canvas/formats/formula/formulaParts.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import {
   PLACEHOLDER_ID_PREFIX,
@@ -1111,6 +1112,20 @@ const copyGroupsInto = (draft, { sourceGraph, targetGraph, instanceIdMap, offset
  * @param {Set<string>} instanceIdSet
  * @returns {boolean}
  */
+/**
+ * Moves how a Thing-group is shown (formats/: `format`, 'formula') and the format
+ * it is still linked to while shown as its Things (`linkedFormat`) between the
+ * group and its node. The group holds them while it is open; folded, its node
+ * does, so opening it again shows it the same way. Per placement: another
+ * instance of the same Thing opens as its Things.
+ */
+const moveFormat = (from, to) => {
+  for (const key of ['format', 'linkedFormat']) {
+    if (from?.[key]) to[key] = from[key]; else delete to[key];
+    if (from) delete from[key];
+  }
+};
+
 const isGroupContainedInInstances = (group, instanceIdSet) => {
   if (!group) return false;
   // Anchor first: an empty node-group placeholder has no members to test with.
@@ -2411,21 +2426,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     updateGroup: (graphId, groupId, recipe, contextOptions = {}) => {
-      // An open box's group only exists in the view; its name and color are the Thing's.
+      // An open box's group only exists in the view; its name and color are the
+      // Thing's, and how it is shown (format) is its node's.
       if (anchorIdFromOpenGroupId(groupId)) {
         const view = get().graphs.get(graphId);
         const state = get();
-        const owner = openOwnerOf(state, graphId, anchorIdFromOpenGroupId(groupId));
-        const anchor = state.graphs.get(owner?.graphId || graphId)?.instances?.get(anchorIdFromOpenGroupId(groupId));
+        const anchorId = anchorIdFromOpenGroupId(groupId);
+        const ownerGraphId = openOwnerOf(state, graphId, anchorId)?.graphId || graphId;
+        const anchor = state.graphs.get(ownerGraphId)?.instances?.get(anchorId);
         const prototype = anchor ? state.nodePrototypes.get(anchor.prototypeId) : null;
         if (!view || !prototype) return;
-        const standIn = { id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [] };
+        const standIn = {
+          id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [],
+          ...(anchor.format ? { format: anchor.format } : {}),
+          ...(anchor.linkedFormat ? { linkedFormat: anchor.linkedFormat } : {}),
+        };
         recipe(standIn);
         const nameChanged = standIn.name !== prototype.name;
         const colorChanged = standIn.color !== prototype.color;
-        if (!nameChanged && !colorChanged) return;
+        const formatChanged = (standIn.format || null) !== (anchor.format || null)
+          || (standIn.linkedFormat || null) !== (anchor.linkedFormat || null);
+        if (!nameChanged && !colorChanged && !formatChanged) return;
         api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
-        return set(produce((draft) => syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged)));
+        return set(produce((draft) => {
+          if (nameChanged || colorChanged) syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged);
+          const draftAnchor = draft.graphs.get(ownerGraphId)?.instances?.get(anchorId);
+          if (formatChanged && draftAnchor) moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat }, draftAnchor);
+        }));
       }
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
@@ -2978,6 +3005,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             }
           });
 
+          // The groups inside it go too (a formula's parentheses are Thing-groups
+          // inside the equation's), or the definition holds each part's Thing
+          // beside its own parts and no longer reads as what it was.
+          copyGroupsInto(draft, {
+            sourceGraph: graph,
+            targetGraph: defGraphData,
+            instanceIdMap,
+            excludeGroupIds: [groupId],
+          });
+
           draft.graphs.set(defGraphId, defGraphData);
 
           // Add definition to prototype
@@ -3115,6 +3152,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           delete anchorInstance.anchorForGroupId;
           anchorInstance.x = position.x;
           anchorInstance.y = position.y;
+          moveFormat(group, anchorInstance);
           createdInstanceId = anchorId;
         } else {
           // No anchor — create a new instance (legacy behavior)
@@ -3129,6 +3167,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             y: position.y,
             scale: 1
           });
+          moveFormat(group, graph.instances.get(newInstanceId));
         }
 
         // Transfer edges from members to the surviving instance
@@ -3643,6 +3682,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             lastModified: new Date().toISOString()
           }
         });
+        moveFormat(originalInstance, graph.groups.get(groupId));
 
         // Nested decompose: if the original instance was itself inside other
         // groups, the new members belong to those groups too, or the new group's
@@ -3783,6 +3823,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             lastModified: new Date().toISOString()
           }
         });
+        moveFormat(originalInstance, graph.groups.get(groupId));
 
         createdGroupId = groupId;
         console.log(`[decomposeEmptyNodeToGroup] Opened empty node-group ${groupId} for "${prototype.name}", definition graph ${defGraphId}.`);
@@ -9055,6 +9096,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         });
 
         sanitizeStoreStateReferences(storeState);
+
+        // Upgrade: equations whose definitions lost their parentheses get them back.
+        const upgradedFormulas = restoreFormulaParts(storeState);
+        if (upgradedFormulas > 0) console.log(`[graphStore] Restored the parentheses of ${upgradedFormulas} equation definition(s)`);
 
         // Lift the imported per-graph viewport into the graphViews slice. The
         // file format still carries pan/zoom on each graph, and the importer

@@ -36,7 +36,7 @@ export const PALETTES = {
             "navy-blue": "#0B2D72",
             "blue": "#1b70b5",
             "sky-blue": "#a7cedd",
-            "tan": "#948251"
+            "tan": "#d6b969"
         }
     },
     "safari": {

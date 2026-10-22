@@ -56,7 +56,7 @@ const addOffset = (a, b) => ({ x: (a?.x ?? 0) + (b?.x ?? 0), y: (a?.y ?? 0) + (b
  * Walks the view graph and every definition opened inside it.
  *
  * @returns {{ boxes: Map<string, Object>, owners: Map<string, Object> }}
- *   boxes: anchorId → { anchorId, prototypeId, index, ownerGraphId, defGraphId, path, offset }
+ *   boxes: anchorId → { anchorId, prototypeId, index, format, linkedFormat, ownerGraphId, defGraphId, path, offset }
  *     where `offset` maps the definition's coordinates to the view's.
  *   owners: instanceId → { graphId, path, offset } for every instance inside a box.
  *     Instances of the view graph itself are not listed.
@@ -83,6 +83,9 @@ export const mapOpenDefinitions = (graphs, nodePrototypes, viewGraphId) => {
         anchorId: instance.id,
         prototypeId: instance.prototypeId,
         index: instance.openDefinition.index ?? 0,
+        // How this node shows its definition (formats/), kept on the node.
+        format: instance.format || null,
+        linkedFormat: instance.linkedFormat || null,
         ownerGraphId: graphId,
         defGraphId,
         path,
@@ -224,6 +227,8 @@ const buildOpenGroup = (box, members, nodePrototypes) => {
     linkedDefinitionIndex: box.index,
     anchorInstanceId: box.anchorId,
     isOpenDefinition: true,
+    ...(box.format ? { format: box.format } : {}),
+    ...(box.linkedFormat ? { linkedFormat: box.linkedFormat } : {}),
     // An empty box holds itself open where the definition's origin lands.
     ...(members.length === 0 ? { emptyPlaceholderOrigin: { x: box.offset.x, y: box.offset.y } } : {}),
     semanticMetadata: { type: 'Group', relationships: [] },

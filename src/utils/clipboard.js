@@ -271,6 +271,31 @@ function findNonOverlappingPosition(targetCenter, clipboardData, existingNodes, 
 }
 
 /**
+ * What pasting the clipboard's nodes would make, for the button that does it,
+ * or null when it holds none. The shape of what was copied (connections
+ * between selected nodes are captured on copy):
+ *   1 node                              → Paste Thing
+ *   many nodes, no connections          → Paste Things
+ *   exactly 2 nodes + 1 directed edge   → Paste Triplet
+ *   many nodes + any connections        → Paste Web
+ */
+export function pasteLabelFor(clip) {
+  if (!Array.isArray(clip?.nodes) || clip.nodes.length === 0) return null;
+  const nodeCount = clip.nodes.length;
+  const edges = Array.isArray(clip.edges) ? clip.edges : [];
+  if (edges.length === 0) return nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
+  // A triplet is strictly subject → connection → object: exactly 2 nodes,
+  // exactly 1 connection between them, pointing exactly one way.
+  // Everything else with connections is a Web. Specifically NOT a triplet:
+  //   - more than 2 nodes
+  //   - undirected connection (0 arrows)
+  //   - doubly-connected / bidirectional (2 arrows)
+  const arrows = edges.length === 1 ? edges[0]?.edgeData?.directionality?.arrowsToward : null;
+  const arrowCount = arrows instanceof Set ? arrows.size : (Array.isArray(arrows) ? arrows.length : 0);
+  return nodeCount === 2 && edges.length === 1 && arrowCount === 1 ? 'Paste Triplet' : 'Paste Web';
+}
+
+/**
  * Paste clipboard data into target graph with collision avoidance
  * @param {Object} clipboardData - Clipboard data from copySelection
  * @param {string} targetGraphId - Target graph ID

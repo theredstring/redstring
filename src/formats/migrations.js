@@ -132,7 +132,7 @@ export const KNOWN_INSTANCE_KEYS = new Set([
   '@type', '@id', 'rdf:type', 'rdfs:label', 'rdfs:comment',
   'redstring:containedIn', 'redstring:spatialContext', 'redstring:visualProperties',
   'redstring:prototypeId', 'redstring:isGroupAnchor', 'redstring:anchorForGroupId',
-  'redstring:openDefinition', 'redstring:labels',
+  'redstring:openDefinition', 'redstring:labels', 'redstring:format', 'redstring:linkedFormat',
   // legacy flat (read)
   'id', 'prototypeId', 'name', 'description', 'x', 'y', 'scale', 'sizeMul',
   'expanded', 'visible', 'isGroupAnchor', 'anchorForGroupId',

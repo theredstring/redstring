@@ -55,7 +55,8 @@ export const VERSION_HISTORY = {
       'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block',
       'Definitions opened in place (additive, no version bump): optional instance field redstring:openDefinition { redstring:definitionIndex, redstring:xOffset, redstring:yOffset } shows that definition inside the node without copying it; optional edge fields sourceVia/destinationVia name the nodes, from the edge\'s own graph inward, through whose definitions an end is reached',
       'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged',
-      'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context; the same field on an instance is how that one is written where it stands (q_1 for Electric Charge), over its Thing\'s. Builds that predate them show the Things and keep the labels in _preserved'
+      'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context; the same field on an instance is how that one is written where it stands (q_1 for Electric Charge), over its Thing\'s. Builds that predate them show the Things and keep the labels in _preserved',
+      'Formats on nodes (additive, no version bump): optional instance fields redstring:format and redstring:linkedFormat carry a Thing-group\'s format onto its node while it is folded, so it opens the same way; per placement, not per Thing. Builds that predate them keep both in _preserved'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -879,6 +880,12 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
         // How this one is written where it stands, over its Thing's own label
         // (q₁ for Electric Charge in Coulomb's law). Additive, like openDefinition.
         ...(instance.labels && Object.keys(instance.labels).length ? { "redstring:labels": instance.labels } : {}),
+
+        // How this node shows its definition when it opens ("formula"), and the
+        // format it is linked to while shown as its Things: a Thing-group's
+        // redstring:format / redstring:linkedFormat, kept on its node while folded.
+        ...(instance.format ? { "redstring:format": instance.format } : {}),
+        ...(instance.linkedFormat ? { "redstring:linkedFormat": instance.linkedFormat } : {}),
 
         // Shown open in place: which of its prototype's definitions, and where that
         // definition's origin sits relative to this graph (core/openDefinitions.js).
@@ -1837,6 +1844,10 @@ export const importFromRedstring = (redstringData, storeActions) => {
               convertedInstance.labels = { ...instanceLabels };
             }
 
+            // How it shows its definition when it opens (formats/)
+            if (typeof instance['redstring:format'] === 'string') convertedInstance.format = instance['redstring:format'];
+            if (typeof instance['redstring:linkedFormat'] === 'string') convertedInstance.linkedFormat = instance['redstring:linkedFormat'];
+
             // Shown open in place (core/openDefinitions.js)
             const openDefinition = instance['redstring:openDefinition'];
             if (openDefinition && typeof openDefinition === 'object') {
@@ -1869,6 +1880,13 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
           // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
           if (instance._preserved) convertedInstance._preserved = instance._preserved;
+
+          // A build that predates a node's format banked it in _preserved.
+          for (const [key, field] of [['redstring:format', 'format'], ['redstring:linkedFormat', 'linkedFormat']]) {
+            if (convertedInstance[field]) continue;
+            const banked = takeFromPreserved(convertedInstance, key);
+            if (typeof banked === 'string') convertedInstance[field] = banked;
+          }
 
           // A build that predates open definitions banked the field in _preserved.
           if (!convertedInstance.openDefinition) {
