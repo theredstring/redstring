@@ -293,3 +293,44 @@ export const getNodeEdgeIntersection = (nodeX, nodeY, nodeWidth, nodeHeight, dir
   return intersections.reduce((closest, current) =>
     !closest || current.distance < closest.distance ? current : closest, null);
 };
+
+/**
+ * A straight connection's arrowheads, each as its group's translate and heading
+ * ({ x, y, angle }): set back from where the line meets that end's box, a little
+ * less where it meets a side square on than where it meets a corner.
+ *
+ * Shared by the settled render and the drag-time DOM writer, so an arrowhead
+ * sits in the same place mid-gesture as on drop. The writer used to place its
+ * own (5 px back from the inset line end), and every arrowhead jumped when the
+ * drag ended: a few px on a Thing, more on a Thing-group or a formula, whose
+ * line ends 20 px out from its box.
+ *
+ * @param {number} x1, y1, x2, y2 - the line as drawn (border on an arrow side, centre on the other)
+ * @param {{x:number,y:number}} sourceAt - where it meets the source's box (getNodeEdgeIntersection, or a group's outer box)
+ * @param {{x:number,y:number}} destAt - the same at the destination
+ * @returns {{source:{x,y,angle}, dest:{x,y,angle}}|null} null without both crossings or a length
+ */
+export const STRAIGHT_ARROW_OFFSET = 12;
+export const straightArrowHeads = (x1, y1, x2, y2, sourceAt, destAt, offset = STRAIGHT_ARROW_OFFSET) => {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (!sourceAt || !destAt || !(length > 0)) return null;
+  const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
+  const normalizedAngle = angle > 90 ? 180 - angle : angle;
+  // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
+  const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
+  const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
+  return {
+    source: {
+      x: sourceAt.x + (dx / length) * arrowLength,
+      y: sourceAt.y + (dy / length) * arrowLength,
+      angle: Math.atan2(-dy, -dx) * (180 / Math.PI),
+    },
+    dest: {
+      x: destAt.x - (dx / length) * arrowLength,
+      y: destAt.y - (dy / length) * arrowLength,
+      angle: Math.atan2(dy, dx) * (180 / Math.PI),
+    },
+  };
+};

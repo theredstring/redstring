@@ -725,6 +725,83 @@ test('F44 connections on a formula follow it while it is dragged, to another for
   await page.mouse.up();
 });
 
+test('F44 arrowheads into a formula stop at its band, mid-drag as on the drop', async ({ page }) => {
+  await openFixture(page, 'small');
+  const ids = await page.evaluate(async () => {
+    const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
+    const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+    const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
+    const st = window.useGraphStore.getState();
+    const near = st.graphs.get(st.activeGraphId).instances.get('i-epsilon');
+    buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
+    const s2 = window.useGraphStore.getState();
+    const g = s2.graphs.get(s2.activeGraphId);
+    const f = [...g.groups.values()].find(x => x.format === 'formula');
+    const token = f.memberInstanceIds.find(id => !g.instances.get(id).isGroupAnchor);
+    const toward = (id) => ({ arrowsToward: new Set([id]) });
+    s2.addEdge(s2.activeGraphId, { id: 'e-equation', sourceId: 'i-gamma', destinationId: f.anchorInstanceId, directionality: toward(f.anchorInstanceId) });
+    s2.addEdge(s2.activeGraphId, { id: 'e-token', sourceId: 'i-alpha', destinationId: token, directionality: toward(token) });
+    return { token };
+  });
+  await expect(object(page)).toHaveCount(1);
+  await page.waitForTimeout(800); // past the entrance
+  // Each arrowhead's tip, in the connections' own (canvas) units.
+  const geometry = () => page.evaluate(() => {
+    const svg = document.querySelector('svg.canvas');
+    const space = svg.querySelector('[data-edge-id="e-token"]').getCTM().inverse();
+    const tip = (id) => {
+      const arrow = svg.querySelector(`[data-edge-id="${id}"] [data-arrow="dest"]`);
+      const p = new DOMPoint(0, -34).matrixTransform(space.multiply(arrow.getCTM()));
+      return { x: p.x, y: p.y };
+    };
+    return { equation: tip('e-equation'), token: tip('e-token') };
+  });
+  // The band the formula is drawn in, and the token its Thing became.
+  const drawn = (id) => page.evaluate(async (tokenId) => {
+    const { formatBoxes, standInFor } = await import('/src/components/canvas/formats/replaced.js');
+    return { frame: formatBoxes()[0], token: standInFor(tokenId) };
+  }, id);
+  // At rest each tip goes under the band's rim, as into a Thing's box: past its edge, not down to the token.
+  const rest = await geometry();
+  const { frame, token: t } = await drawn(ids.token);
+  const inset = (p) => Math.min(p.x - frame.x, frame.x + frame.w - p.x, p.y - frame.y, frame.y + frame.h - p.y);
+  for (const p of [rest.equation, rest.token]) {
+    expect(inset(p)).toBeGreaterThan(0);
+    expect(inset(p)).toBeLessThan(45);
+  }
+  expect(rest.token.x < t.x || rest.token.y < t.y).toBe(true);
+
+  // Mid-drag of a Thing wired to it, the arrowheads are where the drop leaves them.
+  const from = centerOf(await nodeBox(page, 'i-gamma'));
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.waitForTimeout(NODE_LIFT_DELAY_MS + 150);
+  for (let i = 1; i <= 10; i++) await page.mouse.move(from.x - i * 8, from.y + i * 4);
+  await page.waitForTimeout(150);
+  const dragging = await geometry();
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const dropped = await geometry();
+  expect(Math.hypot(dragging.equation.x - dropped.equation.x, dragging.equation.y - dropped.equation.y)).toBeLessThan(3);
+
+  // And mid-drag of the formula itself, both follow it, landing where the drop draws them.
+  const box = await object(page).boundingBox();
+  const at = { x: box.x + box.width / 2, y: box.y + 20 };
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.waitForTimeout(NODE_LIFT_DELAY_MS + 150);
+  for (let i = 1; i <= 10; i++) await page.mouse.move(at.x + i * 10, at.y + i * 6);
+  await page.waitForTimeout(150);
+  const carried = await geometry();
+  expect(Math.hypot(carried.equation.x - dropped.equation.x, carried.equation.y - dropped.equation.y)).toBeGreaterThan(50);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const landed = await geometry();
+  for (const k of ['equation', 'token']) {
+    expect(Math.hypot(carried[k].x - landed[k].x, carried[k].y - landed[k].y)).toBeLessThan(4);
+  }
+});
+
 test('F44 the panel deletes a formula, its Things and its parts, playing its entrance backwards, as one undo step', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'x = (a + b) * c');

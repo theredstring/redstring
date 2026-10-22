@@ -7,7 +7,7 @@ import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
-import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
@@ -1600,22 +1600,29 @@ export const useNodeDrag = ({
                 arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnWidth})`);
               });
             } else {
-              // Straight: arrows near endpoints, angle from line direction
+              // Straight: set back from where the line meets each end's box (a
+              // group's or a formula's outer box where there is one), as the
+              // settled render places them (straightArrowHeads).
               const dx = endpoints.x2 - endpoints.x1;
               const dy = endpoints.y2 - endpoints.y1;
               const len = Math.sqrt(dx * dx + dy * dy);
               if (len > 0) {
-                const offset = 5;
-                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                const sBounds = boundsOf(sAnchor);
+                const eBounds = boundsOf(eAnchor);
+                const sourceAt = sBounds
+                  ? getLineNodeIntersection(centerX1, centerY1, centerX2, centerY2, sBounds)
+                  : getNodeEdgeIntersection(virtualSource.x, virtualSource.y, sDims.currentWidth, sDims.currentHeight, dx / len, dy / len);
+                const destAt = eBounds
+                  ? getLineNodeIntersection(centerX2, centerY2, centerX1, centerY1, eBounds)
+                  : getNodeEdgeIntersection(virtualDest.x, virtualDest.y, dDims.currentWidth, dDims.currentHeight, -dx / len, -dy / len);
+                // Without a crossing, the settled render's fallback: 20 in from each end.
+                const heads = straightArrowHeads(endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, sourceAt, destAt) || {
+                  source: { x: endpoints.x1 + (dx / len) * 20, y: endpoints.y1 + (dy / len) * 20, angle: Math.atan2(-dy, -dx) * (180 / Math.PI) },
+                  dest: { x: endpoints.x2 - (dx / len) * 20, y: endpoints.y2 - (dy / len) * 20, angle: Math.atan2(dy, dx) * (180 / Math.PI) },
+                };
                 arrowGs.forEach(arrowG => {
-                  const type = arrowG.getAttribute('data-arrow');
-                  if (type === 'source') {
-                    arrowG.setAttribute('transform',
-                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90}) scale(${dragConnWidth})`);
-                  } else {
-                    arrowG.setAttribute('transform',
-                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90}) scale(${dragConnWidth})`);
-                  }
+                  const p = arrowG.getAttribute('data-arrow') === 'source' ? heads.source : heads.dest;
+                  arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnWidth})`);
                 });
               }
             }

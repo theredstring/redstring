@@ -6,7 +6,7 @@ import { getConnectionLabelColors } from '../../utils/colorUtils.js';
 import { haptic } from '../../services/haptics.js';
 import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
 import { buildShellCutoutPath } from '../../services/groupLayout.js';
-import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints } from '../../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints, straightArrowHeads } from '../../utils/canvas/nodeHitbox.js';
 import { connectionEndInfo } from './formats/replaced.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
@@ -1079,18 +1079,10 @@ export function renderConnectionEdge(edge, ctx) {
               sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
             }
           } else {
-            // Precise intersection positioning - adjust based on slope for visual consistency
-            const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-            const normalizedAngle = angle > 90 ? 180 - angle : angle;
-            // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
-            const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
-            const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
-            sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-            sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
-            sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
-            destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-            destArrowX = destIntersection.x - (dx / length) * arrowLength;
-            destArrowY = destIntersection.y - (dy / length) * arrowLength;
+            // Precise intersection positioning, shared with the drag writer (straightArrowHeads).
+            const heads = straightArrowHeads(x1, y1, x2, y2, sourceIntersection, destIntersection, offset);
+            ({ x: sourceArrowX, y: sourceArrowY, angle: sourceArrowAngle } = heads.source);
+            ({ x: destArrowX, y: destArrowY, angle: destArrowAngle } = heads.dest);
           }
         }
 

@@ -60,3 +60,21 @@
   text-decoration: line-through;
   text-decoration-color: rgba(0, 0, 0, 0.25);
 }
+
+/* The header is the expand toggle: strip button chrome, keep PlanCard's header look. */
+.goal-card-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.goal-card-chevron {
+  margin-left: auto;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
