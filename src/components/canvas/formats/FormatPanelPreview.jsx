@@ -1,20 +1,49 @@
 /**
  * The group control panel's format mode (UnifiedBottomControlPanel mode
- * "format"): what tells the panel a group reads as a formula, and the chip it
- * shows while the group is shown as one. ◀ ▶ in the panel swap formats.
+ * "format"): what tells the panel a group reads as a formula, and the formula
+ * it shows while the group is shown as one, written as the canvas writes it
+ * (its text, no chip). ◀ ▶ in the panel swap formats.
  */
-import { useMemo } from 'react';
-import { Sigma } from 'lucide-react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import useGraphStore from '../../../store/graphStore.js';
-import { getTextColor } from '../../../utils/colorUtils.js';
-import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { readGroupFormula } from './formatCandidates.js';
 import { tokensOf, expandFor } from './formula/formulaChain.js';
 import { useGroupFormulaText } from './groupFormats.js';
 import useFormatsStore, { selectStandard } from './formatsStore.js';
 import FormulaTokens from './formula/FormulaTokens.jsx';
 
-export default function FormatPanelPreview({ groupId, color, darkMode }) {
+/**
+ * Too long for the panel, a formula ends at the last whole token that fits
+ * (not an operation), then "…", so the box is exactly as wide as what it
+ * shows (a token is one piece, which the browser's own ellipsis can't cut,
+ * leaving a gap after it).
+ */
+function useFitTokens(boxRef, tokens) {
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    if (!box) return undefined;
+    const fit = () => {
+      const line = box.querySelector('.formula-tokens');
+      const more = box.querySelector('.format-panel-more');
+      if (!line || !more) return;
+      const parts = [...line.children];
+      parts.forEach((part) => { part.style.display = ''; });
+      more.style.display = 'none';
+      if (box.scrollWidth <= box.clientWidth + 0.5) return;
+      more.style.display = '';
+      let last = parts.length - 1;
+      for (; last > 0 && box.scrollWidth > box.clientWidth + 0.5; last--) parts[last].style.display = 'none';
+      // Not ending on an operation (Volume × …): on what it joins.
+      for (; last > 0 && parts[last].classList.contains('kind-operator'); last--) parts[last].style.display = 'none';
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [boxRef, tokens]);
+}
+
+export default function FormatPanelPreview({ groupId }) {
   const formulaText = useGroupFormulaText(groupId);
   const standard = useFormatsStore(selectStandard);
   const names = useFormatsStore(s => s.namesShown.has(groupId));
@@ -24,12 +53,13 @@ export default function FormatPanelPreview({ groupId, color, darkMode }) {
     const chain = readGroupFormula(useGraphStore.getState(), useGraphStore.getState().activeGraphId, groupId);
     return chain ? tokensOf(chain, { standard, stack: false, expand: expandFor(names, flipped) }) : null;
   }, [formulaText, groupId, standard, names, flipped]);
+  const boxRef = useRef(null);
+  useFitTokens(boxRef, tokens);
   if (!tokens) return null;
-  const fill = color || NODE_DEFAULT_COLOR;
   return (
-    <div className="format-panel-chip" style={{ backgroundColor: fill, color: getTextColor(fill, darkMode) }}>
-      <Sigma size={18} strokeWidth={2.75} />
+    <div ref={boxRef} className="format-panel-formula">
       <FormulaTokens tokens={tokens} />
+      <span className="format-panel-more" style={{ display: 'none' }}>…</span>
     </div>
   );
 }

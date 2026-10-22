@@ -831,7 +831,7 @@ const UniversalNodeRenderer = ({
         {/* Render connections first (behind nodes) */}
         {connectionRenderList.map(({ conn, isStableHovered, adjustedPath, adjustedSourcePoint, adjustedTargetPoint }) => {
           return (
-            <g key={`connection-${conn.id}`} filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}>
+            <g key={`connection-${conn.id}`} filter={isStableHovered ? `drop-shadow(0 0 1px ${conn.color || '#000000'})` : 'none'}>
 
               {/* Invisible hover area that matches the visual connection line exactly */}
               {interactive && adjustedPath && (
@@ -1116,7 +1116,7 @@ const UniversalNodeRenderer = ({
         {connectionRenderList.map(({ conn, isStableHovered, adjustedSourcePoint, adjustedTargetPoint }) => (
           <g
             key={`connection-label-${conn.id}`}
-            filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
+            filter={isStableHovered ? `drop-shadow(0 0 1px ${conn.color || '#000000'})` : 'none'}
           >
             <ConnectionText
               connection={conn}

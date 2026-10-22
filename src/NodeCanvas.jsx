@@ -2320,11 +2320,8 @@ function NodeCanvas() {
   const isMouseDown = useRef(false);
   const ignoreCanvasClick = useRef(false);
   // Set when a marquee release just committed a selection, and consumed by the
-  // synthetic click the browser fires right after that mouseup. ignoreCanvasClick
-  // can't cover this: it deliberately falls through when something is selected, so
-  // the first click after a pan isn't wasted just clearing the flag — but that
-  // fall-through is exactly what reaches the click handler's deselect branch and
-  // wipes the selection the marquee just made.
+  // synthetic click the browser fires right after that mouseup, so it can't reach
+  // the click handler's deselect branch and wipe what the marquee just selected.
   const justCompletedBoxSelectRef = useRef(false);
   const mouseDownPosition = useRef({ x: 0, y: 0 });
   const mouseMoved = useRef(false);

@@ -24,7 +24,8 @@ test('F14 click empty canvas, click the plus sign, name it: a new Thing is place
   const spotWorld = await clientToWorld(page, spot.x, spot.y);
   await page.mouse.click(spot.x, spot.y);
 
-  const plus = page.locator('svg.canvas g[data-plus-sign="true"]');
+  // The plus itself, not the bubbles around it.
+  const plus = page.locator('svg.canvas g[data-plus-sign="true"]:not([data-plus-bubble])');
   await expect(plus).toBeVisible();
   // Clicking the plus opens the name prompt.
   await clickCenter(page, plus);

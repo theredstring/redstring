@@ -57,9 +57,9 @@ export function findFormatCandidate(state, { selectedInstanceIds, selectedGroupI
   const view = projectGraphView(state, graphId);
   if (!view?.instances || view.instances.size === 0) return null;
   const graphName = state.graphs.get(graphId)?.name || 'Web';
-  // Things already shown as a format aren't offered again.
+  // Things already shown as a format, or linked to one while shown as Things, aren't offered again.
   const shownIds = new Set();
-  view.groups?.forEach(g => { if (g.format) (g.memberInstanceIds || []).forEach(id => shownIds.add(id)); });
+  view.groups?.forEach(g => { if (g.format || g.linkedFormat) (g.memberInstanceIds || []).forEach(id => shownIds.add(id)); });
   const open = (c) => (c && !dismissed?.has(c.key) && !c.instanceIds.every(id => shownIds.has(id)) ? c : null);
 
   if (selectedInstanceIds && selectedInstanceIds.size >= 2) {

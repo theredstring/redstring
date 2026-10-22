@@ -50,6 +50,8 @@ export function usePlusSignActions({
       return;
     }
 
+    // Naming it: the bubbles around it go back in (PlusSignBubbles).
+    setPlusSign(ps => ps && { ...ps, prompting: true });
     setNodeNamePrompt({ visible: true, name: '' });
   };
 

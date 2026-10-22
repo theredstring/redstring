@@ -956,6 +956,8 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
             // How the group is shown instead of as its Things ('formula'). Optional;
             // a build that doesn't know it shows the Things.
             ...(group.format ? { "redstring:format": group.format } : {}),
+            // The format a group shown as its Things is still linked to. Optional.
+            ...(group.linkedFormat ? { "redstring:linkedFormat": group.linkedFormat } : {}),
             // RDF-style membership relationships
             "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
               "@id": toIri(memberId)
@@ -1730,7 +1732,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId,
                 definitionFingerprint: group['redstring:definitionFingerprint'] || group.definitionFingerprint || undefined,
                 emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined,
-                format: group['redstring:format'] || group.format || undefined
+                format: group['redstring:format'] || group.format || undefined,
+                linkedFormat: group['redstring:linkedFormat'] || group.linkedFormat || undefined
               };
             } else {
               // Legacy format
@@ -1753,7 +1756,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 anchorInstanceId: group.anchorInstanceId,
                 definitionFingerprint: group.definitionFingerprint || undefined,
                 emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined,
-                format: group.format || undefined
+                format: group.format || undefined,
+                linkedFormat: group.linkedFormat || undefined
               };
             }
             

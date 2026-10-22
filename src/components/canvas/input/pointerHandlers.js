@@ -1116,12 +1116,11 @@ export function createPointerHandlers(ctxRef) {
     }
     if (ignoreCanvasClick.current) {
       ignoreCanvasClick.current = false;
-      // Only bail if there's nothing to dismiss — otherwise fall through so the
-      // first click after a pan/glide doesn't waste itself just clearing the flag.
-      // selectedGroup must be included here too: selecting a group clears
-      // selectedInstanceIds, so without this the very next click (meant to
-      // deselect the group) gets silently swallowed and a second click is needed.
-      if (selectedInstanceIds.size === 0 && !plusSign && !selectedGroup) return;
+      // This is the click that ends a pan: panning away from selected Things or
+      // a group keeps them selected, like a selected connection. Only a plus
+      // sign is dismissed by it. A stale flag can't swallow a real click-off
+      // here: a press on bare canvas clears it (handleMouseDown).
+      if (!plusSign) return;
     }
 
     // Close Group panel on click-off like other panels

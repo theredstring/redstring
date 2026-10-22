@@ -5,6 +5,7 @@
 import { Profiler } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import PlusSign from '../../../PlusSign.jsx';
+import PlusSignBubbles from './PlusSignBubbles.jsx';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS } from '../../../constants';
 import VideoNodeAnimation from '../../../VideoNodeAnimation.jsx';
 
@@ -24,6 +25,16 @@ export default function SvgOverlays({ ctx }) {
           fill="rgba(255, 0, 0, 0.1)"
           stroke="red"
           strokeWidth={1}
+        />
+      )}
+
+      {/* Under the plus sign, so the bubbles come out from beneath it. */}
+      {plusSign && (
+        <PlusSignBubbles
+          plusSign={plusSign}
+          setPlusSign={setPlusSign}
+          gestureBlockRef={gestureBlockRef}
+          isPanningOrZoomingRef={isPanningOrZooming}
         />
       )}
 

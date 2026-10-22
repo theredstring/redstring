@@ -409,6 +409,23 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* What the item is (Thing, Connection, Group, Thing Group, Expanded Thing,
+   Equation), small and faint under its name. */
+.panel-kind-label {
+  align-self: center;
+  margin-top: -2px;
+  padding: 3px 0;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--canvas-text, #260000);
+  opacity: 0.45;
+  pointer-events: none;
+  user-select: none;
+}
+
 .selection-overflow-toggle {
   align-self: center;
   background: transparent;

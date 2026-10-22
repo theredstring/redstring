@@ -152,13 +152,16 @@ export default function ControlPanelsHost({ ctx }) {
 
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
   // A group or Thing-group that reads as a formula of its own (an equation, not
-  // a part in its parentheses) gets the format mode: ◀ ▶ swap how it is shown
-  // (formats/). Other Thing-groups keep their own panel.
-  const darkMode = useGraphStore((s) => s.darkMode);
+  // a part in its parentheses) gets ◀ ▶ to swap how it is shown (formats/).
+  // Shown as its formula, the panel is the format mode; shown as Things, an
+  // equation is the Thing-group it is, with that panel (and the arrows).
   const groupFormulaText = useGroupFormulaText(groupPanelTarget?.id);
-  const groupPanelMode = groupFormulaText ? "format" : (groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group");
   const formatOrder = groupFormats(groupFormulaText);
   const currentFormat = groupPanelTarget?.format && formatOrder.includes(groupPanelTarget.format) ? groupPanelTarget.format : 'things';
+  const isThingGroup = !!groupPanelTarget?.linkedNodePrototypeId;
+  const groupPanelMode = groupFormulaText && !(currentFormat === 'things' && isThingGroup)
+    ? "format"
+    : (isThingGroup ? "nodegroup" : "group");
   const swapFormat = (step) => {
     if (!groupPanelTarget || !activeGraphId) return;
     const next = formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length];
@@ -563,7 +566,7 @@ export default function ControlPanelsHost({ ctx }) {
             onRefreshGroupFromDefinition={handleNodeGroupRefreshFromDefinition}
             onActionHoverChange={handlePieMenuHoverChange}
             onDismiss={() => setSelectedGroup(null)}
-            {...(groupPanelMode === 'format' ? {
+            {...(groupFormulaText ? {
               onLeftNav: () => swapFormat(-1),
               onRightNav: () => swapFormat(1),
               hasLeftNav: formatOrder.length > 1,
@@ -575,8 +578,9 @@ export default function ControlPanelsHost({ ctx }) {
               leftNavLabel: `Show as ${formatAt(-1)}`,
               rightNavLabel: `Show as ${formatAt(1)}`,
               customContent: currentFormat === 'formula'
-                ? <FormatPanelPreview groupId={groupPanelTarget.id} color={groupPanelTarget.color} darkMode={darkMode} />
+                ? <FormatPanelPreview groupId={groupPanelTarget.id} />
                 : undefined,
+              ...(currentFormat === 'formula' ? { kindLabel: 'Equation' } : {}),
             } : {})}
           />
         )

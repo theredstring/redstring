@@ -143,7 +143,10 @@ function eachFile(visitor) {
   return out;
 }
 
-describe('security invariants: renderer sinks (src/)', () => {
+// Each rule walks every file in src/, and the first walk also builds Babel's
+// scope tables. About 1 s locally, but over 5 s (the default timeout) on a
+// loaded GitHub runner, which failed CI with nothing wrong in the code.
+describe('security invariants: renderer sinks (src/)', { timeout: 60_000 }, () => {
   it('every source file parses (no blind spots)', () => {
     assertRule('meta/unparseable', SRC_UNPARSEABLE);
   });

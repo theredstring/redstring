@@ -32,7 +32,9 @@ async function marquee(page, from, to) {
 async function bottomPanelNames(page) {
   const panel = page.locator('.unified-bottom-panel.mode-nodes .unified-bottom-content');
   await expect(panel).toBeVisible();
-  const text = await panel.innerText();
+  // What they are, under their names.
+  await expect(panel.locator('.panel-kind-label')).toHaveText('Things');
+  const text = await panel.locator('.info-row').innerText();
   return text.split('\n').map((s) => s.trim()).filter(Boolean).sort();
 }
 

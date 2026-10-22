@@ -3,7 +3,9 @@
  *
  * Which groups are shown as a format is saved, on the group (`group.format`,
  * e.g. 'formula'), so it survives a reload, syncs, and undoes like any group
- * edit. A dismissed offer is not saved: it comes back next session.
+ * edit. Shown as its Things again, a group keeps its link
+ * (`group.linkedFormat`): it is still that formula, so it isn't offered as
+ * one. A dismissed offer is not saved: it comes back next session.
  */
 import { create } from 'zustand';
 import useGraphStore from '../../../store/graphStore.js';
@@ -67,7 +69,7 @@ export function showFormatInPlace(candidate) {
   const store = useGraphStore.getState();
   useCanvasUIStore.getState().setSelectedInstanceIds(new Set());
   if (candidate.source === 'group') {
-    store.updateGroup(candidate.graphId, candidate.sourceId, (g) => { g.format = candidate.format; });
+    store.updateGroup(candidate.graphId, candidate.sourceId, (g) => { g.format = candidate.format; delete g.linkedFormat; });
     return candidate.sourceId;
   }
   return store.createGroup(candidate.graphId, {
@@ -78,9 +80,12 @@ export function showFormatInPlace(candidate) {
   });
 }
 
-/** Show a group as its Things again. */
+/** Show a group as its Things again, still linked to its format. */
 export function showAsThings(graphId, groupId) {
-  useGraphStore.getState().updateGroup(graphId, groupId, (g) => { delete g.format; });
+  useGraphStore.getState().updateGroup(graphId, groupId, (g) => {
+    if (g.format) g.linkedFormat = g.format;
+    delete g.format;
+  });
 }
 
 export const setNotation = (notation) => {

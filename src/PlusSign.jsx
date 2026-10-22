@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
+import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
 import { safeImageSrc } from './utils/safeUrl.js';
@@ -426,7 +426,7 @@ const PlusSign = ({
         ry={cornerRadius}
         fill={color}
         stroke={strokeColor}
-        strokeWidth={Math.max(1, 10 * plusSignScale)}
+        strokeWidth={Math.max(1, PLUS_SIGN_STROKE * plusSignScale)}
       />
       <line
         x1={-halfCross}
@@ -434,7 +434,7 @@ const PlusSign = ({
         x2={halfCross}
         y2={0}
         stroke="maroon"
-        strokeWidth={Math.max(1, 10 * plusSignScale)}
+        strokeWidth={Math.max(1, PLUS_SIGN_STROKE * plusSignScale)}
         opacity={lineOpacity}
       />
       <line
@@ -443,7 +443,7 @@ const PlusSign = ({
         x2={0}
         y2={halfCross}
         stroke="maroon"
-        strokeWidth={Math.max(1, 10 * plusSignScale)}
+        strokeWidth={Math.max(1, PLUS_SIGN_STROKE * plusSignScale)}
         opacity={lineOpacity}
       />
       {/* The node's image grows into its slot with the morph, so an image node

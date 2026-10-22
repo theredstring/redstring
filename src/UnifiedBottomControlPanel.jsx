@@ -295,6 +295,7 @@ const UnifiedBottomControlPanel = ({
   // Format mode: how the current format is shown (e.g. raised exponents), as
   // buttons before the group's own: [{ key, icon: (size) => element, title, onClick }].
   formatToggles = null,
+  kindLabel: kindLabelProp = null, // what the item is, under its name (default: by mode)
 
   // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
   onDismiss,
@@ -430,6 +431,9 @@ const UnifiedBottomControlPanel = ({
   const isGroup = mode === 'group' || isFormat;
   const isNodeGroup = mode === 'nodegroup';
   const isDecompose = mode === 'decompose';
+  // ◀ ▶ around the preview: paging nodes, decompose, formats, and a Thing-group
+  // that can be shown another way (an equation, swapped to its formula).
+  const hasNavArrows = isNodes || isDecompose || isFormat || (isNodeGroup && !!(onLeftNav || onRightNav));
 
   const clearActionHover = useCallback(() => {
     onActionHoverChange?.(null);
@@ -774,6 +778,17 @@ const UnifiedBottomControlPanel = ({
   const isNodeList = isNodes && selectionChips.length > 0;
   const hiddenInSelection = isNodeList ? nodeRendererMetrics.hiddenCount : isConnectionList ? connectionHiddenCount : 0;
   const selectionCanCollapse = isNodeList ? nodeRendererMetrics.canCollapse : isConnectionList && connectionsCanCollapse;
+  // What the item is, small under its name.
+  const nodeCount = Array.isArray(selectedNodes) ? selectedNodes.length : 0;
+  const kindLabel = kindLabelProp ?? (
+    isNodeGroup ? 'Thing Group'
+      : isGroup ? 'Group'
+        // A Thing expanded to show its definition inside it (its pie's first open button).
+        : isDecompose ? 'Expanded Thing'
+          : isNodes ? (nodeCount > 1 ? 'Things' : 'Thing')
+            : isConnectionList ? (triples.length > 1 ? 'Connections' : 'Connection')
+              : null);
+
   let overflowToggleLabel = null;
   if (selectionExpanded && selectionCanCollapse) {
     overflowToggleLabel = 'Show fewer';
@@ -803,7 +818,7 @@ const UnifiedBottomControlPanel = ({
         />
         {/* Row 1: Interactive info */}
         <div className="info-row">
-          {(isNodes || isDecompose || isFormat) ? (
+          {hasNavArrows ? (
             <div className="arrow-group" style={{ marginRight: 6 }}>
               <div
                 className="piemenu-button"
@@ -902,7 +917,7 @@ const UnifiedBottomControlPanel = ({
             </div>
           )}
 
-          {(isNodes || isDecompose || isFormat) ? (
+          {hasNavArrows ? (
             <div className="arrow-group" style={{ marginLeft: 6 }}>
               <div
                 className="piemenu-button"
@@ -917,6 +932,8 @@ const UnifiedBottomControlPanel = ({
             </div>
           ) : null}
         </div>
+
+        {kindLabel && <div className="panel-kind-label">{kindLabel}</div>}
 
         {/* The rest of a selection too big to preview: a count that expands the
             preview into a scrolling list of all of it, and collapses it again. */}

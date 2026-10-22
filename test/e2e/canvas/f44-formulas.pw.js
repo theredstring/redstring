@@ -65,7 +65,7 @@ const shownNodes = (page, ids) => page.evaluate((list) =>
   list.filter(id => document.querySelector(`svg.canvas g.node[data-instance-id="${id}"]`)).length, ids);
 const formulaGroup = (page, prefix) => storeEval(page, (st, p) => {
   const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.name.startsWith(p));
-  return g ? { id: g.id, format: g.format ?? null, members: [...g.memberInstanceIds] } : null;
+  return g ? { id: g.id, format: g.format ?? null, linkedFormat: g.linkedFormat ?? null, members: [...g.memberInstanceIds] } : null;
 }, prefix);
 const positionsOf = (page, ids) => storeEval(page, (st, list) => {
   const g = st.graphs.get(st.activeGraphId);
@@ -196,22 +196,39 @@ test('F44 a tap selects the formula; its panel swaps it to Things and back', asy
   await pointAt(page, token(page, '+'), { click: true });
   await expect(object(page)).toHaveClass(/is-selected/);
   await expect(panel(page)).toBeVisible();
-  await expect(panel(page).locator('.format-panel-chip')).toContainText('+');
+  await expect(panel(page).locator('.format-panel-formula')).toContainText('+');
   await shot(page, '4-panel-formula');
 
   // Swap to Things.
   await panel(page).locator('.piemenu-button[title="Show as Things"]').first().click();
   await expect(object(page)).toHaveCount(0);
   expect((await formulaGroup(page, 'a + b')).format).toBe(null);
+  expect((await formulaGroup(page, 'a + b')).linkedFormat).toBe('formula');
   await expect.poll(() => shownNodes(page, members)).toBeGreaterThan(0);
-  await expect(panel(page)).toBeVisible();
+  // As Things, the equation is the Thing-group it is: that panel, with ◀ ▶ to swap back.
+  const thingGroupPanel = page.locator('.unified-bottom-panel.mode-nodegroup');
+  await expect(thingGroupPanel).toBeVisible();
+  for (const title of ['Open Definition', 'Open in Panel', 'Combine Into Thing', 'Edit Name', 'Change Color', 'Ungroup']) {
+    await expect(thingGroupPanel.locator(`.piemenu-button[title="${title}"]`)).toHaveCount(1);
+  }
   await shot(page, '5-panel-things');
 
   // And back.
-  await panel(page).locator('.piemenu-button[title="Show as Formula"]').first().click();
+  await thingGroupPanel.locator('.piemenu-button[title="Show as Formula"]').first().click();
+  await expect(panel(page)).toBeVisible();
   await expect(object(page)).toHaveCount(1);
   expect((await formulaGroup(page, 'a + b')).id).toBe(id);
   expect((await formulaGroup(page, 'a + b')).format).toBe('formula');
+  expect((await formulaGroup(page, 'a + b')).linkedFormat).toBe(null);
+
+  // Shown as Things and let go, it is still that equation: nothing offers to make it one.
+  await panel(page).locator('.piemenu-button[title="Show as Things"]').first().click();
+  await expect(object(page)).toHaveCount(0);
+  const away = await findBareSpot(page);
+  await page.mouse.click(away.x, away.y);
+  await expect(page.locator('.unified-bottom-panel')).toHaveCount(0);
+  await page.waitForTimeout(500);
+  await expect(page.locator('.format-offer')).toHaveCount(0);
 });
 
 test('F44 a double tap on a token opens its Thing', async ({ page }) => {

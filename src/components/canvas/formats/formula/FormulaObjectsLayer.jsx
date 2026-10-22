@@ -33,7 +33,7 @@ import useCanvasUIStore from '../../../../store/canvasUIStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
-import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE } from '../../../../constants.js';
+import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../../constants.js';
 import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
 import { formulaSpawnStart, SPAWN_MS, LEAVE_MS, leavingFormulasNow, subscribeLeavingFormulas } from './formulaSpawn.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
@@ -647,7 +647,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
   const grown = easeMorph(clamp01(spawn / MORPH_SHARE));
   const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
   const plusSize = leaving ? 0 : PLUS_SIGN_SIZE * plusScale;
-  const plusStroke = Math.max(1, 10 * plusScale);
+  const plusStroke = Math.max(1, PLUS_SIGN_STROKE * plusScale);
   const f = box(frame);
   const fcx = f.x + f.w / 2;
   const fcy = f.y + f.h / 2;

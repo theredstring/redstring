@@ -434,24 +434,25 @@ button.format-pill:disabled {
 
 /* --- Group control panel, format mode (FormatPanelPreview) ------------- */
 
-.format-panel-chip {
+/* Written as the canvas writes a formula: its font and the canvas's text
+   color, no chip. Too long, it ends at a whole token and "…" (FormatPanelPreview). */
+.format-panel-formula {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  min-height: 40px;
   max-width: min(520px, 70vw);
-  padding: 12px 24px;
-  border-radius: 24px;
+  min-width: 0;
   font-family: 'EmOne', sans-serif;
   font-size: 20px;
   font-weight: bold;
   line-height: 1.2;
+  color: var(--canvas-text, #260000);
   overflow: hidden;
   white-space: nowrap;
 }
 
-.format-panel-chip .formula-tokens {
-  overflow: hidden;
-  text-overflow: ellipsis;
+.format-panel-more {
+  padding-left: 0.05em;
 }
 
 /* A symbol's subscript (v_0, T_c): lowered, smaller, against its letter. */
