@@ -710,7 +710,7 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'searchFormulaBank',
-            description: 'Search the formula bank: well-known equations by discipline (Physics, Chemistry, Economics, Epidemiology...), from Wikidata. Find by title ("ideal gas"), topic ("thermodynamics") or what it is about ("pressure"). Returns each one\'s bankId, formula and what its symbols mean. Read-only.',
+            description: 'Search for an equation, in this universe (marked inUniverse: place one with the formula tool by its title) and in the formula bank, well-known equations by discipline (Physics, Chemistry, Economics, Epidemiology...) from Wikidata. Find by title ("ideal gas"), topic ("thermodynamics") or what it is about ("pressure"). Returns each one\'s formula, what its symbols mean, and for the bank\'s its bankId. Read-only.',
             parameters: {
                 type: 'object',
                 properties: {

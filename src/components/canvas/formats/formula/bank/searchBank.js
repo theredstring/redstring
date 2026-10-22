@@ -26,11 +26,10 @@ export function describeBankEquation(bank, discipline, equation) {
 }
 
 /**
- * The entries best matching `query`, best first; with only a `discipline`
- * (Physics, or a section: Thermodynamics), that one's best known.
- * @returns {Array} describeBankEquation's, at most `limit`
+ * How well each entry matches `query`, best first: [{ score, discipline, equation }].
+ * With only a `discipline` (Physics, or a section: Thermodynamics), that one's best known.
  */
-export function searchBank(bank, query, { discipline = '', limit = 8 } = {}) {
+export function scoreBank(bank, query, { discipline = '' } = {}) {
   if (!bank) return [];
   const q = key(query);
   const asked = words(query);
@@ -52,11 +51,20 @@ export function searchBank(bank, query, { discipline = '', limit = 8 } = {}) {
       if (concepts.some(c => c.includes(w))) score += 5;
       if (description.includes(w)) score += 1;
     }
-    if (score > 0 || (!asked.length && within)) scored.push({ score, order, d, equation });
+    if (score > 0 || (!asked.length && within)) scored.push({ score, order, discipline: d, equation });
   });
   // Ties keep the bank's order: best known first.
   scored.sort((a, b) => b.score - a.score || a.order - b.order);
-  return scored.slice(0, limit).map(({ d, equation }) => describeBankEquation(bank, d, equation));
+  return scored.map(({ score, discipline: d, equation }) => ({ score, discipline: d, equation }));
+}
+
+/**
+ * The entries best matching `query`, best first (scoreBank's order).
+ * @returns {Array} describeBankEquation's, at most `limit`
+ */
+export function searchBank(bank, query, { discipline = '', limit = 8 } = {}) {
+  return scoreBank(bank, query, { discipline }).slice(0, limit)
+    .map(({ discipline: d, equation }) => describeBankEquation(bank, d, equation));
 }
 
 /** A bank entry by id (Q191785), or by title (exact, else the closest): { discipline, equation }, or null. */

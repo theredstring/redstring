@@ -11,7 +11,7 @@
  * meaning by the Thing's name.
  */
 import useGraphStore from '../../../../store/graphStore.js';
-import { spotBelow } from './formulaPlacement.js';
+import { spotBelow, anchorToCentre } from './formulaPlacement.js';
 import { findFormula, findEquationThing, equationOf, normalizeName } from './formulaSnapshot.js';
 import { buildFormulaInWeb, buildBankEquation, rewriteFormulaInWeb, bankEquationThing } from './buildFormula.js';
 import { markFormulaSpawn } from './formulaSpawn.js';
@@ -133,7 +133,10 @@ export function placeEquation({ graphId, ref, folded = false, at = null }) {
   }
 
   const instanceId = `formula-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const spot = at ? { x: at.x - 100, y: at.y - 50 } : spotBelow(state, graphId, { centre: false });
+  // Opened, its formula centred where it was asked for (under what the web has, else).
+  const defGraphId = proto.definitionGraphIds?.[index];
+  const centre = at || spotBelow(state, graphId);
+  const spot = folded ? { x: centre.x - 100, y: centre.y - 50 } : anchorToCentre(state, defGraphId, centre);
   state.addNodeInstance(graphId, proto.id, spot, instanceId);
   const st = useGraphStore.getState();
   st.updateNodeInstance(graphId, instanceId, (draft) => { draft.format = 'formula'; });

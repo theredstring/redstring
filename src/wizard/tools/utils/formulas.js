@@ -29,10 +29,27 @@ export function findFormulaIn(graphState, graphId, ref) {
   return near.length ? near[near.length - 1] : null;
 }
 
+/**
+ * Every equation the universe has, shown or not: graphState.universeEquations
+ * (formulaSnapshot's equationsHere) and what this ask has added since
+ * (graphState.equations, predicted): [{ protoId, name, text, description, terms }].
+ */
+export function universeEquationsOf(graphState) {
+  const byId = new Map();
+  for (const e of graphState?.universeEquations || []) if (e?.protoId) byId.set(e.protoId, e);
+  for (const e of graphState?.equations || []) if (e?.protoId && !byId.has(e.protoId)) byId.set(e.protoId, e);
+  for (const f of graphState?.formulas || []) {
+    const id = f.equationProtoId;
+    if (id && !byId.has(id)) byId.set(id, { protoId: id, name: f.title, text: f.text, terms: f.terms });
+  }
+  return [...byId.values()];
+}
+
 /** An equation anywhere in the universe, by its title or text: { protoId, name, text }, the last match. */
 export function findEquation(graphState, ref) {
   const k = key(ref);
   const all = [
+    ...(graphState?.universeEquations || []),
     ...(graphState?.equations || []),
     ...(graphState?.formulas || []).map(f => ({ protoId: f.equationProtoId, name: f.title, text: f.text })),
   ].filter(e => e.protoId || e.name);

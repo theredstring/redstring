@@ -13,9 +13,10 @@
 // arrows swap it between Things and Formula and whose toggles write this
 // formula by names or every operation; a double tap on a token opens its Thing; hold-and-drag moves it (snapping to the grid when
 // that's on) as one undo step. The offer pill (Back to Civilization's spot)
-// shows a group as its formula, and its X waves it off. The bank under New
-// Formula builds well-known equations fully formed, each symbol its concept's
-// Thing, listed in the Thing's Equations section and in its discipline's web.
+// shows a group as its formula, and its X waves it off. New Formula lists the
+// universe's equations (the bank's, once added: Settings → Data → Formula
+// Starter, f44b) and places the one picked, each symbol its concept's Thing,
+// listed in the Thing's Equations section and in its discipline's web.
 //
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
@@ -453,12 +454,26 @@ const openComposer = async (page, at = BARE) => {
   await expect(page.locator('.formula-selector .unified-selector-pill input')).toBeFocused();
 };
 const protosNamed = (page, name) => storeEval(page, (st, n) => [...st.nodePrototypes.values()].filter(p => p.name === n).length, name);
+// The bank is offered once it is added (Settings → Data → Formula Starter): added here as that button does.
+const addStarter = (page, disciplines) => page.evaluate(async (ids) => {
+  const { addFormulaStarter } = await import('/src/components/canvas/formats/formula/bank/formulaStarter.js');
+  return (await addFormulaStarter(ids)).added;
+}, disciplines);
+/** An equation's Things that are written by a symbol, as its own web holds them: "symbol:name:link". */
+const symbolsOf = (page, title) => storeEval(page, (st, t) => {
+  const eq = [...st.nodePrototypes.values()].find(x => x.name === t);
+  const web = eq && st.graphs.get(eq.definitionGraphIds[0]);
+  return [...(web?.instances.values() || [])].map(i => st.nodePrototypes.get(i.prototypeId))
+    .filter(x => x?.labels?.formula).map(x => `${x.labels.formula}:${x.name}:${x.externalLinks?.[0] || ''}`).sort();
+}, title);
 
-test('F44 the bank builds an equation fully formed, each symbol its concept', async ({ page }) => {
+test('F44 New Formula lists the universe\'s equations; one picked is placed, each symbol its concept', async ({ page }) => {
+  test.setTimeout(90_000);
   await openFixture(page, 'small');
+  expect(await addStarter(page, ['physics'])).toBeGreaterThan(400);
   await openComposer(page);
   await shot(page, '9-bank');
-  // Disciplines from Wikidata, the largest open, each listing its best known first.
+  // Its disciplines, the largest open, each listing its best known first.
   await expect(page.locator('.format-bank-choice.is-on', { hasText: /^Physics$/ })).toHaveCount(1);
   await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(1);
   // Typed words find an equation by title.
@@ -478,13 +493,8 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   })).toEqual({ description: 'Equation of state of a hypothetical ideal gas.', links: ['http://www.wikidata.org/entity/Q191785'] });
 
   // Each symbol is its concept's Thing, written by its symbol.
-  const bound = await storeEval(page, (st) => {
-    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.format === 'formula');
-    const inst = st.graphs.get(st.activeGraphId).instances;
-    return g.memberInstanceIds.map(id => st.nodePrototypes.get(inst.get(id).prototypeId))
-      .map(p => `${p.labels?.formula}:${p.name}`).sort();
-  });
-  expect(bound).toEqual(['R:Molar Gas Constant', 'T:Thermodynamic Temperature', 'V:Volume', 'n:Amount of Substance', 'p:Pressure']);
+  expect((await symbolsOf(page, 'Ideal Gas Law')).map(x => x.split(':').slice(0, 2).join(':')))
+    .toEqual(['R:Molar Gas Constant', 'T:Thermodynamic Temperature', 'V:Volume', 'n:Amount of Substance', 'p:Pressure']);
 
   // A click writes it by its real name, the rest sliding aside; again, back.
   const vBefore = (await centerOfLocator(token(page, 'V'))).x;
@@ -508,9 +518,7 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await page.waitForTimeout(500);
   await expect(expanded(page)).toHaveCount(0);
   // The panel lists the equations it is in.
-  const row = page.locator('.equations-row');
-  await expect(row).toHaveCount(1);
-  await expect(row).toContainText('in Ideal Gas Law');
+  await expect(page.locator('.equations-row', { hasText: 'in Ideal Gas Law' })).toHaveCount(1);
   await expect(page.locator('.equations-written-as input')).toHaveValue('p');
   await page.locator('.equations-section').scrollIntoViewIfNeeded();
   await shot(page, '11-equations-section');
@@ -521,12 +529,17 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
     const web = d && st.graphs.get(d.definitionGraphIds[0]);
     return web ? [...web.instances.values()].map(i => st.nodePrototypes.get(i.prototypeId).name) : null;
   }, name);
-  expect(await webOf('Physics')).toEqual(['Thermodynamics']);
-  expect(await webOf('Thermodynamics')).toEqual(['Ideal Gas Law']);
+  expect(await webOf('Physics')).toContain('Thermodynamics');
+  expect(await webOf('Thermodynamics')).toContain('Ideal Gas Law');
   expect(await storeEval(page, (st) => [...st.nodePrototypes.values()].find(x => x.name === 'Thermodynamics').externalLinks))
     .toEqual(['http://www.wikidata.org/entity/Q11473']);
 
-  // A second equation from the bank finds the same Pressure; a Thing of the
+  // Placed, it is the same equation: one Thing, one definition.
+  const definitions = () => storeEval(page, (st) => [...st.nodePrototypes.values()]
+    .filter(x => x.name === 'Ideal Gas Law').map(x => x.definitionGraphIds.length));
+  expect(await definitions()).toEqual([1]);
+
+  // Another, picked the same way, has the bank's Pressure in it; a Thing of the
   // user's that is merely called Pressure is never taken over.
   await storeEval(page, (st) => st.addNodePrototype({ id: 'mine-pressure', name: 'Pressure', color: '#336699', definitionGraphIds: [] }));
   const spot = await findBareSpot(page);
@@ -535,12 +548,9 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await page.locator('.format-bank-row', { hasText: 'Definition of Enthalpy' }).click();
   await expect(object(page)).toHaveCount(2);
   expect(await protosNamed(page, 'Pressure')).toBe(2);
-  await expect(page.locator('.equations-row')).toHaveCount(2);
+  expect((await symbolsOf(page, 'Definition of Enthalpy')).some(x => x.startsWith('p:Pressure:http'))).toBe(true);
 
-  // The same equation again is the same Thing with the same definition, not a second copy of it.
-  const definitions = () => storeEval(page, (st) => [...st.nodePrototypes.values()]
-    .filter(x => x.name === 'Ideal Gas Law').map(x => x.definitionGraphIds.length));
-  expect(await definitions()).toEqual([1]);
+  // Built from the bank again (as the wizard can), it is still the same Thing with the same definition.
   await page.evaluate(async () => {
     const { buildBankEquation } = await import('/src/components/canvas/formats/formula/buildFormula.js');
     const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
@@ -552,11 +562,13 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   expect(await definitions()).toEqual([1]);
   expect(await storeEval(page, (st) => [...st.graphs.get(st.activeGraphId).groups.values()]
     .filter(g => g.format === 'formula' && st.nodePrototypes.get(g.linkedNodePrototypeId)?.name === 'Ideal Gas Law')
-    .map(g => g.linkedDefinitionIndex))).toEqual([0, 0]);
+    .map(g => g.linkedDefinitionIndex))).toEqual([0]);
 });
 
-test('F44 the bank\'s choices stay in its header; its sections group the list, which the wheel scrolls', async ({ page }) => {
+test('F44 the box\'s choices stay in its header; its sections group the list, which the wheel scrolls', async ({ page }) => {
+  test.setTimeout(90_000);
   await openFixture(page, 'small');
+  await addStarter(page, ['physics', 'biology']);
   await openComposer(page);
   const top = page.locator('.format-bank-top');
   const body = page.locator('.format-bank-body');
@@ -581,18 +593,17 @@ test('F44 the bank\'s choices stay in its header; its sections group the list, w
   await expect(body.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(0);
   await expect(body.locator('.format-bank-known-row').first()).toBeVisible();
   await shot(page, '9b-bank-section');
-  // A discipline with nothing written yet still says what its sections know of.
-  await top.locator('.format-bank-choice', { hasText: /^Economics$/ }).click();
-  await expect(body).toContainText('No equations written here yet.');
-  // A section with nothing written yet says what it knows of.
+  // Only what the universe has: a discipline none of whose equations are here isn't offered.
+  await expect(top.locator('.format-bank-choice', { hasText: /^Chemistry$/ })).toHaveCount(0);
+  await expect(top.locator('.format-bank-choice', { hasText: /^Economics$/ })).toHaveCount(0);
   await top.locator('.format-bank-choice', { hasText: /^Biology$/ }).click();
-  await top.locator('.format-bank-choice', { hasText: /^Population Genetics$/ }).click();
-  await expect(body.locator('.format-bank-known-row', { hasText: 'Hardy–Weinberg Principle' })).toContainText('Wikidata has no formula for it');
-  await shot(page, '9c-bank-known');
+  await expect(body.locator('.format-bank-row')).toHaveCount(2);
+  await shot(page, '9c-bank-biology');
 });
 
 test('F44 MathModDB fills in a discipline: its model under each equation, its quantities Things of their own', async ({ page }) => {
   await openFixture(page, 'small');
+  await addStarter(page, ['epidemiology']);
   await openComposer(page);
   const top = page.locator('.format-bank-top');
   const body = page.locator('.format-bank-body');
@@ -603,13 +614,7 @@ test('F44 MathModDB fills in a discipline: its model under each equation, its qu
   await row.click();
   await expect(object(page)).toHaveCount(1);
   expect((await object(page).locator('g.formula-object-token text').allTextContents()).join(' ')).toBe('d R d t = γ I');
-  const things = await storeEval(page, (st) => {
-    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.format === 'formula');
-    const inst = st.graphs.get(st.activeGraphId).instances;
-    return g.memberInstanceIds.map(id => st.nodePrototypes.get(inst.get(id).prototypeId))
-      .filter(p => p.labels?.formula)
-      .map(p => `${p.labels.formula}:${p.name}:${p.externalLinks?.[0] || ''}`).sort();
-  });
+  const things = await symbolsOf(page, 'Rate of Change of Removed in the SIR Model');
   // Time is Wikidata's; the rest are MathModDB's own, linked there.
   expect(things).toEqual([
     'I:Number of Infectious Individuals:https://portal.mardi4nfdi.de/entity/Q6673881',
@@ -768,9 +773,16 @@ test('F44 a bank this device kept in an older shape gives way to the one shipped
     await writeDeviceBank({ bank: { source: 'old', fetchedAt: '2026-10-19T00:00:00Z', disciplines: old, concepts: {} }, report: {}, known: {}, classes: {} });
   });
   await openFixture(page, 'small');
-  await openComposer(page);
-  await expect(page.locator('.format-bank-top .format-bank-choice', { hasText: /^Biology$/ })).toHaveCount(1);
-  await expect(page.locator('.format-bank-group-head', { hasText: 'Thermodynamics' })).toHaveCount(1);
+  // The bank in use (what the starter adds, and the wizard draws on) is the shipped one, sections and all.
+  expect(await page.evaluate(async () => {
+    const { loadFormulaBank } = await import('/src/components/canvas/formats/formula/bank/formulaBank.js');
+    const bank = await loadFormulaBank();
+    return {
+      from: bank.from,
+      biology: bank.disciplines.some(d => d.name === 'Biology'),
+      thermodynamics: !!bank.disciplines.find(d => d.id === 'physics')?.sections?.some(x => x.name === 'Thermodynamics'),
+    };
+  })).toEqual({ from: 'built-in', biology: true, thermodynamics: true });
   // Cleared, so nothing on the device stands over the shipped bank again.
   expect(await page.evaluate(async () => {
     const { readDeviceBank } = await import('/src/components/canvas/formats/formula/bank/population/deviceBank.js');
@@ -814,7 +826,9 @@ test('F44 the bank writes calculus as the textbook does, and a concept two ways 
 });
 
 test('F44 the formula panel writes it with names instead of symbols', async ({ page }) => {
+  test.setTimeout(90_000);
   await openFixture(page, 'small');
+  await addStarter(page, ['physics']);
   await openComposer(page);
   await page.locator('.formula-selector .unified-selector-pill input').fill('ohm');
   await page.locator('.format-bank-row', { hasText: "Ohm's Law" }).click();

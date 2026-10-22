@@ -141,3 +141,39 @@ export function findEquationThing(state, ref) {
   return found;
 }
 
+
+let lastHere = null;
+
+/**
+ * Every equation's Thing in the universe, shown anywhere or not: the ones
+ * written here and the bank's added to it (the Formula Starter files those
+ * in their sections' webs as plain nodes, so formulasForWizard doesn't see
+ * them). For the wizard's searchFormulaBank, which looks here before the bank.
+ *   [{ protoId, name, text, description, terms }]
+ * The same answer comes back until the store changes.
+ */
+export function equationsHere(state) {
+  if (lastHere && lastHere.graphs === state.graphs && lastHere.protos === state.nodePrototypes && lastHere.edges === state.edges) {
+    return lastHere.result;
+  }
+  const result = [];
+  for (const proto of state.nodePrototypes.values()) {
+    if (proto.isOrbitCatalog || !proto.definitionGraphIds?.length) continue;
+    const eq = equationOf(state, proto);
+    if (!eq) continue;
+    result.push({
+      protoId: proto.id,
+      name: proto.name,
+      text: eq.text,
+      description: proto.description || '',
+      terms: termsOf(eq.chain).map(({ symbol, thing }) => ({ symbol, thing })),
+    });
+  }
+  lastHere = { graphs: state.graphs, protos: state.nodePrototypes, edges: state.edges, result };
+  return result;
+}
+
+/** The formulas part of the wizard's snapshot: formulasForWizard's, and every equation here. */
+export function formulaSnapshotForWizard(state) {
+  return { ...formulasForWizard(state), universeEquations: equationsHere(state) };
+}

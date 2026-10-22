@@ -49,11 +49,17 @@ test('F44b the formula starter: nothing offered until added; then listed, and pl
   const row = page.locator('.settings-row', { hasText: 'Add to This Universe' });
   await expect(row).toContainText(/14 equations and the \d+ things they're about/);
   await shot(page, 's2-chosen');
-  await row.locator('button').click();
+  // A pointer press, as a person makes one: locator.click scrolls the page to the button first.
+  const press = async () => {
+    const b = await row.locator('button').boundingBox();
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  };
+  await press();
   await expect(row.locator('button')).toContainText('Add 14?');
-  await row.locator('button').click();
+  await press();
   const opened = page.locator('.settings-row', { hasText: /^Formulas/ });
   await expect(opened).toContainText('Added 14 equations', { timeout: 60_000 });
+  expect(await page.evaluate(() => document.body.scrollLeft)).toBe(0);
   await shot(page, 's3-added');
   // Added: none of it is new any more.
   await expect(chip).toHaveText('Epidemiology 0');
@@ -88,6 +94,11 @@ test('F44b the formula starter: nothing offered until added; then listed, and pl
   await expect(page.locator('.formula-selector')).toHaveCount(0);
   await expect(object(page)).toHaveCount(1);
   expect(await storeEval(page, (st) => st.nodePrototypes.size)).toBe(before);
+  // Where it was asked for: its middle on the spot that was right-clicked.
+  await page.waitForTimeout(700); // its entrance
+  const box = await object(page).boundingBox();
+  expect(Math.abs(box.x + box.width / 2 - BARE.x)).toBeLessThan(60);
+  expect(Math.abs(box.y + box.height / 2 - BARE.y)).toBeLessThan(60);
   await shot(page, 's6-placed');
 
   // Adding the same again adds nothing.

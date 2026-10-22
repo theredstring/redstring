@@ -27,3 +27,24 @@ export function spotBelow(state, graphId, { centre = true } = {}) {
   return centre ? { x, y } : { x: x - 100, y };
 }
 
+
+/**
+ * Where a node goes for its definition, opened in place, to be centred on
+ * `at`: an open box's top-left sits on its node (core/openDefinitions.js
+ * initialOpenOffset), and a formula's row runs far wider than one Thing.
+ */
+export function anchorToCentre(state, defGraphId, at) {
+  const def = state.graphs.get(defGraphId);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const inst of def?.instances?.values() || []) {
+    let w = 200, h = 100;
+    try {
+      const dims = getNodeDimensions({ name: state.nodePrototypes.get(inst.prototypeId)?.name || '' }, false, null);
+      w = dims.currentWidth; h = dims.currentHeight;
+    } catch { /* no text measuring here: the estimate stands */ }
+    minX = Math.min(minX, inst.x); minY = Math.min(minY, inst.y);
+    maxX = Math.max(maxX, inst.x + w); maxY = Math.max(maxY, inst.y + h);
+  }
+  if (!Number.isFinite(minX)) return { x: at.x - 100, y: at.y - 50 };
+  return { x: at.x - (maxX - minX) / 2, y: at.y - (maxY - minY) / 2 };
+}

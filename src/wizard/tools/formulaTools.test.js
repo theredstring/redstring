@@ -4,6 +4,8 @@ import { searchBank, findBankEquation } from '../../components/canvas/formats/fo
 import { loadFormulaBank } from '../../components/canvas/formats/formula/bank/formulaBank.js';
 import { formulaCover, formulaLine, findFormulaIn, readFormulaText } from './utils/formulas.js';
 import { predictFormula } from '../predictFormula.js';
+import { searchFormulaBank } from './searchFormulaBank.js';
+import { formula } from './formula.js';
 
 const FORMULA_TOOLS = ['addFormula', 'searchFormulaBank', 'formula'];
 const web = { id: 'w', name: 'W', instances: [{ id: 'a', prototypeId: 'pa' }], edgeIds: [], groups: [] };
@@ -34,6 +36,31 @@ describe('the formula bank, searched', () => {
     expect(searchBank(bank, '', { discipline: 'Thermodynamics' }).every(r => r.section === 'Thermodynamics' || r.discipline === 'Thermodynamics')).toBe(true);
     expect(findBankEquation(bank, 'Q191785').equation.title).toBe('Ideal Gas Law');
     expect(findBankEquation(bank, "ohm's law").equation.id).toBe('Q41591');
+  });
+});
+
+describe('the universe\'s equations, searched with the bank', () => {
+  const gs = {
+    graphs: [web], activeGraphId: 'w',
+    universeEquations: [{
+      protoId: 'pe', name: 'Ideal Gas Law', text: 'P × V = n × R × T', description: '',
+      terms: [{ symbol: 'P', thing: 'Pressure' }, { symbol: 'V', thing: 'Volume' }, { symbol: 'n', thing: 'n' }],
+    }],
+  };
+
+  it('finds the one here, and not the bank\'s copy of it', async () => {
+    const out = await searchFormulaBank({ query: 'ideal gas' }, gs);
+    expect(out.results[0]).toMatchObject({ inUniverse: true, title: 'Ideal Gas Law', meanings: { P: 'Pressure', V: 'Volume' } });
+    expect(out.results.filter(r => r.title === 'Ideal Gas Law')).toHaveLength(1);
+    // By what it is about too, ranked with the bank's by how well each matches.
+    expect((await searchFormulaBank({ query: 'pressure', limit: 20 }, gs)).results.some(r => r.inUniverse)).toBe(true);
+    // A better match in the bank still comes first.
+    expect((await searchFormulaBank({ query: "boyle's law" }, gs)).results[0].title).toBe("Boyle's Law");
+  });
+
+  it('places it by its title, though no web shows it as a formula', async () => {
+    const out = await formula({ action: 'place', formulaName: 'Ideal Gas Law' }, gs);
+    expect(out).toMatchObject({ action: 'placeFormula', equationProtoId: 'pe' });
   });
 });
 

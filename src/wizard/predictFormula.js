@@ -106,7 +106,7 @@ export function predictFormula(graphState, result) {
       graphId: graph.id, groupId: result.folded ? null : `open:${anchorId}`, anchorId, equationProtoId: protoId,
       title: result.formulaName, text: result.text || source?.text || '', shown: result.folded ? 'folded' : 'open',
       // Inside the definition, which this web shows without holding.
-      terms: (source?.terms || []).map(t => ({ ...t, instanceId: null })),
+      terms: (source?.terms || eq?.terms || []).map(t => ({ ...t, instanceId: null })),
       memberIds: [],
     });
     return;

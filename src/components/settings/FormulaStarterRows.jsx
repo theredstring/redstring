@@ -133,7 +133,7 @@ export default function FormulaStarterRows({ onCloseSettings }) {
       <div className="settings-row-description" style={{ marginBottom: 8 }}>
         {`Equations from Wikidata and MathModDB${when ? `, as of ${when}` : ''}, added to this universe as Things of its own.`}
       </div>
-      <div className="settings-option-group" style={{ flexWrap: 'wrap', marginBottom: 6 }}>
+      <div className="settings-option-group" style={{ flexWrap: 'wrap', justifyContent: 'flex-start', marginBottom: 6 }}>
         <PanelIconButton label="All" labelFontSize={11} variant="outline" active={all} disabled={!bank || !!progress} onClick={toggleAll} style={{ padding: '5px 12px' }} />
         {disciplines.map((d) => {
           const left = perDiscipline.get(d.id)?.equations ?? d.equations.length;
