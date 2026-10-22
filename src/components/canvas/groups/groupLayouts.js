@@ -47,6 +47,26 @@ export function formatAnchorPosition(anchorId, pill, dx = 0, dy = 0) {
 }
 
 /**
+ * How a group around a format measures it (computeGroupLayout's
+ * `drawnBoundsOf` and `isDrawnElsewhere`): a group inside it drawn as a
+ * formula is the formula's band; the Things drawn in it aren't where they
+ * stand. One rule for the settled layout and the drag's live one, so a group's
+ * box is the same while it moves and once it lands. `dragDelta(memberIds)`:
+ * how far the drag has carried a formula, by its Things ({ dx, dy }), or null.
+ */
+export function formatLayoutHooks(dragDelta = null) {
+  return {
+    drawnBoundsOf: (groupId) => {
+      const drawn = formatOfAnchor(formatAnchorOfGroup(groupId));
+      if (!drawn) return null;
+      const d = dragDelta?.(drawn.memberIds || []);
+      return d ? { x: drawn.x + d.dx, y: drawn.y + d.dy, w: drawn.w, h: drawn.h } : drawn;
+    },
+    isDrawnElsewhere: isReplacedInstance,
+  };
+}
+
+/**
  * @returns {{
  *   entries: Array<{ group, members, layout, effectiveGroupName, effectiveGroupColor }>,
  *   groupCount: number,
@@ -132,10 +152,7 @@ export function computeGroupLayouts({
     measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
     labelScale: groupLabelScale,
     labelFontSize: groupLabelFontSize,
-    // A group inside another, drawn as a formula, is the formula's band to the
-    // group around it; its Things, drawn in it, aren't where they stand.
-    drawnBoundsOf: (groupId) => formatOfAnchor(formatAnchorOfGroup(groupId)),
-    isDrawnElsewhere: isReplacedInstance,
+    ...formatLayoutHooks(),
     _cache: new Map(),
   };
 

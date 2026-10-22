@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } fr
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import { standInFor, isReplacedGroup } from '../components/canvas/formats/replaced.js';
-import { formatAnchorPosition } from '../components/canvas/groups/groupLayouts.js';
+import { formatAnchorPosition, formatLayoutHooks } from '../components/canvas/groups/groupLayouts.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
@@ -1750,6 +1750,11 @@ export const useNodeDrag = ({
       measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
       labelScale,
       labelFontSize,
+      // A formula inside a group, as the settled layout measures it, carried as far as its Things are.
+      ...formatLayoutHooks((memberIds) => {
+        const id = memberIds.find(m => dragPos.has(m) && curNodeById.has(m));
+        return id ? { dx: dragPos.get(id).x - curNodeById.get(id).x, dy: dragPos.get(id).y - curNodeById.get(id).y } : null;
+      }),
       _cache: new Map(),
     };
 
