@@ -30,7 +30,8 @@ export const NODE_CHANGE_THRESHOLD = 10;
 const TURN_IDLE_MS = 2 * 60 * 1000;
 
 const GRAPH_LEVEL_ACTIONS = new Set(['removeDefinitionGraph', 'mergeGraphs']);
-const NODE_LEVEL_ACTIONS = new Set(['deleteNode', 'mergeNodes']);
+// A formula's delete takes its Things with it: counted as one delete of Things.
+const NODE_LEVEL_ACTIONS = new Set(['deleteNode', 'mergeNodes', 'deleteFormula']);
 
 export const useWizardConfirmationStore = create(() => ({
   /** [{ id, conversationId, toolName, result, toolCallId, kind, summary }] */
@@ -64,6 +65,7 @@ export function describeHeldChange(toolName, result) {
       + (pairs ? ` (merging ${pairs} duplicate pair${pairs === 1 ? '' : 's'})` : '');
   }
   if (action === 'deleteNode') return `delete ${quote(result?.name)}`;
+  if (action === 'deleteFormula') return `delete the formula ${quote(result?.formulaName || result?.name)}`;
   if (action === 'mergeNodes') {
     return `merge ${quote(result?.secondaryName || result?.secondaryProtoId)} into ${quote(result?.primaryName || result?.primaryProtoId)}`;
   }

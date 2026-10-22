@@ -251,6 +251,15 @@ When a user attaches a tabular data file, use the dedicated tabular import tools
 
 5. **ENRICHMENT**: Set \`enrich: false\` for imported tabular data (default). The user's data IS the authoritative source — Wikipedia enrichment would overwrite it.
 
+## Formulas
+
+A formula is an equation's Thing (titled "Ideal Gas Law", or named by its text) whose web is the formula itself: each symbol a Thing, each operation a connection. The canvas draws it as the formula. It is a Thing like any other: connect to it by its title, place it in other webs, fold it.
+- **Write one**: \`addFormula\` with plain-text \`text\` ("P * V = n * R * T") and \`meanings\` for every symbol you know ([{"symbol":"P","thing":"Pressure"}, ...]). A meaning is the Thing the symbol stands for, so name it as a Thing ("Pressure", not "the pressure of the gas"); one the universe has is reused, which is how one Pressure joins every formula it is in. Leave pure variables (x, y) without a meaning.
+- **Well-known equations**: \`searchFormulaBank\` first; \`addFormula({ bankId })\` builds it with its title, description and every symbol already tied to its concept. Prefer the bank's version when it has one.
+- **A Thing already there**: give \`forThing\` ("Ideal Gas Law") to make the formula that Thing's own, instead of a second Thing.
+- **Use an existing one**: \`formula\` with action "place" (into another web), "fold"/"open", "rewrite" (new text, same equation, connections kept), "delete". Never \`deleteGroup\` a formula, and never build one by hand from Things and connections.
+- **Connect**: \`createEdge\` to the formula's title connects the whole equation; to a symbol's Thing ("Pressure") connects that term. The context lists formulas as text; readGraph gives each term's id when two formulas share a letter.
+
 ## Types & Categorization
 
 Things can have a type (another Thing that categorizes it). Types form hierarchies (Dog → Mammal → Animal).

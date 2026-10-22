@@ -23,6 +23,7 @@
  */
 
 import { estimateTokens } from './tokenEstimate.js';
+import { formulaCover, formulaLine } from './tools/utils/formulas.js';
 
 /**
  * Total token budget for the graph portion of the context header.
@@ -117,29 +118,36 @@ function resolveEdgeType(edge, protoMap) {
  * Returns a string with no trailing newline. `isActive` switches the framing —
  * the active graph is introduced as the current screen, the rest as context.
  */
-function renderGraph(graph, level, { protoMap, edgesByGraph, isActive = false }) {
+function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, isActive = false }) {
   const name = graph.name || 'Unnamed';
 
   if (level === DETAIL.NAME) return `  - "${name}"`;
 
-  const instances = getInstances(graph);
-  const graphEdges = edgesByGraph.get(graph.id) || [];
-  const groups = getGroups(graph);
+  // A formula is one thing here, its text: not the row of Things and
+  // operations it is drawn over (wizard/tools/utils/formulas.js).
+  const formulas = formulasByGraph?.get(graph.id) || [];
+  const cover = formulaCover(formulas);
+  const instances = getInstances(graph).filter(inst => !cover.hides(inst.id));
+  const graphEdges = (edgesByGraph.get(graph.id) || []).filter(e => !cover.internal(e));
+  const groups = getGroups(graph).filter(g => g.format !== 'formula' && !cover.hides(g.anchorInstanceId));
   const nodeCount = instances.length;
   const edgeCount = graphEdges.length;
+  const formulaCount = formulas.length;
 
   if (level === DETAIL.LIGHT) {
     const parts = [`${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}`, `${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`];
     if (groups.length > 0) parts.push(`${groups.length} Group${groups.length !== 1 ? 's' : ''}`);
+    if (formulaCount > 0) parts.push(`${formulaCount} Formula${formulaCount !== 1 ? 's' : ''}`);
     return `  - "${name}" (${parts.join(', ')})`;
   }
 
   // Instance id → display name, needed to render edges and group members.
   const nodeNameById = new Map();
-  for (const inst of instances) {
+  for (const inst of getInstances(graph)) {
     const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
-    nodeNameById.set(inst.id, inst.name || proto?.name || '');
+    nodeNameById.set(inst.id, cover.nameOf(inst.id, inst.name || proto?.name || ''));
   }
+  const formulaLines = formulas.map(f => `  - ${formulaLine(f)}`);
 
   const nodeLine = (inst) => {
     const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
@@ -166,23 +174,27 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, isActive = false })
   // tier that makes neighbouring tabs affordable — edge triplets are usually
   // the bulk of a graph's rendered size.
   if (level === DETAIL.MEDIUM) {
-    let out = `  - "${name}" (${nodeCount} Things, ${edgeCount} Connections)`;
+    let out = `  - "${name}" (${nodeCount} Things, ${edgeCount} Connections${formulaCount ? `, ${formulaCount} Formulas` : ''})`;
     if (nodeCount > 0) {
       out += `\n${instances.map(inst => `  ${nodeLine(inst)}`).join('\n')}`;
     }
+    if (formulaCount > 0) out += `\n${formulaLines.map(l => `  ${l}`).join('\n')}`;
     return out;
   }
 
   // FULL / NO_DESC: the active graph's own section.
   let out = isActive ? '' : `  - "${name}"`;
-  if (nodeCount === 0) {
+  if (nodeCount === 0 && formulaCount === 0) {
     return isActive ? 'Status: Empty (perfect for populating!)' : `${out} (empty)`;
   }
 
-  const header = `Status: ${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}, ${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`;
+  const header = `Status: ${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}, ${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`
+    + (formulaCount ? `, ${formulaCount} Formula${formulaCount !== 1 ? 's' : ''}` : '');
   const sections = [isActive ? header : `${out}\n${header}`];
 
-  sections.push(`Things:\n${instances.map(nodeLine).join('\n')}`);
+  if (nodeCount > 0) sections.push(`Things:\n${instances.map(nodeLine).join('\n')}`);
+  // Each its equation's Thing: connect to it by its title, to a symbol by what it stands for.
+  if (formulaCount > 0) sections.push(`Formulas (use the formula tool to place, fold, rewrite or delete one):\n${formulaLines.join('\n')}`);
 
   if (edgeCount > 0) {
     const triplets = graphEdges.map(e => {
@@ -287,7 +299,13 @@ export function buildContext(graphState) {
     edgesByGraph.set(g.id, list);
   }
 
-  const renderCtx = { protoMap, edgesByGraph };
+  const formulasByGraph = new Map();
+  for (const f of graphState.formulas || []) {
+    if (!formulasByGraph.has(f.graphId)) formulasByGraph.set(f.graphId, []);
+    formulasByGraph.get(f.graphId).push(f);
+  }
+
+  const renderCtx = { protoMap, edgesByGraph, formulasByGraph };
   const tiers = assignGraphTiers(graphs, activeGraphId, openGraphIds);
 
   let context = '';

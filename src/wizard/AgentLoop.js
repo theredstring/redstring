@@ -20,6 +20,7 @@ import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT, GOAL_MODE_PROMPT_ADDEN
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { readIsAList, findByLooseName, DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, seededChainFor } from './tools/utils/abstractionSpec.js';
+import { predictFormula } from './predictFormula.js';
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
@@ -1214,8 +1215,12 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       graphState.graphs.splice(sourceIdx, 1);
     }
     console.error('[updateGraphState] mergeGraphs:', pairs.length, 'pairs merged, source graph removed');
+  } else if (FORMULA_ACTIONS.has(result.action)) {
+    predictFormula(graphState, result);
   }
 }
+
+const FORMULA_ACTIONS = new Set(['addFormula', 'placeFormula', 'openFormula', 'foldFormula', 'rewriteFormula', 'deleteFormula']);
 
 const DEFAULT_MAX_ITERATIONS = 77;
 
@@ -1227,7 +1232,7 @@ const DEFAULT_MAX_ITERATIONS = 77;
  */
 const NON_MUTATING_TOOLS = new Set([
   'planTask', 'declareGoal', 'sketchGraph', 'readGraph', 'search', 'selectNode', 'getNodeContext',
-  'inspectPrototype', 'inspectWorkspace', 'listTools', 'askMultipleChoice'
+  'inspectPrototype', 'inspectWorkspace', 'listTools', 'askMultipleChoice', 'searchFormulaBank'
 ]);
 
 /** Max planTask calls permitted per user turn (hard cap, all tiers). */

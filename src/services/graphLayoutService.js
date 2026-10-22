@@ -5341,6 +5341,8 @@ export function circularLayout(nodes, edges, options = {}) {
  * Apply layout algorithm and return position updates
  */
 export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
+  const formulas = formulaBlocks(nodes, edges, options);
+  if (formulas) return formulas.expand(applyLayout(formulas.nodes, formulas.edges, algorithm, formulas.options));
   if (algorithm === 'best') return bestLayout(nodes, edges, options);
   if (algorithm === 'community') {
     const blocks = communityGroups(nodes, edges, options);
@@ -5370,6 +5372,85 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
   const positions = new Map(updates.map(u => [u.instanceId, { x: u.x, y: u.y }]));
   const repaired = repairLayout(positions, nodes, edges, repairOptions(options));
   return toUpdates(repaired.positions);
+}
+
+/**
+ * A formula (a group shown as one, format 'formula') is laid out as one: its
+ * Things are a finished row whose order its reading depends on
+ * (formats/formula/formulaChain.js), and laying them out one by one scatters
+ * them. Each formula becomes a single block the size of its row for the
+ * solve, and its Things go back around wherever the block lands, as they
+ * were. Its parentheses (groups inside it) go with it; a group it sits in
+ * holds the block in its place. Null when there is no formula to lay out.
+ */
+function formulaBlocks(nodes, edges, options) {
+  const groups = options.groups || [];
+  if (!groups.some(g => g.format === 'formula')) return null;
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const blockOf = new Map(); // instance id -> block id
+  const blocks = [];
+  for (const g of groups) {
+    if (g.format !== 'formula') continue;
+    const ids = new Set((g.memberInstanceIds || []).filter(id => byId.has(id)));
+    if (ids.size === 0 || [...ids].some(id => blockOf.has(id))) continue;
+    // Its anchor is its title, drawn from the members: moved with them, not sized by them.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach((id) => {
+      const n = byId.get(id);
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + (n.width || 150)); maxY = Math.max(maxY, n.y + (n.height || 100));
+    });
+    if (g.anchorInstanceId && byId.has(g.anchorInstanceId)) ids.add(g.anchorInstanceId);
+    const id = `__formula__${g.id}`;
+    const w = maxX - minX;
+    const h = maxY - minY;
+    blocks.push({ id, ids, minX, minY });
+    ids.forEach(m => blockOf.set(m, id));
+    byId.set(id, { id, prototypeId: null, x: minX, y: minY, width: w, height: h, labelWidth: w, labelHeight: h, imageHeight: 0, nodeSize: Math.max(w, h) });
+  }
+  if (blocks.length === 0) return null;
+
+  const inBlock = (id) => blockOf.get(id) || id;
+  const insideOne = (g) => (g.memberInstanceIds || []).length > 0 && g.memberInstanceIds.every(m => blockOf.has(m));
+  const reducedGroups = [];
+  for (const g of groups) {
+    if (g.format === 'formula' || insideOne(g)) continue;
+    const members = [...new Set((g.memberInstanceIds || []).map(inBlock))];
+    reducedGroups.push({ ...g, memberInstanceIds: members, ...(g.anchorInstanceId ? { anchorInstanceId: inBlock(g.anchorInstanceId) } : {}) });
+  }
+  const reducedEdges = [];
+  for (const e of edges) {
+    const sourceId = inBlock(e.sourceId);
+    const destinationId = inBlock(e.destinationId);
+    if (sourceId === destinationId) continue; // inside one formula
+    const arrows = e.directionality?.arrowsToward;
+    reducedEdges.push({
+      ...e, sourceId, destinationId,
+      ...(arrows ? { directionality: { ...e.directionality, arrowsToward: [...arrows].map(inBlock) } } : {}),
+    });
+  }
+  const reducedNodes = [...nodes.filter(n => !blockOf.has(n.id)), ...blocks.map(b => byId.get(b.id))];
+
+  return {
+    nodes: reducedNodes,
+    edges: reducedEdges,
+    options: { ...options, groups: reducedGroups },
+    expand(updates) {
+      const out = [];
+      const placed = new Map((updates || []).map(u => [u.instanceId, u]));
+      for (const u of updates || []) if (!u.instanceId.startsWith('__formula__')) out.push(u);
+      for (const b of blocks) {
+        const at = placed.get(b.id);
+        const dx = at ? at.x - b.minX : 0;
+        const dy = at ? at.y - b.minY : 0;
+        b.ids.forEach((id) => {
+          const n = nodes.find(x => x.id === id);
+          if (n) out.push({ instanceId: id, x: Math.round(n.x + dx), y: Math.round(n.y + dy) });
+        });
+      }
+      return out;
+    },
+  };
 }
 
 /** The repair fences only what is DRAWN — community blocks are not. */

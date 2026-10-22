@@ -60,6 +60,7 @@ import { buildEnrichmentUpdates, linkedWikipediaTitle } from '../../../services/
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { openExternalUrl } from '../../../utils/safeUrl.js';
 import { buildAIOutputReportUrl } from '../../../services/aiConsent.js';
+import { formulasForWizard } from '../../canvas/formats/formula/formulaSnapshot.js';
 
 /**
  * services/aiConsent.js refuses to send graph content to a provider the person
@@ -2831,6 +2832,9 @@ const LeftAIView = ({ compact = false,
           const ids = useGraphStore.getState().openGraphIds;
           return Array.isArray(ids) ? [...ids] : [];
         })(),
+        // Every formula a web shows, as its text and what its symbols mean:
+        // without it the wizard reads a formula as a row of small Things.
+        ...formulasForWizard(useGraphStore.getState()),
         // Seed durable wizard plan so small models can resume after context clears.
         // Plans are keyed by conversation/tab ID so tabs don't contaminate each other.
         _currentPlan: (() => {
@@ -4016,6 +4020,7 @@ const LeftAIView = ({ compact = false,
                 } else {
                   const graphState = {
                     activeGraphId,
+                    ...formulasForWizard(useGraphStore.getState()),
                     graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => ({
                       id: g.id, name: g.name,
                       instances: g.instances instanceof Map ? Array.from(g.instances.values()) : Object.values(g.instances || {}),

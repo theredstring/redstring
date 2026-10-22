@@ -6,6 +6,7 @@
  * end-to-end wizard test uses (test/wizard/wizardEndToEnd.test.js), which is
  * what proves a second ask sees what the first one made.
  */
+import { formulasForWizard } from '../components/canvas/formats/formula/formulaSnapshot.js';
 
 const toArray = (m) => (m instanceof Map ? Array.from(m.values()) : Array.isArray(m) ? m : Object.values(m || {}));
 
@@ -48,7 +49,9 @@ export function graphStateFromStore(st) {
       type: e.type || ''
     })),
     activeGraphId: st.activeGraphId || null,
-    openGraphIds: [...(st.openGraphIds || [])]
+    openGraphIds: [...(st.openGraphIds || [])],
+    // Every formula a web shows, as its text and what its symbols mean.
+    ...formulasForWizard(st)
   };
 }
 

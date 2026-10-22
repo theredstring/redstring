@@ -1,5 +1,6 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 import { isSeededChain } from './utils/abstractionSpec.js';
+import { formulasIn, formulaCover, meaningsText } from './utils/formulas.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -50,10 +51,15 @@ export async function readGraph(args, graphState) {
             ? Array.from(activeGraph.instances.values())
             : Object.values(activeGraph.instances || {});
 
+    // A formula is one entry (formulas, below), not the row of Things and
+    // operations it is drawn over.
+    const formulas = formulasIn(graphState, targetGraphId);
+    const cover = formulaCover(formulas);
+
     for (const inst of instances) {
         if (inst.id) {
             const protoName = nodeNameById.get(inst.prototypeId) || '';
-            nodeNameById.set(inst.id, inst.name || protoName || '');
+            nodeNameById.set(inst.id, cover.nameOf(inst.id, inst.name || protoName || ''));
             // Carry description/color from prototype if instance doesn't override
             if (inst.description) nodeDescById.set(inst.id, inst.description);
             else if (inst.prototypeId) nodeDescById.set(inst.id, nodeDescById.get(inst.prototypeId) || '');
@@ -63,7 +69,7 @@ export async function readGraph(args, graphState) {
     }
 
     // --- Nodes output ---------------------------------------------------------
-    const nodeList = instances.map(inst => {
+    const nodeList = instances.filter(inst => !cover.hides(inst.id)).map(inst => {
         const name = nodeNameById.get(inst.id) || inst.id;
         const description = nodeDescById.get(inst.id) || '';
         const color = nodeColorById.get(inst.id) || '';
@@ -96,7 +102,7 @@ export async function readGraph(args, graphState) {
 
     // --- Edges output ---------------------------------------------------------
     const edgeIds = new Set(activeGraph.edgeIds || []);
-    const graphEdges = edges.filter(e => edgeIds.has(e.id) || edgeIds.has(e.edgeId));
+    const graphEdges = edges.filter(e => (edgeIds.has(e.id) || edgeIds.has(e.edgeId)) && !cover.internal(e));
 
     const edgeList = graphEdges.map(e => {
         const sourceId = e.sourceId || e.source;
@@ -129,7 +135,7 @@ export async function readGraph(args, graphState) {
     });
 
     // --- Groups output --------------------------------------------------------
-    const groupList = (activeGraph.groups || []).map(g => {
+    const groupList = (activeGraph.groups || []).filter(g => g.format !== 'formula' && !cover.hides(g.anchorInstanceId)).map(g => {
         const isThingGroup = !!g.linkedNodePrototypeId;
         const linkedThingName = isThingGroup
             ? (protoMap.get(g.linkedNodePrototypeId)?.name || 'Unknown Thing')
@@ -178,9 +184,20 @@ export async function readGraph(args, graphState) {
         nodes: nodeList,
         edges: edgeList,
         groups: groupList,
+        ...(formulas.length ? {
+            formulas: formulas.map(f => ({
+                id: f.anchorId,
+                name: f.title,
+                formula: f.text,
+                shown: f.shown,
+                ...(meaningsText(f) ? { meanings: meaningsText(f) } : {}),
+                // A term's id, to connect to that one ("x" in this formula, not another's).
+                terms: (f.terms || []).map(t => ({ symbol: t.symbol, thing: t.thing, ...(t.instanceId ? { id: t.instanceId } : {}) })),
+            })),
+        } : {}),
         ...(warning ? { warning } : {}),
         ...(redundancyNote ? { note: redundancyNote } : {}),
         ...(ambiguityNote ? { ambiguity: ambiguityNote } : {}),
-        summary: `Graph "${activeGraph.name}": ${nodeList.length} node(s), ${edgeList.length} connection(s), ${groupList.length} group(s).`,
+        summary: `Graph "${activeGraph.name}": ${nodeList.length} node(s), ${edgeList.length} connection(s), ${groupList.length} group(s)${formulas.length ? `, ${formulas.length} formula(s)` : ''}.`,
     };
 }

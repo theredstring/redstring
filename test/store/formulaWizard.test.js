@@ -8,9 +8,10 @@ vi.mock('../../src/utils.js', async (orig) => ({
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
 import {
-  formulasForWizard, findFormula, addFormulaForWizard, placeEquationForWizard, openFormulaForWizard,
-  foldFormulaForWizard, deleteFormulaForWizard, rewriteFormulaForWizard, equationOf, addBankFormulaForWizard,
+  addFormulaForWizard, placeEquationForWizard, openFormulaForWizard,
+  foldFormulaForWizard, deleteFormulaForWizard, rewriteFormulaForWizard, addBankFormulaForWizard,
 } from '../../src/components/canvas/formats/formula/formulaWizard.js';
+import { formulasForWizard, findFormula, equationOf } from '../../src/components/canvas/formats/formula/formulaSnapshot.js';
 
 // What the wizard does to formulas, against the store: written with meanings,
 // placed like a Thing, folded and opened, rewritten in place, deleted.

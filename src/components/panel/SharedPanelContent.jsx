@@ -27,13 +27,7 @@ import { linkedWikipediaTitle } from '../../services/conceptEnrichment.js';
 import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.js';
 import { safeImageSrc } from '../../utils/safeUrl.js';
 import { setWikipediaImage } from '../../services/wikipediaImage.js';
-
-// Helper function to determine the correct article ("a" or "an")
-const getArticleFor = (word) => {
-  if (!word) return 'a';
-  const firstLetter = word.trim()[0].toLowerCase();
-  return ['a', 'e', 'i', 'o', 'u'].includes(firstLetter) ? 'an' : 'a';
-};
+import { getArticleFor } from '../../utils/articleFor.js';
 
 // Wikipedia enrichment functions
 const searchWikipedia = async (query) => {

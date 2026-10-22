@@ -57,6 +57,7 @@ export const READ_ONLY_TOOLS = new Set([
   'querySparql',
   'findWork',
   'askMultipleChoice',
+  'searchFormulaBank',
   // Conditionally mutating — offered with their action enum narrowed to the
   // read branch. See NARROWED_TOOLS.
   'abstractionChain',

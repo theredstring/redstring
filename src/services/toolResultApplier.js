@@ -38,6 +38,12 @@ import { sanitizeColor } from '../utils/safeColor.js';
 import { normalizeIdentifier } from '../wizard/tools/linkIdentifier.js';
 import { classifyForConfirmation, holdForConfirmation, takePending } from './wizardConfirmationGate.js';
 import { snapshotEntityMaps, diffCreatedEntities, hasCreatedEntities, notifyWizardEntitiesCreated } from './wizardCreatedEntities.js';
+import {
+  addFormulaForWizard, addBankFormulaForWizard, placeEquationForWizard, openFormulaForWizard,
+  foldFormulaForWizard, rewriteFormulaForWizard, deleteFormulaForWizard,
+} from '../components/canvas/formats/formula/formulaWizard.js';
+
+const FORMULA_ACTIONS = new Set(['addFormula', 'placeFormula', 'openFormula', 'foldFormula', 'rewriteFormula', 'deleteFormula']);
 
 // Part B — structure-review follow-through. The most recent build's group/fold
 // suggestions (with their one-shot callIds) are held here; when the user's next
@@ -2051,6 +2057,45 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
   }
 
   // Handle addDefinitionGraph — create a definition graph for a node WITHOUT changing activeGraphId
+  // Formulas (wizard/tools: addFormula, formula), by name against the live
+  // store through the builders New Formula and the group panel use
+  // (formats/formula/formulaWizard.js). No layout pass after: a formula goes
+  // under what the web has, and a layout that runs later keeps it whole.
+  if (FORMULA_ACTIONS.has(result.action)) {
+    const graphId = result.graphId || store.activeGraphId;
+    const ref = result.formulaName;
+    console.log('[Wizard] Applying', result.action, 'to store:', ref || result.title || result.canonicalText);
+    const fail = (err) => {
+      console.warn(`[Wizard] ${result.action} failed:`, err?.message || err);
+      dispatchWizardToolFailed(toolName, err?.message || String(err), result);
+    };
+    try {
+      if (!graphId || !store.graphs.has(graphId)) throw new Error('No web to work in');
+      if (result.action === 'addFormula') {
+        const built = result.bankId
+          ? addBankFormulaForWizard({ graphId, ref: result.bankId })
+          : addFormulaForWizard({
+            graphId, text: result.text, title: result.title, description: result.description,
+            meanings: result.meanings, forThing: result.forThing, convention: result.convention,
+          });
+        if (built && typeof built.then === 'function') built.catch(fail);
+      } else if (result.action === 'placeFormula') {
+        placeEquationForWizard({ graphId, ref: result.equationProtoId && store.nodePrototypes.has(result.equationProtoId) ? result.equationProtoId : ref, folded: !!result.folded });
+      } else if (result.action === 'openFormula') {
+        openFormulaForWizard({ graphId, ref });
+      } else if (result.action === 'foldFormula') {
+        foldFormulaForWizard({ graphId, ref });
+      } else if (result.action === 'rewriteFormula') {
+        rewriteFormulaForWizard({ graphId, ref, text: result.text, title: result.title, meanings: result.meanings, convention: result.convention });
+      } else if (result.action === 'deleteFormula') {
+        deleteFormulaForWizard({ graphId, ref });
+      }
+    } catch (err) {
+      fail(err);
+    }
+    return;
+  }
+
   if (result.action === 'addDefinitionGraph') {
     const graphId = result.graphId;
     const nodeName = (result.nodeName || '').toLowerCase().trim();

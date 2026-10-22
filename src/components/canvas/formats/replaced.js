@@ -30,8 +30,9 @@ let anchors = NO_STAND_INS;
  * @param {Map<string, {x, y, w, h, rideOn}>} [nextStandIns] - where a replaced
  *   instance is drawn instead (its token), and which instance's drag moves
  *   that drawing (`rideOn`), so a connection into it is drawn there mid-drag too
- * @param {Map<string, {x, y, w, h, groupId}>} [nextAnchors] - each format by its
- *   group's anchor: the box it is drawn in, the whole of it a connection's end
+ * @param {Map<string, {x, y, w, h, groupId, memberIds}>} [nextAnchors] - each format by its
+ *   group's anchor: the box it is drawn in, the whole of it a connection's end,
+ *   and the Things it draws (which move when it is dragged among a selection)
  */
 export function setReplaced(nextInstanceIds, nextGroupIds, nextStandIns, nextAnchors) {
   instanceIds = nextInstanceIds?.size ? nextInstanceIds : NONE;
@@ -66,6 +67,17 @@ export const formatBoxes = () => [...anchors.values()];
 
 /** Where a replaced instance is drawn instead, or null. */
 export const standInFor = (id) => standIns.get(id) || null;
+
+/** The group a format is drawn for, if `id` is that group's anchor; else null. */
+export const formatGroupOfAnchor = (id) => anchors.get(id)?.groupId || null;
+/** A format's group's anchor, by its group id; else null. */
+export function formatAnchorOfGroup(groupId) {
+  if (!groupId) return null;
+  for (const [anchorId, b] of anchors) if (b.groupId === groupId) return anchorId;
+  return null;
+}
+/** Each format by its anchor: [anchorId, { x, y, w, h, groupId, memberIds }]. */
+export const formatAnchorEntries = () => anchors.entries();
 
 /** Whether an instance of the active web is replaced by a format. */
 export const isReplacedInstance = (id) => instanceIds.has(id);

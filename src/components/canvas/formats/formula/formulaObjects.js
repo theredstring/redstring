@@ -480,7 +480,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   }
   // Each formula, whole, where its group's anchor is: connections are drawn from it and dropped on it.
   const anchors = new Map();
-  for (const o of objects) if (o.anchorId) anchors.set(o.anchorId, { ...o.frame, groupId: o.groupId });
+  for (const o of objects) if (o.anchorId) anchors.set(o.anchorId, { ...o.frame, groupId: o.groupId, memberIds: o.memberIds });
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns, anchors } : EMPTY;
   last = { fontsReady, view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
   return result;

@@ -679,6 +679,77 @@ export function getToolDefinitions(options = {}) {
             }
         },
         {
+            name: 'addFormula',
+            description: 'Write a formula (an equation, a law, an expression) into a web, shown as its formula: E = m * c^2, P * V = n * R * T. It becomes an equation Thing whose web is the formula itself, each symbol a Thing, so it can be connected to, placed in other webs and folded like any Thing. Give `meanings` for every symbol you know the meaning of, so P is Pressure (an existing Thing of that name is used). Or give a `bankId` from searchFormulaBank to add a well-known equation fully formed.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    text: { type: 'string', description: 'The formula as plain text: = + - * / ^ and parentheses, functions like sqrt(x), sin(x), ln(x). Letters side by side multiply (mc^2); a word that names a Thing stays whole.' },
+                    title: { type: 'string', description: 'What the equation is called ("Ideal Gas Law"). Omit for an untitled formula, named by its text.' },
+                    description: { type: 'string', description: 'What the equation says, one sentence.' },
+                    meanings: {
+                        type: 'array',
+                        description: 'What each symbol stands for: [{"symbol":"P","thing":"Pressure"},{"symbol":"V","thing":"Volume"}]. A thing the universe has by that name is used, otherwise a new Thing is made. Omit symbols that are just variables (x, y).',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                symbol: { type: 'string', description: 'The symbol as written in the text' },
+                                thing: { type: 'string', description: 'The Thing it stands for' },
+                                description: { type: 'string', description: 'What that Thing is, when it is new' }
+                            },
+                            required: ['symbol', 'thing']
+                        }
+                    },
+                    forThing: { type: 'string', description: 'An existing Thing whose formula this is (the "Ideal Gas Law" already in the web), so it becomes that Thing\'s formula instead of a new equation Thing.' },
+                    bankId: { type: 'string', description: 'A bankId from searchFormulaBank (e.g. "Q191785"), instead of text: the equation is built with its title, description and every symbol tied to what it means.' },
+                    convention: { type: 'string', enum: ['math', 'programming'], description: '"math" (default): letters side by side multiply. "programming": names are whole words, * multiplies.' },
+                    targetGraphId: { type: 'string', description: 'Web to add it to (default: active).' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'searchFormulaBank',
+            description: 'Search the formula bank: well-known equations by discipline (Physics, Chemistry, Economics, Epidemiology...), from Wikidata. Find by title ("ideal gas"), topic ("thermodynamics") or what it is about ("pressure"). Returns each one\'s bankId, formula and what its symbols mean. Read-only.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'A title, topic, or concept' },
+                    discipline: { type: 'string', description: 'Only this discipline or section (e.g. "Physics", "Thermodynamics")' },
+                    limit: { type: 'number', description: 'At most this many (default 8)' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'formula',
+            description: 'Work with a formula that exists, found by its title or text. "place": put an existing formula in this web like a Thing, shown as its formula (folded: as a node that opens as its formula). "open": show a folded formula as its formula. "fold": fold it into its Thing. "rewrite": change its text in place, keeping its connections. "delete": remove it from this web. To connect a formula, use createEdge with its title (or a term like "Pressure").',
+            parameters: {
+                type: 'object',
+                properties: {
+                    formulaName: { type: 'string', description: 'The formula\'s title, or its text' },
+                    action: { type: 'string', enum: ['place', 'open', 'fold', 'rewrite', 'delete'], description: 'What to do (default "place")' },
+                    text: { type: 'string', description: 'For rewrite: the new formula as text' },
+                    title: { type: 'string', description: 'For rewrite: a new title' },
+                    meanings: {
+                        type: 'array',
+                        description: 'For rewrite: what new symbols stand for, as in addFormula',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                symbol: { type: 'string' },
+                                thing: { type: 'string' }
+                            },
+                            required: ['symbol', 'thing']
+                        }
+                    },
+                    folded: { type: 'boolean', description: 'For place: a folded node that opens as its formula, instead of the formula shown open' },
+                    targetGraphId: { type: 'string', description: 'Web to work in (default: active). For place, the web it goes into.' }
+                },
+                required: ['formulaName']
+            }
+        },
+        {
             name: 'manageDefinitions',
             description: 'List or remove definition graphs for a node.',
             parameters: {
@@ -1286,6 +1357,13 @@ export function getToolDefinitions(options = {}) {
     return allTools;
 }
 
+// An ask about equations, in the words people use for them. Substrings of the
+// message, as every keyword tier is matched.
+const FORMULA_WORDS = [
+    'formula', 'equation', 'theorem', ' law', 'physics', 'mathemat', 'algebra',
+    'calculus', 'derivative', 'integral', '='
+];
+
 /**
  * Tool selection tiers for dynamic per-turn filtering.
  * - 1: Always included (core tools every LLM needs)
@@ -1343,6 +1421,12 @@ const TOOL_TIERS = {
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 
+    // Formulas: reachable once the universe has one, or when the ask is about
+    // equations — at an ask's start the web may have none to gate on.
+    addFormula: ['hasFormulas', ...FORMULA_WORDS],
+    searchFormulaBank: ['hasFormulas', ...FORMULA_WORDS],
+    formula: ['hasFormulas', ...FORMULA_WORDS],
+
     // Tier 3: Keyword-triggered (semantic web, tabular data)
     discoverOrbit: ['semantic', 'wikidata', 'dbpedia', 'discover', 'orbit'],
     semanticSearch: ['semantic', 'wikidata', 'dbpedia', 'linked data'],
@@ -1399,6 +1483,7 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
         multipleGraphs: graphCount > 1,
         hasDefinitions,
         hasTabularData,
+        hasFormulas: (graphState?.formulas || []).length > 0 || (graphState?.equations || []).length > 0,
         // Set by AgentLoop from config.wizardMode before selection is frozen.
         goalMode: graphState?._wizardMode === 'goal',
     };

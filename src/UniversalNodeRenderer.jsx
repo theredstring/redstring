@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, OFF_CANVAS_LABEL_RING_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants.js';
@@ -125,7 +125,7 @@ const ConnectionText = ({
           {...lineGeomProps(i)}
           fill="none"
           stroke={labelColors.outerStroke}
-          strokeWidth={strokeWidth * connectionLabelRingWidth}
+          strokeWidth={strokeWidth * connectionLabelRingWidth * OFF_CANVAS_LABEL_RING_SCALE}
           strokeLinecap="round"
           strokeLinejoin="round"
         >

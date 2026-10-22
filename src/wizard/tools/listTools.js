@@ -58,6 +58,11 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **manageDefinitions**(nodeName*, action*:"add"|"remove"|"setActive", definitionGraphId) — Manage definition Webs
 - **abstractionChain**(nodeName*, action*:"read"|"build"|"add"|"remove", dimension, moreGeneric[], moreSpecific[]) — Is-a ladder on the abstraction axis (Ford Motor Company → Automaker → Company). "build" does a whole ladder in one call. While building a Web, use the \`isA\` field on a node instead.
 
+## Formulas
+- **addFormula**(text or bankId, title, description, meanings[{symbol,thing}], forThing, targetGraphId) — Write a formula into a Web, shown as its formula ("P * V = n * R * T"); each symbol tied to the Thing it means. An equation Thing like any other: connect it, place it, fold it
+- **searchFormulaBank**(query, discipline, limit) — Find well-known equations (Wikidata) by title, topic or concept; returns bankIds for addFormula
+- **formula**(formulaName*, action:"place"|"open"|"fold"|"rewrite"|"delete", text, title, meanings, folded, targetGraphId) — Use an existing formula: place it in another Web, fold/open it, rewrite it in place, delete it
+
 ## Planning & Interaction
 - **planTask**(steps[{description,status,substeps}]*) — Create/update a multi-step plan
 - **askMultipleChoice**(question*, options[]*) — Ask the user a question

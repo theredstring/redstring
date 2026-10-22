@@ -55,7 +55,7 @@
 import { create } from 'zustand';
 import { readPersistedPanelWidth } from '../utils/canvas/panelWidth.js';
 import { reducePie } from '../components/canvas/pie/pieMachine.js';
-import { isReplacedInstance } from '../components/canvas/formats/replaced.js';
+import { isReplacedInstance, formatGroupOfAnchor } from '../components/canvas/formats/replaced.js';
 
 // ─── Equality helpers ─────────────────────────────────────────────────────────
 
@@ -408,6 +408,8 @@ export function setGroupAnchorLookup(lookup) {
 /**
  * `ids` without anchors. A lone anchor selects its group instead, as clicking
  * the title does (and like that click, clears the connection selection).
+ * Among several, a format's anchor stays: a formula is selected along with
+ * Things as a Thing is, standing in for its group (formats/formula).
  */
 function withoutGroupAnchors(ids, set, get) {
   const anchors = ids.size > 0 && groupAnchorLookup ? groupAnchorLookup(ids) : null;
@@ -420,18 +422,21 @@ function withoutGroupAnchors(ids, set, get) {
       nodeControlPanelShouldShow: false,
       nodeControlPanelVisible: false,
     });
+    return new Set();
   }
-  return new Set([...ids].filter((id) => !anchors.has(id)));
+  return new Set([...ids].filter((id) => !anchors.has(id) || formatGroupOfAnchor(id)));
 }
 
 /**
  * A Thing a format draws its own way (a formula's term) isn't there to select:
  * the format is selected as its group, by its own tap. Nothing selects it
- * where it used to be (select by type, a box, the keyboard).
+ * where it used to be (select by type, a box, the keyboard). The format's own
+ * anchor, kept among several (withoutGroupAnchors), is the format itself.
  */
 function withoutReplaced(ids) {
-  if (!ids.size || ![...ids].some(isReplacedInstance)) return ids;
-  return new Set([...ids].filter((id) => !isReplacedInstance(id)));
+  const hidden = (id) => isReplacedInstance(id) && !formatGroupOfAnchor(id);
+  if (!ids.size || ![...ids].some(hidden)) return ids;
+  return new Set([...ids].filter((id) => !hidden(id)));
 }
 
 /** Test helper: clear every pending timer, the queue and the handler. */

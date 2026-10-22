@@ -5,7 +5,7 @@ import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
 import useMobileDetection from './hooks/useMobileDetection';
-import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
+import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, OFF_CANVAS_LABEL_RING_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
 import { haptic } from './services/haptics.js';
 import './UnifiedBottomControlPanel.css';
 
@@ -133,7 +133,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
               position: 'absolute',
               inset: 0,
               color: 'transparent',
-              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * connectionLabelRingWidth}px ${labelColors.outerStroke}`,
+              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * connectionLabelRingWidth * OFF_CANVAS_LABEL_RING_SCALE}px ${labelColors.outerStroke}`,
               pointerEvents: 'none'
             }}>
               {label || 'Connection'}

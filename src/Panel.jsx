@@ -110,13 +110,6 @@ const getSemanticNodeColor = (nodeData) => {
   return nodeData.color || generateConceptColor(nodeData.name || 'Unknown');
 };
 
-// Helper function to determine the correct article ("a" or "an")
-const getArticleFor = (word) => {
-  if (!word) return 'a';
-  const firstLetter = word.trim()[0].toLowerCase();
-  return ['a', 'e', 'i', 'o', 'u'].includes(firstLetter) ? 'an' : 'a';
-};
-
 // Define Item Type for react-dnd
 const ItemTypes = {
   TAB: 'tab',

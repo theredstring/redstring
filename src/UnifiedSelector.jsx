@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Palette, Plus, ChevronLeft, ChevronDown, Search } from 'lucide-react';
 import { NODE_DEFAULT_COLOR } from './constants';
 import { getTextColor } from './utils/colorUtils';
+import { getArticleFor } from './utils/articleFor.js';
 import { LIGHT_MODE_BG_COLOR } from './utils/themeColors';
 import useGraphStore from "./store/graphStore.js";
 import ColorPicker from './ColorPicker';
@@ -17,6 +18,13 @@ import { haptic } from './services/haptics.js';
 import './components/canvas/formats/formats.css';
 import './UnifiedSelector.css';
 
+// A type's name in the filter and the title, cut short past this many
+// characters.
+const TYPE_NAME_LIMIT = 32;
+const shortTypeName = (type) => {
+  const name = type.name || 'Untitled';
+  return name.length > TYPE_NAME_LIMIT ? `${name.slice(0, TYPE_NAME_LIMIT).trimEnd()}...` : name;
+};
 
 const UnifiedSelector = ({
   mode,
@@ -121,13 +129,17 @@ const UnifiedSelector = ({
   }, [showTypeFilter, allowedPrototypes, nodePrototypesMap]);
   // A type that has since lost its last Thing (or was deleted) is All Types.
   const activeType = typeOptions.find(t => t.id === typeFilterId) || null;
+  // With a type chosen, the title asks for one of it.
+  const headerTitle = activeType
+    ? `Choose ${getArticleFor(activeType.name)} ${shortTypeName(activeType)}`
+    : title;
   // Memoized: the menu re-measures, and re-arms its tap guard, on new options.
   const typeMenuOptions = React.useMemo(() => [
     { label: 'All Types', active: !activeType, dividerAfter: true, sticky: true, value: null },
     ...typeOptions.map(type => {
       const fill = sanitizeColor(type.color, NODE_DEFAULT_COLOR);
       return {
-        label: type.name || 'Untitled',
+        label: shortTypeName(type),
         active: activeType?.id === type.id,
         value: type.id,
         fill,
@@ -505,10 +517,10 @@ const UnifiedSelector = ({
                           style={{ flexShrink: 0, touchAction: 'manipulation' }}
                         />
                       </span>
-                      <span className="unified-selector-header-title">{title}</span>
+                      <span className="unified-selector-header-title">{headerTitle}</span>
                     </span>
                   ) : (
-                    <span className="unified-selector-header-title">{title}</span>
+                    <span className="unified-selector-header-title">{headerTitle}</span>
                   )}
                   {headerAside}
                   {showTypeFilter && typeOptions.length > 0 && (() => {
@@ -529,7 +541,7 @@ const UnifiedSelector = ({
                         }}
                       >
                         <span className="unified-selector-type-filter-label">
-                          {activeType ? (activeType.name || 'Untitled') : 'All Types'}
+                          {activeType ? shortTypeName(activeType) : 'All Types'}
                         </span>
                         <ChevronDown
                           size={14}

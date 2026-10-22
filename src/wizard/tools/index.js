@@ -58,6 +58,9 @@ import { mergeGraphs } from './mergeGraphs.js';
 import { analyzeTabularData } from './analyzeTabularData.js';
 import { importTabularAsGraph } from './importTabularAsGraph.js';
 import { listTools } from './listTools.js';
+import { addFormula } from './addFormula.js';
+import { searchFormulaBank } from './searchFormulaBank.js';
+import { formula } from './formula.js';
 import { getToolDefinitions } from './schemas.js';
 import { decodeArgEntities } from './utils/decodeEntities.js';
 
@@ -109,6 +112,9 @@ const TOOLS = {
   mergeGraphs,
   analyzeTabularData,
   importTabularAsGraph,
+  addFormula,
+  searchFormulaBank,
+  formula,
   listTools
 };
 

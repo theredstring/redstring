@@ -57,6 +57,14 @@ export async function deleteGroup(args, graphState, cid, ensureSchedulerStarted)
     throw new Error('Either groupId or groupName is required.');
   }
 
+  // Ungrouping a formula leaves its Things and operations strewn about the web.
+  const graph = graphs.find(g => g.id === graphId);
+  const groups = Array.isArray(graph?.groups) ? graph.groups : graph?.groups instanceof Map ? [...graph.groups.values()] : Object.values(graph?.groups || {});
+  const target = groups.find(g => g.id === resolvedGroupId);
+  if (target?.format === 'formula') {
+    throw new Error(`"${target.name}" is a formula. Use the formula tool: action "delete" to remove it with its Things, or "fold" to fold it into its Thing.`);
+  }
+
   console.error('[deleteGroup] Deleting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');
 
   return {
