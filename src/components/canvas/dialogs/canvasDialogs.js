@@ -11,7 +11,7 @@
 import { create } from 'zustand';
 
 export const useCanvasDialogStore = create(() => ({
-  addToGroupDialog: null, // { nodeIds, groupId, groupName, isNodeGroup, position }
+  addToGroupDialog: null, // { nodeIds, groupId, groupName, isNodeGroup, position, what }
   selfLoopDialog: null, // { sourceInstanceId, position }
   deleteDefinitionDialog: null, // { prototypeId, graphId } — see deleteDefinition.js
   refreshDialog: null, // { requestedAt } — see refresh.js

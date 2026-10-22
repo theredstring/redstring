@@ -4,8 +4,8 @@
  * there.
  */
 import { getNodeDimensions } from '../../utils.js';
-import { placeholderIdForGroup } from '../../services/groupLayout.js';
-import { isReplacedInstance, isReplacedGroup, formatAnchorAt } from '../../components/canvas/formats/replaced.js';
+import { placeholderIdForGroup, collectDescendantGroupIds } from '../../services/groupLayout.js';
+import { isReplacedInstance, isReplacedGroup, formatAnchorAt, formatAnchorEntries } from '../../components/canvas/formats/replaced.js';
 
 /**
  * Which instances a live selection box covers, merged with whatever was
@@ -16,6 +16,9 @@ import { isReplacedInstance, isReplacedGroup, formatAnchorAt } from '../../compo
  * only deselects nodes the box itself added. Anchors are skipped — they are
  * invisible bookkeeping instances for node-groups, and selecting one selects
  * something the user cannot see.
+ *
+ * A formula is boxed whole, by what is drawn of it, and selected as its
+ * group's anchor: a Thing among the Things (formats/formula/formulaSelection).
  *
  * Shared by the mouse's live marquee and the controller's, so the two cannot
  * drift into selecting different things from the same rectangle.
@@ -36,6 +39,12 @@ export function selectionInRect(rect, nodes, baseSelection, previewingNodeId) {
     if (intersects) final.add(nd.id);
     else final.delete(nd.id);
   });
+  for (const [anchorId, b] of formatAnchorEntries()) {
+    if (base.has(anchorId)) continue;
+    const intersects = !(rect.x > b.x + b.w || rect.x + rect.width < b.x || rect.y > b.y + b.h || rect.y + rect.height < b.y);
+    if (intersects) final.add(anchorId);
+    else final.delete(anchorId);
+  }
   return final;
 }
 
@@ -89,11 +98,24 @@ export function groupDragOffsets(group, members, isNodeGroup, canvasX, canvasY, 
       dy: canvasY - group.emptyPlaceholderOrigin.y
     });
   }
+  // Groups inside it by their anchor alone (a Thing-group, or a formula,
+  // grouped as its Thing) share no member with it: their own Things ride
+  // along, or the drag carries only their anchors and leaves them standing.
+  const moving = new Set(offsets.map(o => o.id));
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  collectDescendantGroupIds(group.id, childGroupIdsByGroupId).forEach(childId => {
+    const child = groupsById.get(childId);
+    [...(child?.memberInstanceIds || []), child?.anchorInstanceId].forEach(id => {
+      const n = id && !moving.has(id) ? nodeById.get(id) : null;
+      if (!n) return;
+      moving.add(id);
+      offsets.push({ id, dx: canvasX - n.x, dy: canvasY - n.y });
+    });
+  });
   // Nested EMPTY child groups ride along too: their box position lives in
   // emptyPlaceholderOrigin (no member instance to move), so without an
   // explicit placeholder offset a parent drag would leave their shells
-  // behind. Non-empty children need nothing — their members are already in
-  // the parent's offset list.
+  // behind.
   const nestedChildIds = childGroupIdsByGroupId.get(group.id);
   if (nestedChildIds) {
     nestedChildIds.forEach(childId => {

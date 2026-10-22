@@ -44,6 +44,7 @@ import { subscriptOf, vectorOf } from './formulaChain.js';
 import { useGlide, GLIDE_MS, FRAME_MS, glideEase } from './useGlide.js';
 import { flipFormulaToken } from '../formatsStore.js';
 import { getCanvasGroupInput } from '../../groups/groupInput.js';
+import { tapFormula } from './formulaSelection.js';
 import {
   FORMULA_FONT_FAMILY, FORMULA_FONT_WEIGHT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP, TITLE_FONT, PILL_RADIUS, PILL_PAD, arrowOver, measure,
 } from './formulaObjects.js';
@@ -120,22 +121,6 @@ function insideRounded(r, px, py) {
 const TITLE_INK = 0.4;    // a title's letters, above and below its middle, in its em
 const TITLE_ROOM = 0.15;  // how far inside the growing band a title's letter must be before it starts to show, in its em
 const TITLE_REVEAL = 0.5; // and how much further in until it fully has
-
-/** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
-function selectGroup(groupId) {
-  const ui = useCanvasUIStore.getState();
-  ui.setSelectedGroupId(groupId);
-  ui.setSelectedInstanceIds(new Set());
-  ui.setSelectedEdgeId(null);
-  ui.clearSelectedEdgeIds();
-  ui.setGroupControlPanelShouldShow(true);
-  ui.setNodeControlPanelShouldShow(false);
-  ui.setNodeControlPanelVisible(false);
-  ui.setAbstractionControlPanelVisible(false);
-  ui.setAbstractionControlPanelShouldShow(false);
-  ui.setConnectionControlPanelVisible(false);
-  ui.setConnectionControlPanelShouldShow(false);
-}
 
 function openThingInPanel(protoId) {
   const st = useGraphStore.getState();
@@ -620,7 +605,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
       return;
     }
     lastTapRef.current = { target: press.target, at: now };
-    selectGroup(obj.groupId);
+    // A token's tap switches it; that keeps the formula where it is in a selection.
+    tapFormula(obj.groupId, obj.anchorId, { keep: !!press.flip && press.target !== TITLE_TARGET });
     if (press.flip && press.target !== TITLE_TARGET) {
       const { flip } = press;
       flipTimerRef.current = setTimeout(() => flipFormulaToken(obj.groupId, flip), TOKEN_DOUBLE_TAP_MS);
@@ -835,6 +821,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
 function FormulaObjectsLayer({ draggingGroupId = null }) {
   const formulaObjects = useFormulaObjects();
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
+  // Selected on its own (its group), or among several (its anchor, formulaSelection).
+  const selectedInstanceIds = useCanvasUIStore(s => s.selectedInstanceIds);
   const activeGraphId = useGraphStore(s => s.activeGraphId);
   const leavingAll = useSyncExternalStore(subscribeLeavingFormulas, leavingFormulasNow);
   const leaving = leavingAll.filter(l => l.obj.graphId === activeGraphId);
@@ -847,7 +835,7 @@ function FormulaObjectsLayer({ draggingGroupId = null }) {
       {formulaObjects.objects.map(obj => (
         <FormulaObject
           key={obj.groupId} obj={obj} theme={theme}
-          selected={selectedGroupId === obj.groupId} lifted={draggingGroupId === obj.groupId}
+          selected={selectedGroupId === obj.groupId || selectedInstanceIds.has(obj.anchorId)} lifted={draggingGroupId === obj.groupId}
         />
       ))}
       {leaving.map(({ obj, start, into }) => (

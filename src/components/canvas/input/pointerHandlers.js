@@ -17,13 +17,14 @@ import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
 import { haptic } from '../../../services/haptics.js';
 import { TOUCH_PAN_DRAG_SENSITIVITY, isMac, TOUCH_MOMENTUM_STATIONARY_GAP_MS, TOUCH_MOMENTUM_VELOCITY_WINDOW_MS, TOUCH_MOMENTUM_LAUNCH_MIN_SPEED, PAN_MOMENTUM_MIN_SPEED } from '../../../utils/canvas/input/inputTuning.js';
 import { v4 as uuidv4 } from 'uuid';
-import { findGroupDropTarget, groupDropDialogFor } from '../groups/groupDropTarget.js';
+import { groupDropAfterDrag } from '../groups/groupDropTarget.js';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
 import { queueEdgeHandoff } from '../edges/edgeTransitions.js';
 import { isJustAfterNodeDrop } from './dropCooldown.js';
 import { anchorBoxOf, isReplacedInstance } from '../formats/replaced.js';
+import { withSelectedFormula } from '../formats/formula/formulaSelection.js';
 
 const insideBox = (b, p) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
 
@@ -117,7 +118,8 @@ export function createPointerHandlers(ctxRef) {
           // --- Execute Selection Logic ---
           const wasSelected = selectedInstanceIds.has(instanceId);
           setSelectedInstanceIds(prev => {
-            const newSelected = new Set(prev);
+            // A formula selected on its own stays, joined by this Thing (formulaSelection).
+            const newSelected = withSelectedFormula(prev);
             if (wasSelected) {
               if (instanceId !== previewingNodeId) { // previewingNodeId also needs to be an instanceId
                 newSelected.delete(instanceId);
@@ -837,35 +839,12 @@ export function createPointerHandlers(ctxRef) {
         const clientY = e.clientY || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : 0);
         const dragResult = nodeDrag.handleDragEnd(clientX, clientY, graphsMap);
 
-        // Group-drop detection UI (stays in NodeCanvas — controls dialog)
-        if (dragResult.checkGroupDrop && dragResult.draggedNodeIds.length > 0) {
-          const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-          const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
-
-          if (groups.length > 0) {
-            const primaryNodeId = dragResult.primaryNodeId;
-            const primaryNode = nodes.find(n => n.id === primaryNodeId);
-
-            if (primaryNode) {
-              const primaryDims = getNodeDimensions(primaryNode, false, null);
-              // Use finalPositions (accurate during zoom-restore when store isn't flushed yet)
-              const fp = dragResult.finalPositions?.get(primaryNodeId);
-              const posX = fp ? fp.x : primaryNode.x;
-              const posY = fp ? fp.y : primaryNode.y;
-              const primaryCenterX = posX + primaryDims.currentWidth / 2;
-              const primaryCenterY = posY + primaryDims.currentHeight / 2;
-
-              const targetGroup = findGroupDropTarget({
-                point: { x: primaryCenterX, y: primaryCenterY }, excludeNodeId: primaryNodeId,
-                groups, nodes, groupDepths: groupStructure.groupDepths, gridSize,
-              });
-              if (targetGroup) {
-                setAddToGroupDialog(groupDropDialogFor(targetGroup, dragResult.draggedNodeIds,
-                  groupStructure.parentGroupIds, { x: e.clientX, y: e.clientY }));
-              }
-            }
-          }
-        }
+        // Group-drop detection UI: Things, or a Thing-group or formula dropped whole (groupDropTarget).
+        const dialog = groupDropAfterDrag(dragResult, {
+          graphData: activeGraphId ? graphsMap.get(activeGraphId) : null,
+          nodes, groupStructure, gridSize, position: { x: e.clientX, y: e.clientY },
+        });
+        if (dialog) setAddToGroupDialog(dialog);
       }
 
       // Finalize selection box

@@ -134,9 +134,17 @@ export function placeEquationForWizard({ graphId, ref, folded = false }) {
   const proto = findEquationThing(state, ref);
   if (!proto) throw new Error(`No formula "${ref}" to place`);
   const eq = equationOf(state, proto);
-  const at = spotBelow(state, graphId, { centre: false });
-  const instanceId = `formula-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  state.addNodeInstance(graphId, proto.id, at, instanceId);
+  // Placed here already (a bank equation is filed in its section's web as a
+  // plain node): that one shows as its formula, rather than a second beside it.
+  const placed = [...state.graphs.get(graphId).instances.values()].filter(inst => inst.prototypeId === proto.id && !inst.isGroupAnchor);
+  if (placed.some(inst => inst.format === 'formula' && (inst.openDefinition || folded))) {
+    return { instanceId: placed.find(inst => inst.format === 'formula').id, equationProtoId: proto.id, name: proto.name };
+  }
+  let instanceId = placed.find(inst => !inst.openDefinition)?.id || null;
+  if (!instanceId) {
+    instanceId = `formula-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    state.addNodeInstance(graphId, proto.id, spotBelow(state, graphId, { centre: false }), instanceId);
+  }
   useGraphStore.getState().updateNodeInstance(graphId, instanceId, (draft) => { draft.format = 'formula'; });
   if (!folded) expandNodeInPlace({ viewGraphId: graphId, prototypeId: proto.id, definitionIndex: eq?.index ?? 0, instanceId });
   return { instanceId, equationProtoId: proto.id, name: proto.name };

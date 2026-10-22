@@ -95,6 +95,16 @@ describe('the wizard using a formula like a Thing', () => {
     expect(f).toMatchObject({ shown: 'open', equationProtoId, text: 'a × (b + c)' });
   });
 
+  it('placed where its Thing is already, that one shows as its formula: no second beside it', () => {
+    const { equationProtoId } = addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
+    st().addNodeInstance('other', equationProtoId, { x: 0, y: 0 }, 'plain');
+    placeEquationForWizard({ graphId: 'other', ref: 'Distribution' });
+    expect([...st().graphs.get('other').instances.values()].filter(i => i.prototypeId === equationProtoId)).toHaveLength(1);
+    expect(formulasIn('other')[0]).toMatchObject({ shown: 'open', anchorId: 'plain' });
+    placeEquationForWizard({ graphId: 'other', ref: 'Distribution' });
+    expect(st().graphs.get('other').instances.size).toBe(1);
+  });
+
   it('placed folded, it is a node that opens as its formula', () => {
     addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
     const { instanceId } = placeEquationForWizard({ graphId: 'other', ref: 'Distribution', folded: true });

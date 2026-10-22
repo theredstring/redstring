@@ -868,3 +868,26 @@ describe('computeGroupLayout title wrapping', () => {
     expect(r.label.y + r.label.h + C.titleToCanvasGap).toBeCloseTo(r.rect.y);
   });
 });
+
+// A child drawn its own way (a formula) counts by what is drawn of it.
+describe('computeGroupLayout: a child drawn as a formula', () => {
+  it('takes the formula band as the child, and not its Things where they stand', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'n', 0, 0, 200, 150);
+    addNode(ctx, 'aF', 5000, 5000, 200, 150); // the formula's anchor
+    addNode(ctx, 't1', 9000, 9000, 200, 150); // a Thing the formula draws
+    const formula = { id: 'f', name: 'F', linkedNodePrototypeId: 'pf', anchorInstanceId: 'aF', memberInstanceIds: ['t1'] };
+    const outer = { id: 'g', name: 'G', memberInstanceIds: ['n', 'aF'] };
+    addGroup(ctx, formula);
+    addGroup(ctx, outer);
+    const band = { x: 400, y: 0, w: 300, h: 120 };
+    const r = computeGroupLayout(outer, {
+      ...ctx,
+      childGroupIdsByGroupId: new Map([['g', new Set(['f'])]]),
+      drawnBoundsOf: (id) => (id === 'f' ? band : null),
+      isDrawnElsewhere: (id) => id === 't1' || id === 'aF',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.bbox).toEqual({ minX: 0, minY: 0, maxX: 700, maxY: 150 });
+  });
+});

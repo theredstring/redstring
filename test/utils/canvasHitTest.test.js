@@ -70,6 +70,22 @@ describe('groupDragOffsets', () => {
     ]);
   });
 
+  it("carries the Things of a group inside it by its anchor alone (a formula grouped as its Thing)", () => {
+    const anchorF = node('aF', 0, 0, { isGroupAnchor: true });
+    const t1 = node('t1', 30, 40);
+    const outer = { id: 'g', memberInstanceIds: ['aF'] };
+    const formula = { id: 'f', linkedNodePrototypeId: 'pf', anchorInstanceId: 'aF', memberInstanceIds: ['t1'] };
+    const offsets = groupDragOffsets(outer, [anchorF], false, 100, 100, {
+      nodes: [anchorF, t1],
+      childGroupIdsByGroupId: new Map([['g', new Set(['f'])]]),
+      groupsById: new Map([['f', formula]]),
+    });
+    expect(offsets).toEqual([
+      { id: 'aF', dx: 100, dy: 100 },
+      { id: 't1', dx: 70, dy: 60 },
+    ]);
+  });
+
   it('gives a thing group (not a node group) no placeholder', () => {
     const group = { id: 'g', memberInstanceIds: [], emptyPlaceholderOrigin: { x: 0, y: 0 } };
     const offsets = groupDragOffsets(group, [], false, 0, 0, {

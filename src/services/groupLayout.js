@@ -749,7 +749,13 @@ function computeGroupLayoutInner(group, context) {
     measureLabelWidth,
     labelScale = 1,
     labelFontSize = null,
+    // A child drawn its own way (a formula) is as large as what is drawn of it,
+    // not its Things' shell: groupId → { x, y, w, h }, or null.
+    drawnBoundsOf = null,
+    // A Thing drawn there instead (a formula's term): not where it stands. id → boolean.
+    isDrawnElsewhere = null,
   } = context;
+  const childBounds = (childId, nested) => drawnBoundsOf?.(childId) || (nested?.ok ? nested.visualBounds : null);
 
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
   const droppedOrphanIds = [];
@@ -800,10 +806,12 @@ function computeGroupLayoutInner(group, context) {
     const memberRight = memberX + dims.currentWidth;
     const memberBottom = memberY + dims.currentHeight;
 
-    let contributingY = memberY;
-    let contributingX = memberX;
-    let contributingRight = memberRight;
-    let contributingBottom = memberBottom;
+    // Only what is drawn of it counts, folded in with its child below.
+    const elsewhere = !!isDrawnElsewhere?.(memberId);
+    let contributingY = elsewhere ? Infinity : memberY;
+    let contributingX = elsewhere ? Infinity : memberX;
+    let contributingRight = elsewhere ? -Infinity : memberRight;
+    let contributingBottom = elsewhere ? -Infinity : memberBottom;
     if (childGroupIds.size > 0) {
       const containingEntries = groupsByMemberId.get(memberId);
       if (containingEntries) {
@@ -816,7 +824,8 @@ function computeGroupLayoutInner(group, context) {
           // placeholder shells are folded in the dedicated pass below.
           if (!(otherGroup.memberInstanceIds?.length > 0)) continue;
           const nested = computeGroupLayout(otherGroup, context);
-          if (nested && nested.ok) {
+          const drawn = drawnBoundsOf?.(otherGroupId);
+          if (drawn || (nested && nested.ok)) {
             // Fold the nested group's FULL shell (colored band + title tab)
             // into this bbox, not just its member nodes. The child's rect
             // extends the same margin beyond the shared members as ours
@@ -825,7 +834,7 @@ function computeGroupLayoutInner(group, context) {
             // zero clearance. Folding visualBounds instead means our margin
             // applies around the child's shell, keeping memberPadding of
             // daylight between the rims on every side.
-            const vb = nested.visualBounds;
+            const vb = childBounds(otherGroupId, nested);
             if (vb) {
               if (vb.x < contributingX) contributingX = vb.x;
               if (vb.y < contributingY) contributingY = vb.y;
@@ -860,9 +869,8 @@ function computeGroupLayoutInner(group, context) {
       if (foldedChildIds.has(childId)) continue;
       const childGroup = groupsById.get(childId);
       if (!childGroup) continue;
-      const nested = computeGroupLayout(childGroup, context);
-      if (nested?.ok && nested.visualBounds) {
-        const vb = nested.visualBounds;
+      const vb = childBounds(childId, computeGroupLayout(childGroup, context));
+      if (vb) {
         if (vb.x < minX) minX = vb.x;
         if (vb.y < minY) minY = vb.y;
         if (vb.x + vb.w > maxX) maxX = vb.x + vb.w;

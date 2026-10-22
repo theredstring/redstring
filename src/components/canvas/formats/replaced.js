@@ -68,6 +68,8 @@ export const formatBoxes = () => [...anchors.values()];
 /** Where a replaced instance is drawn instead, or null. */
 export const standInFor = (id) => standIns.get(id) || null;
 
+/** The format whose group's anchor is `id` ({ x, y, w, h, groupId, memberIds }), or null. */
+export const formatOfAnchor = (id) => anchors.get(id) || null;
 /** The group a format is drawn for, if `id` is that group's anchor; else null. */
 export const formatGroupOfAnchor = (id) => anchors.get(id)?.groupId || null;
 /** A format's group's anchor, by its group id; else null. */

@@ -259,6 +259,7 @@ A formula is an equation's Thing (titled "Ideal Gas Law", or named by its text) 
 - **A Thing already there**: give \`forThing\` ("Ideal Gas Law") to make the formula that Thing's own, instead of a second Thing.
 - **Use an existing one**: \`formula\` with action "place" (into another web), "fold"/"open", "rewrite" (new text, same equation, connections kept), "delete". Never \`deleteGroup\` a formula, and never build one by hand from Things and connections.
 - **Connect**: \`createEdge\` to the formula's title connects the whole equation; to a symbol's Thing ("Pressure") connects that term. The context lists formulas as text; readGraph gives each term's id when two formulas share a letter.
+- **In your reply**, write a formula as plain text, as the context shows it (P × V = n × R × T). Never LaTeX or $...$: the chat does not render it.
 
 ## Types & Categorization
 

@@ -28,6 +28,7 @@ import saveCoordinator from '../services/SaveCoordinator.js';
 import { haptic } from '../services/haptics.js';
 import { createFrameClock } from '../components/canvas/camera/frameClock.js';
 import { markNodeDrop } from '../components/canvas/input/dropCooldown.js';
+import { withFormulaParts } from '../components/canvas/formats/formula/formulaSelection.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -2658,8 +2659,10 @@ export const useNodeDrag = ({
       const initialPrimaryPos = { x: primaryNodeData.x, y: primaryNodeData.y };
       const initialPositions = {};
       draggedIds.push(instanceId);
+      // A formula in the selection is selected as its anchor; its Things move with it.
+      const movingIds = withFormulaParts(selectedInstanceIds);
       nodes.forEach(n => {
-        if (selectedInstanceIds.has(n.id) && n.id !== instanceId) {
+        if (movingIds.has(n.id) && n.id !== instanceId) {
           initialPositions[n.id] = { offsetX: n.x - initialPrimaryPos.x, offsetY: n.y - initialPrimaryPos.y };
           draggedIds.push(n.id);
         }
@@ -2848,7 +2851,7 @@ export const useNodeDrag = ({
 
   // ---------------------------------------------------------------------------
   // Handle Drag End (called from handleMouseUp in NodeCanvas)
-  // Returns { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag }
+  // Returns { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, groupId, finalPositions }
   // ---------------------------------------------------------------------------
   const handleDragEnd = useCallback((clientX, clientY, graphsMap) => {
     // Atomic re-entry guard. Multiple release paths (window-capture pointerup,
@@ -3115,7 +3118,7 @@ export const useNodeDrag = ({
     }
 
     const primaryNodeId = info.primaryId || info.instanceId || null;
-    return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, finalPositions };
+    return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, groupId: wasGroupDrag ? info.groupId : null, finalPositions };
   }, [draggingNodeInfo, nodes, activeGraphId, storeActions, nodeByIdRef, gridMode, gridSize,
     preDragZoomLevel, dragZoomSettings, zoomLevelRef, panOffsetRef, containerRef, canvasSizeRef,
     animateZoomAndPanToTarget, clearDOMTransforms, computePositionUpdates]);

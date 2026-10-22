@@ -6,6 +6,7 @@ import useCanvasUIStore from '../store/canvasUIStore.js';
 import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
+import { withSelectedFormula } from '../components/canvas/formats/formula/formulaSelection.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -1579,7 +1580,8 @@ export const useCanvasTouch = ({
                     const currentSelection = useCanvasUIStore.getState().selectedInstanceIds;
                     const wasSelected = currentSelection.has(tapNodeId);
                     setSelectedInstanceIds(prev => {
-                        const newSelected = new Set(prev);
+                        // A formula selected on its own stays, joined by this Thing (formulaSelection).
+                        const newSelected = withSelectedFormula(prev);
                         if (wasSelected) {
                             if (tapNodeId !== previewingNodeId) {
                                 newSelected.delete(tapNodeId);

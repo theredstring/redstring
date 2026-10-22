@@ -9,6 +9,7 @@ import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipbo
 import { getNodeDimensions } from '../utils';
 import { isTextEntryActive, isTextEntryTarget } from '../utils/textEntry.js';
 import { NODE_DEFAULT_COLOR } from '../constants'; // Assumed constant exists
+import { deleteSelection } from '../components/canvas/formats/formula/formulaSelection.js';
 
 // Constants (moved from NodeCanvas.jsx)
 const KEYBOARD_PAN_SPEED = 14.25;
@@ -702,8 +703,8 @@ export const useCanvasKeyboard = ({
                     clipboardRef.current = copied;
                     onClipboardChange?.();
 
-                    // Then remove
-                    storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
+                    // Then remove (a formula in the selection plays its exit: formulaSelection)
+                    deleteSelection(activeGraphId, selectedInstanceIds, (ids) => storeActions.removeMultipleNodeInstances(activeGraphId, new Set(ids)));
 
                     // Clear selection
                     setSelectedInstanceIds(new Set());

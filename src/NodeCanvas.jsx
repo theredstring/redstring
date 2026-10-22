@@ -32,6 +32,7 @@ import { useTrackedState } from './hooks/useTrackedState.js';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
 import { computeGroupLayouts, publishGroupLayouts } from './components/canvas/groups/groupLayouts.js';
 import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
+import { withSelectedFormula, deleteSelection } from './components/canvas/formats/formula/formulaSelection.js';
 import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { storeFieldRef } from './utils/storeFieldRef.js';
@@ -1964,11 +1965,10 @@ function NodeCanvas() {
     storeActions.removeNodeInstance(activeGraphId, instanceId);
   };
 
-  const deleteMultipleNodesWithAnimation = (instanceIds) => {
-    const ids = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
+  const deleteMultipleNodesWithAnimation = (instanceIds) => deleteSelection(activeGraphId, instanceIds, (ids) => { // formulas play their exit
     captureDeletionGhosts(ids);
-    storeActions.removeMultipleNodeInstances(activeGraphId, ids);
-  };
+    storeActions.removeMultipleNodeInstances(activeGraphId, new Set(ids));
+  });
 
   // Abstraction Carousel states
   const abstractionCarouselVisible = useCanvasUIStore(s => s.abstractionCarouselVisible), setAbstractionCarouselVisible = useCanvasUIStore(s => s.setAbstractionCarouselVisible);
@@ -2514,7 +2514,7 @@ function NodeCanvas() {
     setSelectionStart({ x, y });
     marqueeBoxRef.current = { x, y, width: 0, height: 0 };
     // Extend whatever was already selected (see selectionFromRect).
-    selectionBaseRef.current = new Set([...selectedInstanceIds]);
+    selectionBaseRef.current = withSelectedFormula(selectedInstanceIds); // a formula selected alone too
     marqueeSelectionRef.current = selectionBaseRef.current;
   };
   // Assigned every render so a queued frame uses the current nodes.

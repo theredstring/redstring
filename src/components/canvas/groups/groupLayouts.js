@@ -7,7 +7,7 @@
  * The code below is that pass's computation, moved verbatim.
  */
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
-import { isReplacedGroup, standInFor, anchorBoxOf } from '../formats/replaced.js';
+import { isReplacedGroup, isReplacedInstance, standInFor, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
 
 /**
  * Publish a layout to the refs the rest of the canvas reads (drag, gamepad,
@@ -132,6 +132,10 @@ export function computeGroupLayouts({
     measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
     labelScale: groupLabelScale,
     labelFontSize: groupLabelFontSize,
+    // A group inside another, drawn as a formula, is the formula's band to the
+    // group around it; its Things, drawn in it, aren't where they stand.
+    drawnBoundsOf: (groupId) => formatOfAnchor(formatAnchorOfGroup(groupId)),
+    isDrawnElsewhere: isReplacedInstance,
     _cache: new Map(),
   };
 

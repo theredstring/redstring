@@ -35,14 +35,14 @@ const PANEL_INK = 'maroon';
 
 const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
 
-// Sliders or palettes, remembered per device so someone who works from a
-// palette doesn't have to switch every time.
+// Palettes or sliders, remembered per device. Palettes come first: someone who
+// would rather mix by hand switches once and the picker keeps opening there.
 const MODE_KEY = 'redstring-color-picker-mode';
 const readMode = () => {
   try {
-    return localStorage.getItem(getStorageKey(MODE_KEY)) === 'palettes' ? 'palettes' : 'sliders';
+    return localStorage.getItem(getStorageKey(MODE_KEY)) === 'sliders' ? 'sliders' : 'palettes';
   } catch {
-    return 'sliders';
+    return 'palettes';
   }
 };
 const saveMode = (mode) => {

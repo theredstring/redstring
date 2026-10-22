@@ -17,7 +17,7 @@
  *                                               pairs, clean ports, Lombardi fans)
  *   settledConnectionGeometry(edge, scene)      one connection's stroke and arrows
  */
-import { CONNECTION_WIDTH_BASE_SCALE, NODE_DEFAULT_COLOR } from '../../constants';
+import { CONNECTION_WIDTH_BASE_SCALE, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
 import {
   computeCleanRouting, computeLombardiRouting, computeLombardiTangents, computeManhattanRouting,

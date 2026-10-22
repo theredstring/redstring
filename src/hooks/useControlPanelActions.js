@@ -6,6 +6,7 @@
 import { useCallback } from 'react';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
+import { deleteSelection } from '../components/canvas/formats/formula/formulaSelection.js';
 
 /**
  * Hook providing control panel action handlers
@@ -36,11 +37,13 @@ export function useControlPanelActions({
 
   const handleNodePanelDelete = useCallback(() => {
     if (!activeGraphId || selectedInstanceIds.size === 0) return;
-    const idsToDelete = Array.from(selectedInstanceIds);
     // Capture the shrink ghosts before the instances leave the store, so a
-    // panel delete animates the same way the pie menu and Delete key do.
-    onCaptureDeletionGhosts?.(idsToDelete);
-    idsToDelete.forEach(id => storeActions.removeNodeInstance(activeGraphId, id));
+    // panel delete animates the same way the pie menu and Delete key do. A
+    // formula in the selection plays its own exit (formulaSelection).
+    deleteSelection(activeGraphId, selectedInstanceIds, (idsToDelete) => {
+      onCaptureDeletionGhosts?.(idsToDelete);
+      idsToDelete.forEach(id => storeActions.removeNodeInstance(activeGraphId, id));
+    });
     setSelectedInstanceIds(new Set());
   }, [activeGraphId, selectedInstanceIds, storeActions, setSelectedInstanceIds, onCaptureDeletionGhosts]);
 
