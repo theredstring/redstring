@@ -21,6 +21,7 @@
 }
 
 button.format-pill:hover:not(:disabled) {
+  border-color: maroon;
   background-color: #D0CACA;
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
