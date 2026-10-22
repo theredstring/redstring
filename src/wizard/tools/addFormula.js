@@ -59,7 +59,11 @@ export async function addFormula(args, graphState) {
   const cleanMeanings = (Array.isArray(meanings) ? meanings : [])
     .filter(m => m?.symbol && m?.thing)
     .map(m => ({ symbol: String(m.symbol).trim(), thing: String(m.thing).trim(), ...(m.description ? { description: String(m.description) } : {}) }));
-  const name = String(title || forThing || '').trim();
+  // Titled as one of its own symbols' Things (K for Kinetic Energy, titled
+  // Kinetic Energy), the equation would be a second Thing of that name.
+  let name = String(title || forThing || '').trim();
+  const renamed = !forThing && name && cleanMeanings.some(m => m.thing.toLowerCase() === name.toLowerCase());
+  if (renamed) name = `${name} Formula`;
   return {
     action: 'addFormula',
     graphId,
@@ -72,6 +76,7 @@ export async function addFormula(args, graphState) {
     convention: convention === 'programming' ? 'programming' : 'math',
     terms: read.terms,
     created: true,
-    summary: `Adds ${name ? `"${name}": ` : ''}${read.text}${cleanMeanings.length ? `, with ${cleanMeanings.map(m => `${m.symbol} = ${m.thing}`).join(', ')}` : ''}.`,
+    summary: `Adds ${name ? `"${name}": ` : ''}${read.text}${cleanMeanings.length ? `, with ${cleanMeanings.map(m => `${m.symbol} = ${m.thing}`).join(', ')}` : ''}.`
+      + (renamed ? ` Titled "${name}", since "${title}" is what one of its symbols stands for.` : ''),
   };
 }

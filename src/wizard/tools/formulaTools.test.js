@@ -79,8 +79,16 @@ describe('what an ask has made, predicted', () => {
     expect(gs.formulas[0].shown).toBe('folded');
     expect(gs.graphs[0].instances.map(i => i.name)).toEqual(['Ideal Gas Law']);
 
+    // Its operations are connections of the web too; deleted, they go with it.
+    const [anchor] = gs.graphs[0].instances;
+    const outside = { id: 'gas', prototypeId: 'p-gas', name: 'Gas' };
+    gs.graphs[0].instances.push(outside);
+    gs.edges = [{ id: 'e1', sourceId: 'gas', destinationId: anchor.id }, { id: 'e2', sourceId: 'gas', destinationId: 'gas' }];
+    gs.graphs[0].edgeIds = ['e1', 'e2'];
     predictFormula(gs, { action: 'deleteFormula', graphId: 'w', formulaName: 'Ideal Gas Law' });
     expect(gs.formulas).toEqual([]);
-    expect(gs.graphs[0].instances).toEqual([]);
+    expect(gs.graphs[0].instances).toEqual([outside]);
+    expect(gs.graphs[0].edgeIds).toEqual(['e2']);
+    expect(gs.edges.map(e => e.id)).toEqual(['e2']);
   });
 });

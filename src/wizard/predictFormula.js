@@ -40,9 +40,17 @@ function placeTerms(graphState, graph, terms = []) {
   });
 }
 
-function removeFrom(graph, ids) {
+/** Take Things out of the web, and the connections touching them (a formula's operations among them). */
+function removeFrom(graphState, graph, ids) {
   const gone = new Set(ids.filter(Boolean));
   graph.instances = graph.instances.filter(inst => !gone.has(inst.id));
+  const touching = new Set((graphState.edges || [])
+    .filter(e => gone.has(e.sourceId) || gone.has(e.destinationId))
+    .map(e => e.id));
+  if (touching.size) {
+    graphState.edges = graphState.edges.filter(e => !touching.has(e.id));
+    graph.edgeIds = (graph.edgeIds || []).filter(id => !touching.has(id));
+  }
   graph.groups = graph.groups.filter(g => !gone.has(g.anchorInstanceId));
   graph.groups.forEach((g) => {
     if (Array.isArray(g.memberInstanceIds)) g.memberInstanceIds = g.memberInstanceIds.filter(id => !gone.has(id));
@@ -112,7 +120,7 @@ export function predictFormula(graphState, result) {
     f.groupId = `open:${f.anchorId}`;
   } else if (result.action === 'foldFormula') {
     if (f.shown === 'formula') {
-      removeFrom(graph, f.memberIds);
+      removeFrom(graphState, graph, f.memberIds);
       graph.groups = graph.groups.filter(g => g.id !== f.groupId);
       const anchor = graph.instances.find(inst => inst.id === f.anchorId);
       if (anchor) { delete anchor.isGroupAnchor; anchor.format = 'formula'; }
@@ -121,13 +129,13 @@ export function predictFormula(graphState, result) {
     f.groupId = null;
     f.memberIds = [];
   } else if (result.action === 'deleteFormula') {
-    removeFrom(graph, [...f.memberIds, f.anchorId]);
+    removeFrom(graphState, graph, [...f.memberIds, f.anchorId]);
     graph.groups = graph.groups.filter(g => g.id !== f.groupId);
     formulas.splice(formulas.indexOf(f), 1);
   } else if (result.action === 'rewriteFormula') {
     const untitled = compact(f.title) === compact(f.text);
     if (f.shown === 'formula') {
-      removeFrom(graph, f.memberIds);
+      removeFrom(graphState, graph, f.memberIds);
       f.terms = placeTerms(graphState, graph, result.terms);
       f.memberIds = f.terms.map(t => t.instanceId);
       const group = graph.groups.find(g => g.id === f.groupId);
