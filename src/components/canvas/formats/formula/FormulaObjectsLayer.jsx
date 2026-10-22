@@ -26,7 +26,7 @@
  *   Thing's own element would. While it is the dragged group it lifts as a
  *   Thing-group does: scaled up a little, over the group's own shadow.
  */
-import { memo, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion } from 'framer-motion';
 import useGraphStore from '../../../../store/graphStore.js';
 import useCanvasUIStore from '../../../../store/canvasUIStore.js';
@@ -109,6 +109,17 @@ function useSpawn(groupId, leavingStart = null) {
 }
 const TITLE_TARGET = '__title__';
 
+/** How far a point is inside a rounded rectangle ({ x, y, w, h, rx }); less than 0 outside it. */
+function insideRounded(r, px, py) {
+  const rad = Math.min(r.rx, r.w / 2, r.h / 2);
+  const qx = Math.abs(px - (r.x + r.w / 2)) - (r.w / 2 - rad);
+  const qy = Math.abs(py - (r.y + r.h / 2)) - (r.h / 2 - rad);
+  return rad - Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - Math.min(Math.max(qx, qy), 0);
+}
+const TITLE_INK = 0.4;    // a title's letters, above and below its middle, in its em
+const TITLE_ROOM = 0.15;  // how far inside the growing band a title's letter must be before it starts to show, in its em
+const TITLE_REVEAL = 0.5; // and how much further in until it fully has
+
 /** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
 function selectGroup(groupId) {
   const ui = useCanvasUIStore.getState();
@@ -177,6 +188,7 @@ const LETTER_LAG_EM = 0.3; // how far a pill's edge is past a letter before it s
 const IN_DELAY = 0.22; // of MORPH_MS: no letter comes into a pill before this
 const OUT_STAGGER = 0.14; // of MORPH_MS: the first leaving letter starts this much after the last
 const OUT_MS = 0.14; // of MORPH_MS: how long each leaving letter takes
+const OUT_CLEAR = 0.15; // em: a leaving letter is gone while its pill's edge is still this far past it
 const GOING_MS = 90; // a token leaving the formula (the × between names) fading out
 const FILL_MS = GLIDE_MS * 0.6; // a token's fill (its pill's color, its hover tint) coming in or going
 const SWAP_MS = GLIDE_MS * 0.4; // a token drawn another way (a fraction's bar as ÷) crossing over
@@ -293,10 +305,17 @@ function TokenText({ text, x, y, size: sized, fill, opacity = 1, pill = false, r
   // never empty and the two never stand over each other.
   const swapping = shared === 0 && was.length > 0 && to.length > 0;
   const swapAt = from.pill ? outAt(0) : 0;
+  // Leaving a pill: faded out by the time the pill's shrinking edge (`reveal`
+  // plus its padding) is within OUT_CLEAR of it, so no letter stands outside it.
+  const ahead = (i) => {
+    if (reveal == null || !from.pill) return 1;
+    const right = at.x + measure(was.slice(0, i + 1).join(''), size);
+    return smooth(clamp01((reveal + (PILL_PAD - OUT_CLEAR) * size - right) / ((PILL_PAD - OUT_CLEAR) * size)));
+  };
   const goingOut = (i) => {
-    if (swapping && i === 0) return 1 - smooth(clamp01((p - swapAt) / OUT_MS));
+    if (swapping && i === 0) return Math.min(ahead(0), 1 - smooth(clamp01((p - swapAt) / OUT_MS)));
     return from.pill
-      ? Math.min(passed(was, i, -fade), 1 - smooth(clamp01((p - outAt(i)) / OUT_MS)))
+      ? Math.min(ahead(i), 1 - smooth(clamp01((p - outAt(i)) / OUT_MS)))
       : 1 - smooth(clamp01(p / 0.4));
   };
   // Coming into a pill: once the edge is well past, and not before the pill has begun to fill.
@@ -689,6 +708,29 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
     rx: lerp(plusSize / 2, G.nodeGroupCornerRadius, grown),
   };
   const titleIn = spawning ? clamp01((grown - 0.2) * 1.25) : 1;
+  // Each of the title's letters only once the growing band holds it (the middle
+  // ones first), and going, each gone before the shrinking band reaches it, so
+  // the band never cuts the title short.
+  const titleSpans = useMemo(() => {
+    if (!obj.title) return [];
+    const letters = [...obj.title];
+    const half = measure(obj.title, TITLE_FONT) / 2;
+    return letters.map((c, i) => ({
+      c, x0: measure(letters.slice(0, i).join(''), TITLE_FONT) - half, x1: measure(letters.slice(0, i + 1).join(''), TITLE_FONT) - half,
+    }));
+  }, [obj.title]);
+  const titleLetters = spawning && obj.title ? (() => {
+    const cx = titleBox.x + titleBox.w / 2 - o.x;
+    const cy = titleBox.y + titleBox.h / 2 - o.y;
+    const top = cy - TITLE_INK * TITLE_FONT;
+    const bottom = cy + TITLE_INK * TITLE_FONT;
+    return titleSpans.map(({ c, x0: a, x1: b }) => {
+      const x0 = cx + a;
+      const x1 = cx + b;
+      const room = Math.min(...[[x0, top], [x1, top], [x0, bottom], [x1, bottom]].map(([px, py]) => insideRounded(morph, px, py)));
+      return { c, shown: smooth(clamp01((room - TITLE_ROOM * TITLE_FONT) / (TITLE_REVEAL * TITLE_FONT))) };
+    });
+  })() : null;
   const groundIn = spawning ? clamp01((grown - 0.35) / 0.5) : 1;
   // Each token after the one before it, left to right, once the band has mostly grown.
   const tokenIn = (i) => {
@@ -740,9 +782,9 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
               fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
               fill={onBand} textAnchor="middle" dominantBaseline="central"
               opacity={titleIn}
-              style={{ userSelect: 'none', pointerEvents: 'none' }}
+              style={{ userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' }}
             >
-              {obj.title}
+              {titleLetters ? titleLetters.map((l, i) => <tspan key={i} fillOpacity={l.shown}>{l.c}</tspan>) : obj.title}
             </TitleText>
           )}
         </g>

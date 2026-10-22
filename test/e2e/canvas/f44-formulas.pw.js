@@ -159,7 +159,9 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   await panel(page).locator('.piemenu-button[title="Write Every Operation"]').click();
   await expect(token(page, '^')).toHaveCount(1);
   await expect(object(page).locator('g.formula-object-token text', { hasText: /^×$/ })).toHaveCount(3);
-  // The panel sits over this part of the canvas; click away to put it down and reach the token.
+  // The panel sits over this part of the canvas; click away to put it down and reach the token
+  // (once the formula has slid out to its new width, so the spot stays bare).
+  await page.waitForTimeout(400);
   const away = await findBareSpot(page);
   await page.mouse.click(away.x, away.y);
   await expect(panel(page)).toHaveCount(0);
