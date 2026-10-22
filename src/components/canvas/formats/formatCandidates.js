@@ -47,6 +47,32 @@ function isPartOf(state, view, g) {
 }
 
 /**
+ * Whether a group is an equation, shown as a formula or not: shown as one, or
+ * linked to one while shown as its Things, or a Thing-group that reads as a
+ * whole formula (an equation is its Thing).
+ */
+function isEquationGroup(state, view, g) {
+  if (g.format || g.linkedFormat) return true;
+  return !!g.linkedNodePrototypeId && !g.isOpenDefinition && !isPartOf(state, view, g) && !!readFormulaGroup(state, view, g);
+}
+
+/** Whether a web is the definition of an equation's Thing (its formula, as Things). */
+function definesEquation(state, graphId) {
+  const defines = state.graphs.get(graphId)?.definingNodeIds;
+  if (!defines?.length) return false;
+  for (const [otherId, other] of state.graphs) {
+    for (const g of other.groups?.values() || []) {
+      if (!defines.includes(g.linkedNodePrototypeId)) continue;
+      if (g.format || g.linkedFormat) return true;
+      const view = projectGraphView(state, otherId);
+      const projected = view?.groups?.get(g.id);
+      if (projected && isEquationGroup(state, view, projected)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * The format to offer for what is in front of the user, or null.
  * Order: the selection, then the selected group, then any group (outermost
  * first, since a formula's parts are groups too), then the web.
@@ -57,10 +83,13 @@ export function findFormatCandidate(state, { selectedInstanceIds, selectedGroupI
   const view = projectGraphView(state, graphId);
   if (!view?.instances || view.instances.size === 0) return null;
   const graphName = state.graphs.get(graphId)?.name || 'Web';
-  // Things already shown as a format, or linked to one while shown as Things, aren't offered again.
+  // An equation's Things aren't offered as one again: its own panel switches
+  // it. Nor is the web that defines an equation's Thing, as a whole.
   const shownIds = new Set();
-  view.groups?.forEach(g => { if (g.format || g.linkedFormat) (g.memberInstanceIds || []).forEach(id => shownIds.add(id)); });
-  const open = (c) => (c && !dismissed?.has(c.key) && !c.instanceIds.every(id => shownIds.has(id)) ? c : null);
+  view.groups?.forEach(g => { if (isEquationGroup(state, view, g)) (g.memberInstanceIds || []).forEach(id => shownIds.add(id)); });
+  const definition = definesEquation(state, graphId);
+  const whole = (c) => definition && c.instanceIds.length >= view.instances.size;
+  const open = (c) => (c && !dismissed?.has(c.key) && !c.instanceIds.every(id => shownIds.has(id)) && !whole(c) ? c : null);
 
   if (selectedInstanceIds && selectedInstanceIds.size >= 2) {
     // A selection is a deliberate ask: it is the only thing offered while it stands.

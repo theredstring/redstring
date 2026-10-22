@@ -781,7 +781,7 @@ const UnifiedBottomControlPanel = ({
   // What the item is, small under its name.
   const nodeCount = Array.isArray(selectedNodes) ? selectedNodes.length : 0;
   const kindLabel = kindLabelProp ?? (
-    isNodeGroup ? 'Thing Group'
+    isNodeGroup ? 'Web'
       : isGroup ? 'Group'
         // A Thing expanded to show its definition inside it (its pie's first open button).
         : isDecompose ? 'Expanded Thing'

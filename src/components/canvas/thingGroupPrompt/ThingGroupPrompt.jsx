@@ -111,9 +111,8 @@ function WebGrid({ prototype, onChoose }) {
         display: 'grid',
         gridTemplateColumns: `repeat(${columns}, ${cardWidth}px)`,
         justifyContent: 'center',
-        alignContent: oneRow ? 'center' : 'start',
+        alignContent: 'start',
         gap: GAP_PX,
-        minHeight: oneRow && box ? box.h : undefined,
       }}
     >
       {box && webs.map(({ graphId, index }) => (

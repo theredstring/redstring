@@ -229,6 +229,26 @@ test('F44 a tap selects the formula; its panel swaps it to Things and back', asy
   await expect(page.locator('.unified-bottom-panel')).toHaveCount(0);
   await page.waitForTimeout(500);
   await expect(page.locator('.format-offer')).toHaveCount(0);
+
+  // An equation switched to Things before the link was kept is still its Thing's equation.
+  await storeEval(page, (st, gid) => st.updateGroup(st.activeGraphId, gid, (g) => { delete g.linkedFormat; }), id);
+  await page.waitForTimeout(500);
+  await expect(page.locator('.format-offer')).toHaveCount(0);
+});
+
+test('F44 the web that defines an equation\'s Thing is not offered as a formula', async ({ page }) => {
+  await openFixture(page, 'small');
+  await buildFormula(page, 'a + b * c');
+  await pointAt(page, token(page, '+'), { click: true });
+  await panel(page).locator('.piemenu-button[title="Show as Things"]').first().click();
+  const thingGroupPanel = page.locator('.unified-bottom-panel.mode-nodegroup');
+  await thingGroupPanel.locator('.piemenu-button[title="Open Definition"]').first().click();
+  await expect.poll(() => storeEval(page, (st) => {
+    const g = st.graphs.get(st.activeGraphId);
+    return (g.definingNodeIds || []).map(id => st.nodePrototypes.get(id)?.name).join();
+  })).toMatch(/^a \+ b/);
+  await page.waitForTimeout(500);
+  await expect(page.locator('.format-offer')).toHaveCount(0);
 });
 
 test('F44 a double tap on a token opens its Thing', async ({ page }) => {
@@ -364,8 +384,13 @@ test('F44 a function is a Thing that says what it is, and a Thing of the same na
 test('F44 the offer shows a group in place, and its X waves it off', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'a + b * c');
-  const { id } = await formulaGroup(page, 'a + b');
-  await storeEval(page, (st, gid) => st.updateGroup(st.activeGraphId, gid, (g) => { delete g.format; }), id);
+  // A plain group that happens to read as a formula (an equation's own Thing-group never is offered).
+  const { id: built, members } = await formulaGroup(page, 'a + b');
+  const id = await storeEval(page, (st, [gid, ids]) => {
+    const anchor = st.graphs.get(st.activeGraphId).groups.get(gid).anchorInstanceId;
+    st.deleteGroup(st.activeGraphId, gid);
+    return st.createGroup(st.activeGraphId, { name: 'a + b × c', memberInstanceIds: ids.filter(x => x !== anchor) });
+  }, [built, members]);
   await expect(object(page)).toHaveCount(0);
 
   // The group is offered back.

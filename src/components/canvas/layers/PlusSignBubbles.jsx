@@ -9,7 +9,8 @@
  * (thingGroupPrompt/); the plus sign waits meanwhile, then becomes it.
  */
 import { useEffect, useRef, useState } from 'react';
-import { PackageOpen, Sigma } from 'lucide-react';
+import { Sigma } from 'lucide-react';
+import GraphStar from './graphStarIcon.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../constants';
 import { haptic } from '../../../services/haptics.js';
@@ -158,7 +159,7 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, gestureBlockRef
         plusSize={plusSize}
         scale={scale}
         shown={shown}
-        icon={PackageOpen}
+        icon={GraphStar}
         label="New Thing Group"
         onActivate={newThingGroup}
         gestureBlockRef={gestureBlockRef}

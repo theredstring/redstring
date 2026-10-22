@@ -54,4 +54,22 @@ describe('format candidates', () => {
     state.graphs.get('web').groups.get('top').format = 'formula';
     expect(findFormatCandidate(state, none)).toBe(null);
   });
+
+  it('does not offer an equation\'s own Thing-group shown as its Things', () => {
+    const state = webState({ grouped: true });
+    const top = state.graphs.get('web').groups.get('top');
+    top.linkedNodePrototypeId = 'p-a';
+    expect(findFormatCandidate(state, none)).toBe(null);
+    expect(findFormatCandidate(state, { ...none, selectedInstanceIds: new Set(['a', 'b', 'pa', 'c']) })).toBe(null);
+  });
+
+  it('does not offer the web that defines an equation\'s Thing, only a piece of it', () => {
+    const state = webState({ withStray: false });
+    expect(findFormatCandidate(state, none)?.source).toBe('web');
+    state.graphs.get('web').definingNodeIds = ['eq'];
+    state.graphs.set('elsewhere', { id: 'elsewhere', instances: new Map(), edgeIds: [],
+      groups: new Map([['shown', { id: 'shown', memberInstanceIds: [], linkedNodePrototypeId: 'eq', linkedFormat: 'formula' }]]) });
+    expect(findFormatCandidate(state, none)).toBe(null);
+    expect(findFormatCandidate(state, { ...none, selectedInstanceIds: new Set(['a', 'b']) })?.text).toBe('a + b');
+  });
 });
