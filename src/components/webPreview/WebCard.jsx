@@ -54,7 +54,7 @@ export const useWebCardCornerRadius = (ref, sizingName, { border = 0, fallbackWi
  * the well as an empty definition's on the canvas (Node.jsx), a + over
  * "New Web", for a card that makes one.
  */
-const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = true, newWeb = false }) => {
+const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = true, newWeb = false, titleDrop = 0 }) => {
   const theme = useTheme();
   const textSettings = useGraphStore((s) => s.textSettings);
   const nodeScale = textSettings?.nodeScale ?? 1;
@@ -90,7 +90,8 @@ const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = tru
   };
   const fill = color || NODE_DEFAULT_COLOR;
   const textColor = getTextColor(fill, theme.darkMode);
-  const titleCenterY = dims.textAreaHeight / 2;
+  // `titleDrop` (in ems of the title) lowers the title in its band.
+  const titleCenterY = dims.textAreaHeight / 2 + titleDrop * fontSize;
 
   return (
     <svg

@@ -26,6 +26,8 @@ import {
 const GAP_PX = 14;
 const MAX_COLUMNS = 3;
 const ONE_ROW_BELOW = 5;
+// The cards' titles sit this much lower in their bands here (ems of the title).
+const TITLE_DROP = 0.15;
 
 /** One card in the Web grid: chosen by click or a tap that didn't scroll. */
 function WebChoice({ title, onChoose, children }) {
@@ -117,12 +119,12 @@ function WebGrid({ prototype, onChoose }) {
     >
       {box && webs.map(({ graphId, index }) => (
         <WebChoice key={graphId} title={graphs.get(graphId)?.name || prototype.name} onChoose={() => onChoose(index)}>
-          <DefinitionCard graphId={graphId} nodeName={prototype.name} nodeColor={color} />
+          <DefinitionCard graphId={graphId} nodeName={prototype.name} nodeColor={color} titleDrop={TITLE_DROP} />
         </WebChoice>
       ))}
       {box && (
         <WebChoice title="New Web" onChoose={() => onChoose(prototype.definitionGraphIds?.length || 0)}>
-          <WebCard nodes={[]} edges={[]} title={prototype.name} sizingName={prototype.name} color={color} newWeb />
+          <WebCard nodes={[]} edges={[]} title={prototype.name} sizingName={prototype.name} color={color} newWeb titleDrop={TITLE_DROP} />
         </WebChoice>
       )}
     </div>

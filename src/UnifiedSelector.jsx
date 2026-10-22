@@ -370,9 +370,7 @@ const UnifiedSelector = ({
             </div>
             {subtitle && (
               <div
-                // Nothing under it on a page with no name field: no gap below,
-                // so the card's text sits in its middle.
-                style={{ textAlign: 'left', marginBottom: gridContent ? 0 : (isSmallScreen ? '15px' : '10px'), color: theme.canvas.textSecondary, fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
+                style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.textSecondary, fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(subtitle) }}
               />
             )}
