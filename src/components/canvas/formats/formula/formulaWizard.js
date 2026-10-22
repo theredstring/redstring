@@ -13,7 +13,8 @@
 import useGraphStore from '../../../../store/graphStore.js';
 import { spotBelow } from './formulaPlacement.js';
 import { findFormula, findEquationThing, equationOf, normalizeName } from './formulaSnapshot.js';
-import { buildFormulaInWeb, buildBankEquation, rewriteFormulaInWeb } from './buildFormula.js';
+import { buildFormulaInWeb, buildBankEquation, rewriteFormulaInWeb, bankEquationThing } from './buildFormula.js';
+import { markFormulaSpawn } from './formulaSpawn.js';
 import { condenseFormula } from './condenseFormula.js';
 import { deleteFormula } from './deleteFormula.js';
 import { loadFormulaBank, formulaBankNow } from './bank/formulaBank.js';
@@ -97,35 +98,51 @@ export function addBankFormulaForWizard({ graphId, ref }) {
   if (!found) throw new Error(`No equation "${ref}" in the formula bank`);
   const state = useGraphStore.getState();
   if (!state.graphs.get(graphId)) throw new Error('No web to add the formula to');
+  // The universe has this one already (the starter, an earlier ask): that equation, placed here.
+  const thing = bankEquationThing(found.equation);
+  if (thing && equationOf(state, thing)) return placeEquation({ graphId, ref: thing.id });
   return buildBankEquation(found.discipline, found.equation, graphId, spotBelow(state, graphId));
 }
 
 /**
- * Place an equation's Thing in a web, shown as its formula: open in place
- * (as the canvas opens a node), or `folded`, a node that opens as its formula.
- * How it shows is the placement's (formulaRoundTrip.test.js), so this one is
- * marked as a formula and no other placement changes.
+ * Place an equation's Thing in a web, shown as its formula: open in place,
+ * or `folded`, a node that opens as its formula. How it shows is the
+ * placement's (formulaRoundTrip.test.js), so this one is marked as a formula
+ * and no other placement changes. Placed in the web already (a bank equation
+ * is filed in its section's web as a plain node), that node opens, as the
+ * canvas opens one; else a new one comes in as a formula just written does.
+ * `at`: where its middle goes (New Formula's spot); else under what the web has.
+ * For New Formula's box and the wizard.
  */
-export function placeEquationForWizard({ graphId, ref, folded = false }) {
+export function placeEquation({ graphId, ref, folded = false, at = null }) {
   const state = useGraphStore.getState();
   if (!state.graphs.get(graphId)) throw new Error('No web to place the formula in');
   const proto = findEquationThing(state, ref);
   if (!proto) throw new Error(`No formula "${ref}" to place`);
-  const eq = equationOf(state, proto);
-  // Placed here already (a bank equation is filed in its section's web as a
-  // plain node): that one shows as its formula, rather than a second beside it.
+  const index = equationOf(state, proto)?.index ?? 0;
   const placed = [...state.graphs.get(graphId).instances.values()].filter(inst => inst.prototypeId === proto.id && !inst.isGroupAnchor);
+  const done = (instanceId) => ({ instanceId, equationProtoId: proto.id, name: proto.name });
   if (placed.some(inst => inst.format === 'formula' && (inst.openDefinition || folded))) {
-    return { instanceId: placed.find(inst => inst.format === 'formula').id, equationProtoId: proto.id, name: proto.name };
+    return done(placed.find(inst => inst.format === 'formula').id);
   }
-  let instanceId = placed.find(inst => !inst.openDefinition)?.id || null;
-  if (!instanceId) {
-    instanceId = `formula-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    state.addNodeInstance(graphId, proto.id, spotBelow(state, graphId, { centre: false }), instanceId);
+  const existing = placed.find(inst => !inst.openDefinition);
+  if (existing) {
+    state.updateNodeInstance(graphId, existing.id, (draft) => { draft.format = 'formula'; });
+    if (!folded) expandNodeInPlace({ viewGraphId: graphId, prototypeId: proto.id, definitionIndex: index, instanceId: existing.id });
+    return done(existing.id);
   }
-  useGraphStore.getState().updateNodeInstance(graphId, instanceId, (draft) => { draft.format = 'formula'; });
-  if (!folded) expandNodeInPlace({ viewGraphId: graphId, prototypeId: proto.id, definitionIndex: eq?.index ?? 0, instanceId });
-  return { instanceId, equationProtoId: proto.id, name: proto.name };
+
+  const instanceId = `formula-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const spot = at ? { x: at.x - 100, y: at.y - 50 } : spotBelow(state, graphId, { centre: false });
+  state.addNodeInstance(graphId, proto.id, spot, instanceId);
+  const st = useGraphStore.getState();
+  st.updateNodeInstance(graphId, instanceId, (draft) => { draft.format = 'formula'; });
+  if (folded) return done(instanceId);
+  const groupId = st.openDefinitionsInPlace !== false
+    ? st.openDefinitionInPlace(graphId, instanceId, index)
+    : st.decomposeNodeToGroup(graphId, proto.id, index, instanceId);
+  markFormulaSpawn(groupId);
+  return done(instanceId);
 }
 
 /** Open a folded formula in place, as the canvas does. */

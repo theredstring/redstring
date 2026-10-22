@@ -8,7 +8,7 @@ vi.mock('../../src/utils.js', async (orig) => ({
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
 import {
-  addFormulaForWizard, placeEquationForWizard, openFormulaForWizard,
+  addFormulaForWizard, placeEquation, openFormulaForWizard,
   foldFormulaForWizard, deleteFormulaForWizard, rewriteFormulaForWizard, addBankFormulaForWizard,
 } from '../../src/components/canvas/formats/formula/formulaWizard.js';
 import { formulasForWizard, findFormula, equationOf } from '../../src/components/canvas/formats/formula/formulaSnapshot.js';
@@ -90,7 +90,7 @@ describe('the wizard using a formula like a Thing', () => {
   it('placed in another web, it shows as its formula there', () => {
     const { equationProtoId } = addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
     st().collapseNodeGroupIntoDefinition('main', formulasIn('main')[0].groupId);
-    placeEquationForWizard({ graphId: 'other', ref: 'Distribution' });
+    placeEquation({ graphId: 'other', ref: 'Distribution' });
     const [f] = formulasIn('other');
     expect(f).toMatchObject({ shown: 'open', equationProtoId, text: 'a × (b + c)' });
   });
@@ -98,16 +98,16 @@ describe('the wizard using a formula like a Thing', () => {
   it('placed where its Thing is already, that one shows as its formula: no second beside it', () => {
     const { equationProtoId } = addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
     st().addNodeInstance('other', equationProtoId, { x: 0, y: 0 }, 'plain');
-    placeEquationForWizard({ graphId: 'other', ref: 'Distribution' });
+    placeEquation({ graphId: 'other', ref: 'Distribution' });
     expect([...st().graphs.get('other').instances.values()].filter(i => i.prototypeId === equationProtoId)).toHaveLength(1);
     expect(formulasIn('other')[0]).toMatchObject({ shown: 'open', anchorId: 'plain' });
-    placeEquationForWizard({ graphId: 'other', ref: 'Distribution' });
+    placeEquation({ graphId: 'other', ref: 'Distribution' });
     expect(st().graphs.get('other').instances.size).toBe(1);
   });
 
   it('placed folded, it is a node that opens as its formula', () => {
     addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
-    const { instanceId } = placeEquationForWizard({ graphId: 'other', ref: 'Distribution', folded: true });
+    const { instanceId } = placeEquation({ graphId: 'other', ref: 'Distribution', folded: true });
     expect(formulasIn('other')[0]).toMatchObject({ shown: 'folded', anchorId: instanceId });
     openFormulaForWizard({ graphId: 'other', ref: 'Distribution' });
     expect(formulasIn('other')[0].shown).toBe('open');
@@ -183,7 +183,7 @@ describe('the wizard deleting a formula', () => {
 
   it('a Thing-group goes with its Things; a placement goes as its node', () => {
     addFormulaForWizard({ graphId: 'main', text: 'a * (b + c)', title: 'Distribution' });
-    placeEquationForWizard({ graphId: 'other', ref: 'Distribution', folded: true });
+    placeEquation({ graphId: 'other', ref: 'Distribution', folded: true });
     deleteFormulaForWizard({ graphId: 'main', ref: 'Distribution' });
     expect(formulasIn('main')).toHaveLength(0);
     expect(st().graphs.get('main').instances.size).toBe(0);

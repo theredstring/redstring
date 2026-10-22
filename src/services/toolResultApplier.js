@@ -39,7 +39,7 @@ import { normalizeIdentifier } from '../wizard/tools/linkIdentifier.js';
 import { classifyForConfirmation, holdForConfirmation, takePending } from './wizardConfirmationGate.js';
 import { snapshotEntityMaps, diffCreatedEntities, hasCreatedEntities, notifyWizardEntitiesCreated } from './wizardCreatedEntities.js';
 import {
-  addFormulaForWizard, addBankFormulaForWizard, placeEquationForWizard, openFormulaForWizard,
+  addFormulaForWizard, addBankFormulaForWizard, placeEquation, openFormulaForWizard,
   foldFormulaForWizard, rewriteFormulaForWizard, deleteFormulaForWizard,
 } from '../components/canvas/formats/formula/formulaWizard.js';
 
@@ -2080,7 +2080,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
           });
         if (built && typeof built.then === 'function') built.catch(fail);
       } else if (result.action === 'placeFormula') {
-        placeEquationForWizard({ graphId, ref: result.equationProtoId && store.nodePrototypes.has(result.equationProtoId) ? result.equationProtoId : ref, folded: !!result.folded });
+        placeEquation({ graphId, ref: result.equationProtoId && store.nodePrototypes.has(result.equationProtoId) ? result.equationProtoId : ref, folded: !!result.folded });
       } else if (result.action === 'openFormula') {
         openFormulaForWizard({ graphId, ref });
       } else if (result.action === 'foldFormula') {

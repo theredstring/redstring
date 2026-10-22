@@ -3,6 +3,7 @@ import useGraphStore from '../../store/graphStore.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ActionRow from './ActionRow.jsx';
 import FormulaBankRows from './FormulaBankRows.jsx';
+import FormulaStarterRows from './FormulaStarterRows.jsx';
 import { formatBytes } from '../../utils/formatBytes.js';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
 import { getAutoSaveMode, setAutoSaveMode, subscribeAutoSaveMode, AUTO_SAVE_MAX_ITEMS, AUTO_SAVE_MAX_BYTES } from '../../services/autoSaveMode.js';
@@ -160,6 +161,7 @@ const DataSection = ({ onCloseSettings }) => {
 
       <hr className="settings-section-divider" />
 
+      <FormulaStarterRows onCloseSettings={onCloseSettings} />
       <FormulaBankRows />
 
       <hr className="settings-section-divider" />

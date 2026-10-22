@@ -1,14 +1,14 @@
 /**
- * The bank in New Formula's box (bank/formulaBank.js, populated from Wikidata
- * and MathModDB), in two parts the composer puts in the selector. The box's
+ * The universe's equations in New Formula's box, shaped as the bank is
+ * (universeEquations.js: the bank's equations it has, filed as the bank files
+ * them, and Yours), in two parts the composer puts in the selector. The box's
  * header holds every choice (BankChoices): the disciplines, then the chosen
  * discipline's sections (Thermodynamics, Graph Theory). Under it the list
  * scrolls (BankList): a discipline's equations grouped by section, best known
- * first, or one section's equations and what it knows of and doesn't write
- * yet (each opening its article). Rows go side by side where the box is wide.
- * Typing a title instead of a formula ("ideal gas") finds equations across
- * the bank. Picking one builds it fully formed, its symbols tied to what they
- * mean.
+ * first, or one section's equations and what the bank knows of there and
+ * doesn't write yet (each opening its article). Rows go side by side where
+ * the box is wide. Typing a title instead of a formula ("ideal gas") finds
+ * equations across them. Picking one places that equation.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -20,6 +20,7 @@ import FormulaTokens from './FormulaTokens.jsx';
 import PanelIconButton from '../../../shared/PanelIconButton.jsx';
 import { openExternalUrl } from '../../../../utils/safeUrl.js';
 import { itemPage, isMathModDBId } from './bank/population/sources.js';
+import { YOURS } from './universeEquations.js';
 
 const MAX_MATCHES = 8;
 const PER_SECTION = 4;  // a section's best known in a discipline's list; the rest in the section
@@ -327,9 +328,18 @@ export default function BankList({ bank, browse, matches, standard, onPick }) {
   }, [discipline?.id, section?.id]);
 
   if (!bank) return <div className="format-bank-body"><div className="format-bank-loading">Loading equations…</div></div>;
+  if (!bank.disciplines.length) {
+    return (
+      <div className="format-bank-body">
+        <div className="format-bank-loading">No equations in this universe yet. Write one, or add the Formula Starter (Settings → Data).</div>
+      </div>
+    );
+  }
+  // Credited where what is listed came from them.
+  const fromBank = bank.disciplines.some(d => d.id !== YOURS);
 
   return (
-    <div ref={ref} className="format-bank-body" role="list" aria-label="Equations from Wikidata and MathModDB">
+    <div ref={ref} className="format-bank-body" role="list" aria-label="Equations in this universe">
       {matches ? (
         <div className="format-bank-rows">
           {matches.map(({ discipline: d, equation }) => (
@@ -352,7 +362,7 @@ export default function BankList({ bank, browse, matches, standard, onPick }) {
       ) : (
         <div className="format-bank-loading">No equations written here yet. Its sections say what they know of.</div>
       )}
-      <div className="format-bank-source">From Wikidata and MathModDB (CC BY 4.0)</div>
+      {fromBank && <div className="format-bank-source">From Wikidata and MathModDB (CC BY 4.0)</div>}
     </div>
   );
 }

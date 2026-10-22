@@ -3,19 +3,24 @@
  * names a Thing with, its box holding formulas. The pill takes what is typed
  * and the colour of the equation's Thing; how it is read (Math or Code) is a
  * slider pill at the right of the box's title. The box follows what is typed:
- * the bank to browse (FormulaBankPicker: well-known equations by discipline,
- * built fully formed), the bank's equations whose titles match the words, or
- * a formula, read token by token, which Enter or + builds as Things at the spot
- * that was right-clicked (buildFormula.js), shown as its formula.
+ * this universe's equations to browse (FormulaBankPicker over
+ * universeEquations.js: by discipline as the bank files them, and Yours),
+ * the ones whose titles match the words, or a formula, read token by token,
+ * which Enter or + builds as Things at the spot that was right-clicked
+ * (buildFormula.js), shown as its formula. Picking one places that equation
+ * there (formulaWizard's placeEquation). The bank itself is offered only once
+ * it is added (Settings → Data → Formula Starter).
  */
 import { useMemo, useRef, useState } from 'react';
 import UnifiedSelector from '../../../../UnifiedSelector';
 import useGraphStore from '../../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants';
 import { chainFromText, tokensOf } from './formulaChain.js';
-import { buildFormulaInWeb, buildBankEquation } from './buildFormula.js';
+import { buildFormulaInWeb } from './buildFormula.js';
+import { placeEquation } from './formulaWizard.js';
+import { useUniverseEquations } from './universeEquations.js';
 import FormulaTokens from './FormulaTokens.jsx';
-import BankList, { BankChoices, useFormulaBank, useBankBrowse, useBankMatches } from './FormulaBankPicker.jsx';
+import BankList, { BankChoices, useBankBrowse, useBankMatches } from './FormulaBankPicker.jsx';
 import useFormatsStore, { closeFormulaComposer, setConvention, selectStandard } from '../formatsStore.js';
 
 const CONVENTION_OPTIONS = [
@@ -67,7 +72,7 @@ export default function FormulaComposer() {
   const color = useRef(NODE_DEFAULT_COLOR);
   const inputRef = useRef(null);
   const knownNames = useMemo(knownNamesNow, []);
-  const bank = useFormulaBank();
+  const bank = useUniverseEquations();
   const browse = useBankBrowse(bank);
 
   const readOptions = useMemo(() => ({ convention, isKnownName: (n) => knownNames.has(n) }), [convention, knownNames]);
@@ -93,7 +98,11 @@ export default function FormulaComposer() {
   const pick = (discipline, entry) => {
     const composing = useFormatsStore.getState().composing;
     if (!composing) return;
-    buildBankEquation(discipline, entry, composing.graphId, composing.at, color.current);
+    try {
+      placeEquation({ graphId: composing.graphId, ref: entry.protoId, at: composing.at });
+    } catch (err) {
+      console.warn('[FormulaComposer] Could not place', entry.title, err);
+    }
     closeFormulaComposer();
   };
 

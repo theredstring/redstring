@@ -253,6 +253,7 @@ const UnifiedBottomControlPanel = ({
   onCompose, // Close the decomposition preview (compose back to a normal node)
   decompHasDefinitions = false, // When false, only Add + Compose are shown (empty state)
   decompBlocked = null, // Why Decompose Further can't open here (greyed out), or null
+  decompDescription = null, // The expanded Thing's description for the web it shows
 
   // Pie menu button handlers
   onDelete,
@@ -956,6 +957,10 @@ const UnifiedBottomControlPanel = ({
         </div>
 
         {kindLabel && <div className="panel-kind-label">{kindLabel}</div>}
+
+        {isDecompose && decompDescription && (
+          <div className="panel-description" title={decompDescription}>{decompDescription}</div>
+        )}
 
         {/* The rest of a selection too big to preview: a count that expands the
             preview into a scrolling list of all of it, and collapses it again. */}

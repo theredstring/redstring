@@ -15,7 +15,7 @@
 import { memo } from 'react';
 import { createPortal } from 'react-dom';
 import Node from '../../../Node.jsx';
-import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
+import { getNodeDimensions } from '../../../utils.js';
 import { showContextMenu } from '../../GlobalContextMenu';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import FormulaObjectsLayer from '../formats/formula/FormulaObjectsLayer.jsx';
@@ -24,7 +24,7 @@ import NodeSpawnLayer from '../spawn/NodeSpawnLayer.jsx';
 
 function NodeLayer({
   part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, draggingGroupId, marqueeActive,
-  activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
+  activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
 }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
   const previewingNodeId = useCanvasUIStore((s) => s.previewingNodeId);
@@ -37,23 +37,6 @@ function NodeLayer({
   const semanticOrbitActive = useCanvasUIStore((s) => s.semanticOrbitActive);
   // Things shown as a formula are drawn by their formula object instead.
   const formulaHiddenIds = useFormulaObjects().hiddenIds;
-
-  // Helper function to get description content for a node when previewing
-  const getNodeDescriptionContent = (node, isNodePreviewing) => {
-    if (!isNodePreviewing || !node.definitionGraphIds || node.definitionGraphIds.length === 0) {
-      return null;
-    }
-
-    // Create context-specific key for this node in the current graph
-    const contextKey = `${node.prototypeId}-${activeGraphId}`; // Use prototypeId for context
-    const currentIndex = nodeDefinitionIndices.get(contextKey) || 0;
-    const definitionGraphId = node.definitionGraphIds[currentIndex] || node.definitionGraphIds[0];
-    if (!definitionGraphId) return null;
-
-    const graphData = graphsMap.get(definitionGraphId);
-    return getDefinitionDescription(node, definitionGraphId, graphData?.description) || null;
-  };
-
 
   // Determine which node should be treated as "active" for stacking,
   // Priority order: previewing > pie menu > single selection (for orbit overlay)
@@ -97,9 +80,8 @@ function NodeLayer({
   const renderNodeElement = (node, isDragging = false) => {
     const isPreviewing = previewingNodeId === node.id;
     const baseDimensions = baseDimsById.get(node.id);
-    const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
     const dimensions = isPreviewing
-      ? getNodeDimensions(node, true, descriptionContent)
+      ? getNodeDimensions(node, true, null)
       : baseDimensions || getNodeDimensions(node, false, null);
     if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) return null;
     return (
@@ -115,7 +97,6 @@ function NodeLayer({
         scaledCornerRadius={dimensions.scaledCornerRadius}
         innerNetworkWidth={dimensions.innerNetworkWidth}
         innerNetworkHeight={dimensions.innerNetworkHeight}
-        descriptionAreaHeight={dimensions.descriptionAreaHeight}
         isSelected={selectedInstanceIds.has(node.id)}
         isDragging={isDragging}
         onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(node, e)}
@@ -167,9 +148,8 @@ function NodeLayer({
         (() => {
           const isPreviewing = previewingNodeId === activeNodeToRender.id;
           const baseDimensions = baseDimsById.get(activeNodeToRender.id);
-          const descriptionContent = isPreviewing ? getNodeDescriptionContent(activeNodeToRender, true) : null;
           const dimensions = isPreviewing
-            ? getNodeDimensions(activeNodeToRender, true, descriptionContent)
+            ? getNodeDimensions(activeNodeToRender, true, null)
             : baseDimensions || getNodeDimensions(activeNodeToRender, false, null);
 
           // Hide if its carousel is open

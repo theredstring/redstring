@@ -9,7 +9,7 @@ import { getNodeDimensions } from '../../../utils.js';
 
 export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraphId = null, ctx) {
   const {
-    canvasSize, containerRef, getHeaderTabTarget, getNodeDescriptionContent, panOffsetRef, previewingNodeId,
+    canvasSize, containerRef, getHeaderTabTarget, panOffsetRef, previewingNodeId,
     setHurtleFlight, zoomLevelRef,
   } = ctx;
   const currentState = useGraphStore.getState();
@@ -39,8 +39,7 @@ export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraph
   // hurtle launches from the expanded node's true center. Using the collapsed size here put
   // the origin up-and-to-the-left (the small node's center sits near the expanded top-left).
   const isNodePreviewing = nodeId === previewingNodeId;
-  const descriptionContent = isNodePreviewing ? getNodeDescriptionContent(nodeData, true) : null;
-  const nodeDimensions = getNodeDimensions(nodeData, isNodePreviewing, descriptionContent);
+  const nodeDimensions = getNodeDimensions(nodeData, isNodePreviewing, null);
 
   // Node center in canvas coordinates
   const nodeCenterCanvasX = nodeData.x + nodeDimensions.currentWidth / 2;

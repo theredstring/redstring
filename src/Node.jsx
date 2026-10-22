@@ -4,8 +4,7 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hover preview
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
-import { getNodeDimensions, getDefinitionDescription } from './utils.js'; // Import needed for node dims
-import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
+import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import { getTextColor, DEFAULT_LIFTED_THING_SHADOW, LIFTED_THING_SHADOW_FAST_LAYERS } from './utils/colorUtils.js';
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { isValidColor } from './ai/palettes.js';
@@ -17,7 +16,6 @@ import { safeImageSrc } from './utils/safeUrl.js';
 import { projectGraphView, viewEdges } from './core/openDefinitions.js';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
-const DESCRIPTION_MAX_LINES = 1; // Matches utils.js's cap on descriptionAreaHeight
 
 // Accept dimensions and other props
 // Expect plain node data object
@@ -38,7 +36,6 @@ const Node = ({
   isPreviewing,
   innerNetworkWidth,
   innerNetworkHeight,
-  descriptionAreaHeight, // Add description area height prop
   idPrefix = '', // Add optional idPrefix prop with default
   // --- Add editing props ---
   isEditingOnCanvas,
@@ -206,9 +203,6 @@ const Node = ({
   // Define consistent padding for inner canvas from colored border (matches left/right padding of 24px)
   const INNER_CANVAS_PADDING = 24;
 
-  // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
-  const descriptionAreaY = contentAreaY + innerNetworkHeight + (isPreviewing ? 8 : 0);
-
   // No longer need text width calculation since arrows are in top-right corner
 
   // State to control arrow fade-in animation
@@ -335,34 +329,6 @@ const Node = ({
       .map(edgeId => currentViewEdges.get(edgeId))
       .filter(edge => edge !== undefined);
   }, [isPreviewing, currentGraphId, currentViewGraph, currentViewEdges]);
-
-  // Get the current definition graph's description, truncated (by character count, on the
-  // last visible line) to fit the fixed-height description area. CSS line-clamp doesn't
-  // reliably render its ellipsis inside an SVG foreignObject, so line-fit + a manual "..."
-  // is computed here instead, using the same wrapping engine utils.js used to size the box.
-  const currentGraphDescription = useMemo(() => {
-    if (!isPreviewing || !currentGraphId) return 'No description.';
-    const graphData = graphsMap.get(currentGraphId);
-    const description = getDefinitionDescription(node, currentGraphId, graphData?.description) || 'No description.';
-    if (description === 'No description.' || !innerNetworkWidth) return description;
-
-    const augTs = { ...textSettings, fontSize: textSettings.fontSize * effNodeScale };
-    const fontString = buildNodeFontString(augTs);
-    const lines = wrapTextToLines(description, innerNetworkWidth, fontString);
-    if (lines.length <= DESCRIPTION_MAX_LINES) return description;
-
-    // Shave characters off the last visible line until "<line>..." fits the width too.
-    let lastLine = lines[DESCRIPTION_MAX_LINES - 1].trimEnd();
-    while (lastLine.length > 0 && measureTextWidth(`${lastLine}...`, fontString) > innerNetworkWidth) {
-      lastLine = lastLine.slice(0, -1).trimEnd();
-    }
-    const visibleLines = lines.slice(0, DESCRIPTION_MAX_LINES - 1);
-    visibleLines.push(`${lastLine}...`);
-    return visibleLines.join(' ');
-  }, [isPreviewing, currentGraphId, graphsMap, innerNetworkWidth, textSettings, effNodeScale, node.description, definitionGraphIds]);
-
-  // Use the passed descriptionAreaHeight which is now calculated dynamically in utils.js
-  const actualDescriptionHeight = descriptionAreaHeight;
 
   // Effect to handle arrow fade-in after expansion
   useEffect(() => {
@@ -835,39 +801,6 @@ const Node = ({
         </g>
       )}
 
-      {/* Description Area - Below InnerNetwork when previewing */}
-      {isPreviewing && actualDescriptionHeight > 0 && currentGraphDescription && currentGraphDescription.trim() && currentGraphDescription !== 'No description.' && (
-        <foreignObject
-          x={nodeX + effPadding}
-          y={descriptionAreaY}
-          width={innerNetworkWidth}
-          height={actualDescriptionHeight}
-          style={{
-            pointerEvents: 'none',
-            overflow: 'hidden'
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              padding: '12px 8px 4px',
-              boxSizing: 'border-box',
-              fontFamily: "'EmOne', sans-serif",
-              fontSize: `${40 * textSettings.fontSize * effNodeScale}px`,
-              color: nodeTextColor,
-              fontWeight: 'normal',
-              lineHeight: `${33 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale}px`,
-              textAlign: 'center',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden'
-            }}
-          >
-            {currentGraphDescription}
-          </div>
-        </foreignObject>
-      )}
-
       {/* Hover Preview - Styled like HoverVisionAid for consistency */}
       {isPreviewing && showHoverPreview && hoveredInnerNodeData && (() => {
         // Base dimensions (smaller than before) scaled by the user's hover preview size setting
@@ -944,6 +877,5 @@ export default memo(Node, (prev, next) => {
     prev.currentDefinitionIndex === next.currentDefinitionIndex &&
     prev.innerNetworkWidth === next.innerNetworkWidth &&
     prev.innerNetworkHeight === next.innerNetworkHeight &&
-    prev.descriptionAreaHeight === next.descriptionAreaHeight &&
     prev.idPrefix === next.idPrefix;
 });

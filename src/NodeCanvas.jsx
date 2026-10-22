@@ -4,7 +4,7 @@ import './NodeCanvas.css';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import { setActionHover } from './utils/canvas/actionHover.js';
-import { getNodeDimensions, getDefinitionDescription } from './utils.js';
+import { getNodeDimensions } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
 import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom } from './services/labelSpriteCache.js';
 import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from './utils/colorUtils.js';
@@ -2481,22 +2481,6 @@ function NodeCanvas() {
   };
 
 
-  // Helper function to get description content for a node when previewing
-  const getNodeDescriptionContent = (node, isNodePreviewing) => {
-    if (!isNodePreviewing || !node.definitionGraphIds || node.definitionGraphIds.length === 0) {
-      return null;
-    }
-
-    // Create context-specific key for this node in the current graph
-    const contextKey = `${node.prototypeId}-${activeGraphId}`; // Use prototypeId for context
-    const currentIndex = nodeDefinitionIndices.get(contextKey) || 0;
-    const definitionGraphId = node.definitionGraphIds[currentIndex] || node.definitionGraphIds[0];
-    if (!definitionGraphId) return null;
-
-    const graphData = graphsMap.get(definitionGraphId);
-    return getDefinitionDescription(node, definitionGraphId, graphData?.description) || null;
-  };
-
   const isInsideNode = (nodeData, clientX, clientY) => {
     if (!containerRef.current || !nodeData) return false;
     const rect = containerRef.current.getBoundingClientRect();
@@ -3061,7 +3045,7 @@ function NodeCanvas() {
 
   // Simple Particle Transfer Animation - always use fresh coordinates
   const startHurtleAnimation = useCallback((a0, a1, a2, a3) => startHurtle(a0, a1, a2, a3, {
-    canvasSize, containerRef, getHeaderTabTarget, getNodeDescriptionContent, panOffsetRef, previewingNodeId,
+    canvasSize, containerRef, getHeaderTabTarget, panOffsetRef, previewingNodeId,
     setHurtleFlight, zoomLevelRef,
   }), [containerRef, previewingNodeId, getHeaderTabTarget, canvasSize]);
 
@@ -3333,7 +3317,7 @@ function NodeCanvas() {
   const nodeLayerProps = {
     nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds: groupLayouts.thingGroupMemberIds,
     draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart, draggingGroupId: draggingNodeInfo?.groupId ?? null,
-    activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
+    activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
   };
 
   // The control panels' handlers and derived data (P5.05a).

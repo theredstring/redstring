@@ -22,7 +22,7 @@ import { connectionFacts } from '../../../wizard/prompts/facts.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
 import { useControlPanelActions } from '../../../hooks/useControlPanelActions.js';
 import { copySelection, pasteClipboard } from '../../../utils/clipboard.js';
-import { getNodeDimensions } from '../../../utils.js';
+import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
 import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
@@ -512,6 +512,16 @@ export default function ControlPanelsHost({ ctx }) {
     }
   }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel]);
 
+  // The expanded Thing's description for the web it's showing, under it in the
+  // panel (the node itself shows only the web).
+  const decomposeDescription = useMemo(() => {
+    const graphId = decomposePanelInfo?.currentGraphId;
+    if (!graphId) return null;
+    const proto = nodePrototypesMap.get(decomposePanelInfo.prototypeId);
+    const text = getDefinitionDescription(proto, graphId, graphsMap.get(graphId)?.description);
+    return text && text.trim() ? text.trim() : null;
+  }, [decomposePanelInfo, nodePrototypesMap, graphsMap]);
+
   return (
     <Profiler id="ControlPanelsHost" onRender={onRenderProbe}>
       {/* NodeControlPanel Component - with animation */}
@@ -525,6 +535,7 @@ export default function ControlPanelsHost({ ctx }) {
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
             decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
             decompBlocked={decomposePanelInfo?.expandBlocked || null}
+            decompDescription={decomposeDescription}
             onCompose={() => useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null })}
             onDelete={decomposePanelInfo
               ? () => requestDeleteDefinition(decomposePanelInfo.prototypeId, decomposePanelInfo.currentGraphId)
