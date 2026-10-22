@@ -5,7 +5,8 @@
  * Pie and carousel lifecycle changes go through the pie machine
  * (`dispatchPie`, P5.02b step 5) rather than setters captured in `ctx`.
  */
-import { ArrowLeft, ArrowUpFromDot, Bookmark, ChevronLeft, ChevronRight, ClipboardCopy, CopyPlus, CornerDownLeft, CornerUpLeft, Edit3, ImagePlus, Layers, NotebookText, Orbit, Package, PackageOpen, Palette, Plus, Scaling, SendToBack, Sparkles, TextSearch, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpFromDot, Bookmark, ChevronLeft, ChevronRight, ClipboardCopy, CopyPlus, CornerDownLeft, CornerUpLeft, Edit3, ImagePlus, Layers, NotebookText, Orbit, Package, PackageOpen, Palette, Plus, Scaling, SendToBack, Sparkles, Trash2 } from 'lucide-react';
+import BookSearch from '../../shared/bookSearchIcon.js';
 import { THUMBNAIL_MAX_DIMENSION, nextNodeSizeStep, nodeSizeLabel } from '../../../constants';
 import { copySelection } from '../../../utils/clipboard.js';
 import { generateThumbnail, loadImageFileAsDataUrl } from '../../../utils.js';
@@ -261,7 +262,7 @@ export function buildNodePieMenuPages(ctx) {
       }
     },
     {
-      id: 'semantic-search', label: 'Semantic Search', icon: TextSearch, action: (instanceId) => {
+      id: 'semantic-search', label: 'Semantic Search', icon: BookSearch, action: (instanceId) => {
         // Mirrors the right panel's Text Search: open Semantic Discovery for this
         // node's name. The left panel's listener runs the search itself, so
         // calling triggerSemanticSearch here too would search twice. The Thing

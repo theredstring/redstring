@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { CircleDot, ChevronDown, BookOpen, Globe, TextSearch, ArrowUpFromDot } from 'lucide-react';
+import { CircleDot, ChevronDown, BookOpen, Globe, ArrowUpFromDot } from 'lucide-react';
+import BookSearch from './shared/bookSearchIcon.js';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 import PanelIconButton from './shared/PanelIconButton.jsx';
@@ -16,7 +17,7 @@ import './ConnectionBrowser.css';
 const CONNECTION_SCOPES = [
   { value: 'graph', label: 'In Graph', Icon: BookOpen },
   { value: 'universe', label: 'Universe', Icon: Globe },
-  { value: 'semantic', label: 'Semantic Web', Icon: TextSearch },
+  { value: 'semantic', label: 'Semantic Web', Icon: BookSearch },
 ];
 
 // Width a Universe row gives its open-web button: the button and the gap before it.

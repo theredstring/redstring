@@ -3,7 +3,9 @@ import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
 import { PANEL_OVERLAY_MIN_WIDTH } from './utils/canvas/panelWidth.js';
-import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, Network, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History, MoreHorizontal } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, Network, ImagePlus, XCircle, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, Sparkles, History, MoreHorizontal } from 'lucide-react';
+import BookSearch from './components/shared/bookSearchIcon.js';
+import GraphStar from './components/canvas/layers/graphStarIcon.js';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -1451,12 +1453,12 @@ const Panel = memo(
       // Strip order, left to right; the overflow menu lists them in the same order.
       const defs = [];
       defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
+      defs.push({ key: 'grid', title: 'Open Webs', Icon: GraphStar });
       // One tab for Things; its icon says which Things it is showing.
       defs.push(thingsScope === 'all'
         ? { key: 'library', title: 'All Things', Icon: LayoutGrid }
         : { key: 'library', title: 'Saved Things', Icon: Bookmark });
-      defs.push({ key: 'grid', title: 'Open Webs', Icon: BookOpen });
-      defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: TextSearch });
+      defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: BookSearch });
       defs.push({ key: 'history', title: 'Action History', Icon: History });
       if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       return defs;

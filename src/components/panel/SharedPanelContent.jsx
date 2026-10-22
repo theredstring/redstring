@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, Trash2, Bookmark, TextSearch, Sparkles, NotebookText } from 'lucide-react';
+import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, Trash2, Bookmark, Sparkles, NotebookText } from 'lucide-react';
+import BookSearch from '../shared/bookSearchIcon.js';
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -1284,7 +1285,7 @@ const SharedPanelContent = ({
         title={isSaved ? 'Remove from Saved Things' : 'Save to Saved Things'}
       />
       <PanelIconButton
-        icon={TextSearch}
+        icon={BookSearch}
         onClick={handleSemanticDiscoverySearch}
         title="Search this in Semantic Discovery"
       />
