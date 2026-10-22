@@ -11,7 +11,7 @@
  * meaning by the Thing's name.
  */
 import useGraphStore from '../../../../store/graphStore.js';
-import { getNodeDimensions } from '../../../../utils.js';
+import { spotBelow } from './formulaPlacement.js';
 import { findFormula, findEquationThing, equationOf, normalizeName } from './formulaSnapshot.js';
 import { buildFormulaInWeb, buildBankEquation, rewriteFormulaInWeb } from './buildFormula.js';
 import { condenseFormula } from './condenseFormula.js';
@@ -19,9 +19,6 @@ import { deleteFormula } from './deleteFormula.js';
 import { loadFormulaBank, formulaBankNow } from './bank/formulaBank.js';
 import { findBankEquation } from './bank/searchBank.js';
 import { expandNodeInPlace } from '../../actions/expandInPlace.js';
-
-// Below what the web has already, this far.
-const BELOW = 600;
 
 /** A Thing by name, the web's own first, the last match (MEMORY: never the first). */
 function thingNamed(state, graphId, name) {
@@ -67,25 +64,6 @@ function readOptionsFor(state, bindings, convention = 'math') {
     if (p.labels?.formula) known.add(String(p.labels.formula).trim());
   }
   return { convention: convention === 'programming' ? 'programming' : 'math', isKnownName: (n) => known.has(n) };
-}
-
-/** Where the next thing goes: under what the web has (`centre`: a middle; else a top-left corner). */
-export function spotBelow(state, graphId, { centre = true } = {}) {
-  const graph = state.graphs.get(graphId);
-  let minX = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const inst of graph?.instances?.values() || []) {
-    if (!Number.isFinite(inst.x) || !Number.isFinite(inst.y)) continue;
-    let w = 200, h = 100;
-    try {
-      const dims = getNodeDimensions({ name: state.nodePrototypes.get(inst.prototypeId)?.name || '' }, false, null);
-      w = dims.currentWidth; h = dims.currentHeight;
-    } catch { /* no text measuring here: the estimate stands */ }
-    minX = Math.min(minX, inst.x); maxX = Math.max(maxX, inst.x + w); maxY = Math.max(maxY, inst.y + h);
-  }
-  if (!Number.isFinite(minX)) return { x: 0, y: 0 };
-  const x = (minX + maxX) / 2;
-  const y = maxY + BELOW;
-  return centre ? { x, y } : { x: x - 100, y };
 }
 
 /**

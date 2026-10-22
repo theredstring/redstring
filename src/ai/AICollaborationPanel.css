@@ -377,10 +377,23 @@ html.dark-mode .ai-tab.active {
   display: flex;
   gap: 12px;
   align-items: flex-start;
+  width: 100%;
 }
 
+/* Two layouts, each the full row: the Wizard reads from the left, you from
+   the right. Bubbles hug short text and grow to the whole row for long text;
+   cards and other blocks take the whole row. */
 .ai-message-user {
   flex-direction: row-reverse;
+}
+
+.ai-message-user .ai-message-content {
+  align-items: flex-end;
+}
+
+.ai-message-ai .ai-message-text {
+  align-self: flex-start;
+  max-width: 100%;
 }
 
 .ai-message-avatar {

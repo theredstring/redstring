@@ -8,7 +8,9 @@
  * a node-group, as it always has. A node already inside an open definition always
  * opens in place: copying needs the node to live in the graph being viewed.
  *
- * Either way the node morphs into the box (groups/boxMorph.js).
+ * Either way the node morphs into the box (groups/boxMorph.js). A node that was
+ * a formula opens back into the formula, which grows out of it on its own
+ * (formats/formula/formulaSpawn.js).
  *
  * Opening in place can't happen twice for one definition in a web, or inside the
  * definition itself (src/core/openDefinitions.js); the buttons that offer it grey
@@ -17,6 +19,7 @@
 import useGraphStore from '../../../store/graphStore.js';
 import { projectGraphView, openInPlaceBlock } from '../../../core/openDefinitions.js';
 import { withBoxOpenMorph } from '../groups/boxMorph.js';
+import { opensAsFormula, withFormulaOpenMorph } from '../formats/formula/formulaSpawn.js';
 
 /**
  * @returns {Object|null} The group now shown for the expanded node (as viewed), or null.
@@ -26,8 +29,10 @@ export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 
   const ownsNode = store.graphs.get(viewGraphId)?.instances?.has(instanceId);
   if (expandBlockLabel({ viewGraphId, instanceId, definitionIndex })) return null;
 
-  const groupId = withBoxOpenMorph({ viewGraphId, instanceId }, () => {
-    if (store.openDefinitionsInPlace !== false || !ownsNode) {
+  const inPlace = store.openDefinitionsInPlace !== false || !ownsNode;
+  const withMorph = inPlace && opensAsFormula(viewGraphId, instanceId) ? withFormulaOpenMorph : withBoxOpenMorph;
+  const groupId = withMorph({ viewGraphId, instanceId }, () => {
+    if (inPlace) {
       return store.openDefinitionInPlace(viewGraphId, instanceId, definitionIndex);
     }
     const defGraphId = store.nodePrototypes.get(prototypeId)?.definitionGraphIds?.[definitionIndex];

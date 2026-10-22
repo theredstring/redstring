@@ -204,6 +204,14 @@ const NODE_CHIP_MAX_WIDTH = 260;
 // Widest a desktop row of chips gets before wrapping to a second row. Mobile
 // rows are bounded by the viewport (and the CSS width cap on the content box).
 const NODE_GRID_MAX_ROW_WIDTH = 560;
+// A multi-selection is a summary of a set, not the one Thing in hand, so its
+// chips draw a step smaller, in narrower rows, than a single Thing's.
+const MULTI_SELECT_TEXT = {
+  desktop: { nodeFontPx: 14, labelFontPx: 13 },
+  mobile: { nodeFontPx: 13, labelFontPx: 12 }
+};
+const MULTI_SELECT_MAX_ROW_WIDTH = 440;
+const MULTI_SELECT_CHIP_MAX_WIDTH = 200;
 
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
@@ -578,15 +586,17 @@ const UnifiedBottomControlPanel = ({
     // Chips draw at the platform's fixed text size, packed into rows; a long
     // name is truncated, and a selection past the collapsed rows is cut and
     // counted rather than scaled.
+    const isMulti = isNodes && Array.isArray(selectedNodes) && selectedNodes.length > 1;
+    const rowCap = isMulti ? MULTI_SELECT_MAX_ROW_WIDTH : NODE_GRID_MAX_ROW_WIDTH;
     const grid = layoutNodeChips({
       nodes: selectionChips,
-      text: previewText,
-      maxRowWidth: mobileState.isMobile ? viewportLimit : Math.min(viewportLimit, NODE_GRID_MAX_ROW_WIDTH),
+      text: isMulti ? (mobileState.isMobile ? MULTI_SELECT_TEXT.mobile : MULTI_SELECT_TEXT.desktop) : previewText,
+      maxRowWidth: mobileState.isMobile ? viewportLimit : Math.min(viewportLimit, rowCap),
       maxRows: selectionExpanded ? Infinity : NODE_GRID_COLLAPSED_ROWS,
       padding,
-      columnGap: mobileState.isMobilePortrait ? 10 : 12,
-      rowGap: mobileState.isMobilePortrait ? 8 : 10,
-      maxChipWidth: NODE_CHIP_MAX_WIDTH
+      columnGap: isMulti ? 8 : (mobileState.isMobilePortrait ? 10 : 12),
+      rowGap: isMulti ? 6 : (mobileState.isMobilePortrait ? 8 : 10),
+      maxChipWidth: isMulti ? MULTI_SELECT_CHIP_MAX_WIDTH : NODE_CHIP_MAX_WIDTH
     });
     return {
       nodesForRenderer: grid.nodes,
@@ -597,7 +607,7 @@ const UnifiedBottomControlPanel = ({
       hiddenCount: grid.hiddenNodes.reduce((sum, n) => sum + (n.selectionCount || 1), 0),
       canCollapse: grid.totalRows > NODE_GRID_COLLAPSED_ROWS
     };
-  }, [isNodes, isDecompose, selectionChips, selectionExpanded, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
+  }, [isNodes, isDecompose, selectedNodes, selectionChips, selectionExpanded, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
 
   // Connections are drawn one row per connection (subject —name→ object),
   // stacked. They used to share one row — every endpoint of every connection in

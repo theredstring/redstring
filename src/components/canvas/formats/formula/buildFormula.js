@@ -117,6 +117,14 @@ const nameKey = (name) => {
 // A number, or ∞: the same everywhere, so the Thing by that name is reused.
 const isNumber = (name) => /^\d+(\.\d+)?$/.test(String(name)) || String(name) === '∞';
 
+/**
+ * The key a Thing is found again by, by its name, when it is one the builder
+ * reuses by name (a number, a whole word, an operation, a function or a type),
+ * else null: a symbol is a Thing of its own in each formula. The formula
+ * starter matches its Things to the universe's by the same rule.
+ */
+export const reusedNameKey = (name) => (isNumber(name) || !isSymbolText(String(name)) ? nameKey(name) : null);
+
 /** Where a bank Thing came from, and the web address it is (as an import records one: an exact link). */
 const metadataOf = (origin, link) => ({
   provenance: { wasAttributedTo: BANK_AGENT, source: origin, generatedAtTime: new Date().toISOString() },
@@ -489,23 +497,65 @@ function readFormulaGroupText(state, graphId, group) {
  * moved or changed.
  */
 function placeInDiscipline(discipline, section, equationProtoId) {
+  const { holderProtoId } = filing(discipline, section);
+  placeIn(holderProtoId, equationProtoId);
+}
+
+/** The discipline's Thing, and the Thing an equation of it is filed under (its section's, or the discipline's). */
+function filing(discipline, section) {
   const disciplineProto = prototypeFromOrNew(disciplineOrigin(discipline.id), {
     name: discipline.name, description: discipline.description || '',
   });
-  if (!section) { placeIn(disciplineProto.id, equationProtoId); return; }
-  const link = itemIri(section.id);
+  if (!section) return { disciplineProtoId: disciplineProto.id, holderProtoId: disciplineProto.id };
   const sectionProto = prototypeFromOrNew(conceptOrigin(section.id), {
     name: section.name, description: section.description || '',
-  }, link);
+  }, itemIri(section.id));
   placeIn(disciplineProto.id, sectionProto.id);
-  placeIn(sectionProto.id, equationProtoId);
+  return { disciplineProtoId: disciplineProto.id, holderProtoId: sectionProto.id };
+}
+
+/** An entry's section, as its discipline names it. */
+const sectionOf = (discipline, entry) => (entry.sectionId
+  ? discipline.sections?.find(x => x.id === entry.sectionId) || { id: entry.sectionId, name: entry.section }
+  : null);
+
+/**
+ * The Thing buildBankEquation would make this entry's equation of, if the
+ * universe has it: found as the builder finds it, by where it came from or by
+ * the item it is exactly linked to (an equation whose item is one of its own
+ * concepts' is that concept's Thing).
+ */
+export const bankEquationThing = (entry) => prototypeFrom(equationOrigin(entry.id), entry.defines ? null : entry.source);
+
+/**
+ * Where the bank files an equation: its section's web, the section placed in
+ * its discipline's (else the discipline's own web), each made if there is
+ * none. The formula starter builds each equation there.
+ * @returns {{ webId: string, disciplineProtoId: string }}
+ */
+export function bankHomeOf(discipline, entry) {
+  const { disciplineProtoId, holderProtoId } = filing(discipline, sectionOf(discipline, entry));
+  return { webId: webOf(holderProtoId), disciplineProtoId };
+}
+
+/** The Thing the formula starter places every discipline in, Formulas, and its web. */
+export function formulaStarterRoot() {
+  const proto = prototypeFromOrNew(`${BANK_AGENT}:starter`, {
+    name: 'Formulas', description: 'Equations of every discipline, from Wikidata and MathModDB.',
+  });
+  return { protoId: proto.id, webId: webOf(proto.id) };
+}
+
+/** A Thing's first web, made if it has none. */
+function webOf(protoId) {
+  const st = useGraphStore.getState();
+  const webId = (st.nodePrototypes.get(protoId)?.definitionGraphIds || []).find(id => st.graphs.has(id));
+  return webId || st.createAndAssignGraphDefinitionWithoutActivation(protoId);
 }
 
 /** Place a Thing in another's web (made if it has none), unless it is there already. */
-function placeIn(holderProtoId, protoId) {
-  const st = useGraphStore.getState();
-  let webId = (st.nodePrototypes.get(holderProtoId)?.definitionGraphIds || []).find(id => st.graphs.has(id));
-  if (!webId) webId = st.createAndAssignGraphDefinitionWithoutActivation(holderProtoId);
+export function placeIn(holderProtoId, protoId) {
+  const webId = webOf(holderProtoId);
   const web = useGraphStore.getState().graphs.get(webId);
   if (!web) return;
   const instances = [...(web.instances?.values() || [])];
@@ -545,8 +595,6 @@ export function buildBankEquation(discipline, entry, graphId, at, color = null) 
     bindings,
     color,
     discipline,
-    section: entry.sectionId
-      ? discipline.sections?.find(x => x.id === entry.sectionId) || { id: entry.sectionId, name: entry.section }
-      : null,
+    section: sectionOf(discipline, entry),
   });
 }

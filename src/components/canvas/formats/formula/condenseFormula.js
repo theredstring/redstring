@@ -7,13 +7,9 @@
  */
 import useGraphStore from '../../../../store/graphStore.js';
 import useFormatsStore, { selectStandard } from '../formatsStore.js';
-import { anchorIdFromOpenGroupId, projectGraphView } from '../../../../core/openDefinitions.js';
-import { storeNodeRect } from '../../groups/boxMorphConnections.js';
+import { anchorIdFromOpenGroupId } from '../../../../core/openDefinitions.js';
 import { computeFormulaObjects } from './formulaObjects.js';
-import { markFormulaLeaving } from './formulaSpawn.js';
-
-// Node.jsx insets a node's painted background this far inside its box.
-const NODE_BG_INSET = 6;
+import { markFormulaLeaving, nodeBackgroundOf } from './formulaSpawn.js';
 
 /** @returns {string|null} The node it became. */
 export function condenseFormula(graphId, groupId) {
@@ -24,16 +20,7 @@ export function condenseFormula(graphId, groupId) {
   // Kept from before the write, so the drawing never misses a frame; aimed once the node is placed.
   const leaving = markFormulaLeaving(drawn);
   const nodeId = st.collapseNodeGroupIntoDefinition(graphId, groupId) || anchorIdFromOpenGroupId(groupId);
-  const rect = nodeId ? storeNodeRect(graphId, nodeId) : null;
-  if (leaving && rect) {
-    const s = useGraphStore.getState();
-    const node = projectGraphView(s, graphId)?.instances?.get(nodeId);
-    leaving.into({
-      x: rect.x + NODE_BG_INSET, y: rect.y + NODE_BG_INSET,
-      w: rect.w - 2 * NODE_BG_INSET, h: rect.h - 2 * NODE_BG_INSET,
-      r: Math.max(0, rect.r - NODE_BG_INSET),
-      color: s.nodePrototypes.get(node?.prototypeId)?.color || drawn.color,
-    });
-  }
+  const into = nodeId ? nodeBackgroundOf(graphId, nodeId, drawn?.color) : null;
+  if (leaving && into) leaving.into(into);
   return nodeId;
 }

@@ -129,6 +129,16 @@ export async function adoptDeviceFormulaBank({ bank: next, report, known, classe
   return kept;
 }
 
+/**
+ * Use this bank as it is, kept nowhere: what another thread has loaded
+ * (formulaBankNow's), handed to the formula starter's worker so it builds
+ * from the very bank the app shows.
+ */
+export function takeFormulaBank(data) {
+  setBank(indexBank(data, data.from || 'built-in'));
+  return bank;
+}
+
 /** Go back to the bank the app shipped with. */
 export async function restoreBuiltInFormulaBank() {
   await clearDeviceBank();

@@ -35,7 +35,7 @@ import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
 import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../../constants.js';
 import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
-import { formulaSpawnStart, SPAWN_MS, LEAVE_MS, leavingFormulasNow, subscribeLeavingFormulas } from './formulaSpawn.js';
+import { formulaSpawnOf, SPAWN_MS, LEAVE_MS, leavingFormulasNow, subscribeLeavingFormulas } from './formulaSpawn.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
 import { NODE_GROUP_INTERIOR_TINT, GROUP_SELECTION_STROKE as SELECTION_STROKE, groupLiftShadow } from '../../groups/groupElements.jsx';
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
@@ -83,13 +83,17 @@ const COLOR_TURN = 0.5; // how sharply a token's text turns color as the pill un
 const reducedMotion = () => { try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; } };
 
 /**
- * How far a just-built formula is into coming in: 0 to 1, or 1 when it isn't
- * coming in. A deleted one (`leavingStart`) goes the other way, 1 to 0, over
- * its exit.
+ * How far a just-built formula is into coming in (`t`): 0 to 1, or 1 when it
+ * isn't coming in; `from`, the node it grows out of, when it was opened from
+ * one. A deleted one (`leavingStart`) goes the other way, 1 to 0, over its exit.
  */
 function useSpawn(groupId, leavingStart = null) {
   const leaving = leavingStart !== null;
-  const [start] = useState(() => (leaving ? leavingStart : reducedMotion() ? null : formulaSpawnStart(groupId)));
+  const [{ start, from }] = useState(() => {
+    if (leaving) return { start: leavingStart, from: null };
+    const mark = reducedMotion() ? null : formulaSpawnOf(groupId);
+    return { start: mark?.at ?? null, from: mark?.from || null };
+  });
   const span = leaving ? LEAVE_MS : SPAWN_MS;
   const at = (now) => {
     const p = clamp01((now - start) / span);
@@ -107,7 +111,7 @@ function useSpawn(groupId, leavingStart = null) {
     // `at` stands for `start`, `span` and `leaving`, which don't change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [start]);
-  return t;
+  return { t, from };
 }
 const TITLE_TARGET = '__title__';
 
@@ -533,7 +537,9 @@ function useTokenChanges(obj) {
  * what it was drawn as, playing its entrance backwards from then (its tokens
  * leaving right to left, its band shrinking away to nothing) and taking no input.
  * `into`: it was combined into its Thing, and the band shrinks onto that node's
- * painted background instead ({ x, y, w, h, r, color }, condenseFormula).
+ * painted background instead ({ x, y, w, h, r, color }, condenseFormula). Opened
+ * from that Thing again, it grows out of the node the same way
+ * (formulaSpawn.withFormulaOpenMorph).
  */
 function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into = null }) {
   const leaving = leavingStart !== null;
@@ -629,9 +635,11 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const o = obj.center;
   const box = (r) => ({ x: r.x - o.x, y: r.y - o.y, w: r.w, h: r.h });
   const liftShadow = useGraphStore(st => (lifted ? (st.liftedThingShadow ?? DEFAULT_LIFTED_THING_SHADOW) : null));
-  // Just built: the plus sign's morph, into this band. Just deleted: back out of
-  // it, to nothing. Combined into its Thing: down onto that node.
-  const spawn = useSpawn(obj.groupId, leavingStart);
+  // Just built: the plus sign's morph, into this band. Opened from its Thing:
+  // out of that node instead. Just deleted: back out of it, to nothing.
+  // Combined into its Thing: down onto that node.
+  const { t: spawn, from: openedFrom } = useSpawn(obj.groupId, leavingStart);
+  const node = into || openedFrom;
   const spawning = spawn < 1;
   const grown = easeMorph(clamp01(spawn / MORPH_SHARE));
   const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
@@ -640,8 +648,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const f = box(frame);
   const fcx = f.x + f.w / 2;
   const fcy = f.y + f.h / 2;
-  const end = into
-    ? { ...box(into), rx: into.r }
+  const end = node
+    ? { ...box(node), rx: node.r }
     : { x: fcx - plusSize / 2, y: fcy - plusSize / 2, w: plusSize, h: plusSize, rx: plusSize / 2 };
   const morph = {
     x: lerp(end.x, f.x, grown), y: lerp(end.y, f.y, grown),
@@ -719,7 +727,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
           {/* Selected, it wears a selected Thing's black stroke. */}
           <GlideRect
             r={box(frame)} rx={G.nodeGroupCornerRadius}
-            fill={!spawning ? color : into ? mixColor(into.color, color, grown) : mixColor(PLUS_LIGHT, color, grown * 1.5)}
+            fill={!spawning ? color : node ? mixColor(node.color, color, grown) : mixColor(PLUS_LIGHT, color, grown * 1.5)}
             stroke={selected ? 'black' : 'none'} strokeWidth={SELECTION_STROKE}
           />
           {obj.title && (
@@ -768,7 +776,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
         ))]}
         </g>
         {/* The plus sign it grew from: its outline turning the band's color, its cross fading first. */}
-        {spawning && !leaving && (
+        {spawning && !leaving && !node && (
           <g style={{ pointerEvents: 'none' }}>
             <rect
               x={morph.x} y={morph.y} width={morph.w} height={morph.h} rx={morph.rx}

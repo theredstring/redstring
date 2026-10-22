@@ -4155,7 +4155,7 @@ const LeftAIView = ({ compact = false,
                     key={message.id}
                     style={{
                       alignSelf: 'flex-end',
-                      maxWidth: '85%',
+                      maxWidth: '100%',
                       marginTop: isNewSection ? '24px' : '8px'
                     }}
                   >
@@ -4181,11 +4181,7 @@ const LeftAIView = ({ compact = false,
                 <div
                   key={message.id}
                   className={`ai-message ai-message-${message.sender}`}
-                  style={{
-                    alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start',
-                    maxWidth: '85%',
-                    marginTop: isNewSection ? '24px' : '8px'
-                  }}
+                  style={{ marginTop: isNewSection ? '24px' : '8px' }}
                 >
                   <div className="ai-message-avatar">
                     {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} />}

@@ -603,15 +603,19 @@ const normalizeEdgeDirectionality = (directionality) => {
  * @param {Object} storeState - Deserialized store state. Mutated.
  */
 const sanitizeStoreStateReferences = (storeState) => {
-  // Normalize all edge directionality to ensure arrowsToward is always a Set
+  // Normalize all edge directionality to ensure arrowsToward is always a Set.
+  // An edge already in the live store is frozen (immer), as a merge's base
+  // edges are: the entry is replaced, never written into.
   if (storeState.edges) {
     for (const [edgeId, edgeData] of storeState.edges.entries()) {
+      let directionality;
       try {
-        edgeData.directionality = normalizeEdgeDirectionality(edgeData.directionality);
+        directionality = normalizeEdgeDirectionality(edgeData.directionality);
       } catch (error) {
         console.warn(`[graphStore] Error normalizing edge ${edgeId} directionality:`, error);
-        edgeData.directionality = { arrowsToward: new Set() };
+        directionality = { arrowsToward: new Set() };
       }
+      if (directionality !== edgeData.directionality) storeState.edges.set(edgeId, { ...edgeData, directionality });
     }
   }
 

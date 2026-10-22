@@ -1,7 +1,7 @@
 {
  "format": 2,
  "source": "Wikidata (CC0), https://www.wikidata.org; MathModDB, MaRDI portal (CC BY 4.0), https://portal.mardi4nfdi.de/wiki/MathModDB",
- "fetchedAt": "2026-10-20T02:52:35.953Z",
+ "fetchedAt": "2026-10-22T06:14:43.763Z",
  "disciplines": [
   {
    "id": "physics",
@@ -18,7 +18,7 @@
      "id": "Q11397",
      "name": "Classical Mechanics",
      "description": "Sub-field of mechanics, which is concerned with the set of physical laws describing the motion of bodies under the action of a system of forces.",
-     "equations": 16,
+     "equations": 14,
      "missing": 47
     },
     {
@@ -33,14 +33,14 @@
      "name": "Fluid Dynamics",
      "description": "Subdiscipline of fluid mechanics that deals with fluid flow—the natural science of fluids (liquids and gases) in motion.",
      "equations": 12,
-     "missing": 122
+     "missing": 123
     },
     {
      "id": "Q944",
      "name": "Quantum Mechanics",
      "description": "Fundamental theory in physics describing the properties of nature on an atomic scale.",
      "equations": 11,
-     "missing": 117
+     "missing": 118
     },
     {
      "id": "Q11476",
@@ -54,7 +54,7 @@
      "name": "Electromagnetism",
      "description": "Branch of science concerned with the phenomena of electricity and magnetism.",
      "equations": 7,
-     "missing": 18
+     "missing": 17
     },
     {
      "id": "Q214781",
@@ -120,6 +120,13 @@
      "missing": 23
     },
     {
+     "id": "Q172145",
+     "name": "Fluid Mechanics",
+     "description": "Branch of physics concerned with the mechanics of fluids (liquids, gases, and plasmas) and the forces on them; branch of continuum mechanics.",
+     "equations": 2,
+     "missing": 18
+    },
+    {
      "id": "Q18334",
      "name": "Particle Physics",
      "description": "Branch of physics dealing with the interactions of subatomic particles.",
@@ -146,13 +153,6 @@
      "description": "Physics of large number of particles' statistical behavior.",
      "equations": 1,
      "missing": 51
-    },
-    {
-     "id": "Q172145",
-     "name": "Fluid Mechanics",
-     "description": "Branch of physics concerned with the mechanics of fluids (liquids, gases, and plasmas) and the forces on them; branch of continuum mechanics.",
-     "equations": 1,
-     "missing": 19
     },
     {
      "id": "Q240553",
@@ -232,6 +232,13 @@
      "missing": 0
     },
     {
+     "id": "Q193870",
+     "name": "Tribology",
+     "description": "Deals with the scientific description of friction, wear and lubrication.",
+     "equations": 1,
+     "missing": 0
+    },
+    {
      "id": "Q4455108",
      "name": "Infinitesimal Deformation Theory",
      "description": "Area of continuum mechanics.",
@@ -267,6 +274,13 @@
      "missing": 11
     },
     {
+     "id": "Q815820",
+     "name": "Computational Fluid Dynamics",
+     "description": "Branch of fluid mechanics that uses numerical analysis and data structures to solve and analyze problems that involve fluid flows.",
+     "equations": 0,
+     "missing": 8
+    },
+    {
      "id": "Q234181",
      "name": "Quantum Gravity",
      "description": "Field of theoretical physics.",
@@ -284,13 +298,6 @@
      "id": "Q4483523",
      "name": "Semiconductor Physics",
      "description": "Study of semiconductors.",
-     "equations": 0,
-     "missing": 7
-    },
-    {
-     "id": "Q815820",
-     "name": "Computational Fluid Dynamics",
-     "description": "Branch of fluid mechanics that uses numerical analysis and data structures to solve and analyze problems that involve fluid flows.",
      "equations": 0,
      "missing": 7
     },
@@ -398,8 +405,6 @@
       "m": "Q11423",
       "a⃗": "Q11376"
      },
-     "section": "Classical Mechanics",
-     "sectionId": "Q11397",
      "wikipedia": "Force",
      "source": "http://www.wikidata.org/entity/Q11402"
     },
@@ -1056,6 +1061,22 @@
      "sectionId": "Q11473",
      "wikipedia": "Gas constant",
      "source": "http://www.wikidata.org/entity/Q182333"
+    },
+    {
+     "id": "Q190760",
+     "title": "Pascal's Law",
+     "description": "Principle in fluid mechanics.",
+     "text": "Δp = ρ × g × Δh",
+     "symbols": {
+      "Δp": "Q1149672",
+      "ρ": "Q29539",
+      "g": "Q30006",
+      "Δh": "Q930412"
+     },
+     "section": "Fluid Mechanics",
+     "sectionId": "Q172145",
+     "wikipedia": "Pascal's law",
+     "source": "http://www.wikidata.org/entity/Q190760"
     },
     {
      "id": "Q108193",
@@ -2842,8 +2863,8 @@
       "μ": "Q73695445",
       "F_n": "Q541008"
      },
-     "section": "Classical Mechanics",
-     "sectionId": "Q11397",
+     "section": "Tribology",
+     "sectionId": "Q193870",
      "wikipedia": "Kinetic friction",
      "source": "http://www.wikidata.org/entity/Q4419098"
     },
@@ -6938,7 +6959,7 @@
      "name": "Number Theory",
      "description": "Branch of pure mathematics devoted primarily to the study of the integers.",
      "equations": 9,
-     "missing": 188
+     "missing": 187
     },
     {
      "id": "Q82571",
@@ -6983,13 +7004,6 @@
      "missing": 27
     },
     {
-     "id": "Q8084",
-     "name": "Trigonometry",
-     "description": "Branch of mathematics that studies triangles and the relationships between their sides and the angles between these sides.",
-     "equations": 3,
-     "missing": 12
-    },
-    {
      "id": "Q156495",
      "name": "Mathematical Physics",
      "description": "Use of mathematics to solve physics problems.",
@@ -7004,6 +7018,13 @@
      "missing": 18
     },
     {
+     "id": "Q8084",
+     "name": "Trigonometry",
+     "description": "Branch of mathematics that studies triangles and the relationships between their sides and the angles between these sides.",
+     "equations": 2,
+     "missing": 12
+    },
+    {
      "id": "Q200802",
      "name": "Vector Calculus",
      "description": "Calculus of vector-valued functions.",
@@ -7015,14 +7036,14 @@
      "name": "Complex Analysis",
      "description": "Branch of mathematics studying functions of a complex variable.",
      "equations": 1,
-     "missing": 100
+     "missing": 102
     },
     {
      "id": "Q188444",
      "name": "Differential Geometry",
      "description": "Branch of mathematics dealing with functions and geometric structures on differentiable manifolds.",
      "equations": 1,
-     "missing": 91
+     "missing": 92
     },
     {
      "id": "Q3968",
@@ -7102,6 +7123,13 @@
      "missing": 1
     },
     {
+     "id": "Q1279571",
+     "name": "Indian Mathematics",
+     "description": "Mathematics on the Indian subcontinent.",
+     "equations": 1,
+     "missing": 1
+    },
+    {
      "id": "Q2004891",
      "name": "Numerical Linear Algebra",
      "description": "Subfield of numerical analysis and a type of linear algebra.",
@@ -7141,7 +7169,7 @@
      "name": "Calculus",
      "description": "Branch of mathematics that works on how things change.",
      "equations": 0,
-     "missing": 147
+     "missing": 148
     },
     {
      "id": "Q190549",
@@ -7169,7 +7197,7 @@
      "name": "Mathematical Logic",
      "description": "Subfield of mathematics.",
      "equations": 0,
-     "missing": 86
+     "missing": 87
     },
     {
      "id": "Q874429",
@@ -7197,7 +7225,7 @@
      "name": "Combinatorics",
      "description": "Branch of discrete mathematics.",
      "equations": 0,
-     "missing": 64
+     "missing": 65
     },
     {
      "id": "Q159943",
@@ -7536,13 +7564,6 @@
      "missing": 9
     },
     {
-     "id": "Q818930",
-     "name": "Computability Theory",
-     "description": "Study of computable functions and Turing degrees.",
-     "equations": 0,
-     "missing": 9
-    },
-    {
      "id": "Q149999",
      "name": "Differential Calculus",
      "description": "Subfield of calculus.",
@@ -7581,6 +7602,13 @@
      "id": "Q815820",
      "name": "Computational Fluid Dynamics",
      "description": "Branch of fluid mechanics that uses numerical analysis and data structures to solve and analyze problems that involve fluid flows.",
+     "equations": 0,
+     "missing": 8
+    },
+    {
+     "id": "Q818930",
+     "name": "Computability Theory",
+     "description": "Study of computable functions and Turing degrees.",
      "equations": 0,
      "missing": 8
     },
@@ -7697,6 +7725,13 @@
      "missing": 5
     },
     {
+     "id": "Q852732",
+     "name": "Proof Theory",
+     "description": "Branch of mathematical logic.",
+     "equations": 0,
+     "missing": 5
+    },
+    {
      "id": "Q92552",
      "name": "Galois Theory",
      "description": "Branch of mathematics that studies automorphism groups of fields.",
@@ -7770,13 +7805,6 @@
      "id": "Q815297",
      "name": "Systems Biology",
      "description": "Computational and mathematical modeling of complex biological systems.",
-     "equations": 0,
-     "missing": 4
-    },
-    {
-     "id": "Q852732",
-     "name": "Proof Theory",
-     "description": "Branch of mathematical logic.",
      "equations": 0,
      "missing": 4
     },
@@ -9055,8 +9083,8 @@
       "x": "Q11563",
       "π": "Q167"
      },
-     "section": "Trigonometry",
-     "sectionId": "Q8084",
+     "section": "Indian Mathematics",
+     "sectionId": "Q1279571",
      "wikipedia": "Bhāskara I's sine approximation formula",
      "source": "http://www.wikidata.org/entity/Q4901362"
     },
@@ -12986,7 +13014,7 @@
      "name": "Cryptography",
      "description": "Practice and study of secure communication techniques.",
      "equations": 1,
-     "missing": 6
+     "missing": 8
     },
     {
      "id": "Q2878974",
@@ -13000,7 +13028,7 @@
      "name": "Computer Graphics",
      "description": "Pictures and graphics, possibly animated, that are generated using computers, for transforming and compositing various sources of images or data with precise definitions of style, layout, effects, sequencing and synchronization.",
      "equations": 0,
-     "missing": 15
+     "missing": 14
     },
     {
      "id": "Q214526",
@@ -13191,16 +13219,16 @@
      "missing": 8
     },
     {
-     "id": "Q7108",
-     "name": "Biotechnology",
-     "description": "Technologies directly involving biology; formerly or more narrowly the use of living systems and organisms to develop or make useful products.",
-     "equations": 0,
-     "missing": 7
-    },
-    {
      "id": "Q7162",
      "name": "Genetics",
      "description": "Science of genes, heredity, and variation in living organisms.",
+     "equations": 0,
+     "missing": 8
+    },
+    {
+     "id": "Q7108",
+     "name": "Biotechnology",
+     "description": "Technologies directly involving biology; formerly or more narrowly the use of living systems and organisms to develop or make useful products.",
      "equations": 0,
      "missing": 7
     },
@@ -13216,7 +13244,7 @@
      "name": "Biogeography",
      "description": "Study of the distribution of species and ecosystems in geographic space and through geological time.",
      "equations": 0,
-     "missing": 5
+     "missing": 6
     },
     {
      "id": "Q207011",
@@ -14531,6 +14559,12 @@
    "symbol": "λ",
    "description": "In nuclear physics, quotient of the relative number of decayed atomic nuclei and the duration.",
    "source": "http://www.wikidata.org/entity/Q11477200"
+  },
+  "Q1149672": {
+   "name": "Hydrostatic Pressure",
+   "symbol": "Δp",
+   "description": "Pressure due to weight of a fluid at rest.",
+   "source": "http://www.wikidata.org/entity/Q1149672"
   },
   "Q11500": {
    "name": "Area",
@@ -18209,6 +18243,12 @@
    "symbol": "K_J",
    "description": "The inverse of the flux quantum.",
    "source": "http://www.wikidata.org/entity/Q92605166"
+  },
+  "Q930412": {
+   "name": "Depth",
+   "symbol": "Δh",
+   "description": "Vertical distance below the reference surface.",
+   "source": "http://www.wikidata.org/entity/Q930412"
   },
   "Q9391534": {
    "name": "Dependent Variable",
