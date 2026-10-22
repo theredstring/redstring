@@ -13,6 +13,7 @@ import { anchorInfoFacing, getNodeHitbox } from '../../../utils/canvas/nodeHitbo
 import { trimRouteEnd, lombardiArcFor, sampleArc } from '../../../utils/canvas/edgeRouting.js';
 import { samePolylines, buildEdgeSegmentIndex } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { getVisibleObstacleRects } from '../../../utils/canvas/edgeLabelPlacement.js';
+import { connectionEndInfo } from '../formats/replaced.js';
 
 /** Where the edge pie menu anchors on the selected connection (null when none). */
 export function computeSelectedEdgeMidpoint(ctx) {
@@ -35,8 +36,8 @@ export function computeSelectedEdgeMidpoint(ctx) {
 
   // A thing-group endpoint is clipped against its whole outer box and sits at
   // its live anchor position, exactly as the render does.
-  const sInfo0 = srcNode.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(srcNode.id) : null;
-  const dInfo0 = dstNode.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(dstNode.id) : null;
+  const sInfo0 = connectionEndInfo(srcNode, anchorPositionUpdatesRef?.current);
+  const dInfo0 = connectionEndInfo(dstNode, anchorPositionUpdatesRef?.current);
   const sNode = sInfo0 ? { ...srcNode, x: sInfo0.x, y: sInfo0.y } : srcNode;
   const dNode = dInfo0 ? { ...dstNode, x: dInfo0.x, y: dInfo0.y } : dstNode;
   const sD = sInfo0 ? { currentWidth: sInfo0.width, currentHeight: sInfo0.height } : sDims;
@@ -133,7 +134,7 @@ export function computeLabelCrossingIndex(ctx) {
   // A member wired to its own group's Thing is occluded by the pill alone, as
   // the renderer draws it (anchorInfoFacing).
   const occluderFor = (node, dims, other, otherDims) => {
-    const info = node.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id) : null;
+    const info = connectionEndInfo(node, anchorPositionUpdatesRef.current);
     const vb = anchorInfoFacing(info, other, otherDims)?.outerBounds;
     return vb
       ? { minX: vb.x, minY: vb.y, maxX: vb.x + vb.width, maxY: vb.y + vb.height }

@@ -68,6 +68,35 @@ export const formatBoxes = () => [...anchors.values()];
 /** Where a replaced instance is drawn instead, or null. */
 export const standInFor = (id) => standIns.get(id) || null;
 
+/**
+ * One end of a connection on a replaced instance, as a group anchor's record
+ * (anchorPositions: x, y, width, height, outerBounds, shellRect): its stand-in
+ * (a token, or a formula's title), with the format's band as the box the
+ * connection stops at and its arrowhead lands on, as a Thing-group's shell is.
+ * `dx`/`dy`: how far a drag has carried it. Null when it isn't replaced.
+ */
+export function formatEndOf(id, dx = 0, dy = 0) {
+  const s = standIns.get(id);
+  if (!s) return null;
+  const f = s.frame;
+  return {
+    x: s.x + dx, y: s.y + dy, width: s.w, height: s.h,
+    outerBounds: f ? { x: f.x + dx, y: f.y + dy, width: f.w, height: f.h } : null,
+    shellRect: f ? { x: f.x + dx, y: f.y + dy, w: f.w, h: f.h, r: f.r ?? 0 } : null,
+  };
+}
+
+/**
+ * The record a connection's end is drawn against, the one every reader takes
+ * (the render, the drag, routing, label placement, the edge pie): a format's
+ * (formatEndOf), else a group anchor's from `anchors` (anchorPositions), else
+ * null for a plain node, drawn as itself.
+ */
+export function connectionEndInfo(node, anchors) {
+  if (!node) return null;
+  return formatEndOf(node.id) || (node.isGroupAnchor ? anchors?.get(node.id) || null : null);
+}
+
 /** The format whose group's anchor is `id` ({ x, y, w, h, groupId, memberIds }), or null. */
 export const formatOfAnchor = (id) => anchors.get(id) || null;
 /** The group a format is drawn for, if `id` is that group's anchor; else null. */

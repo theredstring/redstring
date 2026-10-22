@@ -7,7 +7,7 @@
  * The code below is that pass's computation, moved verbatim.
  */
 import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
-import { isReplacedGroup, isReplacedInstance, standInFor, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
+import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
 
 /**
  * Publish a layout to the refs the rest of the canvas reads (drag, gamepad,
@@ -35,15 +35,23 @@ export function publishGroupLayouts(layouts, titleRectsRef, anchorPositionsRef) 
  * `pill` when no format draws it. `dx`/`dy`: how far a drag has carried it.
  */
 export function formatAnchorPosition(anchorId, pill, dx = 0, dy = 0) {
-  const standIn = standInFor(anchorId);
-  if (!standIn) return pill;
-  const found = anchorBoxOf(anchorId, null);
-  const drawn = found ? { ...found, x: found.x + dx, y: found.y + dy } : null;
-  return {
-    x: standIn.x + dx, y: standIn.y + dy, width: standIn.w, height: standIn.h, groupId: pill?.groupId ?? found?.groupId ?? null,
-    outerBounds: drawn ? { x: drawn.x, y: drawn.y, width: drawn.width, height: drawn.height } : null,
-    shellRect: drawn ? { x: drawn.x, y: drawn.y, w: drawn.width, h: drawn.height, r: GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius } : null,
-  };
+  const end = formatEndOf(anchorId, dx, dy);
+  if (!end) return pill;
+  return { ...end, groupId: pill?.groupId ?? anchorBoxOf(anchorId, null)?.groupId ?? null };
+}
+
+/**
+ * Where a connection's end is drawn, as the routers take it ({ node, dims }):
+ * a Thing-group's anchor at its title pill, a format's end at its stand-in
+ * (connectionEndInfo), else the node as stored. Mirrors renderConnectionEdge
+ * exactly: the pill's box and nothing else. Carrying the node's own
+ * scaledCornerRadius over would round the pill by a radius taken from a
+ * different shape.
+ */
+export function connectionEndGeometry(node, dims, anchors) {
+  const info = connectionEndInfo(node, anchors);
+  if (!info) return { node, dims };
+  return { node: { ...node, x: info.x, y: info.y }, dims: { currentWidth: info.width, currentHeight: info.height } };
 }
 
 /**

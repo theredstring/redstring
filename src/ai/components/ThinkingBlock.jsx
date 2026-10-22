@@ -59,7 +59,7 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
           cursor: 'text',
         }}>
           {contentHtml
-            ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(contentHtml) }} />
+            ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(contentHtml, { svg: true }) }} />
             : <div style={{ whiteSpace: 'pre-wrap' }}>{content}</div>}
         </div>
       )}

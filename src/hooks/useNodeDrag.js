@@ -1016,9 +1016,10 @@ export const useNodeDrag = ({
         const { dx, dy } = rideDelta(standIn);
         return { pos: { x: standIn.x + dx, y: standIn.y + dy }, dims: { currentWidth: standIn.w, currentHeight: standIn.h } };
       };
-      // A group's anchor a format draws (a formula's title) is the format's,
-      // carried the same way: its band is the box the connection stops at.
-      const formatAnchorEnd = (id) => {
+      // Either end a format draws (a formula's title, or one of its tokens) is
+      // the format's, carried the same way: its band is the box the connection
+      // stops at, as the settled render's (connectionEndInfo).
+      const formatEnd = (id) => {
         const standIn = standInFor(id);
         if (!standIn) return null;
         const { dx, dy } = rideDelta(standIn);
@@ -1033,10 +1034,10 @@ export const useNodeDrag = ({
       // each React frame), NOT the stored instance position + default node dims. Mirror that
       // here so the drag-time line and label exactly match the settled (drop) render — and so
       // the label can be pushed off the group's outer bounds the same way.
-      let sAnchor = !sStored.isGroupAnchor ? null
-        : sStandIn ? formatAnchorEnd(edge.sourceId) : anchorPositionUpdatesRef?.current?.get(edge.sourceId);
-      let eAnchor = !dStored.isGroupAnchor ? null
-        : dStandIn ? formatAnchorEnd(edge.destinationId) : anchorPositionUpdatesRef?.current?.get(edge.destinationId);
+      let sAnchor = sStandIn ? formatEnd(edge.sourceId)
+        : sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
+      let eAnchor = dStandIn ? formatEnd(edge.destinationId)
+        : dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
       // The pill wins UNCONDITIONALLY, including when the anchor carries a drag
       // position of its own. It used to defer to `dragPos` (`if
       // (!dragPos.has(id))`), and that is the whole of "connections into a
@@ -1703,8 +1704,6 @@ export const useNodeDrag = ({
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
   // ---------------------------------------------------------------------------
   const updateGroupBoundsInDOM = useCallback((movedNodeIds) => {
-    if (dragGroupMetaRef.current.size === 0) return null;
-
     const groupsByNode = groupsByNodeIdRef.current;
     const groupsById = groupsByIdRef?.current || new Map();
     const affectedGroupIds = collectAffectedGroupIds(movedNodeIds);
@@ -1714,6 +1713,14 @@ export const useNodeDrag = ({
     // the caller can also refresh those groups' external connections (which attach
     // to the anchor, not the dragged member).
     const affectedAnchorIds = new Set();
+    // A formula's anchor moves with it all the same, though its group has no
+    // shell in the DOM to cache: its connections are redrawn (at the formula,
+    // updateEdgesInDOM's formatEnd), only no pill is written for it.
+    affectedGroupIds.forEach(groupId => {
+      const anchorId = groupsById.get(groupId)?.anchorInstanceId;
+      if (anchorId && isReplacedGroup(groupId)) affectedAnchorIds.add(anchorId);
+    });
+    if (dragGroupMetaRef.current.size === 0) return affectedAnchorIds;
 
     const curNodeById = nodeByIdRef.current;
     const curBaseDims = baseDimsByIdRef.current;
@@ -1790,9 +1797,6 @@ export const useNodeDrag = ({
         });
       }
 
-      // A formula's anchor moves with it all the same: its connections are redrawn
-      // (at the formula, useNodeDrag's formatAnchorEnd), only no pill is written for it.
-      if (layout.isNodeGroup && group.anchorInstanceId && isReplacedGroup(groupId)) affectedAnchorIds.add(group.anchorInstanceId);
       if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current && !isReplacedGroup(groupId)) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {

@@ -7,6 +7,7 @@ import { haptic } from '../../services/haptics.js';
 import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
 import { buildShellCutoutPath } from '../../services/groupLayout.js';
 import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints } from '../../utils/canvas/nodeHitbox.js';
+import { connectionEndInfo } from './formats/replaced.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
 import { bundleFrameSign, computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, parallelLaneRank, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
@@ -128,9 +129,10 @@ export function renderConnectionEdge(edge, ctx) {
     return null;
   }
   // For anchor nodes, use current-frame ref positions (not stale store positions)
-  // and title dimensions instead of node dimensions
-  let sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
-  let eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
+  // and title dimensions instead of node dimensions; a format's end (a formula's
+  // token or title) stops at its band, as an anchor's at its group's box.
+  let sAnchorInfo = connectionEndInfo(sourceNode, anchorPositionUpdatesRef.current);
+  let eAnchorInfo = connectionEndInfo(destNode, anchorPositionUpdatesRef.current);
   if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
   if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
   const sNodeDims = sAnchorInfo

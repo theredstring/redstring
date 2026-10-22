@@ -61,6 +61,7 @@ import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { openExternalUrl } from '../../../utils/safeUrl.js';
 import { buildAIOutputReportUrl } from '../../../services/aiConsent.js';
 import { formulaSnapshotForWizard } from '../../canvas/formats/formula/formulaSnapshot.js';
+import { extractChatMath } from '../../wizard/chatMath.jsx';
 
 /**
  * services/aiConsent.js refuses to send graph content to a provider the person
@@ -1807,7 +1808,9 @@ const LeftAIView = ({ compact = false,
   // Simple markdown renderer for chat messages
   const renderMarkdown = (text) => {
     if (!text) return text;
-    text = text.trimStart();
+    // Math ($…$, $$…$$) comes out first and goes back drawn as formulas (chatMath.jsx).
+    const math = extractChatMath(text.trimStart());
+    text = math.text;
 
     const escapeHtml = (str) =>
       str
@@ -1877,7 +1880,7 @@ const LeftAIView = ({ compact = false,
     // Also strip a leading <br> right before a <ul> that creates a gap above the list
     html = html.replace(/(<br>\s*)+(<ul)/g, '$2');
 
-    return html;
+    return math.restore(html);
   };
 
   const upsertToolCall = React.useCallback((toolUpdate, targetId) => {
@@ -4210,7 +4213,7 @@ const LeftAIView = ({ compact = false,
                               key={`text-${i}`}
                               className="ai-message-text"
                               style={{ userSelect: 'text', cursor: 'text' }}
-                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(block.content)) }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(block.content), { svg: true }) }}
                             />
                           );
                         }
@@ -4283,7 +4286,7 @@ const LeftAIView = ({ compact = false,
                       <div
                         className="ai-message-text"
                         style={{ userSelect: 'text', cursor: 'text' }}
-                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(message.content)) }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(message.content), { svg: true }) }}
                       />
                     ) : message.isStreaming ? (
                       <span className="ai-thinking-dots">

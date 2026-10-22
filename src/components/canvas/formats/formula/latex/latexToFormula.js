@@ -683,6 +683,17 @@ export function latexToFormula(tex) {
   return { text: textOf(tree), names: [...new Set(namesOf(tree))], bound: [...boundOf(tree)] };
 }
 
+/**
+ * Any formula, an equation or not (p^2 / 2m, a lone m_1), read as
+ * latexToFormula reads one: for the wizard's math in the chat (chatMath.jsx).
+ * @returns {{ text: string, names: string[] }}
+ * @throws {Error} what it can't write
+ */
+export function latexToExpression(tex) {
+  const tree = parser(tex).readAll();
+  return { text: textOf(tree), names: [...new Set(namesOf(tree))] };
+}
+
 /** The name a symbol is written by (m_{\mathrm f} -> 'm_f'), or null when it isn't one symbol. */
 export function latexSymbolName(tex) {
   try {

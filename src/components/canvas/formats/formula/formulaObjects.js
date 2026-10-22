@@ -470,12 +470,15 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
     });
   }
 
-  // Each token box, with the Thing whose drag carries the formula it is in.
+  // Each token box, with the Thing whose drag carries the formula it is in, and
+  // the formula's band, which a connection into the token stops at as it would
+  // at a Thing-group's box.
   const standIns = new Map();
   for (const o of objects) {
+    const frame = { ...o.frame, r: G.nodeGroupCornerRadius };
     for (const id of [...o.memberIds, o.anchorId]) {
       const box = id && tokenBoxById.get(id);
-      if (box) standIns.set(id, { ...box, rideOn: o.dragProxyId });
+      if (box) standIns.set(id, { ...box, rideOn: o.dragProxyId, frame });
     }
   }
   // Each formula, whole, where its group's anchor is: connections are drawn from it and dropped on it.

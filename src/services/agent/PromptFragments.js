@@ -364,6 +364,7 @@ Choose a palette and use its color names for all \`color\` fields. Use palette n
 export const REDSTRING_FORMATTING = `
 ## Formatting
 Use markdown (headers, bold, lists, code blocks). No emojis. No blockquotes. Keep responses brief.
+Write math as LaTeX, $F = ma$ in a sentence or $$K = \\frac{p^2}{2m}$$ on its own line: the chat draws it as a formula, as the canvas does.
 `;
 
 export const EXAMPLE_FLOWS = `

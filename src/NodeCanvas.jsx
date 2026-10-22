@@ -30,7 +30,7 @@ import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
-import { computeGroupLayouts, publishGroupLayouts } from './components/canvas/groups/groupLayouts.js';
+import { computeGroupLayouts, publishGroupLayouts, connectionEndGeometry } from './components/canvas/groups/groupLayouts.js';
 import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
 import { withSelectedFormula, deleteSelection } from './components/canvas/formats/formula/formulaSelection.js';
 import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
@@ -1352,17 +1352,7 @@ function NodeCanvas() {
   // phase, so a memo body sees the PREVIOUS commit's boxes — one render behind,
   // exactly as occluderFor below has always been, and still far closer than the
   // stored instance box, which is never right at all.
-  const anchorGeometryFor = useCallback((node, dims) => {
-    const info = node?.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id) : null;
-    if (!info) return { node, dims };
-    return {
-      node: { ...node, x: info.x, y: info.y },
-      // Mirrors renderConnectionEdge exactly: the pill's box and nothing else.
-      // Carrying the node's own scaledCornerRadius over would round the pill by
-      // a radius taken from a different shape.
-      dims: { currentWidth: info.width, currentHeight: info.height },
-    };
-  }, []);
+  const anchorGeometryFor = useCallback((node, dims) => connectionEndGeometry(node, dims, anchorPositionUpdatesRef.current), []);
 
   // Port-based routing with intelligent edge distribution - inspired by circuit board routing
   const prevCleanLaneOffsetsRef = useRef(new Map());
