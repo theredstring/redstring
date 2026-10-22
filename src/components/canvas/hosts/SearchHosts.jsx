@@ -67,7 +67,6 @@ const selectActiveInstances = (s) => s.graphs.get(s.activeGraphId)?.instances;
 // Mounted only while open: it follows the active web's instances, which change
 // on every node move.
 function ComponentSearch({ leftPanelExpanded, rightPanelExpanded }) {
-  const activeGraphName = useGraphStore(s => s.graphs.get(s.activeGraphId)?.name ?? 'Loading...');
   const instances = useGraphStore(selectActiveInstances);
   const allowedPrototypeIds = useMemo(() => {
     const ids = new Set();
@@ -85,9 +84,7 @@ function ComponentSearch({ leftPanelExpanded, rightPanelExpanded }) {
       rightPanelExpanded={rightPanelExpanded}
       onClose={closeComponentSearch}
       onNodeSelect={selectComponent}
-      title={`Search ${activeGraphName || 'Components'}`}
-      subtitle={null}
-      gridTitle="Browse Components in This Thing"
+      title="Search this Web"
       searchOnly={true}
       allowedPrototypeIds={allowedPrototypeIds}
     />
@@ -112,12 +109,10 @@ function SearchHosts() {
           isVisible={true}
           onClose={closeAllThingsSearch}
           onNodeSelect={selectAnyThing}
-          title="Search All Things"
-          subtitle="Search through everything in your universe"
+          title="Search everything"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchOnly={true}
-          gridTitle="All Things"
         />
       )}
       {newWebPromptVisible && (
@@ -129,9 +124,7 @@ function SearchHosts() {
           onClose={closeNewWeb}
           onSubmit={submitNewWeb}
           onNodeSelect={pickNewWebDefiner}
-          title="New Thing"
-          subtitle="Name the Thing this Web defines,<br />or pick one that already exists."
-          gridTitle="Define With an Existing Thing"
+          title="Name the Thing this Web defines"
         />
       )}
     </Profiler>

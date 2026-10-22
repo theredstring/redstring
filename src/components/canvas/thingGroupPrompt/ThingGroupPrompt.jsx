@@ -163,9 +163,7 @@ export default function ThingGroupPrompt({ plusSign, setPlusSign, handleNodeSele
         rightPanelExpanded={rightPanelExpanded}
         onClose={cancel}
         onBack={openThingGroupPrompt}
-        title={`Open ${prototype.name || 'Thing'}`}
-        subtitle="Choose the Web to open as a Thing Group."
-        gridTitle="Webs"
+        title="Choose a Web to open"
         gridContent={<WebGrid prototype={prototype} onChoose={(index) => { haptic('menuSelect'); open(prototype, index); }} />}
       />
     );
@@ -191,8 +189,7 @@ export default function ThingGroupPrompt({ plusSign, setPlusSign, handleNodeSele
         if (websOf(thing, useGraphStore.getState().graphs).length === 0) open(thing, 0);
         else showThingWebs(thing.id);
       }}
-      title="New Thing Group"
-      subtitle="Choose the Thing to open, or name a new one."
+      title="Pick or name a Thing"
     />
   );
 }

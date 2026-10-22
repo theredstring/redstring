@@ -21,3 +21,83 @@
 .unified-selector-scroll * {
   box-sizing: border-box;
 }
+
+/* --- The prompt: the name field as a pill ------------------------------
+   .format-pill (formats.css), the formula composer's, so the two read as one
+   family. The line of copy heads the box of Things; only a prompt with no box
+   shows it here, in a pill of its own. */
+.unified-selector-prompt {
+  align-self: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.unified-selector-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 6px 16px;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 999px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 0.86em;
+  font-weight: bold;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.unified-selector-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Doubled class so it beats .format-pill whichever sheet loads last. */
+.format-pill.unified-selector-pill {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  font-size: inherit;
+  cursor: default;
+}
+
+.unified-selector-pill input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.4em;
+  border: none;
+  background: transparent;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: inherit;
+  font-weight: bold;
+  outline: none;
+  touch-action: manipulation;
+}
+
+.unified-selector-pill input::placeholder {
+  color: maroon;
+  opacity: 0.4;
+}
+
+.unified-selector-pill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: maroon;
+}

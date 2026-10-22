@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { sanitizeHtml } from './utils/sanitizeHtml.js';
 import { sanitizeColor } from './utils/safeColor.js';
 import { cssImageUrl } from './utils/safeUrl.js';
 import { createPortal } from 'react-dom';
-import { X, Palette, Plus, ChevronLeft } from 'lucide-react';
-import { NODE_DEFAULT_COLOR, MODAL_CLOSE_ICON_SIZE } from './constants';
+import { Palette, Plus, ChevronLeft, Search } from 'lucide-react';
+import { NODE_DEFAULT_COLOR } from './constants';
 import { getTextColor } from './utils/colorUtils';
+import { LIGHT_MODE_BG_COLOR } from './utils/themeColors';
 import useGraphStore from "./store/graphStore.js";
 import ColorPicker from './ColorPicker';
 import useViewportBounds from './hooks/useViewportBounds';
@@ -13,6 +13,7 @@ import useMobileDetection from './hooks/useMobileDetection';
 import { useTheme } from './hooks/useTheme.js';
 import PanelIconButton from './components/shared/PanelIconButton';
 import { haptic } from './services/haptics.js';
+import './components/canvas/formats/formats.css';
 import './UnifiedSelector.css';
 
 
@@ -23,8 +24,10 @@ const UnifiedSelector = ({
   onSubmit,
   initialName = '',
   initialColor = null,
+  // The prompt's one line of copy, a call to action ("Name a Thing"). It
+  // heads the box of Things; with no box, it sits above the name field.
   title,
-  subtitle,
+  placeholder = '',
   showCreateNewOption = false,
   searchTerm = '',
   onNodeSelect = null,
@@ -32,12 +35,11 @@ const UnifiedSelector = ({
   abstractionDirection = 'above',
   leftPanelExpanded = true,
   rightPanelExpanded = true,
-  gridTitle = 'Browse All Things',
   searchOnly = false,
   allowedPrototypeIds = null,
   // A page of something else in the grid's box (its own cards) instead of the
-  // Things, with a back arrow by the title and no name field: a second step
-  // that keeps the first step's layout (canvas/thingGroupPrompt).
+  // Things, with a Back to Things pill in place of the name field: a second
+  // step that keeps the first step's layout (canvas/thingGroupPrompt).
   gridContent = null,
   onBack = null,
 }) => {
@@ -227,23 +229,10 @@ const UnifiedSelector = ({
 
   // Grid responsive columns - now handled via CSS auto-fill for true dynamic behavior
   const cardMinWidth = isMobilePortrait ? (isExtraSmall ? 110 : 130) : (isSmallScreen ? 120 : 115);
-  const dialogTitleSize = isMobilePortrait ? '16px' : (isSmallScreen ? '18px' : '18px');
-  const subtitleFontSize = isMobilePortrait ? '13px' : (isSmallScreen ? '14px' : '14px');
-  const inputPadding = isMobilePortrait ? '10px' : (isSmallScreen ? '9px' : '9px');
-  // One value for both axes: the + button is a circle, so a width that differs
-  // from its height would render it as an ellipse. A notch above
-  // iconButtonHitSize below, which keeps the primary action reading as the
-  // larger target in the row.
-  const actionButtonSize = isMobilePortrait ? '52px' : (isSmallScreen ? '48px' : '44px');
+  // The pill's two round buttons, one size so the pill's ends match.
+  const buttonSize = isMobilePortrait ? '44px' : '38px';
+  const iconSize = isMobilePortrait ? 24 : 20;
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
-
-  // Touch-friendly sizing on mobile, compact on desktop
-  const iconSize = isMobilePortrait ? 26 : 22;
-  const closeIconSize = isMobilePortrait ? 26 : 22;
-  // Footprint of the PieMenu-style icon buttons (close, palette). Kept above the
-  // icon itself so the hover bubble has room to read as a bubble rather than a
-  // ring crowding the glyph.
-  const iconButtonHitSize = isMobilePortrait ? '44px' : '40px';
 
   const content = (
     <>
@@ -299,162 +288,98 @@ const UnifiedSelector = ({
         }}
       >
         {showDialog && (
+          // The name field as a pill: the formula composer's (formats.css), so
+          // the prompts read as the same family. No close button; the backdrop
+          // and Escape close it.
           <div
+            className="unified-selector-prompt"
             onPointerDown={(e) => e.stopPropagation()} // Isolate from canvas
             style={{
-              alignSelf: 'center',
               width: `${dialogWidth}px`,
-              backgroundColor: theme.canvas.bg,
-              padding: isSmallScreen ? '16px' : '14px 16px',
-              borderRadius: '12px',
-              boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-              position: 'relative',
-              flexShrink: 0,
-              maxWidth: '100%',
-              boxSizing: 'border-box',
-              pointerEvents: 'auto',
-              touchAction: 'manipulation'
+              marginTop: isSmallScreen ? '8px' : '28px',
+              fontSize: isMobilePortrait ? '15px' : '14px'
             }}
             onClick={(e) => e.stopPropagation()}
             onTouchEnd={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: isSmallScreen ? '15px' : '10px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
-                {onBack && (
-                  <span style={{ display: 'contents' }} onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}>
+            {onBack ? (
+              // The whole pill is the button, like Back to Civilization.
+              <span style={{ display: 'contents' }} onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}>
+                <button type="button" className="format-pill" onClick={onBack}>
+                  <ChevronLeft size={16} strokeWidth={2.75} />
+                  Back to Things
+                </button>
+              </span>
+            ) : !showGrid && (
+              <div className="unified-selector-label">
+                <span className="unified-selector-label-text">{title}</span>
+              </div>
+            )}
+            {!gridContent && (
+              <div className="format-pill unified-selector-pill">
+                {searchOnly ? (
+                  <span className="unified-selector-pill-icon" aria-hidden="true" style={{ width: buttonSize, height: buttonSize }}>
+                    <Search size={iconSize - 2} strokeWidth={2.5} />
+                  </span>
+                ) : (
+                  <PanelIconButton
+                    icon={Palette}
+                    size={iconSize}
+                    color="maroon"
+                    active={colorPickerVisible}
+                    // Handles for the game controller: the first marks this as a
+                    // walkable row in the top dialog, the second is what Y clicks
+                    // to open and close the picker.
+                    className="unified-selector-control unified-selector-color-button"
+                    onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
+                    title="Change color"
+                    ariaExpanded={colorPickerVisible}
+                    ariaHasPopup="dialog"
+                    style={{ minWidth: buttonSize, minHeight: buttonSize, flexShrink: 0, touchAction: 'manipulation' }}
+                  />
+                )}
+                <input
+                  className="unified-selector-control"
+                  type="text"
+                  value={name}
+                  placeholder={placeholder}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSubmit();
+                    if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
+                  }}
+                  autoFocus={false}
+                />
+                {!searchOnly && (
+                  // display: contents so this adds no box to the row — it exists
+                  // only to catch the button's touchend on the way up and suppress
+                  // the delayed synthesized click that would otherwise land on the
+                  // canvas after this dialog closes, cancelling the morphing plus
+                  // sign or spawning a stray one.
+                  <span
+                    style={{ display: 'contents' }}
+                    onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
+                  >
                     <PanelIconButton
-                      icon={ChevronLeft}
-                      size={closeIconSize}
-                      color={theme.canvas.textPrimary}
-                      onClick={onBack}
-                      title="Back"
-                      style={{ minWidth: iconButtonHitSize, minHeight: iconButtonHitSize, flexShrink: 0, marginLeft: '-8px' }}
+                      className="unified-selector-control"
+                      icon={Plus}
+                      size={iconSize}
+                      strokeWidth={2.5}
+                      // The glyph carries the colour the node's own text would
+                      // take on this fill, so the button previews the node it
+                      // is about to make. Hover hands both back to
+                      // PanelIconButton's pie-bubble treatment.
+                      color={getTextColor(color, theme.darkMode)}
+                      onClick={handleSubmit}
+                      title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : mode === 'web-creation' ? 'Create new Thing and open its Web' : 'Create node type'}
+                      // Square, so the component's 50% radius reads as a circle.
+                      style={{ backgroundColor: color, minWidth: buttonSize, minHeight: buttonSize, flexShrink: 0, touchAction: 'manipulation' }}
                     />
                   </span>
                 )}
-                <strong style={{ fontSize: dialogTitleSize, fontFamily: "'EmOne', sans-serif", color: theme.canvas.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</strong>
               </div>
-              {/*
-                display: contents so this adds no box to the header row — it
-                exists only to catch the button's touchend on the way up and
-                cancel the delayed synthesized click. This dialog is portalled
-                and unmounts synchronously on close, so that click would
-                otherwise land on the now-uncovered canvas and spawn a stray
-                plus sign at the X's coordinates. Same guard as the submit
-                button below.
-              */}
-              <span
-                style={{ display: 'contents' }}
-                onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
-              >
-                <PanelIconButton
-                  icon={X}
-                  size={closeIconSize}
-                  color="#999"
-                  onClick={() => { setName(''); setColorPickerVisible(false); onClose?.(); }}
-                  title="Close"
-                  style={{
-                    minWidth: iconButtonHitSize,
-                    minHeight: iconButtonHitSize,
-                    flexShrink: 0,
-                    marginLeft: '8px'
-                  }}
-                />
-              </span>
-            </div>
-            {subtitle && (
-              <div
-                style={{ textAlign: 'left', marginBottom: isSmallScreen ? '15px' : '10px', color: theme.canvas.textSecondary, fontSize: subtitleFontSize, fontFamily: "'EmOne', sans-serif" }}
-                dangerouslySetInnerHTML={{ __html: sanitizeHtml(subtitle) }}
-              />
             )}
-            {!gridContent && <div style={{ display: 'flex', alignItems: 'center', gap: isSmallScreen ? '6px' : '8px' }}>
-              {!searchOnly && (
-                <PanelIconButton
-                  icon={Palette}
-                  size={iconSize}
-                  color={theme.canvas.textPrimary}
-                  active={colorPickerVisible}
-                  // Handles for the game controller: the first marks this as a
-                  // walkable row in the top dialog, the second is what Y clicks
-                  // to open and close the picker.
-                  className="unified-selector-control unified-selector-color-button"
-                  onClick={(e) => handleColorPickerToggle(e.currentTarget, e)}
-                  title="Change color"
-                  ariaExpanded={colorPickerVisible}
-                  ariaHasPopup="dialog"
-                  style={{
-                    minWidth: iconButtonHitSize,
-                    minHeight: iconButtonHitSize,
-                    touchAction: 'manipulation'
-                  }}
-                />
-              )}
-              <input
-                className="unified-selector-control"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSubmit();
-                  if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
-                }}
-                style={{
-                  flex: 1,
-                  minWidth: 0, // Enable shrinking
-                  padding: inputPadding,
-                  borderRadius: '6px',
-                  border: `1px solid ${theme.canvas.textPrimary}`,
-                  marginRight: searchOnly ? 0 : (isSmallScreen ? '6px' : '10px'),
-                  fontSize: isMobilePortrait ? '15px' : '14px',
-                  touchAction: 'manipulation',
-                  backgroundColor: theme.darkMode ? theme.canvas.inactive : theme.canvas.textPrimary,
-                  color: '#FFFFFF',
-                  fontFamily: "'EmOne', sans-serif"
-                }}
-                autoFocus={false}
-              />
-              {!searchOnly && (
-                // display: contents so this adds no box to the row — it exists
-                // only to catch the button's touchend on the way up and suppress
-                // the delayed synthesized click that would otherwise land on the
-                // canvas after this dialog closes, cancelling the morphing plus
-                // sign or spawning a stray one. PanelIconButton takes no
-                // onTouchEnd of its own (and cannot preventDefault from inside
-                // it), so the cancel has to happen from the parent.
-                <span
-                  style={{ display: 'contents' }}
-                  onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
-                >
-                  <PanelIconButton
-                    className="unified-selector-control"
-                    icon={Plus}
-                    size={iconSize}
-                    strokeWidth={2.5}
-                    // The glyph carries the colour the node's own text would
-                    // take on this fill, so the button previews the node it is
-                    // about to make. Hover hands both back to PanelIconButton's
-                    // pie-bubble treatment.
-                    color={getTextColor(color, theme.darkMode)}
-                    onClick={handleSubmit}
-                    title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : mode === 'web-creation' ? 'Create new Thing and open its Web' : 'Create node type'}
-                    style={{
-                      backgroundColor: color,
-                      // Square, so the component's 50% radius reads as a circle.
-                      minWidth: actionButtonSize,
-                      minHeight: actionButtonSize,
-                      touchAction: 'manipulation'
-                    }}
-                  />
-                </span>
-              )}
-            </div>}
           </div>
         )}
 
@@ -469,7 +394,10 @@ const UnifiedSelector = ({
                 width: isSmallScreen ? '100%' : `${gridOuterWidth}px`,
                 maxWidth: `${gridOuterWidth}px`,
                 height: '100%',
-                backgroundColor: theme.canvas.bg,
+                // The pill's colours (formats.css .format-pill), so the box
+                // reads as the same family as the name field above it.
+                backgroundColor: '#DEDADA',
+                border: '2px solid maroon',
                 borderRadius: isSmallScreen ? '16px' : '14px',
                 boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
                 display: 'flex',
@@ -484,21 +412,23 @@ const UnifiedSelector = ({
                   padding: isSmallScreen ? '12px 14px' : '10px 16px',
                   borderTopLeftRadius: '16px',
                   borderTopRightRadius: '16px',
-                  color: theme.canvas.textPrimary,
+                  color: 'maroon',
                   fontFamily: "'EmOne', sans-serif",
                   fontWeight: 'bold',
                   fontSize: isSmallScreen ? '15px' : '14px',
                   flexShrink: 0
                 }}
               >
-                {gridTitle}
+                {title}
               </div>
               {/* Inner rectangle with 5px border spacing on all sides */}
               <div
                 style={{
                   flex: 1,
                   margin: '0 5px 5px 5px',
-                  backgroundColor: theme.canvas.border,
+                  // The light canvas colour in both modes: a step darker than
+                  // the pill-coloured frame, like the frame itself unthemed.
+                  backgroundColor: LIGHT_MODE_BG_COLOR,
                   borderRadius: '11px', // Fully rounded inner rectangle
                   overflow: 'hidden',
                   display: 'flex',

@@ -147,8 +147,7 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={swapPrompt.name}
               initialColor={swapPrompt.color}
-              title="Swap Thing"
-              subtitle="Choose a Thing to swap to, or make a new one.<br />Connections are kept."
+              title="Swap to another Thing"
               searchTerm={swapPrompt.name}
             />
           );
@@ -173,8 +172,7 @@ export default function PromptsHost({ ctx }) {
               onNodeSelect={handleNodeSelection}
               initialName={nodeNamePrompt.name}
               initialColor={nodeNamePrompt.color}
-              title="Name Your Thing"
-              subtitle="Add a new Thing to this Web."
+              title="Name a Thing"
               searchTerm={nodeNamePrompt.name}
             />
           );
@@ -219,8 +217,8 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={connectionNamePrompt.name}
               initialColor={connectionNamePrompt.color}
-              title="Name Your Connection"
-              subtitle="The Thing that will define your Connection,<br />in verb form if available."
+              title="Name a Connection"
+              placeholder="e.g. supports"
               searchTerm={connectionNamePrompt.name}
             />
           );
@@ -278,8 +276,7 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={nodeGroupPrompt.name}
               initialColor={nodeGroupPrompt.color}
-              title="Name Your Thing"
-              subtitle="Add a new Thing that will be defined by this Group."
+              title="Name the Thing this Group defines"
               searchTerm={nodeGroupPrompt.name}
             />
           );
@@ -308,8 +305,7 @@ export default function PromptsHost({ ctx }) {
             }}
             initialName={abstractionPrompt.name}
             initialColor={abstractionPrompt.color}
-            title={`Add ${abstractionPrompt.direction === 'above' ? 'Above' : 'Below'}`}
-            subtitle={`Create a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} node in the abstraction chain`}
+            title={`Name a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} Thing`}
             abstractionDirection={abstractionPrompt.direction}
           />
         );

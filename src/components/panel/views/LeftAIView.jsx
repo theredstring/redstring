@@ -4582,12 +4582,10 @@ const LeftAIView = ({ compact = false,
                     addContextPin(node?.id);
                     setShowAddThing(false);
                   }}
-                  title="Add a Thing"
-                  subtitle="The Wizard will know its Webs and other info."
+                  title="Pick a Thing for the Wizard"
                   leftPanelExpanded={leftPanelExpanded}
                   rightPanelExpanded={rightPanelExpanded}
                   searchOnly={true}
-                  gridTitle="All Things"
                 />
               )}
             </div>

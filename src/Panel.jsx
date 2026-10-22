@@ -2328,8 +2328,7 @@ const Panel = memo(
             }}
             initialName={typeNamePrompt.name}
             initialColor={typeNamePrompt.color}
-            title="Name Your Thing"
-            subtitle={`a more generic way to refer to ${typeNamePrompt.targetNodeName},<br/>also known as a superclass or a type.`}
+            title={`Name a type for ${typeNamePrompt.targetNodeName}`}
             searchTerm={typeNamePrompt.name}
             showCreateNewOption={true}
           />
@@ -2350,13 +2349,11 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setLibrarySearchVisible(false);
           }}
-          title="Search Saved Things"
-          subtitle="Search through your bookmarked things"
+          title="Search saved Things"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           allowedPrototypeIds={Array.from(savedNodesByType.values()).flatMap(group => group.nodes.map(n => n.id))}
           searchOnly={true}
-          gridTitle="Saved Things"
         />
 
         {/* Global Search Selector for All Things */}
@@ -2374,12 +2371,10 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setAllThingsSearchVisible(false);
           }}
-          title="Search All Things"
-          subtitle="Search through everything in your universe"
+          title="Search everything"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchOnly={true}
-          gridTitle="All Things"
         />
 
         {/* Global Search Selector for Open Webs */}
@@ -2416,13 +2411,11 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setGridSearchVisible(false);
           }}
-          title="Search Open Webs"
-          subtitle="Search through open webs or open a new one"
+          title="Find a Web to open"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchTerm=""
           searchOnly={true}
-          gridTitle="Open Webs"
         />
 
       </>
