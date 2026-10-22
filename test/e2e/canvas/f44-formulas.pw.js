@@ -75,13 +75,13 @@ const positionsOf = (page, ids) => storeEval(page, (st, list) => {
 async function buildFormula(page, text) {
   await page.mouse.click(BARE.x, BARE.y, { button: 'right' });
   await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
-  const input = page.locator('.formula-composer input');
+  const input = page.locator('.formula-selector .unified-selector-pill input');
   await expect(input).toBeFocused();
   await input.fill(text);
   await nextFrames(page, 2);
   await shot(page, '1-compose');
-  await page.locator('.formula-composer-add').click();
-  await expect(page.locator('.formula-composer')).toHaveCount(0);
+  await page.locator('.formula-selector .unified-selector-submit').click();
+  await expect(page.locator('.formula-selector')).toHaveCount(0);
 }
 
 test('F44 a typed formula is built as Things and shown in place as one object', async ({ page }) => {
@@ -411,9 +411,9 @@ test('F44 New Formula reads typing as math or as programming, and Enter adds it'
   await openFixture(page, 'small');
   await page.mouse.click(BARE.x, BARE.y, { button: 'right' });
   await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
-  const input = page.locator('.formula-composer input');
-  const preview = page.locator('.formula-composer-preview');
-  const add = page.locator('.formula-composer-add');
+  const input = page.locator('.formula-selector .unified-selector-pill input');
+  const preview = page.locator('.formula-preview, .formula-preview-error');
+  const add = page.locator('.formula-selector .unified-selector-submit');
   const option = (name) => page.locator('.format-slider-option', { hasText: name });
   const previewText = () => preview.innerText().then(t => t.replace(/\s+/g, ''));
 
@@ -436,7 +436,7 @@ test('F44 New Formula reads typing as math or as programming, and Enter adds it'
 
   // Enter adds it.
   await input.press('Enter');
-  await expect(page.locator('.formula-composer')).toHaveCount(0);
+  await expect(page.locator('.formula-selector')).toHaveCount(0);
   await expect(object(page)).toHaveCount(1);
   expect((await formulaGroup(page, 'energy = ')).format).toBe('formula');
 
@@ -450,7 +450,7 @@ test('F44 New Formula reads typing as math or as programming, and Enter adds it'
 const openComposer = async (page, at = BARE) => {
   await page.mouse.click(at.x, at.y, { button: 'right' });
   await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
-  await expect(page.locator('.formula-composer input')).toBeFocused();
+  await expect(page.locator('.formula-selector .unified-selector-pill input')).toBeFocused();
 };
 const protosNamed = (page, name) => storeEval(page, (st, n) => [...st.nodePrototypes.values()].filter(p => p.name === n).length, name);
 
@@ -462,9 +462,9 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await expect(page.locator('.format-bank-choice.is-on', { hasText: /^Physics$/ })).toHaveCount(1);
   await expect(page.locator('.format-bank-row', { hasText: "Ohm's Law" })).toHaveCount(1);
   // Typed words find an equation by title.
-  await page.locator('.formula-composer input').fill('ideal gas law');
+  await page.locator('.formula-selector .unified-selector-pill input').fill('ideal gas law');
   await page.locator('.format-bank-row', { hasText: 'Ideal Gas Law' }).click();
-  await expect(page.locator('.formula-composer')).toHaveCount(0);
+  await expect(page.locator('.formula-selector')).toHaveCount(0);
 
   // Titled like a Thing-group, written by symbol, the way Wikidata writes it.
   await expect(object(page)).toHaveCount(1);
@@ -531,7 +531,7 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await storeEval(page, (st) => st.addNodePrototype({ id: 'mine-pressure', name: 'Pressure', color: '#336699', definitionGraphIds: [] }));
   const spot = await findBareSpot(page);
   await openComposer(page, spot);
-  await page.locator('.formula-composer input').fill('definition of enthalpy');
+  await page.locator('.formula-selector .unified-selector-pill input').fill('definition of enthalpy');
   await page.locator('.format-bank-row', { hasText: 'Definition of Enthalpy' }).click();
   await expect(object(page)).toHaveCount(2);
   expect(await protosNamed(page, 'Pressure')).toBe(2);
@@ -566,10 +566,11 @@ test('F44 the bank\'s choices stay in its header; its sections group the list, w
   // The wheel scrolls the list, not the canvas; the header stays where it is.
   const before = await camera(page);
   const topBox = await top.boundingBox();
-  const at = await body.boundingBox();
+  const scroller = page.locator('.formula-selector .unified-selector-scroll');
+  const at = await scroller.boundingBox();
   await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
   await page.mouse.wheel(0, 400);
-  await expect.poll(() => body.evaluate(el => el.scrollTop)).toBeGreaterThan(100);
+  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeGreaterThan(100);
   await page.waitForTimeout(300);
   expect(await camera(page)).toEqual(before);
   expect((await top.boundingBox()).y).toBe(topBox.y);
@@ -815,7 +816,7 @@ test('F44 the bank writes calculus as the textbook does, and a concept two ways 
 test('F44 the formula panel writes it with names instead of symbols', async ({ page }) => {
   await openFixture(page, 'small');
   await openComposer(page);
-  await page.locator('.formula-composer input').fill('ohm');
+  await page.locator('.formula-selector .unified-selector-pill input').fill('ohm');
   await page.locator('.format-bank-row', { hasText: "Ohm's Law" }).click();
   await pointAt(page, token(page, '='), { click: true });
   await expect(panel(page)).toBeVisible();

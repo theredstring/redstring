@@ -101,3 +101,20 @@
   flex-shrink: 0;
   color: maroon;
 }
+
+/* --- The box's header: the title, a caller's control at its right, and
+   what the caller fixes under it (New Formula's choices). */
+.unified-selector-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.unified-selector-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

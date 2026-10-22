@@ -177,9 +177,10 @@ function prototypeFromOrNew(origin, fields, link = null) {
  * @param {{x: number, y: number}} at - canvas point for the middle of the formula
  * @param {object} [readOptions] - how the text is read: { convention, isKnownName } (see parseFormulaText)
  * @param {object} [equation] - what the equation is, when known:
- *   { title, description, origin, link, discipline, section,
+ *   { title, description, origin, link, discipline, section, color,
  *     bindings: { symbol: { origin, link, name, label, description } } }
- *   (`link`: the web address the Thing is, recorded as an exact link)
+ *   (`link`: the web address the Thing is, recorded as an exact link;
+ *   `color`: the equation's Thing's, when it is made new here)
  * @returns {{ instanceIds: string[], groupId: string|null, equationProtoId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
  */
@@ -330,8 +331,8 @@ function build(chain, graphId, at, bindings, title, equation) {
   const name = title || text;
   const before = equation.origin ? prototypeFrom(equation.origin) : null;
   const equationProto = equation.origin
-    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '' }, equation.link || null)
-    : { id: uuidv4(), name, color: NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] };
+    ? prototypeFromOrNew(equation.origin, { name, description: equation.description || '', ...(equation.color ? { color: equation.color } : {}) }, equation.link || null)
+    : { id: uuidv4(), name, color: equation.color || NODE_DEFAULT_COLOR, description: equation.description || '', typeNodeId: null, definitionGraphIds: [] };
   if (!equation.origin) useGraphStore.getState().addNodePrototype(equationProto);
   const groupId = useGraphStore.getState().createGroup(graphId, {
     name, color: equationProto.color || NODE_DEFAULT_COLOR, memberInstanceIds: inside, format: 'formula',
@@ -388,9 +389,10 @@ function placeIn(holderProtoId, protoId) {
 /**
  * Build an equation from the bank, fully formed: its symbols bound to their
  * concepts, its title, its description, and its place in its discipline's
- * web. The bank must be loaded (loadFormulaBank) for its concepts.
+ * web. The bank must be loaded (loadFormulaBank) for its concepts. `color`:
+ * the equation's Thing's, if it is new.
  */
-export function buildBankEquation(discipline, entry, graphId, at) {
+export function buildBankEquation(discipline, entry, graphId, at, color = null) {
   const bindings = {};
   for (const [symbol, conceptId] of Object.entries(entry.symbols)) {
     const concept = bankConcept(conceptId);
@@ -410,6 +412,7 @@ export function buildBankEquation(discipline, entry, graphId, at) {
     // concepts (capacitance, C = Q/V): then that concept's Thing holds the link.
     link: entry.defines ? null : entry.source,
     bindings,
+    color,
     discipline,
     section: entry.sectionId
       ? discipline.sections?.find(x => x.id === entry.sectionId) || { id: entry.sectionId, name: entry.section }

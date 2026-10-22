@@ -42,6 +42,20 @@ const UnifiedSelector = ({
   // step that keeps the first step's layout (canvas/thingGroupPrompt).
   gridContent = null,
   onBack = null,
+  // For a caller whose box follows what is typed (New Formula): told of the
+  // name and the colour as they change. `canSubmit` false holds back the +
+  // and Enter while what is typed can't be made yet.
+  onNameChange = null,
+  onColorChange = null,
+  canSubmit = true,
+  submitTitle = null,
+  // In the box's header: `headerAside` at the right of the title, a control
+  // of its own; `headerContent` under it, fixed above the box's scrolling.
+  headerAside = null,
+  headerContent = null,
+  autoFocus = false,
+  inputRef = null,
+  className = '',
 }) => {
   const theme = useTheme();
   const [name, setName] = useState(initialName);
@@ -74,7 +88,7 @@ const UnifiedSelector = ({
   // 'web-creation' names the Thing that defines a new Web. It wants both halves:
   // the dialog authors a new defining Thing, the grid hands the job to one that
   // already exists.
-  const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation');
+  const showDialog = (searchOnly || mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation' || mode === 'formula-creation');
   const showGrid = !!gridContent || mode === 'node-typing' || mode === 'abstraction-node-creation' || mode === 'node-group-creation' || mode === 'web-creation' || showCreateNewOption || onNodeSelect;
 
   const filteredPrototypes = React.useMemo(() => {
@@ -91,7 +105,7 @@ const UnifiedSelector = ({
   }, [nodePrototypesMap, name, searchTerm]);
 
   const handleSubmit = useCallback(() => {
-    if (name.trim() && onSubmit) {
+    if (name.trim() && canSubmit && onSubmit) {
       // The + button, its touch path, and the Enter key all funnel through here,
       // past the empty-name guard, so this is the one place that means "something
       // was actually created". Medium impact rather than the menuSelect that
@@ -101,7 +115,7 @@ const UnifiedSelector = ({
       onSubmit({ name: name.trim(), color });
       setName('');
     }
-  }, [name, onSubmit, color]);
+  }, [name, canSubmit, onSubmit, color]);
 
   /**
    * A card in the grid is chosen. Both the touch path and the click path funnel
@@ -130,7 +144,7 @@ const UnifiedSelector = ({
     }
   };
 
-  const handleColorChange = (newColor) => setColor(newColor);
+  const handleColorChange = (newColor) => { setColor(newColor); onColorChange?.(newColor); };
 
   const scrollContainerRef = useRef(null);
   const touchHandledRef = useRef(false);
@@ -146,7 +160,7 @@ const UnifiedSelector = ({
     const handleKeyDown = (e) => {
       if (!isVisible) return;
       if (e.key === 'Escape') onClose?.();
-      else if (e.key === 'Enter' && (mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation')) {
+      else if (e.key === 'Enter' && (mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation' || mode === 'formula-creation')) {
         handleSubmit();
       }
     };
@@ -272,7 +286,7 @@ const UnifiedSelector = ({
       />
 
       <div
-        className="unified-selector-overlay"
+        className={`unified-selector-overlay${className ? ` ${className}` : ''}`}
         style={{
           position: 'fixed',
           left: `${Math.round(bounds.x + overlayMargin)}px`,
@@ -320,7 +334,7 @@ const UnifiedSelector = ({
                 <span className="unified-selector-label-text">{title}</span>
               </div>
             )}
-            {!gridContent && (
+            {!onBack && (
               <div className="format-pill unified-selector-pill">
                 {searchOnly ? (
                   <span className="unified-selector-pill-icon" aria-hidden="true" style={{ width: buttonSize, height: buttonSize }}>
@@ -344,11 +358,12 @@ const UnifiedSelector = ({
                   />
                 )}
                 <input
+                  ref={inputRef}
                   className="unified-selector-control"
                   type="text"
                   value={name}
                   placeholder={placeholder || (searchOnly ? 'Search' : 'Search or Name...')}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); onNameChange?.(e.target.value); }}
                   // Going back to the name puts the colour picker away.
                   onFocus={() => setColorPickerVisible(false)}
                   onPointerDown={() => setColorPickerVisible(false)}
@@ -356,7 +371,10 @@ const UnifiedSelector = ({
                     if (e.key === 'Enter') handleSubmit();
                     if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
                   }}
-                  autoFocus={false}
+                  // Only where it brings up no keyboard over the box.
+                  autoFocus={autoFocus && !mobileState.isTouchDevice}
+                  spellCheck={false}
+                  autoComplete="off"
                 />
                 {!searchOnly && (
                   // display: contents so this adds no box to the row — it exists
@@ -369,8 +387,9 @@ const UnifiedSelector = ({
                     onTouchEnd={(e) => { if (e.cancelable) e.preventDefault(); }}
                   >
                     <PanelIconButton
-                      className="unified-selector-control"
+                      className="unified-selector-control unified-selector-submit"
                       icon={Plus}
+                      disabled={!canSubmit}
                       size={iconSize}
                       strokeWidth={2.5}
                       // The glyph carries the colour the node's own text would
@@ -379,7 +398,7 @@ const UnifiedSelector = ({
                       // PanelIconButton's pie-bubble treatment.
                       color={getTextColor(color, theme.darkMode)}
                       onClick={handleSubmit}
-                      title={mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : mode === 'web-creation' ? 'Create new Thing and open its Web' : 'Create node type'}
+                      title={submitTitle || (mode === 'connection-creation' ? 'Create connection type' : mode === 'abstraction-node-creation' ? `Create ${abstractionDirection} abstraction` : mode === 'node-group-creation' ? 'Create new Thing defined by this Group' : mode === 'web-creation' ? 'Create new Thing and open its Web' : 'Create node type')}
                       // Square, so the component's 50% radius reads as a circle.
                       style={{ backgroundColor: color, minWidth: buttonSize, minHeight: buttonSize, flexShrink: 0, touchAction: 'manipulation' }}
                     />
@@ -413,8 +432,10 @@ const UnifiedSelector = ({
                 boxSizing: 'border-box'
               }}
             >
-              {/* Header area inside outer, reserved for future buttons */}
+              {/* The title, a control of the caller's at its right, and what
+                  the caller fixes under it, above the scrolling. */}
               <div
+                className="unified-selector-header"
                 style={{
                   padding: isSmallScreen ? '12px 14px' : '10px 16px',
                   borderTopLeftRadius: '16px',
@@ -426,7 +447,11 @@ const UnifiedSelector = ({
                   flexShrink: 0
                 }}
               >
-                {title}
+                <div className="unified-selector-header-row">
+                  <span className="unified-selector-header-title">{title}</span>
+                  {headerAside}
+                </div>
+                {headerContent}
               </div>
               {/* Inner rectangle with 5px border spacing on all sides */}
               <div

@@ -118,61 +118,47 @@ button.format-pill:disabled {
   line-height: 1;
 }
 
-/* --- New Formula composer --------------------------------------------- */
+/* --- New Formula (formula/FormulaComposer), in the unified selector ----
+   index.css gives every button a blue border on hover (the Vite starter's);
+   each button here names its own, so none of them shows it. */
 
-.formula-composer {
-  position: fixed;
-  z-index: 1000;
-  transform: translateX(-50%);
+/* The slider pill at the right of the box's title, a size down. */
+.formula-selector .format-slider {
+  flex-shrink: 0;
+  box-shadow: none;
+}
+
+.formula-selector .format-slider-option {
+  min-width: 60px;
+  padding: 3px 12px;
+  font-size: 11px;
+}
+
+/* A formula typed: the box shows it, large, in its middle. */
+.formula-preview {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
-}
-
-.formula-composer-card {
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-  cursor: default;
-}
-
-.formula-composer-card input {
-  width: min(320px, 50vw);
-  padding: 8px 6px 8px 16px;
-  border: none;
-  background: transparent;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 120px;
+  padding: 16px;
   color: maroon;
   font-family: 'EmOne', sans-serif;
-  font-size: 14px;
+  font-size: 34px;
   font-weight: bold;
-  outline: none;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
-.formula-composer-card input::placeholder {
+/* What can't be read yet, over the bank. */
+.formula-preview-error {
+  padding: 2px 4px 10px;
   color: maroon;
-  opacity: 0.4;
-}
-
-.formula-composer-add {
-  display: inline-flex;
-  align-items: center;
-  align-self: stretch;
-  padding: 0 12px;
-  border: none;
-  background: none;
-  color: maroon;
-  cursor: pointer;
-  transition: background-color 0.2s ease, opacity 0.2s ease;
-}
-
-.formula-composer-add:hover:not(:disabled) {
-  background-color: #D0CACA;
-}
-
-.formula-composer-add:disabled {
-  opacity: 0.35;
-  cursor: default;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  opacity: 0.75;
 }
 
 /* A choice of a few, as a pill with a thumb that slides to the one chosen. */
@@ -216,14 +202,6 @@ button.format-pill:disabled {
 .format-slider-option.is-active {
   color: #DEDADA;
   cursor: default;
-}
-
-.formula-composer-preview {
-  min-height: 20px;
-  color: maroon;
-  font-family: 'EmOne', sans-serif;
-  font-size: 16px;
-  font-weight: bold;
 }
 
 /* --- Formula object on the canvas (formula/FormulaObjectsLayer) -------- */
@@ -544,22 +522,9 @@ button.format-pill:disabled {
   font-weight: bold;
 }
 
-/* --- The bank under New Formula (formula/FormulaBankPicker) ------------- */
-
-.format-bank {
-  display: flex;
-  flex-direction: column;
-  width: min(520px, calc(100vw - 32px));
-  max-height: min(52vh, 480px);
-  overflow: hidden;
-  box-sizing: border-box;
-  background-color: #DEDADA;
-  border: 2px solid maroon;
-  border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  color: maroon;
-  font-family: 'EmOne', sans-serif;
-}
+/* --- The bank in New Formula's box (formula/FormulaBankPicker) --------
+   Its choices in the box's header, its list in the box's panel, each row a
+   tile of the pill's colour. */
 
 /* Every choice, fixed at the top: the disciplines, then the chosen one's
    sections. The list scrolls under it. */
@@ -568,8 +533,7 @@ button.format-pill:disabled {
   flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
-  padding: 10px 10px 8px;
-  border-bottom: 2px solid maroon;
+  margin-top: 10px;
 }
 
 .format-bank-choices {
@@ -599,6 +563,7 @@ button.format-pill:disabled {
   font-weight: bold;
   white-space: nowrap;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
 
@@ -606,7 +571,9 @@ button.format-pill:disabled {
   font-size: 12px;
 }
 
-.format-bank-choice:hover {
+.format-bank-choice:hover,
+.format-bank-choice.gamepad-menu-focus {
+  border-color: maroon;
   background-color: #D0CACA;
 }
 
@@ -628,11 +595,13 @@ button.format-pill:disabled {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 6px 8px 8px;
+}
+
+/* Rows side by side where the box is wide enough for them. */
+.format-bank-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 8px;
 }
 
 /* A section's equations under its name; the name opens the section. */
@@ -642,31 +611,40 @@ button.format-pill:disabled {
   gap: 2px;
 }
 
-.format-bank-group + .format-bank-group {
-  margin-top: 6px;
+.format-bank-group {
+  gap: 10px;
 }
 
+.format-bank-group + .format-bank-group {
+  margin-top: 22px;
+}
+
+/* A section's name over a plain dividing line; hovered, the name underlines. */
 .format-bank-group-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 6px 12px 4px;
+  gap: 12px;
+  padding: 0 2px 6px;
   border: none;
-  border-bottom: 1.5px solid rgba(128, 0, 0, 0.25);
+  border-bottom: 2px solid maroon;
+  border-radius: 0;
   background: none;
   color: maroon;
   font-family: 'EmOne', sans-serif;
-  font-size: 11px;
+  font-size: 14px;
   font-weight: bold;
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .format-bank-group-head:hover:not(.is-static) {
-  background-color: #D0CACA;
-  border-radius: 10px 10px 0 0;
+  border-bottom-color: maroon;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .format-bank-group-head.is-static {
@@ -674,32 +652,37 @@ button.format-pill:disabled {
 }
 
 .format-bank-group-count {
+  font-size: 12px;
   opacity: 0.6;
+  text-decoration: none;
 }
 
 /* What a section knows of and the bank doesn't write yet: each opens its article. */
 .format-bank-known {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 22px;
 }
 
 .format-bank-known-row {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 6px 12px;
+  padding: 12px 14px;
   border: none;
-  border-radius: 10px;
-  background: none;
+  border-radius: 12px;
+  background-color: #DEDADA;
   color: maroon;
   font-family: 'EmOne', sans-serif;
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease;
 }
 
-.format-bank-known-row:hover {
+.format-bank-known-row:hover,
+.format-bank-known-row.gamepad-menu-focus {
   background-color: #D0CACA;
 }
 
@@ -725,23 +708,28 @@ button.format-pill:disabled {
   white-space: nowrap;
 }
 
+/* Its title and what it is, then its formula on a line of its own, at the
+   card's foot so formulas side by side line up. */
 .format-bank-row {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 9px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
   border: none;
   border-radius: 12px;
-  background: none;
+  background-color: #DEDADA;
   color: maroon;
   font-family: 'EmOne', sans-serif;
   text-align: left;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   transition: background-color 0.15s ease;
 }
 
-.format-bank-row:hover:not(:disabled) {
+.format-bank-row:hover:not(:disabled),
+.format-bank-row.gamepad-menu-focus {
   background-color: #D0CACA;
 }
 
@@ -783,7 +771,7 @@ button.format-pill:disabled {
 
 /* What a chosen section is, over its list. */
 .format-bank-about {
-  padding: 8px 12px 4px;
+  padding: 0 2px 6px;
   font-family: 'EmOne', sans-serif;
   font-size: 11.5px;
   font-weight: normal;
@@ -793,17 +781,19 @@ button.format-pill:disabled {
 }
 
 .format-bank-row-formula {
-  flex-shrink: 0;
-  max-width: 55%;
+  display: block;
+  margin-top: auto;
+  /* Room above for exponents, which sit higher than the line. */
+  padding-top: 0.35em;
   overflow: hidden;
-  font-size: 16px;
   font-weight: bold;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
 .format-bank-loading,
 .format-bank-source {
-  padding: 8px 12px;
+  padding: 4px 2px;
   font-family: 'EmOne', sans-serif;
   font-size: 11px;
   color: maroon;
@@ -811,23 +801,12 @@ button.format-pill:disabled {
 }
 
 .format-bank-source {
-  padding: 8px 2px 0;
+  padding: 18px 2px 0;
   text-align: right;
 }
 
 .format-bank-more {
-  display: block;
-  width: 100%;
-  padding: 10px 12px;
-  border: none;
-  background: none;
-  color: maroon;
-  font-family: 'EmOne', sans-serif;
-  font-size: 12px;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-.format-bank-more:hover {
-  text-decoration: underline;
+  display: flex;
+  justify-content: center;
+  margin-top: 2px;
 }

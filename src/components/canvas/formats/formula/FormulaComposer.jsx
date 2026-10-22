@@ -1,20 +1,21 @@
 /**
- * "New Formula" (the canvas menu): an entry pill where the offer pill sits,
- * with how to read what's typed (Math or Code) on a slider pill under it, the
- * reading itself, token by token, under that, and the bank under that
- * (FormulaBankPicker): well-known equations by discipline, built fully formed.
- * Enter, or the send arrow, builds what is typed as Things at the spot that was
- * right-clicked (buildFormula.js), shown as its formula.
+ * "New Formula" (the canvas menu, the plus sign): the selector the plus sign
+ * names a Thing with, its box holding formulas. The pill takes what is typed
+ * and the colour of the equation's Thing; how it is read (Math or Code) is a
+ * slider pill at the right of the box's title. The box follows what is typed:
+ * the bank to browse (FormulaBankPicker: well-known equations by discipline,
+ * built fully formed), the bank's equations whose titles match the words, or
+ * a formula, read token by token, which Enter or + builds as Things at the spot
+ * that was right-clicked (buildFormula.js), shown as its formula.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { SendHorizontal, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import UnifiedSelector from '../../../../UnifiedSelector';
 import useGraphStore from '../../../../store/graphStore.js';
-import { useViewportBounds } from '../../../../hooks/useViewportBounds';
-import { useMobileLandscapeShell } from '../../../../hooks/useMobileLandscapeShell.js';
+import { NODE_DEFAULT_COLOR } from '../../../../constants';
 import { chainFromText, tokensOf } from './formulaChain.js';
 import { buildFormulaInWeb, buildBankEquation } from './buildFormula.js';
 import FormulaTokens from './FormulaTokens.jsx';
-import FormulaBankPicker from './FormulaBankPicker.jsx';
+import BankList, { BankChoices, useFormulaBank, useBankBrowse, useBankMatches } from './FormulaBankPicker.jsx';
 import useFormatsStore, { closeFormulaComposer, setConvention, selectStandard } from '../formatsStore.js';
 
 const CONVENTION_OPTIONS = [
@@ -23,9 +24,6 @@ const CONVENTION_OPTIONS = [
 ];
 
 const PLACEHOLDER = { math: 'E = mc^2, or search', programming: 'energy = mass * c**2' };
-// The entry pill sits where the offer pill does, centred on that line; what
-// is under it grows down.
-const ENTRY_HALF_HEIGHT = 19;
 
 /** The names this universe already has: math reads them whole ("mc" if a Thing is called mc). */
 function knownNamesNow() {
@@ -52,7 +50,7 @@ function ConventionSlider({ value, onChange }) {
           type="button"
           role="radio"
           aria-checked={o.key === value}
-          className={`format-slider-option${o.key === value ? ' is-active' : ''}`}
+          className={`format-slider-option unified-selector-control${o.key === value ? ' is-active' : ''}`}
           onClick={() => onChange(o.key)}
         >
           {o.label}
@@ -63,19 +61,14 @@ function ConventionSlider({ value, onChange }) {
 }
 
 export default function FormulaComposer() {
-  const composing = useFormatsStore(s => s.composing);
   const convention = useFormatsStore(s => s.convention);
   const standard = useFormatsStore(selectStandard);
-  const leftPanelExpanded = useGraphStore(s => s.leftPanelExpanded);
-  const rightPanelExpanded = useGraphStore(s => s.rightPanelExpanded);
-  const typeListMode = useGraphStore(s => s.typeListMode);
-  const mobileLandscapeShell = useMobileLandscapeShell();
-  const bounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListMode !== 'closed');
   const [draft, setDraft] = useState('');
+  const color = useRef(NODE_DEFAULT_COLOR);
   const inputRef = useRef(null);
   const knownNames = useMemo(knownNamesNow, []);
-
-  useEffect(() => { requestAnimationFrame(() => inputRef.current?.focus()); }, []);
+  const bank = useFormulaBank();
+  const browse = useBankBrowse(bank);
 
   const readOptions = useMemo(() => ({ convention, isKnownName: (n) => knownNames.has(n) }), [convention, knownNames]);
   // Words with no operation in them ("ideal gas") are a search of the bank, not
@@ -86,50 +79,54 @@ export default function FormulaComposer() {
     try { return { chain: chainFromText(draft, readOptions), error: null }; } catch (err) { return { chain: null, error: err.message }; }
   }, [draft, readOptions, looksLikeWords]);
   const tokens = useMemo(() => (parsed.chain ? tokensOf(parsed.chain, { standard }) : null), [parsed.chain, standard]);
+  const matches = useBankMatches(bank, looksLikeWords ? draft : '');
 
-  const add = () => {
-    if (!composing || !parsed.chain) return;
-    buildFormulaInWeb(draft, composing.graphId, composing.at, readOptions);
+  // The selector hears Enter twice (its field and the page), so whichever is
+  // second finds the composer already closed and builds nothing.
+  const add = ({ name }) => {
+    const composing = useFormatsStore.getState().composing;
+    if (!composing) return;
+    buildFormulaInWeb(name, composing.graphId, composing.at, readOptions,{ color: color.current });
     closeFormulaComposer();
   };
 
   const pick = (discipline, entry) => {
+    const composing = useFormatsStore.getState().composing;
     if (!composing) return;
-    buildBankEquation(discipline, entry, composing.graphId, composing.at);
+    buildBankEquation(discipline, entry, composing.graphId, composing.at, color.current);
     closeFormulaComposer();
   };
 
   return (
-    <div
-      className="formula-composer"
-      style={{ left: bounds.x + bounds.width / 2, top: bounds.y + (mobileLandscapeShell ? 40 : 70) - ENTRY_HALF_HEIGHT }}
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeFormulaComposer(); } }}
-    >
-      <form className="format-pill formula-composer-card" onSubmit={(e) => { e.preventDefault(); add(); }}>
-        <input
-          ref={inputRef}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={PLACEHOLDER[convention]}
-          spellCheck={false}
-          autoComplete="off"
-          enterKeyHint="done"
+    <UnifiedSelector
+      mode="formula-creation"
+      className="formula-selector"
+      isVisible
+      title="Write or choose a Formula"
+      placeholder={PLACEHOLDER[convention]}
+      autoFocus
+      inputRef={inputRef}
+      onNameChange={setDraft}
+      onColorChange={(next) => { color.current = next; }}
+      canSubmit={!!parsed.chain}
+      submitTitle="Add to Web"
+      onSubmit={add}
+      onClose={closeFormulaComposer}
+      headerAside={(
+        <ConventionSlider
+          value={convention}
+          onChange={(next) => { setConvention(next); inputRef.current?.focus(); }}
         />
-        <button type="submit" className="formula-composer-add" disabled={!parsed.chain} title="Add to Web" aria-label="Add to Web">
-          <SendHorizontal size={16} strokeWidth={2.5} />
-        </button>
-        <button type="button" className="format-offer-dismiss" onClick={closeFormulaComposer} title="Cancel" aria-label="Cancel">
-          <X size={14} strokeWidth={2.75} />
-        </button>
-      </form>
-      <ConventionSlider
-        value={convention}
-        onChange={(next) => { setConvention(next); inputRef.current?.focus(); }}
-      />
-      <div className="formula-composer-preview">
-        {tokens ? <FormulaTokens tokens={tokens} /> : parsed.error}
-      </div>
-      {!tokens && <FormulaBankPicker query={looksLikeWords ? draft : ''} standard={standard} onPick={pick} />}
-    </div>
+      )}
+      headerContent={!tokens && !matches ? <BankChoices bank={bank} browse={browse} /> : null}
+      gridContent={tokens ? (
+        <div className="formula-preview"><FormulaTokens tokens={tokens} /></div>
+      ) : (
+        <>
+          {parsed.error && <div className="formula-preview-error">{parsed.error}</div>}
+          <BankList bank={bank} browse={browse} matches={matches} standard={standard} onPick={pick} />
+        </>
+      )}
+    />
   );
 }
