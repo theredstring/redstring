@@ -12,8 +12,26 @@ export const PALETTES = {
             "purple": "#732ac7"
         }
     },
-    "coastal": {
-        name: "Coastal",
+    "mountains": {
+        name: "Mountains",
+        colors: {
+            "purple": "#543d4e",
+            "mud": "#735557",
+            "sage": "#82725b",
+            "tan": "#be8d6f"
+        }
+    },
+    "piedmont": {
+        name: "Piedmont",
+        colors: {
+            "dark-green": "#263d11",
+            "olive": "#4C4B16",
+            "tan": "#715232",
+            "orange": "#b0563a"
+        }
+    },
+    "coastal-plain": {
+        name: "Coastal Plain",
         colors: {
             "navy-blue": "#0B2D72",
             "blue": "#1b70b5",
@@ -37,15 +55,6 @@ export const PALETTES = {
             "dark": "#2f523d",
             "mid": "#97B067",
             "light": "#dfe362"
-        }
-    },
-    "piedmont": {
-        name: "Piedmont",
-        colors: {
-            "dark-green": "#263d11",
-            "olive": "#4C4B16",
-            "tan": "#715232",
-            "orange": "#b0563a"
         }
     },
     "retro": {
@@ -100,15 +109,6 @@ export const PALETTES = {
             "lime": "#81a607",
             "orange": "#d46d00",
             "red": "#bd2626"
-        }
-    },
-    "clay": {
-        name: "Clay",
-        colors: {
-            "purple": "#543d4e",
-            "mud": "#735557",
-            "sage": "#82725b",
-            "tan": "#be8d6f"
         }
     },
     "purple-gradient": {

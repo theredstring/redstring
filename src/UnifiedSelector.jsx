@@ -345,6 +345,9 @@ const UnifiedSelector = ({
                   value={name}
                   placeholder={placeholder}
                   onChange={(e) => setName(e.target.value)}
+                  // Going back to the name puts the colour picker away.
+                  onFocus={() => setColorPickerVisible(false)}
+                  onPointerDown={() => setColorPickerVisible(false)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSubmit();
                     if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
