@@ -41,7 +41,7 @@ import { NODE_GROUP_INTERIOR_TINT, groupLiftShadow } from '../../groups/groupEle
 import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf, vectorOf } from './formulaChain.js';
-import { useGlide, GLIDE_MS, glideEase } from './useGlide.js';
+import { useGlide, GLIDE_MS, FRAME_MS, glideEase } from './useGlide.js';
 import { flipFormulaToken } from '../formatsStore.js';
 import { getCanvasGroupInput } from '../../groups/groupInput.js';
 import {
@@ -49,7 +49,8 @@ import {
 } from './formulaObjects.js';
 
 const MOVE_SLOP_PX = 6;      // a press that wanders this far before the lift is not a hold
-const DOUBLE_TAP_MS = 320;   // a tap waits this long to switch its token, in case it is the first of two
+const DOUBLE_TAP_MS = 320;   // a second tap this soon on the band is a double tap
+const TOKEN_DOUBLE_TAP_MS = 200; // and on a token, which waits this long to switch, in case it is the first of two
 const HOVER_TINT = 0.18;
 const HOVER_REACH = 0.14;    // a hovered token's tint past its box, either side, in its em
 const FADE = { duration: 0.14 };
@@ -181,14 +182,13 @@ function TokenTextAt({ text, at, size, fill, opacity }) {
   );
 }
 
-const MORPH_MS = 290;
+const NAME_FADE_MS = 130; // a name fading in once its pill holds it
+const NAME_GROW_FROM = 0.9; // and growing into place from this much of its size
+const NAME_MIDDLE_EM = 0.35; // its middle, above its baseline
+const MORPH_MS = 290; // a token's text changing color
 const smooth = (t) => t * t * (3 - 2 * t);
-const REVEAL_EM = 0.6; // how far behind a pill's edge a letter takes to come fully in
-const LETTER_LAG_EM = 0.3; // how far a pill's edge is past a letter before it starts to come in
-const IN_DELAY = 0.22; // of MORPH_MS: no letter comes into a pill before this
-const OUT_STAGGER = 0.14; // of MORPH_MS: the first leaving letter starts this much after the last
-const OUT_MS = 0.14; // of MORPH_MS: how long each leaving letter takes
-const OUT_CLEAR = 0.15; // em: a leaving letter is gone while its pill's edge is still this far past it
+const IN_DELAY = 0.22; // of MORPH_MS: a token coming into the formula (the × between names) waits this long to show
+const NAME_FIT = 0.1; // em: a name shows once its growing pill holds all but this much of it
 const GOING_MS = 90; // a token leaving the formula (the × between names) fading out
 const FILL_MS = GLIDE_MS * 0.6; // a token's fill (its pill's color, its hover tint) coming in or going
 const SWAP_MS = GLIDE_MS * 0.4; // a token drawn another way (a fraction's bar as ÷) crossing over
@@ -216,8 +216,9 @@ function useTextMorph(look) {
     cancelAnimationFrame(m.frame);
     const settle = () => { m.from = null; m.to = look; m.p = 1; setState({ key, from: null, to: look, p: 1 }); };
     if (prefersReducedMotion()) { settle(); return undefined; }
-    const start = performance.now();
+    let start = null; // its first frame, one frame in, as useGlide's are
     const step = (now) => {
+      if (start === null) start = now - FRAME_MS;
       const p = clamp01(run.p0 + (run.dir * (now - start)) / MORPH_MS);
       if (run.dir > 0 ? p >= 1 : p <= 0) { settle(); return; }
       m.from = run.from; m.to = run.to; m.p = p;
@@ -235,114 +236,59 @@ function useTextMorph(look) {
   return m.from && m.p < 1 ? { key, from: m.from, to: m.to, p: m.p } : { key, from: m.look, to: look, p: 0 };
 }
 
-const isPlain = (text) => !subscriptOf(text) && !vectorOf(text).vector;
-const lettersOf = (text) => [...String(text)];
-
 /**
- * A token's text, sliding to where it is put, and changing letter by letter
- * when it switches between its symbol and its Thing's name. What the two share
- * stays (the P of Pressure). The name's other letters wait for their pill:
- * each comes in a little after the pill's growing edge has passed it and the
- * pill has had a moment to fill, so no letter stands in a pill too small for
- * it. Going back they leave at once, right to left, ahead of the shrinking
- * edge, never left behind it. A plain symbol coming or going fades meanwhile;
- * with no letter in common with the name (p, Pressure), the two swap in place.
- * Its color turns as the pill under it fills or empties, when the color it
- * is going to reads better there than the one it had, so it never sinks into
- * a half-filled pill. Written another way (a subscript, a vector's arrow), the
- * two cross-fade instead.
+ * A token's text, sliding to where it is put, and switching between its symbol
+ * and its Thing's name. Heading for its symbol, the symbol shows at once and
+ * the pill shrinks around it; heading for its name, the symbol goes at once,
+ * the pill grows, and the name fades in, growing slightly, once the pill
+ * holds it. Decided by where it is heading, so switching back and forth
+ * quickly (Show Names, Show Symbols, again) does the same. Its color turns as the pill under it fills
+ * or empties, when the color it is going to reads better there than the one
+ * it had, so it never sinks into a half-filled pill.
  *
  * @param {number} [reveal] - where the pill's text currently ends (its glided
  *   right edge, less its padding), in the same space as `x`
+ * @param {number} [revealEnd] - and where it will end once the pill has grown
  * @param {string} [under] - the color under the text now (the ground, as
  *   far as the pill has filled in)
  * @param {{x: number, y: number}} [start] - where a token that has just come
  *   into the formula starts
  */
-function TokenText({ text, x, y, size: sized, fill, opacity = 1, pill = false, reveal = null, under = null, start = null }) {
+function TokenText({ text, x, y, size: sized, fill, opacity = 1, pill = false, reveal = null, revealEnd = null, under = null, start = null }) {
   // Its size glides too (an exponent written inline after ^ grows to the line's).
   const at = useGlide({ x, y, size: sized }, start && { ...start, size: sized });
   const { size } = at;
-  const { from, to: toward, p } = useTextMorph({ text, fill, opacity, pill });
-  if (!from) return <TokenTextAt text={text} at={at} size={size} fill={fill} opacity={opacity} />;
-  // What it is turning into (sent back mid-way, what it was turning into, run backwards).
-  ({ text, fill, opacity, pill } = toward);
-  const filled = glideEase(Math.min(1, (p * MORPH_MS) / GLIDE_MS));
+  // A name shows once its pill holds it (or has all but finished growing), fading in.
+  const holds = !pill || reveal == null
+    || reveal >= at.x + measure(text, size) - NAME_FIT * size
+    || (revealEnd != null && Math.abs(revealEnd - reveal) < 0.5);
+  const fadedIn = useGlide({ a: pill && holds ? 1 : 0 }, null, NAME_FADE_MS).a;
+  const shown = pill ? (holds ? fadedIn : 0) : 1;
+  // Fading in, the name also grows a little into place, about its middle.
+  const grow = (node) => {
+    if (!pill || shown >= 1) return node;
+    const cx = at.x + measure(text, size) / 2;
+    const cy = at.y - NAME_MIDDLE_EM * size;
+    const k = lerp(NAME_GROW_FROM, 1, shown);
+    return <g transform={`translate(${cx} ${cy}) scale(${k}) translate(${-cx} ${-cy})`}>{node}</g>;
+  };
+  const look = { text, fill, opacity, pill };
+  const { from, to: toward, p } = useTextMorph(look);
+  if (!from) return grow(<TokenTextAt text={text} at={at} size={size} fill={fill} opacity={opacity * shown} />);
+  // The change runs toward this look, or (sent back mid-way) backwards from it.
+  const forward = lookKey(toward) === lookKey(look);
+  const other = forward ? from : toward;
+  const q = forward ? p : 1 - p;
+  const filled = glideEase(Math.min(1, (q * MORPH_MS) / GLIDE_MS));
   let turned = filled;
-  if (under && from.fill !== fill) {
-    try { turned = smooth(clamp01(0.5 + Math.log(contrast(fill, under) / contrast(from.fill, under)) / COLOR_TURN)); } catch { /* not hex: on the glide's curve */ }
+  if (under && other.fill !== fill) {
+    try { turned = smooth(clamp01(0.5 + Math.log(contrast(fill, under) / contrast(other.fill, under)) / COLOR_TURN)); } catch { /* not hex: on the glide's curve */ }
     // Where the two read about the same, it still ends on its own color.
-    turned = Math.max(turned, smooth(clamp01((p - 0.6) / 0.4)));
+    turned = Math.max(turned, smooth(clamp01((q - 0.6) / 0.4)));
   }
-  const color = from.fill === fill ? fill : mixColor(from.fill, fill, turned);
-  const alpha = from.opacity + (opacity - from.opacity) * filled;
-  if (!isPlain(text) || !isPlain(from.text)) {
-    return (
-      <>
-        <TokenTextAt text={from.text} at={at} size={size} fill={color} opacity={alpha * (1 - smooth(clamp01(p * 2)))} />
-        <TokenTextAt text={text} at={at} size={size} fill={color} opacity={alpha * smooth(clamp01((p - (pill ? IN_DELAY : 0.2)) / 0.45))} />
-      </>
-    );
-  }
-  const to = lettersOf(text);
-  const was = lettersOf(from.text);
-  let shared = 0;
-  while (shared < to.length && shared < was.length && to[shared] === was[shared]) shared++;
-  // How far the pill's edge has passed a letter's right edge (plus `lag`, but no
-  // further than where the edge ends up, less REVEAL_EM), over REVEAL_EM.
-  const fade = REVEAL_EM * size;
-  const passed = (letters, i, lag) => {
-    if (reveal == null) return 1;
-    const right = measure(letters.slice(0, i + 1).join(''), size);
-    const end = measure(letters.join(''), size) - fade;
-    return clamp01((reveal - (at.x + Math.max(right - fade, Math.min(right + lag, end)))) / fade);
-  };
-  // Leaving a pill: quickly, the last letter first, and gone before the edge reaches it.
-  const going = was.length - shared;
-  const outAt = (i) => OUT_STAGGER * (was.length - 1 - i) / Math.max(1, going);
-  // Nothing in common (p, Pressure): the symbol and the name's first letter
-  // swap in place, the one mostly gone as the other comes, so the token is
-  // never empty and the two never stand over each other.
-  const swapping = shared === 0 && was.length > 0 && to.length > 0;
-  const swapAt = from.pill ? outAt(0) : 0;
-  // Leaving a pill: faded out by the time the pill's shrinking edge (`reveal`
-  // plus its padding) is within OUT_CLEAR of it, so no letter stands outside it.
-  const ahead = (i) => {
-    if (reveal == null || !from.pill) return 1;
-    const right = at.x + measure(was.slice(0, i + 1).join(''), size);
-    return smooth(clamp01((reveal + (PILL_PAD - OUT_CLEAR) * size - right) / ((PILL_PAD - OUT_CLEAR) * size)));
-  };
-  const goingOut = (i) => {
-    if (swapping && i === 0) return Math.min(ahead(0), 1 - smooth(clamp01((p - swapAt) / OUT_MS)));
-    return from.pill
-      ? Math.min(ahead(i), 1 - smooth(clamp01((p - outAt(i)) / OUT_MS)))
-      : 1 - smooth(clamp01(p / 0.4));
-  };
-  // Coming into a pill: once the edge is well past, and not before the pill has begun to fill.
-  const comingIn = (i) => {
-    if (swapping && i === 0) return smooth(clamp01((p - swapAt - OUT_MS * 0.6) / OUT_MS));
-    return pill
-      ? Math.min(passed(to, i, LETTER_LAG_EM * size), smooth(clamp01((p - IN_DELAY) / 0.4)))
-      : smooth(clamp01((p - (from.pill && shared === 0 ? outAt(0) : 0.2)) / 0.4));
-  };
-  const textProps = {
-    x: at.x, y: at.y, fontSize: size, fontFamily: FORMULA_FONT_FAMILY, fontWeight: FORMULA_FONT_WEIGHT,
-    fill: color, opacity: alpha, style: { userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' },
-  };
-  return (
-    <>
-      {was.length > shared && (
-        <text {...textProps}>
-          {shared > 0 && <tspan fillOpacity={0}>{was.slice(0, shared).join('')}</tspan>}
-          {was.slice(shared).map((c, i) => <tspan key={i} fillOpacity={goingOut(shared + i)}>{c}</tspan>)}
-        </text>
-      )}
-      <text {...textProps}>
-        {shared > 0 && <tspan>{to.slice(0, shared).join('')}</tspan>}
-        {to.slice(shared).map((c, i) => <tspan key={i} fillOpacity={comingIn(shared + i)}>{c}</tspan>)}
-      </text>
-    </>
-  );
+  const color = other.fill === fill ? fill : mixColor(other.fill, fill, turned);
+  const alpha = other.opacity + (opacity - other.opacity) * filled;
+  return grow(<TokenTextAt text={text} at={at} size={size} fill={color} opacity={alpha * shown} />);
 }
 
 /** The title, gliding to stay centred on its band. */
@@ -504,6 +450,7 @@ function Token({ t, b, o, fill, ground, textColor, onBand, hot, onEnter, onLeave
               opacity={t.kind === 'paren' && !t.expanded ? 0.75 : 1}
               pill={!!mine.pill}
               reveal={shape.x + shape.w - PILL_PAD * mine.size}
+              revealEnd={mine.pill ? mine.pill.x + mine.pill.w - o.x - PILL_PAD * mine.size : null}
               under={ground && mixColor(ground, fill, clamp01(tint))}
               start={from ? { x: from.textX - o.x, y: from.baseline - o.y } : fromOther ? textAt(other) : null}
             />
@@ -610,6 +557,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
 
   useEffect(() => () => clearTimeout(flipTimerRef.current), []);
 
+
   // A press is the canvas's own: held, it lifts the formula into the group drag
   // a Thing-group's title starts (edge panning, panning and zooming mid-drag,
   // grid snap, one undo step), which moves this object with the group because
@@ -663,7 +611,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
     const now = performance.now();
     const last = lastTapRef.current;
     clearTimeout(flipTimerRef.current);
-    if (press.target && last.target === press.target && now - last.at < DOUBLE_TAP_MS) {
+    const within = press.target === TITLE_TARGET ? DOUBLE_TAP_MS : TOKEN_DOUBLE_TAP_MS;
+    if (press.target && last.target === press.target && now - last.at < within) {
       lastTapRef.current = { target: null, at: 0 };
       openThingInPanel(press.protoId);
       return;
@@ -672,7 +621,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null }) {
     selectGroup(obj.groupId);
     if (press.flip && press.target !== TITLE_TARGET) {
       const { flip } = press;
-      flipTimerRef.current = setTimeout(() => flipFormulaToken(obj.groupId, flip), DOUBLE_TAP_MS);
+      flipTimerRef.current = setTimeout(() => flipFormulaToken(obj.groupId, flip), TOKEN_DOUBLE_TAP_MS);
     }
   };
 

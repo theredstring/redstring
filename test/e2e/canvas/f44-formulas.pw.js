@@ -218,8 +218,7 @@ test('F44 a double tap on a token opens its Thing', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'a + b * c');
   const p = await centerOfLocator(token(page, 'b'));
-  await page.mouse.click(p.x, p.y);
-  await page.mouse.click(p.x, p.y);
+  await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => storeEval(page, (st) => {
     const tab = st.rightPanelTabs.find(t => t.isActive);
     return tab?.nodeId ? st.nodePrototypes.get(tab.nodeId)?.name : null;
@@ -459,8 +458,7 @@ test('F44 the bank builds an equation fully formed, each symbol its concept', as
   await putPanelDown(page);
   // A double tap opens it, and switches nothing.
   const p = await centerOfLocator(token(page, 'p'));
-  await page.mouse.click(p.x, p.y);
-  await page.mouse.click(p.x, p.y);
+  await page.mouse.dblclick(p.x, p.y);
   await expect.poll(() => storeEval(page, (st) => {
     const tab = st.rightPanelTabs.find(t => t.isActive);
     return tab?.nodeId ? st.nodePrototypes.get(tab.nodeId)?.name : null;

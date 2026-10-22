@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 
 export const GLIDE_MS = 240;
 export const glideEase = (t) => 1 - Math.pow(1 - t, 3);
+export const FRAME_MS = 1000 / 60;
 
 /**
  * @param {Record<string, number>} target - where the numbers should be
@@ -32,10 +33,14 @@ export function useGlide(target, from = null, ms = GLIDE_MS) {
       setNow(target);
       return undefined;
     }
-    const start = performance.now();
+    // Timed from its first frame, one frame in: a frame's time can be earlier
+    // than now, which would start it a little backwards (bigger before smaller).
+    // Every glide a change starts shares that first frame, so they move together.
+    let start = null;
     cancelAnimationFrame(glide.frame);
     const step = (t) => {
-      const p = Math.min(1, (t - start) / ms);
+      if (start === null) start = t - FRAME_MS;
+      const p = Math.min(1, Math.max(0, (t - start) / ms));
       const e = glideEase(p);
       const next = {};
       for (const k of keys) next[k] = from[k] + (target[k] - from[k]) * e;
