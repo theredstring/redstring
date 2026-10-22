@@ -513,6 +513,7 @@ export default function ControlPanelsHost({ ctx }) {
             typeListOpen={typeListVisible}
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
             decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
+            decompBlocked={decomposePanelInfo?.expandBlocked || null}
             onCompose={() => useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null })}
             onDelete={decomposePanelInfo
               ? () => requestDeleteDefinition(decomposePanelInfo.prototypeId, decomposePanelInfo.currentGraphId)

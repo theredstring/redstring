@@ -2159,7 +2159,7 @@ export const useGamepad = ({
       if (inNodeMode) {
         const list = p.pieMenuButtonsRef?.current || [];
         const focused = list[pieFocusedIndexRef.current];
-        if (focused && !focused.hidden) {
+        if (focused && !focused.hidden && !focused.disabled) {
           focused.action?.(p.pieMenuNodeIdRef?.current ?? null, { x: cross.x, y: cross.y });
         }
       } else if (inEdgeMode) {
@@ -2167,7 +2167,7 @@ export const useGamepad = ({
         const focused = list[pieFocusedIndexRef.current];
         // Connection menus are anchor-mode, so PieMenu passes null as the
         // action's node id on a click; match that exactly.
-        if (focused && !focused.hidden) focused.action?.(null, { x: cross.x, y: cross.y });
+        if (focused && !focused.hidden && !focused.disabled) focused.action?.(null, { x: cross.x, y: cross.y });
       } else if (inBottomMode) {
         // The panel's buttons are ordinary DOM with their own onClick, so the
         // walker clicks the focused one — the same event the mouse produces.

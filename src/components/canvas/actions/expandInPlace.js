@@ -9,9 +9,13 @@
  * opens in place: copying needs the node to live in the graph being viewed.
  *
  * Either way the node morphs into the box (groups/boxMorph.js).
+ *
+ * Opening in place can't happen twice for one definition in a web, or inside the
+ * definition itself (src/core/openDefinitions.js); the buttons that offer it grey
+ * out, saying why (expandBlockLabel).
  */
 import useGraphStore from '../../../store/graphStore.js';
-import { projectGraphView } from '../../../core/openDefinitions.js';
+import { projectGraphView, openInPlaceBlock } from '../../../core/openDefinitions.js';
 import { withBoxOpenMorph } from '../groups/boxMorph.js';
 
 /**
@@ -20,6 +24,7 @@ import { withBoxOpenMorph } from '../groups/boxMorph.js';
 export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 0, instanceId }) {
   const store = useGraphStore.getState();
   const ownsNode = store.graphs.get(viewGraphId)?.instances?.has(instanceId);
+  if (expandBlockLabel({ viewGraphId, instanceId, definitionIndex })) return null;
 
   const groupId = withBoxOpenMorph({ viewGraphId, instanceId }, () => {
     if (store.openDefinitionsInPlace !== false || !ownsNode) {
@@ -33,4 +38,19 @@ export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 
   });
   if (!groupId) return null;
   return projectGraphView(useGraphStore.getState(), viewGraphId)?.groups?.get(groupId) || null;
+}
+
+const BLOCK_LABELS = {
+  open: 'Already Open Here',
+  inside: "Can't Open Inside Itself",
+};
+
+/**
+ * What a greyed-out Decompose says instead of its name, or null when the node
+ * can expand. Copying into a node-group (the setting off) is never blocked.
+ */
+export function expandBlockLabel({ viewGraphId, instanceId, definitionIndex = 0 }) {
+  const { graphs, nodePrototypes, openDefinitionsInPlace } = useGraphStore.getState();
+  if (openDefinitionsInPlace === false && graphs.get(viewGraphId)?.instances?.has(instanceId)) return null;
+  return BLOCK_LABELS[openInPlaceBlock(graphs, nodePrototypes, viewGraphId, instanceId, definitionIndex)] || null;
 }

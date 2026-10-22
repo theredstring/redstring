@@ -134,6 +134,30 @@ export const connectionHome = (a, b, viewGraphId) => {
   };
 };
 
+/**
+ * Why a node seen in `viewGraphId` can't open definition `definitionIndex` in
+ * place, or null when it can (a definition not made yet always can).
+ * 'open': another box in this view shows that definition already (one per view).
+ * 'inside': the node sits in that definition, so it would open inside itself.
+ *
+ * @returns {'open'|'inside'|null}
+ */
+export const openInPlaceBlock = (graphs, nodePrototypes, viewGraphId, instanceId, definitionIndex = 0, map = null) => {
+  const own = graphs?.get(viewGraphId)?.instances?.get(instanceId);
+  const m = own ? null : (map || mapOpenDefinitions(graphs, nodePrototypes, viewGraphId));
+  const owner = own ? { graphId: viewGraphId, path: [] } : m.owners.get(instanceId);
+  if (!owner) return null;
+  const instance = own || graphs.get(owner.graphId)?.instances?.get(instanceId);
+  const defGraphId = nodePrototypes?.get(instance?.prototypeId)?.definitionGraphIds?.[definitionIndex];
+  if (!defGraphId || !graphs.has(defGraphId)) return null;
+  if ([viewGraphId, ...owner.path.map(step => step.graphId)].includes(defGraphId)) return 'inside';
+  const { boxes } = m || map || mapOpenDefinitions(graphs, nodePrototypes, viewGraphId);
+  for (const box of boxes.values()) {
+    if (box.defGraphId === defGraphId && box.anchorId !== instanceId) return 'open';
+  }
+  return null;
+};
+
 // ─── The view ─────────────────────────────────────────────────────────────────
 
 // instance object → { ox, oy, flags, value }: an instance drawn at the same offset

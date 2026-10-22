@@ -7,6 +7,7 @@ import {
   openGroupId,
   anchorIdFromOpenGroupId,
   initialOpenOffset,
+  openInPlaceBlock,
 } from '../../src/core/openDefinitions.js';
 
 const graph = (id, instances = [], edgeIds = [], groups = []) => ({
@@ -173,5 +174,32 @@ describe('openDefinitions: owners and new connections', () => {
     const def = graph('d', [inst('p', 'x', 100, 50), inst('q', 'x', 300, 20)]);
     expect(initialOpenOffset({ x: 1000, y: 1000 }, def)).toEqual({ x: 900, y: 980 });
     expect(initialOpenOffset({ x: 7, y: 8 }, graph('empty'))).toEqual({ x: 7, y: 8 });
+  });
+});
+
+describe('openDefinitions: what can open in place', () => {
+  it('lets a closed node open a definition nothing else shows', () => {
+    const { graphs, nodePrototypes } = world({ boxOpen: false });
+    expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'box')).toBeNull();
+  });
+
+  it('blocks a second node of a definition already open in the view', () => {
+    const { graphs, nodePrototypes } = world();
+    graphs.get('main').instances.set('box2', inst('box2', 'p-box', 0, 900));
+    expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'box2')).toBe('open');
+  });
+
+  it('blocks a node opening its own definition inside itself', () => {
+    const { graphs, nodePrototypes } = world();
+    // A Box inside Box's own definition, seen through the open box.
+    graphs.get('box-def').instances.set('again', inst('again', 'p-box', 0, 600));
+    expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'again')).toBe('inside');
+    // And the definition viewed directly.
+    expect(openInPlaceBlock(graphs, nodePrototypes, 'box-def', 'again')).toBe('inside');
+  });
+
+  it('never blocks a node with no definition yet', () => {
+    const { graphs, nodePrototypes } = world();
+    expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'out')).toBeNull();
   });
 });

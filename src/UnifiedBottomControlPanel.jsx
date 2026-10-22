@@ -244,6 +244,7 @@ const UnifiedBottomControlPanel = ({
   // Decompose mode props (mirrors the decomposition pie-menu state)
   onCompose, // Close the decomposition preview (compose back to a normal node)
   decompHasDefinitions = false, // When false, only Add + Compose are shown (empty state)
+  decompBlocked = null, // Why Decompose Further can't open here (greyed out), or null
 
   // Pie menu button handlers
   onDelete,
@@ -987,10 +988,10 @@ const UnifiedBottomControlPanel = ({
                     <Trash2 size={iconSize} />
                   </div>
                   <div
-                    className="piemenu-button"
-                    onClick={onDecompose}
-                    title="Decompose Further"
-                    onMouseEnter={() => triggerActionHover('control-decomp-further', 'Decompose Further')}
+                    className={`piemenu-button${decompBlocked ? ' is-disabled' : ''}`}
+                    onClick={decompBlocked ? undefined : onDecompose}
+                    title={decompBlocked || 'Decompose Further'}
+                    onMouseEnter={() => triggerActionHover('control-decomp-further', decompBlocked || 'Decompose Further')}
                     onMouseLeave={clearActionHover}
                   >
                     <PackageOpen size={iconSize} />

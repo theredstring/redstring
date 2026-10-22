@@ -23,6 +23,7 @@ const NodeControlPanel = ({
   onDuplicate,
   onCompose,
   decompHasDefinitions = false,
+  decompBlocked = null,
   onLeftNav,
   onRightNav,
   hasLeftNav = false,
@@ -49,6 +50,7 @@ const NodeControlPanel = ({
       onOpenInPanel={onOpenInPanel}
       onCompose={onCompose}
       decompHasDefinitions={decompHasDefinitions}
+      decompBlocked={decompBlocked}
       onDecompose={onDecompose}
       onAbstraction={onAbstraction}
       onEdit={onEdit}

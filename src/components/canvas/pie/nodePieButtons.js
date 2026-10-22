@@ -19,7 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
-import { expandNodeInPlace } from '../actions/expandInPlace.js';
+import { expandNodeInPlace, expandBlockLabel } from '../actions/expandInPlace.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -818,6 +818,8 @@ export function buildTargetPieMenuButtons(ctx) {
 
     // Has definitions: Open, Delete, Decompose Further (explode into a node-group in
     // place), Compose — plus ◀ / ▶ definition-navigation arrows.
+    // Greyed out, saying why, when its definition can't open here (expandInPlace).
+    const decompBlocked = expandBlockLabel({ viewGraphId: activeGraphId, instanceId: previewingNodeId, definitionIndex: decompIndex });
     const decompButtons = [
       {
         id: 'decomp-open',
@@ -847,8 +849,9 @@ export function buildTargetPieMenuButtons(ctx) {
       },
       {
         id: 'decomp-further',
-        label: 'Decompose Further',
+        label: decompBlocked || 'Decompose Further',
         icon: PackageOpen,
+        disabled: !!decompBlocked,
         position: 'top', topIndex: 3, topCount: 5,
         action: () => {
           // Opens the definition in place (or copies it into a node-group with the
@@ -917,6 +920,7 @@ export function buildDecomposePanelInfo(ctx) {
   return {
     instanceId: previewingNodeId,
     prototypeId,
+    expandBlocked: expandBlockLabel({ viewGraphId: activeGraphId, instanceId: previewingNodeId, definitionIndex: index }),
     prototype: { id: prototypeId, name: proto.name, color: proto.color },
     defIds,
     index,

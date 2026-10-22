@@ -248,6 +248,15 @@
   transform: scale(1.1);
 }
 
+/* Greyed out, as a disabled canvas bubble is (PieMenu): its hover label says why. */
+.piemenu-button.is-disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.piemenu-button.is-disabled:hover {
+  transform: none;
+}
+
 /* Controller focus. The swell is the canvas pie menu's gamepad swell, not its
    hover swell, and for the same reason: with a mouse the cursor is already
    sitting on the button, so 1.1 only confirms what the pointer says. A pad has
