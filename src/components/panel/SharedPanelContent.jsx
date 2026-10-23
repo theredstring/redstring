@@ -758,6 +758,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
           <div style={{
             maxHeight: '300px',
             overflowY: 'auto',
+            overflowX: 'hidden',
             padding: '3px',
             margin: '-3px -3px 7px'
           }}>
@@ -1728,10 +1729,11 @@ const SharedPanelContent = ({
           <div style={{
             marginRight: '15px',
             display: 'grid',
-            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+            gridTemplateColumns: isUltraSlim ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
             gap: '8px',
             maxHeight: '300px',
-            overflowY: 'auto'
+            overflowY: 'auto',
+            overflowX: 'hidden'
           }}>
             {componentOfNodes.map((node) => (
               <DraggableNodeComponent
@@ -1796,10 +1798,11 @@ const SharedPanelContent = ({
           <div style={{
             marginRight: '15px',
             display: 'grid',
-            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+            gridTemplateColumns: isUltraSlim ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
             gap: '8px',
             maxHeight: '300px',
-            overflowY: 'auto'
+            overflowY: 'auto',
+            overflowX: 'hidden'
           }}>
             {activeGraphNodes.map((node) => (
               <DraggableNodeComponent

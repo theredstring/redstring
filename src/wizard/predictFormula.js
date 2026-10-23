@@ -79,6 +79,20 @@ export function predictFormula(graphState, result) {
     // Its web is the formula: it has a definition from now on.
     eq.definitionGraphIds = [...(eq.definitionGraphIds || []), newId('graph')];
     const anchorId = newId('inst');
+    // Standing here as a plain node, the Thing's formula takes that node's place,
+    // its connections and all (buildFormula.js takePlaceOf).
+    if (result.forThing) {
+      const inFormula = new Set(graph.groups.filter(g => g.format === 'formula').flatMap(g => g.memberInstanceIds || []));
+      const standing = graph.instances.filter(inst => inst.prototypeId === eq.id && !inst.isGroupAnchor
+        && !inst.openDefinition && !inst.format && !inFormula.has(inst.id)).pop();
+      if (standing) {
+        for (const e of graphState.edges || []) {
+          if (e.sourceId === standing.id) e.sourceId = anchorId;
+          if (e.destinationId === standing.id) e.destinationId = anchorId;
+        }
+        removeFrom(graphState, graph, [standing.id]);
+      }
+    }
     graph.instances.push({ id: anchorId, prototypeId: eq.id, name: eq.name, isGroupAnchor: true });
     const terms = placeTerms(graphState, graph, result.terms);
     const memberIds = terms.map(t => t.instanceId);

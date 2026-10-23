@@ -21,6 +21,18 @@ import './UnifiedSelector.css';
 // A type's name in the filter and the title, cut short past this many
 // characters.
 const TYPE_NAME_LIMIT = 32;
+
+// The exit's length (UnifiedSelector.css, us-*-out); the entrance's cards
+// stagger in for this long, then new ones (a looser search) just rise.
+const EXIT_MS = 160;
+const CARD_ENTER_MS = 700;
+// Selectors on screen. One that opens while another is still up is the same
+// prompt turning a page (the Thing group prompt's steps): only its contents
+// come in.
+let liveSelectors = 0;
+const prefersReducedMotion = () => {
+  try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+};
 const shortTypeName = (type) => {
   const name = type.name || 'Untitled';
   return name.length > TYPE_NAME_LIMIT ? `${name.slice(0, TYPE_NAME_LIMIT).trimEnd()}...` : name;
@@ -194,7 +206,47 @@ const UnifiedSelector = ({
     return prototypes.filter(p => p.name && p.name.toLowerCase().includes(searchText.toLowerCase()));
   }, [allowedPrototypes, activeType, name, searchTerm]);
 
+  // Dismissing (backdrop, Escape, the controller's closer) plays the exit,
+  // then closes. Picking or creating closes at once: the caller has
+  // somewhere to be.
+  const [closing, setClosing] = useState(false);
+  const [entering, setEntering] = useState(true);
+  const handoff = React.useMemo(() => isVisible && liveSelectors > 0, [isVisible]);
+  const closeTimerRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const finishClose = useCallback(() => {
+    clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setName('');
+    // Back in view if the caller didn't close after all.
+    setClosing(false);
+    onCloseRef.current?.();
+  }, []);
+  const requestClose = useCallback(() => {
+    if (closeTimerRef.current || !onCloseRef.current) return;
+    setColorPickerVisible(false);
+    setTypeMenuRect(null);
+    if (prefersReducedMotion()) { setName(''); onCloseRef.current(); return; }
+    setClosing(true);
+    closeTimerRef.current = setTimeout(finishClose, EXIT_MS);
+  }, [finishClose]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    liveSelectors += 1;
+    const enterTimer = setTimeout(() => setEntering(false), CARD_ENTER_MS);
+    return () => {
+      liveSelectors -= 1;
+      clearTimeout(enterTimer);
+      setEntering(true);
+      // Closed from outside mid-exit: the close still lands.
+      if (closeTimerRef.current) finishClose();
+    };
+  }, [isVisible, finishClose]);
+
   const handleSubmit = useCallback(() => {
+    if (closeTimerRef.current) return;
     if (name.trim() && canSubmit && onSubmit) {
       // The + button, its touch path, and the Enter key all funnel through here,
       // past the empty-name guard, so this is the one place that means "something
@@ -219,6 +271,7 @@ const UnifiedSelector = ({
    * in two different weights.
    */
   const handleNodeSelect = useCallback((prototype) => {
+    if (closeTimerRef.current) return;
     haptic('menuSelect');
     onNodeSelect?.(prototype);
   }, [onNodeSelect]);
@@ -249,14 +302,14 @@ const UnifiedSelector = ({
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (!isVisible) return;
-      if (e.key === 'Escape') onClose?.();
+      if (e.key === 'Escape') requestClose();
       else if (e.key === 'Enter' && (mode === 'node-creation' || mode === 'connection-creation' || mode === 'abstraction-node-creation' || mode === 'node-typing' || mode === 'node-group-creation' || mode === 'web-creation' || mode === 'formula-creation')) {
         handleSubmit();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isVisible, mode, onClose, handleSubmit]);
+  }, [isVisible, mode, requestClose, handleSubmit]);
 
   /**
    * While any selector is open, Backspace/Delete must never reach the canvas.
@@ -338,10 +391,12 @@ const UnifiedSelector = ({
   const iconSize = isMobilePortrait ? 24 : 20;
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
 
+  const motion = closing ? ' is-closing' : handoff ? ' is-handoff' : '';
+
   const content = (
     <>
       <div
-        className="unified-selector-overlay"
+        className={`unified-selector-overlay unified-selector-backdrop${motion}`}
         style={{
           position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)',
           backdropFilter: 'blur(2px)', WebkitBackdropFilter: 'blur(2px)', zIndex: 999998,
@@ -359,24 +414,18 @@ const UnifiedSelector = ({
             // where the backdrop survives the tap.
             if (e.cancelable) e.preventDefault();
             touchHandledRef.current = true;
-            setName('');
-            setColorPickerVisible(false);
-            onClose?.();
+            requestClose();
             setTimeout(() => { touchHandledRef.current = false; }, 400);
           }
         }}
         onClick={(e) => {
           if (touchHandledRef.current) return;
-          if (e.target === e.currentTarget) {
-            setName('');
-            setColorPickerVisible(false);
-            onClose?.();
-          }
+          if (e.target === e.currentTarget) requestClose();
         }}
       />
 
       <div
-        className={`unified-selector-overlay${className ? ` ${className}` : ''}`}
+        className={`unified-selector-overlay unified-selector-stage${motion}${entering && !handoff ? ' is-entering' : ''}${className ? ` ${className}` : ''}`}
         style={{
           position: 'fixed',
           left: `${Math.round(bounds.x + overlayMargin)}px`,
@@ -459,7 +508,7 @@ const UnifiedSelector = ({
                   onPointerDown={() => setColorPickerVisible(false)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSubmit();
-                    if (e.key === 'Escape') { setName(''); setColorPickerVisible(false); onClose?.(); }
+                    if (e.key === 'Escape') requestClose();
                   }}
                   // Only where it brings up no keyboard over the box.
                   autoFocus={autoFocus && !mobileState.isTouchDevice}
@@ -506,6 +555,7 @@ const UnifiedSelector = ({
           >
             {/* Outer rounded rectangle */}
             <div
+              className="unified-selector-box"
               onPointerDown={(e) => e.stopPropagation()} // Isolate from canvas
               style={{
                 pointerEvents: 'auto',
@@ -624,7 +674,7 @@ const UnifiedSelector = ({
                       alignContent: 'start'
                     }}
                   >
-                    {filteredPrototypes.map(prototype => (
+                    {filteredPrototypes.map((prototype, index) => (
                       <div
                         key={prototype.id}
                         // Handle for the game controller's grid walker — the
@@ -643,7 +693,9 @@ const UnifiedSelector = ({
                           justifyContent: 'center',
                           position: 'relative',
                           touchAction: 'manipulation',
-                          WebkitTapHighlightColor: 'transparent'
+                          WebkitTapHighlightColor: 'transparent',
+                          // Its place in the entrance's stagger.
+                          '--us-card-i': Math.min(index, 30)
                         }}
                         onMouseEnter={(e) => {
                           if (!mobileState.isTouchDevice) {

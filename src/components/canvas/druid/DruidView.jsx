@@ -375,17 +375,17 @@ function DruidView({ active = true }) {
       )}
 
       {view === 'settings' && (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px' }}>
           <Setup tokens={tokens} field={field} settings={settings} setSetting={setSetting} running={living ? { lastTick, perMoment, stats } : null} idle={idle} />
         </div>
       )}
       {!live && view !== 'settings' && (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px' }}>
           <DruidMind view={view} tokens={tokens} field={field} />
         </div>
       )}
       <div style={{ position: 'relative', flex: 1, minHeight: 0, display: live ? 'flex' : 'none' }}>
-        <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 12px' }}>
+        <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 12px' }}>
           <div ref={contentRef}>
             {view === 'chat' && <DruidChat stream={stream} status={status} answering={answering} tokens={tokens} />}
             {view === 'moments' && stream.length === 0 && (

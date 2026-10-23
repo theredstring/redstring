@@ -21,6 +21,7 @@ import { loadFormulaBank, formulaBankNow } from './bank/formulaBank.js';
 import { findBankEquation } from './bank/searchBank.js';
 import { expandNodeInPlace } from '../../actions/expandInPlace.js';
 import { webColorPicker } from './webColors.js';
+import { getNodeDimensions } from '../../../../utils.js';
 
 /** A Thing by name, the web's own first, the last match (MEMORY: never the first). */
 function thingNamed(state, graphId, name) {
@@ -79,14 +80,42 @@ export function addFormulaForWizard({ graphId, text, title = '', description = '
   if (!state.graphs.get(graphId)) throw new Error('No web to add the formula to');
   const bindings = bindingsFor(state, graphId, meanings);
   const holder = forThing ? thingNamed(state, graphId, forThing) : null;
-  return buildFormulaInWeb(text, graphId, spotBelow(state, graphId), readOptionsFor(state, bindings, convention), {
+  // Standing in this web as a plain node, the Thing becomes its formula there.
+  const standing = holder ? plainNodeOf(state, graphId, holder.id) : null;
+  return buildFormulaInWeb(text, graphId, standing ? centreOf(state, standing) : spotBelow(state, graphId), readOptionsFor(state, bindings, convention), {
     title: title || holder?.name || '',
     description,
     bindings,
     ...(color ? { color } : {}),
     newColor: webColorPicker(state, graphId).next,
     ...(holder ? { protoId: holder.id } : {}),
+    ...(standing ? { replaces: standing.id } : {}),
   });
+}
+
+/** The Thing's plain node in the web (not a group's title, not open, not a formula's), the last. */
+function plainNodeOf(state, graphId, protoId) {
+  const graph = state.graphs.get(graphId);
+  const inFormula = new Set();
+  for (const g of graph?.groups?.values() || []) {
+    if (g.format === 'formula') (g.memberInstanceIds || []).forEach(id => inFormula.add(id));
+  }
+  let found = null;
+  for (const inst of graph?.instances?.values() || []) {
+    if (inst.prototypeId !== protoId || inst.isGroupAnchor || inst.openDefinition || inst.format || inFormula.has(inst.id)) continue;
+    found = inst;
+  }
+  return found;
+}
+
+/** The middle of a node, as the builder centres a formula. */
+function centreOf(state, inst) {
+  let w = 200, h = 100;
+  try {
+    const dims = getNodeDimensions({ name: state.nodePrototypes.get(inst.prototypeId)?.name || '' }, false, null);
+    w = dims.currentWidth; h = dims.currentHeight;
+  } catch { /* no text measuring here: the estimate stands */ }
+  return { x: (inst.x || 0) + w / 2, y: (inst.y || 0) + h / 2 };
 }
 
 /**

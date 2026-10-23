@@ -316,6 +316,17 @@ describe('AgentLoop', () => {
       expect(executeTool).toHaveBeenCalledTimes(4);
     });
 
+    it('lets a final text reply end the turn normally, over budget or not', async () => {
+      // Two quiet reads behind it and over budget, but the reply has no tool
+      // calls: it is the wrap-up, and must not get a "Stopped" note under it.
+      executeTool.mockResolvedValue({ nodes: [] });
+      const read = { tool: 'readGraph', tokens: 40000 };
+      const events = await runScripted([read, read, { tokens: 40000 }], 100000);
+
+      expect(events.at(-1)).toMatchObject({ type: 'done', reason: 'model_done' });
+      expect(notes(events).some(n => n.startsWith('Stopped:'))).toBe(false);
+    });
+
     it('at the hard limit, finishes the writes in progress before stopping', async () => {
       // Past 2x the budget, a call that writes still runs — cancelling it is what
       // left formulas placed and nothing wired — and then the turn ends.

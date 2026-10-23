@@ -63,6 +63,8 @@ export default function SteeringBlock({ kind, content }) {
           color: theme.canvas.textSecondary,
           maxHeight: '200px',
           overflowY: 'auto',
+          overflowX: 'hidden',
+          overflowWrap: 'anywhere',
           marginTop: '2px',
           whiteSpace: 'pre-wrap',
           userSelect: 'text',

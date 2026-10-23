@@ -421,6 +421,7 @@
 .selection-scroll {
   max-height: min(45vh, 360px);
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;

@@ -1424,10 +1424,13 @@ const TOOL_TIERS = {
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 
-    // Formulas: reachable once the universe has one, or when the ask is about
-    // equations — at an ask's start the web may have none to gate on.
-    addFormula: ['hasFormulas', ...FORMULA_WORDS],
-    searchFormulaBank: ['hasFormulas', ...FORMULA_WORDS],
+    // Writing a formula is always reachable: a web of models, rates or laws
+    // rarely says "equation", and gated on the word the wizard never wrote one
+    // unasked (a jewel wasp web left Hamilton's sex ratio model as a plain
+    // node). About 1.1K tokens a turn for the two. The formula tool works on
+    // formulas that exist, so it waits for one, or for the ask to name them.
+    addFormula: 1,
+    searchFormulaBank: 1,
     formula: ['hasFormulas', ...FORMULA_WORDS],
 
     // Tier 3: Keyword-triggered (semantic web, tabular data)

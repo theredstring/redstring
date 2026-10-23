@@ -22,9 +22,9 @@ describe('formula tools are offered', () => {
     expect(names).toEqual(expect.arrayContaining(FORMULA_TOOLS));
   });
 
-  it('not otherwise', () => {
-    const names = offered({ graphs: [web], activeGraphId: 'w' }, 'make a web of birds');
-    expect(names.filter(n => FORMULA_TOOLS.includes(n))).toEqual([]);
+  it('writing one, whatever the ask: a web of models rarely says "equation"', () => {
+    const names = offered({ graphs: [web], activeGraphId: 'w' }, 'make a web for jewel wasp evolutionary modeling');
+    expect(names.filter(n => FORMULA_TOOLS.includes(n))).toEqual(['addFormula', 'searchFormulaBank']);
   });
 });
 
@@ -117,5 +117,20 @@ describe('what an ask has made, predicted', () => {
     expect(gs.graphs[0].instances).toEqual([outside]);
     expect(gs.graphs[0].edgeIds).toEqual(['e2']);
     expect(gs.edges.map(e => e.id)).toEqual(['e2']);
+  });
+
+  it('a formula for a Thing standing in the web takes its node\'s place, connections and all', () => {
+    const gs = {
+      graphs: [{ id: 'w', name: 'W', instances: [{ id: 'old', prototypeId: 'p-model', name: "Hamilton's Model" }, { id: 'ratio', prototypeId: 'p-ratio', name: 'Sex Ratio' }], edgeIds: ['e1'], groups: [] }],
+      nodePrototypes: [{ id: 'p-model', name: "Hamilton's Model", definitionGraphIds: [] }, { id: 'p-ratio', name: 'Sex Ratio', definitionGraphIds: [] }],
+      edges: [{ id: 'e1', sourceId: 'old', destinationId: 'ratio' }],
+      activeGraphId: 'w',
+    };
+    const read = readFormulaText('r = (n - 1) / (2n)', { meanings: [{ symbol: 'r', thing: 'Sex Ratio' }] });
+    predictFormula(gs, { action: 'addFormula', graphId: 'w', title: "Hamilton's Model", forThing: "Hamilton's Model", canonicalText: read.text, terms: read.terms });
+    const models = gs.graphs[0].instances.filter(i => i.prototypeId === 'p-model');
+    expect(models).toHaveLength(1);
+    expect(models[0].isGroupAnchor).toBe(true);
+    expect(gs.edges[0].sourceId).toBe(models[0].id);
   });
 });

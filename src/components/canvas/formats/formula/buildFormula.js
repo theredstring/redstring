@@ -192,6 +192,7 @@ function prototypeFromOrNew(origin, fields, link = null) {
  *   `color`: the equation's Thing's, when it is made new here, and a binding's its Thing's;
  *   `newColor`: () => the color for each other Thing made new here (webColors.js), the default without;
  *   `protoId`: a Thing the universe has already, to be the equation, or what a symbol stands for;
+ *   `replaces`: that Thing's node in this web, which the formula takes the place of, connections and all;
  *   a binding with only a name: a new Thing by that name)
  * @returns {{ instanceIds: string[], groupId: string|null, equationProtoId: string|null, text: string }}
  * @throws {Error} when the text isn't a formula (message is short and user-facing)
@@ -391,10 +392,36 @@ function build(chain, graphId, at, bindings, title, equation) {
   const known = before && (st.nodePrototypes.get(before.id)?.definitionGraphIds || []).findIndex(id => st.graphs.has(id));
   st.convertGroupToNodeGroup(graphId, groupId, equationProto.id, false, '', undefined,
     Number.isInteger(known) && known >= 0 ? { useDefinitionIndex: known } : {});
-  const linked = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId)?.linkedNodePrototypeId === equationProto.id;
+  const made = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId);
+  const linked = made?.linkedNodePrototypeId === equationProto.id;
+  if (linked && given && equation.replaces) takePlaceOf(graphId, equation.replaces, made.anchorInstanceId);
 
   if (equation.discipline && linked) placeInDiscipline(equation.discipline, equation.section || null, equationProto.id);
   return { instanceIds: inside, groupId, equationProtoId: linked ? equationProto.id : null, text };
+}
+
+/**
+ * The equation's Thing stood in the web as a plain node before it had its
+ * formula (the wizard wrote "Hamilton's Model", then its equation): the
+ * formula takes that node's place. Its connections now reach the whole
+ * equation, and the node goes, so the Thing is in the web once.
+ */
+function takePlaceOf(graphId, oldId, anchorId) {
+  const st = useGraphStore.getState();
+  const graph = st.graphs.get(graphId);
+  if (!anchorId || oldId === anchorId || !graph?.instances?.has(oldId)) return;
+  for (const edgeId of graph.edgeIds || []) {
+    const e = st.edges.get(edgeId);
+    if (!e || (e.sourceId !== oldId && e.destinationId !== oldId)) continue;
+    st.updateEdge(edgeId, (draft) => {
+      if (draft.sourceId === oldId) draft.sourceId = anchorId;
+      if (draft.destinationId === oldId) draft.destinationId = anchorId;
+      const arrows = draft.directionality?.arrowsToward;
+      if (arrows instanceof Set && arrows.has(oldId)) { arrows.delete(oldId); arrows.add(anchorId); }
+      else if (Array.isArray(arrows) && arrows.includes(oldId)) draft.directionality.arrowsToward = arrows.map(x => (x === oldId ? anchorId : x));
+    });
+  }
+  st.removeNodeInstance(graphId, oldId);
 }
 
 /**

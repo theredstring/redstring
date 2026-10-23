@@ -76,6 +76,26 @@ describe('the wizard writing a formula', () => {
     expect(equationOf(st(), st().nodePrototypes.get('p-law')).text).toBe('P × V = n × R × T');
   });
 
+  it('given to a Thing standing in the web, the formula takes its node\'s place, connections and all', () => {
+    const model = place('main', 'p-model', "Hamilton's Model", 400, 300);
+    const ratio = place('main', 'p-ratio', 'Sex Ratio', -2000, 0);
+    st().applyBulkGraphUpdates('main', { nodes: [], edges: [{ sourceId: model, targetId: ratio, type: 'predicts' }] });
+    const built = addFormulaForWizard({
+      graphId: 'main', text: 'r = (n - 1) / (2n)', forThing: "Hamilton's Model",
+      meanings: [{ symbol: 'r', thing: 'Sex Ratio' }, { symbol: 'n', thing: 'Foundress Number' }],
+    });
+    const graph = st().graphs.get('main');
+    // One Hamilton's Model in the web: the formula's title, not the old node beside it.
+    expect(graph.instances.has(model)).toBe(false);
+    const anchorId = graph.groups.get(built.groupId).anchorInstanceId;
+    expect([...graph.instances.values()].filter(i => i.prototypeId === 'p-model').map(i => i.id)).toEqual([anchorId]);
+    // Its connection now reaches the whole equation.
+    const edges = graph.edgeIds.map(id => st().edges.get(id));
+    expect(edges.some(e => e.sourceId === anchorId && e.destinationId === ratio)).toBe(true);
+    // Its formula's r is the Sex Ratio the web had.
+    expect(formulasIn('main')[0].terms.find(t => t.symbol === 'r').protoId).toBe('p-ratio');
+  });
+
   it('is found by title or by text', () => {
     addFormulaForWizard({ graphId: 'main', text: 'E = m c^2', title: 'Mass-Energy Equivalence' });
     expect(findFormula(st(), 'main', 'mass-energy equivalence')).toBeTruthy();

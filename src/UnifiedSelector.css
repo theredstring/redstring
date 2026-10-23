@@ -154,3 +154,114 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- Motion -------------------------------------------------------------
+   In: the backdrop fades, the pill pops (the format offer's curve), the box
+   rises a beat later, its cards stagger in (--us-card-i, set per card).
+   Fill is `backwards` so nothing keeps a transform once it lands; the cards'
+   hover scale is inline and would lose to a held one.
+   Out (.is-closing, EXIT_MS in the component): everything shrinks a little
+   and fades, held there until the caller closes.
+   A page turn (.is-handoff) brings in only what changed. */
+.unified-selector-backdrop {
+  animation: us-backdrop-in 200ms ease-out backwards;
+}
+
+.unified-selector-prompt {
+  animation: us-prompt-in 340ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+.unified-selector-box {
+  transform-origin: 50% 0;
+  animation: us-box-in 360ms cubic-bezier(0.22, 1, 0.36, 1) 50ms backwards;
+}
+
+.unified-selector-card {
+  animation: us-card-in 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.unified-selector-stage.is-entering .unified-selector-card {
+  animation-delay: calc(90ms + var(--us-card-i, 0) * 12ms);
+}
+
+.unified-selector-backdrop.is-closing {
+  animation: us-backdrop-out 160ms ease-in forwards;
+}
+
+.unified-selector-stage.is-closing .unified-selector-prompt {
+  animation: us-prompt-out 160ms cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+}
+
+.unified-selector-stage.is-closing .unified-selector-box {
+  animation: us-box-out 160ms ease-in forwards;
+}
+
+.unified-selector-backdrop.is-handoff,
+.unified-selector-stage.is-handoff .unified-selector-box,
+.unified-selector-stage.is-handoff .unified-selector-card {
+  animation: none;
+}
+
+.unified-selector-stage.is-handoff .unified-selector-prompt {
+  animation: us-fade-in 160ms ease-out backwards;
+}
+
+.unified-selector-stage.is-handoff .unified-selector-scroll {
+  animation: us-page-in 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes us-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes us-backdrop-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes us-prompt-in {
+  0% { transform: scale(0.6); opacity: 0; }
+  70% { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes us-prompt-out {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(0.7); opacity: 0; }
+}
+
+@keyframes us-box-in {
+  from { transform: translateY(18px) scale(0.97); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes us-box-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateY(10px) scale(0.97); opacity: 0; }
+}
+
+@keyframes us-card-in {
+  from { transform: translateY(8px) scale(0.94); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes us-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes us-page-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unified-selector-backdrop,
+  .unified-selector-prompt,
+  .unified-selector-box,
+  .unified-selector-card,
+  .unified-selector-scroll {
+    animation: none !important;
+  }
+}

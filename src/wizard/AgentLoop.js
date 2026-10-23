@@ -2027,7 +2027,12 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           const stalled = iterationsWithoutProgress >= BUDGET_STALL_ITERATIONS;
           const writesPending = iterationToolCalls.some(tc => callMayWrite(tc.name));
 
-          if ((overHardStop || stalled) && !writesPending) {
+          // A reply with no tool calls is left to the normal ending: it either
+          // finishes the turn or draws a nudge, and nudges are capped. Stopping
+          // it here would print "Stopped" under a finished answer.
+          const hasToolCalls = iterationToolCalls.length > 0;
+
+          if ((overHardStop || stalled) && hasToolCalls && !writesPending) {
             console.error(`[AgentLoop] Per-ask token budget reached (charged ${askChargedTokens} > ${maxAskTokens}, uploaded ${askUploadedTokens}, ${overHardStop ? 'hard stop' : `${iterationsWithoutProgress} iterations without progress`}) at iteration ${iteration + 1}. Stopping.`);
             yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
             yield { type: 'system_note', content: overHardStop

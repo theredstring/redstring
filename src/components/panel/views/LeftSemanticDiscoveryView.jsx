@@ -1633,7 +1633,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     padding: '8px 10px',
                     background: theme.canvas.hover,
                     maxHeight: 150,
-                    overflow: 'auto'
+                    overflowY: 'auto',
+                    overflowX: 'hidden'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1672,7 +1673,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.bg, borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
                         >
                           <div style={{ fontSize: 10, color: theme.canvas.textSecondary }}>{entry.ts.toLocaleTimeString()}</div>
-                          <div>{entry.msg}</div>
+                          <div style={{ overflowWrap: 'anywhere' }}>{entry.msg}</div>
                         </li>
                       ))}
                     </ul>
