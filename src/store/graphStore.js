@@ -3402,7 +3402,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      *
      * @returns {string|null} The open box's group id (see `openGroupId`), or null.
      */
-    openDefinitionInPlace: (viewGraphId, instanceId, definitionIndex = 0, contextOptions = {}) => {
+    openDefinitionInPlace: (viewGraphId, instanceId, definitionIndex = 0, contextOptions = {}, offset = null) => {
       const state = get();
       const owner = openOwnerOf(state, viewGraphId, instanceId);
       const ownerGraphId = owner?.graphId || viewGraphId;
@@ -3455,7 +3455,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const draftInstance = draft.graphs.get(ownerGraphId).instances.get(instanceId);
         draftInstance.openDefinition = {
           index: definitionIndex,
-          offset: initialOpenOffset(draftInstance, draft.graphs.get(defGraphId)),
+          // `offset` is where the canvas worked out the box fits (groups/openPlacement.js).
+          offset: offset || initialOpenOffset(draftInstance, draft.graphs.get(defGraphId)),
         };
       }));
       return openGroupId(instanceId);

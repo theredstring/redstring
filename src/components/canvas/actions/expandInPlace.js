@@ -21,6 +21,7 @@ import { projectGraphView, openInPlaceBlock } from '../../../core/openDefinition
 import { withBoxOpenMorph } from '../groups/boxMorph.js';
 import { opensAsFormula, withFormulaOpenMorph } from '../formats/formula/formulaSpawn.js';
 import { holdGroupFocus } from '../pie/groupPieButtons.js';
+import { openBoxOffset } from '../groups/openPlacement.js';
 
 /**
  * @returns {Object|null} The group now shown for the expanded node (as viewed), or null.
@@ -31,10 +32,13 @@ export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 
   if (expandBlockLabel({ viewGraphId, instanceId, definitionIndex })) return null;
 
   const inPlace = store.openDefinitionsInPlace !== false || !ownsNode;
-  const withMorph = inPlace && opensAsFormula(viewGraphId, instanceId) ? withFormulaOpenMorph : withBoxOpenMorph;
+  const asFormula = inPlace && opensAsFormula(viewGraphId, instanceId);
+  const withMorph = asFormula ? withFormulaOpenMorph : withBoxOpenMorph;
+  // The box opens centred on the node, or at the nearest spot where it fits.
+  const offset = inPlace && !asFormula ? openBoxOffset({ viewGraphId, instanceId, definitionIndex }) : null;
   const groupId = withMorph({ viewGraphId, instanceId }, () => {
     if (inPlace) {
-      return store.openDefinitionInPlace(viewGraphId, instanceId, definitionIndex);
+      return store.openDefinitionInPlace(viewGraphId, instanceId, definitionIndex, {}, offset);
     }
     const defGraphId = store.nodePrototypes.get(prototypeId)?.definitionGraphIds?.[definitionIndex];
     const defGraph = defGraphId ? store.graphs.get(defGraphId) : null;
