@@ -734,6 +734,7 @@ export const useNodeDrag = ({
         const labelG = el.querySelector(':scope > .group-label');
         const labelRect = labelG?.querySelector('rect');
         const labelText = labelG?.querySelector('text');
+        const labelArrows = labelG?.querySelector(':scope > [data-vector-arrows]');
         return {
           el,
           type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
@@ -744,6 +745,7 @@ export const useNodeDrag = ({
           shadowPill: el.querySelector(':scope > [data-group-shadow="pill"]'),
           labelRect,
           labelText,
+          labelArrows,
           labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
           labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
         };
@@ -1864,9 +1866,13 @@ export const useNodeDrag = ({
       // advance). Moving only the parent leaves every line behind.
       const setLabelTextX = (el, x) => {
         el.setAttribute('x', x);
-        // Its lines' tspans only: a vector's arrow (VectorText) is placed by dx, from where its line is.
         const spans = el.getElementsByTagName('tspan');
-        for (let i = 0; i < spans.length; i++) if (spans[i].hasAttribute('x')) spans[i].setAttribute('x', x);
+        for (let i = 0; i < spans.length; i++) spans[i].setAttribute('x', x);
+      };
+      // A title's vector arrows (VectorText) are drawn from its middle, lifted with it.
+      const placeLabelArrows = (el, x, y, matrix) => {
+        el.dataset.at = `translate(${x} ${y})`;
+        el.setAttribute('transform', matrix ? `${matrix} ${el.dataset.at}` : el.dataset.at);
       };
 
       meta.elements.forEach(sub => {
@@ -1906,6 +1912,7 @@ export const useNodeDrag = ({
               // Pop the text with the pill, pivoting off the same center.
               applyLiftMatrix(sub.labelText, liftMatrix);
             }
+            if (sub.labelArrows) placeLabelArrows(sub.labelArrows, lcx, lcy, liftMatrix);
           }
         } else if (sub.type === 'bg') {
           // Node-group background: outer rect spans the title-included box;
@@ -1951,6 +1958,7 @@ export const useNodeDrag = ({
               // Pop the text with the pill, pivoting off the same center.
               applyLiftMatrix(sub.labelText, liftMatrix);
             }
+            if (sub.labelArrows) placeLabelArrows(sub.labelArrows, lcx, lcy, liftMatrix);
           }
         }
       });
@@ -2398,6 +2406,7 @@ export const useNodeDrag = ({
       meta.elements?.forEach(sub => {
         if (sub.labelRect) sub.labelRect.removeAttribute('transform');
         if (sub.labelText) sub.labelText.removeAttribute('transform');
+        if (sub.labelArrows?.dataset.at) sub.labelArrows.setAttribute('transform', sub.labelArrows.dataset.at);
       });
     });
     // Put every connection label back the way React last rendered it.

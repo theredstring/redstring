@@ -528,7 +528,7 @@ const UnifiedSelector = ({
                   className="unified-selector-control"
                   type="text"
                   value={name}
-                  placeholder={placeholder || (searchOnly ? 'Search' : 'Search or Name...')}
+                  placeholder={placeholder || (searchOnly ? 'Search' : 'Search or Name')}
                   onChange={(e) => { setName(e.target.value); onNameChange?.(e.target.value); }}
                   // Going back to the name puts the colour picker away.
                   onFocus={() => setColorPickerVisible(false)}

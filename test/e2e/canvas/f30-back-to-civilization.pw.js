@@ -1,7 +1,9 @@
 // F30: pan away until no node is on screen, and the "back to civilization"
 // pill appears; clicking it brings the nodes back into view. (Since the
 // refactor its handler lives in components/canvas/camera/backToCivilization.js.)
-import { test, expect, openFixture, waitForCameraSettled, activeGraphSnapshot, camera, canvasRect, CANVAS_OFFSET } from './helpers.js';
+import {
+  test, expect, openFixture, waitForCameraSettled, activeGraphSnapshot, camera, canvasRect, CANVAS_OFFSET, storeEval,
+} from './helpers.js';
 
 // Instances whose box (generously sized) overlaps the canvas on screen, from
 // store positions and the camera, so culled and anchor instances count too.
@@ -16,11 +18,7 @@ async function nodesOnScreen(page) {
   }).length;
 }
 
-test('F30 panning off into empty space shows the pill, which brings the nodes back', async ({ page }) => {
-  await openFixture(page, 'small');
-  const pill = page.locator('.back-to-civilization-pill');
-  await expect(pill).toHaveCount(0);
-
+async function panClearOfNodes(page) {
   // Hold the pan key (keyboard pan, as in F9) until every node has left the screen.
   await page.mouse.move(640, 400);
   for (let i = 0; i < 12 && (await nodesOnScreen(page)) > 0; i++) {
@@ -30,10 +28,40 @@ test('F30 panning off into empty space shows the pill, which brings the nodes ba
   }
   await waitForCameraSettled(page);
   expect(await nodesOnScreen(page), 'panned clear of every node').toBe(0);
+}
+
+async function switchTo(page, tabName, graphId) {
+  await page.getByTitle(tabName, { exact: true }).first().click();
+  await expect.poll(() => storeEval(page, (st) => st.activeGraphId)).toBe(graphId);
+  return waitForCameraSettled(page);
+}
+
+test('F30 panning off into empty space shows the pill, which brings the nodes back', async ({ page }) => {
+  await openFixture(page, 'small');
+  const pill = page.locator('.back-to-civilization-pill');
+  await expect(pill).toHaveCount(0);
+
+  await panClearOfNodes(page);
 
   await expect(pill).toBeVisible({ timeout: 5_000 });
   await pill.click();
   await waitForCameraSettled(page);
   await expect.poll(() => nodesOnScreen(page), { message: 'nodes back in view' }).toBeGreaterThan(0);
   await expect(pill).toHaveCount(0);
+});
+
+test('F30 opening a web whose saved view shows none of its nodes lands on the nodes, with no pill', async ({ page }) => {
+  await openFixture(page, 'small');
+  await panClearOfNodes(page);
+  // Wait for the empty view to be saved as A's camera.
+  await expect.poll(() => storeEval(page, (st) => {
+    const v = st.graphViews.get('g-small-a');
+    return v ? Math.round(v.panOffset.x) : null;
+  })).toBe(Math.round((await camera(page)).pan.x));
+
+  await switchTo(page, 'Small Web B', 'g-small-b');
+  await switchTo(page, 'Small Web A', 'g-small-a');
+  expect(await nodesOnScreen(page), 'A opened oriented on its nodes').toBeGreaterThan(0);
+  await page.waitForTimeout(3_000); // past the pill's startup and appearance delays
+  await expect(page.locator('.back-to-civilization-pill')).toHaveCount(0);
 });

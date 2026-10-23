@@ -15,7 +15,8 @@
 import { GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { getTextColor, blendColors } from '../../../utils/colorUtils.js';
 import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from './groupLiftShadow.js';
-import { vectorTspans } from '../../VectorText.jsx';
+import { vectorArrowsOver } from '../../VectorText.jsx';
+import { unmarked } from '../../../utils/vectorArrow.js';
 
 // Node-group interiors take this much of the group colour over the canvas.
 export const NODE_GROUP_INTERIOR_TINT = 0.07;
@@ -101,6 +102,9 @@ export function buildGroupElements({
     const showLiftShadow = isGroupDragging && groupLiftShadowOn(liftedThingShadow);
 
     const nodeGroupColor = effectiveGroupColor;
+    const labelFill = isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.surface.bg, theme.darkMode);
+    // A vector's arrow (r⃗) is drawn over the title, as the equations draw theirs.
+    const labelArrows = vectorArrowsOver(labelLines.length === 1 ? [labelText] : labelLines, fontSize, labelLineHeight);
 
     if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
       console.log('[GROUP-STATIC]', {
@@ -211,16 +215,16 @@ export function buildGroupElements({
               />
             </div>
           </foreignObject>
-        ) : (
+        ) : (<>
           <text x={labelX + labelWidth / 2} y={labelY + labelHeight / 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-            fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.surface.bg, theme.darkMode)}
+            fill={labelFill}
             fontWeight="bold" stroke="none" strokeWidth={0}
             paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
             transform={groupLiftTransform}
-            // The name as written, vector marks and all (the drawn text has its arrows as → instead).
+            // The name as written, vector marks and all (the arrows are drawn over the text).
             data-label={labelText}
           >
-            {labelLines.length === 1 ? vectorTspans(labelText, fontSize) : labelLines.map((line, i) => (
+            {labelLines.length === 1 ? unmarked(labelText) : labelLines.map((line, i) => (
               <tspan
                 key={i}
                 x={labelX + labelWidth / 2}
@@ -229,11 +233,19 @@ export function buildGroupElements({
                 dy={i === 0 ? -((labelLines.length - 1) / 2) * labelLineHeight : labelLineHeight}
                 data-label={line}
               >
-                {vectorTspans(line, fontSize)}
+                {unmarked(line)}
               </tspan>
             ))}
           </text>
-        )}
+          {labelArrows && (
+            // Placed from the title's middle, so the drag (useNodeDrag) moves them with it.
+            <g data-vector-arrows="" pointerEvents="none" fill="none" stroke={labelFill} strokeLinecap="round" strokeLinejoin="round"
+              transform={`${groupLiftTransform ? `${groupLiftTransform} ` : ''}translate(${labelX + labelWidth / 2} ${labelY + labelHeight / 2})`}
+            >
+              {labelArrows}
+            </g>
+          )}
+        </>)}
       </g>
     );
 

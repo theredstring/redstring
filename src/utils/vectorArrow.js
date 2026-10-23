@@ -75,12 +75,24 @@ export function vectorArrow(letter) {
   return { x1, len: x2 - x1, y: above + ARROW_RISE, w, descent, head: ARROW_HEAD, stroke: ARROW_STROKE };
 }
 
-/** Where a → glyph's shaft sits above its baseline, in its em. */
-export function arrowGlyphAxis() {
+/** How wide a run of text is, in its em (EmOne, bold). */
+export function textWidthEm(text) {
+  if (!text) return 0;
   const c = measureCtx();
-  if (!c) return 0.27;
+  if (!c) return text.length * 0.62;
   c.font = FONT;
-  const m = c.measureText('→');
-  if (!Number.isFinite(m.actualBoundingBoxAscent)) return 0.27;
-  return (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2 / REF;
+  return c.measureText(text).width / REF;
+}
+
+/**
+ * How far below a line's middle its baseline is, in its em: where SVG text
+ * set on its central baseline puts the letters' feet.
+ */
+export function centralDrop() {
+  const c = measureCtx();
+  if (!c) return 0.35;
+  c.font = FONT;
+  const m = c.measureText('x');
+  if (!Number.isFinite(m.fontBoundingBoxAscent)) return 0.35;
+  return (m.fontBoundingBoxAscent - m.fontBoundingBoxDescent) / 2 / REF;
 }

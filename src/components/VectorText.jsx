@@ -2,7 +2,10 @@
  * A Thing's name with its vectors' arrows drawn (derivative(r⃗, t)): as HTML
  * (a node's title) and as SVG text (a Thing-group's tab). See vectorArrow.js.
  */
-import { vectorRuns, vectorArrow, arrowGlyphAxis } from '../utils/vectorArrow.js';
+import { VECTOR_MARK, vectorRuns, vectorArrow, unmarked, textWidthEm, centralDrop } from '../utils/vectorArrow.js';
+
+/** A vector's arrow: its shaft from x1 to x2 at y, its head at x2, `h` long. */
+const arrowPath = (x1, x2, y, h) => `M${x1},${y} L${x2},${y} M${x2 - h},${y - h * 0.7} L${x2},${y} L${x2 - h},${y + h * 0.7}`;
 
 /** A letter with its arrow over it, in a line of HTML. */
 function VectorLetter({ letter }) {
@@ -29,7 +32,7 @@ function VectorLetter({ letter }) {
         }}
       >
         <path
-          d={`M${x0},${pad * s} L${x1},${pad * s} M${x1 - h},${pad * s - h * 0.7} L${x1},${pad * s} L${x1 - h},${pad * s + h * 0.7}`}
+          d={arrowPath(x0, x1, pad * s, h)}
           fill="none" stroke="currentColor" strokeWidth={a.stroke * s} strokeLinecap="round" strokeLinejoin="round"
         />
       </svg>
@@ -45,24 +48,29 @@ export function VectorText({ text }) {
 }
 
 /**
- * A name as the inside of an SVG <text>, each vector's arrow a → drawn first,
- * stretched over where its letter goes and raised above it, then the pen sent
- * back for the letter. Text rather than a path, so the arrow rides along when
- * a drag moves the text by its attributes (useNodeDrag).
+ * The arrows over a name drawn as SVG text centred on (0, 0) (textAnchor
+ * middle, dominantBaseline central), its lines `lineHeight` apart: paths to
+ * lay over the text, which is drawn unmarked. Null when it has none.
  */
-export function vectorTspans(text, fontSize) {
-  const runs = vectorRuns(text);
-  if (!runs.some((r) => r.vector)) return text;
-  const glyph = 0.6; // the →, in the letter's em
-  const axis = arrowGlyphAxis() * glyph;
-  return runs.map((r, i) => {
-    if (!r.vector) return r.text;
-    const a = vectorArrow(r.text);
-    return [
-      <tspan key={`${i}a`} data-vector-arrow="" dx={a.x1 * fontSize} fontSize={glyph * fontSize}
-        baselineShift={(a.y - axis) * fontSize} textLength={a.len * fontSize} lengthAdjust="spacingAndGlyphs"
-      >{'→'}</tspan>,
-      <tspan key={i} dx={-(a.x1 + a.len) * fontSize}>{r.text}</tspan>,
-    ];
+export function vectorArrowsOver(lines, fontSize, lineHeight) {
+  if (!lines.some((l) => String(l).includes(VECTOR_MARK))) return null;
+  const paths = [];
+  lines.forEach((line, i) => {
+    const runs = vectorRuns(line);
+    const baseline = (i - (lines.length - 1) / 2) * lineHeight + centralDrop() * fontSize;
+    const start = (-textWidthEm(unmarked(line)) * fontSize) / 2;
+    let before = '';
+    runs.forEach((r, j) => {
+      if (r.vector) {
+        const a = vectorArrow(r.text);
+        const x1 = start + (textWidthEm(before) + a.x1) * fontSize;
+        paths.push(
+          <path key={`${i}.${j}`} d={arrowPath(x1, x1 + a.len * fontSize, baseline - a.y * fontSize, a.head * fontSize)}
+            strokeWidth={a.stroke * fontSize} />,
+        );
+      }
+      before += r.text;
+    });
   });
+  return paths;
 }

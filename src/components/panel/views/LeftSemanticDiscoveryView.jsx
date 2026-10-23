@@ -1523,17 +1523,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
               {/* Manual Search Bar - Always visible */}
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
-                  Search Semantic Web
-                </div>
-
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <input
                     type="text"
                     value={manualQuery}
                     onChange={(e) => setManualQuery(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
-                    placeholder="Search Anything"
+                    placeholder="Search Semantic Web"
                     style={{
                       flex: 1,
                       minWidth: 0,
