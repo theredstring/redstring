@@ -15,8 +15,8 @@ import { measureTextBlockHeight, measureTextWidth, buildNodeFontString } from '.
 let fontLoadListenerAdded = false;
 
 // --- Define constants for preview dimensions ---
-const PREVIEW_NODE_WIDTH = 600; // Wider for preview
-const PREVIEW_NODE_MIN_HEIGHT = 600; // Making it a square
+const PREVIEW_NODE_WIDTH = 720; // Wider for preview
+const PREVIEW_NODE_MIN_HEIGHT = 720; // Making it a square
 const PREVIEW_TEXT_AREA_HEIGHT = 100; // Fixed height for name in preview
 const DESCRIPTION_LINE_HEIGHT = 33; // Height per line for description text — matches Node.jsx's rendered CSS line-height factor (33 * fontSize * lineSpacing * nodeScale)
 const DESCRIPTION_MAX_LINES = 1; // Maximum lines to show (Node.jsx truncates to match)
@@ -214,6 +214,9 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
 
   // --- Calculate Dimensions Based on State ---
   let currentWidth, currentHeight, textAreaHeight, imageWidth, calculatedImageHeight, innerNetworkWidth, innerNetworkHeight, descriptionAreaHeight;
+  // Where the box sits relative to the node's (x, y). Only the preview card moves:
+  // it grows out of the node's middle, so it is centred on the node's resting box.
+  let previewOffsetX = 0, previewOffsetY = 0;
 
   // Shared: compute scaled line height
   const scaledLineHeightShared = (lineHeightBase || 28) * nodeScale * augTs.lineSpacing;
@@ -259,6 +262,10 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     // Reset image dimensions
     imageWidth = 0;
     calculatedImageHeight = 0;
+
+    const resting = getNodeDimensions(node, false, null, lineHeightBase, textSettingsOverride);
+    previewOffsetX = (resting.currentWidth - currentWidth) / 2;
+    previewOffsetY = (resting.currentHeight - currentHeight) / 2;
   } else if (hasImage) {
     currentWidth = baseWidth;
     // Calculate text block height based on expanded width
@@ -385,6 +392,8 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     descriptionAreaHeight,
     scaledPadding: sP,
     scaledCornerRadius: sCR,
+    previewOffsetX,
+    previewOffsetY,
   };
 
   // PERFORMANCE: Store in cache with LRU eviction

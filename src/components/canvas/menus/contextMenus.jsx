@@ -290,8 +290,8 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
             // Calculate screen coordinates like the PieMenu does
             const dimensions = getNodeDimensions(node, previewingNodeId === node.id, null);
             const nodeCenter = {
-              x: node.x + dimensions.currentWidth / 2,
-              y: node.y + dimensions.currentHeight / 2
+              x: node.x + (dimensions.previewOffsetX || 0) + dimensions.currentWidth / 2,
+              y: node.y + (dimensions.previewOffsetY || 0) + dimensions.currentHeight / 2
             };
             // Canvas→client is the container rect plus the live pan/zoom, the
             // exact inverse of the client→canvas math the input handlers use.

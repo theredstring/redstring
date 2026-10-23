@@ -206,8 +206,8 @@ export function createPointerHandlers(ctxRef) {
     // later), so pairing srcNode.x with the pill's dims started the line off
     // the tab whenever the two hadn't caught up — right after a group drag,
     // most of all. setDrawingConnectionEnd already reads it this way.
-    const startX = anchorInfo ? anchorInfo.x : srcNode.x;
-    const startY = anchorInfo ? anchorInfo.y : srcNode.y;
+    const startX = anchorInfo ? anchorInfo.x : srcNode.x + (startNodeDims.previewOffsetX || 0);
+    const startY = anchorInfo ? anchorInfo.y : srcNode.y + (startNodeDims.previewOffsetY || 0);
     const startPt = { x: startX + startNodeDims.currentWidth / 2, y: startY + startNodeDims.currentHeight / 2 };
 
     // Validate mouse coordinates before calculating canvas position

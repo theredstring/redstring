@@ -292,8 +292,8 @@ const EdgeGlowIndicator = ({
         ? getNodeDimensions(node, true, null)
         : precomputedDims || getNodeDimensions(node, false, null);
 
-      cx[i] = node.x + dims.currentWidth / 2;
-      cy[i] = node.y + (isNodePreviewing ? NODE_HEIGHT / 2 : dims.currentHeight / 2);
+      cx[i] = node.x + (dims.previewOffsetX || 0) + dims.currentWidth / 2;
+      cy[i] = node.y + (isNodePreviewing ? (dims.previewOffsetY || 0) + NODE_HEIGHT / 2 : dims.currentHeight / 2);
       colors[i] = glowColor(node.color || node.prototype?.color);
       ids[i] = node.id;
       labels[i] = node.name || node.prototype?.name || node.id;

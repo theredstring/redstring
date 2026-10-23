@@ -42,8 +42,8 @@ export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraph
   const nodeDimensions = getNodeDimensions(nodeData, isNodePreviewing, null);
 
   // Node center in canvas coordinates
-  const nodeCenterCanvasX = nodeData.x + nodeDimensions.currentWidth / 2;
-  const nodeCenterCanvasY = nodeData.y + nodeDimensions.currentHeight / 2;
+  const nodeCenterCanvasX = nodeData.x + (nodeDimensions.previewOffsetX || 0) + nodeDimensions.currentWidth / 2;
+  const nodeCenterCanvasY = nodeData.y + (nodeDimensions.previewOffsetY || 0) + nodeDimensions.currentHeight / 2;
 
   // Map canvas coords -> client coords: the container's rect plus the live
   // pan/zoom, which is the exact inverse of the client→canvas math every input

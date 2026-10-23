@@ -59,15 +59,15 @@ export function isInsideNode(nodeData, clientX, clientY, containerRect, panOffse
   const scaledY = (clientY - containerRect.top - panOffset.y) / zoomLevel + canvasSize.offsetY;
 
   // Get base dimensions
-  const { currentWidth, currentHeight, textAreaHeight, innerNetworkWidth, innerNetworkHeight, scaledPadding } = getNodeDimensions(nodeData, previewingNodeId === nodeData.id, null);
+  const { currentWidth, currentHeight, textAreaHeight, innerNetworkWidth, innerNetworkHeight, scaledPadding, previewOffsetX = 0, previewOffsetY = 0 } = getNodeDimensions(nodeData, previewingNodeId === nodeData.id, null);
 
   // Apply node scale if it exists (for dragged nodes)
   const nodeScale = nodeData.scale || 1;
   const scaledWidth = currentWidth * nodeScale;
   const scaledHeight = currentHeight * nodeScale;
 
-  const nodeX = nodeData.x;
-  const nodeY = nodeData.y;
+  const nodeX = nodeData.x + previewOffsetX;
+  const nodeY = nodeData.y + previewOffsetY;
 
   // Calculate the center point for scaling
   const centerX = nodeX + currentWidth / 2;

@@ -1315,7 +1315,10 @@ export const useCanvasTouch = ({
                     if (leftNodeArea || startedOnNode.current) {
                         // longPressingInstanceId is armed AND we left the node -> Start Connection Draw
                         const startNodeDims = getNodeDimensions(armedNode, previewingNodeId === armedNode.id, null);
-                        const startPt = { x: armedNode.x + startNodeDims.currentWidth / 2, y: armedNode.y + startNodeDims.currentHeight / 2 };
+                        const startPt = {
+                            x: armedNode.x + (startNodeDims.previewOffsetX || 0) + startNodeDims.currentWidth / 2,
+                            y: armedNode.y + (startNodeDims.previewOffsetY || 0) + startNodeDims.currentHeight / 2,
+                        };
 
                         if (!containerRef.current || typeof touch.clientX !== 'number' || typeof touch.clientY !== 'number') {
                             setLongPressingInstanceId(null);

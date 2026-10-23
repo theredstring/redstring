@@ -452,8 +452,8 @@ export function frameDecomposedNode(ctx) {
   if (!node) return;
 
   const dims = getNodeDimensions(node, true, null); // preview (expanded) dimensions
-  const centerX = node.x + dims.currentWidth / 2;
-  const centerY = node.y + dims.currentHeight / 2;
+  const centerX = node.x + dims.previewOffsetX + dims.currentWidth / 2;
+  const centerY = node.y + dims.previewOffsetY + dims.currentHeight / 2;
 
   // Fit against the usable canvas region (panels/header/typelist excluded), in
   // container coordinates — so the expanded node fits and centers within what's

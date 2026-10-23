@@ -157,8 +157,8 @@ function NodeLayer({
             return null;
           }
 
-          const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
-          const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
+          const centerX = activeNodeToRender.x + (dimensions.previewOffsetX || 0) + dimensions.currentWidth / 2;
+          const centerY = activeNodeToRender.y + (dimensions.previewOffsetY || 0) + dimensions.currentHeight / 2;
 
           // While orbiting, the focus node and its overlay render
           // into the orbit layer instead — above the scrim, so the

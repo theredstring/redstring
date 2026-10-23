@@ -32,10 +32,12 @@ export function selectionInRect(rect, nodes, baseSelection, previewingNodeId) {
     // Drawn as a formula: the formula is selected by its own tap, not by a box.
     if (isReplacedInstance(nd.id)) return;
     const dims = getNodeDimensions(nd, previewingNodeId === nd.id, null);
-    const intersects = !(rect.x > nd.x + dims.currentWidth ||
-      rect.x + rect.width < nd.x ||
-      rect.y > nd.y + dims.currentHeight ||
-      rect.y + rect.height < nd.y);
+    const x = nd.x + (dims.previewOffsetX || 0);
+    const y = nd.y + (dims.previewOffsetY || 0);
+    const intersects = !(rect.x > x + dims.currentWidth ||
+      rect.x + rect.width < x ||
+      rect.y > y + dims.currentHeight ||
+      rect.y + rect.height < y);
     if (intersects) final.add(nd.id);
     else final.delete(nd.id);
   });

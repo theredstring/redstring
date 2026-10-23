@@ -2125,7 +2125,7 @@ function NodeCanvas() {
   // The framing scales with viewport width: on narrow/mobile screens the
   // width-constrained fit lands too small and too centered, so zoom in harder and
   // lift the node higher; on wide screens pull back and keep it near center.
-  const DECOMPOSE_ZOOM_FACTOR_WIDE = 0.7;   // pullback on desktop
+  const DECOMPOSE_ZOOM_FACTOR_WIDE = 0.78;  // pullback on desktop
   const DECOMPOSE_ZOOM_FACTOR_NARROW = 0.75; // leave margin on mobile so neighbouring nodes
                                              // stay visible/draggable and there's empty canvas to pan from
   const DECOMPOSE_BIAS_WIDE = 0.08;          // fraction of viewport height above center on desktop
