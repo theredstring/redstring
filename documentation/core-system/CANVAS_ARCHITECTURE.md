@@ -98,7 +98,7 @@ NodeCanvas's JSX is a list of layers. From the bottom:
 6. `NodeLayer part="rest"`: memoized; subscribes to selection, preview, pie target and carousel itself
 7. Group titles
 8. `DeletionGhostLayer`
-9. `PieMenusLayer`: the node pie (`NodePieMenuLayer`, memoized, reads its data from canvasUIStore) and the edge pie (memoized)
+9. `PieMenusLayer`: the node pie (`NodePieMenuLayer`, memoized, reads its data from canvasUIStore), the edge pie (memoized) and the group pie (`GroupPieMenuLayer`: a selected Thing-group's or equation's menu over its title, the edge pie's level row; its buttons are the group panel's actions, published by `ControlPanelsHost` through `pie/groupPieButtons.js`; selecting frames the group, Settings › Input › Zoom on Select, except a box just opened or an equation's symbol tapped, `holdGroupFocus`)
 10. `OrbitDimRect`
 11. `NodeLayer part="top"`: the active node (with the orbit overlay while orbiting), then the dragged node
 12. `SvgOverlays`: marquee, plus sign, video node

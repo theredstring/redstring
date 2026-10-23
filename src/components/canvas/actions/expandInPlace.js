@@ -20,6 +20,7 @@ import useGraphStore from '../../../store/graphStore.js';
 import { projectGraphView, openInPlaceBlock } from '../../../core/openDefinitions.js';
 import { withBoxOpenMorph } from '../groups/boxMorph.js';
 import { opensAsFormula, withFormulaOpenMorph } from '../formats/formula/formulaSpawn.js';
+import { holdGroupFocus } from '../pie/groupPieButtons.js';
 
 /**
  * @returns {Object|null} The group now shown for the expanded node (as viewed), or null.
@@ -42,6 +43,8 @@ export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 
       : store.decomposeNodeToGroup(viewGraphId, prototypeId, definitionIndex, instanceId);
   });
   if (!groupId) return null;
+  // The box's opening frames it; selecting it after doesn't again (Zoom on Select).
+  holdGroupFocus(groupId);
   return projectGraphView(useGraphStore.getState(), viewGraphId)?.groups?.get(groupId) || null;
 }
 

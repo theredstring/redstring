@@ -612,7 +612,11 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     }
     lastTapRef.current = { target: press.target, at: now };
     // A token's tap switches it; that keeps the formula where it is in a selection.
-    tapFormula(obj.groupId, obj.anchorId, { keep: !!press.flip && press.target !== TITLE_TARGET });
+    // A tap on a token acts on it where it is, so selecting doesn't move the camera.
+    tapFormula(obj.groupId, obj.anchorId, {
+      keep: !!press.flip && press.target !== TITLE_TARGET,
+      inPlace: !!press.target && press.target !== TITLE_TARGET,
+    });
     if (press.flip && press.target !== TITLE_TARGET) {
       const { flip } = press;
       flipTimerRef.current = setTimeout(() => flipFormulaToken(obj.groupId, flip), TOKEN_DOUBLE_TAP_MS);

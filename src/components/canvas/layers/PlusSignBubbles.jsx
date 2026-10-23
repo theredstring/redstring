@@ -25,8 +25,8 @@ import { setActionHover, clearActionHoverIf } from '../../../utils/canvas/action
 import { openFormulaComposer } from '../formats/formatsStore.js';
 import { openThingGroupPrompt } from '../thingGroupPrompt/thingGroupPrompt.js';
 
-const BUBBLE_SHARE = 0.46; // diameter, of the plus sign's
-const GAP_SHARE = 0.14; // between the plus and a bubble, of the plus sign's size
+const BUBBLE_SHARE = 0.54; // diameter, of the plus sign's
+const GAP_SHARE = 0.22; // between the plus and a bubble, of the plus sign's size
 const STEP_DEG = 40; // between neighbouring bubbles, clockwise from the top
 const APPEAR_DELAY_MS = 120; // once the plus has mostly turned in
 const STROKE_SHARE = 0.4; // of the plus sign's outline

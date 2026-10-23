@@ -3067,7 +3067,7 @@ function NodeCanvas() {
 
   useEdgePieFraming({
     abstractionCarouselVisible, connectionLabelSize, draggingNodeInfoRef, edgePieMenuButtons,
-    edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView, focusOnSelectEnabled,
+    edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView,
     nodePrototypesMap, placedLabelsRef, selectedEdgeId, selectedEdgeMidpoint, showConnectionNames,
     textSettings,
   });
@@ -3401,7 +3401,7 @@ function NodeCanvas() {
     gamepadPieFocusedIndex, currentPieMenuNodeId, semanticOrbitActive, isTransitioningPieMenu,
     abstractionPrompt, carouselAnimationState, draggingNodeInfo, handlePieMenuHoverChange,
     handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
-    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef,
+    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef, groupLayouts, editingGroupId, cameraCtxRef,
   };
 
   // The pointer handlers' context (P4.04a), assigned during render for the same
@@ -3457,7 +3457,7 @@ function NodeCanvas() {
     isPanningOrZooming, isTouchDeviceRef, lastMousePosRef, panOffsetRef, panSourceRef, panVelocityHistoryRef,
     pinchRef, scheduleGestureBlockClear, setPanAndZoom, setPanOffset, trackpadPanSensitivityRef,
     trackpadZoomEnabled, trackpadZoomSensitivityRef, viewportSize, viewportSizeRef, visibleEdgesRef,
-    visibleNodeIdsRef, zoomLevelRef, zoomOpIdRef,
+    visibleNodeIdsRef, zoomLevelRef, zoomOpIdRef, getFramingRegion, runFramingAfterCommit, animateCanvasView, textSettings,
   };
 
   // Group input (P3.04): one stable handler set reading the latest values here.

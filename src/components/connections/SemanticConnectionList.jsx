@@ -151,11 +151,27 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
     return hit ? hit.otherId : null;
   };
 
+  // Rows whose other end is already in the Web but not yet joined to the seed:
+  // the link rows, which lead the list.
+  const linkable = useMemo(() => {
+    const ids = new Set();
+    if (!graph || !anchor) return ids;
+    const state = { graphs, nodePrototypes };
+    connections.forEach((c) => {
+      if (!presentAs(c) && existingInstanceFor(activeGraphId, c.other, anchor.id, state)) ids.add(c.id);
+    });
+    return ids;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections, structureKey, anchor, atAnchor, nodePrototypes]);
+
   const visible = useMemo(() => {
     const q = lower(filter);
-    if (!q) return connections;
-    return connections.filter((c) => lower(c.predicate).includes(q) || lower(c.other.name).includes(q));
-  }, [connections, filter]);
+    const matching = q
+      ? connections.filter((c) => lower(c.predicate).includes(q) || lower(c.other.name).includes(q))
+      : connections;
+    if (linkable.size === 0) return matching;
+    return [...matching.filter((c) => linkable.has(c.id)), ...matching.filter((c) => !linkable.has(c.id))];
+  }, [connections, filter, linkable]);
 
   const provenanceOf = (c) => ({
     source: c.provider,
@@ -434,7 +450,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     onClick={() => revealInstances(activeGraphId, [anchor.id, presentId], { force: true })}
                     title="Already in this web. Show it"
                   />
-                ) : canAdd && existingInstanceFor(activeGraphId, c.other, anchor.id, { graphs, nodePrototypes }) ? (
+                ) : linkable.has(c.id) ? (
                   <PanelIconButton
                     icon={Link2}
                     size={17}

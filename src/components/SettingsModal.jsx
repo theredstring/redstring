@@ -138,6 +138,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const dragZoomEnabled = useGraphStore(s => s.dragZoomSettings?.enabled);
   const dragZoomAmount = useGraphStore(s => s.dragZoomSettings?.zoomAmount);
   const focusOnSelectEnabled = useGraphStore(s => s.focusOnSelectEnabled !== false);
+  const focusOnSelectConnectionsEnabled = useGraphStore(s => s.focusOnSelectConnectionsEnabled !== false);
+  const focusOnSelectGroupsEnabled = useGraphStore(s => s.focusOnSelectGroupsEnabled !== false);
   const focusOnSelectZoomAmount = useGraphStore(s => s.focusOnSelectZoomAmount ?? 1.0);
   const textSettings = useGraphStore(s => s.textSettings);
   const keyboardSettings = useGraphStore(s => s.keyboardSettings);
@@ -1041,9 +1043,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
 
           <hr className="settings-section-divider" />
 
-          {/* Both zoom behaviours are a toggle over its own amount, laid out the
-              way the glide settings above are: an attached header row, then the
-              bar it governs. One of the two used to have no amount at all. */}
+          {/* A toggle over its own amount, laid out the way the glide settings
+              above are: an attached header row, then the bar it governs. */}
           <div className="settings-section-subtitle">Zoom</div>
           <div className="settings-row settings-row--attached">
             <div className="settings-row-label">
@@ -1066,15 +1067,48 @@ const SettingsModal = ({ isVisible, onClose }) => {
               suffix=""
             />
           </div>
-          <div className="settings-row settings-row--attached">
+
+          <hr className="settings-section-divider" />
+
+          {/* What selecting something frames, each on its own, over one shared
+              tightness: a Thing (with its pie), a connection (its menu), a
+              Thing-group or equation (the whole group with its menu). */}
+          <div className="settings-section-subtitle">Zoom on Select</div>
+          <div className="settings-row">
             <div className="settings-row-label">
-              Zoom on Select
-              <div className="settings-row-description">Zoom to frame a single Thing when you select it. Ignored when multiple Things are selected.</div>
+              Things
+              <div className="settings-row-description">Frame a single Thing when you select it. Ignored when multiple Things are selected.</div>
             </div>
             <Toggle
               checked={!!focusOnSelectEnabled}
               onChange={() => useGraphStore.getState().toggleFocusOnSelectEnabled?.()}
             />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Connections
+              <div className="settings-row-description">Frame a connection's menu when you select it.</div>
+            </div>
+            <Toggle
+              checked={!!focusOnSelectConnectionsEnabled}
+              onChange={() => useGraphStore.getState().toggleFocusOnSelectConnectionsEnabled?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Thing-Groups and Equations
+              <div className="settings-row-description">Frame the whole group when you select it.</div>
+            </div>
+            <Toggle
+              checked={!!focusOnSelectGroupsEnabled}
+              onChange={() => useGraphStore.getState().toggleFocusOnSelectGroupsEnabled?.()}
+            />
+          </div>
+          <div className="settings-row settings-row--attached">
+            <div className="settings-row-label">
+              Tightness
+              <div className="settings-row-description">How closely selecting frames what you picked.</div>
+            </div>
           </div>
           <div className="settings-slider-row">
             <MaroonSlider
@@ -1083,7 +1117,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
               max={1.5}
               step={0.05}
               suffix="x"
-              disabled={!focusOnSelectEnabled}
+              disabled={!focusOnSelectEnabled && !focusOnSelectConnectionsEnabled && !focusOnSelectGroupsEnabled}
               onChange={(v) => useGraphStore.getState().setFocusOnSelectZoomAmount?.(v)}
             />
           </div>

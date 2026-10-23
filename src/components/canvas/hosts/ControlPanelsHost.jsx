@@ -36,6 +36,7 @@ import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
 import { Superscript, WholeWord } from 'lucide-react';
+import { buildGroupPieButtons, setGroupPieButtons } from '../pie/groupPieButtons.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -424,6 +425,43 @@ export default function ControlPanelsHost({ ctx }) {
       setSelectedGroup(refreshedGroup);
     }
   }, [activeGraphId, selectedGroup, storeActions, setSelectedGroup]);
+
+  // The group pie (pie/groupPieButtons.js): this panel's actions, drawn above a
+  // selected Thing-group's or equation's title by GroupPieMenuLayer. Its buttons
+  // call through a ref, so the list is rebuilt only when the set changes.
+  const groupPieHandlersRef = useRef(null);
+  groupPieHandlersRef.current = {
+    swapFormat,
+    onDiveIntoDefinition: handleNodeGroupDiveIntoDefinition,
+    onOpenInPanel: () => {
+      handleNodeGroupOpenInPanel();
+      if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+    },
+    onCombine: groupPanelMode === 'format' ? handleFormulaCondense : handleNodeGroupCombine,
+    onUpdateDefinition: handleNodeGroupUpdateDefinition,
+    onRefreshFromDefinition: handleNodeGroupRefreshFromDefinition,
+    onEdit: handleGroupPanelEdit,
+    onColor: handleGroupPanelColor,
+    onUngroup: handleGroupPanelUngroup,
+    onDelete: groupPanelMode === 'format' ? handleFormulaDelete : handleNodeGroupDelete,
+    onConvertToNodeGroup: handleGroupPanelConvertToNodeGroup,
+    setFormulaNames: (shown) => { if (selectedGroup) setFormulaNames(selectedGroup.id, shown); },
+    setStandardNotation: (standard) => setNotation(standard ? 'standard' : 'explicit'),
+  };
+  const groupPieButtons = useMemo(() => {
+    const handlers = Object.fromEntries(Object.keys(groupPieHandlersRef.current)
+      .map(key => [key, (...args) => groupPieHandlersRef.current[key]?.(...args)]));
+    return buildGroupPieButtons({
+      mode: groupPanelMode, group: selectedGroup, formulaText: groupFormulaText, currentFormat,
+      formulaNames, standardNotation, handlers,
+    });
+  // The group is read for its kind only; a rename or move is no new set of buttons.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupPanelMode, selectedGroup?.id, selectedGroup?.isOpenDefinition, selectedGroup?.linkedNodePrototypeId, groupFormulaText, currentFormat, formulaNames, standardNotation]);
+  useEffect(() => {
+    setGroupPieButtons(selectedGroup?.id ?? null, groupPieButtons);
+  }, [selectedGroup?.id, groupPieButtons]);
+  useEffect(() => () => setGroupPieButtons(null, null), []);
 
   // --- Abstraction Control Panel Management ---
   useEffect(() => {

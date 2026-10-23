@@ -1,10 +1,11 @@
 /**
- * The node pie and the edge pie, drawn under the active node (moved verbatim
- * from NodeCanvas). Both menus are memoized (P5.03).
+ * The node pie, the edge pie and the group pie, drawn under the active node
+ * (the first two moved verbatim from NodeCanvas). All are memoized (P5.03).
  */
 import { Profiler, memo, useCallback, useRef } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import NodePieMenuLayer from './NodePieMenuLayer.jsx';
+import GroupPieMenuLayer from './GroupPieMenuLayer.jsx';
 import PieMenu from '../../../PieMenu.jsx';
 
 // The edge pie, memoized like the node pie (P5.03): its props are the anchor and
@@ -19,6 +20,7 @@ export default function PieMenusLayer({ ctx }) {
     abstractionPrompt, carouselAnimationState, draggingNodeInfo, handlePieMenuHoverChange,
     handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
     edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef,
+    groupLayouts, editingGroupId, cameraCtxRef,
   } = ctx;
 
   const placedAnchorRef = useRef(null);
@@ -141,6 +143,18 @@ export default function PieMenusLayer({ ctx }) {
           />
         );
       })()}
+
+      {/* Group pie — centred over a selected Thing-group's or equation's title */}
+      <GroupPieMenuLayer
+        groupLayouts={groupLayouts}
+        editingGroupId={editingGroupId}
+        dragging={Boolean(draggingNodeInfo)}
+        abstractionCarouselVisible={abstractionCarouselVisible}
+        semanticOrbitActive={semanticOrbitActive}
+        nodeScale={textSettings?.nodeScale ?? 1.0}
+        onHoverChange={handlePieMenuHoverChange}
+        cameraCtxRef={cameraCtxRef}
+      />
 
     </Profiler>
   );

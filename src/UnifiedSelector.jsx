@@ -26,6 +26,40 @@ const shortTypeName = (type) => {
   return name.length > TYPE_NAME_LIMIT ? `${name.slice(0, TYPE_NAME_LIMIT).trimEnd()}...` : name;
 };
 
+// Drawn as a pie menu button: light grey, maroon ring and number.
+const CardBadge = ({ count }) => {
+  if (!(count > 0)) return null;
+  return (
+    <div
+      aria-label={`${count} ${count === 1 ? 'Web' : 'Webs'}`}
+      style={{
+        position: 'absolute',
+        top: -7,
+        right: -7,
+        zIndex: 2,
+        minWidth: 22,
+        height: 22,
+        padding: '0 5px',
+        boxSizing: 'border-box',
+        borderRadius: 11,
+        background: '#DEDADA',
+        border: '2px solid maroon',
+        color: 'maroon',
+        fontFamily: "'EmOne', sans-serif",
+        fontWeight: 'bold',
+        fontSize: 11,
+        lineHeight: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        pointerEvents: 'none',
+      }}
+    >
+      {count}
+    </div>
+  );
+};
+
 const UnifiedSelector = ({
   mode,
   isVisible,
@@ -62,6 +96,9 @@ const UnifiedSelector = ({
   // of its own; `headerContent` under it, fixed above the box's scrolling.
   headerAside = null,
   headerContent = null,
+  // A number for a Thing's card, in a badge at its top right, as a phone's
+  // app icon carries one; none for 0 (New Web's Thing page: its Webs).
+  cardBadge = null,
   autoFocus = false,
   inputRef = null,
   className = '',
@@ -687,6 +724,7 @@ const UnifiedSelector = ({
                         >
                           {prototype.name}
                         </span>
+                        {cardBadge && <CardBadge count={cardBadge(prototype)} />}
                       </div>
                     ))}
                   </div>}

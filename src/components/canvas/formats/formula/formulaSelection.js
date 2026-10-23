@@ -10,6 +10,7 @@ import useCanvasUIStore from '../../../../store/canvasUIStore.js';
 import useGraphStore from '../../../../store/graphStore.js';
 import { formatGroupOfAnchor, formatAnchorOfGroup, formatOfAnchor } from '../replaced.js';
 import { deleteFormula } from './deleteFormula.js';
+import { holdGroupFocus } from '../../pie/groupPieButtons.js';
 
 /** Select a group from the canvas, the way a click on its title does (groupInput.titleClick). */
 function selectGroup(groupId) {
@@ -39,13 +40,15 @@ export function withSelectedFormula(ids) {
  * A tap on a formula. Alone, or onto a selection that is only it, it selects
  * the formula. With anything else selected it joins them, as a tapped Thing
  * does, and a tap on it there takes it back out, unless that tap switches a
- * token (`keep`), which is about the formula, not the selection.
+ * token (`keep`), which is about the formula, not the selection. A tap on a
+ * token (`inPlace`) selects it without framing it (Zoom on Select).
  */
-export function tapFormula(groupId, anchorId, { keep = false } = {}) {
+export function tapFormula(groupId, anchorId, { keep = false, inPlace = false } = {}) {
   const ui = useCanvasUIStore.getState();
   const current = withSelectedFormula(ui.selectedInstanceIds);
   const alone = current.size === 0 || (current.size === 1 && current.has(anchorId));
   if (!anchorId || alone) {
+    if (inPlace) holdGroupFocus(groupId);
     selectGroup(groupId);
     return;
   }

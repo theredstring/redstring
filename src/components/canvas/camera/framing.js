@@ -167,6 +167,69 @@ export function focusEdgePieMenuInViewWith(ctx, anchor, buttonCount, labelRect =
   });
 }
 
+// Thing-group and equation framing: the whole group (its box, title and all)
+// with its menu above the title, fitted into the usable region. Unlike the
+// connection's, this zooms in as well as out, as far as the manual zoom goes
+// (MAX_ZOOM), so a small group fills the view and a big one is pulled back to.
+const FOCUS_GROUP_FILL = 0.92;          // of the region the framed box fills
+const FOCUS_GROUP_PADDING_RATIO = 0.4;  // margin around it, in bubble diameters
+
+/**
+ * Frame a selected Thing-group or equation with its pie.
+ *
+ * @param {object} ctx - the camera context (cameraCtxRef.current)
+ * @param {{x, y, w, h}} box - the group as drawn, title included, canvas units
+ * @param {{x, y}} anchor - the group pie's anchor (the title's top middle)
+ * @param {number} buttonCount - how many buttons the pie has
+ * @param {number} zoomAmount - the Zoom on Select tightness setting
+ */
+export function focusGroupInViewWith(ctx, box, anchor, buttonCount, zoomAmount = 1.0) {
+  const {
+    runFramingAfterCommit, getFramingRegion, MIN_ZOOM, canvasSize, viewportSize, zoomLevelRef, panOffsetRef,
+    animateCanvasView, textSettings,
+  } = ctx;
+  if (!FOCUS_ON_SELECT_ENABLED || !box || !runFramingAfterCommit) return;
+  runFramingAfterCommit(() => {
+    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+    const bSize = 120 * pieScale;
+    const bPad = 32 * pieScale;
+    let minX = box.x, minY = box.y, maxX = box.x + box.w, maxY = box.y + box.h;
+    if (anchor && buttonCount > 0) {
+      // The pie as PieMenu lays it out (line mode, level), as the connection's is framed.
+      const pie = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
+        count: buttonCount, angle: 0, step: bSize + bPad, perpOffset: bSize + bPad * 2, rowGap: bSize + bPad,
+      });
+      minX = Math.min(minX, pie.minX); minY = Math.min(minY, pie.minY);
+      maxX = Math.max(maxX, pie.maxX); maxY = Math.max(maxY, pie.maxY);
+    }
+    const pad = bSize * FOCUS_GROUP_PADDING_RATIO;
+    const boundsW = Math.max(1, maxX - minX + pad * 2);
+    const boundsH = Math.max(1, maxY - minY + pad * 2);
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    // The group panel comes up with the selection: aim at the gap above it.
+    const vb = getFramingRegion({ reserveBottomPanel: true });
+    const fit = Math.min((vb.width * FOCUS_GROUP_FILL) / boundsW, (vb.height * FOCUS_GROUP_FILL) / boundsH);
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, fit * zoomAmount));
+    const targetPan = {
+      x: vb.x + vb.width / 2 - (centerX - canvasSize.offsetX) * tz,
+      y: vb.y + vb.height / 2 - (centerY - canvasSize.offsetY) * tz,
+    };
+    const finalPan = clampPan(targetPan, tz, viewportSize, canvasSize);
+
+    // Already essentially framed? Leave the view where it is.
+    const curZoom = zoomLevelRef.current;
+    const curPan = panOffsetRef.current;
+    const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
+    const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
+      && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
+    if (zoomClose && panClose) return;
+
+    animateCanvasView(finalPan, tz);
+  });
+}
+
 // Room left around a box opened in place when it is brought into view, in screen px.
 const BOX_VIEW_PADDING = 48;
 

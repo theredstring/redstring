@@ -202,6 +202,8 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {Object} gridSettings - `{ mode: 'off'|'move'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
  * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
  * @property {boolean} focusOnSelectEnabled - Whether selecting a single Thing frames it in view.
+ * @property {boolean} focusOnSelectConnectionsEnabled - Whether selecting a connection frames its menu in view.
+ * @property {boolean} focusOnSelectGroupsEnabled - Whether selecting a Thing-group or equation frames it in view.
  * @property {number} focusOnSelectZoomAmount - Framing tightness for focus-on-select, in range [0.5, 1.5]; 1.0 is the tuned default.
  * @property {Object} autoLayoutSettings - Force-directed layout parameters.
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
@@ -2100,6 +2102,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     focusOnSelectEnabled: (() => {
       try {
         const raw = localStorage.getItem('redstring_focus_on_select_enabled');
+        return raw ? raw === 'true' : true;
+      } catch (_) {
+        return true;
+      }
+    })(),
+    // The same, for a connection (its menu) and for a Thing-group or equation
+    // (the whole group with its menu). Each has its own toggle in Settings.
+    focusOnSelectConnectionsEnabled: (() => {
+      try {
+        const raw = localStorage.getItem('redstring_focus_on_select_connections_enabled');
+        return raw ? raw === 'true' : true;
+      } catch (_) {
+        return true;
+      }
+    })(),
+    focusOnSelectGroupsEnabled: (() => {
+      try {
+        const raw = localStorage.getItem('redstring_focus_on_select_groups_enabled');
         return raw ? raw === 'true' : true;
       } catch (_) {
         return true;
@@ -7709,6 +7729,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.focusOnSelectEnabled = !draft.focusOnSelectEnabled;
       try {
         localStorage.setItem('redstring_focus_on_select_enabled', String(draft.focusOnSelectEnabled));
+      } catch (_) { }
+    })),
+
+    /** Toggles framing a connection's menu when the connection is selected. Persists to localStorage. */
+    toggleFocusOnSelectConnectionsEnabled: () => set(produce((draft) => {
+      draft.focusOnSelectConnectionsEnabled = !draft.focusOnSelectConnectionsEnabled;
+      try {
+        localStorage.setItem('redstring_focus_on_select_connections_enabled', String(draft.focusOnSelectConnectionsEnabled));
+      } catch (_) { }
+    })),
+
+    /** Toggles framing a Thing-group or equation when it is selected. Persists to localStorage. */
+    toggleFocusOnSelectGroupsEnabled: () => set(produce((draft) => {
+      draft.focusOnSelectGroupsEnabled = !draft.focusOnSelectGroupsEnabled;
+      try {
+        localStorage.setItem('redstring_focus_on_select_groups_enabled', String(draft.focusOnSelectGroupsEnabled));
       } catch (_) { }
     })),
 

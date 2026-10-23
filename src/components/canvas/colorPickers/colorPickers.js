@@ -39,7 +39,10 @@ export function openGroupColorPicker(groupId, e) {
 
   // Position the color picker near the clicked element if possible
   let position;
-  if (e && e.currentTarget) {
+  if (e && Number.isFinite(e.x) && Number.isFinite(e.y) && !e.currentTarget) {
+    // A point on screen ({ x, y }): where the group pie's Palette was pressed.
+    position = { x: e.x, y: e.y };
+  } else if (e && e.currentTarget) {
     const rect = e.currentTarget.getBoundingClientRect();
     position = { x: rect.right, y: rect.bottom };
   } else {
