@@ -36,7 +36,7 @@ import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
 import { Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
-import { buildGroupPieButtons, setGroupPieButtons } from '../pie/groupPieButtons.js';
+import { buildGroupPieButtons, setGroupPieButtons, reframeGroup } from '../pie/groupPieButtons.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -172,6 +172,7 @@ export default function ControlPanelsHost({ ctx }) {
     if (!groupPanelTarget || !activeGraphId) return;
     const next = formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length];
     if (next === currentFormat) return;
+    reframeGroup(groupPanelTarget.id);
     if (next === 'things') showAsThings(activeGraphId, groupPanelTarget.id);
     else showFormatInPlace({ source: 'group', sourceId: groupPanelTarget.id, graphId: activeGraphId, format: next });
   };
@@ -179,6 +180,11 @@ export default function ControlPanelsHost({ ctx }) {
   // when the formula has an operation the two write differently.
   const standardNotation = useFormatsStore(selectStandard);
   const formulaNames = useFormatsStore((s) => !!groupPanelTarget && s.namesShown.has(groupPanelTarget.id));
+  // By name or by symbol: the formula's width changes, so it is framed again.
+  const showFormulaNames = (groupId, shown) => {
+    reframeGroup(groupId);
+    setFormulaNames(groupId, shown);
+  };
   const formatToggles = currentFormat === 'formula'
     ? [
       // This formula's Things by their names (Pressure × Volume), or by their symbols (P V).
@@ -186,7 +192,7 @@ export default function ControlPanelsHost({ ctx }) {
         key: 'reading',
         icon: (size) => <WholeWord size={size} />,
         title: formulaNames ? 'Show Symbols' : 'Show Names',
-        onClick: () => setFormulaNames(groupPanelTarget.id, !formulaNames),
+        onClick: () => showFormulaNames(groupPanelTarget.id, !formulaNames),
       },
       ...(/[×^]/.test(groupFormulaText || '') ? [{
         key: 'notation',
@@ -453,7 +459,7 @@ export default function ControlPanelsHost({ ctx }) {
     onUngroup: handleGroupPanelUngroup,
     onDelete: groupPanelMode === 'format' ? handleFormulaDelete : handleNodeGroupDelete,
     onConvertToNodeGroup: handleGroupPanelConvertToNodeGroup,
-    setFormulaNames: (shown) => { if (selectedGroup) setFormulaNames(selectedGroup.id, shown); },
+    setFormulaNames: (shown) => { if (selectedGroup) showFormulaNames(selectedGroup.id, shown); },
     setStandardNotation: (standard) => setNotation(standard ? 'standard' : 'explicit'),
   };
   const groupPieButtons = useMemo(() => {

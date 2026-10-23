@@ -39,6 +39,21 @@ export function takeGroupFocusHold(groupId) {
   return held;
 }
 
+// A selected group about to be shown another way (as its formula or its
+// Things, by its names or its symbols), which changes its size where it
+// stands: framed again once its new buttons are published, as what it becomes.
+let reframe = null;
+/** Frame `groupId` again, as it is next shown (GroupPieMenuLayer). */
+export function reframeGroup(groupId) {
+  reframe = groupId ? { groupId, buttons: useGroupPieStore.getState().buttons } : null;
+}
+/** Whether `groupId` has a reframe waiting and `buttons` are its new set; clears it if so. */
+export function takeGroupReframe(groupId, buttons) {
+  if (!reframe || reframe.groupId !== groupId || reframe.buttons === buttons) return false;
+  reframe = null;
+  return true;
+}
+
 /** A screen rect around where a pie button was pressed, for the hurtle into a definition. */
 const rectAt = (pos) => (pos ? { left: pos.x - 20, top: pos.y - 20, width: 40, height: 40 } : null);
 

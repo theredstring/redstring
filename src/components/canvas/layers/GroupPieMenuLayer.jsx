@@ -9,7 +9,9 @@
  * (its band's top edge while untitled), from the formula objects.
  *
  * Selecting one frames it, the whole group with its menu (Settings, Zoom on
- * Select: Thing-Groups and Equations; framing.focusGroupInViewWith).
+ * Select: Thing-Groups and Equations; framing.focusGroupInViewWith). Shown
+ * another way while selected (pie/groupPieButtons.reframeGroup), it is framed
+ * again as what it becomes.
  *
  * It leaves while the group is dragged, while its name is being edited and
  * while the carousel or orbit holds the screen, and comes back after. The last
@@ -19,7 +21,7 @@
 import { Profiler, memo, useCallback, useEffect, useRef } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import PieMenu from '../../../PieMenu.jsx';
-import { useGroupPieStore, takeGroupFocusHold } from '../pie/groupPieButtons.js';
+import { useGroupPieStore, takeGroupFocusHold, takeGroupReframe } from '../pie/groupPieButtons.js';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { focusGroupInViewWith } from '../camera/framing.js';
@@ -98,6 +100,19 @@ function GroupPieMenuLayer({
     if (!ctx || !box) return;
     focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
   }, [groupId, live, focusEnabled, zoomAmount, cameraCtxRef]);
+
+  // Shown another way (formula or Things, names or symbols): framed again as
+  // what it becomes, the camera moving with the morph, as opening a Thing
+  // frames its box. Asked for, so it doesn't wait on Zoom on Select.
+  useEffect(() => {
+    if (!groupId || !takeGroupReframe(groupId, buttons)) return;
+    const l = latestRef.current;
+    if (l.dragging || l.abstractionCarouselVisible || l.semanticOrbitActive) return;
+    const ctx = cameraCtxRef?.current;
+    const box = groupBoxOf(groupId, l.groupLayouts, l.formulaObjects);
+    if (!ctx || !box) return;
+    focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
+  }, [groupId, buttons, zoomAmount, cameraCtxRef]);
 
   const shown = latchRef.current;
   if (!shown) return null;
