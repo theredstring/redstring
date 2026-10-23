@@ -187,50 +187,97 @@ const FOCUS_GROUP_PADDING_RATIO = 0.4;  // margin around it, in bubble diameters
  * @param {number} zoomAmount - the Zoom on Select tightness setting
  */
 export function focusGroupInViewWith(ctx, box, anchor, buttonCount, zoomAmount = 1.0) {
-  const {
-    runFramingAfterCommit, getFramingRegion, MIN_ZOOM, canvasSize, viewportSize, zoomLevelRef, panOffsetRef,
-    animateCanvasView, textSettings,
-  } = ctx;
+  const { runFramingAfterCommit, MIN_ZOOM } = ctx;
   if (!FOCUS_ON_SELECT_ENABLED || !box || !runFramingAfterCommit) return;
   runFramingAfterCommit(() => {
-    const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
-    const bSize = 120 * pieScale;
-    const bPad = 32 * pieScale;
-    let minX = box.x, minY = box.y, maxX = box.x + box.w, maxY = box.y + box.h;
-    if (anchor && buttonCount > 0) {
-      // The pie as PieMenu lays it out (line mode, level), as the connection's is framed.
-      const pie = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
-        count: buttonCount, angle: 0, step: bSize + bPad, perpOffset: bSize + bPad * 2, rowGap: bSize + bPad,
-      });
-      minX = Math.min(minX, pie.minX); minY = Math.min(minY, pie.minY);
-      maxX = Math.max(maxX, pie.maxX); maxY = Math.max(maxY, pie.maxY);
-    }
-    const pad = bSize * FOCUS_GROUP_PADDING_RATIO;
-    const boundsW = Math.max(1, maxX - minX + pad * 2);
-    const boundsH = Math.max(1, maxY - minY + pad * 2);
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    // The group panel comes up with the selection: aim at the gap above it.
-    const vb = getFramingRegion({ reserveBottomPanel: true });
-    const fit = Math.min((vb.width * FOCUS_GROUP_FILL) / boundsW, (vb.height * FOCUS_GROUP_FILL) / boundsH);
-    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, fit * zoomAmount));
-    const targetPan = {
-      x: vb.x + vb.width / 2 - (centerX - canvasSize.offsetX) * tz,
-      y: vb.y + vb.height / 2 - (centerY - canvasSize.offsetY) * tz,
-    };
-    const finalPan = clampPan(targetPan, tz, viewportSize, canvasSize);
-
-    // Already essentially framed? Leave the view where it is.
-    const curZoom = zoomLevelRef.current;
-    const curPan = panOffsetRef.current;
-    const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
-    const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
-      && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
-    if (zoomClose && panClose) return;
-
-    animateCanvasView(finalPan, tz);
+    const f = groupFrameWith(ctx, box, anchor, buttonCount);
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, f.fit * zoomAmount));
+    panToGroupFrameWith(ctx, tz, f.centerX, f.centerY, f.vb);
   });
+}
+
+// A box that has just opened, framed by how big it is: a small one near its
+// title's framing, pulled back by OPENED_BOX_TITLE_ZOOM; a bigger one zoomed out
+// until all of it shows; one too big for that stops at OPENED_BOX_FLOOR_ZOOM of
+// the title's framing, with its title and menu at the top of the view.
+const OPENED_BOX_TITLE_ZOOM = 0.42;
+const OPENED_BOX_FLOOR_ZOOM = 0.3;
+
+/**
+ * Frame a box that has just opened (a Thing decomposed into its thing group) with
+ * its menu, by its size (see OPENED_BOX_TITLE_ZOOM).
+ *
+ * @param {{x, y, w, h}} titleBox - its title pill, canvas units
+ * @param {{x, y, w, h}} wholeBox - the box as drawn, title included
+ */
+export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, buttonCount, zoomAmount = 1.0) {
+  const { runFramingAfterCommit, MIN_ZOOM } = ctx;
+  if (!FOCUS_ON_SELECT_ENABLED || !titleBox || !wholeBox || !runFramingAfterCommit) return;
+  runFramingAfterCommit(() => {
+    const title = groupFrameWith(ctx, titleBox, anchor, buttonCount);
+    const whole = groupFrameWith(ctx, wholeBox, anchor, buttonCount);
+    const titleZoom = title.fit * zoomAmount;
+    const floor = titleZoom * OPENED_BOX_FLOOR_ZOOM;
+    let tz = Math.min(titleZoom * OPENED_BOX_TITLE_ZOOM, whole.fit * zoomAmount);
+    let centerX = whole.centerX;
+    let centerY = whole.centerY;
+    if (tz < floor) {
+      // Too big to show whole: its top (menu, title) at the top of the view.
+      tz = floor;
+      centerX = title.centerX;
+      centerY = whole.top + (whole.vb.height / 2) / tz;
+    }
+    tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, tz));
+    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb);
+  });
+}
+
+/**
+ * A group frame's bounds (the box, its pie as PieMenu lays it out, and a margin),
+ * its centre, the zoom that fits it to the region above the group panel, and the
+ * top of it in canvas units.
+ */
+function groupFrameWith(ctx, box, anchor, buttonCount) {
+  const { getFramingRegion, textSettings } = ctx;
+  const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+  const bSize = 120 * pieScale;
+  const bPad = 32 * pieScale;
+  let minX = box.x, minY = box.y, maxX = box.x + box.w, maxY = box.y + box.h;
+  if (anchor && buttonCount > 0) {
+    // The pie as PieMenu lays it out (line mode, level), as the connection's is framed.
+    const pie = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
+      count: buttonCount, angle: 0, step: bSize + bPad, perpOffset: bSize + bPad * 2, rowGap: bSize + bPad,
+    });
+    minX = Math.min(minX, pie.minX); minY = Math.min(minY, pie.minY);
+    maxX = Math.max(maxX, pie.maxX); maxY = Math.max(maxY, pie.maxY);
+  }
+  const pad = bSize * FOCUS_GROUP_PADDING_RATIO;
+  const boundsW = Math.max(1, maxX - minX + pad * 2);
+  const boundsH = Math.max(1, maxY - minY + pad * 2);
+  // The group panel comes up with the selection: aim at the gap above it.
+  const vb = getFramingRegion({ reserveBottomPanel: true });
+  const fit = Math.min((vb.width * FOCUS_GROUP_FILL) / boundsW, (vb.height * FOCUS_GROUP_FILL) / boundsH);
+  return { fit, vb, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2, top: minY - pad };
+}
+
+/** Animate to `tz` with (centerX, centerY) in the middle of `vb`, unless already there. */
+function panToGroupFrameWith(ctx, tz, centerX, centerY, vb) {
+  const { canvasSize, viewportSize, zoomLevelRef, panOffsetRef, animateCanvasView } = ctx;
+  const targetPan = {
+    x: vb.x + vb.width / 2 - (centerX - canvasSize.offsetX) * tz,
+    y: vb.y + vb.height / 2 - (centerY - canvasSize.offsetY) * tz,
+  };
+  const finalPan = clampPan(targetPan, tz, viewportSize, canvasSize);
+
+  // Already essentially framed? Leave the view where it is.
+  const curZoom = zoomLevelRef.current;
+  const curPan = panOffsetRef.current;
+  const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
+  const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
+    && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
+  if (zoomClose && panClose) return;
+
+  animateCanvasView(finalPan, tz);
 }
 
 // Room left around a box opened in place when it is brought into view, in screen px.

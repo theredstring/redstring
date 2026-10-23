@@ -26,14 +26,12 @@ import PieMenu from '../../../PieMenu.jsx';
 import { useGroupPieStore, takeGroupFocusHold, takeGroupReframe } from '../pie/groupPieButtons.js';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
-import { focusGroupInViewWith } from '../camera/framing.js';
+import { focusGroupInViewWith, focusOpenedBoxInViewWith } from '../camera/framing.js';
 import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 
 // PieMenu's BUBBLE_SIZE, before scaling.
 const BUBBLE_SIZE = 120;
-// A box that has just opened is framed by its title like a selection, pulled back
-// this much further so more of what opened shows around it.
-const OPENED_BOX_ZOOM = 0.5;
+
 
 /**
  * The pie's anchor: over the middle of a group's title, in canvas coordinates,
@@ -116,9 +114,12 @@ function GroupPieMenuLayer({
     const l = latestRef.current;
     if (l.dragging || l.abstractionCarouselVisible || l.semanticOrbitActive) return;
     const ctx = cameraCtxRef?.current;
+    if (!ctx) return;
     const box = selectionFrameOf(groupId, l.groupLayouts, l.formulaObjects);
-    if (!ctx || !box) return;
-    focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, opened ? zoomAmount * OPENED_BOX_ZOOM : zoomAmount);
+    const whole = groupBoxOf(groupId, l.groupLayouts, l.formulaObjects);
+    // Just opened: framed by how big it is, its title and menu always in view.
+    if (opened && box && whole) focusOpenedBoxInViewWith(ctx, box, whole, l.anchor, l.buttonCount, zoomAmount);
+    else if (box) focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
   }, [groupId, live, focusEnabled, zoomAmount, cameraCtxRef]);
 
   // Shown another way (formula or Things, names or symbols): framed again as
