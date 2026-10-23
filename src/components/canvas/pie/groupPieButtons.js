@@ -10,9 +10,10 @@
  */
 import { create } from 'zustand';
 import {
-  ArrowUpFromDot, Combine, Edit3, NotebookText, Palette, RefreshCw, Save, Shapes, Sigma, SquarePlus, Superscript,
+  ArrowUpFromDot, Combine, Edit3, NotebookText, Palette, RefreshCw, Save, Scaling, Shapes, Sigma, SquarePlus, Superscript,
   Trash2, Ungroup, WholeWord,
 } from 'lucide-react';
+import { nodeSizeLabel } from '../../../constants';
 
 const NO_BUTTONS = Object.freeze([]);
 
@@ -120,6 +121,8 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
         action: () => h.setStandardNotation(!standardNotation),
       });
     }
+    // Its size, in a Thing's steps (M → L → XL → XS → S → M), saved as group.formulaSize.
+    buttons.push({ id: 'group-size', label: `Size: ${nodeSizeLabel(group.formulaSize ?? 1)}`, icon: Scaling, action: () => h.cycleFormulaSize() });
     if (isThingGroup) buttons.push({ id: 'group-combine', label: 'Combine Into Thing', icon: Combine, action: () => h.onCombine() });
   }
   buttons.push(

@@ -56,7 +56,7 @@ const PreviewFormula = ({ obj, scale, minPx, theme }) => {
         </text>
       )}
       <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} rx={G.innerCanvasCornerRadius} ry={G.innerCanvasCornerRadius} fill={ground} />
-      {FORMULA_FONT * scale >= minPx && obj.tokens.map((t, i) => {
+      {(obj.font ?? FORMULA_FONT) * scale >= minPx && obj.tokens.map((t, i) => {
         const b = obj.boxes[i];
         if (!b) return null;
         if (b.root) {

@@ -11,6 +11,7 @@ import { THUMBNAIL_MAX_DIMENSION, nextNodeSizeStep, nodeSizeLabel } from '../../
 import { copySelection } from '../../../utils/clipboard.js';
 import { generateThumbnail, loadImageFileAsDataUrl } from '../../../utils.js';
 import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
+import { resizeNodeInPlace } from '../actions/resizeNode.js';
 import { getPrototypeIdFromItem } from '../../../utils/abstraction.js';
 import { resolveChain } from '../../../wizard/tools/utils/abstractionSpec.js';
 import useGraphStore from '../../../store/graphStore.js';
@@ -307,7 +308,8 @@ export function buildNodePieMenuPages(ctx) {
       // drop. nextNodeSizeStep snaps the current value to the nearest named step
       // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
       // sizeMul into an effective node scale, so both the box and its label grow
-      // together, on top of the global node-size scope.
+      // together, on top of the global node-size scope. It grows around its
+      // middle (actions/resizeNode.js), not out from its top-left corner.
       id: 'change-size',
       label: (() => {
         // Whichever menu is actually up. The control panel can outlive the pie
@@ -322,12 +324,7 @@ export function buildNodePieMenuPages(ctx) {
         const instance = nodes.find(n => n.id === instanceId);
         if (!instance || !activeGraphId) return;
         const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
-        storeActions.updateNodeInstance(
-          activeGraphId,
-          instanceId,
-          (inst) => { inst.sizeMul = next; },
-          { type: 'node_resize', finalize: true }
-        );
+        resizeNodeInPlace(activeGraphId, instance, next);
         // The hover chip snapshots its label when the pointer enters the
         // button, so it would otherwise keep showing the pre-click size.
         // Refresh it in place (same id → same chip, instant text swap) so it

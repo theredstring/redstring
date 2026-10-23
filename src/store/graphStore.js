@@ -1133,14 +1133,16 @@ const copyGroupsInto = (draft, { sourceGraph, targetGraph, instanceIdMap, offset
  * @returns {boolean}
  */
 /**
- * Moves how a Thing-group is shown (formats/: `format`, 'formula') and the format
+ * Moves how a Thing-group is shown (formats/: `format`, 'formula'), the size its
+ * formula is drawn at (`formulaSize`) and the format
  * it is still linked to while shown as its Things (`linkedFormat`) between the
  * group and its node. The group holds them while it is open; folded, its node
  * does, so opening it again shows it the same way. Per placement: another
  * instance of the same Thing opens as its Things.
  */
+const FORMAT_KEYS = ['format', 'linkedFormat', 'formulaSize'];
 const moveFormat = (from, to) => {
-  for (const key of ['format', 'linkedFormat']) {
+  for (const key of FORMAT_KEYS) {
     if (from?.[key]) to[key] = from[key]; else delete to[key];
     if (from) delete from[key];
   }
@@ -2479,18 +2481,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [],
           ...(anchor.format ? { format: anchor.format } : {}),
           ...(anchor.linkedFormat ? { linkedFormat: anchor.linkedFormat } : {}),
+          ...(anchor.formulaSize ? { formulaSize: anchor.formulaSize } : {}),
         };
         recipe(standIn);
         const nameChanged = standIn.name !== prototype.name;
         const colorChanged = standIn.color !== prototype.color;
-        const formatChanged = (standIn.format || null) !== (anchor.format || null)
-          || (standIn.linkedFormat || null) !== (anchor.linkedFormat || null);
+        const formatChanged = FORMAT_KEYS.some(key => (standIn[key] || null) !== (anchor[key] || null));
         if (!nameChanged && !colorChanged && !formatChanged) return;
         api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
         return set(produce((draft) => {
           if (nameChanged || colorChanged) syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged);
           const draftAnchor = draft.graphs.get(ownerGraphId)?.instances?.get(anchorId);
-          if (formatChanged && draftAnchor) moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat }, draftAnchor);
+          if (formatChanged && draftAnchor) moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat, formulaSize: standIn.formulaSize }, draftAnchor);
         }));
       }
       graphId = groupHomeGraphId(get(), graphId, groupId);

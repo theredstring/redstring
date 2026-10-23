@@ -19,7 +19,8 @@ import { useEffect } from 'react';
 import { CONNECTION_DEFAULT_COLOR } from '../../../constants';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { connectionFacts } from '../../../wizard/prompts/facts.js';
-import { NODE_DEFAULT_COLOR } from '../../../constants';
+import { NODE_DEFAULT_COLOR, nextNodeSizeStep, nodeSizeLabel } from '../../../constants';
+import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
 import { useControlPanelActions } from '../../../hooks/useControlPanelActions.js';
 import { copySelection, pasteClipboard } from '../../../utils/clipboard.js';
 import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
@@ -461,6 +462,17 @@ export default function ControlPanelsHost({ ctx }) {
     onConvertToNodeGroup: handleGroupPanelConvertToNodeGroup,
     setFormulaNames: (shown) => { if (selectedGroup) showFormulaNames(selectedGroup.id, shown); },
     setStandardNotation: (standard) => setNotation(standard ? 'standard' : 'explicit'),
+    cycleFormulaSize: () => {
+      if (!selectedGroup || !activeGraphId) return;
+      const next = nextNodeSizeStep(selectedGroup.formulaSize ?? 1);
+      useGraphStore.getState().updateGroup(activeGraphId, selectedGroup.id, (g) => {
+        if (next === 1) delete g.formulaSize; else g.formulaSize = next;
+      }, { finalize: true });
+      // The hover chip keeps the label it had when the pointer came in (as the node pie's Size does).
+      if (getActionHoverItem()?.id === 'group-size') {
+        useCanvasUIStore.getState().setActivePieMenuItemForVision({ id: 'group-size', label: `Size: ${nodeSizeLabel(next)}` });
+      }
+    },
   };
   const groupPieButtons = useMemo(() => {
     const handlers = Object.fromEntries(Object.keys(groupPieHandlersRef.current)
@@ -471,7 +483,7 @@ export default function ControlPanelsHost({ ctx }) {
     });
   // The group is read for its kind only; a rename or move is no new set of buttons.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupPanelMode, selectedGroup?.id, selectedGroup?.isOpenDefinition, selectedGroup?.linkedNodePrototypeId, groupFormulaText, currentFormat, formulaNames, standardNotation]);
+  }, [groupPanelMode, selectedGroup?.id, selectedGroup?.isOpenDefinition, selectedGroup?.linkedNodePrototypeId, selectedGroup?.formulaSize, groupFormulaText, currentFormat, formulaNames, standardNotation]);
   useEffect(() => {
     setGroupPieButtons(selectedGroup?.id ?? null, groupPieButtons);
   }, [selectedGroup?.id, groupPieButtons]);

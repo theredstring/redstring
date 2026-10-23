@@ -86,6 +86,7 @@ export const mapOpenDefinitions = (graphs, nodePrototypes, viewGraphId) => {
         // How this node shows its definition (formats/), kept on the node.
         format: instance.format || null,
         linkedFormat: instance.linkedFormat || null,
+        formulaSize: instance.formulaSize || null,
         ownerGraphId: graphId,
         defGraphId,
         path,
@@ -253,6 +254,7 @@ const buildOpenGroup = (box, members, nodePrototypes) => {
     isOpenDefinition: true,
     ...(box.format ? { format: box.format } : {}),
     ...(box.linkedFormat ? { linkedFormat: box.linkedFormat } : {}),
+    ...(box.formulaSize ? { formulaSize: box.formulaSize } : {}),
     // An empty box holds itself open where the definition's origin lands.
     ...(members.length === 0 ? { emptyPlaceholderOrigin: { x: box.offset.x, y: box.offset.y } } : {}),
     semanticMetadata: { type: 'Group', relationships: [] },

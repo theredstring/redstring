@@ -25,7 +25,7 @@ import { RAISE_SCALE, RAISE_STEP, RAISE_GAP_IN, RAISE_GAP_OUT, SUBSCRIPT_SCALE, 
 export { SUBSCRIPT_SCALE, SUBSCRIPT_DROP };
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
-export const FORMULA_FONT = 50;
+export const FORMULA_FONT = 60;
 export const FORMULA_FONT_FAMILY = 'EmOne, sans-serif';
 export const FORMULA_FONT_WEIGHT = 'bold';
 const BOX_EM = 1.5;      // token box height, in its own em
@@ -474,7 +474,9 @@ export function formulaObjectsIn(state, view, graphId, { standard = true, namesS
     const { x: cx, y: cy } = centre;
 
     const tokens = tokensOf(chain, { standard, expand: expandFor(namesShown.has(group.id), flipped.get(group.id)) });
-    const line = layoutFormulaLine(tokens);
+    // Its own size (group.formulaSize, the group pie's Size), as a Thing's sizeMul is.
+    const font = FORMULA_FONT * (group.formulaSize > 0 ? group.formulaSize : 1);
+    const line = layoutFormulaLine(tokens, font);
     const left = cx - line.width / 2;
     // Centred on its middle: a tall numerator and a short denominator share the room evenly.
     const lineY = cy - (line.top + line.bottom) / 2;
@@ -495,9 +497,9 @@ export function formulaObjectsIn(state, view, graphId, { standard = true, namesS
     const titleH = title ? labelHeightConst(titleScale, titleFont) : 0;
     const titleW = title ? Math.max(G.titleMinWidth * titleScale, measure(title, titleFont) + G.titlePaddingHorizontal * 2 * titleScale) : 0;
     // The formula's own ground, inside a band the title sits on.
-    let innerW = line.width + 2 * FRAME_PAD_X * FORMULA_FONT;
+    let innerW = line.width + 2 * FRAME_PAD_X * font;
     innerW = Math.max(innerW, titleW + G.titlePaddingHorizontal * 2 - G.innerCanvasBorder * 2);
-    const innerH = line.height + 2 * FRAME_PAD_Y * FORMULA_FONT;
+    const innerH = line.height + 2 * FRAME_PAD_Y * font;
     const inner = { x: cx - innerW / 2, y: cy - innerH / 2, w: innerW, h: innerH };
     const bandTop = title ? inner.y - G.titleBottomMargin - titleH - G.titleTopMargin : inner.y - G.innerCanvasBorder;
     const frame = {
@@ -518,7 +520,7 @@ export function formulaObjectsIn(state, view, graphId, { standard = true, namesS
       if (t.protoId && !protoOf.has(t.protoId)) protoOf.set(t.protoId, state.nodePrototypes.get(t.protoId));
       if (t.target && !t.target.startsWith('edge:') && !tokenBoxById.has(t.target)) {
         const b = boxes[i];
-        tokenBoxById.set(t.target, { x: b.x, y: b.y, w: Math.max(b.w, 0.3 * FORMULA_FONT), h: b.h });
+        tokenBoxById.set(t.target, { x: b.x, y: b.y, w: Math.max(b.w, 0.3 * font), h: b.h });
       }
     });
 
@@ -532,7 +534,7 @@ export function formulaObjectsIn(state, view, graphId, { standard = true, namesS
     allGroups.forEach(g => { if (isGroupInsideGroup(g, group, memberSet)) hiddenGroupIds.add(g.id); });
     objects.push({
       graphId, groupId: group.id, memberIds, chain, text: chainText(chain),
-      tokens, boxes, frame, inner, title, titleBox, titleFont, color, equationProtoId: equationProto?.id || null,
+      tokens, boxes, font, frame, inner, title, titleBox, titleFont, color, equationProtoId: equationProto?.id || null,
       anchorId: group.anchorInstanceId && view.instances.has(group.anchorInstanceId) ? group.anchorInstanceId : null,
       // One of its Things (not a part's anchor, whose drag position is derived):
       // the canvas's drag moves the formula as it moves that Thing.

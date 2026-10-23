@@ -684,7 +684,7 @@ export function getToolDefinitions(options = {}) {
             parameters: {
                 type: 'object',
                 properties: {
-                    text: { type: 'string', description: 'The formula as plain text: = + - * / ^ and parentheses, functions like sqrt(x), sin(x), ln(x). Letters side by side multiply (mc^2); a word that names a Thing stays whole.' },
+                    text: { type: 'string', description: 'The formula as plain text: = + - * / ^ and parentheses, functions like sqrt(x), sin(x), ln(x); a rate of change is derivative(N, t) (dN/dt), not a new letter. Letters side by side multiply (mc^2); a word that names a Thing stays whole.' },
                     title: { type: 'string', description: 'What the equation is called ("Ideal Gas Law"). Omit for an untitled formula, named by its text.' },
                     description: { type: 'string', description: 'What the equation says, one sentence.' },
                     meanings: {
