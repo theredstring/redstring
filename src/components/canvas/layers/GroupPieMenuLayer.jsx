@@ -33,7 +33,7 @@ import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 const BUBBLE_SIZE = 120;
 // A box that has just opened is framed by its title like a selection, pulled back
 // this much further so more of what opened shows around it.
-const OPENED_BOX_ZOOM = 0.7;
+const OPENED_BOX_ZOOM = 0.5;
 
 /**
  * The pie's anchor: over the middle of a group's title, in canvas coordinates,

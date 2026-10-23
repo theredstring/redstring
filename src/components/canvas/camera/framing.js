@@ -10,6 +10,7 @@ import { clampPan } from '../../../utils/canvas/viewportMath.js';
 import { createFrameClock } from './frameClock.js';
 import { getNodeDimensions } from '../../../utils.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import useGraphStore from '../../../store/graphStore.js';
 import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
 import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
@@ -479,8 +480,11 @@ export function frameDecomposedNode(ctx) {
 
   // Fit against the usable canvas region (panels/header/typelist excluded), in
   // container coordinates — so the expanded node fits and centers within what's
-  // actually visible rather than the full window when panels are open.
-  const vb = getFramingRegion();
+  // actually visible rather than the full window when panels are open. Sized
+  // against the whole region, so it is the same size with or without the node
+  // control panel; centred in what the panel leaves (`vb`) when it is up.
+  const full = getFramingRegion();
+  const vb = getFramingRegion({ reserveBottomPanel: true });
   const regionCenterX = vb.x + vb.width / 2;
   const regionCenterY = vb.y + vb.height / 2;
 
@@ -493,15 +497,23 @@ export function frameDecomposedNode(ctx) {
   const biasFraction = lerp(DECOMPOSE_BIAS_WIDE, DECOMPOSE_BIAS_NARROW, narrowness);
 
   // Zoom to fit the expanded node within the usable region, then pull back per the
-  // width-scaled factor. Clamp to zoom bounds.
-  const fitX = vb.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
-  const fitY = vb.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
-  const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY) * zoomFactor));
+  // width-scaled factor; smaller still if that wouldn't fit above the panel.
+  // Clamp to zoom bounds.
+  const paddedW = dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2;
+  const paddedH = dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2;
+  const sized = Math.min(full.width / paddedW, full.height / paddedH) * zoomFactor;
+  // Above a panel, the card and its pie (a row of buttons on top of it) are fitted
+  // and centred together. Without one, the bias below lifts them.
+  const ts = useGraphStore.getState().textSettings;
+  const pieHeight = vb.reservedBottom > 0 ? (120 + 32 * 2) * (ts?.nodeScale ?? 1) * (ts?.pieMenuScale ?? 1) : 0; // BUBBLE_SIZE + 2 · BUBBLE_PADDING
+  const fitsAbovePanel = Math.min(vb.width / paddedW, vb.height / (paddedH + pieHeight));
+  const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, sized, fitsAbovePanel));
 
-  // Nudge the node above the region center so the control panel below has room.
-  const verticalBias = vb.height * biasFraction;
+  // Nudge the node above the region center so the pie and panel have room. A
+  // reserved panel is already out of the region, so it needs no nudge for it.
+  const verticalBias = vb.reservedBottom > 0 ? 0 : vb.height * biasFraction;
   const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-  const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+  const targetPanY = (regionCenterY - verticalBias) - (centerY - pieHeight / 2 - canvasSize.offsetY) * tz;
   const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
   animateCanvasView(finalPan, tz);
 }

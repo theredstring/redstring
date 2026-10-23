@@ -105,6 +105,14 @@
   cursor: grabbing;
 }
 
+/* An expanded Thing's panel grows with the display: room for its description
+   and buttons on a wide screen (phones keep the 460px rule below). */
+@media (min-width: 769px) {
+  .unified-bottom-panel.mode-decompose .unified-bottom-content {
+    min-width: clamp(420px, 34vw, 760px);
+  }
+}
+
 /* Structural overrides that clamp() can't express */
 @media (max-width: 768px) {
   .unified-bottom-panel {
@@ -449,10 +457,12 @@
   text-align: center;
   color: var(--canvas-text, #260000);
   opacity: 0.8;
+  /* One line, so the panel is the same height whatever the description says:
+     the decompose framing reserves the panel's height (camera/framing.js). */
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
   overflow: hidden;
   overflow-wrap: break-word;
 }
