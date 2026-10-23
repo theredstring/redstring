@@ -294,8 +294,8 @@ const UnifiedBottomControlPanel = ({
   connectionPieMenuButtons = null,
   connectionPieMenuTargetEdgeId = null,
 
-  // Optional navigations (shown on node mode, and on format mode, where they
-  // swap how a group is shown: as its Things, as a formula...)
+  // Optional navigations (shown on node and decompose mode; on a group's modes
+  // only when given)
   onLeftNav,
   onRightNav,
   hasLeftNav = false,
@@ -305,6 +305,9 @@ const UnifiedBottomControlPanel = ({
   // Format mode: how the current format is shown (e.g. raised exponents), as
   // buttons before the group's own: [{ key, icon: (size) => element, title, onClick }].
   formatToggles = null,
+  // A group that reads as a formula: one button, first in its row, that shows
+  // it the other way (as its Things, as its formula): { icon: (size) => element, title, onClick }.
+  formatSwap = null,
   kindLabel: kindLabelProp = null, // what the item is, under its name (default: by mode)
 
   // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
@@ -443,7 +446,7 @@ const UnifiedBottomControlPanel = ({
   const isDecompose = mode === 'decompose';
   // ◀ ▶ around the preview: paging nodes, decompose, formats, and a Thing-group
   // that can be shown another way (an equation, swapped to its formula).
-  const hasNavArrows = isNodes || isDecompose || isFormat || (isNodeGroup && !!(onLeftNav || onRightNav));
+  const hasNavArrows = isNodes || isDecompose || ((isFormat || isNodeGroup) && !!(onLeftNav || onRightNav));
 
   const clearActionHover = useCallback(() => {
     onActionHoverChange?.(null);
@@ -528,6 +531,17 @@ const UnifiedBottomControlPanel = ({
   // UnifiedBottomControlPanel.css — the glyph has to grow with the bubble or a
   // wider button just buys more empty margin around the same small icon.
   const iconSize = mobileState.isMobile ? 18 : 22;
+  const formatSwapButton = formatSwap ? (
+    <div
+      className="piemenu-button"
+      onClick={formatSwap.onClick}
+      title={formatSwap.title}
+      onMouseEnter={() => triggerActionHover('control-format-swap', formatSwap.title)}
+      onMouseLeave={clearActionHover}
+    >
+      {formatSwap.icon(iconSize)}
+    </div>
+  ) : null;
   const groupUngroupButton = (
     <div
       className="piemenu-button"
@@ -1269,6 +1283,7 @@ const UnifiedBottomControlPanel = ({
             ) : isNodeGroup ? (
               // Node-group mode: Show node-group actions (dive into definition, open in panel, edit, color, ungroup)
               <>
+                {formatSwapButton}
                 <div
                   className="piemenu-button"
                   onClick={handleNodeGroupDefinitionClick}
@@ -1361,6 +1376,7 @@ const UnifiedBottomControlPanel = ({
             ) : isGroup ? (
               // Group mode: Show group actions (ungroup, edit, color, convert to node-group)
               <>
+                {formatSwapButton}
                 {isFormat && Array.isArray(formatToggles) && formatToggles.map((toggle) => (
                   <div
                     key={toggle.key}

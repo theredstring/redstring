@@ -24,19 +24,24 @@ import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { focusGroupInViewWith } from '../camera/framing.js';
 
+// PieMenu's BUBBLE_SIZE, before scaling.
+const BUBBLE_SIZE = 120;
+
 /**
- * The pie's anchor: the top middle of a group's title, in canvas coordinates,
- * or null. Line mode stands its first row off the anchor as it does off a
- * connection's label.
+ * The pie's anchor: over the middle of a group's title, in canvas coordinates,
+ * or null. Line mode stands its first row half a bubble and two paddings off
+ * the anchor (made for a connection's thin label); dropped half a bubble, the
+ * row stands two paddings above the title.
  */
-function titleAnchorOf(groupId, groupLayouts, formulaObjects) {
+function titleAnchorOf(groupId, groupLayouts, formulaObjects, pieScale) {
+  const drop = (BUBBLE_SIZE / 2) * pieScale;
   const formula = formulaObjects.objects.find(o => o.groupId === groupId);
   if (formula?.titleBox) {
     const b = formula.titleBox;
-    return { x: b.x + b.w / 2, y: b.y };
+    return { x: b.x + b.w / 2, y: b.y + drop };
   }
   const r = groupLayouts?.titleRects?.get(groupId);
-  if (r) return { x: r.x + r.width / 2, y: r.y };
+  if (r) return { x: r.x + r.width / 2, y: r.y + drop };
   return null;
 }
 
@@ -57,7 +62,8 @@ function GroupPieMenuLayer({
   const buttons = useGroupPieStore(s => s.buttons);
   const formulaObjects = useFormulaObjects();
 
-  const anchor = groupId ? titleAnchorOf(groupId, groupLayouts, formulaObjects) : null;
+  const pieMenuScale = useGraphStore(s => s.textSettings?.pieMenuScale ?? 1.0);
+  const anchor = groupId ? titleAnchorOf(groupId, groupLayouts, formulaObjects, nodeScale * pieMenuScale) : null;
   const live = Boolean(groupId && anchor && buttons.length);
 
   // Same values, same object: PieMenu re-renders on the anchor's identity.

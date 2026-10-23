@@ -35,7 +35,7 @@ import { condenseFormula } from '../formats/formula/condenseFormula.js';
 import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
-import { Superscript, WholeWord } from 'lucide-react';
+import { Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
 import { buildGroupPieButtons, setGroupPieButtons } from '../pie/groupPieButtons.js';
 import {
   onCarouselClose,
@@ -196,7 +196,15 @@ export default function ControlPanelsHost({ ctx }) {
       }] : []),
     ]
     : null;
-  const formatAt = (step) => FORMAT_LABELS[formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length]];
+  // Formula or Things: one button, first in the panel's row as in the group pie.
+  const nextFormat = formatOrder[(formatOrder.indexOf(currentFormat) + 1) % formatOrder.length];
+  const formatSwap = groupFormulaText && nextFormat !== currentFormat
+    ? {
+      icon: (size) => (nextFormat === 'things' ? <Shapes size={size} /> : <Sigma size={size} />),
+      title: `Show as ${FORMAT_LABELS[nextFormat]}`,
+      onClick: () => swapFormat(1),
+    }
+    : null;
 
   // Group control panel action handlers
   const handleGroupPanelUngroup = useCallback(() => {
@@ -641,18 +649,13 @@ export default function ControlPanelsHost({ ctx }) {
             onActionHoverChange={handlePieMenuHoverChange}
             onDismiss={() => setSelectedGroup(null)}
             {...(groupFormulaText ? {
-              onLeftNav: () => swapFormat(-1),
-              onRightNav: () => swapFormat(1),
-              hasLeftNav: formatOrder.length > 1,
-              hasRightNav: formatOrder.length > 1,
+              formatSwap,
               formatToggles,
               ...(currentFormat === 'formula' ? { onDelete: handleFormulaDelete } : {}),
               // Combined into its Thing, an equation folds as a Thing-group does; a plain group has no Thing to fold into.
               ...(currentFormat === 'formula' ? { onCombineNodeGroup: isThingGroup ? handleFormulaCondense : undefined } : {}),
               // An equation is a Thing-group already.
               ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined } : {}),
-              leftNavLabel: `Show as ${formatAt(-1)}`,
-              rightNavLabel: `Show as ${formatAt(1)}`,
               customContent: currentFormat === 'formula'
                 ? <FormatPanelPreview groupId={groupPanelTarget.id} />
                 : undefined,
