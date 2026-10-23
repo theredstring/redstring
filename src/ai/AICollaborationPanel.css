@@ -326,7 +326,7 @@ html.dark-mode .ai-tab.active {
   border-bottom: 1px solid #260000;
   background: var(--canvas-bg);
   padding: 20px;
-  animation: slideDown 0.2s ease-out;
+  animation: ai-slide-down 0.2s ease-out;
   overflow-y: auto;
   max-height: 400px;
 }
@@ -1066,7 +1066,7 @@ html.dark-mode .ai-send-button:disabled {
 }
 
 /* Animations */
-@keyframes slideDown {
+@keyframes ai-slide-down {
   from {
     opacity: 0;
     transform: translateY(-10px);

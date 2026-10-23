@@ -859,9 +859,12 @@ button.format-pill:disabled {
 
 .format-starter-bar > span {
   display: block;
+  width: 100%;
   height: 100%;
   background-color: maroon;
-  transition: width 0.2s ease;
+  /* Its share is a scaleX (StarterOffer.jsx): eased on the compositor. */
+  transform-origin: left center;
+  transition: transform 0.2s ease;
 }
 
 .format-bank-choice-icon {

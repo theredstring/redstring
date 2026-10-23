@@ -1298,7 +1298,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             }
           }
           
-          @keyframes pulse {
+          @keyframes discovery-pulse {
             0%, 100% {
               opacity: 1;
               transform: scale(1);
@@ -1616,9 +1616,11 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     <div
                       style={{
                         height: '100%',
-                        width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
+                        width: '100%',
+                        transform: `scaleX(${Math.round((catalogProgress ?? 0.1) * 100) / 100})`,
+                        transformOrigin: 'left center',
                         background: theme.accent.primary,
-                        transition: 'width 0.4s ease',
+                        transition: 'transform 0.4s ease',
                       }}
                     />
                   </div>
@@ -1924,7 +1926,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   <div style={{
                     fontSize: '24px',
                     marginBottom: '8px',
-                    animation: 'pulse 1.5s ease-in-out infinite'
+                    animation: 'discovery-pulse 1.5s ease-in-out infinite'
                   }}>
                     ⚡
                   </div>

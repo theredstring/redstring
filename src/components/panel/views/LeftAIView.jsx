@@ -3845,7 +3845,7 @@ const LeftAIView = ({ compact = false,
           borderBottom: `1px solid ${theme.canvas.border}`,
           fontSize: '12px',
           color: theme.canvas.textSecondary,
-          animation: 'slideDown 0.2s ease-out'
+          animation: 'ai-slide-down 0.2s ease-out'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>

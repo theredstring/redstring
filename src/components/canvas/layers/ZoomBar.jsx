@@ -177,7 +177,7 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
   );
   const fromT = useCallback((t) => Math.exp(lnMin + t * lnSpan), [lnMin, lnSpan]);
 
-  // The CSS reads --zoom-t as `left` or `bottom` by orientation.
+  // The CSS reads --zoom-t as the thumb's `translate` along the track.
   const placeThumb = useCallback((t) => {
     barRef.current?.style.setProperty('--zoom-t', String(t));
   }, []);
@@ -374,12 +374,15 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
   if (!shown) return null;
 
   // Placement. viewportBounds.y is the header's bottom (0 in the fullscreen
-  // landscape shell, where the toggles go flush to the top as well).
+  // landscape shell, where the toggles go flush to the top as well). Laid out
+  // at the window's corner and moved there by `translate` (its top left, or
+  // its top centre along the bottom), so easing beside a panel never lays the
+  // page out again.
   let place;
   if (position === 'bottom') {
     place = {
-      left: viewportBounds.x + viewportBounds.width / 2,
-      bottom: viewportBounds.bottomReserved + BOTTOM_GAP,
+      x: viewportBounds.x + viewportBounds.width / 2,
+      y: viewportBounds.windowHeight - (viewportBounds.bottomReserved + BOTTOM_GAP) - ZOOM_BAR_HEIGHT,
       height: ZOOM_BAR_HEIGHT,
     };
   } else {
@@ -397,18 +400,20 @@ export default function ZoomBar({ ctx, ready, bottomStripTaken }) {
     const handleH = Math.min(374, Math.max(84, winH * 0.33 + 24));
     const handleTop = winH / 2 - handleH / 2;
     const besideHandle = panelOpen && edge > 0 && top + BAR_LENGTH + RESIZER_SLOP > handleTop;
+    const inset = edge + (besideHandle ? RESIZER_HITBOX + SIDE_INSET : SIDE_INSET);
     place = {
-      [left ? 'left' : 'right']: edge + (besideHandle ? RESIZER_HITBOX + SIDE_INSET : SIDE_INSET),
-      top,
+      x: left ? inset : viewportBounds.windowWidth - inset - ZOOM_BAR_HEIGHT,
+      y: top,
       width: ZOOM_BAR_HEIGHT,
     };
   }
+  const { x: placeX, y: placeY, ...placeSize } = place;
 
   return (
     <div
       ref={barRef}
       className={`zoom-bar ${vertical ? 'is-vertical' : 'is-bottom'}${awake ? ' is-awake' : ''}${suppressed ? ' is-suppressed' : ''}${dragging ? ' is-dragging' : ''}${viewportBounds.resizing ? ' is-panel-resizing' : ''}`}
-      style={{ ...place, '--zoom-bar-color': color }}
+      style={{ ...placeSize, left: 0, top: 0, translate: `${Math.round(placeX)}px ${Math.round(placeY)}px`, '--zoom-bar-color': color }}
       data-has-context-menu
       onContextMenu={onContextMenu}
       {...shield}

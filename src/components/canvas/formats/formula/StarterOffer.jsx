@@ -104,7 +104,7 @@ export default function StarterOffer({ first = false, onAdded }) {
       </div>
       {progress && (
         <div className="format-starter-bar" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
-          <span style={{ width: `${progress.total ? (100 * progress.done) / progress.total : 0}%` }} />
+          <span style={{ transform: `scaleX(${progress.total ? progress.done / progress.total : 0})` }} />
         </div>
       )}
     </div>

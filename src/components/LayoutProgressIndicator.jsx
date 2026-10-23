@@ -62,12 +62,16 @@ const LayoutProgressIndicator = ({ state, onCancel }) => {
         >
           <div
             style={{
-              width: `${pct}%`,
+              // Stretched, not sized, so it eases on the compositor while
+              // the layout keeps the main thread busy.
+              width: '100%',
+              transform: `scaleX(${pct / 100})`,
+              transformOrigin: 'left center',
               height: '100%',
               backgroundColor: NODE_DEFAULT_COLOR,
               // Progress arrives in ~50 discrete steps; the transition keeps
               // the bar reading as continuous motion between them.
-              transition: 'width 120ms linear'
+              transition: 'transform 120ms linear'
             }}
           />
         </div>
