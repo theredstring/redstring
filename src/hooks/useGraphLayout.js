@@ -9,6 +9,16 @@ import { withEmptyGroupPlaceholders, groupLabelMetrics } from '../services/group
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
+import { computeFormulaObjects } from '../components/canvas/formats/formula/formulaObjects.js';
+import { formulaDisplayNow } from '../components/canvas/formats/formatsStore.js';
+
+/** groupId -> { x, y, w, h } of every formula drawn in the active web, as plain data for the worker. */
+const formulaFramesNow = () => {
+    const frames = {};
+    computeFormulaObjects(useGraphStore.getState(), formulaDisplayNow()).objects
+        .forEach(o => { frames[o.groupId] = { x: o.frame.x, y: o.frame.y, w: o.frame.w, h: o.frame.h }; });
+    return frames;
+};
 
 // ── Layout time budget ──────────────────────────────────────────────────────
 // The force solver runs synchronously on the main thread, and each iteration
@@ -419,6 +429,10 @@ export const useGraphLayout = ({
             // it). Without it the solver enforces exclusion against a rect that
             // isn't the one on screen.
             gridSize,
+            // Each formula's drawn frame, so the solver keeps loose nodes off
+            // the band and title it draws, not just off its Things. Measured
+            // here because the worker has no text to measure with.
+            formulaFrames: formulaFramesNow(),
             routingStyle,
             lombardiCurvature,
             solver: layoutSolver,

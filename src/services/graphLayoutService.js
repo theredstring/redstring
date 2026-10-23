@@ -5378,10 +5378,17 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
  * A formula (a group shown as one, format 'formula') is laid out as one: its
  * Things are a finished row whose order its reading depends on
  * (formats/formula/formulaChain.js), and laying them out one by one scatters
- * them. Each formula becomes a single block the size of its row for the
- * solve, and its Things go back around wherever the block lands, as they
- * were. Its parentheses (groups inside it) go with it; a group it sits in
- * holds the block in its place. Null when there is no formula to lay out.
+ * them. Each formula becomes a single block for the solve, and its Things go
+ * back around wherever the block lands, as they were. Its parentheses (groups
+ * inside it) go with it; a group it sits in holds the block in its place. Null
+ * when there is no formula to lay out.
+ *
+ * The block is the size the formula is DRAWN: its band, title and all
+ * (`options.formulaFrames`, groupId -> the frame formulaObjects draws, passed
+ * by the canvas, which can measure text). Without one, the group's box as its
+ * Things. Never the Things' bare bounds: the solver only keeps other nodes off
+ * the block, so whatever of the drawn band lies outside it is room a loose
+ * node is free to be put in.
  */
 function formulaBlocks(nodes, edges, options) {
   const groups = options.groups || [];
@@ -5401,9 +5408,14 @@ function formulaBlocks(nodes, edges, options) {
       maxX = Math.max(maxX, n.x + (n.width || 150)); maxY = Math.max(maxY, n.y + (n.height || 100));
     });
     if (g.anchorInstanceId && byId.has(g.anchorInstanceId)) ids.add(g.anchorInstanceId);
+    const drawn = options.formulaFrames?.[g.id];
+    const vb = drawn?.w > 0 && drawn?.h > 0
+      ? drawn
+      : deriveGroupVisualBounds(g, { minX, minY, maxX, maxY }, options);
+    minX = vb.x; minY = vb.y;
     const id = `__formula__${g.id}`;
-    const w = maxX - minX;
-    const h = maxY - minY;
+    const w = vb.w;
+    const h = vb.h;
     blocks.push({ id, ids, minX, minY });
     ids.forEach(m => blockOf.set(m, id));
     byId.set(id, { id, prototypeId: null, x: minX, y: minY, width: w, height: h, labelWidth: w, labelHeight: h, imageHeight: 0, nodeSize: Math.max(w, h) });
