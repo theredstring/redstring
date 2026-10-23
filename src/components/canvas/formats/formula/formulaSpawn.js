@@ -21,6 +21,8 @@
 import useGraphStore from '../../../../store/graphStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { storeNodeRect } from '../../groups/boxMorphConnections.js';
+import { formulaCentreOf } from './formulaObjects.js';
+import { detachedCopy } from '../../groups/boxMorph.js';
 
 export const SPAWN_MS = 640;
 export const LEAVE_MS = 480;
@@ -68,14 +70,46 @@ export function opensAsFormula(viewGraphId, instanceId) {
 }
 
 /**
+ * How far a formula's middle is from its Thing's ({ dx, dy }, the Thing's
+ * minus the formula's), or null. A formula and the Thing it folds into share
+ * a middle, so each grows out of or shrinks into the other where it stands.
+ */
+function formulaOffFromThing(graphId, groupId, nodeId) {
+  const centre = formulaCentreOf(useGraphStore.getState(), graphId, groupId);
+  const rect = storeNodeRect(graphId, nodeId);
+  if (!centre || !rect) return null;
+  return { dx: rect.x + rect.w / 2 - centre.x, dy: rect.y + rect.h / 2 - centre.y };
+}
+
+/**
  * Opens a formula's Thing back into the formula, its band growing out of the
  * node, as condenseFormula folds it in. The formula's own drawing plays it: the
  * box morph (groups/boxMorph.js) would grow a Thing-group's box the formula
  * hides. `write` makes the store change and returns the group's id (or null).
+ *
+ * An open definition's top-left sits on its node (initialOpenOffset), and a
+ * formula's row runs far wider than one Thing: it is moved, in the same step,
+ * to stand centred on its node.
  */
 export function withFormulaOpenMorph({ viewGraphId, instanceId }, write) {
-  const from = nodeBackgroundOf(viewGraphId, instanceId);
-  const groupId = write();
+  const bg = nodeBackgroundOf(viewGraphId, instanceId);
+  // The node as drawn, fading off the band as it grows out of it.
+  const el = bg && typeof document !== 'undefined'
+    ? document.querySelector(`svg.canvas g.node[data-instance-id=${JSON.stringify(instanceId)}]`)
+    : null;
+  const from = bg && { ...bg, copy: el ? detachedCopy(el) : null };
+  const st = useGraphStore.getState();
+  const groupId = st.withHistoryTransaction('Opened in place', () => {
+    const id = write();
+    const off = id ? formulaOffFromThing(viewGraphId, id, instanceId) : null;
+    if (off && (off.dx || off.dy)) {
+      useGraphStore.getState().updateNodeInstance(viewGraphId, instanceId, (draft) => {
+        const at = draft.openDefinition?.offset;
+        if (at) draft.openDefinition.offset = { x: at.x + off.dx, y: at.y + off.dy };
+      });
+    }
+    return id;
+  });
   if (groupId && from) markFormulaSpawn(groupId, from);
   return groupId;
 }
@@ -87,10 +121,11 @@ const emit = () => listeners.forEach(fn => fn());
 
 /**
  * Keep a formula's drawing (a formulaObjects object) to play its exit, from
- * now. Gone again once it has played. Returns `{ into(rect) }`, to aim the
- * exit at a node's painted background ({ x, y, w, h, r, color }, world
- * coordinates) rather than at nothing, or at a Thing-group's box (the same,
- * with its `inner` ground and `title`: formulaSwapMorph.groupBoxOf).
+ * now. Gone again once it has played. Returns `{ into(rect, { reveal }) }`,
+ * to aim the exit at a node's painted background ({ x, y, w, h, r, color },
+ * world coordinates) rather than at nothing, or at a Thing-group's box (the
+ * same, with its `inner` ground and `title`: formulaSwapMorph.groupBoxOf);
+ * `reveal` there is the node, coming in as the formula fades off it.
  *
  * `reveal`: a CSS selector for what the exit makes way for (shown as its
  * Things, the group's box, its Things and their connections), held hidden
@@ -109,8 +144,8 @@ export function markFormulaLeaving(obj, { reveal = null } = {}) {
     emit();
   }, LEAVE_MS + 40);
   return {
-    into(rect) {
-      leaving = leaving.map(l => (mine(l) ? { ...l, into: rect } : l));
+    into(rect, { reveal: shown = null } = {}) {
+      leaving = leaving.map(l => (mine(l) ? { ...l, into: rect, ...(shown ? { reveal: shown } : {}) } : l));
       emit();
     },
   };

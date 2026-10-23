@@ -67,13 +67,25 @@ const REVEAL_SHARE = 0.2;
 // Coming out of its Thing-group's box, the share of the entrance the box, the
 // Things and the tokens run over together.
 const SWAP_TRAVEL = 0.8;
-// As a Thing's copy runs into its token (0 to 1 along the way): where the copy
-// starts fading, where the token starts coming in, and over how much each.
-const GHOST_FADE_AT = 0.45;
-const TOKEN_IN_AT = 0.55;
-const SWAP_FADE = 0.4;
+// Along the way (0 to 1, before easing): each Thing's copy is on its token by
+// GHOST_ARRIVE, and only there do the two cross over, the token coming in from
+// TOKEN_IN_AT, the copy going from GHOST_FADE_AT, each over SWAP_FADE. A copy
+// fading on its way, with its token coming in where it hasn't reached, reads
+// as the formula standing beside the Things.
+const GHOST_ARRIVE = 0.65;
+const TOKEN_IN_AT = 0.62;
+const GHOST_FADE_AT = 0.68;
+const SWAP_FADE = 0.28;
 // What goes with the Things (their connections, the groups inside) is gone by here.
 const SWAP_EXTRAS_GONE = 0.35;
+// Out of or into its Thing (condenseFormula), the tokens come and go while the
+// band moves, not after it: the first from this far into the entrance, the
+// rest after it across NODE_TOKENS_STAGGER, each over NODE_TOKENS_SPAN.
+const NODE_TOKENS_AT = 0.3;
+const NODE_TOKENS_STAGGER = 0.3;
+const NODE_TOKENS_SPAN = 0.3;
+// And going into it, the formula hands over to the node over this much of the band's last stretch.
+const NODE_HANDOVER = 0.5;
 const PLUS_LIGHT = '#DEDADA';
 const PLUS_STROKE = 'maroon';
 const easeMorph = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -664,8 +676,9 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   // Going into the box, the band is all the way there with REVEAL_SHARE of the
   // exit left: the box shows under it from then (`reveal`), and it fades off.
   // The box, its Things and the tokens run on one clock.
+  const along = clamp01(leaving ? (spawn - REVEAL_SHARE) / (1 - REVEAL_SHARE) : spawn / SWAP_TRAVEL);
   const grown = boxMorph
-    ? easeMorph(clamp01(leaving ? (spawn - REVEAL_SHARE) / (1 - REVEAL_SHARE) : spawn / SWAP_TRAVEL))
+    ? easeMorph(along)
     : easeMorph(clamp01(spawn / MORPH_SHARE));
   const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
   const plusSize = leaving ? 0 : PLUS_SIGN_SIZE * plusScale;
@@ -740,8 +753,9 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const tokenIn = (i) => {
     if (!spawning) return 1;
     // From or into the box: as its Thing's copy arrives (all at once, the copies travelling together).
-    if (boxMorph) return smooth(clamp01((grown - TOKEN_IN_AT) / SWAP_FADE));
+    if (boxMorph) return smooth(clamp01((along - TOKEN_IN_AT) / SWAP_FADE));
     const n = Math.max(1, obj.tokens.length - 1);
+    if (node) return easeMorph(clamp01((spawn - (NODE_TOKENS_AT + NODE_TOKENS_STAGGER * (i / n))) / NODE_TOKENS_SPAN));
     return easeMorph(clamp01((spawn - (0.45 + 0.3 * (i / n))) / 0.25));
   };
   const tokenChanges = useTokenChanges(obj);
@@ -750,7 +764,12 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   // and its token, shrinking to the token's height and fading as the token
   // comes in; what goes with them (connections, the groups inside) fades.
   // Drawn into a group of their own, imperatively: they are copied elements.
-  const ghosts = boxMorph && spawning ? node.ghosts || null : null;
+  // Opened from its Thing: a copy of that node, fading off the band as it grows.
+  const ghosts = useMemo(() => {
+    if (!node || !spawning) return null;
+    if (boxMorph) return node.ghosts || null;
+    return node.copy && !leaving ? { fades: [node.copy], things: [] } : null;
+  }, [node, boxMorph, spawning, leaving]);
   const ghostHostRef = useRef(null);
   const ghostsDrawnRef = useRef(null);
   useLayoutEffect(() => {
@@ -779,16 +798,18 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     if (!drawn) return;
     const extras = String(1 - clamp01(grown / SWAP_EXTRAS_GONE));
     drawn.fades.forEach(g => g.setAttribute('opacity', extras));
+    // On its token by GHOST_ARRIVE, on the morph's own curve.
+    const reach = easeMorph(clamp01(along / GHOST_ARRIVE));
     drawn.things.forEach(({ id, rect, g }) => {
       const tb = tokenBoxOf.get(id);
       if (!tb) { g.setAttribute('opacity', extras); return; }
       const ncx = rect.x + rect.w / 2;
       const ncy = rect.y + rect.h / 2;
-      const scale = lerp(1, Math.min(1, tb.h / rect.h), grown);
-      const cx = lerp(ncx, tb.x + tb.w / 2, grown);
-      const cy = lerp(ncy, tb.y + tb.h / 2, grown);
+      const scale = lerp(1, Math.min(1, tb.h / rect.h), reach);
+      const cx = lerp(ncx, tb.x + tb.w / 2, reach);
+      const cy = lerp(ncy, tb.y + tb.h / 2, reach);
       g.setAttribute('transform', `translate(${cx} ${cy}) scale(${scale}) translate(${-ncx} ${-ncy})`);
-      g.setAttribute('opacity', String(1 - smooth(clamp01((grown - GHOST_FADE_AT) / SWAP_FADE))));
+      g.setAttribute('opacity', String(1 - smooth(clamp01((along - GHOST_FADE_AT) / SWAP_FADE))));
     });
   });
   const clipId = `formula-${leaving ? 'leave' : 'spawn'}-${obj.groupId}`;
@@ -930,10 +951,13 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   if (leaving) {
     // Into a Thing-group's box: what the box shows is held hidden until the
     // band is on it, then shown at once under it, the formula fading off it.
+    // Into its Thing: the node comes in as the formula fades off it.
+    const shown = boxMorph ? clamp01(spawn / REVEAL_SHARE) : node ? smooth(clamp01(grown / NODE_HANDOVER)) : clamp01(grown * 3);
+    const under = !reveal ? 1 : boxMorph ? (spawn > REVEAL_SHARE ? 0 : 1) : 1 - shown;
     return (
       <>
-        {reveal && (!boxMorph || spawn > REVEAL_SHARE) && <style>{`${reveal}{opacity:0 !important}`}</style>}
-        <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={boxMorph ? clamp01(spawn / REVEAL_SHARE) : clamp01(grown * 3)}>
+        {under < 1 && <style>{`${reveal}{opacity:${under} !important}`}</style>}
+        <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={shown}>
           {drawing()}
           <g ref={ghostHostRef} />
         </g>

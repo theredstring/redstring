@@ -395,6 +395,37 @@ function thingBoxesOf(state, view) {
   };
 }
 
+/**
+ * Where a formula is centred, where its Things were: across, on the middle of
+ * its box as its Things (`box`; the groups inside it widen that on their
+ * side, so swapping between the two stays in place); down, on its Things.
+ * Null when it has no Things to stand for.
+ */
+function centreOf(state, view, memberIds, box) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const id of memberIds) {
+    const inst = view.instances.get(id);
+    if (!inst || inst.isGroupAnchor) continue; // drawn as its group's title, from the members
+    const proto = state.nodePrototypes.get(inst.prototypeId);
+    const dims = getNodeDimensions({ ...proto, ...inst, name: proto?.name }, false, null);
+    minX = Math.min(minX, inst.x); minY = Math.min(minY, inst.y);
+    maxX = Math.max(maxX, inst.x + dims.currentWidth); maxY = Math.max(maxY, inst.y + dims.currentHeight);
+  }
+  if (!Number.isFinite(minX)) return null;
+  return { x: box ? box.x + box.w / 2 : (minX + maxX) / 2, y: (minY + maxY) / 2 };
+}
+
+/**
+ * Where a group's formula is centred in a web (as formulaObjects draws it),
+ * whether or not it is shown as its formula now; null when it has no Things.
+ */
+export function formulaCentreOf(state, graphId, groupId) {
+  const view = projectGraphView(state, graphId);
+  const group = view?.groups?.get(groupId);
+  if (!group) return null;
+  return centreOf(state, view, group.memberInstanceIds || [], thingBoxesOf(state, view)(group));
+}
+
 function formulaObjectsOf(state, standard, namesShown, flipped) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
@@ -428,22 +459,9 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
     const chain = readFormulaGroup(state, view, group);
     if (!chain) continue; // no longer a formula: its Things come back on their own
 
-    // Centred where its Things were.
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const id of memberIds) {
-      const inst = view.instances.get(id);
-      if (inst.isGroupAnchor) continue; // drawn as its group's title, from the members
-      const proto = state.nodePrototypes.get(inst.prototypeId);
-      const dims = getNodeDimensions({ ...proto, ...inst, name: proto?.name }, false, null);
-      minX = Math.min(minX, inst.x); minY = Math.min(minY, inst.y);
-      maxX = Math.max(maxX, inst.x + dims.currentWidth); maxY = Math.max(maxY, inst.y + dims.currentHeight);
-    }
-    if (!Number.isFinite(minX)) continue;
-    // Across, on the middle of its box as its Things: the groups inside it
-    // widen that on their side, so swapping between the two stays in place.
-    const box = thingBoxOf(group);
-    const cx = box ? box.x + box.w / 2 : (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
+    const centre = centreOf(state, view, memberIds, thingBoxOf(group));
+    if (!centre) continue;
+    const { x: cx, y: cy } = centre;
 
     const tokens = tokensOf(chain, { standard, expand: expandFor(namesShown.has(group.id), flipped.get(group.id)) });
     const line = layoutFormulaLine(tokens);
