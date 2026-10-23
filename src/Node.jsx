@@ -16,6 +16,7 @@ import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./sto
 import { useTheme } from './hooks/useTheme.js';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { projectGraphView, viewEdges } from './core/openDefinitions.js';
+import { VectorText } from './components/VectorText.jsx';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
 
@@ -667,7 +668,7 @@ const Node = ({
               }}
               lang="en"
             >
-              {displayTitle}
+              <VectorText text={displayTitle} />
             </span>
           )}
         </div>

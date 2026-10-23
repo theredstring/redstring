@@ -2438,12 +2438,11 @@ function NodeCanvas() {
     setPieMenuPage(0);
   }, [selectedNodeIdForPieMenu]);
 
-  // Effect to restore view state on graph change or center if no stored state.
-  // IMPORTANT: Does NOT depend on graphsMap — we read it imperatively to avoid
-  // snapping the view back whenever any graph mutation changes the graphsMap ref.
+  // Restore (or orient) the view on graph change. Does NOT depend on graphsMap or nodes, so graph mutations never snap the view back.
+  const openedGraphRef = useRef(null); // the web the last restore opened, so orienting happens once per opening
   useLayoutEffect(() => restoreViewForGraph({
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform,
+    canvasSize, transform, nodes, baseDimsById, openedGraphRef,
   }), [activeGraphId, viewportSize, canvasSize]);
 
   // Track when panning/zooming operations are active

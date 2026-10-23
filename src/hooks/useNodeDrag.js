@@ -1864,8 +1864,9 @@ export const useNodeDrag = ({
       // advance). Moving only the parent leaves every line behind.
       const setLabelTextX = (el, x) => {
         el.setAttribute('x', x);
+        // Its lines' tspans only: a vector's arrow (VectorText) is placed by dx, from where its line is.
         const spans = el.getElementsByTagName('tspan');
-        for (let i = 0; i < spans.length; i++) spans[i].setAttribute('x', x);
+        for (let i = 0; i < spans.length; i++) if (spans[i].hasAttribute('x')) spans[i].setAttribute('x', x);
       };
 
       meta.elements.forEach(sub => {

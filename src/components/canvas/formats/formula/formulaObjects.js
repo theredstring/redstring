@@ -18,6 +18,7 @@ import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
 import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst, computeGroupLayout, buildGroupsByMemberIdIndex, groupLabelSizing, groupTitleScaleOf } from '../../../../services/groupLayout.js';
 import { measureTextWidth } from '../../../../services/textMeasurement.js';
+import { ARROW_RISE, ARROW_INSET, ARROW_HEAD, ARROW_STROKE, unmarked } from '../../../../utils/vectorArrow.js';
 import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf, VECTOR_MARK } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
 import { RAISE_SCALE, RAISE_STEP, RAISE_GAP_IN, RAISE_GAP_OUT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP } from './formulaScale.js';
@@ -59,11 +60,6 @@ const BIG_GAP = 0.06;        // between ∑ (or lim) and the limits over and und
 const INTEGRAL_KERN = -0.12; // its upper limit in against the ∫'s top, which leans right
 const INTEGRAL_UNDER = -0.34; // and its lower limit further in, under the lean
 const BIG_PAD = 0.06;        // the sign's box, past its ink
-// A vector's arrow over its letter, in the letter's em.
-const ARROW_RISE = 0.14;     // above the letter's top
-const ARROW_INSET = 0.08;    // in from either side of the letter
-const ARROW_HEAD = 0.13;
-export const ARROW_STROKE = 0.065;
 /** The title, as a Thing-group's (groupElements.jsx), before the title size (groupTitleScaleOf): each object carries its `titleFont`. */
 export const TITLE_FONT = 45;
 const G = GROUP_LAYOUT_CONSTANTS;
@@ -81,7 +77,6 @@ function ensureMeasure() {
 
 // Without a canvas to measure on (tests), letters that hang below the line, by sight.
 const DESCENDERS = /[gjpqyβγζημξρςφχψ,∫]/;
-const unmarked = (text) => String(text).split(VECTOR_MARK).join('');
 /** How far one run of text's letters reach above and below its baseline (a vector's arrow too). */
 function inkOfRun(text, size) {
   const ctx = ensureMeasure();

@@ -15,6 +15,7 @@
 import { GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { getTextColor, blendColors } from '../../../utils/colorUtils.js';
 import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from './groupLiftShadow.js';
+import { vectorTspans } from '../../VectorText.jsx';
 
 // Node-group interiors take this much of the group colour over the canvas.
 export const NODE_GROUP_INTERIOR_TINT = 0.07;
@@ -216,16 +217,19 @@ export function buildGroupElements({
             fontWeight="bold" stroke="none" strokeWidth={0}
             paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
             transform={groupLiftTransform}
+            // The name as written, vector marks and all (the drawn text has its arrows as → instead).
+            data-label={labelText}
           >
-            {labelLines.length === 1 ? labelText : labelLines.map((line, i) => (
+            {labelLines.length === 1 ? vectorTspans(labelText, fontSize) : labelLines.map((line, i) => (
               <tspan
                 key={i}
                 x={labelX + labelWidth / 2}
                 // Centre the whole block on the tab: first line sits
                 // (n-1)/2 line boxes above the middle.
                 dy={i === 0 ? -((labelLines.length - 1) / 2) * labelLineHeight : labelLineHeight}
+                data-label={line}
               >
-                {line}
+                {vectorTspans(line, fontSize)}
               </tspan>
             ))}
           </text>

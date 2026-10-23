@@ -48,14 +48,15 @@ function groupTitleOf(groupId) {
   const text = document.querySelector(`svg.canvas .node-group-title[data-group-id="${esc(groupId)}"] g.group-label > text`);
   if (!text) return null;
   const n = (el, a) => parseFloat(el.getAttribute(a));
-  const spans = [...text.querySelectorAll('tspan')];
+  // Its lines (tspans placed at x), each read as written, vector marks and all (data-label).
+  const spans = [...text.querySelectorAll(':scope > tspan[x]')];
   const x = n(text, 'x');
   const y = n(text, 'y');
   const fontSize = n(text, 'font-size');
   if (![x, y, fontSize].every(Number.isFinite)) return null;
   return {
     x, y, fontSize,
-    lines: spans.length ? spans.map(t => t.textContent) : [text.textContent],
+    lines: spans.length ? spans.map(t => t.dataset.label ?? t.textContent) : [text.dataset.label ?? text.textContent],
     lineHeight: spans.length > 1 ? n(spans[1], 'dy') || fontSize : fontSize,
   };
 }

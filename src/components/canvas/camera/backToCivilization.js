@@ -32,11 +32,24 @@ export function backToCivilization(ctx) {
     outlierCount: clusterAnalysis.statistics?.outlierCount || 0
   });
 
+  const view = civilizationView({ nodes: nodesToNavigateTo, baseDimsById, viewportSize, canvasSize });
+
+  console.log('[BackToCivilization] Applying navigation:', {
+    targetZoom: Math.round(view.zoom * 1000) / 1000,
+    finalPan: { x: Math.round(view.pan.x), y: Math.round(view.pan.y) }
+  });
+
+  // Apply the new view state
+  transform.jumpTo(view.pan, view.zoom);
+}
+
+/** The pan and zoom that frame `nodes` in the viewport (the view Back to Civilization lands on). */
+export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize }) {
   // Calculate bounding box of relevant nodes
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
 
-  nodesToNavigateTo.forEach(node => {
+  nodes.forEach(node => {
     const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
@@ -49,12 +62,6 @@ export function backToCivilization(ctx) {
   const nodesCenterY = (minY + maxY) / 2;
   const nodesWidth = maxX - minX;
   const nodesHeight = maxY - minY;
-
-  console.log('[BackToCivilization] Target area:', {
-    center: { x: Math.round(nodesCenterX), y: Math.round(nodesCenterY) },
-    size: { width: Math.round(nodesWidth), height: Math.round(nodesHeight) },
-    bounds: { minX: Math.round(minX), minY: Math.round(minY), maxX: Math.round(maxX), maxY: Math.round(maxY) }
-  });
 
   // Calculate appropriate zoom level with padding
   const padding = 150;
@@ -75,14 +82,11 @@ export function backToCivilization(ctx) {
   const maxPanY = 0;
   const minPanY = viewportSize.height - canvasSize.height * targetZoom;
 
-  const finalPanX = Math.min(Math.max(targetPanX, minPanX), maxPanX);
-  const finalPanY = Math.min(Math.max(targetPanY, minPanY), maxPanY);
-
-  console.log('[BackToCivilization] Applying navigation:', {
-    targetZoom: Math.round(targetZoom * 1000) / 1000,
-    finalPan: { x: Math.round(finalPanX), y: Math.round(finalPanY) }
-  });
-
-  // Apply the new view state
-  transform.jumpTo({ x: finalPanX, y: finalPanY }, targetZoom);
+  return {
+    pan: {
+      x: Math.min(Math.max(targetPanX, minPanX), maxPanX),
+      y: Math.min(Math.max(targetPanY, minPanY), maxPanY),
+    },
+    zoom: targetZoom,
+  };
 }
