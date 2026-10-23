@@ -2,6 +2,7 @@ import React from 'react';
 import './NodeType.css';
 import { useTheme } from './hooks/useTheme.js';
 import { getTextColor } from './utils/colorUtils.js';
+import { VectorText } from './components/VectorText.jsx';
 
 const NodeType = ({ name, color = '#800000', onClick }) => {
   const theme = useTheme();
@@ -45,7 +46,7 @@ const NodeType = ({ name, color = '#800000', onClick }) => {
           maxWidth: '100%'
         }}
       >
-        {name}
+        <VectorText text={name} />
       </span>
     </div>
   );

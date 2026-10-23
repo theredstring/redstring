@@ -91,7 +91,7 @@ const NodePill = ({ name, color = '#800000', onClick }) => {
       style={{ backgroundColor: color }}
       onClick={onClick}
     >
-      {name}
+      <VectorText text={name} />
     </div>
   );
 };
@@ -163,6 +163,7 @@ import {
   layoutNodeChips
 } from './utils/connectionPreview.js';
 import { layoutConnectionRow } from './utils/connectionRowLayout.js';
+import { VectorText } from './components/VectorText.jsx';
 
 // Every preview in this panel — the connection row, the node chips, the
 // node-group and group pills — draws its text at the fixed on-screen size for

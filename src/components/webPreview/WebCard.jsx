@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from 'react';
+import { Fragment, useLayoutEffect, useMemo, useState } from 'react';
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getNodeDimensions } from '../../utils.js';
 import { getTextColor } from '../../utils/colorUtils';
@@ -7,6 +7,8 @@ import { LABEL_FONT_SIZE_BASE, LABEL_LINE_HEIGHT_BASE } from '../../utils/nodeLa
 import { useTheme } from '../../hooks/useTheme.js';
 import useGraphStore from '../../store/graphStore.js';
 import InnerNetwork from '../../InnerNetwork.jsx';
+import { VectorArrows } from '../VectorText.jsx';
+import { unmarked } from '../../utils/vectorArrow.js';
 
 // Node.jsx: the label container's vertical padding and the background rect's inset.
 const LABEL_PADDING_V = 34;
@@ -111,19 +113,21 @@ const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = tru
         fill={fill}
       />
       {lines.map((line, i) => (
-        <text
-          key={i}
-          x={width / 2}
-          y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontFamily="'EmOne', sans-serif"
-          fontWeight="bold"
-          fontSize={fontSize}
-          fill={textColor}
-        >
-          {line}
-        </text>
+        <Fragment key={i}>
+          <text
+            x={width / 2}
+            y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontFamily="'EmOne', sans-serif"
+            fontWeight="bold"
+            fontSize={fontSize}
+            fill={textColor}
+          >
+            {unmarked(line)}
+          </text>
+          <VectorArrows line={line} x={width / 2} y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight} fontSize={fontSize} color={textColor} />
+        </Fragment>
       ))}
       <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} rx={inner.r} ry={inner.r} fill={theme.canvas.bg} />
       {newWeb ? (

@@ -74,3 +74,19 @@ export function vectorArrowsOver(lines, fontSize, lineHeight) {
   });
   return paths;
 }
+
+/**
+ * A line of SVG text's arrows, laid over it: the line centred on (x, y)
+ * (textAnchor middle, dominantBaseline central) and drawn unmarked.
+ */
+export function VectorArrows({ line, x, y, fontSize, color }) {
+  const paths = vectorArrowsOver([line], fontSize, 0);
+  if (!paths) return null;
+  return (
+    <g transform={`translate(${x} ${y})`} fill="none" stroke={color} strokeLinecap="round" strokeLinejoin="round"
+      style={{ pointerEvents: 'none' }}
+    >
+      {paths}
+    </g>
+  );
+}

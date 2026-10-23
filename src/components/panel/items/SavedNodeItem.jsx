@@ -5,6 +5,7 @@ import { XCircle } from 'lucide-react';
 import { NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE } from '../../../constants';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import { VectorText } from '../../VectorText.jsx';
 
 const ItemTypes = {
   SPAWNABLE_NODE: 'spawnable_node'
@@ -79,7 +80,7 @@ const SavedNodeItem = ({ node, onClick, onDoubleClick, onContextMenu, onUnsave, 
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap'
       }}>
-        {node.name || 'Unnamed'}
+        <VectorText text={node.name || 'Unnamed'} />
       </span>
       {onUnsave && <div
         style={{

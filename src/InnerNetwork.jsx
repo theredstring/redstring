@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react';
+import { Fragment, useId, useMemo } from 'react';
 import {
     NODE_WIDTH,
     NODE_HEIGHT,
@@ -18,6 +18,8 @@ import PreviewConnection from './components/webPreview/PreviewConnection.jsx';
 import PreviewFormula from './components/webPreview/PreviewFormula.jsx';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_GROUP_INTERIOR_TINT } from './components/canvas/groups/groupElements.jsx';
+import { VectorArrows, vectorArrowsOver } from './components/VectorText.jsx';
+import { unmarked } from './utils/vectorArrow.js';
 
 // --- Canvas parity constants ---
 // The decomposition preview is a *scaled-down canvas*, not its own visual language:
@@ -135,7 +137,9 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     const lines = label.lines?.length ? label.lines : [shape.name];
     const lineHeight = groupFontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
     const cx = label.x + label.w / 2;
+    const arrows = vectorArrowsOver(lines, groupFontSize, lineHeight);
     return (
+      <>
       <text
         x={cx}
         y={label.y + label.h / 2}
@@ -148,9 +152,17 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
         style={{ pointerEvents: 'none', userSelect: 'none' }}
       >
         {lines.map((line, i) => (
-          <tspan key={i} x={cx} dy={i === 0 ? -((lines.length - 1) / 2) * lineHeight : lineHeight}>{line}</tspan>
+          <tspan key={i} x={cx} dy={i === 0 ? -((lines.length - 1) / 2) * lineHeight : lineHeight}>{unmarked(line)}</tspan>
         ))}
       </text>
+      {arrows && (
+        <g transform={`translate(${cx} ${label.y + label.h / 2})`} fill="none" stroke={fill} strokeLinecap="round" strokeLinejoin="round"
+          style={{ pointerEvents: 'none' }}
+        >
+          {arrows}
+        </g>
+      )}
+      </>
     );
   };
 
@@ -276,20 +288,22 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
           const fill = getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon', theme.darkMode);
 
           return lines.map((line, i) => (
-            <text
-              key={`inner-node-label-${node.id}-${i}`}
-              x={node.x + dimensions.currentWidth / 2}
-              y={centerY + (i - (lines.length - 1) / 2) * lineHeight}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fontSize={fontSize}
-              fill={fill}
-              fontWeight="bold"
-              fontFamily="'EmOne', sans-serif"
-              style={{ pointerEvents: 'none', userSelect: 'none' }}
-            >
-              {line}
-            </text>
+            <Fragment key={`inner-node-label-${node.id}-${i}`}>
+              <text
+                x={node.x + dimensions.currentWidth / 2}
+                y={centerY + (i - (lines.length - 1) / 2) * lineHeight}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={fontSize}
+                fill={fill}
+                fontWeight="bold"
+                fontFamily="'EmOne', sans-serif"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {unmarked(line)}
+              </text>
+              <VectorArrows line={line} x={node.x + dimensions.currentWidth / 2} y={centerY + (i - (lines.length - 1) / 2) * lineHeight} fontSize={fontSize} color={fill} />
+            </Fragment>
           ));
         })()}
       </g>

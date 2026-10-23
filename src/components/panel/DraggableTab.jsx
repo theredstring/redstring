@@ -8,6 +8,7 @@ import { getTextColor, hexToHsl, hslToHex } from '../../utils/colorUtils';
 import { showContextMenu } from '../GlobalContextMenu.jsx';
 import { rightPanelTabKey } from '../../utils/rightPanelTabs.js';
 import { middleClickHandlers } from '../../utils/middleClick.js';
+import { VectorText } from '../VectorText.jsx';
 
 const ItemTypes = {
   TAB: 'tab'
@@ -134,7 +135,7 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
         marginRight: '8px',
         userSelect: 'none'
       }}>
-        {displayTitle}
+        <VectorText text={displayTitle} />
       </span>
       <XCircle
         size={PANEL_CLOSE_ICON_SIZE}

@@ -29,6 +29,7 @@ import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.j
 import { safeImageSrc } from '../../utils/safeUrl.js';
 import { setWikipediaImage } from '../../services/wikipediaImage.js';
 import { getArticleFor } from '../../utils/articleFor.js';
+import { VectorText } from '../VectorText.jsx';
 
 // Wikipedia enrichment functions
 const searchWikipedia = async (query) => {
@@ -838,7 +839,7 @@ const DraggableNodeComponent = ({ node, onOpenNode }) => {
       data-nav="item"
       onClick={() => onOpenNode(node.prototypeId || node.id)}
     >
-      {node.name}
+      <VectorText text={node.name} />
     </div>
   );
 };
@@ -970,7 +971,7 @@ const DraggableTitleComponent = ({
       onDoubleClick={onTitleDoubleClick}
       onTouchEnd={handleTouchEnd}
     >
-      {nodeData.name || 'Untitled'}
+      <VectorText text={nodeData.name || 'Untitled'} />
     </div>
   );
 };
@@ -1413,7 +1414,7 @@ const SharedPanelContent = ({
                       outline: 'none'
                     }}
                   >
-                    {typeName}
+                    <VectorText text={typeName} />
                   </button>
                   {typeButtons && <div style={{ marginTop: '10px' }}>{typeButtons}</div>}
                 </div>
@@ -1460,7 +1461,7 @@ const SharedPanelContent = ({
                       marginLeft: '6px'
                     }}
                   >
-                    {typeName}
+                    <VectorText text={typeName} />
                   </button>
                 </div>
                 {typeButtons}

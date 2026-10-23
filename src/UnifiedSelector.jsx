@@ -17,6 +17,7 @@ import PanelIconButton from './components/shared/PanelIconButton';
 import { haptic } from './services/haptics.js';
 import './components/canvas/formats/formats.css';
 import './UnifiedSelector.css';
+import { VectorText } from './components/VectorText.jsx';
 
 // A type's name in the filter and the title, cut short past this many
 // characters.
@@ -810,7 +811,7 @@ const UnifiedSelector = ({
                             WebkitBoxOrient: 'vertical'
                           }}
                         >
-                          {prototype.name}
+                          <VectorText text={prototype.name} />
                         </span>
                         {cardBadge && <CardBadge count={cardBadge(prototype)} />}
                       </div>

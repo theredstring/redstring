@@ -3,6 +3,7 @@ import { useTheme } from './hooks/useTheme.js';
 import { getTextColor } from './utils/colorUtils';
 import { cssImageUrl } from './utils/safeUrl.js';
 import React, { useState } from 'react';
+import { VectorText } from './components/VectorText.jsx';
 
 const NodeGridItem = ({ 
   nodePrototype, 
@@ -98,7 +99,7 @@ const NodeGridItem = ({
           WebkitBoxOrient: 'vertical'
         }}
       >
-        {nodeName}
+        <VectorText text={nodeName} />
       </span>
     </div>
   );

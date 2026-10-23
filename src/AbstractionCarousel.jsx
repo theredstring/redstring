@@ -28,6 +28,7 @@ import { createDetentTrack } from './services/haptics.js';
 import { resolveChain } from './wizard/tools/utils/abstractionSpec.js';
 import { safeImageSrc } from './utils/safeUrl.js';
 import './AbstractionCarousel.css';
+import { VectorText } from './components/VectorText.jsx';
 
 
 const LEVEL_SPACING = -30; // Overlapping spacing to create a stacked effect
@@ -1736,7 +1737,7 @@ const AbstractionCarousel = ({
                           }}
                           lang="en"
                         >
-                          {item.name}
+                          <VectorText text={item.name} />
                         </span>
                       </div>
                     </foreignObject>
