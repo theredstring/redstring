@@ -1,7 +1,7 @@
 /**
  * The universe's equations in New Formula's box, shaped as the bank is
  * (universeEquations.js: the bank's equations it has, filed as the bank files
- * them, and Yours), in two parts the composer puts in the selector. The box's
+ * them, and Custom), in two parts the composer puts in the selector. The box's
  * header holds every choice (BankChoices): the disciplines, then the chosen
  * discipline's sections (Thermodynamics, Graph Theory). Under it the list
  * scrolls (BankList): a discipline's equations grouped by section, best known
@@ -20,7 +20,7 @@ import FormulaTokens from './FormulaTokens.jsx';
 import PanelIconButton from '../../../shared/PanelIconButton.jsx';
 import { openExternalUrl } from '../../../../utils/safeUrl.js';
 import { itemPage, isMathModDBId } from './bank/population/sources.js';
-import { YOURS } from './universeEquations.js';
+import { CUSTOM } from './universeEquations.js';
 
 const MAX_MATCHES = 8;
 const PER_SECTION = 4;  // a section's best known in a discipline's list; the rest in the section
@@ -346,7 +346,7 @@ export default function BankList({ bank, browse, matches, standard, onPick }) {
     );
   }
   // Credited where what is listed came from them.
-  const fromBank = bank.disciplines.some(d => d.id !== YOURS);
+  const fromBank = bank.disciplines.some(d => d.id !== CUSTOM);
 
   return (
     <div ref={ref} className="format-bank-body" role="list" aria-label="Equations in this universe">

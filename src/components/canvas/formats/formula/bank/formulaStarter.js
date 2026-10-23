@@ -27,6 +27,8 @@ import { formulaBankNow, loadFormulaBank, STARTER_ORIGIN } from './formulaBank.j
 
 // Between formulas stacked in a web, canvas units: a formula's band and title with room around.
 const ROW = 520;
+// Equations built in one store before it is merged and the next begins.
+const BATCH = 100;
 
 /**
  * What adding these disciplines would add to the open universe: the
@@ -261,8 +263,19 @@ export async function addFormulaStarter(disciplineIds, { onProgress = null, save
   if (save) {
     try { await save(); } catch (e) { console.warn('[FormulaStarter] Save before adding failed (continuing):', e); }
   }
-  const built = await buildInWorker(bank, plan.entries.map(({ equation }) => equation.id), onProgress);
-  const result = mergeFormulaStarter(built);
+  // In batches, each built in a store of its own and merged as the next is:
+  // every write copies the store it is in, so one store holding all of them
+  // made each equation slower than the last.
+  const ids = plan.entries.map(({ equation }) => equation.id);
+  const total = ids.length;
+  let result = null;
+  for (let start = 0; start < total; start += BATCH) {
+    const built = await buildInWorker(bank, ids.slice(start, start + BATCH), (done) => onProgress?.(start + done, total));
+    const merged = mergeFormulaStarter(built);
+    result = result
+      ? { ...merged, added: result.added + merged.added, skipped: [...result.skipped, ...merged.skipped] }
+      : merged;
+  }
   if (save) {
     try { await save(); } catch (e) { console.warn('[FormulaStarter] Save after adding failed:', e); }
   }

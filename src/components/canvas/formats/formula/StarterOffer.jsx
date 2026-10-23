@@ -2,7 +2,7 @@
  * The formula starter offered in New Formula's box: the bank's disciplines,
  * what each would add, and Add, with its progress while the worker builds
  * (bank/useFormulaStarter.js, the same as Settings → Data). Shown in place of
- * the list while the universe has none of the starter and no equations, and
+ * the list until the universe has the starter, and
  * after that only when asked for (the Starter choice in the box's header).
  */
 import { useEffect, useRef, useState } from 'react';

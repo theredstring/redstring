@@ -142,8 +142,9 @@ function prototypeFrom(origin, link) {
   const key = link ? canonicalizeLink(link) : null;
   for (const p of useGraphStore.getState().nodePrototypes.values()) {
     if (p.semanticMetadata?.provenance?.source === origin) found = p;
-    else if (key && (p.externalLinks || []).some(l => canonicalizeLink(l) === key)
-      && p.semanticMetadata?.linkConfirmations?.[key]?.state === LINK_STATES.EXACT) linked = p;
+    // The confirmation first: reading every Thing's links is what made a large build slow.
+    else if (key && p.semanticMetadata?.linkConfirmations?.[key]?.state === LINK_STATES.EXACT
+      && (p.externalLinks || []).some(l => canonicalizeLink(l) === key)) linked = p;
   }
   return found || linked;
 }

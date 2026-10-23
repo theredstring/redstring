@@ -4,7 +4,7 @@
  * disciplines and sections browsed as before, holding only what is here.
  * Nothing from the bank is offered until it is added (bank/formulaStarter.js,
  * the wizard, an equation placed before); the formulas written here, by hand
- * or by the wizard, are a discipline of their own, Yours.
+ * or by the wizard, are a discipline of their own, Custom.
  *
  * Each entry is the bank's (its text, symbols, description) with the Thing it
  * is here, `protoId`: picking one places that Thing (formulaWizard's
@@ -16,7 +16,7 @@ import { canonicalizeLink, LINK_STATES } from '../../../../formats/linkState.js'
 import { loadFormulaBank, formulaBankNow, subscribeFormulaBank, equationOrigin, BANK_AGENT } from './bank/formulaBank.js';
 import { formulasForWizard, equationOf } from './formulaSnapshot.js';
 
-export const YOURS = '__yours__';
+export const CUSTOM = '__custom__';
 
 /** The bank's equations here: entry id → the Thing it is, found as the builder finds it. */
 function bankEquationsHere(state, bank) {
@@ -76,7 +76,7 @@ export function universeEquations(state, bank) {
     });
   }
   if (yours.length) {
-    disciplines.push({ id: YOURS, name: 'Yours', description: 'Equations written in this universe.', sections: [], equations: yours });
+    disciplines.push({ id: CUSTOM, name: 'Custom', description: 'Equations written in this universe.', sections: [], equations: yours });
   }
 
   return Object.freeze({

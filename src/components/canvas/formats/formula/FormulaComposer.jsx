@@ -4,14 +4,15 @@
  * and the colour of the equation's Thing; how it is read (Math or Code) is a
  * slider pill at the right of the box's title. The box follows what is typed:
  * this universe's equations to browse (FormulaBankPicker over
- * universeEquations.js: by discipline as the bank files them, and Yours),
+ * universeEquations.js: by discipline as the bank files them, and Custom),
  * the ones whose titles match the words, or a formula, read token by token,
  * which Enter or + builds as Things at the spot that was right-clicked
  * (buildFormula.js), shown as its formula. Picking one places that equation
  * there (formulaWizard's placeEquation). The bank itself is listed only once
- * it is added: while the universe has none of it and no equations, the box
- * offers it in place of the list (StarterOffer), then only from the Starter
- * choice in the header, as Settings → Data → Formula Starter does.
+ * it is added: until then the box opens on it in place of the list
+ * (StarterOffer), its Custom equations a choice away in the header; after,
+ * it is offered only from the Starter choice there, as Settings → Data →
+ * Formula Starter does.
  */
 import { useMemo, useRef, useState } from 'react';
 import UnifiedSelector from '../../../../UnifiedSelector';
@@ -86,7 +87,8 @@ export default function FormulaComposer() {
   const moreInBank = useMemo(() => !!wholeBank && wholeBank.disciplines.some((d) => (
     d.equations.length > (bank?.disciplines.find(x => x.id === d.id)?.equations.length || 0)
   )), [wholeBank, bank]);
-  const [starterOpen, setStarterOpen] = useState(false);
+  // Until the starter is added, the box opens on it.
+  const [starterOpen, setStarterOpen] = useState(() => !starterHere);
 
   const readOptions = useMemo(() => ({ convention, isKnownName: (n) => knownNames.has(n) }), [convention, knownNames]);
   // Words with no operation in them ("ideal gas") are a search of the bank, not
