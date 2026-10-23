@@ -15,7 +15,7 @@
  * To its Things: the formula plays its exit into the box (`into`). The box,
  * its Things and their connections are held hidden until the band and the
  * copies are exactly on them, then shown at once under them, and the formula
- * fades off them.
+ * fades off them; the connections draw themselves in from there.
  *
  * The formula's own drawing plays both (FormulaObjectsLayer), as it does
  * opening out of its Thing and combining into it.
@@ -85,10 +85,11 @@ export function groupBoxOf(groupId) {
 /**
  * The group's Things as they are drawn now, to carry to and from their tokens:
  * `things`, a copy of each Thing's own drawing with where it stands
- * ({ id, copy, rect }); `fades`, copies of what goes with them (the
- * connections touching them, the groups inside it) to fade out or in.
+ * ({ id, copy, rect }); `fades`, copies of what goes with them (the groups
+ * inside it, and with `connections`, the connections touching them) to fade;
+ * `edgeIds`, those connections.
  */
-function captureThings(graphId, groupId) {
+function captureThings(graphId, groupId, { connections = true } = {}) {
   const view = projectGraphView(useGraphStore.getState(), graphId);
   const group = view?.groups?.get(groupId);
   if (!group || typeof document === 'undefined') return null;
@@ -108,12 +109,14 @@ function captureThings(graphId, groupId) {
     scene.querySelectorAll(`.node-group-bg[data-group-id="${esc(g.id)}"], .node-group-title[data-group-id="${esc(g.id)}"]`)
       .forEach(el => fades.push(detachedCopy(el)));
   });
+  const edgeIds = [];
   (view.edgeIds || []).forEach((id) => {
     const e = useGraphStore.getState().edges.get(id);
     if (!e || !(members.has(e.sourceId) || members.has(e.destinationId))) return;
-    scene.querySelectorAll(`[data-edge-id="${esc(id)}"]`).forEach(el => fades.push(detachedCopy(el)));
+    edgeIds.push(id);
+    if (connections) scene.querySelectorAll(`[data-edge-id="${esc(id)}"]`).forEach(el => fades.push(detachedCopy(el)));
   });
-  return { things, fades };
+  return { things, fades, edgeIds };
 }
 
 /**
@@ -175,8 +178,10 @@ export function withToThingsMorph(graphId, groupId, drawn, write) {
   let frames = 0;
   const aim = () => {
     const box = groupBoxOf(groupId);
-    // Drawn by now (held hidden until the formula is on them): copied to grow out of their tokens.
-    if (box) leaving?.into({ ...box, ghosts: captureThings(graphId, groupId), titleText: box.title.lines?.join(' ') || titleText });
+    // Drawn by now (held hidden until the formula is on them): copied to grow
+    // out of their tokens. Their connections draw themselves in once the
+    // Things have landed (FormulaObjectsLayer), as a drawn connection does.
+    if (box) leaving?.into({ ...box, ghosts: captureThings(graphId, groupId, { connections: false }), titleText: box.title.lines?.join(' ') || titleText });
     else if (frames++ < MAX_WAIT_FRAMES) requestAnimationFrame(aim);
   };
   requestAnimationFrame(aim);

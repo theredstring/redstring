@@ -43,6 +43,7 @@ import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf, vectorOf } from './formulaChain.js';
 import { useGlide, GLIDE_MS, FRAME_MS, glideEase } from './useGlide.js';
 import { flipFormulaToken } from '../formatsStore.js';
+import { traceEdgesIn } from '../../edges/edgeTransitions.js';
 import { getCanvasGroupInput } from '../../groups/groupInput.js';
 import { tapFormula } from './formulaSelection.js';
 import {
@@ -881,6 +882,16 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     return `translate(${c.x} ${c.y}) scale(${s}) translate(${-lineBox.x} ${-lineBox.y})`;
   })() : undefined;
   const tokenTextColor = fromWords && spawning && grown < 0.5 && nodeTitle.color ? nodeTitle.color : textColor;
+  // Into its Thing-group's box: the connections are shown with the box, once
+  // the Things have landed, and draw themselves in from there (before paint,
+  // so none shows whole first).
+  const tracedRef = useRef(false);
+  const landed = leaving && boxMorph && spawn <= REVEAL_SHARE;
+  useLayoutEffect(() => {
+    if (!landed || tracedRef.current) return;
+    tracedRef.current = true;
+    traceEdgesIn(node.ghosts?.edgeIds);
+  }, [landed, node]);
   const clipId = `formula-${leaving ? 'leave' : 'spawn'}-${obj.groupId}`;
   // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
   const lx = frame.x + frame.w / 2 - o.x;
