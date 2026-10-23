@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { sanitizeColor } from './utils/safeColor.js';
 import { cssImageUrl } from './utils/safeUrl.js';
 import { createPortal } from 'react-dom';
@@ -25,7 +25,11 @@ const TYPE_NAME_LIMIT = 32;
 // The exit's length (UnifiedSelector.css, us-*-out); the entrance's cards
 // stagger in for this long, then new ones (a looser search) just rise.
 const EXIT_MS = 120;
-const CARD_ENTER_MS = 450;
+const CARD_ENTER_MS = 560;
+// The cards in view come in as a wave from the top left, row plus column, in
+// this long however many there are; it starts this far in.
+const CARD_WAVE_MS = 280;
+const CARD_WAVE_START_MS = 60;
 // Selectors on screen. One that opens while another is still up is the same
 // prompt turning a page (the Thing group prompt's steps): only its contents
 // come in.
@@ -213,6 +217,9 @@ const UnifiedSelector = ({
   // somewhere to be.
   const [closing, setClosing] = useState(false);
   const [entering, setEntering] = useState(true);
+  // The grid's columns, and how many rows of it the box shows, measured as it
+  // opens: the cards in those rows are the wave.
+  const [cardWave, setCardWave] = useState(null);
   const handoff = React.useMemo(() => isVisible && liveSelectors > 0, [isVisible]);
   const closeTimerRef = useRef(null);
   const onCloseRef = useRef(onClose);
@@ -242,6 +249,7 @@ const UnifiedSelector = ({
       liveSelectors -= 1;
       clearTimeout(enterTimer);
       setEntering(true);
+      setCardWave(null);
       // Closed from outside mid-exit: the close still lands.
       if (closeTimerRef.current) finishClose();
     };
@@ -292,7 +300,23 @@ const UnifiedSelector = ({
   const handleColorChange = (newColor) => { setColor(newColor); onColorChange?.(newColor); };
 
   const scrollContainerRef = useRef(null);
+  const gridRef = useRef(null);
   const touchHandledRef = useRef(false);
+
+  // Before the first paint, so the wave's delays are on the cards before they
+  // show.
+  useLayoutEffect(() => {
+    if (!isVisible || cardWave) return;
+    const grid = gridRef.current;
+    const scroller = scrollContainerRef.current;
+    if (!grid || !scroller) return;
+    const gridStyle = getComputedStyle(grid);
+    const cols = gridStyle.gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+    const first = grid.firstElementChild;
+    const rowStep = first ? first.offsetHeight + (parseFloat(gridStyle.rowGap) || 0) : 0;
+    const rows = rowStep > 0 ? Math.ceil(scroller.clientHeight / rowStep) : 1;
+    setCardWave({ cols, rows });
+  }, [isVisible, cardWave]);
   const cardTouchRef = useRef({ x: 0, y: 0, moved: false });
 
   // Handle wheel events for scrolling
@@ -670,6 +694,7 @@ const UnifiedSelector = ({
                   className="unified-selector-scroll"
                 >
                   {gridContent || <div
+                    ref={gridRef}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
@@ -677,16 +702,21 @@ const UnifiedSelector = ({
                       alignContent: 'start'
                     }}
                   >
-                    {filteredPrototypes.map((prototype, index) => (
+                    {filteredPrototypes.map((prototype, index) => {
+                      const waveRow = cardWave ? Math.floor(index / cardWave.cols) : 0;
+                      const waveCol = cardWave ? index % cardWave.cols : 0;
+                      const inWave = !!cardWave && waveRow < cardWave.rows;
+                      const waveSpan = cardWave ? cardWave.rows + cardWave.cols - 2 : 0;
+                      const waveDelay = CARD_WAVE_START_MS + (waveSpan > 0 ? (waveRow + waveCol) * Math.min(16, CARD_WAVE_MS / waveSpan) : 0);
+                      return (
                       <div
                         key={prototype.id}
                         // Handle for the game controller's grid walker — the
                         // cards are otherwise styled entirely inline, with no
                         // selector to navigate by. See utils/gamepadMenuNav.js.
-                        // The first few stagger in; past them, each would
-                        // only be one more layer to animate, mostly out of
-                        // view.
-                        className={`unified-selector-card${index < 40 ? ' us-card-stagger' : ''}`}
+                        // The cards in view stagger in; below them, each would
+                        // only be one more layer to animate, out of sight.
+                        className={`unified-selector-card${inWave ? ' us-card-stagger' : ''}`}
                         style={{
                           background: sanitizeColor(prototype.color, '#8B0000'),
                           borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
@@ -700,8 +730,8 @@ const UnifiedSelector = ({
                           position: 'relative',
                           touchAction: 'manipulation',
                           WebkitTapHighlightColor: 'transparent',
-                          // Its place in the entrance's stagger.
-                          '--us-card-i': index
+                          // Its place in the entrance's wave.
+                          '--us-card-delay': `${Math.round(waveDelay)}ms`
                         }}
                         onMouseEnter={(e) => {
                           if (!mobileState.isTouchDevice) {
@@ -784,7 +814,8 @@ const UnifiedSelector = ({
                         </span>
                         {cardBadge && <CardBadge count={cardBadge(prototype)} />}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>}
                 </div>
               </div>

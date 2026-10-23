@@ -158,9 +158,10 @@
 /* --- Motion -------------------------------------------------------------
    In: the backdrop fades; the name pill fades in a little narrow and opens
    out from the centre, its buttons and field fading in as it does; the box
-   rises a beat later and its first cards stagger in (.us-card-stagger,
-   --us-card-i, set per card; the rest come in with the box). Transform and
-   opacity only, so it all runs off the main thread while the grid builds. Fill is `backwards` so nothing keeps a
+   rises a beat later and the cards in view come in as a wave from the top
+   left (.us-card-stagger, --us-card-delay, set per card; those below come in
+   with the box). Transform and opacity only, so it all runs off the main
+   thread while the grid builds. Fill is `backwards` so nothing keeps a
    transform once it lands; the cards' hover scale is inline and would lose to
    a held one.
    Out (.is-closing, EXIT_MS in the component): the pill draws in a little,
@@ -193,7 +194,7 @@
 }
 
 .unified-selector-stage.is-entering .unified-selector-card.us-card-stagger {
-  animation-delay: calc(60ms + var(--us-card-i, 0) * 7ms);
+  animation-delay: var(--us-card-delay, 0ms);
 }
 
 .unified-selector-backdrop.is-closing {
