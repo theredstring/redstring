@@ -6,6 +6,7 @@ import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hov
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import useExpandMorph from './hooks/useExpandMorph.js';
+import useCentredResize from './hooks/useCentredResize.js';
 import { getTextColor, DEFAULT_LIFTED_THING_SHADOW, LIFTED_THING_SHADOW_FAST_LAYERS } from './utils/colorUtils.js';
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { isValidColor } from './ai/palettes.js';
@@ -94,6 +95,10 @@ const Node = ({
   // mid-resize (a small clamp/box against a still-large font, or vice-versa).
   // Tune the resize speed here.
   const SIZE_TRANSITION = '0.16s ease';
+
+  // Resized, it grows around its middle: its corner moves with the box, on the same curve.
+  const groupRef = useRef(null);
+  useCentredResize(groupRef, node.x ?? 0, node.y ?? 0, node?.sizeMul ?? 1.0, Boolean(isDragging), SIZE_TRANSITION);
 
   // The preview card opens out of the node and closes back into it. While it is
   // open or closing, `showPreview` keeps its contents drawn; `morphing` is the
@@ -431,6 +436,7 @@ const Node = ({
 
   return (
     <g
+      ref={groupRef}
       className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${showPreview ? 'previewing' : ''}`}
       data-instance-id={instanceId}
       data-lift-shadow={liftShadow || undefined}

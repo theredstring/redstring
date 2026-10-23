@@ -5,7 +5,8 @@ import {
   countGraphs,
   isEffectivelyEmpty,
   isRecognizedShape,
-  userDataCounts
+  userDataCounts,
+  countPlacements
 } from '../../src/formats/userDataCounts.js';
 
 const baseOnlyMap = () => new Map([
@@ -108,5 +109,18 @@ describe('userDataCounts', () => {
     const state = { nodePrototypes: baseOnlyMap(), graphs: new Map([['g', {}]]) };
     expect(isEffectivelyEmpty(state)).toBe(true);
     expect(countGraphs(state)).toBe(1);
+  });
+});
+
+describe('countPlacements', () => {
+  it('sums placements in store state and in a document', () => {
+    const graphs = new Map([
+      ['a', { instances: new Map([['i1', {}], ['i2', {}]]) }],
+      ['b', { instances: new Map() }],
+      ['c', {}],
+    ]);
+    expect(countPlacements({ graphs })).toBe(2);
+    expect(countPlacements({ spatialGraphs: { graphs: { a: { 'redstring:instances': { i1: {}, i2: {}, i3: {} } } } } })).toBe(3);
+    expect(countPlacements({ unrelated: true })).toBe(0);
   });
 });

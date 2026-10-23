@@ -187,3 +187,23 @@ describe('L1 metadata.created is preserved across re-export', () => {
     expect(second.metadata.created).toBe(created);
   });
 });
+
+describe('an item that cannot be read fails the load', () => {
+  // 2026-10-23: a half-edited build threw on every placement. Each web was
+  // swapped for an empty stand-in, the load succeeded, and the next save wrote
+  // the empty webs over the file. A load that cannot read something must fail.
+  it('throws, naming what could not be read, instead of loading an empty stand-in', () => {
+    const doc = exportToRedstring(baseStore());
+    doc.spatialGraphs.graphs.g['redstring:instances'].iBroken = null;
+    let caught = null;
+    try { importFromRedstring(doc); } catch (e) { caught = e; }
+    expect(caught).toBeTruthy();
+    expect(caught.code).toBe('UNREADABLE_ITEMS');
+    expect(caught.cause?.unreadable?.[0]).toMatchObject({ kind: 'web', id: 'g' });
+  });
+
+  it('still reads a sound file', () => {
+    const { storeState } = importFromRedstring(exportToRedstring(baseStore()));
+    expect(storeState.graphs.get('g').instances.size).toBe(2);
+  });
+});

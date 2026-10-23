@@ -1682,6 +1682,17 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
     //console.log('[DEBUG] Importing edges:', edgesObj);
 
+    // A web, Thing, group or connection that can't be read fails the whole
+    // load (thrown after the loops, with every failure named). Each used to be
+    // swapped for an empty stand-in that the next save wrote over the real one:
+    // on 2026-10-23 a half-edited build threw on every placement and the
+    // stand-ins emptied all 812 webs of a universe, past every guard.
+    const unreadable = [];
+    const couldNotRead = (kind, id, error) => {
+      console.warn(`[importFromRedstring] Could not read ${kind} ${id}:`, error);
+      unreadable.push({ kind, id, message: error?.message || String(error) });
+    };
+
     // Convert spatial graphs back to Maps and import to store
     const graphsMap = new Map();
     Object.entries(graphsObj).forEach(([id, graph]) => {
@@ -1779,7 +1790,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
             
             groupsMap.set(groupId, convertedGroup);
           } catch (error) {
-            console.warn(`[importFromRedstring] Error processing group ${groupId}:`, error);
+            couldNotRead('group', groupId, error);
           }
         });
 
@@ -1972,18 +1983,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
         graphsMap.set(id, graphShape);
       } catch (error) {
-        console.warn(`[importFromRedstring] Error processing graph ${id}:`, error);
-        // Create a minimal valid graph to prevent crashes
-        const fallbackGraph = {
-          id,
-          name: graph?.name || graph?.['rdfs:label'] || 'Unknown Graph',
-          description: graph?.description || graph?.['rdfs:comment'] || 'Graph with import error',
-          instances: new Map(),
-          groups: new Map(), // Include groups in fallback
-          edgeIds: [],
-          definingNodeIds: []
-        };
-        graphsMap.set(id, fallbackGraph);
+        couldNotRead('web', id, error);
       }
     });
 
@@ -2224,23 +2224,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
         // but don't need to be imported back into abstractionChains as they are
         // generated dynamically from abstractionChains during export
       } catch (error) {
-        console.warn(`[importFromRedstring] Error processing prototype ${id}:`, error);
-        // Create a minimal valid prototype to prevent crashes
-        const fallbackPrototype = {
-          id,
-          name: prototype?.['rdfs:label'] || prototype?.name || 'Unknown Prototype',
-          description: prototype?.['rdfs:comment'] || prototype?.description || 'Prototype with import error',
-          color: prototype?.['redstring:visualProperties']?.['redstring:cognitiveColor'] || 
-                 prototype?.color || '#8B0000',
-          x: 0,
-          y: 0,
-          scale: 1.0,
-          externalLinks: [],
-          equivalentClasses: [],
-          definitionGraphIds: [],
-          abstractionChains: {}
-        };
-        nodesMap.set(id, fallbackPrototype);
+        couldNotRead('Thing', id, error);
       }
     });
 
@@ -2324,23 +2308,22 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
         edgesMap.set(id, edgeData);
       } catch (error) {
-        console.warn(`[importFromRedstring] Error processing edge ${id}:`, error);
-        // Create a minimal valid edge to prevent crashes
-        const fallbackEdge = {
-          id,
-          sourceId: edge?.sourceId || `unknown-${id}`,
-          destinationId: edge?.destinationId || `unknown-${id}`,
-          name: edge?.name || 'Unknown Edge',
-          description: edge?.description || 'Edge with import error',
-          typeNodeId: edge?.typeNodeId || null,
-          definitionNodeIds: edge?.definitionNodeIds || [],
-          directionality: { arrowsToward: new Set() }
-        };
-        edgesMap.set(id, fallbackEdge);
+        couldNotRead('connection', id, error);
       }
     });
 
     //console.log('[DEBUG] Final edges map:', edgesMap);
+
+    if (unreadable.length > 0) {
+      const first = unreadable[0];
+      const error = new Error(
+        `${unreadable.length} item${unreadable.length === 1 ? '' : 's'} could not be read `
+        + `(first: ${first.kind} ${first.id}: ${first.message}). Nothing was loaded, so nothing is overwritten.`
+      );
+      error.code = 'UNREADABLE_ITEMS';
+      error.unreadable = unreadable;
+      throw error;
+    }
 
     // Note: abstractionChains are stored directly on node prototypes
 

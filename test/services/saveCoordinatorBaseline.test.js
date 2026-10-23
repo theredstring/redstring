@@ -49,7 +49,7 @@ describe('SaveCoordinator shrinkage baseline', () => {
 
   it('counts user prototypes only, ignoring the seeded base types', () => {
     expect(saveCoordinator._countDataItems(state(0, { baseSeeded: true })))
-      .toEqual({ nodes: 0, graphs: 0 });
+      .toEqual({ nodes: 0, graphs: 0, placements: 0 });
     expect(saveCoordinator._countDataItems(state(3, { baseSeeded: true })).nodes).toBe(3);
   });
 
@@ -120,7 +120,57 @@ describe('SaveCoordinator shrinkage baseline', () => {
 
     const real = state(12);
     expect(saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(real), real, 'load'))
-      .toEqual({ nodes: 12, graphs: 0 });
+      .toEqual({ nodes: 12, graphs: 0, placements: 0 });
+  });
+});
+
+/**
+ * Webs can be emptied with every Thing and web left in place. On 2026-10-23 a
+ * half-edited build read every web of an 1,886-thing universe back with no
+ * placements; it arrived as a load, the floor (Things and webs only) saw
+ * nothing wrong, and the empty webs were saved over the file.
+ */
+describe('SaveCoordinator placement floor', () => {
+  const withPlacements = (nodes, placements, slug = 'wiz-formula-test') => {
+    const s = state(nodes, { slug });
+    const instances = new Map();
+    for (let i = 0; i < placements; i++) instances.set('i' + i, { id: 'i' + i, prototypeId: 'p0' });
+    s.graphs.set('g', { id: 'g', instances });
+    return s;
+  };
+
+  beforeEach(() => {
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator.activeUniverseSlugForGuard = 'wiz-formula-test';
+  });
+
+  afterEach(() => {
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator.activeUniverseSlugForGuard = null;
+  });
+
+  it('counts placements across webs', () => {
+    expect(saveCoordinator._countDataItems(withPlacements(3, 7)).placements).toBe(7);
+  });
+
+  it('refuses a save whose webs emptied while the Things stayed', () => {
+    saveCoordinator.dataBaseline = { nodes: 1886, graphs: 812, placements: 5673 };
+    expect(saveCoordinator._isCatastrophicShrinkage(withPlacements(1886, 0))).toBe(true);
+    expect(saveCoordinator._isCatastrophicShrinkage(withPlacements(1886, 4000))).toBe(false);
+  });
+
+  it('a load that comes back hollow keeps the placement floor', () => {
+    saveCoordinator.dataBaseline = { nodes: 1886, graphs: 812, placements: 5673 };
+    const hollow = withPlacements(1886, 0);
+    saveCoordinator.dataBaseline = saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(hollow), hollow, 'load');
+    expect(saveCoordinator.dataBaseline.placements).toBe(5673);
+    expect(saveCoordinator._isCatastrophicShrinkage(hollow)).toBe(true);
+  });
+
+  it('an ordinary shrink, Things and placements together, still adopts its own counts', () => {
+    saveCoordinator.dataBaseline = { nodes: 1886, graphs: 812, placements: 5673 };
+    const smaller = withPlacements(400, 300);
+    expect(saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(smaller), smaller, 'load').placements).toBe(300);
   });
 });
 

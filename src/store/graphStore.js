@@ -8649,7 +8649,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Removes orphaned prototypes, graphs, and edges that are no longer reachable.
      *
      * A prototype is considered "reachable" if it is saved, has an open right-panel tab,
-     * has a definition graph, is instantiated in a graph, or is protected.
+     * has a definition graph that holds anything, is instantiated in an open graph or
+     * in a reachable one's webs, or is protected. Imported Things live by their source.
      * Also prunes stale right-panel tabs, resets `activeDefinitionNodeId` if its
      * prototype was deleted, and removes edges referencing missing instances.
      * Called automatically 100ms after `toggleSavedNode` and `closeGraph`.
@@ -8791,6 +8792,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Check typeNodeId (legacy approach)
         if (edge.typeNodeId) {
           referencedPrototypeIds.add(edge.typeNodeId);
+        }
+      }
+
+      // A Thing whose web holds anything is something somebody made, open or
+      // not. Reaching only from open webs swept closed ones whole: on
+      // 2026-10-23 a wizard run took ~300 formulas the starter had built under
+      // its Formulas web, which nobody had open. Only empty shells go. An
+      // import lives by its source Thing being saved, and its Things by their
+      // source (the fixpoint below), so removing an import still takes it.
+      for (const prototype of draft.nodePrototypes.values()) {
+        if (referencedPrototypeIds.has(prototype.id)) continue;
+        if (prototype.semanticMetadata?.ontology?.source || prototype.semanticMetadata?.ontologySource) continue;
+        if (!Array.isArray(prototype.definitionGraphIds)) continue;
+        if (prototype.definitionGraphIds.some((graphId) => draft.graphs.get(graphId)?.instances?.size > 0)) {
+          referencedPrototypeIds.add(prototype.id);
         }
       }
 

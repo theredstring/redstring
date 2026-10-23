@@ -24,8 +24,8 @@ const TYPE_NAME_LIMIT = 32;
 
 // The exit's length (UnifiedSelector.css, us-*-out); the entrance's cards
 // stagger in for this long, then new ones (a looser search) just rise.
-const EXIT_MS = 160;
-const CARD_ENTER_MS = 700;
+const EXIT_MS = 120;
+const CARD_ENTER_MS = 450;
 // Selectors on screen. One that opens while another is still up is the same
 // prompt turning a page (the Thing group prompt's steps): only its contents
 // come in.
@@ -111,7 +111,9 @@ const UnifiedSelector = ({
   // A number for a Thing's card, in a badge at its top right, as a phone's
   // app icon carries one; none for 0 (New Web's Thing page: its Webs).
   cardBadge = null,
-  autoFocus = false,
+  // The name field takes the keys on open, so typing starts at once. Never on
+  // touch: it would bring the keyboard up over the box.
+  autoFocus = true,
   inputRef = null,
   className = '',
 }) => {
@@ -314,9 +316,10 @@ const UnifiedSelector = ({
   /**
    * While any selector is open, Backspace/Delete must never reach the canvas.
    *
-   * The name field is deliberately not autofocused, so a Backspace aimed at the
-   * text lands on document.body instead, bubbles to the window listener in
-   * useCanvasKeyboard, and deletes whatever node is still selected underneath —
+   * On touch the name field is not autofocused (nor where a caller turns it
+   * off, nor once a click lands elsewhere), so a Backspace aimed at the text
+   * can land on document.body instead, bubble to the window listener in
+   * useCanvasKeyboard, and delete whatever node is still selected underneath —
    * most visibly the node whose abstraction carousel opened this dialog. Every
    * caller would otherwise need its own prompt flag threaded into that hook's
    * isInputActive check; owning it here covers all of them at once.
@@ -680,7 +683,10 @@ const UnifiedSelector = ({
                         // Handle for the game controller's grid walker — the
                         // cards are otherwise styled entirely inline, with no
                         // selector to navigate by. See utils/gamepadMenuNav.js.
-                        className="unified-selector-card"
+                        // The first few stagger in; past them, each would
+                        // only be one more layer to animate, mostly out of
+                        // view.
+                        className={`unified-selector-card${index < 40 ? ' us-card-stagger' : ''}`}
                         style={{
                           background: sanitizeColor(prototype.color, '#8B0000'),
                           borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
@@ -695,7 +701,7 @@ const UnifiedSelector = ({
                           touchAction: 'manipulation',
                           WebkitTapHighlightColor: 'transparent',
                           // Its place in the entrance's stagger.
-                          '--us-card-i': Math.min(index, 30)
+                          '--us-card-i': index
                         }}
                         onMouseEnter={(e) => {
                           if (!mobileState.isTouchDevice) {

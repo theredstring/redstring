@@ -91,6 +91,28 @@ export const countGraphs = (x) => keysOf(graphCollectionOf(x)).length;
  */
 export const isEffectivelyEmpty = (x) => countUserPrototypes(x) === 0;
 
+const instancesOf = (graph) => graph?.instances ?? graph?.['redstring:instances'];
+
+/**
+ * Things placed in webs, summed over every web. Counted apart from Things and
+ * webs because a universe can keep every one of those and still be emptied:
+ * on 2026-10-23 every web of an 1,886-thing universe was read back with no
+ * placements, and guards that counted only Things and webs saved it.
+ */
+export const countPlacements = (x) => {
+  const graphs = graphCollectionOf(x);
+  if (!graphs) return 0;
+  const list = graphs instanceof Map ? [...graphs.values()] : Array.isArray(graphs) ? graphs : Object.values(graphs);
+  let n = 0;
+  for (const graph of list) {
+    const instances = instancesOf(graph);
+    if (instances instanceof Map) n += instances.size;
+    else if (Array.isArray(instances)) n += instances.length;
+    else if (instances && typeof instances === 'object') n += Object.keys(instances).length;
+  }
+  return n;
+};
+
 export const userDataCounts = (x) => ({
   nodes: countUserPrototypes(x),
   graphs: countGraphs(x),
