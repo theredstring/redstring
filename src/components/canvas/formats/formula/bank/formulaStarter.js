@@ -20,6 +20,7 @@
 import useGraphStore from '../../../../../store/graphStore.js';
 import {
   buildBankEquation, bankEquationThing, bankHomeOf, formulaStarterRoot, placeIn, bankOriginOf, reusedNameKey,
+  partCompositionOf,
 } from '../buildFormula.js';
 import { spotBelow } from '../formulaPlacement.js';
 import { equationOf } from '../formulaSnapshot.js';
@@ -113,9 +114,11 @@ export function buildStarterState(bank, equationIds, onProgress = null) {
 /**
  * The built starter, its Things matched to the open universe's: a bank Thing
  * by where it came from, a Thing the builder reuses by name (2, Multiplication,
- * sin) by that name. A web of a matched Thing (Thermodynamics, Physics,
+ * sin) by that name, a part in parentheses by what it is made of, as the
+ * builder finds one. A web of a matched Thing (Thermodynamics, Physics,
  * Formulas) is that Thing's web here: what comes in goes under what is there,
- * and what is placed there already isn't placed twice.
+ * and what is placed there already isn't placed twice. A matched part's is
+ * its definition here already, so nothing of the built one comes in.
  */
 export function reconcileStarterState(incoming, live) {
   const liveByOrigin = new Map();
@@ -145,6 +148,38 @@ export function reconcileStarterState(incoming, live) {
   }
   const P = (id) => protoMap.get(id) || id;
 
+  // Parts here already: the same Things under the same operations, typed the
+  // same (Boltzmann's exp(−E ÷ (k_B × T)) in Physics and in Chemistry).
+  const liveNamed = new Map();
+  for (const p of live.nodePrototypes.values()) {
+    if (p.isOrbitCatalog || !p.definitionGraphIds?.length) continue;
+    if (!liveNamed.has(p.name)) liveNamed.set(p.name, []);
+    liveNamed.get(p.name).push(p);
+  }
+  const liveComposition = new Map();
+  const compositionHere = (p) => {
+    if (!liveComposition.has(p.id)) liveComposition.set(p.id, partCompositionOf(live, p));
+    return liveComposition.get(p.id);
+  };
+  const partIndex = new Map(); // a live part's Thing -> the definition it reads as
+  const partWebs = new Set();  // the built parts' definitions, theirs here already
+  for (const id of grouped) {
+    const p = incoming.nodePrototypes.get(id);
+    if (!p || bankOriginOf(p) || live.nodePrototypes.has(id) || !liveNamed.has(p.name)) continue;
+    const mine = partCompositionOf(incoming, p, (term) => P(term.protoId));
+    if (!mine) continue;
+    const type = p.typeNodeId ? P(p.typeNodeId) : null;
+    let match = null;
+    for (const l of liveNamed.get(p.name)) {
+      const has = (l.typeNodeId || null) === type ? compositionHere(l) : null;
+      if (has?.composition === mine.composition) match = { id: l.id, index: has.index };
+    }
+    if (!match) continue;
+    protoMap.set(id, match.id);
+    partIndex.set(match.id, match.index);
+    for (const web of p.definitionGraphIds || []) partWebs.add(web);
+  }
+
   const graphMap = new Map();
   for (const [inId, liveId] of protoMap) {
     const inWeb = (incoming.nodePrototypes.get(inId)?.definitionGraphIds || []).find(id => incoming.graphs.has(id));
@@ -157,6 +192,7 @@ export function reconcileStarterState(incoming, live) {
   for (const p of incoming.nodePrototypes.values()) {
     const id = P(p.id);
     if (nodePrototypes.has(id)) continue;
+    if (partIndex.has(id)) { nodePrototypes.set(id, live.nodePrototypes.get(id)); continue; }
     const chains = p.abstractionChains
       ? Object.fromEntries(Object.entries(p.abstractionChains).map(([dim, chain]) => [dim, Array.isArray(chain) ? chain.map(P) : chain]))
       : p.abstractionChains;
@@ -169,8 +205,10 @@ export function reconcileStarterState(incoming, live) {
   }
 
   const dropped = new Set();
+  const droppedEdges = new Set();
   const graphs = new Map();
   for (const g of incoming.graphs.values()) {
+    if (partWebs.has(g.id)) { (g.edgeIds || []).forEach(eid => droppedEdges.add(eid)); continue; }
     const id = G(g.id);
     const here = live.graphs.get(id);
     const instances = new Map();
@@ -196,6 +234,7 @@ export function reconcileStarterState(incoming, live) {
       groups.set(gr.id, {
         ...gr,
         ...(gr.linkedNodePrototypeId ? { linkedNodePrototypeId: P(gr.linkedNodePrototypeId) } : {}),
+        ...(partIndex.has(P(gr.linkedNodePrototypeId)) ? { linkedDefinitionIndex: partIndex.get(P(gr.linkedNodePrototypeId)) } : {}),
         memberInstanceIds: (gr.memberInstanceIds || []).filter(m => !dropped.has(m)),
       });
     }
@@ -211,7 +250,7 @@ export function reconcileStarterState(incoming, live) {
 
   const edges = new Map();
   for (const e of incoming.edges.values()) {
-    if (dropped.has(e.sourceId) || dropped.has(e.destinationId)) continue;
+    if (droppedEdges.has(e.id) || dropped.has(e.sourceId) || dropped.has(e.destinationId)) continue;
     edges.set(e.id, { ...e, definitionNodeIds: (e.definitionNodeIds || []).map(P) });
   }
 

@@ -13,7 +13,7 @@ import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec, connectionTypeColors } from './utils/graphSpec.js';
 import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /**
@@ -24,18 +24,6 @@ function toTitleCase(str) {
   // Split camelCase: "isPartOf" → "is Part Of"
   const spaced = str.replace(/([a-z])([A-Z])/g, '$1 $2');
   return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-}
-
-/**
- * Generate a deterministic color from a name
- */
-function generateConnectionColor(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 60%, 45%)`;
 }
 
 /**
@@ -72,6 +60,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
 
   // Pick a palette if none provided
   const activePalette = palette || getRandomPalette();
+  // One color per connection type: the universe's, else the first given here.
+  const connectionColor = connectionTypeColors(graphState, activePalette);
 
   // Build node specs — shape lives in normalizeNodeSpec (graphSpec.js)
   let nodeSpecs = nodes.map(n => normalizeNodeSpec(n, activePalette));
@@ -89,7 +79,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // the validator has no other way to know that. Validating first would silently
   // drop every edge pointing at a layer, which is exactly the kind of "you built
   // it wrong" feedback that pushes the model back toward flat graphs.
-  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState, connectionColor });
   const layerSpecs = layerResult ? layerResult.layers : [];
   const layerWarnings = layerResult ? layerResult.warnings : [];
 
@@ -134,7 +124,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
       type: titleCaseName || 'Connection',
       definitionNode: titleCaseName ? {
         name: titleCaseName,
-        color: resolvePaletteColor(activePalette, inputDefNode?.color || generateConnectionColor(titleCaseName)),
+        color: connectionColor(titleCaseName, inputDefNode?.color),
         description: inputDefNode?.description || ''
       } : null
     };

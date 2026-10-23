@@ -13,7 +13,7 @@ import { runStructureReview } from './utils/structureReview.js';
 import { conformNames } from './utils/conformNames.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
 import { newBuildId } from '../../services/oneShot.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec, connectionTypeColors } from './utils/graphSpec.js';
 import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /** Existing node names in a graph from the serialized graphState (for C7 style). */
@@ -77,18 +77,10 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
   };
 
-  // Helper to generate a color for connection types
-  const generateConnectionColor = (name) => {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-      hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const hue = Math.abs(hash) % 360;
-    return `hsl(${hue}, 60%, 45%)`;
-  };
-
   // Pick a palette if none provided
   const activePalette = palette || getRandomPalette();
+  // One color per connection type: the universe's, else the first given here.
+  const connectionColor = connectionTypeColors(graphState, activePalette);
 
   // Build unified spec for both queue and UI. Shape (including the size-typo
   // tolerance and the optional isA ladder) lives in normalizeNodeSpec.
@@ -220,7 +212,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       type: titleCaseName || 'Connection',
       definitionNode: titleCaseName ? {
         name: titleCaseName,
-        color: resolvePaletteColor(activePalette, inputDefNode?.color || generateConnectionColor(titleCaseName)),
+        color: connectionColor(titleCaseName, inputDefNode?.color),
         description: inputDefNode?.description || ''
       } : null
     };
@@ -288,7 +280,7 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // Composition. A new graph is exactly where depth should be decided, so this
   // tool accepts layers rather than forcing a second buildComposition call after
   // the flat version has already been laid out.
-  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState, connectionColor });
   const layerSpecs = layerResult ? layerResult.layers : [];
   const layerWarnings = layerResult ? layerResult.warnings : [];
 

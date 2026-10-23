@@ -20,6 +20,10 @@ const IDEAL_GAS = 'Q191785';
 const BOYLE = 'Q175974';
 const ENTHALPY = 'Q161064';
 const COMPRESSIBILITY = 'Q736895'; // Chemistry, with Pressure in it too
+// Both hold 1 − exp(−(K_J × C_e)), of the same concepts.
+const JOVANOVIC = 'mardi:Q6821055';
+const MULTILAYER_JOVANOVIC = 'mardi:Q6821059';
+const SHARED_PARTS = ['1 − exp(−(K_J × C_e))', 'exp(−(K_J × C_e))', '−(K_J × C_e)'];
 
 const reset = () => {
   useHistoryStore.setState({ history: [], currentIndex: -1 });
@@ -102,6 +106,30 @@ describe('the formula starter', () => {
     expect(namesIn(webOf('Formulas')).sort()).toEqual(['Chemistry', 'Physics']);
     expect(named('Pressure')).toHaveLength(1);
     expect(named('Division')).toHaveLength(1);
+  });
+
+  it('a part two equations share is one Thing, built together', async () => {
+    mergeFormulaStarter(await buildApart([JOVANOVIC, MULTILAYER_JOVANOVIC]));
+    for (const name of SHARED_PARTS) {
+      expect(named(name)).toHaveLength(1);
+      expect(named(name)[0].definitionGraphIds).toHaveLength(1);
+    }
+  });
+
+  it('a part two equations share is one Thing, built apart: its definition here not grown', async () => {
+    mergeFormulaStarter(await buildApart([JOVANOVIC]));
+    const definitionOf = (name) => webOf(name);
+    const before = Object.fromEntries(SHARED_PARTS.map(name => [name, definitionOf(name).instances.size]));
+    mergeFormulaStarter(await buildApart([MULTILAYER_JOVANOVIC]));
+    for (const name of SHARED_PARTS) {
+      expect(named(name)).toHaveLength(1);
+      expect(named(name)[0].definitionGraphIds).toHaveLength(1);
+      expect(definitionOf(name).instances.size).toBe(before[name]);
+    }
+    // Both read as their formulas, the second's part linked to the definition here.
+    const texts = formulasForWizard(st()).formulas.map(f => f.text);
+    expect(texts).toContain('q_e = q_m × (1 − exp(−(K_J × C_e)))');
+    expect(texts.some(t => t.includes('(1 − exp(−(K_J × C_e))) × exp(K_J,m × C_e)'))).toBe(true);
   });
 
   it('adding the same again changes nothing', async () => {

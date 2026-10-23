@@ -16,6 +16,8 @@ import { deleteFormula } from '../../src/components/canvas/formats/formula/delet
 import { PALETTES } from '../../src/ai/palettes.js';
 import { buildFormulaInWeb } from '../../src/components/canvas/formats/formula/buildFormula.js';
 import { NODE_DEFAULT_COLOR } from '../../src/constants.js';
+import { buildBridgeState } from '../../src/services/bridgeStateSerializer.js';
+import { formula as formulaTool } from '../../src/wizard/tools/formula.js';
 
 // What the wizard does to formulas, against the store: written with meanings,
 // placed like a Thing, folded and opened, rewritten in place, deleted.
@@ -105,6 +107,52 @@ describe('the wizard writing a formula', () => {
 
   it('refuses text that is not a formula', () => {
     expect(() => addFormulaForWizard({ graphId: 'main', text: '= =' })).toThrow();
+  });
+});
+
+describe('the parts of formulas', () => {
+  beforeEach(() => { vi.useFakeTimers(); reset(); });
+  const kc = [{ symbol: 'k', thing: 'Rate Constant' }, { symbol: 'c', thing: 'Concentration' }];
+  const thingsNamed = (name) => [...st().nodePrototypes.values()].filter(p => p.name === name);
+
+  it('the same part in two equations, of the same Things, is one Thing with one definition', () => {
+    place('main', 'p-k', 'Rate Constant', -2000, -2000);
+    place('main', 'p-c', 'Concentration', -2000, 2000);
+    addFormulaForWizard({ graphId: 'main', text: 'q = m * (1 - exp(-(k * c)))', title: 'One', meanings: kc });
+    addFormulaForWizard({ graphId: 'other', text: 'r = (1 - exp(-(k * c))) * exp(k * c)', title: 'Two', meanings: kc });
+    for (const name of ['1 − exp(−(k × c))', 'exp(−(k × c))', '−(k × c)']) {
+      expect(thingsNamed(name)).toHaveLength(1);
+      expect(thingsNamed(name)[0].definitionGraphIds).toHaveLength(1);
+    }
+    // Each still reads as its own formula.
+    expect(formulasIn('main')[0].text).toBe('q = m × (1 − exp(−(k × c)))');
+    expect(formulasIn('other')[0].text).toBe('r = (1 − exp(−(k × c))) × exp(k × c)');
+  });
+
+  it('a bare symbol is a Thing of its own in each formula, so its parts are too', () => {
+    addFormulaForWizard({ graphId: 'main', text: 'y = (a + b) * 2', title: 'One' });
+    addFormulaForWizard({ graphId: 'other', text: 'z = (a + b) * 3', title: 'Two' });
+    expect(thingsNamed('a + b')).toHaveLength(2);
+  });
+
+  it('written twice in one formula, a part is one Thing', () => {
+    addFormulaForWizard({ graphId: 'main', text: 'y = (a + b) * (a + b)', title: 'Square' });
+    expect(thingsNamed('a + b')).toHaveLength(1);
+    expect(formulasIn('main')[0].text).toBe('y = (a + b) × (a + b)');
+  });
+});
+
+describe('the formulas over the MCP bridge', () => {
+  beforeEach(() => { vi.useFakeTimers(); reset(); });
+
+  it('are in the bridge state, so the formula tool finds them there', async () => {
+    addFormulaForWizard({ graphId: 'main', text: 'E = m c^2', title: 'Mass-Energy Equivalence' });
+    // As the MCP server has it: the payload as JSON.
+    const bridged = JSON.parse(JSON.stringify(buildBridgeState(st())));
+    expect(bridged.formulas.map(f => f.title)).toEqual(['Mass-Energy Equivalence']);
+    expect(bridged.universeEquations.map(e => e.name)).toContain('Mass-Energy Equivalence');
+    const placed = await formulaTool({ formulaName: 'Mass-Energy Equivalence', action: 'place', targetGraphId: 'other' }, bridged);
+    expect(placed).toMatchObject({ action: 'placeFormula', graphId: 'other', formulaName: 'Mass-Energy Equivalence' });
   });
 });
 

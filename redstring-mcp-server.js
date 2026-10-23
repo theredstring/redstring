@@ -1294,7 +1294,11 @@ async function getRealRedstringState(retryCount = 0) {
       expandedGraphIds: new Set(),
       savedNodeIds: new Set(),
       savedGraphIds: new Set(),
-      summary: data.summary
+      summary: data.summary,
+      // The formulas, read in the app (bridgeStateSerializer): the formula tools find them here.
+      formulas: data.formulas || [],
+      equations: data.equations || [],
+      universeEquations: data.universeEquations || []
     };
 
     // If we get here, the fetch succeeded

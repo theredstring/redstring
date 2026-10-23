@@ -21,6 +21,7 @@
 
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { collectIdentifiers } from '../utils/externalIdentifiers.js';
+import { formulaSnapshotForWizard } from '../components/canvas/formats/formula/formulaSnapshot.js';
 
 export const MAX_LAYOUT_NODES = 400;
 
@@ -274,7 +275,12 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
     },
     graphLayouts: layouts,
     graphSummaries: summaries,
-    graphEdges: graphEdges
+    graphEdges: graphEdges,
+
+    // The formulas (formulaSnapshot.js): each one a web shows, and every
+    // equation's Thing, as the panel's wizard reads them. Read here, where the
+    // instances' formats are; the instances above don't carry them.
+    ...formulaSnapshotForWizard(state)
   };
 };
 

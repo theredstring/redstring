@@ -41,6 +41,7 @@ import {
   BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin, STARTER_ORIGIN,
 } from './bank/formulaBank.js';
 import { itemIri } from './bank/population/sources.js';
+import { equationOf } from './formulaSnapshot.js';
 
 const OPERATOR_DESCRIPTIONS = {
   eq: 'States that its two sides are equal.',
@@ -124,6 +125,36 @@ const isNumber = (name) => /^\d+(\.\d+)?$/.test(String(name)) || String(name) ==
  * starter matches its Things to the universe's by the same rule.
  */
 export const reusedNameKey = (name) => (isNumber(name) || !isSymbolText(String(name)) ? nameKey(name) : null);
+
+/**
+ * What a chain is made of: its operations, and each Thing in it by its id
+ * (`protoOf(term)`), each part by what is applied to what it holds. Two parts
+ * made of the same are the same Thing.
+ */
+export const compositionOf = (chain, protoOf) => chain.items.map((item) => {
+  if (item.kind === 'op') return item.name;
+  if (item.kind === 'thing') return `#${protoOf(item)}`;
+  const applied = `${item.apply || ''}${item.fnName ? `:${String(item.fnName).toLowerCase()}` : ''}`;
+  return `${applied}(${item.args.map(arg => compositionOf(arg, protoOf)).join(';')})`;
+}).join(' ');
+
+/**
+ * What a part's Thing is made of, read from its definition, and which of its
+ * definitions that is: { index, composition }, or null when none reads as one.
+ */
+export function partCompositionOf(state, proto, protoOf = (term) => term.protoId) {
+  const eq = equationOf(state, proto);
+  if (eq) return { index: eq.index, composition: compositionOf(eq.chain, protoOf) };
+  // One Thing alone (√x, sin θ): its definition is that Thing, with no operation to read.
+  const ids = proto?.definitionGraphIds || [];
+  for (let index = 0; index < ids.length; index++) {
+    const def = state.graphs.get(ids[index]);
+    if (def?.instances?.size !== 1 || def.groups?.size) continue;
+    const [only] = def.instances.values();
+    return { index, composition: `#${protoOf({ protoId: only.prototypeId })}` };
+  }
+  return null;
+}
 
 /** Where a bank Thing came from, and the web address it is (as an import records one: an exact link). */
 const metadataOf = (origin, link) => ({
@@ -337,6 +368,22 @@ function buildTerms(chain, graphId, at, bindings, newColor = null, partColor = n
     return { inside };
   };
 
+  // A part the universe has already: the same Things under the same operations,
+  // typed the same (the Jovanovic equations' exp(−(K_J × C_e)), both of the
+  // same concepts). Its Thing and the definition it reads as, or null.
+  const samePart = (part, typeNodeId) => {
+    if (part.args.length !== 1) return null;
+    const want = compositionOf(part.args[0], (term) => bySymbol.get(term.name)?.id);
+    const state = useGraphStore.getState();
+    let found = null;
+    for (const p of state.nodePrototypes.values()) {
+      if (p.isOrbitCatalog || p.name !== part.name || (p.typeNodeId || null) !== typeNodeId || !p.definitionGraphIds?.length) continue;
+      const has = partCompositionOf(state, p);
+      if (has?.composition === want) found = { proto: p, index: has.index }; // the last, as names resolve
+    }
+    return found;
+  };
+
   const buildPart = (part, left) => {
     let x = left + PART_PAD;
     const ids = [];
@@ -344,9 +391,6 @@ function buildTerms(chain, graphId, at, bindings, newColor = null, partColor = n
       ids.push(...buildChain(arg, x).inside);
       x += arg._w + ARG_GAP;
     });
-    const st = useGraphStore.getState();
-    const color = newColor?.() || partColor || NODE_DEFAULT_COLOR;
-    const groupId = st.createGroup(graphId, { name: part.name, color, memberInstanceIds: ids });
     // The part's Thing: named after its term, typed by what is applied to it.
     let typeNodeId = null;
     if (part.apply && part.apply !== 'fn') {
@@ -354,9 +398,14 @@ function buildTerms(chain, graphId, at, bindings, newColor = null, partColor = n
     } else if (part.apply === 'fn') {
       typeNodeId = prototypeNamed(part.fnName, FUNCTION_DESCRIPTIONS[part.fnName] || '').id;
     }
-    const thing = { id: uuidv4(), name: part.name, color, description: '', typeNodeId, definitionGraphIds: [] };
-    st.addNodePrototype(thing);
-    st.convertGroupToNodeGroup(graphId, groupId, thing.id, false);
+    // The same part again is the same Thing, with the same definition: not a copy of it.
+    const same = samePart(part, typeNodeId);
+    const st = useGraphStore.getState();
+    const color = same?.proto.color || newColor?.() || partColor || NODE_DEFAULT_COLOR;
+    const groupId = st.createGroup(graphId, { name: part.name, color, memberInstanceIds: ids });
+    const thing = same?.proto || { id: uuidv4(), name: part.name, color, description: '', typeNodeId, definitionGraphIds: [] };
+    if (!same) st.addNodePrototype(thing);
+    st.convertGroupToNodeGroup(graphId, groupId, thing.id, false, '', undefined, same ? { useDefinitionIndex: same.index } : {});
     const anchorId = useGraphStore.getState().graphs.get(graphId)?.groups?.get(groupId)?.anchorInstanceId;
     if (!anchorId) throw new Error('Could not make a part of the formula');
     return { anchorId, ids: [...ids, anchorId] };

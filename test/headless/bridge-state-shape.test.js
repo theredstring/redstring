@@ -69,14 +69,17 @@ describe('buildBridgeState shape (MCP contract)', () => {
       'activeGraphId',
       'activeGraphName',
       'autoLayoutSettings',
+      'equations',
       'fileStatus',
+      'formulas',
       'graphEdges',
       'graphLayouts',
       'graphSummaries',
       'graphs',
       'nodePrototypes',
       'openGraphIds',
-      'summary'
+      'summary',
+      'universeEquations'
     ].sort());
   });
 
