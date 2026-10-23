@@ -36,9 +36,8 @@ function shellGhost(groupId) {
 export function deleteNodeGroup(graphId, groupId, captureDeletionGhosts) {
   const st = useGraphStore.getState();
   const openAnchorId = anchorIdFromOpenGroupId(groupId);
-  const group = openAnchorId
-    ? projectGraphView(st, graphId)?.groups?.get(groupId)
-    : st.graphs.get(graphId)?.groups?.get(groupId);
+  // The view's groups: its own, the open boxes, and the groups inside them.
+  const group = projectGraphView(st, graphId)?.groups?.get(groupId);
   if (!group) return false;
 
   // The shell first, so the Things' ghosts shrink on top of it.

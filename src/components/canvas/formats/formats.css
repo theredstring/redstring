@@ -434,9 +434,10 @@ button.format-pill:disabled {
   padding-left: 0.05em;
 }
 
-/* A symbol's subscript (v_0, T_c): lowered, smaller, against its letter. */
+/* A symbol's subscript (v_0, T_c): lowered, smaller, against its letter
+   (SUBSCRIPT_SCALE in formula/formulaScale.js). */
 .formula-token-sub {
-  font-size: 0.62em;
+  font-size: 0.72em;
   vertical-align: -0.28em;
   line-height: 0;
 }

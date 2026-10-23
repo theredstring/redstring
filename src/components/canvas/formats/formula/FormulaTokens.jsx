@@ -7,13 +7,7 @@
  */
 import { memo, useMemo } from 'react';
 import { subscriptOf, rowsOf, vectorOf } from './formulaChain.js';
-
-const RAISE_SCALE = 0.7;
-const RAISE_STEP = 0.5;      // in the size it is lifted from
-const RAISE_GAP_IN = -0.05;  // in the line's em: drawn in against its base
-const RAISE_GAP_OUT = 0.18;
-const SUBSCRIPT_SCALE = 0.62; // a logarithm's base, as formulaObjects lowers it
-const SUBSCRIPT_DROP = 0.28;  // in the size it is lowered from
+import { RAISE_SCALE, RAISE_STEP, RAISE_GAP_IN, RAISE_GAP_OUT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP } from './formulaScale.js';
 
 /** Size, lift and the gap before a token, in the token's own em (a sum's limits small, unlifted). */
 function tokenStyle(level, prevLevel, sub, script) {

@@ -20,22 +20,19 @@ import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst, computeGr
 import { measureTextWidth } from '../../../../services/textMeasurement.js';
 import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf, VECTOR_MARK } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
+import { RAISE_SCALE, RAISE_STEP, RAISE_GAP_IN, RAISE_GAP_OUT, SUBSCRIPT_SCALE, SUBSCRIPT_DROP } from './formulaScale.js';
+
+export { SUBSCRIPT_SCALE, SUBSCRIPT_DROP };
 
 /** Canvas units, so a formula reads at the size of the Things it stands for. */
-export const FORMULA_FONT = 44;
+export const FORMULA_FONT = 50;
 export const FORMULA_FONT_FAMILY = 'EmOne, sans-serif';
 export const FORMULA_FONT_WEIGHT = 'bold';
-const RAISE_SCALE = 0.7;   // a raised token's size, per level
-const RAISE_STEP = 0.5;    // how far each level lifts, in the size it is lifted from
-const RAISE_GAP_IN = -0.05; // before an exponent, in the line's em: drawn in against its base
-const RAISE_GAP_OUT = 0.18; // and after it, so what follows doesn't crowd it
 const BOX_EM = 1.5;      // token box height, in its own em
 const STACKED_BOX_EM = 1.15; // in a fraction, where the rows above and below are close
 const BASELINE_EM = 0.36; // baseline below the line's middle, in the line's em
 export const FRAME_PAD_X = 0.55; // em
 export const FRAME_PAD_Y = 0.42; // em
-export const SUBSCRIPT_SCALE = 0.62;
-export const SUBSCRIPT_DROP = 0.28; // em of the token, below its baseline
 // A fraction, in the line's em: numerator and denominator centred over each
 // other, the bar a little wider than both and level with the minus sign.
 const FRACTION_GAP = 0.14;   // between the bar and the letters above and below it

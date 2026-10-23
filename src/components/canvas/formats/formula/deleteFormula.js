@@ -15,9 +15,7 @@ import { markFormulaLeaving } from './formulaSpawn.js';
 export function deleteFormula(graphId, groupId) {
   const st = useGraphStore.getState();
   const openAnchorId = anchorIdFromOpenGroupId(groupId);
-  const exists = openAnchorId
-    ? projectGraphView(st, graphId)?.groups?.has(groupId)
-    : st.graphs.get(graphId)?.groups?.has(groupId);
+  const exists = projectGraphView(st, graphId)?.groups?.has(groupId);
   if (!exists) return false;
   const fmt = useFormatsStore.getState();
   const drawn = computeFormulaObjects(st, { standard: selectStandard(fmt), namesShown: fmt.namesShown, flipped: fmt.flipped })

@@ -806,6 +806,20 @@ const openOwnerOf = (state, viewGraphId, instanceId) => {
 };
 
 /**
+ * The graph a group addressed through `viewGraphId` is stored in. The view also
+ * draws the groups inside its open definitions, so a group picked on the canvas
+ * may live in one of those. Falls back to the view graph, so an unknown group
+ * still takes its caller's ordinary not-found path.
+ */
+const groupHomeGraphId = (state, viewGraphId, groupId) => {
+  if (!groupId || state.graphs.get(viewGraphId)?.groups?.has(groupId)) return viewGraphId;
+  for (const box of openMapFor(state, viewGraphId).boxes.values()) {
+    if (state.graphs.get(box.defGraphId)?.groups?.has(groupId)) return box.defGraphId;
+  }
+  return viewGraphId;
+};
+
+/**
  * Runs an instance recipe written for view coordinates against an instance stored
  * in its definition's coordinates. Positions the recipe leaves alone come back
  * exactly as they were, so no rounding creeps into the definition.
@@ -2479,6 +2493,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           if (formatChanged && draftAnchor) moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat }, draftAnchor);
         }));
       }
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2561,6 +2576,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     removeInstancesFromGroup: (graphId, groupId, instanceIds, contextOptions = {}) => {
       // Nodes leave an open box only by being deleted from its definition.
       if (anchorIdFromOpenGroupId(groupId)) return;
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2617,6 +2633,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * (ungrouping), this takes with it.
      */
     deleteGroupAndContents: (graphId, groupId, contextOptions = {}) => {
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2658,6 +2675,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // An open box's group is the view of an open node: removing it closes the node.
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -3104,6 +3122,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     combineNodeGroup: (graphId, groupId, contextOptions = {}) => {
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       api.setChangeContext({ type: 'group_combine', target: 'group', ...contextOptions });
       let createdInstanceId = null;
       set(produce((draft) => {
@@ -3307,6 +3326,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // An open definition has nothing to save: closing it is all there is.
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
+
+      graphId = groupHomeGraphId(get(), graphId, groupId);
 
       // A copy-style group (from before definitions opened in place, or with that
       // setting off). What its definition gets depends on who changed what:
@@ -3873,6 +3894,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     updateDefinitionFromNodeGroup: (graphId, groupId, contextOptions = {}) => {
       // An open box already is its definition.
       if (anchorIdFromOpenGroupId(groupId)) return null;
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       // asNewDefinition: add the group's contents as a further definition of the Thing
       // (and link the group to it) instead of overwriting the one it came from.
       const { asNewDefinition = false, ...changeOptions } = contextOptions;
@@ -4046,6 +4068,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     refreshNodeGroupFromDefinition: (graphId, groupId, contextOptions = {}) => {
       // An open box already is its definition.
       if (anchorIdFromOpenGroupId(groupId)) return null;
+      graphId = groupHomeGraphId(get(), graphId, groupId);
       api.setChangeContext({ type: 'group_refresh_from_definition', target: 'group', ...contextOptions });
       let result = null;
       set(produce((draft) => {
