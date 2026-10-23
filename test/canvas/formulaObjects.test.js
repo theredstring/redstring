@@ -9,6 +9,7 @@ import {
   computeFormulaObjects, redirectEdgeCtx, filterFormulaEdges,
 } from '../../src/components/canvas/formats/formula/formulaObjects.js';
 import { formulaWeb } from './formulaWeb.js';
+import { computeGroupLayout, buildGroupsByMemberIdIndex, groupLabelSizing } from '../../src/services/groupLayout.js';
 
 // (a + b) × c shown as a formula, plus an outside Thing wired to c and to the part.
 function webState({ shown = true } = {}) {
@@ -81,6 +82,25 @@ describe('formula objects', () => {
     expect(redirected.nodeById.get('c')).toMatchObject({ x: cBox.x, y: cBox.y });
     expect(fo.tokenBoxById.get('pa').x).toBe(fo.objects[0].boxes[0].x);
     expect(state.graphs.get('web').instances.get('c').x).toBe(700);
+  });
+
+  it('stands across the middle of its box as Things, which a part on one side widens', () => {
+    // Swapping between the two then runs straight in and out, not sideways.
+    const state = webState();
+    const graph = state.graphs.get('web');
+    const fo = computeFormulaObjects(state);
+    const named = new Map([...graph.groups].map(([id, g]) => [id, { ...g, name: state.nodePrototypes.get(g.linkedNodePrototypeId)?.name || g.name }]));
+    const box = computeGroupLayout(named.get('top'), {
+      nodesById: graph.instances,
+      dimsById: new Map([...graph.instances.keys()].map(id => [id, { currentWidth: 120, currentHeight: 100 }])),
+      groupsById: named,
+      groupsByMemberId: buildGroupsByMemberIdIndex(named),
+      gridSize: state.gridSettings?.size || 200,
+      ...groupLabelSizing(state.textSettings, () => 0),
+    }).rect;
+    expect(fo.objects[0].center.x).toBeCloseTo(box.x + box.w / 2, 6);
+    // The Things alone (a at 0 to c ending at 820) are centred further right.
+    expect(box.x + box.w / 2).toBeLessThan(410 - 1);
   });
 
   it('lets the Things come back on their own once they stop being a formula', () => {

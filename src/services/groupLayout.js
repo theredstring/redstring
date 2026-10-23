@@ -528,6 +528,24 @@ export const labelHeightConst = (scale = 1, fontSize = null, lineCount = 1) => {
 };
 
 /**
+ * A group title's size on the canvas, as computeGroupLayout's context takes it
+ * (labelScale, labelFontSize, measureLabelWidth). Titles scale with node size,
+ * not the text-size setting, so the whole tab grows with enlarged nodes; the
+ * font matches the on-canvas node title (45 * fontSize * nodeScale), and the
+ * tab is sized from that text. `measureWidth(text, cssFont)` is injected (see
+ * wrapLabelLines).
+ */
+export const groupLabelSizing = (textSettings, measureWidth) => {
+  const labelScale = textSettings?.nodeScale ?? 1.0;
+  const labelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * labelScale;
+  return {
+    labelScale,
+    labelFontSize,
+    measureLabelWidth: (text) => measureWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
+  };
+};
+
+/**
  * Greedy word wrap against an injected measure function.
  *
  * Lives here rather than reusing services/textMeasurement so this module stays

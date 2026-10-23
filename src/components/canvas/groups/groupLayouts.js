@@ -6,7 +6,7 @@
  *
  * The code below is that pass's computation, moved verbatim.
  */
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
+import { computeGroupLayout, groupLabelSizing, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
 
 /**
@@ -103,14 +103,8 @@ export function computeGroupLayouts({
   const anchorPositions = new Map();
   const tgMemberIds = new Set();
   const anchorIds = new Set();
-  // Group labels scale with node size (not the text-size setting),
-  // so the whole tab — box and font — grows proportionally when nodes
-  // are enlarged instead of staying a fixed 36px.
-  const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-  // Match the on-canvas node title size (45 * fontSize * nodeScale) so the
-  // group tab reads at the same size as an average node and its box is sized
-  // from that text.
-  const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * groupLabelScale;
+  // Group labels scale with node size and read at a node title's size.
+  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, measureLabelWidth } = groupLabelSizing(textSettings, getTextWidth);
   const result = {
     entries, groupCount: groups.length, titleRects, anchorPositions,
     thingGroupMemberIds: tgMemberIds, anchorIds, groupLabelScale, groupLabelFontSize,
@@ -157,7 +151,7 @@ export function computeGroupLayouts({
     groupsByMemberId: groupStructure.groupsByNodeId,
     childGroupIdsByGroupId: groupStructure.childGroupIds,
     gridSize,
-    measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
+    measureLabelWidth,
     labelScale: groupLabelScale,
     labelFontSize: groupLabelFontSize,
     ...formatLayoutHooks(),

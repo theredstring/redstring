@@ -16,7 +16,8 @@
  */
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
-import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst } from '../../../../services/groupLayout.js';
+import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst, computeGroupLayout, buildGroupsByMemberIdIndex, groupLabelSizing } from '../../../../services/groupLayout.js';
+import { measureTextWidth } from '../../../../services/textMeasurement.js';
 import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf, VECTOR_MARK } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
 
@@ -356,6 +357,44 @@ const NO_FLIPS = new Map();
 /** Whether EmOne has loaded: widths measured before are the fallback font's. */
 export const formulaFontsReady = () => typeof document === 'undefined' || !document.fonts || document.fonts.status === 'loaded';
 
+/**
+ * A group's box as the canvas draws it when shown as its Things (its band:
+ * computeGroupLayout's `rect`, laid out as groupLayouts.computeGroupLayouts
+ * does), or null. Measured as Things, not as formats: this is the box the
+ * formula and its Things swap between.
+ */
+function thingBoxesOf(state, view) {
+  const named = new Map();
+  view.groups.forEach((g, id) => {
+    const name = (g.linkedNodePrototypeId && state.nodePrototypes.get(g.linkedNodePrototypeId)?.name) || g.name || 'Group';
+    named.set(id, name === g.name ? g : { ...g, name });
+  });
+  const dims = new Map();
+  const context = {
+    nodesById: view.instances,
+    dimsById: {
+      get: (id) => {
+        if (!dims.has(id)) {
+          const inst = view.instances.get(id);
+          const proto = inst && state.nodePrototypes.get(inst.prototypeId);
+          dims.set(id, inst ? getNodeDimensions({ ...proto, ...inst, name: proto?.name }, false, null) : undefined);
+        }
+        return dims.get(id);
+      },
+    },
+    groupsById: named,
+    groupsByMemberId: buildGroupsByMemberIdIndex(named),
+    gridSize: state.gridSettings?.size || 200,
+    // Measured as the canvas measures it; without a canvas (tests), a title never widens a box.
+    ...groupLabelSizing(state.textSettings, (text, font) => (ensureMeasure() ? measureTextWidth(text, font) : 0)),
+    _cache: new Map(),
+  };
+  return (group) => {
+    const layout = computeGroupLayout(named.get(group.id) || group, context);
+    return layout?.ok ? layout.rect : null;
+  };
+}
+
 function formulaObjectsOf(state, standard, namesShown, flipped) {
   const graphId = state?.activeGraphId;
   if (!graphId) return EMPTY;
@@ -366,13 +405,13 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   // all the same, so the same inputs give the same object (React re-reads a
   // store snapshot and loops forever on one that is new each time).
   const fontsReady = formulaFontsReady();
-  if (last && last.fontsReady === fontsReady && last.view === view && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
+  if (last && last.fontsReady === fontsReady && last.view === view && last.text === state.textSettings && last.grid === state.gridSettings && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
     return last.result;
   }
   const shownGroups = [];
   view.groups.forEach((group) => { if (group.format === 'formula') shownGroups.push(group); });
   if (shownGroups.length === 0) {
-    last = { view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result: EMPTY };
+    last = { view, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result: EMPTY };
     return EMPTY;
   }
 
@@ -382,6 +421,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   const tokenBoxById = new Map();
 
   const allGroups = [...view.groups.values()];
+  const thingBoxOf = thingBoxesOf(state, view);
   for (const group of shownGroups) {
     const memberIds = (group.memberInstanceIds || []).filter(id => view.instances.has(id));
     if (memberIds.some(id => hiddenIds.has(id))) continue; // one formula per Thing
@@ -399,7 +439,10 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
       maxX = Math.max(maxX, inst.x + dims.currentWidth); maxY = Math.max(maxY, inst.y + dims.currentHeight);
     }
     if (!Number.isFinite(minX)) continue;
-    const cx = (minX + maxX) / 2;
+    // Across, on the middle of its box as its Things: the groups inside it
+    // widen that on their side, so swapping between the two stays in place.
+    const box = thingBoxOf(group);
+    const cx = box ? box.x + box.w / 2 : (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
     const tokens = tokensOf(chain, { standard, expand: expandFor(namesShown.has(group.id), flipped.get(group.id)) });
@@ -485,7 +528,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   const anchors = new Map();
   for (const o of objects) if (o.anchorId) anchors.set(o.anchorId, { ...o.frame, groupId: o.groupId, memberIds: o.memberIds });
   const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns, anchors } : EMPTY;
-  last = { fontsReady, view, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
+  last = { fontsReady, view, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
   return result;
 }
 
