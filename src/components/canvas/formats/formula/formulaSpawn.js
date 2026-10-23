@@ -22,7 +22,9 @@ import useGraphStore from '../../../../store/graphStore.js';
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { storeNodeRect } from '../../groups/boxMorphConnections.js';
 import { formulaCentreOf } from './formulaObjects.js';
-import { detachedCopy } from '../../groups/boxMorph.js';
+import { nodeShape } from '../../groups/boxMorph.js';
+import { measureTextWidth } from '../../../../services/textMeasurement.js';
+import { cssColorToHex } from '../../../../utils/colorUtils.js';
 
 export const SPAWN_MS = 640;
 export const LEAVE_MS = 480;
@@ -45,6 +47,32 @@ export function nodeBackgroundOf(graphId, nodeId, fallbackColor = null) {
     w: rect.w - 2 * NODE_BG_INSET, h: rect.h - 2 * NODE_BG_INSET,
     r: Math.max(0, rect.r - NODE_BG_INSET),
     color: st.nodePrototypes.get(node?.prototypeId)?.color || fallbackColor,
+  };
+}
+
+/**
+ * A node as the formula morphs out of or into it: its painted background
+ * (nodeBackgroundOf) and, when it is drawn, its title as drawn (`title`: its
+ * middle, size, lines, line height, colour, and the box its words fill), read
+ * as the box morph reads a node (groups/boxMorph.js nodeShape).
+ */
+export function nodeLookOf(graphId, nodeId, fallbackColor = null) {
+  const bg = nodeBackgroundOf(graphId, nodeId, fallbackColor);
+  if (!bg || typeof document === 'undefined') return bg;
+  const el = document.querySelector(`svg.canvas g.node[data-instance-id=${JSON.stringify(nodeId)}]`);
+  const shape = el ? nodeShape(el) : null;
+  const layout = shape?.titleLayout;
+  if (!layout) return bg;
+  let w = 0;
+  try {
+    w = Math.max(...layout.lines.map(line => measureTextWidth(line, `bold ${layout.fontSize}px 'EmOne', sans-serif`)));
+  } catch { /* the text measurer isn't ready: its size alone */ }
+  return {
+    ...bg,
+    title: {
+      x: shape.title.x, y: shape.title.y, fontSize: layout.fontSize, lines: layout.lines,
+      lineHeight: layout.lineHeight, color: cssColorToHex(layout.color), w, h: layout.lines.length * layout.lineHeight,
+    },
   };
 }
 
@@ -92,12 +120,7 @@ function formulaOffFromThing(graphId, groupId, nodeId) {
  * to stand centred on its node.
  */
 export function withFormulaOpenMorph({ viewGraphId, instanceId }, write) {
-  const bg = nodeBackgroundOf(viewGraphId, instanceId);
-  // The node as drawn, fading off the band as it grows out of it.
-  const el = bg && typeof document !== 'undefined'
-    ? document.querySelector(`svg.canvas g.node[data-instance-id=${JSON.stringify(instanceId)}]`)
-    : null;
-  const from = bg && { ...bg, copy: el ? detachedCopy(el) : null };
+  const from = nodeLookOf(viewGraphId, instanceId);
   const st = useGraphStore.getState();
   const groupId = st.withHistoryTransaction('Opened in place', () => {
     const id = write();

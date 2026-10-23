@@ -34,7 +34,7 @@ import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { useTheme } from '../../../../hooks/useTheme.js';
 import { getTextColor, blendColors } from '../../../../utils/colorUtils.js';
 import { NODE_DEFAULT_COLOR, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../../constants.js';
-import { DEFAULT_LIFTED_THING_SHADOW } from '../../../../utils/colorUtils.js';
+import { DEFAULT_LIFTED_THING_SHADOW, cssColorToHex } from '../../../../utils/colorUtils.js';
 import { formulaSpawnOf, SPAWN_MS, LEAVE_MS, leavingFormulasNow, subscribeLeavingFormulas } from './formulaSpawn.js';
 import { GROUP_LAYOUT_CONSTANTS as G } from '../../../../services/groupLayout.js';
 import { NODE_GROUP_INTERIOR_TINT, GROUP_SELECTION_STROKE as SELECTION_STROKE, groupLiftShadow } from '../../groups/groupElements.jsx';
@@ -78,14 +78,16 @@ const GHOST_FADE_AT = 0.68;
 const SWAP_FADE = 0.28;
 // What goes with the Things (their connections, the groups inside) is gone by here.
 const SWAP_EXTRAS_GONE = 0.35;
-// Out of or into its Thing (condenseFormula), the tokens come and go while the
-// band moves, not after it: the first from this far into the entrance, the
-// rest after it across NODE_TOKENS_STAGGER, each over NODE_TOKENS_SPAN.
-const NODE_TOKENS_AT = 0.3;
-const NODE_TOKENS_STAGGER = 0.3;
-const NODE_TOKENS_SPAN = 0.3;
-// And going into it, the formula hands over to the node over this much of the band's last stretch.
-const NODE_HANDOVER = 0.5;
+// A Thing's copy sheds its background over this first part of its way to its
+// token (0 to 1), its text turning to the token's colour as it does, so only
+// the symbol arrives.
+const GHOST_BG_GONE = 0.4;
+// Out of or into its Thing (condenseFormula), the formula morphs as a Thing's
+// box does (groups/boxMorph.js): the node's title takes the formula's
+// wrapping over this first part of the way, and tokens that have no words of
+// the node's to start from start this small, at its middle.
+const TITLE_REWRAP = 0.15;
+const SEED_SCALE = 0.04;
 const PLUS_LIGHT = '#DEDADA';
 const PLUS_STROKE = 'maroon';
 const easeMorph = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -379,7 +381,7 @@ const shapeOf = (b, o, hot) => {
  * do (`from`, where it starts), and going, closes into that gap, fading at once
  * (`going`), so the formula never stays wider than what it is becoming.
  */
-function Token({ t, b, o, fill, ground, textColor, onBand, hot, onEnter, onLeave, enter = 1, from = null, going = false }) {
+function Token({ t, b, o, fill, ground, textColor, onBand, hot, onEnter, onLeave, enter = 1, rise = true, from = null, going = false }) {
   const defined = !going && !!t.target && !!t.defined;
   const { a, ...outline } = shapeOf(b, o, hot && !going);
   const was = from && shapeOf(from, o, false);
@@ -406,7 +408,7 @@ function Token({ t, b, o, fill, ground, textColor, onBand, hot, onEnter, onLeave
     >
       <g
         opacity={enter}
-        transform={enter < 1 ? `translate(0 ${(1 - enter) * 0.3 * b.size})` : undefined}
+        transform={enter < 1 && rise ? `translate(0 ${(1 - enter) * 0.3 * b.size})` : undefined}
       >
       <rect
         x={shape.x} y={shape.y} width={Math.max(0, shape.w)} height={Math.max(0, shape.h)}
@@ -677,9 +679,12 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   // exit left: the box shows under it from then (`reveal`), and it fades off.
   // The box, its Things and the tokens run on one clock.
   const along = clamp01(leaving ? (spawn - REVEAL_SHARE) / (1 - REVEAL_SHARE) : spawn / SWAP_TRAVEL);
-  const grown = boxMorph
-    ? easeMorph(along)
-    : easeMorph(clamp01(spawn / MORPH_SHARE));
+  // Out of or into its Thing (withFormulaOpenMorph, condenseFormula): each of
+  // the node's parts runs into the formula's, as into a box; going, the node
+  // shows under it once it is all the way there.
+  const thingMorph = !!node && !boxMorph;
+  const progress = boxMorph || (thingMorph && leaving) ? along : clamp01(spawn / MORPH_SHARE);
+  const grown = easeMorph(progress);
   const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
   const plusSize = leaving ? 0 : PLUS_SIGN_SIZE * plusScale;
   const plusStroke = Math.max(1, PLUS_SIGN_STROKE * plusScale);
@@ -700,29 +705,38 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     w: Math.max(f.x + f.w, end.x + end.w) - Math.min(f.x, end.x) + 100,
     h: Math.max(f.y + f.h, end.y + end.h) - Math.min(f.y, end.y) + 100,
   };
-  const titleIn = spawning && !boxMorph ? clamp01((grown - 0.2) * 1.25) : 1;
-  // From or into a Thing-group's box: the ground and the title run between it and the formula's.
-  const morphGround = boxMorph && spawning ? (() => {
-    const a = box(node.inner);
+  const titleIn = spawning && !node ? clamp01((grown - 0.2) * 1.25) : 1;
+  const nodeMiddle = node ? { x: node.x + node.w / 2 - o.x, y: node.y + node.h / 2 - o.y } : null;
+  // From or into a Thing-group's box: the ground and the title run between it
+  // and the formula's. A Thing has no ground: the formula's opens out of its
+  // middle, in its colour.
+  const morphGround = node && spawning ? (() => {
+    const a = boxMorph ? box(node.inner) : { ...nodeMiddle, w: 0, h: 0 };
     const b = box(inner);
     return {
       x: lerp(a.x, b.x, grown), y: lerp(a.y, b.y, grown), w: lerp(a.w, b.w, grown), h: lerp(a.h, b.h, grown),
-      rx: lerp(node.inner.r, G.innerCanvasCornerRadius, grown),
+      rx: lerp(boxMorph ? node.inner.r : 0, G.innerCanvasCornerRadius, grown),
+      fill: boxMorph ? ground : mixColor(node.color || color, ground, grown),
     };
   })() : null;
   const formulaTitleAt = { x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y };
-  const titleAt = boxMorph && spawning
-    ? { x: lerp(node.title.x - o.x, formulaTitleAt.x, grown), y: lerp(node.title.y - o.y, formulaTitleAt.y, grown) }
+  const nodeTitle = node ? (node.title || { x: nodeMiddle.x + o.x, y: nodeMiddle.y + o.y }) : null;
+  const titleAt = node && spawning
+    ? { x: lerp(nodeTitle.x - o.x, formulaTitleAt.x, grown), y: lerp(nodeTitle.y - o.y, formulaTitleAt.y, grown) }
     : formulaTitleAt;
-  // The box's title as it is drawn (its size, its lines). The same words run
-  // into the formula's title, growing or shrinking to its size; other words
+  // The box's or the Thing's title as it is drawn (its size, its lines). The
+  // same words run into the formula's title, growing or shrinking to its size
+  // (a Thing's taking the formula's wrapping early, TITLE_REWRAP); other words
   // (an untitled formula has none) give way to the formula's.
-  const morphingTitle = boxMorph && spawning;
-  const boxLines = morphingTitle ? (node.title.lines || [node.titleText].filter(Boolean)) : [];
-  const sameTitle = morphingTitle && boxLines.length === 1 && boxLines[0] === obj.title;
-  const boxTitleSize = morphingTitle ? (node.title.fontSize || TITLE_FONT) : TITLE_FONT;
+  const morphingTitle = !!node && spawning;
+  const boxLines = morphingTitle ? (nodeTitle.lines || [node.titleText].filter(Boolean)) : [];
+  const sameTitle = morphingTitle && (boxMorph ? boxLines.length === 1 && boxLines[0] === obj.title : boxLines.join(' ') === obj.title);
+  const boxTitleSize = morphingTitle ? (nodeTitle.fontSize || TITLE_FONT) : TITLE_FONT;
   const formulaTitleSize = sameTitle ? lerp(boxTitleSize, TITLE_FONT, grown) : TITLE_FONT;
-  const boxTitle = morphingTitle && !sameTitle && boxLines.length ? boxLines : null;
+  const titleLines = sameTitle && thingMorph && boxLines.length > 1 && progress < TITLE_REWRAP ? boxLines : null;
+  const titleFill = sameTitle && thingMorph && nodeTitle.color ? mixColor(nodeTitle.color, onBand, grown) : onBand;
+  // A Thing's own words, when they aren't the formula's title, are its text: the tokens carry them (tokenPose).
+  const boxTitle = boxMorph && morphingTitle && !sameTitle && boxLines.length ? boxLines : null;
   const boxTitleShown = boxTitle ? clamp01(1 - grown * 2) : 0;
   const formulaTitleShown = morphingTitle && !sameTitle ? clamp01(grown * 2 - 1) : titleIn;
   // Each of the title's letters only once the growing band holds it (the middle
@@ -754,8 +768,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     if (!spawning) return 1;
     // From or into the box: as its Thing's copy arrives (all at once, the copies travelling together).
     if (boxMorph) return smooth(clamp01((along - TOKEN_IN_AT) / SWAP_FADE));
+    if (thingMorph) return 1; // carried in whole (tokenPose)
     const n = Math.max(1, obj.tokens.length - 1);
-    if (node) return easeMorph(clamp01((spawn - (NODE_TOKENS_AT + NODE_TOKENS_STAGGER * (i / n))) / NODE_TOKENS_SPAN));
     return easeMorph(clamp01((spawn - (0.45 + 0.3 * (i / n))) / 0.25));
   };
   const tokenChanges = useTokenChanges(obj);
@@ -764,12 +778,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   // and its token, shrinking to the token's height and fading as the token
   // comes in; what goes with them (connections, the groups inside) fades.
   // Drawn into a group of their own, imperatively: they are copied elements.
-  // Opened from its Thing: a copy of that node, fading off the band as it grows.
-  const ghosts = useMemo(() => {
-    if (!node || !spawning) return null;
-    if (boxMorph) return node.ghosts || null;
-    return node.copy && !leaving ? { fades: [node.copy], things: [] } : null;
-  }, [node, boxMorph, spawning, leaving]);
+  const ghosts = boxMorph && spawning ? node.ghosts || null : null;
   const ghostHostRef = useRef(null);
   const ghostsDrawnRef = useRef(null);
   useLayoutEffect(() => {
@@ -784,15 +793,49 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     };
     // Under the Things, what goes with them.
     const fades = ghosts.fades.map(wrap);
-    const things = ghosts.things.map(t => ({ ...t, g: wrap(t.copy) }));
+    const things = ghosts.things.map(t => ({ ...t, g: wrap(t.copy), label: leaving ? null : asSymbol(t) }));
     ghostsDrawnRef.current = { fades, things };
     return () => { host.replaceChildren(); ghostsDrawnRef.current = null; };
+    // Read once, when the copies are drawn; `asSymbol` reads the tokens as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ghosts]);
-  const tokenBoxOf = useMemo(() => {
+  // Each Thing's first token (its box and what it says), by Thing.
+  const tokenOf = useMemo(() => {
     const byThing = new Map();
-    obj.tokens.forEach((t, i) => { if (t.target && !byThing.has(t.target)) byThing.set(t.target, obj.boxes[i]); });
+    obj.tokens.forEach((t, i) => { if (t.target && !byThing.has(t.target)) byThing.set(t.target, { t, b: obj.boxes[i] }); });
     return byThing;
   }, [obj]);
+  // Going into its token, a Thing's copy says its symbol from the start: its
+  // name becomes what the token says, in the formula's type, and its colour
+  // runs from the node's text colour to the token's as its background goes
+  // (GHOST_BG_GONE). Returns the copy's label with where its size and colour
+  // start, and its background, or null.
+  function asSymbol({ id, copy }) {
+    const label = copy.querySelector('.node-name-text');
+    const tok = tokenOf.get(id);
+    if (!label || !tok) return null;
+    const fromSize = parseFloat(label.style.fontSize);
+    const fromColor = cssColorToHex(getComputedStyle(label).color);
+    if (!fromSize) return null;
+    const sub = subscriptOf(tok.t.text);
+    const { letter } = vectorOf(sub ? sub[0] : tok.t.text);
+    label.textContent = letter;
+    if (sub) {
+      const low = document.createElement('sub');
+      low.textContent = sub[1];
+      low.style.fontSize = `${SUBSCRIPT_SCALE}em`;
+      label.appendChild(low);
+    }
+    // Placed each frame: the label's own size and colour transitions would trail it.
+    Object.assign(label.style, {
+      transition: 'none', fontFamily: FORMULA_FONT_FAMILY, fontWeight: String(FORMULA_FONT_WEIGHT),
+      whiteSpace: 'nowrap', maxWidth: 'none', lineHeight: '1',
+    });
+    const protoColor = obj.protoOf.get(tok.t.protoId)?.color || NODE_DEFAULT_COLOR;
+    const bg = copy.querySelector('.node-background');
+    if (bg) bg.style.transition = 'none';
+    return { el: label, bg, fromSize, fromColor, toColor: tok.t.expanded ? getTextColor(protoColor, theme.darkMode) : textColor, toSize: tok.b.size };
+  }
   useLayoutEffect(() => {
     const drawn = ghostsDrawnRef.current;
     if (!drawn) return;
@@ -800,8 +843,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     drawn.fades.forEach(g => g.setAttribute('opacity', extras));
     // On its token by GHOST_ARRIVE, on the morph's own curve.
     const reach = easeMorph(clamp01(along / GHOST_ARRIVE));
-    drawn.things.forEach(({ id, rect, g }) => {
-      const tb = tokenBoxOf.get(id);
+    drawn.things.forEach(({ id, rect, g, label }) => {
+      const tb = tokenOf.get(id)?.b;
       if (!tb) { g.setAttribute('opacity', extras); return; }
       const ncx = rect.x + rect.w / 2;
       const ncy = rect.y + rect.h / 2;
@@ -809,9 +852,35 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
       const cx = lerp(ncx, tb.x + tb.w / 2, reach);
       const cy = lerp(ncy, tb.y + tb.h / 2, reach);
       g.setAttribute('transform', `translate(${cx} ${cy}) scale(${scale}) translate(${-ncx} ${-ncy})`);
+      if (label) {
+        // Drawn at the name's size at first and at the token's on it, through the copy's own scale.
+        label.el.style.fontSize = `${lerp(label.fromSize, label.toSize, reach) / scale}px`;
+        const shed = smooth(clamp01(reach / GHOST_BG_GONE));
+        label.el.style.color = mixColor(label.fromColor, label.toColor, shed);
+        label.bg?.setAttribute('opacity', String(1 - shed));
+      }
       g.setAttribute('opacity', String(1 - smooth(clamp01((along - GHOST_FADE_AT) / SWAP_FADE))));
     });
   });
+  // Out of or into its Thing, the tokens are carried whole: an untitled
+  // formula's from the node's own words (its name is the formula's text),
+  // where they stand and as large; a titled one's from the node's middle, as a
+  // box's content grows out of a node. Until the ground is under them they
+  // wear the node's title colour.
+  const lineBox = useMemo(() => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    obj.boxes.forEach((b) => { x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h); });
+    return Number.isFinite(x0) ? { x: (x0 + x1) / 2 - obj.center.x, y: (y0 + y1) / 2 - obj.center.y, w: x1 - x0, h: y1 - y0 } : null;
+  }, [obj]);
+  const fromWords = thingMorph && !obj.title && nodeTitle.w > 0 && !!lineBox;
+  const tokenPose = thingMorph && spawning && lineBox ? (() => {
+    const start = fromWords ? { x: nodeTitle.x - o.x, y: nodeTitle.y - o.y } : nodeMiddle;
+    // As wide as the words, and no taller than the node (a fraction stands two lines high).
+    const s = lerp(fromWords ? Math.min(nodeTitle.w / lineBox.w, node.h / lineBox.h) : SEED_SCALE, 1, grown);
+    const c = { x: lerp(start.x, lineBox.x, grown), y: lerp(start.y, lineBox.y, grown) };
+    return `translate(${c.x} ${c.y}) scale(${s}) translate(${-lineBox.x} ${-lineBox.y})`;
+  })() : undefined;
+  const tokenTextColor = fromWords && spawning && grown < 0.5 && nodeTitle.color ? nodeTitle.color : textColor;
   const clipId = `formula-${leaving ? 'leave' : 'spawn'}-${obj.groupId}`;
   // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
   const lx = frame.x + frame.w / 2 - o.x;
@@ -876,11 +945,15 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
             <text
               x={titleAt.x} y={titleAt.y}
               fontSize={formulaTitleSize} fontFamily="EmOne, sans-serif" fontWeight="bold"
-              fill={onBand} textAnchor="middle" dominantBaseline="central"
+              fill={titleFill} textAnchor="middle" dominantBaseline="central"
               opacity={formulaTitleShown}
               style={{ userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' }}
             >
-              {obj.title}
+              {titleLines ? titleLines.map((line, i) => {
+                // Wrapped as the node wraps it, its lines centred on its middle.
+                const lh = nodeTitle.lineHeight * (formulaTitleSize / boxTitleSize);
+                return <tspan key={i} x={titleAt.x} dy={i === 0 ? -((titleLines.length - 1) / 2) * lh : lh}>{line}</tspan>;
+              }) : obj.title}
             </text>
           ) : (
             <TitleText
@@ -895,9 +968,10 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
           ))}
         </g>
         {morphGround
-          ? <rect x={morphGround.x} y={morphGround.y} width={Math.max(0, morphGround.w)} height={Math.max(0, morphGround.h)} rx={morphGround.rx} fill={ground} />
+          ? <rect x={morphGround.x} y={morphGround.y} width={Math.max(0, morphGround.w)} height={Math.max(0, morphGround.h)} rx={morphGround.rx} fill={morphGround.fill} />
           : <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />}
         {/* One list, so a token going keeps gliding from where it was. */}
+        <g transform={tokenPose}>
         {[...obj.tokens.map((t, i) => (
           <Token
             key={t.key}
@@ -906,12 +980,14 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
             o={o}
             fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
             ground={ground}
-            textColor={textColor}
+            textColor={tokenTextColor}
             onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
             hot={!lifted && hoverKey === t.key}
             onEnter={hoverIn(t.key)}
             onLeave={hoverOut(t.key)}
             enter={tokenIn(i)}
+            // Taking over from its Thing's copy, it comes in where it stands.
+            rise={!boxMorph}
             from={tokenChanges.coming.get(t.key) || null}
           />
         )), ...tokenChanges.going.map(({ t, b }) => (
@@ -922,12 +998,13 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
             o={o}
             fill={obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR}
             ground={ground}
-            textColor={textColor}
+            textColor={tokenTextColor}
             onBand={getTextColor(obj.protoOf.get(t.protoId)?.color || NODE_DEFAULT_COLOR, theme.darkMode)}
             hot={false}
             going
           />
         ))]}
+        </g>
         </g>
         {/* The plus sign it grew from: its outline turning the band's color, its cross fading first. */}
         {spawning && !leaving && !node && (
@@ -949,15 +1026,13 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     </g>
   );
   if (leaving) {
-    // Into a Thing-group's box: what the box shows is held hidden until the
-    // band is on it, then shown at once under it, the formula fading off it.
-    // Into its Thing: the node comes in as the formula fades off it.
-    const shown = boxMorph ? clamp01(spawn / REVEAL_SHARE) : node ? smooth(clamp01(grown / NODE_HANDOVER)) : clamp01(grown * 3);
-    const under = !reveal ? 1 : boxMorph ? (spawn > REVEAL_SHARE ? 0 : 1) : 1 - shown;
+    // Into a Thing-group's box or its Thing: what it makes way for is held
+    // hidden until the formula has become it, then shown at once under it, the
+    // formula going off it.
     return (
       <>
-        {under < 1 && <style>{`${reveal}{opacity:${under} !important}`}</style>}
-        <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={shown}>
+        {reveal && (!node || spawn > REVEAL_SHARE) && <style>{`${reveal}{opacity:0 !important}`}</style>}
+        <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={node ? clamp01(spawn / REVEAL_SHARE) : clamp01(grown * 3)}>
           {drawing()}
           <g ref={ghostHostRef} />
         </g>

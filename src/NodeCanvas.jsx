@@ -154,8 +154,6 @@ const openLeftPanelView = (view) => useCanvasUIStore.getState().openLeftPanelVie
 // rate limit imposes. Larger = sparser clicks; smaller = denser.
 const CONNECTION_DETENT_PX = 44;
 
-
-
 /**
  * The canvas orchestrator: owns the graph-wide derived data (nodes, edges,
  * dimensions, group layouts), the input and camera controllers, and the
@@ -1266,11 +1264,12 @@ function NodeCanvas() {
   // can react to pan/zoom transform changes in lockstep with culling (one
   // RAF-coalesced tick per frame), without running its own free-running RAF loop.
   const glowUpdateRef = useRef(null);
+  const connectionSceneRef = useRef(null); // the connection hit-test scene, so culling tests drawn geometry
   const runCulling = useCallback((...args) => runCullingPass({
     cullingRafIdRef, zoomPerfRef, glowUpdateRef, ENABLE_CULLING, nodesRef, edgesRef, visibleNodeIdsRef,
     setVisibleNodeIds, visibleEdgesRef, setVisibleEdges, viewportSizeRef, canvasSizeRef, draggingNodeInfoRef,
     isAnimatingZoomRef, panOffsetRef, zoomLevelRef, cullPruneRef, isViewMovingRef, cullGuardRectRef,
-    baseDimsByIdRef, nodeByIdRef,
+    baseDimsByIdRef, nodeByIdRef, connectionSceneRef,
   }, ...args), [isViewMovingRef]); // Refs only — the one dep is a ref OBJECT, so identity stays stable forever.
 
   useTransformWiring({
@@ -2588,18 +2587,18 @@ function NodeCanvas() {
     lastEdgeTapRef, EDGE_DOUBLE_TAP_MS,
   }, ...args), []);
 
-  // --- Connection hit-testing (shared by hover, click and touch) -------------
-  //
+  // --- Connection geometry (hover, click, touch; culling reads it from connectionSceneRef) ---
   // The nearest connection to a canvas point: utils/canvas/edgeHitTest.js.
-  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options) => findNearestEdge(cx, cy, threshold, {
+  const connectionScene = useMemo(() => (connectionSceneRef.current = {
     visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
     lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
     lombardiMinBow, anchorGeometryFor, labelTruncationRef,
-  }, options), [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+  }), [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
     lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
     lombardiMinBow, anchorGeometryFor]);
+  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options) => findNearestEdge(cx, cy, threshold, connectionScene, options), [connectionScene]);
 
   // Grab radius for the hit-test above, in canvas units: see edgeHitThreshold.
   const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => (

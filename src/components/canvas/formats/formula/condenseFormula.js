@@ -9,8 +9,11 @@ import useGraphStore from '../../../../store/graphStore.js';
 import useFormatsStore, { selectStandard } from '../formatsStore.js';
 import { anchorIdFromOpenGroupId } from '../../../../core/openDefinitions.js';
 import { computeFormulaObjects } from './formulaObjects.js';
-import { markFormulaLeaving, nodeBackgroundOf } from './formulaSpawn.js';
+import { markFormulaLeaving, nodeBackgroundOf, nodeLookOf } from './formulaSpawn.js';
 import { storeNodeRect } from '../../groups/boxMorphConnections.js';
+
+// Frames to wait for the node to be drawn after the write.
+const MAX_WAIT_FRAMES = 12;
 
 /** @returns {string|null} The node it became. */
 export function condenseFormula(graphId, groupId) {
@@ -34,7 +37,17 @@ export function condenseFormula(graphId, groupId) {
     return id;
   });
   const into = nodeId ? nodeBackgroundOf(graphId, nodeId, drawn?.color) : null;
-  // The node comes in under the formula as it fades off it.
-  if (leaving && into) leaving.into(into, { reveal: `svg.canvas g.node[data-instance-id=${JSON.stringify(nodeId)}]` });
+  if (leaving && into) {
+    // The node is held hidden until the formula has become it; its title is
+    // read once it is drawn, the frame after the write.
+    leaving.into(into, { reveal: `svg.canvas g.node[data-instance-id=${JSON.stringify(nodeId)}]` });
+    let frames = 0;
+    const aim = () => {
+      const look = nodeLookOf(graphId, nodeId, drawn?.color);
+      if (look?.title) leaving.into(look);
+      else if (frames++ < MAX_WAIT_FRAMES) requestAnimationFrame(aim);
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(aim);
+  }
   return nodeId;
 }

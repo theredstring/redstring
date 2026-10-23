@@ -69,12 +69,7 @@ export const EDGE_HOVER_STICKY_FRACTION = 0.25;
 export function findNearestEdgeAtCanvasPoint(cx, cy, threshold, canvasScene, options = {}) {
   // Formulas shown in place draw their connections differently; test what is drawn.
   const scene = sceneWithFormulas(canvasScene, useGraphStore.getState(), formulaDisplayNow());
-  const {
-    visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
-    enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
-    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
-    lombardiMinBow, anchorGeometryFor, labelTruncationRef,
-  } = scene;
+  const { visibleEdges, nodePrototypesMap, labelTruncationRef } = scene;
   let foundEdgeId = null;
   let foundConnectionPayload = null;
   let closestDistance = Infinity;
@@ -90,121 +85,13 @@ export function findNearestEdgeAtCanvasPoint(cx, cy, threshold, canvasScene, opt
   // this kind of per-edge garbage.
   const nearest = { x: 0, y: 0 };
   let foundPoint = null;
+  const ends = {};
 
   for (let i = visibleEdges.length - 1; i >= 0; i--) {
     const edge = visibleEdges[i];
-    const sourceRaw = nodeById.get(edge.sourceId);
-    const targetRaw = nodeById.get(edge.destinationId);
-    if (!sourceRaw || !targetRaw) continue;
-
-    const sourceDimsRaw = baseDimsById.get(sourceRaw.id);
-    const targetDimsRaw = baseDimsById.get(targetRaw.id);
-    if (!sourceDimsRaw || !targetDimsRaw) continue;
-
-    // Route from the same boxes the renderer routes from. A thing-group
-    // anchor is drawn from the GROUP's pill, not from the anchor's stored
-    // instance box, and every other reader of this geometry — the tangent
-    // solve, the label crossing index, renderConnectionEdge, the drag's live
-    // updater — already substitutes it. The pointer test was the last one
-    // that didn't, so a connection into a group was measured against a curve
-    // nobody had drawn. See anchorGeometryFor.
-    const { node: sourceInstance, dims: sourceDims } = anchorGeometryFor(sourceRaw, sourceDimsRaw);
-    const { node: targetInstance, dims: targetDims } = anchorGeometryFor(targetRaw, targetDimsRaw);
-
-    const isSourcePreviewing = previewingNodeId === sourceInstance.id;
-    const isTargetPreviewing = previewingNodeId === targetInstance.id;
-    const x1 = sourceInstance.x + sourceDims.currentWidth / 2;
-    const y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
-    const x2 = targetInstance.x + targetDims.currentWidth / 2;
-    const y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
-
-    let distance = Infinity;
-
-    if (edge.sourceId === edge.destinationId) {
-      distance = distanceToSelfLoop(
-        cx, cy,
-        sourceInstance.x, sourceInstance.y,
-        sourceDims.currentWidth, sourceDims.currentHeight,
-        edgeCurveInfo.get(edge.id),
-        nearest
-      );
-    } else if (enableAutoRouting && routingStyle === 'clean') {
-      const pathPoints = generateCleanRoutingPath(
-        edge, sourceInstance, targetInstance, sourceDims, targetDims,
-        cleanLaneOffsets, cleanLaneSpacing
-      );
-      distance = distanceToPolyline(cx, cy, pathPoints, nearest);
-    } else if (enableAutoRouting && routingStyle === 'lombardi') {
-      // Closed form, not sampling. This runs for every visible edge on every
-      // pointer move; building the full routing descriptor here (sampled
-      // polyline, path string, arrowhead trims) and then walking the polyline
-      // made hover cost ~2x what the orthogonal styles cost, on top of the
-      // garbage it generated.
-      const { p, q, arc } = lombardiArcFor(
-        edge, sourceInstance, targetInstance, sourceDims, targetDims,
-        lombardiTangents, lombardiCurvature,
-        // Same fan the renderer drew, so the hit-test picks the member of a
-        // bundle actually under the pointer — and the same straight/curved
-        // verdict, or a connection drawn as a line is measured as a bow.
-        {
-          curveInfo: edgeCurveInfo.get(edge.id),
-          laneSpacing: lombardiLaneSpacing,
-          minBow: lombardiMinBow,
-        }
-      );
-      distance = arc
-        ? distanceToArc(cx, cy, arc, nearest)
-        : distanceToPolyline(cx, cy, [p, q], nearest);
-    } else if (enableAutoRouting && routingStyle === 'manhattan') {
-      const pathPoints = generateManhattanRoutingPath(
-        edge, sourceInstance, targetInstance, sourceDims, targetDims,
-        manhattanBends,
-        // Same lane the renderer drew, or the hit-test picks the wrong member
-        // of a bundle — every one of them would test against the un-fanned
-        // centre route.
-        { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
-      );
-      distance = distanceToPolyline(cx, cy, pathPoints, nearest);
-    } else {
-      const curveInfo = edgeCurveInfo.get(edge.id);
-      if (curveInfo && curveInfo.totalInPair > 1) {
-        // Distance to the quadratic Bézier. Must use the SAME curveSpacing as
-        // the renderer (200 * multiConnectionCurve) — the default
-        // (BASE_CURVE_SPACING = 100) bunches the test curves at half the drawn
-        // fan-out, so with 3+ parallel edges the nearest computed curve is no
-        // longer the one under the pointer.
-        const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
-        if (ctrlPoint) {
-          distance = distanceToQuadraticBezier(
-            cx, cy,
-            x1, y1,
-            ctrlPoint.ctrlX, ctrlPoint.ctrlY,
-            x2, y2,
-            40, // finer sampling to disambiguate tightly packed curves
-            nearest
-          );
-        }
-      } else {
-        const A = cx - x1;
-        const B = cy - y1;
-        const C = x2 - x1;
-        const D = y2 - y1;
-        const dot = A * C + B * D;
-        const lenSq = C * C + D * D;
-        if (lenSq > 0) {
-          let param = dot / lenSq;
-          if (param < 0) param = 0;
-          else if (param > 1) param = 1;
-          const xx = x1 + param * C;
-          const yy = y1 + param * D;
-          const dx = cx - xx;
-          const dy = cy - yy;
-          distance = Math.sqrt(dx * dx + dy * dy);
-          nearest.x = xx;
-          nearest.y = yy;
-        }
-      }
-    }
+    if (!resolveConnectionEnds(edge, scene, ends)) continue;
+    const { sourceInstance, targetInstance, sourceDims, targetDims, isSourcePreviewing, isTargetPreviewing } = ends;
+    const distance = connectionDistance(edge, scene, ends, cx, cy, nearest);
 
     const score = edgeHitScore(distance, threshold, edge.id === stickyEdgeId, stickyMargin);
     if (score >= closestScore) continue;
@@ -277,6 +164,179 @@ export function findNearestEdgeAtCanvasPoint(cx, cy, threshold, canvasScene, opt
   return foundEdgeId
     ? { edgeId: foundEdgeId, distance: closestDistance, point: foundPoint, connection: foundConnectionPayload }
     : null;
+}
+
+// The two boxes a connection is drawn between, filled into `out` (centres in
+// x1..y2). False when an end isn't in the graph or has no measured box.
+//
+// Route from the same boxes the renderer routes from. A thing-group anchor is
+// drawn from the GROUP's pill, not from the anchor's stored instance box, and
+// every other reader of this geometry — the tangent solve, the label crossing
+// index, renderConnectionEdge, the drag's live updater — already substitutes
+// it. The pointer test was the last one that didn't, so a connection into a
+// group was measured against a curve nobody had drawn. See anchorGeometryFor.
+function resolveConnectionEnds(edge, scene, out) {
+  const { nodeById, baseDimsById, previewingNodeId, anchorGeometryFor } = scene;
+  const sourceRaw = nodeById.get(edge.sourceId);
+  const targetRaw = nodeById.get(edge.destinationId);
+  if (!sourceRaw || !targetRaw) return false;
+
+  const sourceDimsRaw = baseDimsById.get(sourceRaw.id);
+  const targetDimsRaw = baseDimsById.get(targetRaw.id);
+  if (!sourceDimsRaw || !targetDimsRaw) return false;
+
+  const { node: sourceInstance, dims: sourceDims } = anchorGeometryFor(sourceRaw, sourceDimsRaw);
+  const { node: targetInstance, dims: targetDims } = anchorGeometryFor(targetRaw, targetDimsRaw);
+  const isSourcePreviewing = previewingNodeId === sourceInstance.id;
+  const isTargetPreviewing = previewingNodeId === targetInstance.id;
+  out.sourceInstance = sourceInstance;
+  out.targetInstance = targetInstance;
+  out.sourceDims = sourceDims;
+  out.targetDims = targetDims;
+  out.isSourcePreviewing = isSourcePreviewing;
+  out.isTargetPreviewing = isTargetPreviewing;
+  out.x1 = sourceInstance.x + sourceDims.currentWidth / 2;
+  out.y1 = sourceInstance.y + (isSourcePreviewing ? NODE_HEIGHT / 2 : sourceDims.currentHeight / 2);
+  out.x2 = targetInstance.x + targetDims.currentWidth / 2;
+  out.y2 = targetInstance.y + (isTargetPreviewing ? NODE_HEIGHT / 2 : targetDims.currentHeight / 2);
+  return true;
+}
+
+// Distance from (cx, cy) to a connection's DRAWN geometry in its routing
+// style, with the closest point written into `nearest`. `ends` comes from
+// resolveConnectionEnds.
+function connectionDistance(edge, scene, ends, cx, cy, nearest) {
+  const {
+    edgeCurveInfo, enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
+    lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing, lombardiMinBow,
+  } = scene;
+  const { sourceInstance, targetInstance, sourceDims, targetDims, x1, y1, x2, y2 } = ends;
+
+  let distance = Infinity;
+
+  if (edge.sourceId === edge.destinationId) {
+    distance = distanceToSelfLoop(
+      cx, cy,
+      sourceInstance.x, sourceInstance.y,
+      sourceDims.currentWidth, sourceDims.currentHeight,
+      edgeCurveInfo.get(edge.id),
+      nearest
+    );
+  } else if (enableAutoRouting && routingStyle === 'clean') {
+    const pathPoints = generateCleanRoutingPath(
+      edge, sourceInstance, targetInstance, sourceDims, targetDims,
+      cleanLaneOffsets, cleanLaneSpacing
+    );
+    distance = distanceToPolyline(cx, cy, pathPoints, nearest);
+  } else if (enableAutoRouting && routingStyle === 'lombardi') {
+    // Closed form, not sampling. This runs for every visible edge on every
+    // pointer move; building the full routing descriptor here (sampled
+    // polyline, path string, arrowhead trims) and then walking the polyline
+    // made hover cost ~2x what the orthogonal styles cost, on top of the
+    // garbage it generated.
+    const { p, q, arc } = lombardiArcFor(
+      edge, sourceInstance, targetInstance, sourceDims, targetDims,
+      lombardiTangents, lombardiCurvature,
+      // Same fan the renderer drew, so the hit-test picks the member of a
+      // bundle actually under the pointer — and the same straight/curved
+      // verdict, or a connection drawn as a line is measured as a bow.
+      {
+        curveInfo: edgeCurveInfo.get(edge.id),
+        laneSpacing: lombardiLaneSpacing,
+        minBow: lombardiMinBow,
+      }
+    );
+    distance = arc
+      ? distanceToArc(cx, cy, arc, nearest)
+      : distanceToPolyline(cx, cy, [p, q], nearest);
+  } else if (enableAutoRouting && routingStyle === 'manhattan') {
+    const pathPoints = generateManhattanRoutingPath(
+      edge, sourceInstance, targetInstance, sourceDims, targetDims,
+      manhattanBends,
+      // Same lane the renderer drew, or the hit-test picks the wrong member
+      // of a bundle — every one of them would test against the un-fanned
+      // centre route.
+      { curveInfo: edgeCurveInfo.get(edge.id), laneSpacing: orthogonalLaneSpacing }
+    );
+    distance = distanceToPolyline(cx, cy, pathPoints, nearest);
+  } else {
+    const curveInfo = edgeCurveInfo.get(edge.id);
+    if (curveInfo && curveInfo.totalInPair > 1) {
+      // Distance to the quadratic Bézier. Must use the SAME curveSpacing as
+      // the renderer (200 * multiConnectionCurve) — the default
+      // (BASE_CURVE_SPACING = 100) bunches the test curves at half the drawn
+      // fan-out, so with 3+ parallel edges the nearest computed curve is no
+      // longer the one under the pointer.
+      const ctrlPoint = calculateCurveControlPoint(x1, y1, x2, y2, curveInfo, curveSpacing);
+      if (ctrlPoint) {
+        distance = distanceToQuadraticBezier(
+          cx, cy,
+          x1, y1,
+          ctrlPoint.ctrlX, ctrlPoint.ctrlY,
+          x2, y2,
+          40, // finer sampling to disambiguate tightly packed curves
+          nearest
+        );
+      }
+    } else {
+      const A = cx - x1;
+      const B = cy - y1;
+      const C = x2 - x1;
+      const D = y2 - y1;
+      const dot = A * C + B * D;
+      const lenSq = C * C + D * D;
+      if (lenSq > 0) {
+        let param = dot / lenSq;
+        if (param < 0) param = 0;
+        else if (param > 1) param = 1;
+        const xx = x1 + param * C;
+        const yy = y1 + param * D;
+        const dx = cx - xx;
+        const dy = cy - yy;
+        distance = Math.sqrt(dx * dx + dy * dy);
+        nearest.x = xx;
+        nearest.y = yy;
+      }
+    }
+  }
+  return distance;
+}
+
+// Whether a connection's drawn geometry passes within `radius` of (cx, cy),
+// for viewport culling: a connection on screen must stay mounted even when
+// neither end is anywhere near the screen and the chord between their centres
+// misses it. That chord is only the drawn line for a single straight
+// connection. A parallel pair, a Lombardi arc and a routed run all leave it,
+// and a group's pill or a formula's token moves the end itself, so zooming in
+// on any of those used to cull a connection sitting in the middle of the view.
+//
+// Returns a tester bound to one resolved scene (formulas applied once per
+// culling pass, not once per connection). Before the exact geometry it
+// rejects connections that can't reach: every style stays within half its
+// chord of the chord (an arc sweeps under π; an orthogonal run stays in the
+// two boxes' bounding box), plus its bundle lanes, a clean stub, and the node
+// boxes for self-loops and port offsets.
+export function makeConnectionProbe(canvasScene) {
+  const scene = sceneWithFormulas(canvasScene, useGraphStore.getState(), formulaDisplayNow());
+  const { edgeCurveInfo, curveSpacing = 0, cleanLaneSpacing = 0, routingStyle, enableAutoRouting } = scene;
+  const laneStep = Math.max(curveSpacing, enableAutoRouting && routingStyle === 'clean' ? cleanLaneSpacing : 0);
+  const ends = {};
+  const nearest = { x: 0, y: 0 };
+  return (edge, cx, cy, radius) => {
+    if (!resolveConnectionEnds(edge, scene, ends)) return false;
+    const { x1, y1, x2, y2, sourceDims, targetDims } = ends;
+    const C = x2 - x1;
+    const D = y2 - y1;
+    const lenSq = C * C + D * D;
+    let t = lenSq > 0 ? ((cx - x1) * C + (cy - y1) * D) / lenSq : 0;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    const chordDistance = Math.hypot(cx - (x1 + t * C), cy - (y1 + t * D));
+    const slack = Math.sqrt(lenSq) / 2
+      + ((edgeCurveInfo.get(edge.id)?.totalInPair ?? 1) + 1) * laneStep
+      + Math.max(sourceDims.currentWidth, sourceDims.currentHeight, targetDims.currentWidth, targetDims.currentHeight);
+    if (chordDistance > radius + slack) return false;
+    return connectionDistance(edge, scene, ends, cx, cy, nearest) <= radius;
+  };
 }
 
 // Grab radius for findNearestEdgeAtCanvasPoint, in canvas units.

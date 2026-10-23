@@ -100,7 +100,7 @@ const nodeElement = (instanceId) => scene()?.querySelector(`g.node[data-instance
  * and its interior: the preview's inner canvas, or a point at the middle of a
  * plain node, where the interior closes over in the node's own colour.
  */
-function nodeShape(el) {
+export function nodeShape(el) {
   const background = el?.querySelector('.node-background');
   const band = rectOf(background);
   if (!band) return null;

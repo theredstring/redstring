@@ -6,6 +6,7 @@
  * store so the layers subscribe to it instead of NodeCanvas.
  */
 import * as GeometryUtils from '../../../utils/canvas/geometryUtils.js';
+import { makeConnectionProbe } from '../../../utils/canvas/edgeHitTest.js';
 
 // Viewport culling for nodes and edges.
 //
@@ -42,7 +43,7 @@ export function runCullingPass(ctx) {
     cullingRafIdRef, zoomPerfRef, glowUpdateRef, ENABLE_CULLING, nodesRef, edgesRef, visibleNodeIdsRef,
     setVisibleNodeIds, visibleEdgesRef, setVisibleEdges, viewportSizeRef, canvasSizeRef, draggingNodeInfoRef,
     isAnimatingZoomRef, panOffsetRef, zoomLevelRef, cullPruneRef, isViewMovingRef, cullGuardRectRef,
-    baseDimsByIdRef, nodeByIdRef,
+    baseDimsByIdRef, nodeByIdRef, connectionSceneRef,
   } = ctx;
   if (cullingRafIdRef.current != null) return;
 
@@ -236,9 +237,22 @@ export function runCullingPass(ctx) {
 
     // Visible edges — include if either endpoint node is visible, OR if the
     // straight line between node centers crosses the viewport area (handles
-    // long edges where both endpoints are off-screen but the edge itself is visible).
-    // Hysteresis applied to the slow-path line intersection test as well.
+    // long edges where both endpoints are off-screen but the edge itself is visible),
+    // OR if the connection as DRAWN reaches it (see makeConnectionProbe: curves,
+    // arcs, routed runs and moved ends all leave the chord).
+    // Hysteresis applied to the slow-path tests as well.
     const nextVisibleEdges = [];
+    // Built on the first connection that needs it; most passes never do.
+    let probe;
+    const probeCircle = (rect) => ({
+      cx: (rect.minX + rect.maxX) / 2,
+      cy: (rect.minY + rect.maxY) / 2,
+      // The rect's circumcircle: it contains the rect, so nothing on it is
+      // missed; it overreaches only near the corners, inside the padding.
+      r: Math.hypot(rect.maxX - rect.minX, rect.maxY - rect.minY) / 2,
+    });
+    const innerCircle = probeCircle(innerRect);
+    const outerCircle = probeCircle(outerRect);
     for (const edge of currentEdges) {
       const s = nodeMap.get(edge.sourceId);
       const d = nodeMap.get(edge.destinationId);
@@ -260,8 +274,16 @@ export function runCullingPass(ctx) {
       const sy = s.y + sDims.currentHeight / 2;
       const dx = d.x + dDims.currentWidth / 2;
       const dy = d.y + dDims.currentHeight / 2;
-      const edgeRect = prevVisibleEdgeIds.has(edge.id) ? outerRect : innerRect;
+      const wasVisible = prevVisibleEdgeIds.has(edge.id);
+      const edgeRect = wasVisible ? outerRect : innerRect;
       if (GeometryUtils.lineIntersectsRect(sx, sy, dx, dy, edgeRect)) {
+        nextVisibleEdges.push(edge);
+        continue;
+      }
+
+      if (probe === undefined) probe = connectionSceneRef?.current ? makeConnectionProbe(connectionSceneRef.current) : null;
+      const circle = wasVisible ? outerCircle : innerCircle;
+      if (probe && probe(edge, circle.cx, circle.cy, circle.r)) {
         nextVisibleEdges.push(edge);
       }
     }
