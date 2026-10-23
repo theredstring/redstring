@@ -228,7 +228,7 @@ export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, button
       centerY = whole.top + (whole.vb.height / 2) / tz;
     }
     tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, tz));
-    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb);
+    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb, { withMorph: true });
   });
 }
 
@@ -261,7 +261,7 @@ function groupFrameWith(ctx, box, anchor, buttonCount) {
 }
 
 /** Animate to `tz` with (centerX, centerY) in the middle of `vb`, unless already there. */
-function panToGroupFrameWith(ctx, tz, centerX, centerY, vb) {
+function panToGroupFrameWith(ctx, tz, centerX, centerY, vb, animation = undefined) {
   const { canvasSize, viewportSize, zoomLevelRef, panOffsetRef, animateCanvasView } = ctx;
   const targetPan = {
     x: vb.x + vb.width / 2 - (centerX - canvasSize.offsetX) * tz,
@@ -277,11 +277,17 @@ function panToGroupFrameWith(ctx, tz, centerX, centerY, vb) {
     && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
   if (zoomClose && panClose) return;
 
-  animateCanvasView(finalPan, tz);
+  animateCanvasView(finalPan, tz, animation);
 }
 
 // Room left around a box opened in place when it is brought into view, in screen px.
 const BOX_VIEW_PADDING = 48;
+
+// The camera move that goes with a node or box morph: the morph's curve
+// (groups/boxMorph.js, hooks/useExpandMorph.js), a little longer than its 380 ms
+// since it starts a few frames after the morph does, so neither outruns the other.
+const MORPH_CAMERA_MS = 460;
+const easeInOutCubic = t => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
 
 /**
  * Bring a box that has just opened (a Thing decomposed into its thing group) into
@@ -333,7 +339,7 @@ function frameBoxInViewWith(ctx, groupId) {
         y: room.y + room.h / 2 - (box.y + box.h / 2 - canvasSize.offsetY) * tz,
       };
     }
-    animateCanvasView(clampPan(targetPan, tz, viewportSize, canvasSize), tz);
+    animateCanvasView(clampPan(targetPan, tz, viewportSize, canvasSize), tz, { withMorph: true });
   });
 }
 
@@ -562,7 +568,7 @@ export function frameDecomposedNode(ctx) {
   const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
   const targetPanY = (regionCenterY - verticalBias) - (centerY - pieHeight / 2 - canvasSize.offsetY) * tz;
   const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
-  animateCanvasView(finalPan, tz);
+  animateCanvasView(finalPan, tz, { withMorph: true });
 }
 
 /** When the edge pie opens on a connection, frame it (label included). */
@@ -692,23 +698,44 @@ export function frameCarouselOnOpen(ctx) {
 }
 
 /** Ease the camera to a pan and zoom over `durationMs` (the framing animations). */
-export function animateCanvasViewWith(ctx, targetPan, targetZoom, durationMs = 320) {
+export function animateCanvasViewWith(ctx, targetPan, targetZoom, options = 320) {
   const { carouselViewAnimRef, panOffsetRef, zoomLevelRef, isAnimatingZoomRef, setPanAndZoom } = ctx;
+  // A number is a duration (the old signature); `{ withMorph: true }` paces the move
+  // with a node or box morph (MORPH_CAMERA_MS).
+  const { durationMs = options?.withMorph ? MORPH_CAMERA_MS : 320, withMorph = false } =
+    typeof options === 'number' ? { durationMs: options } : (options || {});
   if (carouselViewAnimRef.current) cancelAnimationFrame(carouselViewAnimRef.current);
   const startPan = { ...panOffsetRef.current };
   const startZoom = zoomLevelRef.current;
   // Frame time, not wall time, so a busy main thread can't skip the move.
   const clock = createFrameClock();
   isAnimatingZoomRef.current = true;
-  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const ease = withMorph ? easeInOutCubic : (t) => 1 - Math.pow(1 - t, 3);
+  // With a morph: zoom at a steady rate (geometric, so a big zoom-out doesn't spend
+  // itself in the first frames) and the view travelling in a straight line, about
+  // the middle of the window. Both ends are exact.
+  const mid = withMorph && typeof window !== 'undefined'
+    ? { x: window.innerWidth / 2, y: window.innerHeight / 2 } : null;
+  const at = (pan, zoom) => ({ x: (mid.x - pan.x) / zoom, y: (mid.y - pan.y) / zoom });
+  const from = mid ? at(startPan, startZoom) : null;
+  const to = mid ? at(targetPan, targetZoom) : null;
   const step = (now) => {
     const t = Math.min(1, clock(now) / durationMs);
     const e = ease(t);
-    const pan = {
-      x: startPan.x + (targetPan.x - startPan.x) * e,
-      y: startPan.y + (targetPan.y - startPan.y) * e,
-    };
-    const zoom = startZoom + (targetZoom - startZoom) * e;
+    let pan, zoom;
+    if (mid && startZoom > 0 && targetZoom > 0) {
+      zoom = startZoom * Math.pow(targetZoom / startZoom, e);
+      const ux = from.x + (to.x - from.x) * e;
+      const uy = from.y + (to.y - from.y) * e;
+      pan = t < 1 ? { x: mid.x - ux * zoom, y: mid.y - uy * zoom } : { ...targetPan };
+      if (t >= 1) zoom = targetZoom;
+    } else {
+      pan = {
+        x: startPan.x + (targetPan.x - startPan.x) * e,
+        y: startPan.y + (targetPan.y - startPan.y) * e,
+      };
+      zoom = startZoom + (targetZoom - startZoom) * e;
+    }
     setPanAndZoom(pan, zoom);
     if (t < 1) {
       carouselViewAnimRef.current = requestAnimationFrame(step);
