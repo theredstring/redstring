@@ -200,7 +200,7 @@ export function focusGroupInViewWith(ctx, box, anchor, buttonCount, zoomAmount =
 // title's framing, pulled back by OPENED_BOX_TITLE_ZOOM; a bigger one zoomed out
 // until all of it shows; one too big for that stops at OPENED_BOX_FLOOR_ZOOM of
 // the title's framing, with its title and menu at the top of the view.
-const OPENED_BOX_TITLE_ZOOM = 0.42;
+const OPENED_BOX_TITLE_ZOOM = 0.34;
 const OPENED_BOX_FLOOR_ZOOM = 0.3;
 
 /**
