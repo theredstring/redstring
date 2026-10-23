@@ -8,10 +8,12 @@
  * Thing-group's pill from the group layout, or an equation's title on its band
  * (its band's top edge while untitled), from the formula objects.
  *
- * Selecting one frames it, the whole group with its menu (Settings, Zoom on
- * Select: Thing-Groups and Equations; framing.focusGroupInViewWith). Shown
- * another way while selected (pie/groupPieButtons.reframeGroup), it is framed
- * again as what it becomes.
+ * Selecting one frames it with its menu (Settings, Zoom on Select: Thing-Groups
+ * and Equations; framing.focusGroupInViewWith): a Thing-group by its title, an
+ * equation whole. A box that has just opened is framed the same way
+ * (groups/openedBoxFrame.js). Shown another way while selected
+ * (pie/groupPieButtons.reframeGroup), it is framed again, whole, as what it
+ * becomes.
  *
  * It leaves while the group is dragged, while its name is being edited and
  * while the carousel or orbit holds the screen, and comes back after. The last
@@ -25,9 +27,13 @@ import { useGroupPieStore, takeGroupFocusHold, takeGroupReframe } from '../pie/g
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { focusGroupInViewWith } from '../camera/framing.js';
+import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 
 // PieMenu's BUBBLE_SIZE, before scaling.
 const BUBBLE_SIZE = 120;
+// A box that has just opened is framed by its title like a selection, pulled back
+// this much further so more of what opened shows around it.
+const OPENED_BOX_ZOOM = 0.7;
 
 /**
  * The pie's anchor: over the middle of a group's title, in canvas coordinates,
@@ -54,6 +60,17 @@ function groupBoxOf(groupId, groupLayouts, formulaObjects) {
   const layout = groupLayouts?.entries?.find(e => e.group.id === groupId)?.layout;
   const vb = layout?.visualBounds;
   return vb ? { x: vb.x, y: vb.y, w: vb.w, h: vb.h } : null;
+}
+
+/**
+ * What selecting a group frames: a Thing-group's title pill, or the whole of an
+ * equation (its title alone says little about it). { x, y, w, h } or null.
+ */
+function selectionFrameOf(groupId, groupLayouts, formulaObjects) {
+  if (formulaObjects.objects.some(o => o.groupId === groupId)) return groupBoxOf(groupId, groupLayouts, formulaObjects);
+  const r = groupLayouts?.titleRects?.get(groupId);
+  if (r) return { x: r.x, y: r.y, w: r.width, h: r.height };
+  return groupBoxOf(groupId, groupLayouts, formulaObjects);
 }
 
 function GroupPieMenuLayer({
@@ -92,13 +109,16 @@ function GroupPieMenuLayer({
     if (groupId !== focusRef.current.id) focusRef.current = { id: groupId, done: false };
     if (!groupId || !live || focusRef.current.done) return;
     focusRef.current.done = true;
-    if (takeGroupFocusHold(groupId) || !focusEnabled) return;
+    // A box that just opened is framed whatever Zoom on Select says, as opening
+    // always has; this is where it gets room for its menu.
+    const opened = takeOpenedBoxFrame(groupId);
+    if (!opened && (takeGroupFocusHold(groupId) || !focusEnabled)) return;
     const l = latestRef.current;
     if (l.dragging || l.abstractionCarouselVisible || l.semanticOrbitActive) return;
     const ctx = cameraCtxRef?.current;
-    const box = groupBoxOf(groupId, l.groupLayouts, l.formulaObjects);
+    const box = selectionFrameOf(groupId, l.groupLayouts, l.formulaObjects);
     if (!ctx || !box) return;
-    focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
+    focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, opened ? zoomAmount * OPENED_BOX_ZOOM : zoomAmount);
   }, [groupId, live, focusEnabled, zoomAmount, cameraCtxRef]);
 
   // Shown another way (formula or Things, names or symbols): framed again as

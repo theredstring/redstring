@@ -20,7 +20,7 @@ import useGraphStore from '../../../store/graphStore.js';
 import { projectGraphView, openInPlaceBlock } from '../../../core/openDefinitions.js';
 import { withBoxOpenMorph } from '../groups/boxMorph.js';
 import { opensAsFormula, withFormulaOpenMorph } from '../formats/formula/formulaSpawn.js';
-import { holdGroupFocus } from '../pie/groupPieButtons.js';
+import { requestOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 import { openBoxOffset } from '../groups/openPlacement.js';
 
 /**
@@ -47,8 +47,9 @@ export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 
       : store.decomposeNodeToGroup(viewGraphId, prototypeId, definitionIndex, instanceId);
   });
   if (!groupId) return null;
-  // The box's opening frames it; selecting it after doesn't again (Zoom on Select).
-  holdGroupFocus(groupId);
+  // Framed once it has opened: by its title and menu if it is selected, else whole
+  // (groups/openedBoxFrame.js). Selecting it after doesn't frame it again.
+  requestOpenedBoxFrame(groupId);
   return projectGraphView(useGraphStore.getState(), viewGraphId)?.groups?.get(groupId) || null;
 }
 

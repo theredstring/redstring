@@ -12,6 +12,7 @@ import { getNodeDimensions } from '../../../utils.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
+import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
 import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
@@ -178,7 +179,8 @@ const FOCUS_GROUP_PADDING_RATIO = 0.4;  // margin around it, in bubble diameters
  * Frame a selected Thing-group or equation with its pie.
  *
  * @param {object} ctx - the camera context (cameraCtxRef.current)
- * @param {{x, y, w, h}} box - the group as drawn, title included, canvas units
+ * @param {{x, y, w, h}} box - what to frame, canvas units: a Thing-group's title
+ *   on selection, otherwise the group as drawn, title included
  * @param {{x, y}} anchor - the group pie's anchor (the title's top middle)
  * @param {number} buttonCount - how many buttons the pie has
  * @param {number} zoomAmount - the Zoom on Select tightness setting
@@ -287,6 +289,26 @@ function frameBoxInViewWith(ctx, groupId) {
   });
 }
 
+// Frames a just-opened box's pie has to claim it before the camera frames it whole.
+const OPENED_BOX_PIE_WAIT_FRAMES = 6;
+
+/**
+ * A box that has just opened: framed by its title and menu when its pie comes up
+ * (GroupPieMenuLayer claims the request), otherwise brought into view whole.
+ */
+function frameOpenedBoxWith(ctx, groupId) {
+  if (typeof requestAnimationFrame !== 'function') {
+    if (takeOpenedBoxFrame(groupId)) frameBoxInViewWith(ctx, groupId);
+    return;
+  }
+  let left = OPENED_BOX_PIE_WAIT_FRAMES;
+  const tick = () => {
+    if (left-- > 0) { requestAnimationFrame(tick); return; }
+    if (takeOpenedBoxFrame(groupId)) frameBoxInViewWith(ctx, groupId);
+  };
+  requestAnimationFrame(tick);
+}
+
 /**
  * Bring a node (and room for its pie menu) into view.
  *
@@ -303,7 +325,7 @@ export function focusNodeInViewWith(ctx, nodeId, { recompose = false, focusOnSel
   const node = nodes.find(n => n.id === nodeId);
   if (!node) return;
   if (recompose && node.isGroupAnchor && node.anchorForGroupId) {
-    frameBoxInViewWith(ctx, node.anchorForGroupId);
+    frameOpenedBoxWith(ctx, node.anchorForGroupId);
     return;
   }
   if (recompose && !focusOnSelectEnabled) return;
