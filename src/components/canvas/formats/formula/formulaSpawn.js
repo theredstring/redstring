@@ -1,6 +1,9 @@
 /**
  * Formulas coming in and going out.
  *
+ * Shown the other way (formulaSwapMorph): as its formula, the band grows out
+ * of the Thing-group's box; as its Things, it goes back into that box.
+ *
  * Just built (New Formula, the bank): the canvas plays their entrance, the
  * plus sign's morph into a Thing (PlusSign.jsx), grown into the formula's band
  * instead. Opened from the Thing it was combined into, the band grows out of
@@ -86,13 +89,18 @@ const emit = () => listeners.forEach(fn => fn());
  * Keep a formula's drawing (a formulaObjects object) to play its exit, from
  * now. Gone again once it has played. Returns `{ into(rect) }`, to aim the
  * exit at a node's painted background ({ x, y, w, h, r, color }, world
- * coordinates) rather than at nothing.
+ * coordinates) rather than at nothing, or at a Thing-group's box (the same,
+ * with its `inner` ground and `title`: formulaSwapMorph.groupBoxOf).
+ *
+ * `reveal`: a CSS selector for what the exit makes way for (shown as its
+ * Things, the group's box, its Things and their connections), held hidden
+ * until the exit is nearly done and then faded in under it.
  */
-export function markFormulaLeaving(obj) {
+export function markFormulaLeaving(obj, { reveal = null } = {}) {
   if (!obj) return null;
   const start = performance.now();
   const mine = (l) => l.obj === obj && l.start === start;
-  leaving = [...leaving.filter(l => l.obj.groupId !== obj.groupId), { obj, start, into: null }];
+  leaving = [...leaving.filter(l => l.obj.groupId !== obj.groupId), { obj, start, into: null, reveal }];
   emit();
   setTimeout(() => {
     if (!leaving.some(mine)) return;
@@ -108,7 +116,7 @@ export function markFormulaLeaving(obj) {
   };
 }
 
-/** The formulas playing their exit: { obj, start, into }[]. */
+/** The formulas playing their exit: { obj, start, into, reveal }[]. */
 export const leavingFormulasNow = () => leaving;
 
 export function subscribeLeavingFormulas(fn) {

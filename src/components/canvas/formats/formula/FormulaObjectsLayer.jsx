@@ -26,7 +26,7 @@
  *   Thing's own element would. While it is the dragged group it lifts as a
  *   Thing-group does: scaled up a little, over the group's own shadow.
  */
-import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { motion } from 'framer-motion';
 import useGraphStore from '../../../../store/graphStore.js';
 import useCanvasUIStore from '../../../../store/canvasUIStore.js';
@@ -61,6 +61,19 @@ const LIFT_SCALE = 1.05;     // a dragged Thing-group's (groupElements)
 // the band's color coming in faster; then the title, the ground, and the
 // tokens one after another.
 const MORPH_SHARE = 400 / SPAWN_MS;   // the band's part of it
+// Going back into its Thing-group's box (formulaSwapMorph), the last part of
+// the exit: the band is on the box, which shows under it as the formula fades off.
+const REVEAL_SHARE = 0.2;
+// Coming out of its Thing-group's box, the share of the entrance the box, the
+// Things and the tokens run over together.
+const SWAP_TRAVEL = 0.8;
+// As a Thing's copy runs into its token (0 to 1 along the way): where the copy
+// starts fading, where the token starts coming in, and over how much each.
+const GHOST_FADE_AT = 0.45;
+const TOKEN_IN_AT = 0.55;
+const SWAP_FADE = 0.4;
+// What goes with the Things (their connections, the groups inside) is gone by here.
+const SWAP_EXTRAS_GONE = 0.35;
 const PLUS_LIGHT = '#DEDADA';
 const PLUS_STROKE = 'maroon';
 const easeMorph = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -541,7 +554,7 @@ function useTokenChanges(obj) {
  * from that Thing again, it grows out of the node the same way
  * (formulaSpawn.withFormulaOpenMorph).
  */
-function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into = null }) {
+function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into = null, reveal = null }) {
   const leaving = leavingStart !== null;
   const [hoverKey, setHoverKey] = useState(null);
   const pressRef = useRef(null);
@@ -644,8 +657,16 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   // Combined into its Thing: down onto that node.
   const { t: spawn, from: openedFrom } = useSpawn(obj.groupId, leavingStart);
   const node = into || openedFrom;
+  // Shown the other way (formulaSwapMorph): its Thing-group's box, which has a
+  // ground and a title of its own to run into the formula's.
+  const boxMorph = !!node?.inner;
   const spawning = spawn < 1;
-  const grown = easeMorph(clamp01(spawn / MORPH_SHARE));
+  // Going into the box, the band is all the way there with REVEAL_SHARE of the
+  // exit left: the box shows under it from then (`reveal`), and it fades off.
+  // The box, its Things and the tokens run on one clock.
+  const grown = boxMorph
+    ? easeMorph(clamp01(leaving ? (spawn - REVEAL_SHARE) / (1 - REVEAL_SHARE) : spawn / SWAP_TRAVEL))
+    : easeMorph(clamp01(spawn / MORPH_SHARE));
   const plusScale = useGraphStore(st => st.textSettings?.plusSignScale ?? 1);
   const plusSize = leaving ? 0 : PLUS_SIGN_SIZE * plusScale;
   const plusStroke = Math.max(1, PLUS_SIGN_STROKE * plusScale);
@@ -666,7 +687,31 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     w: Math.max(f.x + f.w, end.x + end.w) - Math.min(f.x, end.x) + 100,
     h: Math.max(f.y + f.h, end.y + end.h) - Math.min(f.y, end.y) + 100,
   };
-  const titleIn = spawning ? clamp01((grown - 0.2) * 1.25) : 1;
+  const titleIn = spawning && !boxMorph ? clamp01((grown - 0.2) * 1.25) : 1;
+  // From or into a Thing-group's box: the ground and the title run between it and the formula's.
+  const morphGround = boxMorph && spawning ? (() => {
+    const a = box(node.inner);
+    const b = box(inner);
+    return {
+      x: lerp(a.x, b.x, grown), y: lerp(a.y, b.y, grown), w: lerp(a.w, b.w, grown), h: lerp(a.h, b.h, grown),
+      rx: lerp(node.inner.r, G.innerCanvasCornerRadius, grown),
+    };
+  })() : null;
+  const formulaTitleAt = { x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y };
+  const titleAt = boxMorph && spawning
+    ? { x: lerp(node.title.x - o.x, formulaTitleAt.x, grown), y: lerp(node.title.y - o.y, formulaTitleAt.y, grown) }
+    : formulaTitleAt;
+  // The box's title as it is drawn (its size, its lines). The same words run
+  // into the formula's title, growing or shrinking to its size; other words
+  // (an untitled formula has none) give way to the formula's.
+  const morphingTitle = boxMorph && spawning;
+  const boxLines = morphingTitle ? (node.title.lines || [node.titleText].filter(Boolean)) : [];
+  const sameTitle = morphingTitle && boxLines.length === 1 && boxLines[0] === obj.title;
+  const boxTitleSize = morphingTitle ? (node.title.fontSize || TITLE_FONT) : TITLE_FONT;
+  const formulaTitleSize = sameTitle ? lerp(boxTitleSize, TITLE_FONT, grown) : TITLE_FONT;
+  const boxTitle = morphingTitle && !sameTitle && boxLines.length ? boxLines : null;
+  const boxTitleShown = boxTitle ? clamp01(1 - grown * 2) : 0;
+  const formulaTitleShown = morphingTitle && !sameTitle ? clamp01(grown * 2 - 1) : titleIn;
   // Each of the title's letters only once the growing band holds it (the middle
   // ones first), and going, each gone before the shrinking band reaches it, so
   // the band never cuts the title short.
@@ -678,7 +723,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
       c, x0: measure(letters.slice(0, i).join(''), TITLE_FONT) - half, x1: measure(letters.slice(0, i + 1).join(''), TITLE_FONT) - half,
     }));
   }, [obj.title]);
-  const titleLetters = spawning && obj.title ? (() => {
+  const titleLetters = spawning && !boxMorph && obj.title ? (() => {
     const cx = titleBox.x + titleBox.w / 2 - o.x;
     const cy = titleBox.y + titleBox.h / 2 - o.y;
     const top = cy - TITLE_INK * TITLE_FONT;
@@ -694,10 +739,58 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   // Each token after the one before it, left to right, once the band has mostly grown.
   const tokenIn = (i) => {
     if (!spawning) return 1;
+    // From or into the box: as its Thing's copy arrives (all at once, the copies travelling together).
+    if (boxMorph) return smooth(clamp01((grown - TOKEN_IN_AT) / SWAP_FADE));
     const n = Math.max(1, obj.tokens.length - 1);
     return easeMorph(clamp01((spawn - (0.45 + 0.3 * (i / n))) / 0.25));
   };
   const tokenChanges = useTokenChanges(obj);
+  // From or into its Thing-group's box: copies of its Things' own drawings
+  // (formulaSwapMorph.captureThings), each run between where its Thing stands
+  // and its token, shrinking to the token's height and fading as the token
+  // comes in; what goes with them (connections, the groups inside) fades.
+  // Drawn into a group of their own, imperatively: they are copied elements.
+  const ghosts = boxMorph && spawning ? node.ghosts || null : null;
+  const ghostHostRef = useRef(null);
+  const ghostsDrawnRef = useRef(null);
+  useLayoutEffect(() => {
+    const host = ghostHostRef.current;
+    ghostsDrawnRef.current = null;
+    if (!host || !ghosts) return undefined;
+    const wrap = (copy) => {
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      g.appendChild(copy);
+      host.appendChild(g);
+      return g;
+    };
+    // Under the Things, what goes with them.
+    const fades = ghosts.fades.map(wrap);
+    const things = ghosts.things.map(t => ({ ...t, g: wrap(t.copy) }));
+    ghostsDrawnRef.current = { fades, things };
+    return () => { host.replaceChildren(); ghostsDrawnRef.current = null; };
+  }, [ghosts]);
+  const tokenBoxOf = useMemo(() => {
+    const byThing = new Map();
+    obj.tokens.forEach((t, i) => { if (t.target && !byThing.has(t.target)) byThing.set(t.target, obj.boxes[i]); });
+    return byThing;
+  }, [obj]);
+  useLayoutEffect(() => {
+    const drawn = ghostsDrawnRef.current;
+    if (!drawn) return;
+    const extras = String(1 - clamp01(grown / SWAP_EXTRAS_GONE));
+    drawn.fades.forEach(g => g.setAttribute('opacity', extras));
+    drawn.things.forEach(({ id, rect, g }) => {
+      const tb = tokenBoxOf.get(id);
+      if (!tb) { g.setAttribute('opacity', extras); return; }
+      const ncx = rect.x + rect.w / 2;
+      const ncy = rect.y + rect.h / 2;
+      const scale = lerp(1, Math.min(1, tb.h / rect.h), grown);
+      const cx = lerp(ncx, tb.x + tb.w / 2, grown);
+      const cy = lerp(ncy, tb.y + tb.h / 2, grown);
+      g.setAttribute('transform', `translate(${cx} ${cy}) scale(${scale}) translate(${-ncx} ${-ncy})`);
+      g.setAttribute('opacity', String(1 - smooth(clamp01((grown - GHOST_FADE_AT) / SWAP_FADE))));
+    });
+  });
   const clipId = `formula-${leaving ? 'leave' : 'spawn'}-${obj.groupId}`;
   // Lifted as a dragged Thing-group is: at once on the way up, eased back down.
   const lx = frame.x + frame.w / 2 - o.x;
@@ -729,24 +822,60 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
           data-formula-proto={obj.equationProtoId || undefined}
         >
           {/* Selected, it wears a selected Thing's black stroke. */}
-          <GlideRect
-            r={box(frame)} rx={G.nodeGroupCornerRadius}
-            fill={!spawning ? color : node ? mixColor(node.color, color, grown) : mixColor(PLUS_LIGHT, color, grown * 1.5)}
-            stroke={selected ? 'black' : 'none'} strokeWidth={SELECTION_STROKE}
-          />
-          {obj.title && (
+          {boxMorph && spawning ? (
+            // Running between the Thing-group's box and the formula's: drawn as it is now, not masked.
+            <rect
+              x={morph.x} y={morph.y} width={Math.max(0, morph.w)} height={Math.max(0, morph.h)} rx={morph.rx}
+              fill={mixColor(node.color || color, color, grown)}
+              stroke={selected ? 'black' : 'none'} strokeWidth={SELECTION_STROKE}
+            />
+          ) : (
+            <GlideRect
+              r={box(frame)} rx={G.nodeGroupCornerRadius}
+              fill={!spawning ? color : node ? mixColor(node.color, color, grown) : mixColor(PLUS_LIGHT, color, grown * 1.5)}
+              stroke={selected ? 'black' : 'none'} strokeWidth={SELECTION_STROKE}
+            />
+          )}
+          {boxTitle && (
+            <text
+              x={titleAt.x} y={titleAt.y}
+              fontSize={boxTitleSize} fontFamily="EmOne, sans-serif" fontWeight="bold"
+              fill={onBand} textAnchor="middle" dominantBaseline="central"
+              opacity={boxTitleShown}
+              style={{ userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' }}
+            >
+              {boxTitle.length === 1 ? boxTitle[0] : boxTitle.map((line, i) => (
+                // As groupElements centres a wrapped title's lines on its middle.
+                <tspan key={i} x={titleAt.x} dy={i === 0 ? -((boxTitle.length - 1) / 2) * node.title.lineHeight : node.title.lineHeight}>{line}</tspan>
+              ))}
+            </text>
+          )}
+          {obj.title && (morphingTitle ? (
+            // Placed exactly each frame: a gliding title would trail the morph.
+            <text
+              x={titleAt.x} y={titleAt.y}
+              fontSize={formulaTitleSize} fontFamily="EmOne, sans-serif" fontWeight="bold"
+              fill={onBand} textAnchor="middle" dominantBaseline="central"
+              opacity={formulaTitleShown}
+              style={{ userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' }}
+            >
+              {obj.title}
+            </text>
+          ) : (
             <TitleText
-              at={{ x: titleBox.x + titleBox.w / 2 - o.x, y: titleBox.y + titleBox.h / 2 - o.y }}
+              at={titleAt}
               fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
               fill={onBand} textAnchor="middle" dominantBaseline="central"
-              opacity={titleIn}
+              opacity={formulaTitleShown}
               style={{ userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' }}
             >
               {titleLetters ? titleLetters.map((l, i) => <tspan key={i} fillOpacity={l.shown}>{l.c}</tspan>) : obj.title}
             </TitleText>
-          )}
+          ))}
         </g>
-        <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />
+        {morphGround
+          ? <rect x={morphGround.x} y={morphGround.y} width={Math.max(0, morphGround.w)} height={Math.max(0, morphGround.h)} rx={morphGround.rx} fill={ground} />
+          : <GlideRect r={box(inner)} rx={G.innerCanvasCornerRadius} fill={ground} opacity={groundIn} />}
         {/* One list, so a token going keeps gliding from where it was. */}
         {[...obj.tokens.map((t, i) => (
           <Token
@@ -799,10 +928,16 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
     </g>
   );
   if (leaving) {
+    // Into a Thing-group's box: what the box shows is held hidden until the
+    // band is on it, then shown at once under it, the formula fading off it.
     return (
-      <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={clamp01(grown * 3)}>
-        {drawing()}
-      </g>
+      <>
+        {reveal && (!boxMorph || spawn > REVEAL_SHARE) && <style>{`${reveal}{opacity:0 !important}`}</style>}
+        <g className="formula-object is-leaving" style={{ pointerEvents: 'none' }} opacity={boxMorph ? clamp01(spawn / REVEAL_SHARE) : clamp01(grown * 3)}>
+          {drawing()}
+          <g ref={ghostHostRef} />
+        </g>
+      </>
     );
   }
   return (
@@ -825,6 +960,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
       style={{ cursor: 'pointer' }}
     >
       {drawing()}
+      <g ref={ghostHostRef} style={{ pointerEvents: 'none' }} />
     </g>
   );
 }
@@ -850,8 +986,8 @@ function FormulaObjectsLayer({ draggingGroupId = null }) {
           selected={selectedGroupId === obj.groupId || selectedInstanceIds.has(obj.anchorId)} lifted={draggingGroupId === obj.groupId}
         />
       ))}
-      {leaving.map(({ obj, start, into }) => (
-        <FormulaObject key={`leaving-${obj.groupId}-${start}`} obj={obj} theme={theme} leavingStart={start} into={into} />
+      {leaving.map(({ obj, start, into, reveal }) => (
+        <FormulaObject key={`leaving-${obj.groupId}-${start}`} obj={obj} theme={theme} leavingStart={start} into={into} reveal={reveal} />
       ))}
     </g>
   );

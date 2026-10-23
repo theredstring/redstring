@@ -11,6 +11,8 @@ import { create } from 'zustand';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants.js';
+import { computeFormulaObjects } from './formula/formulaObjects.js';
+import { withToFormulaMorph, withToThingsMorph } from './formula/formulaSwapMorph.js';
 
 const NOTATION_KEY = 'redstring_formula_notation';
 const CONVENTION_KEY = 'redstring_formula_convention';
@@ -69,7 +71,10 @@ export function showFormatInPlace(candidate) {
   const store = useGraphStore.getState();
   useCanvasUIStore.getState().setSelectedInstanceIds(new Set());
   if (candidate.source === 'group') {
-    store.updateGroup(candidate.graphId, candidate.sourceId, (g) => { g.format = candidate.format; delete g.linkedFormat; });
+    // A Thing-group shown as its formula: its box shrinks into the formula's band.
+    const write = () => store.updateGroup(candidate.graphId, candidate.sourceId, (g) => { g.format = candidate.format; delete g.linkedFormat; });
+    if (candidate.format === 'formula') withToFormulaMorph(candidate.graphId, candidate.sourceId, write);
+    else write();
     return candidate.sourceId;
   }
   return store.createGroup(candidate.graphId, {
@@ -80,12 +85,13 @@ export function showFormatInPlace(candidate) {
   });
 }
 
-/** Show a group as its Things again, still linked to its format. */
+/** Show a group as its Things again, still linked to its format; the formula's band grows back into its box. */
 export function showAsThings(graphId, groupId) {
-  useGraphStore.getState().updateGroup(graphId, groupId, (g) => {
+  const drawn = computeFormulaObjects(useGraphStore.getState(), formulaDisplayNow()).objects.find(o => o.groupId === groupId);
+  withToThingsMorph(graphId, groupId, drawn, () => useGraphStore.getState().updateGroup(graphId, groupId, (g) => {
     if (g.format) g.linkedFormat = g.format;
     delete g.format;
-  });
+  }));
 }
 
 export const setNotation = (notation) => {

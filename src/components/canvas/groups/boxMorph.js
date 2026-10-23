@@ -277,6 +277,9 @@ function detach(copy) {
   return copy;
 }
 
+/** A copy of a canvas element that nothing else can find (see detach): for other morphs that carry real drawings. */
+export const detachedCopy = (el) => detach(el.cloneNode(true));
+
 const svg = (tag, attrs = {}) => {
   const el = document.createElementNS(SVG_NS, tag);
   Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
