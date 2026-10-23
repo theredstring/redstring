@@ -512,13 +512,13 @@ const RepositorySelectionModal = ({
       )}
 
       {/* Repository list */}
-      <div style={{ flex: 1, overflow: 'auto', paddingTop: '8px', paddingBottom: '8px', minHeight: 0 }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingTop: '8px', paddingBottom: '8px', minHeight: 0 }}>
         {loading ? (
           <div style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            padding: '60px',
+            padding: '60px 16px',
             color: theme.canvas.textSecondary
           }}>
             <RefreshCw size={24} style={{ animation: 'spin 1s linear infinite', marginRight: '12px' }} />
@@ -530,9 +530,11 @@ const RepositorySelectionModal = ({
             alignItems: 'center',
             justifyContent: 'center',
             flexDirection: 'column',
-            padding: '60px',
+            padding: '60px 16px',
             color: theme.canvas.textSecondary,
-            gap: '12px'
+            gap: '12px',
+            textAlign: 'center',
+            overflowWrap: 'anywhere'
           }}>
             {repositories.length === 0 ? (
               <>
@@ -601,7 +603,7 @@ const RepositorySelectionModal = ({
                   flex: 1,
                   minWidth: 0
                 }}>
-                  <Github size={14} />
+                  <Github size={14} style={{ flexShrink: 0 }} />
                   <span style={{
                     fontWeight: 'bold',
                     fontSize: '0.85rem',
@@ -611,12 +613,14 @@ const RepositorySelectionModal = ({
                   }}>
                     {repo.name}
                   </span>
-                  {repo.private && <Lock size={10} style={{ opacity: 0.6 }} />}
+                  {repo.private && <Lock size={10} style={{ opacity: 0.6, flexShrink: 0 }} />}
 
                   {/* Universe count indicator */}
                   {isExpanded && universes.length > 0 && (
                     <span style={{
                       fontSize: '0.7rem',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
                       color: theme.canvas.textSecondary,
                       // A recess in the surface, not canvas.border — which is a
                       // pale slab on the dark theme. Same relationship as the
@@ -700,11 +704,12 @@ const RepositorySelectionModal = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
+                gap: 8,
                 fontSize: '0.65rem',
                 color: theme.canvas.textSecondary
               }}>
-                <span>Updated {formatDate(repo.updated_at)}</span>
-                <span>{repo.owner?.login}</span>
+                <span style={{ whiteSpace: 'nowrap' }}>Updated {formatDate(repo.updated_at)}</span>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{repo.owner?.login}</span>
               </div>
               </div>
 
@@ -782,10 +787,11 @@ const RepositorySelectionModal = ({
                               boxShadow: theme.darkMode ? '0 2px 6px rgba(0, 0, 0, 0.2)' : '0 2px 6px rgba(38, 0, 0, 0.08)'
                             }}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <FileText size={10} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                              <FileText size={10} style={{ flexShrink: 0 }} />
                               <div
                                 style={{
+                                  minWidth: 0,
                                   fontWeight: 600,
                                   fontSize: '0.72rem',
                                   color: theme.canvas.textPrimary,
@@ -798,9 +804,9 @@ const RepositorySelectionModal = ({
                               </div>
                             </div>
                             {universe.path && (
-                              <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary }}>{universe.path}</div>
+                              <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary, overflowWrap: 'anywhere' }}>{universe.path}</div>
                             )}
-                            <div style={{ fontSize: '0.62rem', color: theme.canvas.brandText, display: 'flex', gap: 10 }}>
+                            <div style={{ fontSize: '0.62rem', color: theme.canvas.brandText, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                               {/* "?" until the file has actually been read —
                                   always rendered so the row holds its layout
                                   when the real numbers land. */}

@@ -144,7 +144,12 @@ const Modal = ({
             display: 'flex',
             flexDirection: 'column',
             padding: size === 'slim' ? 0 : 16,
-            minHeight: 0
+            minHeight: 0,
+            // A modal only ever scrolls up and down. touch-action narrows for
+            // every element under it, so a list inside that scrolls on its own
+            // (or a row that comes out wider than a phone) still can't be
+            // dragged sideways.
+            touchAction: 'pan-y pinch-zoom'
           }}
         >
           {children}

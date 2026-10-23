@@ -17,6 +17,43 @@ const arrowEndsOf = (edge) => {
 };
 
 /**
+ * The webs a call made, outermost first. The store gains nested webs inside
+ * out (a formula's parts get their webs before the equation's), so a web
+ * whose Thing is placed in another web the call made comes after that one,
+ * and the card leads with the web the call was for. Same depth keeps the
+ * store's order.
+ */
+function outermostFirst(webIds, graphs) {
+  const placedIn = new Map();
+  for (const graphId of webIds) {
+    const instances = graphs.get(graphId)?.instances;
+    const placed = new Set();
+    if (instances?.forEach) instances.forEach(inst => placed.add(inst?.prototypeId));
+    placedIn.set(graphId, placed);
+  }
+  const depths = new Map();
+  const depthOf = (graphId, visiting) => {
+    if (depths.has(graphId)) return depths.get(graphId);
+    if (visiting.has(graphId)) return 0;
+    visiting.add(graphId);
+    const definers = graphs.get(graphId)?.definingNodeIds || [];
+    let depth = 0;
+    for (const [outerId, placed] of placedIn) {
+      if (outerId !== graphId && definers.some(id => placed.has(id))) {
+        depth = Math.max(depth, depthOf(outerId, visiting) + 1);
+      }
+    }
+    visiting.delete(graphId);
+    depths.set(graphId, depth);
+    return depth;
+  };
+  return webIds
+    .map((graphId, order) => ({ graphId, order, depth: depthOf(graphId, new Set()) }))
+    .sort((a, b) => a.depth - b.depth || a.order - b.order)
+    .map(w => w.graphId);
+}
+
+/**
  * Resolve a `created` record against the live store into rows. Anything since
  * deleted, or undone, is simply absent.
  */
@@ -27,7 +64,8 @@ export function resolveRows(created, state) {
   // A Web the call made is drawn whole, live (WebDefinitionsSection's card), so
   // what the call put inside it is in that drawing and needs no row of its own.
   const madeWebs = new Set();
-  for (const graphId of created?.webs || []) {
+  const liveWebs = (created?.webs || []).filter(graphId => graphs.has(graphId));
+  for (const graphId of outermostFirst(liveWebs, graphs)) {
     const graph = graphs.get(graphId);
     if (!graph) continue;
     madeWebs.add(graphId);
