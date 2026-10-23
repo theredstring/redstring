@@ -5341,8 +5341,8 @@ export function circularLayout(nodes, edges, options = {}) {
  * Apply layout algorithm and return position updates
  */
 export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
-  const formulas = formulaBlocks(nodes, edges, options);
-  if (formulas) return formulas.expand(applyLayout(formulas.nodes, formulas.edges, algorithm, formulas.options));
+  const rigid = rigidBlocks(nodes, edges, options);
+  if (rigid) return rigid.expand(applyLayout(rigid.nodes, rigid.edges, algorithm, rigid.options));
   if (algorithm === 'best') return bestLayout(nodes, edges, options);
   if (algorithm === 'community') {
     const blocks = communityGroups(nodes, edges, options);
@@ -5375,29 +5375,42 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
 }
 
 /**
- * A formula (a group shown as one, format 'formula') is laid out as one: its
- * Things are a finished row whose order its reading depends on
- * (formats/formula/formulaChain.js), and laying them out one by one scatters
- * them. Each formula becomes a single block for the solve, and its Things go
- * back around wherever the block lands, as they were. Its parentheses (groups
- * inside it) go with it; a group it sits in holds the block in its place. Null
- * when there is no formula to lay out.
+ * Some groups are laid out as one rigid block, their Things kept where they
+ * stand relative to each other:
  *
- * The block is the size the formula is DRAWN: its band, title and all
+ * - A formula (a group shown as one, format 'formula'): its Things are a
+ *   finished row whose order its reading depends on
+ *   (formats/formula/formulaChain.js), and laying them out one by one
+ *   scatters them.
+ * - An open definition (`isOpenDefinition`, core/openDefinitions.js): its
+ *   Things live in the definition, not in this web. When every one of them
+ *   moves, the store moves the box as a whole and keeps the definition's
+ *   arrangement (graphStore applyOpenDefinitionMoves), so an arrangement the
+ *   solver made up for its interior is thrown away, and the box lands at its
+ *   own size, over whatever the solver packed around the one it planned.
+ *
+ * Each becomes a single block for the solve, and its Things go back around
+ * wherever the block lands, as they were. Groups inside it go with it; a group
+ * it sits in holds the block in its place. Null when there is no such group.
+ *
+ * The block is the size the group is DRAWN: a formula's band, title and all
  * (`options.formulaFrames`, groupId -> the frame formulaObjects draws, passed
- * by the canvas, which can measure text). Without one, the group's box as its
- * Things. Never the Things' bare bounds: the solver only keeps other nodes off
- * the block, so whatever of the drawn band lies outside it is room a loose
- * node is free to be put in.
+ * by the canvas, which can measure text); otherwise the group's box. Never the
+ * Things' bare bounds: the solver only keeps other nodes off the block, so
+ * whatever of the drawn box lies outside it is room a loose node is free to be
+ * put in.
  */
-function formulaBlocks(nodes, edges, options) {
+function rigidBlocks(nodes, edges, options) {
   const groups = options.groups || [];
-  if (!groups.some(g => g.format === 'formula')) return null;
+  const isRigid = (g) => g.format === 'formula' || g.isOpenDefinition === true;
+  if (!groups.some(isRigid)) return null;
   const byId = new Map(nodes.map(n => [n.id, n]));
   const blockOf = new Map(); // instance id -> block id
   const blocks = [];
-  for (const g of groups) {
-    if (g.format !== 'formula') continue;
+  // Outermost first: a block takes everything inside it, groups and all.
+  const rigid = groups.filter(isRigid)
+    .sort((a, b) => (b.memberInstanceIds?.length || 0) - (a.memberInstanceIds?.length || 0));
+  for (const g of rigid) {
     const ids = new Set((g.memberInstanceIds || []).filter(id => byId.has(id)));
     if (ids.size === 0 || [...ids].some(id => blockOf.has(id))) continue;
     // Its anchor is its title, drawn from the members: moved with them, not sized by them.
@@ -5413,7 +5426,7 @@ function formulaBlocks(nodes, edges, options) {
       ? drawn
       : deriveGroupVisualBounds(g, { minX, minY, maxX, maxY }, options);
     minX = vb.x; minY = vb.y;
-    const id = `__formula__${g.id}`;
+    const id = `__rigid__${g.id}`;
     const w = vb.w;
     const h = vb.h;
     blocks.push({ id, ids, minX, minY });
@@ -5426,7 +5439,7 @@ function formulaBlocks(nodes, edges, options) {
   const insideOne = (g) => (g.memberInstanceIds || []).length > 0 && g.memberInstanceIds.every(m => blockOf.has(m));
   const reducedGroups = [];
   for (const g of groups) {
-    if (g.format === 'formula' || insideOne(g)) continue;
+    if (isRigid(g) || insideOne(g)) continue;
     const members = [...new Set((g.memberInstanceIds || []).map(inBlock))];
     reducedGroups.push({ ...g, memberInstanceIds: members, ...(g.anchorInstanceId ? { anchorInstanceId: inBlock(g.anchorInstanceId) } : {}) });
   }
@@ -5450,7 +5463,7 @@ function formulaBlocks(nodes, edges, options) {
     expand(updates) {
       const out = [];
       const placed = new Map((updates || []).map(u => [u.instanceId, u]));
-      for (const u of updates || []) if (!u.instanceId.startsWith('__formula__')) out.push(u);
+      for (const u of updates || []) if (!u.instanceId.startsWith('__rigid__')) out.push(u);
       for (const b of blocks) {
         const at = placed.get(b.id);
         const dx = at ? at.x - b.minX : 0;
