@@ -662,6 +662,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const ground = blendColors(theme.surface.bg, color, NODE_GROUP_INTERIOR_TINT);
   const textColor = theme.canvas.textPrimary;
   const { frame, inner, titleBox } = obj;
+  const titleFont = obj.titleFont ?? TITLE_FONT;
   // Drawn relative to the formula's middle, so moving it moves it at once and
   // only a change of its own layout slides.
   const o = obj.center;
@@ -732,8 +733,8 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const morphingTitle = !!node && spawning;
   const boxLines = morphingTitle ? (nodeTitle.lines || [node.titleText].filter(Boolean)) : [];
   const sameTitle = morphingTitle && (boxMorph ? boxLines.length === 1 && boxLines[0] === obj.title : boxLines.join(' ') === obj.title);
-  const boxTitleSize = morphingTitle ? (nodeTitle.fontSize || TITLE_FONT) : TITLE_FONT;
-  const formulaTitleSize = sameTitle ? lerp(boxTitleSize, TITLE_FONT, grown) : TITLE_FONT;
+  const boxTitleSize = morphingTitle ? (nodeTitle.fontSize || titleFont) : titleFont;
+  const formulaTitleSize = sameTitle ? lerp(boxTitleSize, titleFont, grown) : titleFont;
   const titleLines = sameTitle && thingMorph && boxLines.length > 1 && progress < TITLE_REWRAP ? boxLines : null;
   const titleFill = sameTitle && thingMorph && nodeTitle.color ? mixColor(nodeTitle.color, onBand, grown) : onBand;
   // A Thing's own words, when they aren't the formula's title, are its text: the tokens carry them (tokenPose).
@@ -746,21 +747,21 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const titleSpans = useMemo(() => {
     if (!obj.title) return [];
     const letters = [...obj.title];
-    const half = measure(obj.title, TITLE_FONT) / 2;
+    const half = measure(obj.title, titleFont) / 2;
     return letters.map((c, i) => ({
-      c, x0: measure(letters.slice(0, i).join(''), TITLE_FONT) - half, x1: measure(letters.slice(0, i + 1).join(''), TITLE_FONT) - half,
+      c, x0: measure(letters.slice(0, i).join(''), titleFont) - half, x1: measure(letters.slice(0, i + 1).join(''), titleFont) - half,
     }));
-  }, [obj.title]);
+  }, [obj.title, titleFont]);
   const titleLetters = spawning && !boxMorph && obj.title ? (() => {
     const cx = titleBox.x + titleBox.w / 2 - o.x;
     const cy = titleBox.y + titleBox.h / 2 - o.y;
-    const top = cy - TITLE_INK * TITLE_FONT;
-    const bottom = cy + TITLE_INK * TITLE_FONT;
+    const top = cy - TITLE_INK * titleFont;
+    const bottom = cy + TITLE_INK * titleFont;
     return titleSpans.map(({ c, x0: a, x1: b }) => {
       const x0 = cx + a;
       const x1 = cx + b;
       const room = Math.min(...[[x0, top], [x1, top], [x0, bottom], [x1, bottom]].map(([px, py]) => insideRounded(morph, px, py)));
-      return { c, shown: smooth(clamp01((room - TITLE_ROOM * TITLE_FONT) / (TITLE_REVEAL * TITLE_FONT))) };
+      return { c, shown: smooth(clamp01((room - TITLE_ROOM * titleFont) / (TITLE_REVEAL * titleFont))) };
     });
   })() : null;
   const groundIn = spawning ? clamp01((grown - 0.35) / 0.5) : 1;
@@ -969,7 +970,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
           ) : (
             <TitleText
               at={titleAt}
-              fontSize={TITLE_FONT} fontFamily="EmOne, sans-serif" fontWeight="bold"
+              fontSize={titleFont} fontFamily="EmOne, sans-serif" fontWeight="bold"
               fill={onBand} textAnchor="middle" dominantBaseline="central"
               opacity={formulaTitleShown}
               style={{ userSelect: 'none', pointerEvents: 'none', whiteSpace: 'pre' }}

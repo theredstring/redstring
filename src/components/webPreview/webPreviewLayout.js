@@ -5,7 +5,8 @@
  * (utils/canvas/settledConnection.js). Drawn by InnerNetwork (a node's
  * decomposition preview on the canvas, and through WebCard a definition in the
  * right panel and an expanded Open Webs row); the canvas parity test checks it
- * against the canvas.
+ * against the canvas. A group shown as its formula (`group.format`) is laid out
+ * as the canvas draws it: the formula's box in place of its Things.
  *
  * Everything is in world units; each preview fits it into its own box.
  */
@@ -14,6 +15,7 @@ import { measureTextWidth } from '../../services/textMeasurement.js';
 import {
   GROUP_LAYOUT_CONSTANTS,
   computeGroupLayout,
+  groupLabelMetrics,
   buildGroupsByMemberIdIndex,
   buildChildGroupIdsIndex,
   computeGroupDepths,
@@ -25,6 +27,28 @@ import {
   buildConnectionScene,
   settledConnectionGeometry,
 } from '../../utils/canvas/settledConnection.js';
+import { formulaObjectsIn, filterFormulaEdges } from '../canvas/formats/formula/formulaObjects.js';
+
+const NO_FORMULAS = { objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), standIns: new Map() };
+
+/**
+ * The web's formulas, as formulaObjects works them out for the canvas, read
+ * from what the preview is given rather than the active web.
+ */
+function previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize }) {
+  let shown = false;
+  groupsById.forEach((g) => { if (g.format === 'formula') shown = true; });
+  if (!shown) return NO_FORMULAS;
+  const edgesById = new Map((edges || []).filter(e => e?.id).map(e => [e.id, e]));
+  const view = {
+    instances: new Map(nodes.map(n => [n.id, n])),
+    groups: groupsById,
+    edgeIds: [...edgesById.keys()],
+    openView: { edges: edgesById },
+  };
+  const state = { nodePrototypes, edgePrototypes, textSettings, gridSettings: { size: gridSize }, edges: edgesById };
+  return formulaObjectsIn(state, view, null);
+}
 
 /**
  * Nodes and groups: boxes, group shapes, anchors, bounds.
@@ -32,10 +56,11 @@ import {
  * @returns {null | {
  *   dimsById: Map, boxes: Map, groupShapes: Array, anchors: Map, hiddenIds: Set,
  *   edgeSlots: Map, topSlot: number, groupFontSize: number, groupLabelScale: number,
+ *   formulas: { objects, hiddenIds, hiddenGroupIds, standIns },
  *   bounds: { minX, minY, maxX, maxY },
  * }}
  */
-export function layoutWebPreview({ nodes, groups, nodePrototypes, textSettings, gridSize }) {
+export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePrototypes, textSettings, gridSize }) {
   if (!nodes?.length) return null;
 
   const dimsById = new Map();
@@ -50,8 +75,8 @@ export function layoutWebPreview({ nodes, groups, nodePrototypes, textSettings, 
 
   // Groups, laid out as the canvas lays them out (canvas/groups/groupLayouts.js).
   const groupsById = groups instanceof Map ? groups : new Map(Object.entries(groups || {}));
-  const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-  const groupFontSize = 45 * (textSettings?.fontSize ?? 1.0) * groupLabelScale;
+  const formulas = previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize });
+  const { labelScale: groupLabelScale, labelFontSize: groupFontSize } = groupLabelMetrics(textSettings);
   const groupShapes = [];
   const anchors = new Map(); // anchor instance id -> the canvas's anchorPositions record
   let edgeSlots = new Map();
@@ -81,8 +106,9 @@ export function layoutWebPreview({ nodes, groups, nodePrototypes, textSettings, 
       labelFontSize: groupFontSize,
       _cache: new Map(),
     };
-    for (const group of namedGroups.values()) {
+    for (const [id, group] of namedGroups) {
       if (!group.memberInstanceIds?.length && !group.linkedNodePrototypeId) continue;
+      if (formulas.hiddenGroupIds.has(id)) continue; // drawn as its formula
       const result = computeGroupLayout(group, context);
       if (!result.ok) continue;
       const proto = group.linkedNodePrototypeId ? nodePrototypes?.get(group.linkedNodePrototypeId) : null;
@@ -107,6 +133,7 @@ export function layoutWebPreview({ nodes, groups, nodePrototypes, textSettings, 
   // Bounds: every drawn node plus every group's whole shell.
   const hiddenIds = new Set(anchors.keys());
   for (const node of nodes) if (node.isGroupAnchor) hiddenIds.add(node.id);
+  formulas.hiddenIds.forEach(id => hiddenIds.add(id));
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const grow = (x, y, w, h) => {
     minX = Math.min(minX, x); minY = Math.min(minY, y);
@@ -114,12 +141,13 @@ export function layoutWebPreview({ nodes, groups, nodePrototypes, textSettings, 
   };
   for (const [id, box] of boxes) if (!hiddenIds.has(id)) grow(box.x, box.y, box.w, box.h);
   for (const shape of groupShapes) grow(shape.visualBounds.x, shape.visualBounds.y, shape.visualBounds.w, shape.visualBounds.h);
+  for (const o of formulas.objects) grow(o.frame.x, o.frame.y, o.frame.w, o.frame.h);
   if (!isFinite(minX)) return null;
 
   const topSlot = groupShapes.reduce((m, g) => Math.max(m, g.depth), -1) + 1;
   return {
     dimsById, boxes, groupShapes, anchors, hiddenIds, edgeSlots, topSlot,
-    groupFontSize, groupLabelScale, bounds: { minX, minY, maxX, maxY },
+    groupFontSize, groupLabelScale, formulas, bounds: { minX, minY, maxX, maxY },
   };
 }
 
@@ -135,9 +163,26 @@ export function layoutWebPreview({ nodes, groups, nodePrototypes, textSettings, 
  */
 export function layoutPreviewConnections(layout, nodes, edges, settings, zoom) {
   if (!layout || !edges?.length) return [];
-  const drawable = edges.filter(e => e?.sourceId && e?.destinationId);
+  const { formulas } = layout;
+  // None inside a formula; one from outside lands on its Thing's token, cut
+  // along the formula's band (formats/replaced.js formatEndOf, on the canvas).
+  const drawable = filterFormulaEdges(edges.filter(e => e?.sourceId && e?.destinationId), formulas);
+  let sceneNodes = nodes;
+  let anchors = layout.anchors;
+  if (formulas.standIns.size) {
+    anchors = new Map(anchors);
+    formulas.standIns.forEach((s, id) => {
+      const f = s.frame;
+      anchors.set(id, {
+        x: s.x, y: s.y, width: s.w, height: s.h,
+        outerBounds: { x: f.x, y: f.y, width: f.w, height: f.h },
+        shellRect: { x: f.x, y: f.y, w: f.w, h: f.h, r: f.r ?? 0 },
+      });
+    });
+    sceneNodes = nodes.map(n => (formulas.standIns.has(n.id) && !n.isGroupAnchor ? { ...n, isGroupAnchor: true } : n));
+  }
   const scene = buildConnectionScene({
-    nodes, edges: drawable, dimsById: layout.dimsById, anchors: layout.anchors, settings, zoom,
+    nodes: sceneNodes, edges: drawable, dimsById: layout.dimsById, anchors, settings, zoom,
   });
   const connections = [];
   for (const edge of drawable) {

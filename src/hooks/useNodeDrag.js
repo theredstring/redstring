@@ -17,6 +17,7 @@ import { collectDragOwnedEdges, dragNodeIdsOf } from '../components/canvas/edges
 import { placeGroupLiftShadow } from '../components/canvas/groups/groupLiftShadow.js';
 import {
   computeGroupLayout,
+  groupLabelMetrics,
   GROUP_LAYOUT_CONSTANTS,
   groupIdFromPlaceholderId,
   buildParentGroupIdsIndex,
@@ -1748,12 +1749,10 @@ export const useNodeDrag = ({
 
     // Shared cache across all groups in this frame so multi-parent containment
     // doesn't recompute the same child layout repeatedly.
-    // Match the static render's label sizing (NodeCanvas): node-title size
-    // (45 * fontSize * nodeScale). Without this the tab re-measured at the fixed
-    // 36px base with no scale on grab and jumped size mid-drag.
-    const ts = useGraphStore.getState().textSettings;
-    const labelScale = ts?.nodeScale ?? 1;
-    const labelFontSize = 45 * (ts?.fontSize ?? 1) * labelScale;
+    // Match the static render's label sizing (groupLabelMetrics). Without this
+    // the tab re-measured at the fixed 36px base with no scale on grab and
+    // jumped size mid-drag.
+    const { labelScale, labelFontSize } = groupLabelMetrics(useGraphStore.getState().textSettings);
     const layoutContext = {
       nodesById: dragNodesById,
       dimsById: curBaseDims,

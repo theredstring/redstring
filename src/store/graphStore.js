@@ -207,7 +207,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {number} focusOnSelectZoomAmount - Framing tightness for focus-on-select, in range [0.5, 1.5]; 1.0 is the tuned default.
  * @property {Object} autoLayoutSettings - Force-directed layout parameters.
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
- * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
+ * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale, groupTitleScale }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, marqueeEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
@@ -2151,9 +2151,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           connectionWidth: parseFloat(localStorage.getItem('redstring_connection_width')) || 1.0,
           plusSignScale: parseFloat(localStorage.getItem('redstring_plus_sign_scale')) || 1.0,
           pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.0,
+          groupTitleScale: parseFloat(localStorage.getItem('redstring_group_title_scale')) || 1.0,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0, groupTitleScale: 1.0 };
       }
     })(),
 
@@ -7984,6 +7985,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.pieMenuScale = v;
       try {
         localStorage.setItem('redstring_pie_menu_scale', String(v));
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets the size multiplier for group titles (and a formula's title), on top
+     * of their default (groupLayout GROUP_TITLE_BASE_SCALE). Persists to localStorage.
+     * @param {number} value
+     */
+    setGroupTitleScale: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.5 || v > 3.0) {
+        console.warn(`[setGroupTitleScale] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.groupTitleScale = v;
+      try {
+        localStorage.setItem('redstring_group_title_scale', String(v));
       } catch (_) { }
     })),
 

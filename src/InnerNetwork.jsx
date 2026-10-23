@@ -15,6 +15,7 @@ import { GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { connectionColor, connectionRoutingSettings, CONNECTION_STROKE_BASE } from './utils/canvas/settledConnection.js';
 import { layoutWebPreview, layoutPreviewConnections } from './components/webPreview/webPreviewLayout.js';
 import PreviewConnection from './components/webPreview/PreviewConnection.jsx';
+import PreviewFormula from './components/webPreview/PreviewFormula.jsx';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_GROUP_INTERIOR_TINT } from './components/canvas/groups/groupElements.jsx';
 
@@ -74,7 +75,7 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     if (!nodes || nodes.length === 0 || !edges || width <= 0 || height <= 0) return null;
 
     // Nodes, groups and anchors as the canvas lays them out.
-    const web = layoutWebPreview({ nodes, groups, nodePrototypes: nodePrototypesMap, textSettings, gridSize });
+    const web = layoutWebPreview({ nodes, edges, groups, nodePrototypes: nodePrototypesMap, edgePrototypes: edgePrototypesMap, textSettings, gridSize });
     if (!web) return null;
     const { minX, minY, maxX, maxY } = web.bounds;
 
@@ -99,13 +100,13 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     };
 
     return { ...web, connections, clipRegion, connectionWidth: settings.connectionWidth, scale, translateX, translateY };
-  }, [nodes, edges, groups, width, height, padding, nodePrototypesMap, textSettings, autoLayoutSettings, gridSize, nodeScaleGlobal]);
+  }, [nodes, edges, groups, width, height, padding, nodePrototypesMap, edgePrototypesMap, textSettings, autoLayoutSettings, gridSize, nodeScaleGlobal]);
 
   if (!layout) {
     return null;
   }
 
-  const { dimsById, hiddenIds, groupShapes, groupFontSize, groupLabelScale, connections, clipRegion, connectionWidth, topSlot, scale, translateX, translateY } = layout;
+  const { dimsById, hiddenIds, groupShapes, groupFontSize, groupLabelScale, formulas, connections, clipRegion, connectionWidth, topSlot, scale, translateX, translateY } = layout;
   const nodesById = new Map(nodes.map(n => [n.id, n]));
 
   // Edges keep their true canvas weight (27 * connectionWidth in graph coordinates), so
@@ -297,8 +298,9 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
 
   // Paint order follows the canvas: top-level plain groups at the bottom, then per
   // nesting depth the connections that belong at that depth followed by that
-  // depth's shells, then the connections above every shell, then the nodes, and
-  // Thing-group titles last (the canvas draws them above their members).
+  // depth's shells, then the connections above every shell, then the nodes and
+  // formulas (drawn with the nodes, as NodeLayer draws them), and Thing-group
+  // titles last (the canvas draws them above their members).
   const layers = [];
   groupShapes.filter(g => !g.isNodeGroup && g.depth === 0).forEach(g => layers.push(renderGroupShell(g)));
   for (let depth = 0; depth < topSlot; depth++) {
@@ -312,6 +314,9 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     <g transform={`translate(${translateX}, ${translateY}) scale(${scale})`} pointerEvents="none">
       {layers}
       {nodes.filter(node => !hiddenIds.has(node.id)).map(renderNode)}
+      {formulas.objects.map(o => (
+        <PreviewFormula key={`inner-formula-${o.groupId}`} obj={o} scale={scale} minPx={MIN_LABEL_PX} theme={theme} />
+      ))}
       {groupShapes.filter(g => g.isNodeGroup).map(g => (
         <g key={`inner-group-title-${g.id}`}>
           {renderGroupTitle(g, getTextColor(g.color, theme.darkMode))}

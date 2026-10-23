@@ -5,7 +5,7 @@ import { runLayout, cancelLayout } from '../services/layoutRunner.js';
 import { resolveEdgeLabelFontSize } from '../services/layoutGeometry.js';
 import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_FORCE_TUNER_SETTINGS } from '../components/canvas/canvasDefaults.js';
-import { withEmptyGroupPlaceholders } from '../services/groupLayout.js';
+import { withEmptyGroupPlaceholders, groupLabelMetrics } from '../services/groupLayout.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
@@ -176,8 +176,7 @@ export const useGraphLayout = ({
     // width from character count and came out roughly half size, so every
     // group's name overhung the rect the layout had kept clear for it. Plain
     // numbers, because the solver runs in a worker.
-    const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-    const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * (textSettings?.nodeScale ?? 1.0);
+    const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize } = groupLabelMetrics(textSettings);
     // Whether bulk auto-placement should snap to the grid, given the current
     // grid mode and the user's snap preference. The standalone snap-to-grid
     // action bypasses this (it's an explicit user request).

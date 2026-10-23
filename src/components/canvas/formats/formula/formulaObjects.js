@@ -16,7 +16,7 @@
  */
 import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../../utils.js';
-import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst, computeGroupLayout, buildGroupsByMemberIdIndex, groupLabelSizing } from '../../../../services/groupLayout.js';
+import { isGroupInsideGroup, GROUP_LAYOUT_CONSTANTS, labelHeightConst, computeGroupLayout, buildGroupsByMemberIdIndex, groupLabelSizing, groupTitleScaleOf } from '../../../../services/groupLayout.js';
 import { measureTextWidth } from '../../../../services/textMeasurement.js';
 import { readFormulaGroup, tokensOf, chainText, subscriptOf, expandFor, rowsOf, VECTOR_MARK } from './formulaChain.js';
 import { setReplaced } from '../replaced.js';
@@ -67,7 +67,7 @@ const ARROW_RISE = 0.14;     // above the letter's top
 const ARROW_INSET = 0.08;    // in from either side of the letter
 const ARROW_HEAD = 0.13;
 export const ARROW_STROKE = 0.065;
-/** The title, as a Thing-group's (groupElements.jsx). */
+/** The title, as a Thing-group's (groupElements.jsx), before the title size (groupTitleScaleOf): each object carries its `titleFont`. */
 export const TITLE_FONT = 45;
 const G = GROUP_LAYOUT_CONSTANTS;
 
@@ -439,12 +439,22 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   if (last && last.fontsReady === fontsReady && last.view === view && last.text === state.textSettings && last.grid === state.gridSettings && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
     return last.result;
   }
+  const result = formulaObjectsIn(state, view, graphId, { standard, namesShown, flipped });
+  last = { fontsReady, view, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
+  return result;
+}
+
+/**
+ * The formula objects of any web `view` (a projectGraphView, or the same shape:
+ * `instances`, `groups`, `edgeIds`, `openView.edges`), worked out fresh: no
+ * cache, and nothing written to formats/replaced.js. The active web's go
+ * through computeFormulaObjects; a web drawn small (webPreview) reads this.
+ */
+export function formulaObjectsIn(state, view, graphId, { standard = true, namesShown = NO_NAMES, flipped = NO_FLIPS } = {}) {
+  if (!view?.instances || !view.groups?.size) return EMPTY;
   const shownGroups = [];
   view.groups.forEach((group) => { if (group.format === 'formula') shownGroups.push(group); });
-  if (shownGroups.length === 0) {
-    last = { view, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result: EMPTY };
-    return EMPTY;
-  }
+  if (shownGroups.length === 0) return EMPTY;
 
   const objects = [];
   const hiddenIds = new Set();
@@ -453,6 +463,9 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
 
   const allGroups = [...view.groups.values()];
   const thingBoxOf = thingBoxesOf(state, view);
+  // The title tab, at the group title's size: it runs into and out of one.
+  const titleScale = groupTitleScaleOf(state.textSettings);
+  const titleFont = TITLE_FONT * titleScale;
   for (const group of shownGroups) {
     const memberIds = (group.memberInstanceIds || []).filter(id => view.instances.has(id));
     if (memberIds.some(id => hiddenIds.has(id))) continue; // one formula per Thing
@@ -482,8 +495,8 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
     const compact = (t) => String(t).replace(/\s+/g, '');
     const title = named && compact(named) !== compact(chainText(chain)) ? named : '';
     const color = equationProto?.color || group.color || null;
-    const titleH = title ? labelHeightConst(1, TITLE_FONT) : 0;
-    const titleW = title ? Math.max(G.titleMinWidth, measure(title, TITLE_FONT) + G.titlePaddingHorizontal * 2) : 0;
+    const titleH = title ? labelHeightConst(titleScale, titleFont) : 0;
+    const titleW = title ? Math.max(G.titleMinWidth * titleScale, measure(title, titleFont) + G.titlePaddingHorizontal * 2 * titleScale) : 0;
     // The formula's own ground, inside a band the title sits on.
     let innerW = line.width + 2 * FRAME_PAD_X * FORMULA_FONT;
     innerW = Math.max(innerW, titleW + G.titlePaddingHorizontal * 2 - G.innerCanvasBorder * 2);
@@ -522,7 +535,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
     allGroups.forEach(g => { if (isGroupInsideGroup(g, group, memberSet)) hiddenGroupIds.add(g.id); });
     objects.push({
       graphId, groupId: group.id, memberIds, chain, text: chainText(chain),
-      tokens, boxes, frame, inner, title, titleBox, color, equationProtoId: equationProto?.id || null,
+      tokens, boxes, frame, inner, title, titleBox, titleFont, color, equationProtoId: equationProto?.id || null,
       anchorId: group.anchorInstanceId && view.instances.has(group.anchorInstanceId) ? group.anchorInstanceId : null,
       // One of its Things (not a part's anchor, whose drag position is derived):
       // the canvas's drag moves the formula as it moves that Thing.
@@ -545,9 +558,7 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   // Each formula, whole, where its group's anchor is: connections are drawn from it and dropped on it.
   const anchors = new Map();
   for (const o of objects) if (o.anchorId) anchors.set(o.anchorId, { ...o.frame, groupId: o.groupId, memberIds: o.memberIds });
-  const result = objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns, anchors } : EMPTY;
-  last = { fontsReady, view, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
-  return result;
+  return objects.length ? { objects, hiddenIds, hiddenGroupIds, tokenBoxById, standIns, anchors } : EMPTY;
 }
 
 /**

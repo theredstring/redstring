@@ -527,17 +527,36 @@ export const labelHeightConst = (scale = 1, fontSize = null, lineCount = 1) => {
   return Math.max(80 * scale, inner + C.titlePaddingVertical * scale * 2);
 };
 
+// A group title reads this much larger than a node title by default, so a big
+// group's name stays legible zoomed out. The Group Title Size setting
+// (textSettings.groupTitleScale) multiplies it.
+export const GROUP_TITLE_BASE_SCALE = 1.4;
+
+/** How much larger than its base a group title (and a formula's) is drawn. */
+export const groupTitleScaleOf = (textSettings) => GROUP_TITLE_BASE_SCALE * (textSettings?.groupTitleScale ?? 1.0);
+
+/**
+ * A group title's tab scale and font size, as plain numbers (the solver runs in
+ * a worker). The whole tab, padding and corners with the font, scales with node
+ * size and the title size; the font is the on-canvas node title's
+ * (45 * fontSize * nodeScale) times the title size. Every caller that lays out
+ * or draws a group title reads it here, so the layout reserves the tab the
+ * canvas draws.
+ */
+export const groupLabelMetrics = (textSettings) => {
+  const labelScale = (textSettings?.nodeScale ?? 1.0) * groupTitleScaleOf(textSettings);
+  const labelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * labelScale;
+  return { labelScale, labelFontSize };
+};
+
 /**
  * A group title's size on the canvas, as computeGroupLayout's context takes it
- * (labelScale, labelFontSize, measureLabelWidth). Titles scale with node size,
- * not the text-size setting, so the whole tab grows with enlarged nodes; the
- * font matches the on-canvas node title (45 * fontSize * nodeScale), and the
- * tab is sized from that text. `measureWidth(text, cssFont)` is injected (see
+ * (labelScale, labelFontSize, measureLabelWidth): groupLabelMetrics, with the
+ * tab sized from that text. `measureWidth(text, cssFont)` is injected (see
  * wrapLabelLines).
  */
 export const groupLabelSizing = (textSettings, measureWidth) => {
-  const labelScale = textSettings?.nodeScale ?? 1.0;
-  const labelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * labelScale;
+  const { labelScale, labelFontSize } = groupLabelMetrics(textSettings);
   return {
     labelScale,
     labelFontSize,

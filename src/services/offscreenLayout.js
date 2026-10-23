@@ -4,7 +4,7 @@ import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
 import { getNodeDimensions } from '../utils.js';
 import useImageCache from './imageCache.js';
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
-import { withEmptyGroupPlaceholders } from './groupLayout.js';
+import { withEmptyGroupPlaceholders, groupLabelMetrics } from './groupLayout.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.
@@ -172,10 +172,8 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
   // Resolve the real rendered label font so labeled edges reserve the space
   // the canvas actually draws (NodeCanvas base × user text settings)
   const edgeLabelFontSize = resolveEdgeLabelFontSize(st.textSettings, st.connectionLabelSize);
-  // Same for a group's title tab, which NodeCanvas draws at
-  // 45 × fontSize × nodeScale (see groupLabelFontSize in its group render).
-  const groupLabelScale = st.textSettings?.nodeScale ?? 1.0;
-  const groupLabelFontSize = 45 * (st.textSettings?.fontSize ?? 1.0) * groupLabelScale;
+  // Same for a group's title tab, at the size the canvas draws it.
+  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize } = groupLabelMetrics(st.textSettings);
   // Member padding inside a group rect is derived from the grid, so the solver
   // needs the real value or it enforces against a rect narrower than the drawn
   // one. Only the snapping below used to read this.
