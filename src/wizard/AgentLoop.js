@@ -12,7 +12,7 @@ import { isSettled, renderPlanText } from './tools/planTask.js';
 import { isGoalSettled, renderGoalText } from './tools/declareGoal.js';
 import { normalizeWizardMode, WIZARD_MODE_GOAL } from './wizardMode.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
-import { resolveToolPolicy, buildPolicyToolList, isToolAllowed, toolRefusalResult } from './toolPolicy.js';
+import { resolveToolPolicy, buildPolicyToolList, isToolAllowed, toolRefusalResult, READ_ONLY_TOOLS } from './toolPolicy.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { buildRequestMessages } from './requestMessages.js';
 import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
@@ -45,8 +45,13 @@ function cacheReadRatioFor(provider) {
   const ratio = CACHE_READ_RATIO_BY_PROVIDER[String(provider || '').toLowerCase()];
   return typeof ratio === 'number' ? ratio : CACHE_READ_COST_RATIO;
 }
-// Fraction of the budget at which the run warns the user it is running out.
-const BUDGET_WARN_RATIO = 0.8;
+// Past the per-ask budget a run keeps going while it is still building. It stops
+// once this many iterations in a row have gone by without a graph write, a plan
+// step settling or a goal verdict.
+const BUDGET_STALL_ITERATIONS = 2;
+// Hard backstop, as a multiple of the budget: past this the run stops even while
+// building — after the current iteration's writes land, never between them.
+const BUDGET_HARD_MULTIPLE = 2;
 
 // Ceiling on replayed conversation history, in tokens. Sized to sit alongside
 // the ~25k fixed preamble and the 6k context header without crowding out the
@@ -1640,8 +1645,31 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   let askCompletionTokens = 0;
   let askUploadedTokens = 0;
   let askChargedTokens = 0;
-  // Whether we've already warned this ask, so the 80% notice fires once.
+  // Whether we've already told the user this ask passed its budget.
   let budgetWarned = false;
+  // Progress, for the budget's stall test: the last iteration that wrote to the
+  // graph, settled a plan step or issued a goal verdict (-1 = none yet).
+  let lastProgressIteration = -1;
+  const settledStepCount = () => (Array.isArray(graphState._currentPlan) ? graphState._currentPlan.filter(isSettled).length : 0);
+  let planSettledHigh = settledStepCount();
+  // Set when the hard backstop trips on an iteration with writes in it: those
+  // run first, then the turn ends.
+  let budgetStopAfterIteration = false;
+  // Whether a call can write, for the budget: a registered tool on neither
+  // read-only list. An unregistered name throws in executeTool, so it can't.
+  const registeredToolNames = new Set(getToolDefinitions().map(t => t.name));
+  const callMayWrite = (name) => registeredToolNames.has(name)
+    && !NON_MUTATING_TOOLS.has(name) && !READ_ONLY_TOOLS.has(name);
+  const budgetDoneEvent = (iteration) => ({
+    type: 'done',
+    iterations: iteration + 1,
+    reason: 'token_budget',
+    askPromptTokens,
+    askCompletionTokens,
+    askTotalTokens: askPromptTokens + askCompletionTokens,
+    askUploadedTokens,
+    askChargedTokens
+  });
 
   // Where the input tokens actually go. The question "why did this ask cost so
   // much" was previously unanswerable — the totals said how much, never what for,
@@ -1986,33 +2014,39 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           + ` | cached ${costBreakdown.cachedFraction}% | charged ${askChargedTokens}`
         );
 
-        // Hard per-ask cost ceiling. Stop once cumulative spend crosses the budget,
-        // regardless of how many iterations remain. This fires AFTER this iteration's
-        // tool calls were yielded but BEFORE any of them execute, so every one of them
-        // has to be settled or its chip spins forever on a finished run.
+        // Per-ask budget: a runaway guard, not a pacing limit. Past it, a run that
+        // is still building keeps going; one that has stalled stops. Past twice
+        // it, the run stops either way. This fires AFTER this iteration's tool
+        // calls were yielded but BEFORE any execute — so a stop here only happens
+        // when none of them write. Cancelling a write mid-build is what used to
+        // leave formulas placed and nothing wired; those calls run, then the
+        // turn ends (budgetStopAfterIteration, below the tool loop).
         if (askChargedTokens > maxAskTokens) {
-          console.error(`[AgentLoop] Per-ask token budget reached (charged ${askChargedTokens} > ${maxAskTokens}, uploaded ${askUploadedTokens}) at iteration ${iteration + 1}. Stopping.`);
-          yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
-          yield { type: 'system_note', content: `Stopped: this ask reached its token budget (${askChargedTokens.toLocaleString()} tokens). Send "continue" to keep going — your plan is saved and will resume where it left off.` };
-          yield {
-            type: 'done',
-            iterations: iteration + 1,
-            reason: 'token_budget',
-            askPromptTokens,
-            askCompletionTokens,
-            askTotalTokens: askPromptTokens + askCompletionTokens,
-            askUploadedTokens,
-            askChargedTokens
-          };
-          return;
-        }
+          const overHardStop = askChargedTokens > maxAskTokens * BUDGET_HARD_MULTIPLE;
+          const iterationsWithoutProgress = iteration - 1 - lastProgressIteration;
+          const stalled = iterationsWithoutProgress >= BUDGET_STALL_ITERATIONS;
+          const writesPending = iterationToolCalls.some(tc => callMayWrite(tc.name));
 
-        // Warn once on approach, so the stop isn't the first sign of trouble.
-        if (!budgetWarned && maxAskTokens !== Infinity && askChargedTokens > maxAskTokens * BUDGET_WARN_RATIO) {
-          budgetWarned = true;
-          const pct = Math.round((askChargedTokens / maxAskTokens) * 100);
-          console.error(`[AgentLoop] Per-ask token budget at ${pct}% (${askChargedTokens}/${maxAskTokens}).`);
-          yield { type: 'system_note', content: `Heads up: this ask has used ${pct}% of its token budget (${askChargedTokens.toLocaleString()} of ${maxAskTokens.toLocaleString()}). Wrapping up soon; "continue" will resume the plan if it stops.` };
+          if ((overHardStop || stalled) && !writesPending) {
+            console.error(`[AgentLoop] Per-ask token budget reached (charged ${askChargedTokens} > ${maxAskTokens}, uploaded ${askUploadedTokens}, ${overHardStop ? 'hard stop' : `${iterationsWithoutProgress} iterations without progress`}) at iteration ${iteration + 1}. Stopping.`);
+            yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
+            yield { type: 'system_note', content: overHardStop
+              ? `Stopped: this ask reached its token limit (${askChargedTokens.toLocaleString()} tokens). Send "continue" to keep going — your plan is saved and will resume where it left off.`
+              : `Stopped: this ask passed its token budget (${askChargedTokens.toLocaleString()} tokens) and stopped making changes. Send "continue" to keep going — your plan is saved and will resume where it left off.` };
+            yield budgetDoneEvent(iteration);
+            return;
+          }
+          if (overHardStop && writesPending && !budgetStopAfterIteration) {
+            console.error(`[AgentLoop] Per-ask token limit reached at iteration ${iteration + 1} (charged ${askChargedTokens}); finishing this iteration's writes, then stopping.`);
+            budgetStopAfterIteration = true;
+          }
+
+          // Tell the user once, so a later stop isn't the first sign of it.
+          if (!budgetWarned && !budgetStopAfterIteration) {
+            budgetWarned = true;
+            console.error(`[AgentLoop] Per-ask token budget passed (${askChargedTokens}/${maxAskTokens}); continuing while the run makes progress.`);
+            yield { type: 'system_note', content: `Heads up: this ask has passed its token budget (${askChargedTokens.toLocaleString()} of ${maxAskTokens.toLocaleString()}). It keeps going while it's still building and stops if it stalls.` };
+          }
         }
       }
 
@@ -2400,6 +2434,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           // Track that real (mutating) work happened this turn — lets a later text-only
           // wrap-up be trusted as genuine completion rather than a stall.
           if (!NON_MUTATING_TOOLS.has(toolCall.name)) hasMutatedThisTurn = true;
+          if (callMayWrite(toolCall.name) && !result?.error) lastProgressIteration = iteration;
+          // A plan step settling, or a goal verdict, is progress too (for the
+          // budget's stall test) even when nothing was written.
+          const settledNow = settledStepCount();
+          if (settledNow > planSettledHigh || (toolCall.name === 'declareGoal' && result?.settled === true)) {
+            lastProgressIteration = iteration;
+          }
+          planSettledHigh = Math.max(planSettledHigh, settledNow);
 
           // Stream tool result event
           resolvedToolCallIds.add(toolCall.id);
@@ -2492,6 +2534,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // policy that lets the accepted change actually be applied.
       if (awaitingUserInput) {
         yield { type: 'done', iterations: iteration + 1, reason: 'awaiting_user_input' };
+        return;
+      }
+
+      // The hard budget backstop tripped on an iteration with writes in it. They
+      // have run; end the turn now, with the web in the state they left it.
+      if (budgetStopAfterIteration) {
+        console.error(`[AgentLoop] Per-ask token limit: this iteration's writes finished. Stopping at iteration ${iteration + 1}.`);
+        yield { type: 'system_note', content: `Stopped: this ask reached its token limit (${askChargedTokens.toLocaleString()} tokens), after finishing the changes in progress. Send "continue" to keep going — your plan is saved and will resume where it left off.` };
+        yield budgetDoneEvent(iteration);
         return;
       }
 

@@ -57,9 +57,9 @@ describe('resolveMaxIterations', () => {
 });
 
 describe('resolveMaxAskTokens', () => {
-  it('defaults to 500k', () => {
-    expect(resolveMaxAskTokens(large())).toBe(500000);
-    expect(resolveMaxAskTokens()).toBe(500000);
+  it('defaults to 2M — a runaway guard, not a pacing limit', () => {
+    expect(resolveMaxAskTokens(large())).toBe(2000000);
+    expect(resolveMaxAskTokens()).toBe(2000000);
   });
 
   it('clamps to the 2M hard ceiling', () => {
@@ -71,9 +71,9 @@ describe('resolveMaxAskTokens', () => {
   });
 
   it('treats 0 / negative / non-numeric as unset — the default, never unbounded', () => {
-    expect(resolveMaxAskTokens(large({ maxAskTokens: 0 }))).toBe(500000);
-    expect(resolveMaxAskTokens(large({ maxAskTokens: -5 }))).toBe(500000);
-    expect(resolveMaxAskTokens(large({ maxAskTokens: 'none' }))).toBe(500000);
+    expect(resolveMaxAskTokens(large({ maxAskTokens: 0 }))).toBe(2000000);
+    expect(resolveMaxAskTokens(large({ maxAskTokens: -5 }))).toBe(2000000);
+    expect(resolveMaxAskTokens(large({ maxAskTokens: 'none' }))).toBe(2000000);
   });
 });
 
@@ -105,7 +105,7 @@ describe('buildLlmConfig', () => {
       cid: 'cid-123',
       systemPrompt: 'custom',
       maxIterations: 77,
-      maxAskTokens: 500000
+      maxAskTokens: 2000000
     });
     expect(config.contextItems).toEqual([{ id: 'a' }]);
     expect(config.conversationHistory).toEqual([{ role: 'user', content: 'hi' }]);

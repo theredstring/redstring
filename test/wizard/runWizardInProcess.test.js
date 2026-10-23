@@ -78,7 +78,7 @@ describe('runWizardInProcess', () => {
       model: 'claude-x',
       cid: 'cid-1',
       maxIterations: 77,
-      maxAskTokens: 500000
+      maxAskTokens: 2000000
     });
     expect(signal).toBe(controller.signal);
   });

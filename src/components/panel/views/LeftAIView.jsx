@@ -4754,7 +4754,7 @@ const LeftAIView = ({ compact = false,
                 abort controller happens to exist — otherwise a run that lost its
                 controller left a disabled input and no way out. */}
             {isProcessing ? (
-              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square /></button>
+              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill="currentColor" /></button>
             ) : (
               <button onClick={handleSendMessage} disabled={(!currentInput.trim() && pendingAttachments.length === 0) || isProcessing} className="ai-send-button"><Send /></button>
             )}
