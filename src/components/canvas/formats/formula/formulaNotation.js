@@ -103,6 +103,8 @@ export const textSymbolOf = (key) => OPERATORS[key]?.text || OPERATORS[key]?.sym
 export const KNOWN_FUNCTIONS = new Set([
   'sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
   'log', 'ln', 'lg', 'exp', 'abs', 'max', 'min', 'floor', 'ceil', 'gcd', 'lcm', 'det', 'lim',
+  'coth', 'sech', 'csch', 'arcsinh', 'arccosh', 'arctanh', 'tr', 'Tr', 'sgn', 'erf', 'erfc', 'arg',
+  // Not Re and Im: upright Re is the Reynolds number (latexToFormula.js).
   // Formulas built before the logarithm had a base of its own typed their parts by these.
   'log_2', 'log_10',
 ]);
@@ -164,13 +166,19 @@ export function needsParens(parent, child, index) {
 // Parsing text into a tree (to build a formula from what someone types)
 // ---------------------------------------------------------------------------
 
-// A name may carry a vector's arrow (F⃗, U+20D7), and ∞ is a name of its own.
-const TOKEN_RE = /\s*(?:"([^"]*)"|(\d+(?:\.\d+)?)|([A-Za-z_Ͱ-Ͽ⁰-₟∞](?:[A-Za-z0-9_Ͱ-Ͽ']|\u20D7)*)|(<=|>=|!=|==|~=|\*\*|[-+*/^=<>(),×÷·−≠≤≥≈√⋅⨯]))/y;
+// A name is letters in any script with their marks (F⃗, x̂, ẋ), digits,
+// subscript digits (x₀) and primes (f′); ∞ is a name of its own, and ∂ starts
+// one (∂u, read as a derivative below). Superscript digits (x², x⁻¹) raise
+// what comes before them. ∇ ∑ ∫ are read only to say how to write them.
+const TOKEN_RE = /\s*(?:"([^"]*)"|(\d+(?:\.\d+)?)|([\p{L}_∞∂][\p{L}\p{M}\p{Nd}_'′″₀-₉]*)|(⁻?[⁰¹²³⁴-⁹]+)|(<=|>=|!=|==|~=|\*\*|[-+*/^=<>(),×÷·−≠≤≥≈√⋅⨯∇∑∫]))/uy;
+// Typed for a letter they look like: micro sign, increment, h-bar.
+const SAME_LETTER = { '\u00B5': 'μ', '\u2206': 'Δ', '\u210F': 'ħ' };
+const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 
 function tokenize(text) {
   const out = [];
   TOKEN_RE.lastIndex = 0;
-  const src = String(text);
+  const src = String(text).replace(/[\u00B5\u2206\u210F]/g, c => SAME_LETTER[c]);
   let pos = 0;
   while (pos < src.length) {
     if (/^\s*$/.test(src.slice(pos))) break;
@@ -182,7 +190,13 @@ function tokenize(text) {
       out.push({ type: 'name', value: m[1].trim(), quoted: true });
     } else if (m[2] !== undefined) out.push({ type: 'num', value: m[2] });
     else if (m[3] !== undefined) out.push({ type: 'name', value: m[3] });
-    else out.push({ type: 'sym', value: m[4] });
+    else if (m[4] !== undefined) {
+      // x², x⁻¹: raised, as ^ writes it.
+      const digits = [...m[4].replace('⁻', '')].map(c => SUPERSCRIPT.indexOf(c)).join('');
+      out.push({ type: 'sym', value: '^' });
+      if (m[4].startsWith('⁻')) out.push({ type: 'sym', value: '(' }, { type: 'sym', value: '-' }, { type: 'num', value: digits }, { type: 'sym', value: ')' });
+      else out.push({ type: 'num', value: digits });
+    } else out.push({ type: 'sym', value: m[5] });
     pos = TOKEN_RE.lastIndex;
   }
   return out;
@@ -218,10 +232,15 @@ function splitMathName(token, isKnownName) {
       const piece = word.slice(i, end);
       if (KNOWN_FUNCTIONS.has(piece) || GREEK_NAMES.has(piece) || isKnownName(piece)) { found = piece; break; }
     }
+    // ΔU, Δx, Δtheta: a change in a symbol is written as one.
+    if (!found && word[i] === 'Δ') {
+      const greek = [...GREEK_NAMES].filter(g => word.startsWith(g, i + 1)).sort((a, b) => b.length - a.length)[0];
+      found = greek ? `Δ${greek}` : /^Δ\p{L}\p{M}*[0-9₀-₉]*['′″]*/u.exec(word.slice(i))?.[0] || null;
+    }
     if (!found) {
-      // One letter, keeping its vector arrow (F⃗), digits right after it (x1,
-      // x2: written for x₁, x₂) and primes (f').
-      found = /^(?!\u20D7)[^0-9'](?:\u20D7)?[0-9]*'*/.exec(word.slice(i))[0];
+      // One letter, keeping its marks (F⃗, x̂), digits right after it (x₁,
+      // and x1 written for it) and primes (f', f′).
+      found = /^[^0-9'′″\p{M}]\p{M}*[0-9₀-₉]*['′″]*/u.exec(word.slice(i))[0];
     }
     pieces.push({ type: 'name', value: found, fn: KNOWN_FUNCTIONS.has(found) });
     i += found.length;
@@ -234,6 +253,67 @@ const INFIX_BY_SYMBOL = {
   '≈': 'approx', '~=': 'approx', '+': 'add', '-': 'sub', '−': 'sub', '*': 'mul', '×': 'mul', '·': 'mul',
   '/': 'div', '÷': 'div', '^': 'pow', '**': 'pow', '⋅': 'dot', '⨯': 'cross',
 };
+
+/** One symbol, as a derivative is of or taken with respect to: x, x₀, x2, v_x, θ. */
+const ONE_SYMBOL = /^\p{L}\p{M}*(?:[0-9₀-₉]*|_[\p{L}\p{N}]+)['′″]*$/u;
+
+/**
+ * Leibniz notation, in math: dI/dt, d²x/dt², ∂u/∂t, d(x²)/dt and d/dt X,
+ * read as the derivative. Only where the d is joined to one symbol on both
+ * sides of the slash (d/2, d = v t and density/dt stay what they are), the
+ * marks and the orders agree, and neither side is a Thing the universe has by
+ * that name (dB).
+ */
+function readLeibniz(toks, isKnownName) {
+  const out = [];
+  const isName = (t) => t?.type === 'name' && !t.quoted;
+  const isSym = (t, v) => t?.type === 'sym' && t.value === v;
+  const isSymbol = (name) => ONE_SYMBOL.test(name) || GREEK_NAMES.has(name) || isKnownName(name);
+  // d, dx, ∂u: its mark and the symbol joined to it ('' for none), else null.
+  const marked = (t) => {
+    if (!isName(t) || isKnownName(t.value)) return null;
+    const m = /^([d∂])(.*)$/u.exec(t.value);
+    if (!m || (m[2] && !isSymbol(m[2]))) return null;
+    return { mark: m[1], rest: m[2] };
+  };
+  // ^n at j: n, else null.
+  const raisedAt = (j) => (isSym(toks[j], '^') && /^\d+$/.test(toks[j + 1]?.type === 'num' ? toks[j + 1].value : '') ? Number(toks[j + 1].value) : null);
+  // The ) closing the ( at j, else -1.
+  const closing = (j) => {
+    for (let depth = 0; j < toks.length; j++) {
+      if (isSym(toks[j], '(')) depth++;
+      else if (isSym(toks[j], ')') && --depth === 0) return j;
+    }
+    return -1;
+  };
+  for (let k = 0; k < toks.length; k++) {
+    const top = marked(toks[k]);
+    if (!top) { out.push(toks[k]); continue; }
+    let j = k + 1;
+    let order = 1;
+    let of = top.rest || null;
+    let group = null; // d(x²)/dt: the parentheses it is of
+    if (!of) {
+      // d²x: the order raised on the d, then what it is of.
+      const n = raisedAt(j);
+      if (n !== null) { order = n; j += 2; }
+      if (n !== null && isName(toks[j]) && isSymbol(toks[j].value)) of = toks[j++].value;
+      else if (isSym(toks[j], '(') && closing(j) > 0) { group = [j, closing(j)]; j = group[1] + 1; }
+    }
+    const bottom = isSym(toks[j], '/') ? marked(toks[j + 1]) : null;
+    if (!bottom || bottom.mark !== top.mark || !bottom.rest) { out.push(toks[k]); continue; }
+    j += 2;
+    if (order > 1) {
+      if (raisedAt(j) !== order) { out.push(toks[k]); continue; }
+      j += 2;
+    }
+    const key = top.mark === '∂' ? 'pderiv' : 'deriv';
+    out.push({ type: 'deriv', key, of, wrt: bottom.rest, order, value: `${top.mark}/${top.mark}${bottom.rest}` });
+    if (group) out.push(...readLeibniz(toks.slice(group[0], group[1] + 1), isKnownName));
+    k = j - 1;
+  }
+  return out;
+}
 
 /** How typed text is read: 'math' (standard equations) or 'programming' (code-style names). */
 export const CONVENTIONS = ['math', 'programming'];
@@ -254,13 +334,14 @@ export const CONVENTIONS = ['math', 'programming'];
 export function parseFormulaText(text, { convention = 'math', isKnownName = () => false } = {}) {
   const math = convention !== 'programming';
   let toks = tokenize(text);
+  if (math) toks = readLeibniz(toks, isKnownName);
   if (math) toks = toks.flatMap(t => (t.type === 'name' ? splitMathName(t, isKnownName) : [t]));
   if (toks.length === 0) throw new Error('Type a formula');
   let i = 0;
   const peek = () => toks[i];
   const next = () => toks[i++];
 
-  const startsAtom = (t) => t && (t.type === 'num' || t.type === 'name' || (t.type === 'sym' && (t.value === '(' || t.value === '√')));
+  const startsAtom = (t) => t && (t.type === 'num' || t.type === 'name' || t.type === 'deriv' || (t.type === 'sym' && (t.value === '(' || t.value === '√')));
 
   const parseExpr = (minPrec) => {
     let left = parsePrefix();
@@ -329,6 +410,16 @@ export function parseFormulaText(text, { convention = 'math', isKnownName = () =
       return { ...inner, grouped: true };
     }
     if (t.type === 'num') return { kind: 'leaf', name: t.value };
+    if (t.type === 'deriv') {
+      // d/dt X: of what follows it, as sin x takes it.
+      if (!t.of && !startsAtom(peek())) throw new Error(`${t.value} needs what it is of`);
+      let node = t.of ? { kind: 'leaf', name: t.of } : parseExpr(OPERATORS.pow.prec);
+      for (let n = 0; n < t.order; n++) node = opNode(t.key, [node, { kind: 'leaf', name: t.wrt }]);
+      return node;
+    }
+    if (t.type === 'sym' && (t.value === '∑' || t.value === '∫' || t.value === '∇')) {
+      throw new Error(t.value === '∑' ? 'Write ∑ as sum(f, i, 1, n)' : t.value === '∫' ? 'Write ∫ as integral(f, x, a, b)' : 'Can\'t write ∇ yet');
+    }
     if (t.type === 'name') {
       const opensParen = peek() && peek().type === 'sym' && peek().value === '(';
       // In math, a lone letter before parentheses multiplies them (a(b + c)),
@@ -351,6 +442,7 @@ export function parseFormulaText(text, { convention = 'math', isKnownName = () =
       }
       // sin x, sin x^2: in math a function takes what follows it.
       if (math && t.fn && startsAtom(peek())) return applyTo(t.value, [parseExpr(OPERATORS.pow.prec)]);
+      if (t.value.startsWith('∂')) throw new Error('Write ∂u/∂t, or partial(u, t)');
       return { kind: 'leaf', name: t.value };
     }
     throw new Error(`Unexpected "${t.value}"`);

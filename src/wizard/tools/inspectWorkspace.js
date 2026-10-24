@@ -1,5 +1,6 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 import { estimateTokens } from '../tokenEstimate.js';
+import { OPERATORS } from '../../components/canvas/formats/formula/formulaNotation.js';
 
 /**
  * inspectWorkspace - How the model sees a whole universe without loading one.
@@ -45,6 +46,21 @@ const MAX_MAP_DEPTH = 6;
 
 /** Cap on entries in the reusable-webs index. */
 const MAX_REUSABLE = 40;
+
+/** Formulas a web holds listed by name up to this many; past it, a count and the first few. */
+const MAX_FORMULAS_LISTED = 3;
+
+/** A web this large is not one formula (formulaSnapshot's MAX_EQUATION_WEB). */
+const MAX_EQUATION_WEB = 200;
+
+const OPERATOR_NAMES = new Set(Object.values(OPERATORS).map(op => op.name.toLowerCase()));
+
+function getGroups(graph) {
+  if (!graph?.groups) return [];
+  if (graph.groups instanceof Map) return Array.from(graph.groups.values());
+  if (Array.isArray(graph.groups)) return graph.groups;
+  return Object.values(graph.groups || {});
+}
 
 function getInstances(graph) {
   if (!graph?.instances) return [];
@@ -118,6 +134,112 @@ function indexComposition(graphs, nodePrototypes) {
 }
 
 /**
+ * The webs that are formulas' insides: an equation's definition, and each of
+ * its parts' (the parentheses, Thing-groups in it with webs of their own). In
+ * a universe with the formula bank these are most of the webs, and listing
+ * them would spend the whole map on formula internals. The map shows an
+ * equation as one formula and never descends into it.
+ *
+ * Equations are known exactly from the snapshot when it carries them
+ * (formulaSnapshot.js: universeEquations, formulas) and from formula groups.
+ * The MCP bridge's state carries neither, so a web also reads as an equation
+ * when every connection in it is an operation (Equality, Multiplication...),
+ * as buildFormula writes them, and no formula group holds them (a web that
+ * shows a formula and nothing else is still a web).
+ *
+ * @returns {{ equations: Set<string>, parts: Set<string>, webs: Set<string> }} graph ids
+ */
+function indexFormulas(graphs, edges, idx, graphState) {
+  const edgeById = new Map();
+  for (const e of edges) {
+    if (e?.id) edgeById.set(e.id, e);
+  }
+
+  // A web showing formulas holds them in formula groups; an equation's inside is bare.
+  const showsFormulas = (graph) => getGroups(graph).some(g => g?.format === 'formula');
+
+  const readsAsOperations = (graph) => {
+    const size = getInstances(graph).length;
+    const edgeIds = Array.isArray(graph?.edgeIds) ? graph.edgeIds : [];
+    if (size < 2 || size > MAX_EQUATION_WEB || edgeIds.length === 0 || showsFormulas(graph)) return false;
+    return edgeIds.every((id) => {
+      const defId = edgeById.get(id)?.definitionNodeIds?.[0];
+      const name = defId ? idx.protoById.get(defId)?.name : null;
+      return !!name && OPERATOR_NAMES.has(String(name).toLowerCase());
+    });
+  };
+
+  const known = new Set();
+  for (const e of graphState?.universeEquations || []) if (e?.protoId) known.add(e.protoId);
+  for (const e of graphState?.equations || []) if (e?.protoId) known.add(e.protoId);
+  for (const f of graphState?.formulas || []) if (f?.equationProtoId) known.add(f.equationProtoId);
+
+  // Formula groups: the equation is their Thing; Thing-groups inside one are its parts.
+  const partProtos = new Set();
+  for (const g of graphs) {
+    const groups = getGroups(g);
+    for (const fg of groups) {
+      if (fg?.format !== 'formula') continue;
+      if (fg.linkedNodePrototypeId) known.add(fg.linkedNodePrototypeId);
+      const members = new Set(fg.memberInstanceIds || []);
+      for (const part of groups) {
+        if (part === fg || !part?.linkedNodePrototypeId) continue;
+        const ids = part.memberInstanceIds || [];
+        const inside = members.has(part.anchorInstanceId) || (ids.length > 0 && ids.every(id => members.has(id)));
+        if (inside) partProtos.add(part.linkedNodePrototypeId);
+      }
+    }
+  }
+
+  const equations = new Set();
+  for (const [protoId, defs] of idx.definitionsOf) {
+    const readable = defs.filter(gid => readsAsOperations(idx.graphById.get(gid)));
+    if (readable.length > 0) readable.forEach(gid => equations.add(gid));
+    else if (known.has(protoId) && idx.graphById.has(defs[0]) && !showsFormulas(idx.graphById.get(defs[0]))) equations.add(defs[0]);
+  }
+
+  // Parts, and parts of parts: every Thing-group inside a formula's web.
+  const parts = new Set();
+  const queue = [...equations];
+  const addPart = (protoId) => {
+    for (const gid of idx.definitionsOf.get(protoId) || []) {
+      if (parts.has(gid) || !idx.graphById.has(gid)) continue;
+      parts.add(gid);
+      queue.push(gid);
+    }
+  };
+  partProtos.forEach(addPart);
+  while (queue.length > 0) {
+    const gid = queue.pop();
+    for (const g of getGroups(idx.graphById.get(gid))) {
+      if (g?.linkedNodePrototypeId) addPart(g.linkedNodePrototypeId);
+    }
+  }
+  // A part's web reads as operations too; a part is never listed as an equation.
+  for (const gid of parts) equations.delete(gid);
+
+  return { equations, parts, webs: new Set([...equations, ...parts]) };
+}
+
+/**
+ * Every web reachable from a root, however deep. What the map leaves out for
+ * depth or size is still reachable; only what this misses is unplaced.
+ */
+function reachableFrom(roots, idx) {
+  const seen = new Set();
+  const stack = roots.map(r => r.id);
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (seen.has(id) || !idx.graphById.has(id)) continue;
+    seen.add(id);
+    for (const kid of idx.childGraphs.get(id) || []) {
+      if (!seen.has(kid.graphId)) stack.push(kid.graphId);
+    }
+  }
+  return seen;
+}
+
+/**
  * Graphs nothing else contains. These are the tops of the composition structure
  * and the natural roots of the map.
  *
@@ -183,11 +305,13 @@ function ancestryPath(graphId, idx, limit = 12) {
  * Render the composition structure as an indented tree, spending its budget on
  * what is nearest the user's attention.
  */
-function renderMap(roots, idx, { activeGraphId, openIds, maxDepth, budget }) {
+function renderMap(roots, idx, { activeGraphId, openIds, maxDepth, budget, formulas }) {
   const lines = [];
   let spent = 0;
   let omitted = 0;
   const visited = new Set();
+  // What made it onto the map: a web walked past the budget is visited, not shown.
+  const shown = new Set();
 
   // The active graph's ancestors are always expanded regardless of depth: a map
   // that stops short of where the user actually is has failed at its one job.
@@ -203,6 +327,30 @@ function renderMap(roots, idx, { activeGraphId, openIds, maxDepth, budget }) {
     return true;
   };
 
+  const marksOf = (graphId) => {
+    if (graphId === activeGraphId) return ['ACTIVE'];
+    return openIds.includes(graphId) ? ['open'] : [];
+  };
+
+  // Equations as formulas, not webs: each by name, or past a few, a count.
+  const pushFormulas = (items, depth) => {
+    const indent = '  '.repeat(depth);
+    if (items.length <= MAX_FORMULAS_LISTED) {
+      for (const item of items) {
+        if (push(`${indent}- ${item.name} [${['formula', ...marksOf(item.graphId)].join(', ')}] {${item.graphId}}`)) shown.add(item.graphId);
+      }
+      return;
+    }
+    const names = items.slice(0, MAX_FORMULAS_LISTED).map(item => item.name).join(', ');
+    if (push(`${indent}- ${items.length} formulas: ${names}, … (inspect this web for the rest)`)) {
+      items.forEach(item => shown.add(item.graphId));
+    }
+  };
+
+  // A formula's inside is walked only on the way to the active graph.
+  const asFormula = (kid) => formulas.webs.has(kid.graphId) && !mustExpand.has(kid.graphId);
+  const nameOf = (kid) => idx.protoById.get(kid.viaProtoId)?.name || idx.graphById.get(kid.graphId)?.name || 'Unnamed';
+
   const walk = (graphId, depth, viaName) => {
     const g = idx.graphById.get(graphId);
     if (!g) return;
@@ -217,17 +365,19 @@ function renderMap(roots, idx, { activeGraphId, openIds, maxDepth, budget }) {
 
     const instances = getInstances(g);
     const edgeCount = Array.isArray(g.edgeIds) ? g.edgeIds.length : 0;
-    const marks = [];
-    if (g.id === activeGraphId) marks.push('ACTIVE');
-    else if (openIds.includes(g.id)) marks.push('open');
+    const marks = marksOf(g.id);
+    if (formulas.webs.has(g.id)) marks.unshift('formula');
 
     const label = viaName && viaName !== g.name ? `${viaName} :: ${g.name}` : (g.name || 'Unnamed');
     const line = `${'  '.repeat(depth)}- ${label} (${instances.length}n/${edgeCount}e)`
       + (marks.length ? ` [${marks.join(', ')}]` : '')
       + ` {${g.id}}`;
     if (!push(line)) return;
+    shown.add(graphId);
 
-    const kids = idx.childGraphs.get(graphId) || [];
+    // A formula's parts are drawn in it, not nested webs of their own.
+    const kids = (idx.childGraphs.get(graphId) || [])
+      .filter(kid => !formulas.parts.has(kid.graphId) || mustExpand.has(kid.graphId));
     if (kids.length === 0) return;
 
     const beyondDepth = depth + 1 > maxDepth && !mustExpand.has(graphId);
@@ -237,14 +387,26 @@ function renderMap(roots, idx, { activeGraphId, openIds, maxDepth, budget }) {
     }
 
     for (const kid of kids) {
+      if (asFormula(kid)) continue;
       const proto = idx.protoById.get(kid.viaProtoId);
       walk(kid.graphId, depth + 1, proto?.name || null);
     }
+    const shownAsFormulas = kids.filter(asFormula).map(kid => ({ graphId: kid.graphId, name: nameOf(kid) }));
+    if (shownAsFormulas.length > 0) pushFormulas(shownAsFormulas, depth + 1);
   };
 
-  for (const root of roots) walk(root.id, 0, null);
+  // An equation placed in no web is still listed, as a formula; a part never is.
+  const formulaRoots = [];
+  for (const root of roots) {
+    if (formulas.webs.has(root.id) && !mustExpand.has(root.id)) {
+      if (formulas.equations.has(root.id)) formulaRoots.push({ graphId: root.id, name: root.name || 'Unnamed' });
+      continue;
+    }
+    walk(root.id, 0, null);
+  }
+  if (formulaRoots.length > 0) pushFormulas(formulaRoots, 0);
 
-  return { text: lines.join('\n'), omitted, visited };
+  return { text: lines.join('\n'), omitted, shown };
 }
 
 /**
@@ -279,14 +441,20 @@ export async function inspectWorkspace(args, graphState) {
       Math.max(1, Number.isFinite(Number(depth)) ? Math.floor(Number(depth)) : DEFAULT_MAP_DEPTH),
       MAX_MAP_DEPTH
     );
-    const { text, omitted, visited } = renderMap(roots, idx, {
-      activeGraphId, openIds, maxDepth, budget: MAP_TOKEN_BUDGET
+    const formulas = indexFormulas(graphs, edges, idx, graphState);
+    const { text, omitted, shown } = renderMap(roots, idx, {
+      activeGraphId, openIds, maxDepth, budget: MAP_TOKEN_BUDGET, formulas
     });
 
     // Graphs no root reaches — orphaned webs whose defining Thing was deleted,
     // or standalone webs never placed anywhere. They are real and reachable, so
-    // leaving them off the map entirely would be a lie.
-    const unreached = graphs.filter(g => g?.id && !visited.has(g.id));
+    // leaving them off the map entirely would be a lie. Reach is a full walk:
+    // what the map cut for depth or size is nested, not orphaned.
+    const reached = reachableFrom(roots, idx);
+    const unreached = graphs.filter(g => g?.id && !reached.has(g.id));
+    const notShown = graphs.filter(g => g?.id && reached.has(g.id) && !shown.has(g.id));
+    const insideFormulas = notShown.filter(g => formulas.webs.has(g.id)).length;
+    const beyond = notShown.length - insideFormulas;
 
     const result = {
       mode: 'map',
@@ -304,6 +472,16 @@ export async function inspectWorkspace(args, graphState) {
     if (unreached.length > 0) {
       result.unreachedGraphs = unreached.slice(0, 20).map(g => ({ graphId: g.id, name: g.name || 'Unnamed' }));
       result.unreachedNote = `${unreached.length} web(s) are not nested under any root — standalone or orphaned.`;
+    }
+    if (beyond > 0) {
+      result.beyondGraphs = beyond;
+      result.beyondNote = `${beyond} web(s) are nested past the depth or size budget the map shows — placed, not orphaned. `
+        + 'Raise depth, or inspect a graphId.';
+    }
+    if (insideFormulas > 0) {
+      result.formulaWebs = insideFormulas;
+      result.formulaNote = `${insideFormulas} web(s) are formulas' insides (equations' and their parts' definitions), not listed: `
+        + 'the map names a web\'s formulas, or counts them, and never opens one.';
     }
     if (omitted > 0) {
       result.truncated = true;

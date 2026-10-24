@@ -16,6 +16,8 @@ import https from 'https';
 import { getToolDefinitions, executeTool } from './src/wizard/tools/index.js';
 import { createLocalServerGuard, allowedOriginsFromEnv } from './src/security/localServerGuard.js';
 import { agentAuthHeaders, generateAgentToken, recordMcpHttpToken, forgetMcpHttpToken } from './src/headless/agentToken.js';
+import { settleBridgeResult, queuedActionId } from './src/services/bridgeOutcome.js';
+import { takeFormulaBank } from './src/components/canvas/formats/formula/bank/formulaBank.js';
 
 // Load environment variables (debug off to avoid noisy logs)
 dotenv.config({ quiet: true });
@@ -55,6 +57,16 @@ class ToolQueue {
 const toolQueue = new ToolQueue();
 
 const packageJson = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
+
+// The formula bank loads its JSON with a bare import(), which Vite allows and
+// plain Node refuses (no import attribute). Read it here and hand it over, so
+// searchFormulaBank and addFormula's bankId work over MCP.
+try {
+  const bankUrl = new URL('./src/components/canvas/formats/formula/bank/bank.generated.json', import.meta.url);
+  takeFormulaBank(JSON.parse(fs.readFileSync(bankUrl, 'utf-8')));
+} catch (err) {
+  console.error(`[MCP] Formula bank not loaded: ${err.message}`);
+}
 
 // Create MCP server instance
 const server = new McpServer({
@@ -264,15 +276,19 @@ You have access to these tools. Use them to perform actions.
             body: JSON.stringify({ actions: [bridgePayload] })
           });
           const enqueueData = await enqueueResp.json();
+          const actionId = queuedActionId(enqueueData);
 
-          if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
-            await waitForActionCompletion(enqueueData.actionIds, 30000);
+          let waitResult = null;
+          if (enqueueData.ok && actionId) {
+            waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
             // Refresh state to ensure activeGraphId is updated in local MCP cache
-            await getRealRedstringState();
+            if (waitResult.completed) await getRealRedstringState().catch(() => { });
           }
+          const { result, isError } = settleBridgeResult({ success: true, graphId: targetGraphId, name: graph.name }, enqueueData, waitResult, actionId);
 
           return {
-            content: [{ type: "text", text: JSON.stringify({ success: true, graphId: targetGraphId, name: graph.name }) }]
+            content: [{ type: "text", text: JSON.stringify(result) }],
+            ...(isError ? { isError: true } : {})
           };
         } catch (error) {
           return {
@@ -378,12 +394,15 @@ You have access to these tools. Use them to perform actions.
           body: JSON.stringify({ actions: [bridgePayload] })
         });
         const enqueueData = await enqueueResp.json();
+        const actionId = queuedActionId(enqueueData);
 
-        if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
-          await waitForActionCompletion(enqueueData.actionIds, 10000);
+        let waitResult = null;
+        if (enqueueData.ok && actionId) {
+          waitResult = await waitForActionCompletion(enqueueData.actionIds, 10000);
         }
+        const { result, isError } = settleBridgeResult({ success: true, navigated: true }, enqueueData, waitResult, actionId);
 
-        return { content: [{ type: "text", text: JSON.stringify({ success: true, navigated: true }) }] };
+        return { content: [{ type: "text", text: JSON.stringify(result) }], ...(isError ? { isError: true } : {}) };
       });
     }
   );
@@ -391,9 +410,20 @@ You have access to these tools. Use them to perform actions.
   // 6. apply_mutations tool
   server.tool(
     "apply_mutations",
-    "Apply a batch of store mutations in one shot",
+    "Apply a batch of low-level store mutations in one shot, by id. Each operation is { type, ...fields }. Types: " +
+    "addNodePrototype {prototypeData}, updateNodePrototype {prototypeId, updates}, deleteNodePrototype {prototypeId}, " +
+    "addNodeInstance {graphId, prototypeId, position, instanceId}, moveNodeInstance {graphId, instanceId, position}, " +
+    "deleteNodeInstance (or removeNodeInstance) {graphId, instanceId}, addEdge {graphId, edgeData}, deleteEdge {edgeId}, " +
+    "updateEdgeDirectionality {edgeId, arrowsToward}, updateEdgeDefinition {edgeId, definitionNodeIds}, " +
+    "createNewGraph {initialData}, updateGraph {graphId, updates}, deleteGraph {graphId}, " +
+    "setActiveGraph / switchToGraph / closeGraphTab {graphId}, addDefinitionGraph {prototypeId, graphId}, " +
+    "removeDefinitionGraph {prototypeId, graphId}, createAndAssignGraphDefinition {prototypeId}, " +
+    "createGroup {graphId, name, color, memberInstanceIds}, updateGroup {graphId, groupId, updates}, " +
+    "deleteGroup / combineNodeGroup {graphId, groupId}, convertToNodeGroup {graphId, groupId, ...}, " +
+    "setNodeType {nodeId, typeNodeId}, addToAbstractionChain, removeFromAbstractionChain, swapNodeInChain, " +
+    "openRightPanelNodeTab {nodeId}. success is false when any operation fails; results has one entry per operation.",
     {
-      operations: z.array(z.object({}).passthrough()).describe("Array of operations to apply")
+      operations: z.array(z.object({}).passthrough()).describe("Array of operations to apply, each { type, ...fields }")
     },
     async ({ operations }) => {
       return toolQueue.enqueue('apply_mutations', async () => {
@@ -413,27 +443,21 @@ You have access to these tools. Use them to perform actions.
             body: JSON.stringify({ actions: [bridgePayload] })
           });
           const enqueueData = await enqueueResp.json();
+          // The server puts an openGraph ahead of the batch for each web it
+          // names, so the batch's own ack is under the last id.
+          const actionId = queuedActionId(enqueueData);
 
-          let result = { success: true, count: operations.length };
-
-          if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+          let waitResult = null;
+          if (enqueueData.ok && actionId) {
             console.error(`[MCP] Waiting for batch mutations: ${enqueueData.actionIds.join(', ')}`);
-            const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
-
-            if (waitResult.timedOut) {
-              console.error(`[MCP] Warning: Batch mutations timed out`);
-            } else if (waitResult.completed) {
-              console.error(`[MCP] Batch mutations completed successfully`);
-              const bridgeResult = waitResult.results[enqueueData.actionIds[0]];
-              if (bridgeResult) {
-                result = { ...result, ...bridgeResult };
-              }
-              // Refresh the state immediately
-              await getRealRedstringState();
-            }
+            waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+            if (waitResult.timedOut) console.error(`[MCP] Warning: Batch mutations timed out`);
           }
+          const { result, isError } = settleBridgeResult({ success: true, count: operations.length }, enqueueData, waitResult, actionId);
+          // Refresh the state immediately
+          if (waitResult?.completed) await getRealRedstringState().catch(() => { });
 
-          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+          return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], ...(isError ? { isError: true } : {}) };
         } catch (error) {
           console.error(`[MCP] apply_mutations error:`, error);
           return { content: [{ type: "text", text: JSON.stringify({ error: error.message, status: 'failed' }) }], isError: true };
@@ -467,18 +491,17 @@ You have access to these tools. Use them to perform actions.
             body: JSON.stringify({ actions: [bridgePayload] })
           });
           const enqueueData = await enqueueResp.json();
+          const actionId = queuedActionId(enqueueData);
 
-          let result = { success: true };
-
-          if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
-            const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
-            if (waitResult.completed) {
-              // Refresh state
-              await getRealRedstringState();
-            }
+          let waitResult = null;
+          if (enqueueData.ok && actionId) {
+            waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+            // Refresh state
+            if (waitResult.completed) await getRealRedstringState().catch(() => { });
           }
+          const { result, isError } = settleBridgeResult({ success: true }, enqueueData, waitResult, actionId);
 
-          return { content: [{ type: "text", text: JSON.stringify(result) }] };
+          return { content: [{ type: "text", text: JSON.stringify(result) }], ...(isError ? { isError: true } : {}) };
         } catch (error) {
           return { content: [{ type: "text", text: JSON.stringify({ error: error.message }) }], isError: true };
         }
@@ -561,6 +584,7 @@ async function registerWizardTools() {
 
               console.error(`[MCP] Executing Wizard tool: ${name} (Mapped to ${def.name})`, args);
               let result = await executeTool(def.name, args, plainState, cid, () => { });
+              let isError = false;
 
               // If result contains an action, it's a mutation - enqueue it and wait for completion
               if (result && result.action) {
@@ -577,34 +601,30 @@ async function registerWizardTools() {
                     body: JSON.stringify({ actions: [bridgePayload] })
                   });
                   const enqueueData = await enqueueResp.json();
+                  const actionId = queuedActionId(enqueueData);
 
                   // Wait for the browser to actually execute the action
-                  if (enqueueData.ok && enqueueData.actionIds?.length > 0) {
+                  let waitResult = null;
+                  if (enqueueData.ok && actionId) {
                     console.error(`[MCP] Waiting for action completion: ${enqueueData.actionIds.join(', ')}`);
-                    const waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
-
-                    if (waitResult.timedOut) {
-                      console.error(`[MCP] Warning: Action completion timed out for ${name}`);
-                    } else if (waitResult.completed) {
-                      console.error(`[MCP] Action completed successfully for ${name}`);
-                      // Capture the real result from the bridge (enriched with IDs)
-                      const bridgeResult = waitResult.results[enqueueData.actionIds[0]];
-                      if (bridgeResult) {
-                        result = { ...result, ...bridgeResult };
-                      }
-
-                      // CRITICAL: Refresh the state immediately after mutation
-                      await getRealRedstringState();
-                    }
+                    waitResult = await waitForActionCompletion(enqueueData.actionIds, 30000);
+                    if (waitResult.timedOut) console.error(`[MCP] Warning: Action completion timed out for ${name}`);
                   }
+                  // The app's ack says whether it happened: ok, failures, held, real ids.
+                  ({ result, isError } = settleBridgeResult(result, enqueueData, waitResult, actionId));
+                  // CRITICAL: Refresh the state immediately after mutation
+                  if (waitResult?.completed) await getRealRedstringState().catch(() => { });
                 } catch (err) {
                   console.error(`[MCP] Failed to enqueue mutation: ${err.message}`);
+                  result = { ...result, ok: false, status: 'failed', error: `Could not reach Redstring to apply this change: ${err.message}` };
+                  isError = true;
                 }
               }
 
               // Return full JSON result for ALL tools to enable immediate chaining
               return {
-                content: [{ type: "text", text: JSON.stringify(result, null, 2) }]
+                content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+                ...(isError ? { isError: true } : {})
               };
             } catch (error) {
               console.error(`[MCP] Wizard tool ${name} error:`, error);
@@ -1273,6 +1293,14 @@ async function getRealRedstringState(retryCount = 0) {
       throw new Error('Invalid data structure received from bridge');
     }
 
+    // Before its universe has loaded the app's store is the empty initial
+    // state: tools would read nothing and queue changes the load then wipes.
+    if (data.isUniverseLoaded === false) {
+      const loading = new Error('Redstring is still loading its universe; try again in a few seconds.');
+      loading.universeLoading = true;
+      throw loading;
+    }
+
     // Convert the minimal data format back to the expected structure
     const state = {
       graphs: new Map((data.graphs || []).map(graph => {
@@ -1308,6 +1336,7 @@ async function getRealRedstringState(retryCount = 0) {
 
     return state;
   } catch (error) {
+    if (error.universeLoading) throw error;
     const isNetworkError = error.message.includes('fetch') ||
       error.message.includes('ECONNREFUSED') ||
       error.message.includes('500') ||

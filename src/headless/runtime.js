@@ -53,7 +53,8 @@ export async function initRuntime({
   // storeActions + toolResultApplier statically import graphStore, so import them
   // AFTER the shim is installed (createHeadlessStore did that).
   const { createStoreActions, priority } = await import('../services/storeActions.js');
-  const { applyToolResultToStore, configureToolResultApplier } = await import('../services/toolResultApplier.js');
+  const { configureToolResultApplier } = await import('../services/toolResultApplier.js');
+  const { applyBridgeAction } = await import('../services/bridgeApply.js');
   configureToolResultApplier({}); // keep no-op enrich hooks headless
 
   const workspace = await openHeadlessWorkspace(
@@ -77,11 +78,10 @@ export async function initRuntime({
       const args = Array.isArray(params) ? params : [params];
       return await storeActions[action](...args);
     }
-    let resultObj;
-    if (Array.isArray(params) && params.length === 1) resultObj = { action, ...params[0] };
-    else resultObj = { action, ...params };
-    applyToolResultToStore(action, resultObj, null);
-    return { success: true, viaApplier: true };
+    // Same report the browser acks with: ok false with the failures when the
+    // apply failed, after any build that loads first (a bank formula).
+    const report = await applyBridgeAction(action, params, null);
+    return { ...report, success: report.ok, viaApplier: true };
   }
 
   return {
@@ -95,6 +95,8 @@ export async function initRuntime({
     /** Full bridge-state payload (+ runtime metadata) for GET /api/bridge/state. */
     buildBridgeStatePayload: () => ({
       ...buildBridgeState(useGraphStore.getState(), { fileStatus: null }),
+      // The runtime opens its universe before it serves: loaded by construction.
+      isUniverseLoaded: true,
       storeMode: 'runtime',
       stateVersion: workspace.stateVersion,
       pendingActions: [],

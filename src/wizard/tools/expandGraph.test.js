@@ -273,3 +273,58 @@ describe('expandGraph — composition', () => {
     expect(result.layerWarnings.some(w => w.includes('empty'))).toBe(true);
   });
 });
+
+describe('expandGraph edge endpoints', () => {
+  // A web holding "max" and "Temperature", and a universe Thing elsewhere.
+  const state = () => ({
+    activeGraphId: 'g1',
+    graphs: [
+      { id: 'g1', name: 'Sampling', instances: [{ id: 'i1', prototypeId: 'p-max' }, { id: 'i2', prototypeId: 'p-temp' }], edgeIds: [] },
+      { id: 'g2', name: 'Other', instances: [{ id: 'i3', prototypeId: 'p-prob' }], edgeIds: [] }
+    ],
+    nodePrototypes: [
+      { id: 'p-max', name: 'max' },
+      { id: 'p-temp', name: 'Temperature' },
+      { id: 'p-prob', name: 'Probability' }
+    ]
+  });
+
+  it('drops "Softmax Function" rather than wiring it to "max", and reports it', async () => {
+    const result = await expandGraph({
+      nodes: [{ name: 'Logits' }],
+      edges: [
+        { source: 'Logits', target: 'Softmax Function', type: 'Feeds' },
+        { source: 'Logits', target: 'Sampling Temperature', type: 'Scaled By' }
+      ]
+    }, state(), 'cid', () => {});
+    expect(result.edgeCount).toBe(0);
+    expect(result.droppedEdges.map(d => d.target)).toEqual(['Softmax Function', 'Sampling Temperature']);
+    expect(result.edgeWarning).toContain('2 edge(s) were dropped');
+    expect(result.edgeWarning).toContain('Nothing was guessed');
+  });
+
+  it("resolves the web's own Things, then the universe's, and says what it placed", async () => {
+    const result = await expandGraph({
+      nodes: [{ name: 'Logits' }],
+      edges: [
+        { source: 'Logits', target: 'temperature', type: 'Scaled By' },
+        { source: 'Logits', target: 'Probability', type: 'Becomes' }
+      ]
+    }, state(), 'cid', () => {});
+    expect(result.spec.edges.map(e => e.target)).toEqual(['Temperature', 'Probability']);
+    expect(result.placedExisting).toEqual(['Probability']);
+    expect(result.spec.reuseNodes).toEqual([{ name: 'Probability', prototypeId: 'p-prob' }]);
+    expect(result.edgeWarning).toContain('"temperature" as "Temperature"');
+    expect(result.edgeWarning).toContain('"Probability"');
+  });
+
+  it('accepts an edge to a node inside a layer made in the same call', async () => {
+    const result = await expandGraph({
+      nodes: [{ name: 'Logits' }],
+      layers: [{ name: 'Decoder', definition: { nodes: [{ name: 'Beam Search' }, { name: 'Top-k' }] } }],
+      edges: [{ source: 'Logits', target: 'Top-k', type: 'Feeds' }]
+    }, state(), 'cid', () => {});
+    expect(result.droppedEdges).toHaveLength(0);
+    expect(result.spec.edges[0].toLayer).toBe(true);
+  });
+});

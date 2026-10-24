@@ -13,7 +13,18 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
 
     const { edges = [], nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-    const targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
+    const explicitWeb = args.targetGraphId != null && String(args.targetGraphId).trim() !== '';
+    const targetGraphId = explicitWeb
+        ? resolveGraphId(args.targetGraphId, graphs, { activeGraphId, openGraphIds: graphState.openGraphIds })
+        : activeGraphId;
+    if (explicitWeb && !graphs.some(g => g.id === targetGraphId)) {
+        const available = graphs.map(g => g.name).filter(Boolean).slice(0, 8).join(', ');
+        return {
+            results: [],
+            total: 0,
+            message: `No web named or with id "${args.targetGraphId}". Webs: ${available || '(none)'}. Omit targetGraphId for the active web.`
+        };
+    }
 
     // Build a node name lookup (by ID) for resolving edge endpoints
     const nodeNameById = new Map();
@@ -27,17 +38,19 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
         }
     }
 
-    // Also pull instance names from the target graph
+    // Instance names from every web, the target web last. A connection into a
+    // definition opened in place keeps that end in the definition's own web,
+    // so its name is found there rather than shown as a raw instance id.
     const activeGraph = graphs.find(g => g.id === targetGraphId);
-    if (activeGraph) {
-        const instances = Array.isArray(activeGraph.instances)
-            ? activeGraph.instances
-            : activeGraph.instances instanceof Map
-                ? Array.from(activeGraph.instances.values())
-                : Object.values(activeGraph.instances || {});
+    for (const g of [...graphs.filter(x => x !== activeGraph), ...(activeGraph ? [activeGraph] : [])]) {
+        const instances = Array.isArray(g.instances)
+            ? g.instances
+            : g.instances instanceof Map
+                ? Array.from(g.instances.values())
+                : Object.values(g.instances || {});
 
         for (const inst of instances) {
-            if (inst.id) nodeNameById.set(inst.id, inst.name || nodeNameById.get(inst.prototypeId) || '');
+            if (inst?.id) nodeNameById.set(inst.id, inst.name || protoMap.get(inst.prototypeId)?.name || '');
         }
     }
 

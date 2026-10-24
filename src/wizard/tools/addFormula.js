@@ -3,6 +3,31 @@ import { readFormulaText } from './utils/formulas.js';
 import { resolvePaletteColor } from '../../ai/palettes.js';
 
 /**
+ * The web to write into: targetGraphId (a name or id), else the active web.
+ * resolveGraphId hands back what it was given when nothing matches, so the
+ * answer only counts if it is a web. Otherwise the error names the webs there
+ * are, open ones first, so the next call can pass one.
+ */
+function resolveWeb(targetGraphId, graphs, activeGraphId, openGraphIds) {
+  const list = Array.isArray(graphs) ? graphs : Array.from(graphs?.values?.() || []);
+  const isWeb = (id) => !!id && list.some(g => g?.id === id);
+  const asked = targetGraphId != null && String(targetGraphId).trim() !== '';
+  const graphId = asked
+    ? resolveGraphId(targetGraphId, list, { activeGraphId, openGraphIds })
+    : activeGraphId;
+  if (isWeb(graphId)) return graphId;
+
+  const open = (Array.isArray(openGraphIds) ? openGraphIds : []).map(id => list.find(g => g?.id === id)).filter(Boolean);
+  const names = [...new Set([...open, ...list].map(g => g?.name).filter(Boolean))].slice(0, 8);
+  const lead = asked
+    ? `No web named or with id "${targetGraphId}".`
+    : 'No web is active to add the formula to.';
+  throw new Error(names.length > 0
+    ? `${lead} Pass targetGraphId (a web's name or id): ${names.map(n => `"${n}"`).join(', ')}. Or create one with createGraph.`
+    : `${lead} There are no webs yet: create one with createGraph, then add the formula to it.`);
+}
+
+/**
  * addFormula - Write a formula into a web, shown as its formula, or build one
  * from the formula bank fully formed.
  *
@@ -22,9 +47,8 @@ import { resolvePaletteColor } from '../../ai/palettes.js';
  */
 export async function addFormula(args, graphState) {
   const { text, bankId, title, description, meanings, forThing, convention, targetGraphId, color, palette } = args || {};
-  const { graphs = [], nodePrototypes = [], activeGraphId } = graphState || {};
-  const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
-  if (!graphId) throw new Error('No web to add the formula to. Create or open one first.');
+  const { graphs = [], nodePrototypes = [], activeGraphId, openGraphIds = [] } = graphState || {};
+  const graphId = resolveWeb(targetGraphId, graphs, activeGraphId, openGraphIds);
   // Only what was asked for: resolvePaletteColor makes up a color for nothing.
   const colorOf = (c) => (c ? resolvePaletteColor(palette, String(c)) : '');
 

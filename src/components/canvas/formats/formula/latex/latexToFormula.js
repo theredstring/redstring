@@ -347,7 +347,7 @@ function parser(tex) {
     skipIgnored();
     let arg;
     if (isSym(peek(), '(') || isCmd(peek(), 'left')) arg = readAtom();
-    else arg = readPower();
+    else arg = name === 'tr' || name === 'Tr' ? readProduct() : readPower(); // tr ρ log ρ: the trace of the whole product
     const applied = base !== null ? { t: 'log', base, a: arg } : { t: 'fn', name, a: arg };
     return power ? { t: 'op', op: '^', a: applied, b: power } : applied;
   };

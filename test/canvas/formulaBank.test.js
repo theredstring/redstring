@@ -143,6 +143,13 @@ describe('the formula bank, populated from Wikidata and MathModDB', () => {
     expect(byId.get('Q11518')?.text).toBe('c ^ 2 = a ^ 2 + b ^ 2');
     // Calculus and vectors: P = dE/dt, F⃗ = m a⃗.
     expect(byId.get('Q25342')?.text).toBe('P = derivative(E, t)');
+    // The trace of the whole product; the trace a function, not a symbol.
+    expect(byId.get('Q6961323')?.text).toBe('S = −tr(ρ × log(ρ))');
+    expect(byId.get('Q6961323')?.symbols.tr).toBe(undefined);
+    // Monod: its source lost the + (SOURCE_FIXES in buildBank.js).
+    expect(byId.get('mardi:Q6775651')?.text).toBe('μ = μ_max × c_S ÷ (K_M + c_S)');
+    // ħ reads as a letter, so its equations are plain lines.
+    expect(byId.get('Q1568269')?.text).toBe('T = ħ × a ÷ (2 × π × c × k_B)');
     expect(byId.get('Q11402')?.text).toBe('F\u20D7 = m × a\u20D7');
   });
 });

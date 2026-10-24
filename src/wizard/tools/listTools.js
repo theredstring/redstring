@@ -20,7 +20,7 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **createNode**(name*, color, description, size, targetGraphId) — Create a single Thing
 - **updateNode**(nodeName*, updates: {name, color, description, imageSrc}, targetGraphId) — Update a Thing
 - **setNodeSize**(nodeName*, size*, targetGraphId) — Resize one Thing on the canvas: "extra-small" | "small" | "medium" (default) | "large" | "extra-large"
-- **deleteNode**(nodeName*, targetGraphId) — Remove a Thing
+- **deleteNode**(nodeName or instanceId*, targetGraphId) — Remove a Thing (exact name; several matches return candidates)
 - **selectNode**(nodeName*) — Highlight a Thing for the user
 - **setNodeType**(nodeName*, typeName*, typeColor, typeDescription) — Assign a type/category
 - **inspectPrototype**(nodeName*) — View full prototype data (definitions, types, metadata)
@@ -44,7 +44,7 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 ## Connections (Edges)
 - **createEdge**(sourceName*, targetName*, definitionNode:{name,description}*, targetGraphId) — Add a Connection
 - **updateEdge**(sourceName*, targetName*, edgeName*, updates:{definitionNode,directionality}) — Modify a Connection
-- **deleteEdge**(sourceName*, targetName*, edgeName*, targetGraphId) — Remove a Connection
+- **deleteEdge**(sourceName + targetName, or edgeId*, targetGraphId) — Remove a Connection (several matches return candidates with edgeIds)
 - **replaceEdges**(edges[{source,target,oldEdgeName,newDefinitionNode}]*, targetGraphId) — Bulk-replace Connections
 
 ## Groups & Composition

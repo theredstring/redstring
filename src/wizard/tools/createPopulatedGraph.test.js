@@ -498,5 +498,49 @@ describe('createPopulatedGraph', () => {
     // A size typo leaves that node at the default rather than failing the build
     expect(byName['Comet']).toBeUndefined();
   });
+
+  it('drops a near-miss endpoint instead of guessing, and says what is close', async () => {
+    const result = await createPopulatedGraph(
+      {
+        name: 'Sampling',
+        nodes: [{ name: 'Temperature' }, { name: 'Logits' }],
+        edges: [
+          { source: 'Logits', target: 'Sampling Temperature', type: 'Scaled By' },
+          { source: 'logits', target: 'temperature', type: 'Scaled By' }
+        ],
+        shape: 'network',
+        unfold: false
+      },
+      { graphs: [], nodePrototypes: [] },
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+
+    expect(result.spec.edges.map(e => `${e.source}>${e.target}`)).toEqual(['Logits>Temperature']);
+    expect(result.droppedEdges).toHaveLength(1);
+    expect(result.edgeWarning).toContain('1 edge(s) were dropped');
+    expect(result.edgeWarning).toContain('closest: "Temperature"');
+    expect(result.edgeWarning).toContain('"logits" as "Logits"');
+  });
+
+  it('marks edges with an end in a layer for the applier to add after the layers', async () => {
+    const result = await createPopulatedGraph(
+      {
+        name: 'Car',
+        nodes: [{ name: 'Driver' }, { name: 'Road' }],
+        layers: [{ name: 'Engine', definition: { nodes: [{ name: 'Piston' }, { name: 'Cam' }] } }],
+        edges: [
+          { source: 'Driver', target: 'Road', type: 'Drives On' },
+          { source: 'Driver', target: 'Piston', type: 'Hears' }
+        ],
+        shape: 'network',
+        unfold: false
+      },
+      { graphs: [], nodePrototypes: [] },
+      mockCid,
+      mockEnsureSchedulerStarted
+    );
+    expect(result.spec.edges.map(e => !!e.toLayer)).toEqual([false, true]);
+  });
 });
 

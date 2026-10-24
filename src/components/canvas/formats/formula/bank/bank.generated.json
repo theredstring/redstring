@@ -1633,7 +1633,7 @@
      "title": "Definition of Reduced Planck Constant",
      "defines": "Q2115969",
      "description": "The Planck constant divided by 2 π.",
-     "text": "(\"ħ\") = ((h) / ((2) * (π)))",
+     "text": "ħ = h ÷ (2 × π)",
      "symbols": {
       "ħ": "Q2115969",
       "h": "Q122894",
@@ -2170,7 +2170,7 @@
      "title": "Definition of Spin Quantum Number",
      "defines": "Q3879445",
      "description": "Quantum number parameterizing spin and angular momentum.",
-     "text": "((s⃗) ^ (2)) = ((((\"ħ\") ^ (2)) * (s)) * ((s) + (1)))",
+     "text": "s⃗ ^ 2 = ħ ^ 2 × s × (s + 1)",
      "symbols": {
       "s⃗": "Q133673",
       "ħ": "Q2115969",
@@ -2502,7 +2502,7 @@
      "id": "Q1568269",
      "title": "Unruh Effect",
      "description": "Prediction that an accelerating observer will observe blackbody radiation where an inertial observer would observe none.",
-     "text": "(T) = (((\"ħ\") * (a)) / ((((2) * (π)) * (c)) * (k_B)))",
+     "text": "T = ħ × a ÷ (2 × π × c × k_B)",
      "symbols": {
       "T": "Q11466",
       "ħ": "Q2115969",
@@ -2919,10 +2919,9 @@
      "title": "Definition of Von Neumann Entropy",
      "defines": "Q6961323",
      "description": "Type of entropy in quantum statistical mechanics.",
-     "text": "S = −(tr × ρ × log(ρ))",
+     "text": "S = −tr(ρ × log(ρ))",
      "symbols": {
       "S": "Q6961323",
-      "tr": "Q321102",
       "ρ": "Q831774"
      },
      "wikipedia": "Von Neumann entropy",
@@ -4194,7 +4193,7 @@
      "id": "Q11347535",
      "title": "Landau Diamagnetism",
      "description": "The theory that describes diamagnetism in a free electron gas.",
-     "text": "(χ) = (-(((((μ_B) ^ (2)) * (m_e)) * (sqrt(((2) * (m_e)) * (E_F)))) / (((3) * ((\"ħ\") ^ (2))) * ((π) ^ (2)))))",
+     "text": "χ = −(μ_B ^ 2 × m_e × √(2 × m_e × E_F) ÷ (3 × ħ ^ 2 × π ^ 2))",
      "symbols": {
       "χ": "Q691463",
       "μ_B": "Q737120",
@@ -5594,7 +5593,7 @@
      "title": "Definition of Angular Wavenumber",
      "defines": "Q105542089",
      "description": "In condensed matter physics, quotient of momentum and the reduced Planck constant.",
-     "text": "(k) = ((p) / (\"ħ\"))",
+     "text": "k = p ÷ ħ",
      "symbols": {
       "k": "Q105542089",
       "p": "Q41273",
@@ -5790,7 +5789,7 @@
      "title": "Definition of Level Width",
      "defines": "Q98082340",
      "description": "In nuclear physics, quotient of the reduced Planck constant and the mean duration of life of an unstable particle or an excited state.",
-     "text": "(Γ) = ((\"ħ\") / (τ))",
+     "text": "Γ = ħ ÷ τ",
      "symbols": {
       "Γ": "Q98082340",
       "ħ": "Q2115969",
@@ -6107,7 +6106,7 @@
      "id": "mardi:Q6822087",
      "title": "Mathematical Pendulum Frequency (Small Angle, Damped)",
      "description": "Expanation bla bla bla.",
-     "text": "(ω) = (sqrt(((g) / (\"ℓ\")) - ((κ) ^ (2))))",
+     "text": "ω = √(g ÷ ℓ − κ ^ 2)",
      "symbols": {
       "ω": "mardi:Q6673747",
       "g": "Q30006",
@@ -6120,7 +6119,7 @@
      "id": "mardi:Q6821158",
      "title": "Mathematical Pendulum Frequency (Small Angle)",
      "description": "Frequency of a mathematical pendulum, assuming small angle approximation.",
-     "text": "(ω) = (sqrt((g) / (\"ℓ\")))",
+     "text": "ω = √(g ÷ ℓ)",
      "symbols": {
       "ω": "mardi:Q6673747",
       "g": "Q30006",
@@ -6927,7 +6926,7 @@
      "title": "Definition of Wave Vector",
      "defines": "Q108441000",
      "description": "In condensed matter physics, quotient of the momentum vektor of particles or quasi particles and the reduced Planck constant.",
-     "text": "(k⃗) = ((p⃗) / (\"ħ\"))",
+     "text": "k⃗ = p⃗ ÷ ħ",
      "symbols": {
       "k⃗": "Q108441000",
       "p⃗": "Q41273",
@@ -9690,7 +9689,7 @@
      "id": "Q104145274",
      "title": "Magnetic Field of Test Current",
      "description": "Magnetic field calculated from macroscopic Lorentz force, test current and conductor length.",
-     "text": "(B) = ((F) / ((I) * (\"ℓ\")))",
+     "text": "B = F ÷ (I × ℓ)",
      "symbols": {
       "B": "Q30204",
       "F": "Q11402",
@@ -9733,7 +9732,7 @@
      "id": "mardi:Q6821443",
      "title": "Mathematical Pendulum Length (Small Angle)",
      "description": "Length of a mathematical pendulum, within the small angle approximation.",
-     "text": "(\"ℓ\") = (((g) / ((π) ^ (2))) * (((T) ^ (2)) / (4)))",
+     "text": "ℓ = g ÷ π ^ 2 × (T ^ 2 ÷ 4)",
      "symbols": {
       "ℓ": "mardi:Q6821159",
       "g": "Q30006",
@@ -9746,7 +9745,7 @@
      "id": "mardi:Q6821439",
      "title": "Mathematical Pendulum Period (Small Angle)",
      "description": "Period of vibration of a mathematical pendulum, within the small angle approximation. This relation is also known as Christiaan Huygens's law for the period of a pendulum. Note that under the small-angle approximation, the period is independent of the initial amplitude; this is the property of isochronism that Galileo first discovered.",
-     "text": "(T) = (((2) * (π)) * (sqrt((\"ℓ\") / (g))))",
+     "text": "T = 2 × π × √(ℓ ÷ g)",
      "symbols": {
       "T": "mardi:Q6821440",
       "π": "Q167",
@@ -13153,6 +13152,16 @@
      "source": "http://www.wikidata.org/entity/Q124039375"
     },
     {
+     "id": "Q105356166",
+     "title": "Real Sign Function",
+     "description": "Function which assigns a number (-1,0,1) to a real number according to its sign.",
+     "text": "sgn(a) = (a > 0) − (a < 0)",
+     "symbols": {
+      "a": "Q12916"
+     },
+     "source": "http://www.wikidata.org/entity/Q105356166"
+    },
+    {
      "id": "Q123024031",
      "title": "Secp256k1",
      "description": "Elliptic curve.",
@@ -13304,7 +13313,7 @@
      "id": "mardi:Q6775651",
      "title": "Monod Specific Growth Rate Equation",
      "description": "Describes the specific growth rate of microorganisms based on nutrient concentration. Part of the Monod Equation.",
-     "text": "μ = μ_max × c_S ÷ (K_M × c_S)",
+     "text": "μ = μ_max × c_S ÷ (K_M + c_S)",
      "symbols": {
       "μ": "mardi:Q6775646",
       "μ_max": "mardi:Q6775647",
@@ -16359,12 +16368,6 @@
    "symbol": "A",
    "description": "Physical quantity in nuclear physics, measured in becquerel, revealing the average number of nucleuses experiencing a spontaneous reaction per second.",
    "source": "http://www.wikidata.org/entity/Q317949"
-  },
-  "Q321102": {
-   "name": "Trace",
-   "symbol": "tr",
-   "description": "Sum of the elements of the main diagonal of a square matrix.",
-   "source": "http://www.wikidata.org/entity/Q321102"
   },
   "Q321828": {
    "name": "Damping Coefficient",

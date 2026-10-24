@@ -25,6 +25,10 @@ describe('LaTeX in', () => {
     expect(read('\\sin^2\\theta + \\cos^2\\theta = 1')).toBe('sin(θ) ^ 2 + cos(θ) ^ 2 = 1');
     expect(read('d = |x - y|')).toBe('d = abs(x − y)');
     expect(read('\\mathrm{Re} = \\frac{\\rho v L}{\\mu}')).toBe('Re = ρ × v × L ÷ μ');
+    // The trace takes the whole product after it.
+    expect(read('S=-\\operatorname{tr}\\rho\\log\\rho')).toBe('S = −tr(ρ × log(ρ))');
+    expect(read('S=-\\operatorname{tr}(\\rho\\log\\rho)')).toBe('S = −tr(ρ × log(ρ))');
+    expect(read('y = \\coth x + \\arg z')).toBe('y = coth(x) + arg(z)');
   });
 
   it('names each symbol the way the formula writes it', () => {

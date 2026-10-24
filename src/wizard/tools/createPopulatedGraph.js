@@ -3,7 +3,7 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-import { validateEdgesSmart } from './edgeValidator.js';
+import { validateEdgesSmart, edgeScopeFromState, describeEdgeValidation } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { classifyGraphShape } from './utils/classifyGraphShape.js';
 import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
@@ -168,18 +168,30 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       }))
     : null;
 
-  // Validate edges: strip any that reference nodes not in the nodes array.
-  //
-  // Layer names count as endpoints. A layer IS a Thing on this canvas, so the
-  // cross-domain edges of a composed build — "Interaction & Motor Performance"
-  // → "Cognitive Ergonomics & Mental Models" — name layers rather than
-  // top-level nodes, and validating against `nodes` alone silently dropped
-  // every one of them. Read off the raw layers because normalization happens
-  // further down, after the edges are already settled.
-  const layerNames = (Array.isArray(layers) ? layers : [])
-    .map(layer => layer?.name)
-    .filter(Boolean);
-  const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, workingEdges, layerNames);
+  // Composition. A new graph is exactly where depth should be decided, so this
+  // tool accepts layers rather than forcing a second buildComposition call after
+  // the flat version has already been laid out. Normalized before the edges are
+  // checked, since a layer is a Thing on this canvas and a legal endpoint.
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState, connectionColor });
+  const layerSpecs = layerResult ? layerResult.layers : [];
+  const layerWarnings = layerResult ? layerResult.warnings : [];
+
+  // A layer already lands as a Thing here; the same name in `nodes` would beat
+  // its shell into the graph and stop the layer decomposing. Keep the layer.
+  const layerCollision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
+  if (layerCollision.dropped.length > 0) {
+    nodeSpecs = layerCollision.nodes;
+    layerWarnings.push(layerCollisionWarning(layerCollision.dropped));
+  }
+
+  // Edge endpoints resolve by exact name (case/spacing aside): this call's own
+  // nodes and layers (the cross-domain edges of a composed build name layers,
+  // not top-level nodes), then the target web, then the universe. No guessing.
+  const edgeCheck = await validateEdgesSmart(nodeSpecs, workingEdges, {
+    layers: layerSpecs,
+    ...edgeScopeFromState(graphState, targetGraphId ? graphId : null)
+  });
+  const { validEdges, droppedEdges, remappedEndpoints, placedExisting } = edgeCheck;
 
   // Validation: each edge needs SOMETHING describing its connection type.
   // Accepted shapes (in order of preference):
@@ -214,7 +226,10 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
         name: titleCaseName,
         color: connectionColor(titleCaseName, inputDefNode?.color),
         description: inputDefNode?.description || ''
-      } : null
+      } : null,
+      // An end that is one of this call's layers only exists once the applier
+      // has built the layer, so it adds these edges after.
+      ...(e.toLayer ? { toLayer: true } : {})
     };
   });
 
@@ -277,21 +292,6 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
   // queue at all. Its import went with it: that was the only thing pulling the
   // Node-only queue journal into the browser bundle.
 
-  // Composition. A new graph is exactly where depth should be decided, so this
-  // tool accepts layers rather than forcing a second buildComposition call after
-  // the flat version has already been laid out.
-  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState, connectionColor });
-  const layerSpecs = layerResult ? layerResult.layers : [];
-  const layerWarnings = layerResult ? layerResult.warnings : [];
-
-  // A layer already lands as a Thing here; the same name in `nodes` would beat
-  // its shell into the graph and stop the layer decomposing. Keep the layer.
-  const layerCollision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
-  if (layerCollision.dropped.length > 0) {
-    nodeSpecs = layerCollision.nodes;
-    layerWarnings.push(layerCollisionWarning(layerCollision.dropped));
-  }
-
   // Analyze graph quality for LLM feedback. Layers count as nodes so an edge to
   // one is a real connection, not a dropped edge with an orphan at the far end.
   const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
@@ -348,9 +348,9 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
     goalId: null, // Executor pipeline disabled — UI handles creation + layout directly
     // Edge validation feedback for LLM
     droppedEdges,
-    edgeWarning: droppedEdges.length > 0
-      ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
-      : null,
+    remappedEndpoints,
+    placedExisting: placedExisting.map(p => p.name),
+    edgeWarning: describeEdgeValidation(edgeCheck),
     // Quality analysis — LLM should fix issues before responding
     qualityReport,
     // Hint: defining node bio check
@@ -387,6 +387,9 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
       edges: edgeSpecs,
       groups: groupSpecs,
       layers: layerSpecs,
+      // Things from elsewhere in the universe an edge named: the applier puts
+      // an instance of each existing prototype in this web.
+      reuseNodes: placedExisting,
       unfoldPlan,
       abstractionOrder: shapeRouting === 'abstraction-axis' ? abstractionOrder : null
     }

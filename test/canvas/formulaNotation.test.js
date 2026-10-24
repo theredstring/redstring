@@ -107,6 +107,100 @@ describe('typed text', () => {
   });
 });
 
+describe('typed derivatives (Leibniz notation)', () => {
+  const known = (...names) => ({ isKnownName: (n) => names.includes(n) });
+
+  it('reads dX/dY, d²X/dY², ∂u/∂t and d/dY X as the derivative', () => {
+    expect(text('dI/dt = x')).toBe('derivative(I, t) = x');
+    expect(text('V = L dI/dt')).toBe('V = L × derivative(I, t)');
+    expect(text('F = dp/dt')).toBe('F = derivative(p, t)');
+    expect(text('d^2x/dt^2 = a')).toBe('derivative(derivative(x, t), t) = a');
+    expect(text('d²x/dt² = a')).toBe('derivative(derivative(x, t), t) = a');
+    expect(text('y = d/dt(x)')).toBe('y = derivative(x, t)');
+    expect(text('y = d/dt x^2')).toBe('y = derivative(x ^ 2, t)');
+    expect(text('y = d(x^2)/dt')).toBe('y = derivative(x ^ 2, t)');
+    expect(text('a = ∂u/∂t')).toBe('a = partial(u, t)');
+    expect(text('a = ∂²u/∂t²')).toBe('a = partial(partial(u, t), t)');
+    expect(text('a = dv_x/dt')).toBe('a = derivative(v_x, t)');
+    expect(text('w = dθ/dt')).toBe('w = derivative(θ, t)');
+    expect(text('w = dtheta/dt')).toBe('w = derivative(theta, t)');
+  });
+
+  it('leaves a d that is not one: a name, a number over d, a word', () => {
+    expect(text('d = v t')).toBe('d = v × t');
+    expect(text('x = d/2')).toBe('x = d ÷ 2');
+    expect(text('v_max = d / t')).toBe('v_max = d ÷ t');
+    expect(text('y = 2 d x')).toBe('y = 2 × d × x');
+    expect(text('y = d(a + b)/2')).toBe('y = d × (a + b) ÷ 2');
+    expect(text('y = density/dt')).toBe('y = d × e × n × s × i × t × y ÷ d × t');
+    // A Thing the universe has by that name stays that Thing.
+    expect(chainText(chainFromText('y = dx/dt', known('dx')))).toBe('y = dx ÷ d × t');
+    expect(chainText(chainFromText('y = dx/dt', known('dt')))).toBe('y = d × x ÷ dt');
+    expect(text('y = "dx"/dt')).toBe('y = dx ÷ d × t');
+    // Code reads names whole.
+    expect(chainText(chainFromText('y = dx/dt', { convention: 'programming' }))).toBe('y = dx ÷ dt');
+  });
+
+  it('says what a derivative is missing', () => {
+    expect(() => chainFromText('y = d/dt')).toThrow('d/dt needs what it is of');
+    expect(() => chainFromText('y = ∂ x')).toThrow('Write ∂u/∂t, or partial(u, t)');
+    expect(() => chainFromText('y = ∂u/∂x∂y')).toThrow('Write ∂u/∂t, or partial(u, t)');
+  });
+});
+
+describe('typed Unicode', () => {
+  it('reads letters in any script, with their marks, lowered digits and primes, as one symbol', () => {
+    expect(text('E = ħ ω')).toBe('E = ħ × ω');
+    expect(text('E = ℏ ω')).toBe('E = ħ × ω');
+    expect(text('y = µ x')).toBe('y = μ × x');
+    expect(text('y = ℓ x')).toBe('y = ℓ × x');
+    expect(text('y = x₀')).toBe('y = x₀');
+    expect(text('P₁V₁/T₁ = P₂V₂/T₂')).toBe('P₁ × V₁ ÷ T₁ = P₂ × V₂ ÷ T₂');
+    expect(text('y = x̂ + ẋ')).toBe('y = x̂ + ẋ');
+    expect(text('y = f′ x')).toBe('y = f′ × x');
+    expect(text('E = ħ * derivative(psi, t)')).toBe('E = ħ × derivative(psi, t)');
+  });
+
+  it('keeps a change in a symbol whole: Δx', () => {
+    expect(text('y = Δx')).toBe('y = Δx');
+    expect(text('y = ∆x')).toBe('y = Δx');
+    expect(text('y = ΔU + Δtheta')).toBe('y = ΔU + Δtheta');
+    expect(text('y = Δ')).toBe('y = Δ');
+  });
+
+  it('raises what superscript digits follow', () => {
+    expect(text('y = x²')).toBe('y = x ^ 2');
+    expect(text('y = x⁻¹')).toBe('y = x ^ −1');
+    expect(text('y = x²y')).toBe('y = x ^ 2 × y');
+    expect(text('y = (a + b)²')).toBe('y = (a + b) ^ 2');
+  });
+
+  it('says how to write ∑ and ∫, and that ∇ can\'t be yet', () => {
+    expect(() => chainFromText('y = ∑ x')).toThrow('Write ∑ as sum(f, i, 1, n)');
+    expect(() => chainFromText('y = ∫ x')).toThrow('Write ∫ as integral(f, x, a, b)');
+    expect(() => chainFromText('y = ∇ f')).toThrow('Can\'t write ∇ yet');
+  });
+});
+
+describe('typed functions', () => {
+  it('knows the hyperbolic and inverse hyperbolic functions, trace, sign, erf and arg', () => {
+    expect(text('y = coth(x)')).toBe('y = coth(x)');
+    expect(text('y = sech x + csch x')).toBe('y = sech(x) + csch(x)');
+    expect(text('y = arctanh(x) + arccosh(x)')).toBe('y = arctanh(x) + arccosh(x)');
+    expect(text('y = erf(x) + erfc x')).toBe('y = erf(x) + erfc(x)');
+    expect(text('y = sgn(x)')).toBe('y = sgn(x)');
+    expect(text('y = arg(z)')).toBe('y = arg(z)');
+    expect(text('S = −tr(ρ log ρ)')).toBe('S = −tr(ρ × log(ρ))');
+    expect(text('y = Tr(A)')).toBe('y = Tr(A)');
+  });
+
+  it('splits letters by the longest function they spell: arcsinh, not arcsin of h', () => {
+    expect(text('y = arcsinhx')).toBe('y = arcsinh(x)');
+    expect(text('y = cothx')).toBe('y = coth(x)');
+    expect(text('y = arcsinx')).toBe('y = arcsin(x)');
+  });
+});
+
 describe('a formula in Things mode', () => {
   const abc = (opts = {}) => formulaWeb({
     things: [['a', 'a', 0], ['b', 'b', 300], ['c', 'c', 600]],

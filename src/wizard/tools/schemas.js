@@ -157,14 +157,15 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'deleteNode',
-            description: 'Remove a node and its connections by name.',
+            description: 'Remove a node and its connections, by exact name or instanceId. When a name matches several nodes, or matches only loosely, nothing is deleted and the candidates come back with their instanceIds: call again with the one meant.',
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to delete' },
+                    nodeName: { type: 'string', description: 'Exact name of the node to delete. Optional when instanceId is given.' },
+                    instanceId: { type: 'string', description: 'Optional. The instance to delete (from search or a previous deleteNode candidate list). Deletes exactly that node.' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
-                required: ['nodeName']
+                required: []
             }
         },
         {
@@ -198,11 +199,11 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'deleteEdge',
-            description: 'Remove a connection between nodes. ALWAYS provide sourceName and targetName — edgeId is only used if it matches a real edge in the active graph, otherwise it is ignored and the name fallback runs.',
+            description: 'Remove a connection between nodes, by sourceName + targetName or by edgeId. An edgeId that is a real connection is used as given. Names must match exactly one connection; when they match several or none, nothing is deleted and the candidate connections come back with their edgeIds.',
             parameters: {
                 type: 'object',
                 properties: {
-                    edgeId: { type: 'string', description: 'Optional. Only used if it matches a real edge in the active graph; otherwise ignored. Prefer sourceName + targetName.' },
+                    edgeId: { type: 'string', description: "Optional. The connection's id, from search (searchType: 'connections') or a candidate list. Used when it is a real connection." },
                     sourceName: { type: 'string', description: 'Name of the source node (recommended primary identifier).' },
                     targetName: { type: 'string', description: 'Name of the target node (recommended primary identifier).' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
@@ -212,13 +213,14 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'search',
-            description: 'Search for nodes or connections by keyword. Omit query to list all.',
+            description: 'Search for nodes or connections by keyword in one web (default: the active web). Node results there are instances (ids are instanceIds). Pass scope "universe" to search every Thing. Omit query to list all.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all.' },
                     searchType: { type: 'string', enum: ['nodes', 'connections'], description: '"nodes" (default) or "connections".' },
-                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
+                    targetGraphId: { type: 'string', description: 'Web to search, by name or id (default: active).' },
+                    scope: { type: 'string', enum: ['web', 'universe'], description: 'Nodes only. "web" (default) searches the target web; "universe" searches every Thing.' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination.' }
                 },

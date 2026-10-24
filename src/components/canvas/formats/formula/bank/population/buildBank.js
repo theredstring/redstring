@@ -54,6 +54,15 @@ function sentence(text) {
   return /[.!?]$/.test(s) ? s : `${s}.`;
 }
 
+// Source LaTeX known to be wrong upstream, by item: [what it says, what it
+// means]. Applied only while the source still says it, so a fix upstream
+// leaves the entry doing nothing.
+const SOURCE_FIXES = {
+  // Monod equation: the + in K_M + c_S was lost as a double space.
+  'mardi:Q6775651': [['{K_M  c_S}', '{K_M + c_S}']],
+};
+const fixSource = (id, tex) => (SOURCE_FIXES[id] || []).reduce((t, [bad, good]) => (t.includes(bad) ? t.replace(bad, good) : t), tex);
+
 // A formula that sets a model up rather than stating it: not an equation of the bank's.
 const SETUP_ROLES = /initial condition|boundary condition|computational domain|coupling condition/i;
 
@@ -198,7 +207,8 @@ export function buildBank(snap) {
     if (!item.description) { reject(item, 'no description'); continue; }
     let read = null;
     let why = null;
-    for (const tex of item.formulas) {
+    for (const source of item.formulas) {
+      const tex = fixSource(item.id, source);
       try { read = { tex, ...latexToFormula(tex) }; break; } catch (err) { why = why || err.message; }
     }
     if (!read) { reject(item, 'formula not writable yet', why || 'no formula'); continue; }

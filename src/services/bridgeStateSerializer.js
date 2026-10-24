@@ -266,6 +266,12 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
     },
     // File status (optional)
     fileStatus,
+    // Whether a universe has loaded. Before it has, the store is the empty
+    // initial state: readers wait rather than act on it (the wizard server
+    // keeps the last loaded payload, the MCP server says to try again).
+    isUniverseLoaded: state.isUniverseLoaded === true,
+    isUniverseLoading: state.isUniverseLoading === true,
+    universeSlug: state._universeSlug || null,
 
     // Summary stats
     summary: {

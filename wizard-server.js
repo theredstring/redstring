@@ -428,6 +428,7 @@ app.post('/api/bridge/register-store', (req, res) => {
 let latestBridgeState = null;
 
 let warnedIgnoredStatePost = false;
+let warnedUnloadedStatePost = false;
 
 app.get('/api/bridge/state', (req, res) => {
   // Headless: serve the live store directly (canonical). The MCP server reads
@@ -438,10 +439,12 @@ app.get('/api/bridge/state', (req, res) => {
   if (latestBridgeState) {
     res.json(latestBridgeState);
   } else {
+    // Nothing sent yet: the app is still starting (or not open).
     res.json({
       graphs: [],
       pendingActions: [],
       source: 'wizard-server',
+      isUniverseLoaded: false,
       summary: { lastUpdate: Date.now() }
     });
   }
@@ -457,8 +460,18 @@ app.post('/api/bridge/state', (req, res) => {
     }
     return res.json({ ok: true, ignored: true, storeMode: 'runtime' });
   }
-  // Store state updates from BridgeClient.jsx so MCP server can read them
-  latestBridgeState = req.body || null;
+  // Store state updates from BridgeClient.jsx so MCP server can read them.
+  // A snapshot taken before the universe loaded is the empty initial store;
+  // over a loaded one it would hand the MCP server an empty workspace.
+  const incoming = req.body || null;
+  if (incoming?.isUniverseLoaded === false && latestBridgeState && latestBridgeState.isUniverseLoaded !== false) {
+    if (!warnedUnloadedStatePost) {
+      console.log('[Wizard] Ignoring a bridge state sent before its universe loaded (keeping the last loaded one)');
+      warnedUnloadedStatePost = true;
+    }
+    return res.json({ ok: true, ignored: true, reason: 'universe_not_loaded' });
+  }
+  latestBridgeState = incoming;
   res.json({ ok: true });
 });
 
