@@ -18,6 +18,7 @@ import { buildFormulaInWeb } from '../../src/components/canvas/formats/formula/b
 import { NODE_DEFAULT_COLOR } from '../../src/constants.js';
 import { buildBridgeState } from '../../src/services/bridgeStateSerializer.js';
 import { formula as formulaTool } from '../../src/wizard/tools/formula.js';
+import { projectGraphView } from '../../src/core/openDefinitions.js';
 
 // What the wizard does to formulas, against the store: written with meanings,
 // placed like a Thing, folded and opened, rewritten in place, deleted.
@@ -62,7 +63,10 @@ describe('the wizard writing a formula', () => {
     });
     expect(built.groupId).toBeTruthy();
     const [f] = formulasIn('main');
-    expect(f).toMatchObject({ title: 'Ideal Gas Law', text: 'P × V = n × R × T', shown: 'formula', groupId: built.groupId });
+    // Its Thing opened in place, shown as its formula: the one equation, no copy here.
+    expect(f).toMatchObject({ title: 'Ideal Gas Law', text: 'P × V = n × R × T', shown: 'open', groupId: built.groupId, anchorId: built.anchorId });
+    expect(st().graphs.get('main').groups.size).toBe(0);
+    expect(st().graphs.get('main').instances.get(built.anchorId)).toMatchObject({ format: 'formula', openDefinition: { index: 0 } });
     const bySymbol = Object.fromEntries(f.terms.map(t => [t.symbol, t]));
     // The Pressure the web had, not a new one; Volume new, named for what it is; n bare.
     expect(bySymbol.P.protoId).toBe('p-pressure');
@@ -89,7 +93,7 @@ describe('the wizard writing a formula', () => {
     const graph = st().graphs.get('main');
     // One Hamilton's Model in the web: the formula's title, not the old node beside it.
     expect(graph.instances.has(model)).toBe(false);
-    const anchorId = graph.groups.get(built.groupId).anchorInstanceId;
+    const anchorId = built.anchorId;
     expect([...graph.instances.values()].filter(i => i.prototypeId === 'p-model').map(i => i.id)).toEqual([anchorId]);
     // Its connection now reaches the whole equation.
     const edges = graph.edgeIds.map(id => st().edges.get(id));
@@ -312,11 +316,11 @@ describe('the colors of a formula the wizard writes', () => {
     expect(colors.slice(2)).toContain(colorOf(built.equationProtoId));
     expect(colors).toContain(colorOf(bySymbol.V.protoId));
     expect(colorOf('p-pressure')).toBe(colors[0]);
-    expect(st().graphs.get('main').groups.get(built.groupId).color.toLowerCase()).toBe(colorOf(built.equationProtoId));
+    expect(projectGraphView(st(), 'main').groups.get(built.groupId).color.toLowerCase()).toBe(colorOf(built.equationProtoId));
   });
 
   // A formula's parentheses: the Thing-groups inside it, and their Things.
-  const partsOf = (graphId, groupId) => [...st().graphs.get(graphId).groups.values()].filter(g => g.id !== groupId);
+  const partsOf = (graphId, groupId) => [...projectGraphView(st(), graphId).groups.values()].filter(g => g.id !== groupId);
 
   it('colors its parentheses the same way, nested ones too', () => {
     colored('main', 'p-a', 'A', colors[0]);

@@ -22,13 +22,16 @@ import { findBankEquation } from './bank/searchBank.js';
 import { expandNodeInPlace } from '../../actions/expandInPlace.js';
 import { webColorPicker } from './webColors.js';
 import { getNodeDimensions } from '../../../../utils.js';
+import { projectGraphView } from '../../../../core/openDefinitions.js';
 
 /** A Thing by name, the web's own first, the last match (MEMORY: never the first). */
 function thingNamed(state, graphId, name) {
   const key = normalizeName(name);
   if (!key) return null;
   let found = null;
-  for (const inst of state.graphs.get(graphId)?.instances?.values() || []) {
+  // The web as drawn: a formula opened in place shows its Things in it.
+  const shown = projectGraphView(state, graphId)?.instances || state.graphs.get(graphId)?.instances;
+  for (const inst of shown?.values() || []) {
     const p = state.nodePrototypes.get(inst.prototypeId);
     if (p && normalizeName(p.name) === key) found = p;
   }

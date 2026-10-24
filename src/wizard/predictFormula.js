@@ -77,7 +77,10 @@ export function predictFormula(graphState, result) {
         return proto;
       })();
     // Its web is the formula: it has a definition from now on.
-    eq.definitionGraphIds = [...(eq.definitionGraphIds || []), newId('graph')];
+    const definition = { id: newId('graph'), name: eq.name, description: '', instances: [], edgeIds: [], groups: [], definingNodeIds: [eq.id] };
+    eq.definitionGraphIds = [...(eq.definitionGraphIds || []), definition.id];
+    graphState.graphs.push(definition);
+    const index = eq.definitionGraphIds.length - 1;
     const anchorId = newId('inst');
     // Standing here as a plain node, the Thing's formula takes that node's place,
     // its connections and all (buildFormula.js takePlaceOf).
@@ -93,12 +96,12 @@ export function predictFormula(graphState, result) {
         removeFrom(graphState, graph, [standing.id]);
       }
     }
-    graph.instances.push({ id: anchorId, prototypeId: eq.id, name: eq.name, isGroupAnchor: true });
-    const terms = placeTerms(graphState, graph, result.terms);
+    // Its Thing opened in place, shown as its formula (buildFormula.js openedInPlace):
+    // its terms are in its definition, which this web shows without holding.
+    graph.instances.push({ id: anchorId, prototypeId: eq.id, name: eq.name, format: 'formula', openDefinition: { index } });
+    const terms = placeTerms(graphState, definition, result.terms);
     const memberIds = terms.map(t => t.instanceId);
-    const groupId = newId('group');
-    graph.groups.push({ id: groupId, name: eq.name, format: 'formula', linkedNodePrototypeId: eq.id, anchorInstanceId: anchorId, memberInstanceIds: memberIds });
-    formulas.push({ graphId: graph.id, groupId, anchorId, equationProtoId: eq.id, title: eq.name, text: result.canonicalText, shown: 'formula', terms, memberIds });
+    formulas.push({ graphId: graph.id, groupId: `open:${anchorId}`, anchorId, equationProtoId: eq.id, title: eq.name, text: result.canonicalText, shown: 'open', terms, memberIds });
     graphState.equations.push({ protoId: eq.id, name: eq.name, text: result.canonicalText });
     return;
   }
@@ -138,6 +141,9 @@ export function predictFormula(graphState, result) {
       graph.groups = graph.groups.filter(g => g.id !== f.groupId);
       const anchor = graph.instances.find(inst => inst.id === f.anchorId);
       if (anchor) { delete anchor.isGroupAnchor; anchor.format = 'formula'; }
+    } else if (f.shown === 'open') {
+      const anchor = graph.instances.find(inst => inst.id === f.anchorId);
+      if (anchor) delete anchor.openDefinition;
     }
     f.shown = 'folded';
     f.groupId = null;

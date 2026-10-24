@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { formulasIn } from './utils/formulas.js';
 
 /**
  * deleteGroup - Delete a group (keeps member nodes)
@@ -61,8 +62,13 @@ export async function deleteGroup(args, graphState, cid, ensureSchedulerStarted)
   const graph = graphs.find(g => g.id === graphId);
   const groups = Array.isArray(graph?.groups) ? graph.groups : graph?.groups instanceof Map ? [...graph.groups.values()] : Object.values(graph?.groups || {});
   const target = groups.find(g => g.id === resolvedGroupId);
-  if (target?.format === 'formula') {
-    throw new Error(`"${target.name}" is a formula. Use the formula tool: action "delete" to remove it with its Things, or "fold" to fold it into its Thing.`);
+  // Its Thing opened in place, shown as its formula, it is no group of this web's, but it is the same formula.
+  const nameKey = String(groupName || '').trim().toLowerCase();
+  const opened = !target && nameKey
+    ? formulasIn(graphState, graphId).find(f => f.shown === 'open' && String(f.title || '').trim().toLowerCase() === nameKey)
+    : null;
+  if (target?.format === 'formula' || opened) {
+    throw new Error(`"${target?.name || opened.title}" is a formula. Use the formula tool: action "delete" to remove it with its Things, or "fold" to fold it into its Thing.`);
   }
 
   console.error('[deleteGroup] Deleting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');

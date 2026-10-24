@@ -37,6 +37,30 @@ export function instanceNames(graphState, protoById) {
 }
 
 /**
+ * A web's instances as the canvas draws them: its own, then those of every
+ * definition opened in place in it (core/openDefinitions.js), at their place
+ * in this web. A formula opened in place keeps its terms there.
+ */
+function shownInstances(graphState, graph, protoById) {
+  const graphById = new Map(listOf(graphState?.graphs).filter(g => g?.id).map(g => [g.id, g]));
+  const shown = [];
+  const opened = new Set([graph?.id]);
+  const walk = (g, dx, dy) => {
+    for (const inst of listOf(g?.instances)) {
+      if (!inst?.id) continue;
+      shown.push(dx || dy ? { ...inst, x: (inst.x ?? 0) + dx, y: (inst.y ?? 0) + dy } : inst);
+      const open = inst.openDefinition;
+      const defId = open && protoById.get(inst.prototypeId)?.definitionGraphIds?.[open.index ?? 0];
+      if (!defId || opened.has(defId) || !graphById.has(defId)) continue;
+      opened.add(defId);
+      walk(graphById.get(defId), dx + (open.offset?.x ?? 0), dy + (open.offset?.y ?? 0));
+    }
+  };
+  walk(graph, 0, 0);
+  return shown;
+}
+
+/**
  * Read one web: its places (instances) under the names the wizard is shown,
  * and its connections that are the web's own (a formula's operations left out).
  */
@@ -45,7 +69,7 @@ export function readWeb(graphState, graphId) {
   const protoById = new Map(listOf(graphState?.nodePrototypes).filter(p => p?.id).map(p => [p.id, p]));
   const cover = formulaCover(formulasIn(graphState, graphId));
 
-  const places = listOf(graph?.instances).filter(inst => inst?.id).map((inst) => {
+  const places = shownInstances(graphState, graph, protoById).map((inst) => {
     const proto = protoById.get(inst.prototypeId);
     const f = cover.of(inst.id);
     return {

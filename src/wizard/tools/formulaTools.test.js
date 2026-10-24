@@ -98,9 +98,12 @@ describe('what an ask has made, predicted', () => {
     const gs = { graphs: [{ id: 'w', name: 'W', instances: [], edgeIds: [], groups: [] }], nodePrototypes: [], activeGraphId: 'w' };
     const read = readFormulaText('P * V = n * R * T', { meanings: [{ symbol: 'P', thing: 'Pressure' }] });
     predictFormula(gs, { action: 'addFormula', graphId: 'w', title: 'Ideal Gas Law', canonicalText: read.text, terms: read.terms });
-    const names = gs.graphs[0].instances.map(i => i.name);
-    expect(names).toEqual(expect.arrayContaining(['Ideal Gas Law', 'Pressure', 'V']));
-    expect(gs.formulas[0]).toMatchObject({ title: 'Ideal Gas Law', text: 'P × V = n × R × T', shown: 'formula' });
+    // Its Thing opened in place here; its terms in its definition, which the web shows.
+    expect(gs.graphs[0].instances.map(i => i.name)).toEqual(['Ideal Gas Law']);
+    expect(gs.graphs[0].instances[0]).toMatchObject({ format: 'formula', openDefinition: { index: 0 } });
+    const definition = gs.graphs.find(g => g.id === gs.nodePrototypes.find(p => p.name === 'Ideal Gas Law').definitionGraphIds[0]);
+    expect(definition.instances.map(i => i.name)).toEqual(expect.arrayContaining(['Pressure', 'V']));
+    expect(gs.formulas[0]).toMatchObject({ title: 'Ideal Gas Law', text: 'P × V = n × R × T', shown: 'open' });
 
     predictFormula(gs, { action: 'foldFormula', graphId: 'w', formulaName: 'Ideal Gas Law' });
     expect(gs.formulas[0].shown).toBe('folded');
@@ -130,7 +133,7 @@ describe('what an ask has made, predicted', () => {
     predictFormula(gs, { action: 'addFormula', graphId: 'w', title: "Hamilton's Model", forThing: "Hamilton's Model", canonicalText: read.text, terms: read.terms });
     const models = gs.graphs[0].instances.filter(i => i.prototypeId === 'p-model');
     expect(models).toHaveLength(1);
-    expect(models[0].isGroupAnchor).toBe(true);
+    expect(models[0]).toMatchObject({ format: 'formula', openDefinition: { index: 0 } });
     expect(gs.edges[0].sourceId).toBe(models[0].id);
   });
 });

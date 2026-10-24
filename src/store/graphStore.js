@@ -721,7 +721,9 @@ const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, 
       prototypeId: srcInst.prototypeId,
       x: (srcInst.x ?? 0) + offsetX,
       y: (srcInst.y ?? 0) + offsetY,
-      scale: srcInst.scale ?? 1
+      scale: srcInst.scale ?? 1,
+      // How this one is written (a formula's q₁ for Electric Charge): the copy is written so too.
+      ...(srcInst.labels ? { labels: { ...srcInst.labels } } : {})
     });
   }
 
@@ -2997,7 +2999,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
               prototypeId: instance.prototypeId,
               x: instance.x,
               y: instance.y,
-              scale: instance.scale || 1.0
+              scale: instance.scale || 1.0,
+              ...(instance.labels ? { labels: { ...instance.labels } } : {})
             });
           });
 
@@ -6100,6 +6103,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     applyBulkGraphUpdates: (graphId, { nodes = [], edges = [], groups = [] }) => {
       api.setChangeContext({ type: 'bulk_update', target: 'graph', finalize: true });
+      // An end can be inside a definition open in this web (a formula's term):
+      // the connection is routed through its box, as addEdge routes one.
+      const viewState = get();
+      const openOwner = (id) => (id ? openOwnerOf(viewState, graphId, id) : null);
       set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph) {
@@ -6123,6 +6130,15 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           const inFormula = new Set();
           graph.groups?.forEach((g) => {
             if (g.format === 'formula') (g.memberInstanceIds || []).forEach((id) => inFormula.add(id));
+          });
+          // Lowest of all, a Thing inside a definition open here (an opened
+          // formula's term): reached by name only when the web has none of its own.
+          projectGraphView(viewState, graphId)?.instances?.forEach((inst, instanceId) => {
+            if (graph.instances.has(instanceId)) return;
+            const name = draft.nodePrototypes.get(inst.prototypeId)?.name;
+            if (!name) return;
+            nodeIdMap.set(name, instanceId);
+            nodeIdMapNormalized.set(normalizeName(name), instanceId);
           });
           [...graph.instances.entries()]
             .sort(([a], [b]) => inFormula.has(b) - inFormula.has(a))
@@ -6243,7 +6259,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           // predictive instance ids it tracked for nodes made earlier in the same
           // ask, and those never match the ids the store gave them — trusting one
           // skipped the name lookup and dropped the edge silently.
-          const inGraph = (id) => (id && graph.instances.has(id) ? id : null);
+          const inGraph = (id) => (id && (graph.instances.has(id) || openOwner(id)) ? id : null);
 
           // Try exact match first, then normalized match
           let sourceId = inGraph(edge.sourceId) || nodeIdMap.get(edge.source) || nodeIdMapNormalized.get(normalizeName(edge.source));
@@ -6251,7 +6267,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           console.log(`[applyBulkGraphUpdates] Edge ${idx}: sourceId=${sourceId ? 'FOUND' : 'NOT_FOUND'}, destId=${destId ? 'FOUND' : 'NOT_FOUND'}`);
 
-          if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
+          if (sourceId && destId && inGraph(sourceId) && inGraph(destId)) {
             const edgeId = edge.id || uuidv4();
 
             // DUPLICATE EDGE PREVENTION: Only block if same nodes AND same connection type
@@ -6403,9 +6419,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 definitionNodeIds: definitionNodeIds,
                 directionality: { arrowsToward }
               };
+              let home = graph;
+              if (openOwner(sourceId) || openOwner(destId)) {
+                const ownGraph = { graphId, path: [], offset: { x: 0, y: 0 } };
+                const { homeGraphId, viaA, viaB } = connectionHome(openOwner(sourceId) || ownGraph, openOwner(destId) || ownGraph, graphId);
+                home = draft.graphs.get(homeGraphId) || graph;
+                if (viaA.length > 0) edgeData.sourceVia = viaA;
+                if (viaB.length > 0) edgeData.destinationVia = viaB;
+              }
               draft.edges.set(edgeId, edgeData);
-              if (!graph.edgeIds) graph.edgeIds = [];
-              graph.edgeIds.push(edgeId);
+              if (!home.edgeIds) home.edgeIds = [];
+              home.edgeIds.push(edgeId);
               console.log(`[applyBulkGraphUpdates] Created edge: ${edge.source || 'unknown'} → ${edge.target || 'unknown'} (${connectionTypeName}) with definitionNodeIds:`, definitionNodeIds);
             }
           } else {

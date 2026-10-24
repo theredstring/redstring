@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import '../layout-bench/env.js';
 import { createHeadlessStore, __resetHeadlessStoreCache } from '../../src/headless/createHeadlessStore.js';
 import { installFakeProvider, transcriptProblems } from './fakeProvider.js';
+import { projectGraphView } from '../../src/core/openDefinitions.js';
 
 let useGraphStore;
 let applyToolResultToStore;
@@ -61,7 +62,9 @@ async function ask(message, script) {
 
 const webNamed = (name) => [...st().graphs.values()].filter(g => g.name === name).pop();
 const formulasIn = (graphId) => formulasForWizard(st()).formulas.filter(f => f.graphId === graphId);
-const protoOf = (graphId, instanceId) => st().nodePrototypes.get(st().graphs.get(graphId)?.instances.get(instanceId)?.prototypeId);
+// The web as drawn: a formula's terms are inside its Thing's definition, opened in place.
+const shown = (graphId) => projectGraphView(st(), graphId);
+const protoOf = (graphId, instanceId) => st().nodePrototypes.get(shown(graphId)?.instances.get(instanceId)?.prototypeId);
 const edgesOf = (graphId) => (st().graphs.get(graphId).edgeIds || []).map(id => st().edges.get(id)).filter(Boolean);
 
 describe('the wizard with formulas', () => {
@@ -94,7 +97,7 @@ describe('the wizard with formulas', () => {
     expect(r.results.map(x => x.result?.error).filter(Boolean)).toEqual([]);
 
     const [f] = formulasIn(gases);
-    expect(f).toMatchObject({ title: 'Ideal Gas Law', text: 'P × V = n × R × T', shown: 'formula' });
+    expect(f).toMatchObject({ title: 'Ideal Gas Law', text: 'P × V = n × R × T', shown: 'open' });
     expect(Object.fromEntries(f.terms.map(t => [t.symbol, t.thing]))).toMatchObject({ P: 'Pressure', V: 'Volume', T: 'Temperature', n: 'n', R: 'R' });
 
     const gas = [...st().graphs.get(gases).instances.values()].find(i => st().nodePrototypes.get(i.prototypeId)?.name === 'Gas');
@@ -194,7 +197,7 @@ describe('connecting a formula when its symbols are also Things on the web', () 
   // L for the same Thing. "Connect the formula to Pendulum Length" means the
   // one drawn as itself: the formula's own L is drawn inside it, and lost there.
   let clock;
-  const named = (name, inFormula) => [...st().graphs.get(clock).instances.values()]
+  const named = (name, inFormula) => [...shown(clock).instances.values()]
     .filter(i => st().nodePrototypes.get(i.prototypeId)?.name === name)
     .find(i => inFormula === formulasIn(clock)[0].memberIds.includes(i.id));
 

@@ -34,6 +34,9 @@ const reset = () => {
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(),
     savedGraphIds: new Set(),
+    // Built as a Thing-group, the copy a node opens as with the setting off;
+    // with it on, a formula is built as its Thing opened in place (formulaWizard.test.js).
+    openDefinitionsInPlace: false,
   });
 };
 
