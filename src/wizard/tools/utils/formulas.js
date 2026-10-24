@@ -110,6 +110,21 @@ export function formulaCover(formulas) {
       const term = (f.terms || []).find(t => t.instanceId === id);
       return `${term?.thing || fallback} (in ${f.title})`;
     },
+    /**
+     * Each formula's anchor and terms by id, named as nameOf names them. A
+     * formula opened in place keeps its terms in its own web, so a connection
+     * from this web to one ends on an id none of this web's Things have.
+     */
+    names: () => {
+      const named = new Map();
+      for (const f of formulas || []) {
+        if (f.anchorId) named.set(f.anchorId, f.title);
+        for (const t of f.terms || []) {
+          if (t.instanceId) named.set(t.instanceId, `${t.thing || t.symbol} (in ${f.title})`);
+        }
+      }
+      return named;
+    },
   };
 }
 

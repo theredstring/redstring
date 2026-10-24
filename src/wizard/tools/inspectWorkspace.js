@@ -571,9 +571,13 @@ export async function inspectWorkspace(args, graphState) {
     };
   });
 
+  // A connection's ends are instances, and one can be kept in another web (a
+  // definition or formula opened in place), so look in every web.
+  const instanceById = new Map();
+  for (const g of graphs) for (const inst of getInstances(g)) if (inst?.id) instanceById.set(inst.id, inst);
   const edgeList = graphEdges.slice(0, MAX_EDGES_PER_GRAPH).map(e => {
-    const srcProto = idx.protoById.get(e.sourceId);
-    const dstProto = idx.protoById.get(e.destinationId);
+    const srcProto = idx.protoById.get(instanceById.get(e.sourceId)?.prototypeId);
+    const dstProto = idx.protoById.get(instanceById.get(e.destinationId)?.prototypeId);
     const typeProto = e.typeNodeId ? idx.protoById.get(e.typeNodeId) : null;
     return {
       edgeId: e.id,

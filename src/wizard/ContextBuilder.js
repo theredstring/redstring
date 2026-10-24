@@ -118,7 +118,7 @@ function resolveEdgeType(edge, protoMap) {
  * Returns a string with no trailing newline. `isActive` switches the framing —
  * the active graph is introduced as the current screen, the rest as context.
  */
-function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, isActive = false }) {
+function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, instanceNameById, isActive = false }) {
   const name = graph.name || 'Unnamed';
 
   if (level === DETAIL.NAME) return `  - "${name}"`;
@@ -147,6 +147,10 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, is
     const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
     nodeNameById.set(inst.id, cover.nameOf(inst.id, inst.name || proto?.name || ''));
   }
+  // A connection can end on a Thing kept in another web: a term of a formula
+  // opened in place, or a Thing of any definition opened in place.
+  for (const [id, nm] of cover.names()) if (!nodeNameById.has(id)) nodeNameById.set(id, nm);
+  const nameOfEnd = (id) => nodeNameById.get(id) || instanceNameById?.get(id) || id || '?';
   const formulaLines = formulas.map(f => `  - ${formulaLine(f)}`);
 
   const nodeLine = (inst) => {
@@ -200,9 +204,7 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, is
     const triplets = graphEdges.map(e => {
       const sourceId = e.sourceId || e.source;
       const targetId = e.destinationId || e.targetId || e.target;
-      const sourceName = nodeNameById.get(sourceId) || sourceId || '?';
-      const targetName = nodeNameById.get(targetId) || targetId || '?';
-      return `  - ${sourceName} --[${resolveEdgeType(e, protoMap)}]--> ${targetName}`;
+      return `  - ${nameOfEnd(sourceId)} --[${resolveEdgeType(e, protoMap)}]--> ${nameOfEnd(targetId)}`;
     });
     sections.push(`Connections:\n${triplets.join('\n')}`);
   }
@@ -305,7 +307,16 @@ export function buildContext(graphState) {
     formulasByGraph.get(f.graphId).push(f);
   }
 
-  const renderCtx = { protoMap, edgesByGraph, formulasByGraph };
+  // Every instance's name, for a connection whose end is kept in another web.
+  const instanceNameById = new Map();
+  for (const g of graphs) {
+    for (const inst of getInstances(g)) {
+      const nm = inst?.id && (inst.name || protoMap.get(inst.prototypeId)?.name);
+      if (nm) instanceNameById.set(inst.id, nm);
+    }
+  }
+
+  const renderCtx = { protoMap, edgesByGraph, formulasByGraph, instanceNameById };
   const tiers = assignGraphTiers(graphs, activeGraphId, openGraphIds);
 
   let context = '';
@@ -675,7 +686,9 @@ export function buildPinnedContext(graphState, pins = [], { activeShown = true, 
     if (!g?.id) continue;
     edgesByGraph.set(g.id, (Array.isArray(g.edgeIds) ? g.edgeIds : []).map(id => edgesById.get(id)).filter(Boolean));
   }
-  const renderCtx = { protoMap, edgesByGraph };
+  const instanceNameById = new Map();
+  for (const [id, info] of instanceInfo) if (info.name) instanceNameById.set(id, info.name);
+  const renderCtx = { protoMap, edgesByGraph, instanceNameById };
 
   const connectionsOf = (protoId) => {
     const lines = [];

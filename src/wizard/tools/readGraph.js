@@ -68,6 +68,24 @@ export async function readGraph(args, graphState) {
         }
     }
 
+    // A connection can end on a Thing kept in another web: a term of a formula
+    // opened in place, or a Thing of any definition opened in place.
+    const elsewhereNameById = new Map();
+    for (const g of graphs) {
+        if (g === activeGraph) continue;
+        const gInstances = Array.isArray(g.instances)
+            ? g.instances
+            : g.instances instanceof Map
+                ? Array.from(g.instances.values())
+                : Object.values(g.instances || {});
+        for (const inst of gInstances) {
+            const nm = inst?.id && (inst.name || protoMap.get(inst.prototypeId)?.name);
+            if (nm) elsewhereNameById.set(inst.id, nm);
+        }
+    }
+    for (const [id, nm] of cover.names()) elsewhereNameById.set(id, nm);
+    const nameOfEnd = (id) => nodeNameById.get(id) || elsewhereNameById.get(id) || id || '?';
+
     // --- Nodes output ---------------------------------------------------------
     const nodeList = instances.filter(inst => !cover.hides(inst.id)).map(inst => {
         const name = nodeNameById.get(inst.id) || inst.id;
@@ -120,8 +138,8 @@ export async function readGraph(args, graphState) {
             type = e.connectionType;
         }
 
-        const sourceName = nodeNameById.get(sourceId) || sourceId || '?';
-        const targetName = nodeNameById.get(targetId) || targetId || '?';
+        const sourceName = nameOfEnd(sourceId);
+        const targetName = nameOfEnd(targetId);
 
         return {
             id: e.id,

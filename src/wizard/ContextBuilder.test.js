@@ -253,6 +253,40 @@ describe('buildContext edges', () => {
     expect(ctx).toContain('Source --[Depends On]--> Target');
   });
 
+  it('names an end kept in another web, as a term of a formula opened in place', () => {
+    // The formula's terms live in its own web; the active web holds only its
+    // Thing, and a connection from the web to a term ends on the term's id.
+    const active = {
+      id: 'act', name: 'Active',
+      instances: [{ id: 'sail', prototypeId: 'pSail' }, { id: 'anchor', prototypeId: 'pLaw' }, { id: 'probe', prototypeId: 'pProbe' }],
+      edgeIds: ['e1', 'e2'], groups: []
+    };
+    const lawWeb = { id: 'law', name: 'Law', instances: [{ id: 'termR', prototypeId: 'pR' }], edgeIds: [], groups: [] };
+    const otherWeb = { id: 'def', name: 'Def', instances: [{ id: 'part', prototypeId: 'pPart' }], edgeIds: [], groups: [] };
+
+    const ctx = buildContext({
+      graphs: [active, lawWeb, otherWeb],
+      nodePrototypes: [
+        { id: 'pSail', name: 'Sail' }, { id: 'pLaw', name: 'Equilibrium Law' }, { id: 'pProbe', name: 'Probe' },
+        { id: 'pR', name: 'Reflectivity' }, { id: 'pPart', name: 'Part' }, { id: 'pRel', name: 'Tuned For' }
+      ],
+      edges: [
+        { id: 'e1', sourceId: 'sail', destinationId: 'termR', definitionNodeIds: ['pRel'] },
+        { id: 'e2', sourceId: 'part', destinationId: 'probe', definitionNodeIds: ['pRel'] }
+      ],
+      formulas: [{
+        graphId: 'act', anchorId: 'anchor', title: 'Equilibrium Law', text: 'R = 1', shown: 'open',
+        terms: [{ symbol: 'R', thing: 'Reflectivity', instanceId: 'termR' }], memberIds: ['termR']
+      }],
+      activeGraphId: 'act',
+      openGraphIds: ['act']
+    });
+
+    expect(ctx).toContain('Sail --[Tuned For]--> Reflectivity (in Equilibrium Law)');
+    expect(ctx).toContain('Part --[Tuned For]--> Probe');
+    expect(ctx).not.toContain('termR');
+  });
+
   it('handles an empty active graph', () => {
     const ctx = buildContext({
       graphs: [{ id: 'act', name: 'Blank', instances: [], edgeIds: [], groups: [] }],
