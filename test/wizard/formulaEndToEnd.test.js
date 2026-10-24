@@ -188,3 +188,46 @@ describe('the wizard with formulas', () => {
     expect(r.results[0].result.error).toMatch(/not a formula Redstring can read/);
   });
 });
+
+describe('connecting a formula when its symbols are also Things on the web', () => {
+  // The web has Pendulum Length drawn as itself, and the formula draws its own
+  // L for the same Thing. "Connect the formula to Pendulum Length" means the
+  // one drawn as itself: the formula's own L is drawn inside it, and lost there.
+  let clock;
+  const named = (name, inFormula) => [...st().graphs.get(clock).instances.values()]
+    .filter(i => st().nodePrototypes.get(i.prototypeId)?.name === name)
+    .find(i => inFormula === formulasIn(clock)[0].memberIds.includes(i.id));
+
+  beforeAll(async () => {
+    st().createNewGraph({ name: 'Clock' });
+    clock = st().activeGraphId;
+    st().applyBulkGraphUpdates(clock, { nodes: ['Pendulum', 'Pendulum Length', 'Gravitational Acceleration', 'Oscillation Period'].map((name, i) => ({ name, x: i * 200, y: 0 })) });
+    await ask('Add the pendulum period formula', [
+      { tools: [{ id: 'tu_f', name: 'addFormula', args: {
+        text: 'T = 2 * L / g', title: 'Pendulum Period',
+        meanings: [{ symbol: 'T', thing: 'Oscillation Period' }, { symbol: 'L', thing: 'Pendulum Length' }, { symbol: 'g', thing: 'Gravitational Acceleration' }],
+      } }] },
+      { text: 'Added it.' },
+    ]);
+  });
+
+  it('lands on the Thing drawn as itself, reaches a symbol by its full name, and refuses the formula to its own symbol', async () => {
+    const r = await ask('Connect the equation to its most relevant stuff', [
+      { tools: [
+        { id: 'tu_e1', name: 'createEdge', args: { sourceId: 'Pendulum Period', targetId: 'Pendulum Length', type: 'Takes Input' } },
+        { id: 'tu_e2', name: 'createEdge', args: { sourceId: 'Pendulum Period', targetId: 'Oscillation Period', type: 'Calculates' } },
+        { id: 'tu_e3', name: 'createEdge', args: { sourceId: 'Pendulum', targetId: 'Gravitational Acceleration (in Pendulum Period)', type: 'Swings Under' } },
+        { id: 'tu_e4', name: 'createEdge', args: { sourceId: 'Pendulum Period', targetId: 'Pendulum Length (in Pendulum Period)', type: 'Relates' } },
+      ] },
+      { text: 'Connected it.' },
+    ]);
+    expect(r.failures).toEqual([]);
+    const anchor = formulasIn(clock)[0].anchorId;
+    const has = (s, d) => edgesOf(clock).some(e => e.sourceId === s && e.destinationId === d);
+    expect(has(anchor, named('Pendulum Length', false).id)).toBe(true);
+    expect(has(anchor, named('Oscillation Period', false).id)).toBe(true);
+    expect(has(named('Pendulum', false).id, named('Gravitational Acceleration', true).id)).toBe(true);
+    expect(has(anchor, named('Pendulum Length', true).id)).toBe(false);
+    expect(r.results.find(x => x.name === 'createEdge' && x.result?.error)?.result.error).toMatch(/both inside the formula "Pendulum Period"/);
+  });
+});

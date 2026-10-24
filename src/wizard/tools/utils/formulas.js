@@ -81,6 +81,37 @@ export function formulaLine(f) {
 }
 
 /**
+ * Terms named in more than one formula, and whether each is one Thing or
+ * separate Things of the same name: the same name in two formulas reads as a
+ * duplicate unless something says otherwise. Numbers are left out.
+ * Returns lines (none when no term repeats).
+ */
+export function repeatedTermsLines(formulas) {
+  const byName = new Map();
+  for (const f of formulas || []) {
+    for (const t of f.terms || []) {
+      const name = t.thing || t.symbol;
+      if (!name || /^[\d.]+$/.test(String(name).trim())) continue;
+      const k = key(name);
+      if (!byName.has(k)) byName.set(k, { name, titles: new Set(), protoIds: new Set() });
+      const entry = byName.get(k);
+      entry.titles.add(f.title);
+      if (t.protoId) entry.protoIds.add(t.protoId);
+    }
+  }
+  const shared = [];
+  const split = [];
+  for (const { name, titles, protoIds } of byName.values()) {
+    if (titles.size < 2) continue;
+    (protoIds.size > 1 ? split : shared).push(`${name} (${[...titles].join(', ')})`);
+  }
+  const lines = [];
+  if (shared.length) lines.push(`Terms shared by formulas, one Thing each: ${shared.join('; ')}`);
+  if (split.length) lines.push(`Same name, separate Things: ${split.join('; ')}`);
+  return lines;
+}
+
+/**
  * What a web's formulas cover: `of(id)` is the formula an instance is inside
  * or stands for (its anchor), `hides(id)` whether it is drawn as part of one
  * rather than as a Thing, `internal(edge)` whether a connection is one of a

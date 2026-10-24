@@ -16,6 +16,7 @@
  *    universe), which is what made the whole turn look like it had hung.
  */
 import { calculateStringSimilarity } from './utils/stringSimilarity.js';
+import { instancesSeenIn } from './utils/openedInPlace.js';
 
 const MAX_GROUPS = 25;
 const MAX_NODES_PER_GROUP = 12;
@@ -47,13 +48,30 @@ export async function findDuplicates(args, graphState) {
     const graphId = targetGraphId || activeGraphId;
     const targetGraph = graphs.find(g => g.id === graphId || g.name === targetGraphId);
     if (targetGraph) {
-      const instances = Array.isArray(targetGraph.instances)
-        ? targetGraph.instances
-        : Object.values(targetGraph.instances || {});
-      const protoIdsInGraph = new Set(instances.map(i => i.prototypeId));
+      // Its Things as the user sees them, those of definitions and formulas opened in place included.
+      const protoIdsInGraph = new Set(instancesSeenIn(graphState, targetGraph).map(({ inst }) => inst?.prototypeId));
       prototypesToCheck = nodePrototypes.filter(p => protoIdsInGraph.has(p.id));
     }
   }
+
+  // A formula's parts ("1 + R", "1 − R") are named after what they hold, so
+  // two can read alike and be different terms: merging them breaks a formula.
+  // A part is what a formula draws over that is not one of its terms.
+  const protoOfInstance = new Map();
+  for (const graph of graphs) {
+    const instances = graph.instances instanceof Map ? Array.from(graph.instances.values())
+      : Array.isArray(graph.instances) ? graph.instances : Object.values(graph.instances || {});
+    for (const inst of instances) if (inst?.id) protoOfInstance.set(inst.id, inst.prototypeId);
+  }
+  const partProtoIds = new Set();
+  for (const f of graphState.formulas || []) {
+    const termIds = new Set((f.terms || []).map(t => t.instanceId));
+    for (const id of f.memberIds || []) {
+      const protoId = protoOfInstance.get(id);
+      if (protoId && !termIds.has(id)) partProtoIds.add(protoId);
+    }
+  }
+  if (partProtoIds.size) prototypesToCheck = prototypesToCheck.filter(p => !partProtoIds.has(p.id));
 
   // Same weighting as scoreNodeRichness, but reading the precomputed count.
   const richness = (proto) => {

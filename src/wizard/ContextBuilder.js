@@ -23,7 +23,7 @@
  */
 
 import { estimateTokens } from './tokenEstimate.js';
-import { formulaCover, formulaLine } from './tools/utils/formulas.js';
+import { formulaCover, formulaLine, repeatedTermsLines } from './tools/utils/formulas.js';
 
 /**
  * Total token budget for the graph portion of the context header.
@@ -198,7 +198,9 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, in
 
   if (nodeCount > 0) sections.push(`Things:\n${instances.map(nodeLine).join('\n')}`);
   // Each its equation's Thing: connect to it by its title, to a symbol by what it stands for.
-  if (formulaCount > 0) sections.push(`Formulas (use the formula tool to place, fold, rewrite or delete one):\n${formulaLines.join('\n')}`);
+  if (formulaCount > 0) {
+    sections.push(`Formulas (use the formula tool to place, fold, rewrite or delete one):\n${[...formulaLines, ...repeatedTermsLines(formulas).map(l => `  ${l}`)].join('\n')}`);
+  }
 
   if (edgeCount > 0) {
     const triplets = graphEdges.map(e => {

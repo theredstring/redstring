@@ -206,3 +206,25 @@ describe('search scope', () => {
 
 
 
+
+describe('search of a web with a definition opened in place', () => {
+  // "Law" is shown open in "Sail": its Things stay in its own web and are seen in Sail.
+  const state = () => ({
+    activeGraphId: 'sail',
+    graphs: [
+      { id: 'sail', name: 'Sail', instances: [{ id: 'i-sail', prototypeId: 'p-sail' }, { id: 'i-law', prototypeId: 'p-law', openDefinition: { index: 0 } }] },
+      { id: 'law', name: 'Law', instances: [{ id: 'i-r', prototypeId: 'p-r' }] }
+    ],
+    nodePrototypes: [
+      { id: 'p-sail', name: 'Sail' },
+      { id: 'p-law', name: 'Equilibrium Law', definitionGraphIds: ['law'] },
+      { id: 'p-r', name: 'Reflectivity' }
+    ],
+    edges: []
+  });
+
+  it('finds the opened definition\'s Things, marked with what they are opened in', async () => {
+    const result = await searchNodes({ query: 'Reflectivity' }, state());
+    expect(result.results).toEqual([expect.objectContaining({ id: 'i-r', prototypeId: 'p-r', openedIn: 'Equilibrium Law' })]);
+  });
+});

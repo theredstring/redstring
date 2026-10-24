@@ -2,6 +2,7 @@ import { resolveGraphId } from './resolveGraphId.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 import { suggestRelationKind, suggestArrowDirection } from './utils/suggestionCalls.js';
 import { newBuildId } from '../../services/oneShot.js';
+import { formulasIn, formulaCover } from './utils/formulas.js';
 
 /**
  * createEdge - Connect two nodes by name
@@ -10,7 +11,7 @@ import { newBuildId } from '../../services/oneShot.js';
 /**
  * Build the candidate list (instances + thing-groups) for a graph.
  */
-function buildCandidates(nodePrototypes, graphs, graphId) {
+function buildCandidates(nodePrototypes, graphs, graphId, cover) {
   const targetGraph = graphs.find(g => g.id === graphId);
   if (!targetGraph) return [];
 
@@ -20,12 +21,17 @@ function buildCandidates(nodePrototypes, graphs, graphId) {
       ? Array.from(targetGraph.instances.values())
       : Object.values(targetGraph.instances || {});
 
+  // A formula's symbol is named as the context names it, "Pendulum Length (in
+  // Pendulum Period)", so the bare name is the Thing drawn as itself.
   const candidates = instances.map(inst => {
     const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
+    const name = inst.name || proto?.name || '';
+    const symbol = cover.hides(inst.id) && cover.of(inst.id).anchorId !== inst.id;
     return {
       instanceId: inst.id,
       prototypeId: inst.prototypeId,
-      name: inst.name || proto?.name || '',
+      name: symbol ? cover.nameOf(inst.id, name) : name,
+      ...(symbol ? { thing: name } : {}),
       description: inst.description || proto?.description || ''
     };
   });
@@ -59,8 +65,15 @@ function buildCandidates(nodePrototypes, graphs, graphId) {
  * times in a row before giving up.
  */
 async function resolveNodeRef(ref, candidates) {
-  const byId = candidates.find(c => c.instanceId === ref) || candidates.find(c => c.prototypeId === ref);
+  const byId = candidates.find(c => c.instanceId === ref) || candidates.find(c => !c.thing && c.prototypeId === ref)
+    || candidates.find(c => c.prototypeId === ref);
   if (byId) return byId;
+  // A symbol by the Thing it stands for, when no Thing of that name is drawn as itself.
+  const key = (s) => String(s || '').trim().toLowerCase();
+  if (!candidates.some(c => key(c.name) === key(ref))) {
+    const symbol = candidates.filter(c => c.thing && key(c.thing) === key(ref)).pop();
+    if (symbol) return symbol;
+  }
   const { match } = await resolveNodeSmart(ref, candidates, { callSite: 'createEdge' });
   return match;
 }
@@ -87,7 +100,8 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   }
 
   // Resolve source and target by id, else by name (exact → model → substring)
-  const candidates = buildCandidates(nodePrototypes, graphs, graphId);
+  const cover = formulaCover(formulasIn(graphState, graphId));
+  const candidates = buildCandidates(nodePrototypes, graphs, graphId, cover);
   const resolvedSource = await resolveNodeRef(sourceId, candidates);
   const resolvedTarget = await resolveNodeRef(targetId, candidates);
 
@@ -99,6 +113,14 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   if (!resolvedTarget) {
     const available = candidates.map(c => c.name).filter(Boolean).slice(0, 8).join(', ');
     throw new Error(`Target node "${targetId}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
+  }
+
+  // A formula and its own symbol, or two symbols of one formula: that
+  // connection is drawn inside the formula, where it reads as an operation.
+  const edgeEnds = { sourceId: resolvedSource.instanceId, destinationId: resolvedTarget.instanceId };
+  if (cover.internal(edgeEnds)) {
+    const f = cover.of(resolvedSource.instanceId);
+    throw new Error(`"${resolvedSource.name}" and "${resolvedTarget.name}" are both inside the formula "${f.title}", so a connection between them would be drawn as part of it. Connect "${f.title}" to Things outside it.`);
   }
 
   console.error('[createEdge] Resolved source:', sourceId, '→', resolvedSource.instanceId);
@@ -139,8 +161,10 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
   return {
     action: 'createEdge',
     graphId,
-    sourceName: resolvedSource.name,
-    targetName: resolvedTarget.name,
+    // The store falls back to these names when an id made this ask is only
+    // predicted: a symbol by its Thing's own name, which it knows.
+    sourceName: resolvedSource.thing || resolvedSource.name,
+    targetName: resolvedTarget.thing || resolvedTarget.name,
     sourceInstanceId: resolvedSource.instanceId,
     targetInstanceId: resolvedTarget.instanceId,
     type: type || '',

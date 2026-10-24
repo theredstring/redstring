@@ -1,6 +1,6 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 import { isSeededChain } from './utils/abstractionSpec.js';
-import { formulasIn, formulaCover, meaningsText } from './utils/formulas.js';
+import { formulasIn, formulaCover, meaningsText, repeatedTermsLines } from './utils/formulas.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -212,6 +212,8 @@ export async function readGraph(args, graphState) {
                 // A term's id, to connect to that one ("x" in this formula, not another's).
                 terms: (f.terms || []).map(t => ({ symbol: t.symbol, thing: t.thing, ...(t.instanceId ? { id: t.instanceId } : {}) })),
             })),
+            // Each formula's term has its own id; whether two are one Thing is said here.
+            ...(repeatedTermsLines(formulas).length ? { repeatedTerms: repeatedTermsLines(formulas).join(' ') } : {}),
         } : {}),
         ...(warning ? { warning } : {}),
         ...(redundancyNote ? { note: redundancyNote } : {}),

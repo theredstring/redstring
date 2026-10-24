@@ -6114,13 +6114,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Pre-populate with EXISTING nodes so edges can reference them
         // (critical for expandGraph where new edges connect to existing graph nodes)
         if (graph.instances) {
-          graph.instances.forEach((inst, instanceId) => {
-            const proto = draft.nodePrototypes.get(inst.prototypeId);
-            if (proto?.name) {
-              nodeIdMap.set(proto.name, instanceId);
-              nodeIdMapNormalized.set(normalizeName(proto.name), instanceId);
-            }
+          // A name means the Thing drawn as itself. Its copy drawn as a
+          // formula's symbol goes in first, so it is reached only when it is
+          // the one there is: an edge from a formula to "Pendulum Length" that
+          // lands on its own L is drawn inside the formula, and lost.
+          const inFormula = new Set();
+          graph.groups?.forEach((g) => {
+            if (g.format === 'formula') (g.memberInstanceIds || []).forEach((id) => inFormula.add(id));
           });
+          [...graph.instances.entries()]
+            .sort(([a], [b]) => inFormula.has(b) - inFormula.has(a))
+            .forEach(([instanceId, inst]) => {
+              const proto = draft.nodePrototypes.get(inst.prototypeId);
+              if (proto?.name) {
+                nodeIdMap.set(proto.name, instanceId);
+                nodeIdMapNormalized.set(normalizeName(proto.name), instanceId);
+              }
+            });
           console.log(`[applyBulkGraphUpdates] Pre-populated ${nodeIdMap.size} existing nodes into lookup map`);
         }
 

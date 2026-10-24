@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { instancesSeenIn } from './utils/openedInPlace.js';
 
 /**
  * searchNodes - Find nodes by general search query
@@ -37,20 +38,18 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
 
   const nodeMap = new Map(); // id -> { id, prototypeId?, name, color, description }
   if (web) {
-    const instances = Array.isArray(web.instances)
-      ? web.instances
-      : web.instances instanceof Map
-        ? Array.from(web.instances.values())
-        : Object.values(web.instances || {});
-    for (const inst of instances) {
-      if (!inst?.id) continue;
+    // Its Things as the user sees them, those of a definition or formula
+    // opened in place included: they are kept in that definition's own web.
+    for (const { inst, openedIn } of instancesSeenIn(graphState, web)) {
+      if (!inst?.id || nodeMap.has(inst.id)) continue;
       const proto = protoById.get(inst.prototypeId) || {};
       nodeMap.set(inst.id, {
         id: inst.id,
         prototypeId: inst.prototypeId,
         name: inst.name || proto.name || '',
         color: inst.color || proto.color || '',
-        description: inst.description || proto.description || ''
+        description: inst.description || proto.description || '',
+        ...(openedIn ? { openedIn } : {})
       });
     }
   } else {
@@ -68,7 +67,7 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
   const scope = web ? 'web' : 'universe';
   const where = web ? `web "${web.name || web.id}"` : 'the universe';
   const scopeNote = web
-    ? ` Searched ${where} (ids are instance ids); pass scope: 'universe' to search every Thing.`
+    ? ` Searched ${where} (ids are instance ids; "openedIn" marks a Thing of a definition or formula opened in place there). Instances sharing a prototypeId are one Thing. Pass scope: 'universe' to search every Thing.`
     : ' Searched every Thing in the universe (ids are prototype ids).';
 
   const allNodes = Array.from(nodeMap.values());

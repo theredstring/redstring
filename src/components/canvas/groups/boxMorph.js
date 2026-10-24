@@ -22,6 +22,8 @@
  * `translate() scale()` (InnerNetwork; NodeCanvas.previewParity.test.jsx keeps
  * the two equal), so the content moves as a single matrix. A node with no
  * preview open has no interior: its content grows out of the node's middle.
+ * A preview of a node with no definition yet shows its "Define … With a New Web"
+ * offer instead; that is carried too, receding into the empty box as it shrinks.
  *
  * Folding runs the same morph the other way, onto the node that closing leaves
  * behind (for a box opened in place, where its title tab was).
@@ -49,6 +51,8 @@ const REVEAL_MS = 140;
 const TITLE_REWRAP = 0.15;
 // A plain node's content starts (or ends) this small, at the node's middle.
 const SEED_SCALE = 0.04;
+// The "Define … With a New Web" offer is gone by this share of the opening.
+const OFFER_FADE = 0.5;
 // Frames to wait for the far shape to reach the DOM. The shell lands in the
 // commit that opens the box; its members can follow a frame or two later (the
 // visible set is culled separately). Past this, an open box starts without
@@ -321,6 +325,37 @@ function copyPreviewNetwork(nodeEl) {
   return { node: group, pose: { x: +outer[1] + +inner[1], y: +outer[2] + +inner[2], s: +scale[1] } };
 }
 
+/**
+ * The preview's "Define … With a New Web" offer (a node with no definition yet),
+ * drawn as SVG text where each of its lines sits. It is HTML in a foreignObject,
+ * which iOS WebKit misplaces under a moving transform, so it isn't copied as is.
+ */
+function copyPreviewOffer(nodeEl) {
+  const offer = nodeEl.querySelector('[data-decomp-button]');
+  const frame = offer?.closest('foreignObject');
+  const area = rectOf(frame);
+  const screen = frame?.getBoundingClientRect();
+  if (!area || !screen?.width || !screen.height) return null;
+  // Screen pixels to canvas units: the lines are measured on screen.
+  const kx = area.w / screen.width;
+  const ky = area.h / screen.height;
+  const fill = getComputedStyle(offer).color;
+  const group = svg('g');
+  [...offer.children].forEach((line) => {
+    const box = line.getBoundingClientRect();
+    const style = getComputedStyle(line);
+    const text = svg('text', {
+      x: area.x + (box.left + box.width / 2 - screen.left) * kx,
+      y: area.y + (box.top + box.height / 2 - screen.top) * ky,
+      'text-anchor': 'middle', 'dominant-baseline': 'central',
+      'font-family': style.fontFamily, 'font-weight': style.fontWeight, 'font-size': parseFloat(style.fontSize) || 0, fill,
+    });
+    text.textContent = line.textContent;
+    group.appendChild(text);
+  });
+  return group.childElementCount > 0 ? group : null;
+}
+
 // ─── The stand-in ─────────────────────────────────────────────────────────────
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, s: 1 });
@@ -361,7 +396,11 @@ function buildStandIn(morph) {
   const under = layer();
   const over = layer();
   root.append(under.edges, under.labels, band, interior, over.edges, over.labels);
-  morph.parts = { root, band, interior, edgeLayers: { under, over }, grid: null, content: null, title: null };
+  morph.parts = { root, band, interior, edgeLayers: { under, over }, grid: null, content: null, title: null, offer: null };
+  if (morph.offer) {
+    morph.parts.offer = morph.offer;
+    root.appendChild(morph.offer);
+  }
   if (morph.content) setContent(morph, morph.content);
   host.appendChild(root);
 }
@@ -457,6 +496,16 @@ function paint(parts, a, b, t, pa, pb, nodeTitle = 0) {
 
 const poseAt = (pa, pb, t) => ({ x: lerp(pa.x, pb.x, t), y: lerp(pa.y, pb.y, t), s: lerp(pa.s, pb.s, t) });
 
+/** The offer, `t` of the way: centred in the interior and scaled with it, fading as it goes. */
+function paintOffer(offer, from, to, t) {
+  const now = lerpRect(from, to, t);
+  const s = from.w > 0 && from.h > 0 ? Math.min(now.w / from.w, now.h / from.h) : 1;
+  const a = centerOf(from);
+  const b = centerOf(now);
+  offer.setAttribute('transform', `translate(${b.x - a.x * s} ${b.y - a.y * s}) scale(${s})`);
+  offer.setAttribute('opacity', Math.max(0, 1 - t / OFFER_FADE));
+}
+
 /**
  * Where the crossing connections' moving ends are, `t` of the way from node to
  * box and `q` of the way through the morph's time. A connection to the Thing
@@ -479,6 +528,7 @@ function connectionFrame(morph, t, q) {
 /** Draws a morph `t` of the way from its node (0) to its box (1), `q` of the way through its time. */
 function draw(morph, t, q) {
   paint(morph.parts, morph.node, morph.box, t, morph.pose.node, morph.pose.box, nodeTitleShare(morph, q));
+  if (morph.parts.offer) paintOffer(morph.parts.offer, morph.node.interior, morph.box.interior, t);
   if (morph.connections) drawConnections(morph.connections, connectionFrame(morph, t, q));
 }
 
@@ -608,7 +658,8 @@ export function withBoxOpenMorph({ viewGraphId, instanceId }, write) {
     if (node) {
       // Its connections' labels as drawn now, to carry into the box.
       const labels = copyLabels(scene(), edgesTouching(useGraphStore.getState(), viewGraphId, [instanceId]), detach);
-      start = { node, labels, thingRect: storeNodeRect(viewGraphId, instanceId), preview: copyPreviewNetwork(el) };
+      const preview = copyPreviewNetwork(el);
+      start = { node, labels, thingRect: storeNodeRect(viewGraphId, instanceId), preview, offer: preview ? null : copyPreviewOffer(el) };
     }
   }
   const groupId = write();
@@ -628,7 +679,7 @@ function queueOpen(start, viewGraphId, instanceId, groupId) {
     key: instanceId, direction: 'open', viewGraphId, groupId, node: start.node, box: null, tag: `bm${++copyCount}`,
     crossing: contents.crossing, departedLabels: start.labels, thingRect: start.thingRect,
     memberIds: contents.memberIds, insideSelectors: inside, waited: 0, pose: { node: null, box: null }, content: null,
-    hideBase,
+    offer: start.offer, hideBase,
     hide: hideRule([...hideBase, ...selectorsFor({ edgeIds: contents.crossing.map(c => c.id) })]),
   };
   // The preview's drawing of the definition, carried from its fitted pose to 1:1.
