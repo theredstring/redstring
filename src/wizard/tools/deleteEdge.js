@@ -11,6 +11,7 @@
 
 import { resolveGraphId } from './resolveGraphId.js';
 import { calculateStringSimilarity } from './utils/stringSimilarity.js';
+import { readWeb, endNamed } from './utils/webView.js';
 
 const listOf = (c) => (Array.isArray(c)
   ? c
@@ -63,7 +64,9 @@ export async function deleteEdge(args, graphState) {
     }
   }
   const nameOfInstance = (inst) => inst?.name || protoById.get(inst?.prototypeId)?.name || '';
-  const endName = (id) => nameOfInstance(instanceById.get(id)?.inst) || id;
+  // Once the web is read, its ends go by the names it was shown under.
+  let web = null;
+  const endName = (id) => web?.nameOfEnd(id) || nameOfInstance(instanceById.get(id)?.inst) || id;
   const webName = (id) => graphs.find((g) => g.id === id)?.name || id;
   const typeOf = (e) => e.name || protoById.get(listOf(e.definitionNodeIds)[0])?.name || e.type || 'Connection';
   const describe = (e, homeGraphId) => ({
@@ -79,6 +82,14 @@ export async function deleteEdge(args, graphState) {
     const home = graphs.find((g) => edgeIdsOf(g).includes(edgeId));
     if (home) {
       const e = edgeById.get(edgeId);
+      const homeWeb = readWeb(graphState, home.id);
+      if (homeWeb.cover.internal(e)) {
+        return {
+          deleted: false,
+          edgeId,
+          message: `That connection is one of the operations of the formula "${homeWeb.cover.of(e.sourceId).title}", so deleting it would break the formula. Nothing was deleted. Use the formula tool to rewrite or delete the formula.`
+        };
+      }
       return {
         action: 'deleteEdge',
         graphId: home.id,
@@ -113,6 +124,10 @@ export async function deleteEdge(args, graphState) {
   // 2. The connections in reach: this web's, and those of every definition
   // opened in place in it (when the state says which are open).
   const graph = graphs.find((g) => g.id === graphId);
+  // Names as the web was shown to the wizard (webView.js): a formula's symbol
+  // as "Thing (in Formula)", and a formula's operations not among the web's
+  // connections, so a name never reaches one.
+  web = readWeb(graphState, graphId);
   const scoped = [];
   const knownNames = [];
   const seenWebs = new Set();
@@ -121,7 +136,7 @@ export async function deleteEdge(args, graphState) {
     seenWebs.add(g.id);
     for (const id of edgeIdsOf(g)) {
       const e = edgeById.get(id);
-      if (!e) continue;
+      if (!e || web.cover.internal(e)) continue;
       scoped.push({ edge: e, homeGraphId: g.id });
       knownNames.push(endName(e.sourceId), endName(e.destinationId || e.targetId));
     }
@@ -135,14 +150,15 @@ export async function deleteEdge(args, graphState) {
   collect(graph);
   const nodeCount = listOf(graph?.instances).length;
 
-  const s = sourceName ? norm(sourceName) : null;
-  const t = targetName ? norm(targetName) : null;
-  const ends = ({ edge }) => [norm(endName(edge.sourceId)), norm(endName(edge.destinationId || edge.targetId))];
-  const matches = scoped.filter((entry) => {
-    const [a, b] = ends(entry);
-    if (s && t) return (a === s && b === t) || (a === t && b === s);
+  const s = sourceName || null;
+  const t = targetName || null;
+  const named = (id, n) => endNamed(web, id, n);
+  const matches = scoped.filter(({ edge }) => {
+    const a = edge.sourceId;
+    const b = edge.destinationId || edge.targetId;
+    if (s && t) return (named(a, s) && named(b, t)) || (named(a, t) && named(b, s));
     const q = s || t;
-    return a === q || b === q;
+    return named(a, q) || named(b, q);
   });
 
   if (matches.length === 1) {
@@ -174,9 +190,10 @@ export async function deleteEdge(args, graphState) {
   const known = new Set(knownNames.filter(Boolean).map(norm));
   const unknown = [sourceName, targetName].filter((n) => n && !known.has(norm(n)));
   const touching = scoped
-    .filter((entry) => {
-      const [a, b] = ends(entry);
-      return (s && (a === s || b === s)) || (t && (a === t || b === t));
+    .filter(({ edge }) => {
+      const a = edge.sourceId;
+      const b = edge.destinationId || edge.targetId;
+      return (s && (named(a, s) || named(b, s))) || (t && (named(a, t) || named(b, t)));
     })
     .slice(0, 8)
     .map(({ edge, homeGraphId }) => describe(edge, homeGraphId));

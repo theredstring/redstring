@@ -9,7 +9,7 @@ vi.mock('../../src/services/textMeasurement.js', async (orig) => ({
   ...(await orig()),
   measureTextWidth: (text) => String(text || '').length * 20,
 }));
-import { layoutWebPreview, layoutPreviewConnections } from '../../src/components/webPreview/webPreviewLayout.js';
+import { layoutWebPreview, layoutPreviewConnections, previewGroupsFor } from '../../src/components/webPreview/webPreviewLayout.js';
 import { formulaWeb } from './formulaWeb.js';
 
 // (a + b) × c, with an outside Thing wired to c: the web as a preview is given it.
@@ -58,5 +58,42 @@ describe('a formula in a web preview', () => {
     const { layout } = preview({ shown: false });
     expect(layout.formulas.objects).toEqual([]);
     expect(layout.groupShapes.length).toBeGreaterThan(0);
+  });
+});
+
+describe('a node that opens as its formula, expanded', () => {
+  // The equation's definition: (a + b) × c as Things, no group shown as a formula.
+  function definition() {
+    const state = formulaWeb({
+      things: [['a', 'a', 0], ['b', 'b', 300], ['c', 'c', 700]],
+      parts: [{ id: 'g', anchor: 'pa', name: 'a + b', members: ['a', 'b'], x: 150 }],
+      ops: [['a', 'b', 'Addition'], ['pa', 'c', 'Multiplication']],
+    });
+    const graph = state.graphs.get('web');
+    const nodes = [...graph.instances.values()].map(inst => ({ ...state.nodePrototypes.get(inst.prototypeId), ...inst }));
+    const edges = graph.edgeIds.map(id => state.edges.get(id));
+    const layoutWith = (groups) => layoutWebPreview({
+      nodes, edges, groups, nodePrototypes: state.nodePrototypes, edgePrototypes: state.edgePrototypes,
+      textSettings: state.textSettings, gridSize: 200,
+    });
+    return { graph, layoutWith };
+  }
+
+  it('previews its definition as the formula opening it shows', () => {
+    const { graph, layoutWith } = definition();
+    const groups = previewGroupsFor({ id: 'eq', format: 'formula', color: '#123456' }, graph);
+    const layout = layoutWith(groups);
+    expect(layout.formulas.objects).toHaveLength(1);
+    const [formula] = layout.formulas.objects;
+    expect(formula.groupId).toBe('open:eq');
+    expect(formula.title).toBe(''); // the node above it is its title
+    expect(formula.tokens.map(t => t.text).join(' ')).toMatch(/a.*\+.*b.*c/);
+    for (const id of ['a', 'b', 'c', 'pa']) expect(layout.hiddenIds.has(id)).toBe(true);
+  });
+
+  it('previews its Things when it opens as its Things', () => {
+    const { graph, layoutWith } = definition();
+    expect(previewGroupsFor({ id: 'eq' }, graph)).toBe(graph.groups);
+    expect(layoutWith(graph.groups).formulas.objects).toEqual([]);
   });
 });

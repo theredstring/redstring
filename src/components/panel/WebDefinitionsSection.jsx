@@ -193,7 +193,7 @@ export const DefinitionDescription = ({
           })
         }}
       >
-        {description || 'Double-click to describe this definition...'}
+        {description || 'Double-click to enter a definition...'}
       </div>
       {!controlled && (overflows || expanded) && (
         <div style={{ display: 'flex', justifyContent: compact ? 'flex-start' : 'center', marginTop: '10px' }}>

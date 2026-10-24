@@ -14,6 +14,8 @@ import useGraphStore from '../../../store/graphStore.js';
 import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
 import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
+import { computeFormulaObjects } from '../formats/formula/formulaObjects.js';
+import { formulaDisplayNow } from '../formats/formatsStore.js';
 import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
 import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
@@ -290,6 +292,21 @@ const MORPH_CAMERA_MS = 460;
 const easeInOutCubic = t => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
 
 /**
+ * A box as drawn ({ x, y, w, h }, canvas units), or null. Shown as its formula,
+ * that is the formula's band: the Thing-group's shell stays in the page, hidden,
+ * laid out over its Things, which run far wider than their formula.
+ */
+function drawnBoxOf(groupId) {
+  const formula = computeFormulaObjects(useGraphStore.getState(), formulaDisplayNow()).objects.find(o => o.groupId === groupId);
+  if (formula) return { ...formula.frame };
+  const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(groupId) : groupId;
+  const band = document.querySelector(`svg.canvas .node-group-bg[data-group-id="${id}"] > rect`);
+  if (!band) return null;
+  const num = (name) => parseFloat(band.getAttribute(name)) || 0;
+  return { x: num('x'), y: num('y'), w: num('width'), h: num('height') };
+}
+
+/**
  * Bring a box that has just opened (a Thing decomposed into its thing group) into
  * view: its whole shell, as drawn. Only moves when some of it is out of view, and
  * never zooms in past where the view already is, so it reads as making room for
@@ -303,12 +320,8 @@ function frameBoxInViewWith(ctx, groupId) {
     animateCanvasView,
   } = ctx;
   runFramingAfterCommit(() => {
-    const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(groupId) : groupId;
-    const band = document.querySelector(`svg.canvas .node-group-bg[data-group-id="${id}"] > rect`);
-    if (!band) return;
-    const num = (name) => parseFloat(band.getAttribute(name)) || 0;
-    const box = { x: num('x'), y: num('y'), w: num('width'), h: num('height') };
-    if (box.w <= 0 || box.h <= 0) return;
+    const box = drawnBoxOf(groupId);
+    if (!box || box.w <= 0 || box.h <= 0) return;
 
     const vb = getFramingRegion({ reserveBottomPanel: true });
     const room = {

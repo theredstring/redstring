@@ -2,61 +2,25 @@ import { resolveGraphId } from './resolveGraphId.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
 import { suggestRelationKind, suggestArrowDirection } from './utils/suggestionCalls.js';
 import { newBuildId } from '../../services/oneShot.js';
-import { formulasIn, formulaCover } from './utils/formulas.js';
+import { readWeb, findPlace } from './utils/webView.js';
 
 /**
  * createEdge - Connect two nodes by name
  */
 
-/**
- * Build the candidate list (instances + thing-groups) for a graph.
- */
-function buildCandidates(nodePrototypes, graphs, graphId, cover) {
-  const targetGraph = graphs.find(g => g.id === graphId);
-  if (!targetGraph) return [];
-
-  const instances = Array.isArray(targetGraph.instances)
-    ? targetGraph.instances
-    : targetGraph.instances instanceof Map
-      ? Array.from(targetGraph.instances.values())
-      : Object.values(targetGraph.instances || {});
-
-  // A formula's symbol is named as the context names it, "Pendulum Length (in
-  // Pendulum Period)", so the bare name is the Thing drawn as itself.
-  const candidates = instances.map(inst => {
-    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    const name = inst.name || proto?.name || '';
-    const symbol = cover.hides(inst.id) && cover.of(inst.id).anchorId !== inst.id;
-    return {
-      instanceId: inst.id,
-      prototypeId: inst.prototypeId,
-      name: symbol ? cover.nameOf(inst.id, name) : name,
-      ...(symbol ? { thing: name } : {}),
-      description: inst.description || proto?.description || ''
-    };
-  });
-
-  const groups = Array.isArray(targetGraph.groups)
-    ? targetGraph.groups
-    : targetGraph.groups instanceof Map
-      ? Array.from(targetGraph.groups.values())
-      : Object.values(targetGraph.groups || {});
-
-  for (const group of groups) {
-    if (!group.linkedNodePrototypeId || !group.anchorInstanceId) continue;
-    candidates.push({
-      instanceId: group.anchorInstanceId,
-      prototypeId: group.linkedNodePrototypeId,
-      name: group.name || ''
-    });
-  }
-
-  return candidates;
+/** A Thing-group by its group's name, which can differ from its Thing's. */
+function groupAliases(graph) {
+  const groups = graph?.groups instanceof Map ? Array.from(graph.groups.values())
+    : Array.isArray(graph?.groups) ? graph.groups : Object.values(graph?.groups || {});
+  return groups
+    .filter(g => g.linkedNodePrototypeId && g.anchorInstanceId)
+    .map(g => ({ instanceId: g.anchorInstanceId, prototypeId: g.linkedNodePrototypeId, name: g.name || '' }));
 }
 
 /**
- * Resolve a node reference: an exact instance or prototype id first, then a
- * name via the shared smart resolver (exact → model → substring).
+ * Resolve a node reference: an id, or a name as the web was shown to the
+ * wizard (webView.js), then a Thing-group's own name, then the shared smart
+ * resolver (model, substring).
  *
  * The arguments are called sourceId/targetId and readGraph hands out instance
  * ids, so a model that takes the parameter names at their word passes an id.
@@ -64,17 +28,13 @@ function buildCandidates(nodePrototypes, graphs, graphId, cover) {
  * listing the very node it was given — a small local model retried that five
  * times in a row before giving up.
  */
-async function resolveNodeRef(ref, candidates) {
-  const byId = candidates.find(c => c.instanceId === ref) || candidates.find(c => !c.thing && c.prototypeId === ref)
-    || candidates.find(c => c.prototypeId === ref);
-  if (byId) return byId;
-  // A symbol by the Thing it stands for, when no Thing of that name is drawn as itself.
-  const key = (s) => String(s || '').trim().toLowerCase();
-  if (!candidates.some(c => key(c.name) === key(ref))) {
-    const symbol = candidates.filter(c => c.thing && key(c.thing) === key(ref)).pop();
-    if (symbol) return symbol;
-  }
-  const { match } = await resolveNodeSmart(ref, candidates, { callSite: 'createEdge' });
+async function resolveNodeRef(ref, web, aliases) {
+  const place = findPlace(web, ref);
+  if (place) return place;
+  const k = String(ref || '').trim().toLowerCase();
+  const alias = aliases.filter(a => a.name.trim().toLowerCase() === k).pop();
+  if (alias) return web.byId.get(alias.instanceId) || alias;
+  const { match } = await resolveNodeSmart(ref, [...web.places, ...aliases], { callSite: 'createEdge' });
   return match;
 }
 
@@ -92,18 +52,20 @@ export async function createEdge(args, graphState, cid, ensureSchedulerStarted) 
     throw new Error('sourceId and targetId are required');
   }
 
-  const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
+  const { graphs = [], activeGraphId } = graphState;
   const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  // Resolve source and target by id, else by name (exact → model → substring)
-  const cover = formulaCover(formulasIn(graphState, graphId));
-  const candidates = buildCandidates(nodePrototypes, graphs, graphId, cover);
-  const resolvedSource = await resolveNodeRef(sourceId, candidates);
-  const resolvedTarget = await resolveNodeRef(targetId, candidates);
+  // Source and target by id, else by the names the web was shown under
+  const web = readWeb(graphState, graphId);
+  const { cover } = web;
+  const aliases = groupAliases(web.graph);
+  const candidates = [...web.places, ...aliases];
+  const resolvedSource = await resolveNodeRef(sourceId, web, aliases);
+  const resolvedTarget = await resolveNodeRef(targetId, web, aliases);
 
   if (!resolvedSource) {
     const available = candidates.map(c => c.name).filter(Boolean).slice(0, 8).join(', ');

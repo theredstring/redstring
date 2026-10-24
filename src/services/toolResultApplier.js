@@ -1380,14 +1380,20 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       return;
     }
 
-    let sourceInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
-    let targetInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
+    // The tool hands back the connection it found and its ends' instance ids;
+    // names are the fallback for ids only predicted this ask.
+    const inGraph = (id) => (id && graph.instances.has(id) ? id : null);
+    let sourceInstId = inGraph(result.sourceInstanceId) || inGraph(result.sourceId);
+    let targetInstId = inGraph(result.targetInstanceId) || inGraph(result.targetId);
 
     if (!sourceInstId || !targetInstId) {
       const sourceNameLookup = (result.sourceName || '').toLowerCase().trim();
       const targetNameLookup = (result.targetName || '').toLowerCase().trim();
 
-      for (const [instId, inst] of graph.instances) {
+      // A Thing drawn as itself before its copy drawn as a formula's symbol.
+      const inFormula = new Set();
+      graph.groups?.forEach((g) => { if (g.format === 'formula') (g.memberInstanceIds || []).forEach((id) => inFormula.add(id)); });
+      for (const [instId, inst] of [...graph.instances].sort(([a], [b]) => inFormula.has(a) - inFormula.has(b))) {
         const p = store.nodePrototypes.get(inst.prototypeId);
         const n = (p?.name || '').toLowerCase().trim();
         if (!sourceInstId && n === sourceNameLookup) sourceInstId = instId;
@@ -1407,7 +1413,11 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
 
     let realEdgeId = null;
     let actualEdge = null;
-    for (const edgeId of graph.edgeIds) {
+    if (result.edgeId && graph.edgeIds?.includes(result.edgeId) && store.edges.has(result.edgeId)) {
+      realEdgeId = result.edgeId;
+      actualEdge = store.edges.get(result.edgeId);
+    }
+    for (const edgeId of (realEdgeId ? [] : graph.edgeIds)) {
       const edge = store.edges.get(edgeId);
       if (!edge) continue;
       if ((edge.sourceId === sourceInstId && edge.destinationId === targetInstId) ||

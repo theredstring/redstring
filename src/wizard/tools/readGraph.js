@@ -1,6 +1,7 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 import { isSeededChain } from './utils/abstractionSpec.js';
 import { formulasIn, formulaCover, meaningsText, repeatedTermsLines } from './utils/formulas.js';
+import { readWeb, placeName } from './utils/webView.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -59,7 +60,7 @@ export async function readGraph(args, graphState) {
     for (const inst of instances) {
         if (inst.id) {
             const protoName = nodeNameById.get(inst.prototypeId) || '';
-            nodeNameById.set(inst.id, cover.nameOf(inst.id, inst.name || protoName || ''));
+            nodeNameById.set(inst.id, placeName(inst, protoName, cover));
             // Carry description/color from prototype if instance doesn't override
             if (inst.description) nodeDescById.set(inst.id, inst.description);
             else if (inst.prototypeId) nodeDescById.set(inst.id, nodeDescById.get(inst.prototypeId) || '');
@@ -68,23 +69,10 @@ export async function readGraph(args, graphState) {
         }
     }
 
-    // A connection can end on a Thing kept in another web: a term of a formula
-    // opened in place, or a Thing of any definition opened in place.
-    const elsewhereNameById = new Map();
-    for (const g of graphs) {
-        if (g === activeGraph) continue;
-        const gInstances = Array.isArray(g.instances)
-            ? g.instances
-            : g.instances instanceof Map
-                ? Array.from(g.instances.values())
-                : Object.values(g.instances || {});
-        for (const inst of gInstances) {
-            const nm = inst?.id && (inst.name || protoMap.get(inst.prototypeId)?.name);
-            if (nm) elsewhereNameById.set(inst.id, nm);
-        }
-    }
-    for (const [id, nm] of cover.names()) elsewhereNameById.set(id, nm);
-    const nameOfEnd = (id) => nodeNameById.get(id) || elsewhereNameById.get(id) || id || '?';
+    // A connection's end can be kept in another web (a formula or definition
+    // opened in place): named as the context names it (webView.js).
+    const web = readWeb(graphState, targetGraphId);
+    const nameOfEnd = (id) => nodeNameById.get(id) || web.nameOfEnd(id);
 
     // --- Nodes output ---------------------------------------------------------
     const nodeList = instances.filter(inst => !cover.hides(inst.id)).map(inst => {

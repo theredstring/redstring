@@ -1,5 +1,6 @@
 import { resolveGraphId } from './resolveGraphId.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { readWeb } from './utils/webView.js';
 
 /**
  * deleteNode - Remove a node and its connections
@@ -95,10 +96,21 @@ export async function deleteNode(args, graphState) {
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  const graph = graphs.find(g => g.id === graphId);
-  const candidates = instancesOf(graph, protoById);
+  // The web's nodes under the names it was shown under (webView.js). A
+  // formula's symbol is part of the formula, which the formula tool rewrites.
+  const web = readWeb(graphState, graphId);
   const q = norm(lookupName);
+  const symbol = web.places.find(p => p.inFormula && (norm(p.name) === q || norm(p.thing) === q));
+  const candidates = web.places.filter(p => !p.inFormula);
   const exact = candidates.filter(c => norm(c.name) === q);
+  if (exact.length === 0 && symbol) {
+    return {
+      deleted: false,
+      graphId,
+      name: lookupName,
+      message: `"${symbol.thing}" here is a symbol of the formula "${symbol.inFormula}", not a node of its own. Nothing was deleted. To change the formula, use the formula tool (rewrite or delete).`
+    };
+  }
 
   if (exact.length === 1) return deleteSpec(graphId, exact[0]);
 

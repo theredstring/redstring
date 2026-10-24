@@ -24,6 +24,8 @@
 
 import { estimateTokens } from './tokenEstimate.js';
 import { formulaCover, formulaLine, repeatedTermsLines } from './tools/utils/formulas.js';
+// The names the context shows are the names the tools resolve (webView.js).
+import { placeName, instanceNames } from './tools/utils/webView.js';
 
 /**
  * Total token budget for the graph portion of the context header.
@@ -145,7 +147,7 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, in
   const nodeNameById = new Map();
   for (const inst of getInstances(graph)) {
     const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
-    nodeNameById.set(inst.id, cover.nameOf(inst.id, inst.name || proto?.name || ''));
+    nodeNameById.set(inst.id, placeName(inst, proto?.name, cover));
   }
   // A connection can end on a Thing kept in another web: a term of a formula
   // opened in place, or a Thing of any definition opened in place.
@@ -310,13 +312,7 @@ export function buildContext(graphState) {
   }
 
   // Every instance's name, for a connection whose end is kept in another web.
-  const instanceNameById = new Map();
-  for (const g of graphs) {
-    for (const inst of getInstances(g)) {
-      const nm = inst?.id && (inst.name || protoMap.get(inst.prototypeId)?.name);
-      if (nm) instanceNameById.set(inst.id, nm);
-    }
-  }
+  const instanceNameById = instanceNames(graphState, protoMap);
 
   const renderCtx = { protoMap, edgesByGraph, formulasByGraph, instanceNameById };
   const tiers = assignGraphTiers(graphs, activeGraphId, openGraphIds);

@@ -28,14 +28,38 @@ import {
   settledConnectionGeometry,
 } from '../../utils/canvas/settledConnection.js';
 import { formulaObjectsIn, filterFormulaEdges } from '../canvas/formats/formula/formulaObjects.js';
+import { openGroupId } from '../../core/openDefinitions.js';
 
 const NO_FORMULAS = { objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), standIns: new Map() };
 
 /**
- * The web's formulas, as formulaObjects works them out for the canvas, read
- * from what the preview is given rather than the active web.
+ * The groups of a node's definition as its preview draws them. A node that
+ * opens as its formula (`node.format`, formulaWizard placeEquation) shows its
+ * definition the way opening it in place does: everything in it one formula,
+ * under the box's own group id (so its names shown match the canvas's). The
+ * node is the band here, so the formula carries no title of its own.
  */
-function previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize }) {
+export function previewGroupsFor(node, view) {
+  const groups = view?.groups;
+  if (node?.format !== 'formula' || !view?.instances?.size) return groups;
+  const withFormula = new Map(groups || []);
+  withFormula.set(openGroupId(node.id), {
+    id: openGroupId(node.id),
+    name: '',
+    color: node.color,
+    memberInstanceIds: [...view.instances.keys()],
+    format: 'formula',
+    ...(node.formulaSize ? { formulaSize: node.formulaSize } : {}),
+  });
+  return withFormula;
+}
+
+/**
+ * The web's formulas, as formulaObjects works them out for the canvas, read
+ * from what the preview is given rather than the active web. `display`: how
+ * formulas are written now (formatsStore formulaDisplayNow's shape).
+ */
+function previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize, display }) {
   let shown = false;
   groupsById.forEach((g) => { if (g.format === 'formula') shown = true; });
   if (!shown) return NO_FORMULAS;
@@ -47,7 +71,7 @@ function previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototy
     openView: { edges: edgesById },
   };
   const state = { nodePrototypes, edgePrototypes, textSettings, gridSettings: { size: gridSize }, edges: edgesById };
-  return formulaObjectsIn(state, view, null);
+  return formulaObjectsIn(state, view, null, display);
 }
 
 /**
@@ -60,7 +84,7 @@ function previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototy
  *   bounds: { minX, minY, maxX, maxY },
  * }}
  */
-export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePrototypes, textSettings, gridSize }) {
+export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePrototypes, textSettings, gridSize, display }) {
   if (!nodes?.length) return null;
 
   const dimsById = new Map();
@@ -75,7 +99,7 @@ export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePro
 
   // Groups, laid out as the canvas lays them out (canvas/groups/groupLayouts.js).
   const groupsById = groups instanceof Map ? groups : new Map(Object.entries(groups || {}));
-  const formulas = previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize });
+  const formulas = previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize, display });
   const { labelScale: groupLabelScale, labelFontSize: groupFontSize } = groupLabelMetrics(textSettings);
   const groupShapes = [];
   const anchors = new Map(); // anchor instance id -> the canvas's anchorPositions record

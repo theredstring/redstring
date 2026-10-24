@@ -7,6 +7,7 @@ import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withSelectedFormula } from '../components/canvas/formats/formula/formulaSelection.js';
+import { useThingGroupPromptStore } from '../components/canvas/thingGroupPrompt/thingGroupPrompt.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -1004,7 +1005,7 @@ export const useCanvasTouch = ({
             // Never cancel a plus sign that's already committed to morphing into
             // a node — a stray tap (e.g. the ghost touchend that bubbles here
             // after the UnifiedSelector closes) must not abort node creation.
-            if (plusSign && plusSign.mode !== 'morph' && !nodeNamePrompt.visible) {
+            if (plusSign && plusSign.mode !== 'morph' && !useThingGroupPromptStore.getState().prompt && !nodeNamePrompt.visible) {
                 setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
             }
 

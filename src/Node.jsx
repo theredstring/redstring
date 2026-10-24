@@ -4,6 +4,7 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hover preview
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
+import { previewGroupsFor } from './components/webPreview/webPreviewLayout.js';
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import useExpandMorph from './hooks/useExpandMorph.js';
 import useCentredResize from './hooks/useCentredResize.js';
@@ -392,18 +393,23 @@ const Node = ({
 
   // Built once at the open size, so a morph frame re-renders only the transform
   // around it, never the definition's drawing.
+  // A node that opens as its formula shows it here, as opening it would.
+  const previewGroups = useMemo(
+    () => previewGroupsFor({ id: node.id, format: node.format, formulaSize: node.formulaSize, color: node.color }, currentViewGraph),
+    [node.id, node.format, node.formulaSize, node.color, currentViewGraph],
+  );
   const innerNetworkElement = useMemo(() => (
     showPreview && openNetworkWidth > 0 && openNetworkHeight > 0 ? (
       <InnerNetwork
         nodes={currentGraphNodes}
         edges={currentGraphEdges}
-        groups={currentViewGraph?.groups}
+        groups={previewGroups}
         width={openNetworkWidth}
         height={openNetworkHeight}
         padding={14 * effNodeScale}
       />
     ) : null
-  ), [showPreview, currentGraphNodes, currentGraphEdges, currentViewGraph, openNetworkWidth, openNetworkHeight, effNodeScale]);
+  ), [showPreview, currentGraphNodes, currentGraphEdges, previewGroups, openNetworkWidth, openNetworkHeight, effNodeScale]);
   const hasPreviewWell = showPreview && innerNetworkWidth > 0 && innerNetworkHeight > 0;
 
   // Effect to handle arrow fade-in after expansion

@@ -11,6 +11,7 @@ import { getTextColor, blendColors } from './utils/colorUtils.js';
 import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
+import useFormatsStore, { selectStandard } from './components/canvas/formats/formatsStore.js';
 import { GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { connectionColor, connectionRoutingSettings, CONNECTION_STROKE_BASE } from './utils/canvas/settledConnection.js';
 import { layoutWebPreview, layoutPreviewConnections } from './components/webPreview/webPreviewLayout.js';
@@ -72,12 +73,19 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
   const autoLayoutSettings = useGraphStore(state => state.autoLayoutSettings);
   const nodeScaleGlobal = textSettings?.nodeScale ?? 1.0;
+  // Formulas written as the canvas writes them now.
+  const standard = useFormatsStore(selectStandard);
+  const namesShown = useFormatsStore(s => s.namesShown);
+  const flipped = useFormatsStore(s => s.flipped);
 
   const layout = useMemo(() => {
     if (!nodes || nodes.length === 0 || !edges || width <= 0 || height <= 0) return null;
 
     // Nodes, groups and anchors as the canvas lays them out.
-    const web = layoutWebPreview({ nodes, edges, groups, nodePrototypes: nodePrototypesMap, edgePrototypes: edgePrototypesMap, textSettings, gridSize });
+    const web = layoutWebPreview({
+      nodes, edges, groups, nodePrototypes: nodePrototypesMap, edgePrototypes: edgePrototypesMap, textSettings, gridSize,
+      display: { standard, namesShown, flipped },
+    });
     if (!web) return null;
     const { minX, minY, maxX, maxY } = web.bounds;
 
@@ -102,7 +110,7 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     };
 
     return { ...web, connections, clipRegion, connectionWidth: settings.connectionWidth, scale, translateX, translateY };
-  }, [nodes, edges, groups, width, height, padding, nodePrototypesMap, edgePrototypesMap, textSettings, autoLayoutSettings, gridSize, nodeScaleGlobal]);
+  }, [nodes, edges, groups, width, height, padding, nodePrototypesMap, edgePrototypesMap, textSettings, autoLayoutSettings, gridSize, nodeScaleGlobal, standard, namesShown, flipped]);
 
   if (!layout) {
     return null;

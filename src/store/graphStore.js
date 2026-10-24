@@ -198,6 +198,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {boolean} showMultipleNodesControlPanel - Whether the multi-node control panel is visible.
  * @property {boolean} showConnectionControlPanel - Whether the connection control panel is visible.
  * @property {boolean} showGroupControlPanel - Whether the group control panel is visible.
+ * @property {boolean} showEquationControlPanel - Whether the equation (format) control panel is visible.
  * @property {boolean} showAbstractionControlPanel - Whether the abstraction chain control panel is visible.
  * @property {Object} gridSettings - `{ mode: 'off'|'move'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
  * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
@@ -2060,6 +2061,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     showMultipleNodesControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_multi_node_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    showEquationControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_equation_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     // Decompose opens a Thing onto its definition itself (true) or copies the
     // definition into a node-group saved back by hand (false). See core/openDefinitions.js.
     openDefinitionsInPlace: (() => { try { const s = localStorage.getItem('redstring_open_definitions_in_place'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
@@ -7566,6 +7568,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     toggleShowGroupControlPanel: () => set(produce((draft) => {
       draft.showGroupControlPanel = !draft.showGroupControlPanel;
       try { localStorage.setItem('redstring_show_group_cp', draft.showGroupControlPanel); } catch (_) { }
+    })),
+    /** Toggles the equation (format) control panel. Persists to localStorage. */
+    toggleShowEquationControlPanel: () => set(produce((draft) => {
+      draft.showEquationControlPanel = !draft.showEquationControlPanel;
+      try { localStorage.setItem('redstring_show_equation_cp', draft.showEquationControlPanel); } catch (_) { }
     })),
     /** Toggles whether Decompose opens definitions in place. Persists to localStorage. */
     toggleOpenDefinitionsInPlace: () => set(produce((draft) => {

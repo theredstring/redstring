@@ -200,6 +200,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showMultipleNodesControlPanel = useGraphStore(s => s.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore(s => s.showConnectionControlPanel ?? false);
   const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? true);
+  const showEquationControlPanel = useGraphStore(s => s.showEquationControlPanel ?? true);
   const openDefinitionsInPlace = useGraphStore(s => s.openDefinitionsInPlace !== false);
   const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? true);
 
@@ -531,6 +532,16 @@ const SettingsModal = ({ isVisible, onClose }) => {
             <Toggle
               checked={showGroupControlPanel}
               onChange={() => useGraphStore.getState().toggleShowGroupControlPanel?.()}
+            />
+          </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Equation Panel
+              <div className="settings-row-description">Show the bottom control panel when an equation is selected</div>
+            </div>
+            <Toggle
+              checked={showEquationControlPanel}
+              onChange={() => useGraphStore.getState().toggleShowEquationControlPanel?.()}
             />
           </div>
           <div className="settings-row">

@@ -25,6 +25,7 @@ import { queueEdgeHandoff } from '../edges/edgeTransitions.js';
 import { isJustAfterNodeDrop } from './dropCooldown.js';
 import { anchorBoxOf, isReplacedInstance } from '../formats/replaced.js';
 import { withSelectedFormula } from '../formats/formula/formulaSelection.js';
+import { useThingGroupPromptStore } from '../thingGroupPrompt/thingGroupPrompt.js';
 
 const insideBox = (b, p) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
 
@@ -1168,6 +1169,10 @@ export function createPointerHandlers(ctxRef) {
       // later that lands on the (now-uncovered) canvas; without this guard it
       // flips the morph to 'disappear' and the node is silently lost.
       if (plusSign && (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed')) return;
+      // Its bubble's selector is open (Add Web): the click that ends the press on
+      // the bubble lands here once the bubble has gone, so hold it, as a click on
+      // the plus itself is held by the name prompt above.
+      if (plusSign && useThingGroupPromptStore.getState().prompt) return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
     }
   };

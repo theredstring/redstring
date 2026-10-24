@@ -72,6 +72,7 @@ export default function ControlPanelsHost({ ctx }) {
   const showMultipleNodesControlPanel = useGraphStore((state) => state.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore((state) => state.showConnectionControlPanel ?? true);
   const showGroupControlPanel = useGraphStore((state) => state.showGroupControlPanel ?? true);
+  const showEquationControlPanel = useGraphStore((state) => state.showEquationControlPanel ?? true);
   const showAbstractionControlPanel = useGraphStore((state) => state.showAbstractionControlPanel ?? true);
   // The group the panel is about, read through to the active web so a rename or
   // recolour elsewhere shows up (P2.03b). Read as viewed: an open box's group
@@ -560,7 +561,9 @@ export default function ControlPanelsHost({ ctx }) {
 
   // --- Group Control Panel Management ---
   useEffect(() => {
-    const shouldShow = Boolean(showGroupControlPanel && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    // An equation (the format mode) has its own setting; every other group reads the group one.
+    const panelEnabled = groupPanelMode === 'format' ? showEquationControlPanel : showGroupControlPanel;
+    const shouldShow = Boolean(panelEnabled && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setGroupControlPanelShouldShow(true);
       setGroupControlPanelVisible(true);
@@ -574,7 +577,7 @@ export default function ControlPanelsHost({ ctx }) {
     } else if (!shouldShow && groupControlPanelVisible) {
       setGroupControlPanelVisible(false);
     }
-  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel]);
+  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel, showEquationControlPanel, groupPanelMode]);
 
   // The expanded Thing's description for the web it's showing, under it in the
   // panel (the node itself shows only the web).

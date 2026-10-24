@@ -7,34 +7,14 @@
  */
 
 import { resolveGraphId } from './resolveGraphId.js';
-import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { readWeb, resolvePlace } from './utils/webView.js';
 import { resolveNodeSize, NODE_SIZE_NAMES, DEFAULT_NODE_SIZE_NAME } from './utils/nodeSize.js';
 
-/**
- * Resolve a node by name from graph state via the shared smart resolver.
- * Mirrors the pattern in updateNode.js.
- */
-async function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
-  const targetGraph = graphs.find(g => g.id === graphId);
-  if (!targetGraph) return null;
-
-  const instances = Array.isArray(targetGraph.instances)
-    ? targetGraph.instances
-    : targetGraph.instances instanceof Map
-      ? Array.from(targetGraph.instances.values())
-      : Object.values(targetGraph.instances || {});
-
-  const candidates = instances.map(inst => {
-    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    return {
-      instanceId: inst.id,
-      prototypeId: inst.prototypeId,
-      name: inst.name || proto?.name || '',
-      description: inst.description || proto?.description || ''
-    };
-  });
-
-  const { match } = await resolveNodeSmart(name, candidates, { callSite: 'setNodeSize' });
+/** A node of the web by id or by the name the web was shown under (webView.js). */
+async function resolveNodeByName(name, graphState, graphId) {
+  const web = readWeb(graphState, graphId);
+  if (!web.graph) return null;
+  const { match } = await resolvePlace(web, name, 'setNodeSize');
   return match;
 }
 
@@ -59,14 +39,14 @@ export async function setNodeSize(args, graphState, cid, ensureSchedulerStarted)
     );
   }
 
-  const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
+  const { graphs = [], activeGraphId } = graphState;
   const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  const resolved = await resolveNodeByName(lookupName, nodePrototypes, graphs, graphId);
+  const resolved = await resolveNodeByName(lookupName, graphState, graphId);
 
   if (!resolved) {
     // Not in the server-side graphState — still return the action so the client

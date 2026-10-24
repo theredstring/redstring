@@ -30,6 +30,7 @@ export const PREFERENCE_KEYS = [
   'redstring_show_multi_node_cp',
   'redstring_show_connection_cp',
   'redstring_show_group_cp',
+  'redstring_show_equation_cp',
   'redstring_open_definitions_in_place',
   'redstring_show_abstraction_cp',
   'redstring_landscape_shell_mode',
