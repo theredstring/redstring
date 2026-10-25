@@ -5,7 +5,7 @@
  * Focuses on predictability, spaciousness, and preventing node overlap.
  */
 
-import { GROUP_LAYOUT_CONSTANTS, labelBoxFor } from './groupLayout.js';
+import { GROUP_LAYOUT_CONSTANTS, labelBoxFor, labelGrowthFactor, grownLabelBox } from './groupLayout.js';
 // Shared box/segment geometry. This module imports nothing from services/, so
 // it is safe to pull in ahead of the patternLayouts cycle below.
 import {
@@ -333,7 +333,7 @@ function buildGroupContainmentHierarchy(groups) {
  * @param {object} group
  * @param {{minX, minY, maxX, maxY}} bbox - member bounding box
  * @param {object} [config] - reads gridSize, measureLabelWidth,
- *        groupLabelFontSize, groupLabelScale. Omit for the constant defaults.
+ *        groupLabelFontSize, groupLabelScale, groupLabelGrowth. Omit for the constant defaults.
  */
 export function deriveGroupVisualBounds(group, bbox, config = {}) {
   const C = GROUP_LAYOUT_CONSTANTS;
@@ -348,7 +348,8 @@ export function deriveGroupVisualBounds(group, bbox, config = {}) {
 
   const measure = config.measureLabelWidth
     || ((text) => estimateEdgeLabelWidth(text, labelFontSize));
-  const labelBox = labelBoxFor(group.name || 'Group', measure, labelScale, labelFontSize);
+  const baseLabelBox = labelBoxFor(group.name || 'Group', measure, labelScale, labelFontSize);
+  const labelBox = grownLabelBox(baseLabelBox, labelGrowthFactor(config.groupLabelGrowth, rectW, baseLabelBox.w));
   const labelWidth = labelBox.w;
   const labelHeight = labelBox.h;
 

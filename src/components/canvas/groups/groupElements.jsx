@@ -55,7 +55,7 @@ export function buildGroupElements({
   groupLayouts, groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName,
   theme, gridActive, gridPatternId, groupEditInputRef, handlers, liftedThingShadow,
 }) {
-  const { entries: groupEntries, groupCount, groupLabelScale, groupLabelFontSize } = groupLayouts;
+  const { entries: groupEntries, groupCount } = groupLayouts;
   const ngBackgroundsByDepth = new Map();
   const ngTitles = [];
   const pushAtDepth = (map, depth, element) => {
@@ -91,7 +91,9 @@ export function buildGroupElements({
 
     const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
     const strokeColor = effectiveGroupColor;
-    const fontSize = groupLabelFontSize;
+    // Each title's own size: it can grow with its group (groupLabelMetrics).
+    const fontSize = label.fontSize;
+    const groupLabelScale = label.scale;
 
     const labelText = effectiveGroupName;
     // Wrapped lines from the same box the layout measured, so the

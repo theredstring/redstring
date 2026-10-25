@@ -546,8 +546,41 @@ export const groupTitleScaleOf = (textSettings) => GROUP_TITLE_BASE_SCALE * (tex
 export const groupLabelMetrics = (textSettings) => {
   const labelScale = (textSettings?.nodeScale ?? 1.0) * groupTitleScaleOf(textSettings);
   const labelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * labelScale;
-  return { labelScale, labelFontSize };
+  return { labelScale, labelFontSize, labelGrowth: groupTitleGrowthOf(textSettings) };
 };
+
+// When titles grow with their group (textSettings.groupTitleGrow), a group this
+// wide (at node size 1) draws its title at the usual size, and a wider one draws
+// it larger in proportion, up to textSettings.groupTitleGrowMax.
+export const GROUP_TITLE_GROW_FROM = 1200;
+export const GROUP_TITLE_GROW_MAX_DEFAULT = 2.0;
+
+/** `{ from, max }` for labelGrowthFactor, or null when titles keep one size. */
+export const groupTitleGrowthOf = (textSettings) => (textSettings?.groupTitleGrow
+  ? {
+    from: GROUP_TITLE_GROW_FROM * (textSettings?.nodeScale ?? 1.0),
+    max: textSettings?.groupTitleGrowMax ?? GROUP_TITLE_GROW_MAX_DEFAULT,
+  }
+  : null);
+
+/**
+ * How many times its usual size a group's title is drawn: 1 unless titles grow
+ * (`growth`), else the band's width over `growth.from`, up to `growth.max`, and
+ * never past what the band holds. `bandW` is the members' box before the title
+ * widens it, so a grown title never makes its group wider, only its tab taller.
+ */
+export const labelGrowthFactor = (growth, bandW, baseLabelW) => {
+  if (!growth || !(baseLabelW > 0)) return 1;
+  const fits = (bandW - GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2) / baseLabelW;
+  return Math.max(1, Math.min(growth.max, bandW / growth.from, fits));
+};
+
+/**
+ * A labelBoxFor box at `k` times the size. Every part of the tab is linear in
+ * the font and scale, so this is the box labelBoxFor gives at k times both,
+ * with the same wrapped lines.
+ */
+export const grownLabelBox = (box, k) => (k === 1 ? box : { ...box, w: box.w * k, h: box.h * k });
 
 /**
  * A group title's size on the canvas, as computeGroupLayout's context takes it
@@ -556,10 +589,11 @@ export const groupLabelMetrics = (textSettings) => {
  * wrapLabelLines).
  */
 export const groupLabelSizing = (textSettings, measureWidth) => {
-  const { labelScale, labelFontSize } = groupLabelMetrics(textSettings);
+  const { labelScale, labelFontSize, labelGrowth } = groupLabelMetrics(textSettings);
   return {
     labelScale,
     labelFontSize,
+    labelGrowth,
     measureLabelWidth: (text) => measureWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
   };
 };
@@ -786,6 +820,11 @@ function computeGroupLayoutInner(group, context) {
     measureLabelWidth,
     labelScale = 1,
     labelFontSize = null,
+    // Titles that grow with their group (groupTitleGrowthOf), or null.
+    labelGrowth = null,
+    // groupId → the growth to draw a title at instead (a drag holds each
+    // title at its size on grab), or undefined to work it out.
+    pinnedLabelGrowth = null,
     // A child drawn its own way (a formula) is as large as what is drawn of it,
     // not its Things' shell: groupId → { x, y, w, h }, or null.
     drawnBoundsOf = null,
@@ -957,7 +996,9 @@ function computeGroupLayoutInner(group, context) {
   const rectH = (maxY - minY) + margin * 2;
 
   const labelText = group.name || 'Group';
-  const labelBox = labelBoxFor(labelText, measureLabelWidth, labelScale, labelFontSize);
+  const baseLabelBox = labelBoxFor(labelText, measureLabelWidth, labelScale, labelFontSize);
+  const growth = pinnedLabelGrowth?.(group.id) ?? labelGrowthFactor(labelGrowth, rectW, baseLabelBox.w);
+  const labelBox = grownLabelBox(baseLabelBox, growth);
   const labelWidth = labelBox.w;
   const labelHeight = labelBox.h;
 
@@ -994,7 +1035,11 @@ function computeGroupLayoutInner(group, context) {
     isNodeGroup,
     bbox: { minX, minY, maxX, maxY },
     rect: { x: rectX, y: rectY, w: rectW, h: rectH },
-    label: { x: labelX, y: labelY, w: labelWidth, h: labelHeight, lines: labelBox.lines },
+    // fontSize/scale: what the title is drawn at, grown with its group.
+    label: {
+      x: labelX, y: labelY, w: labelWidth, h: labelHeight, lines: labelBox.lines,
+      growth, scale: labelScale * growth, fontSize: (labelFontSize ?? C.fontSize * labelScale) * growth,
+    },
     nodeGroupRect: { y: nodeGroupRectY, h: nodeGroupRectH },
     innerCanvasY,
     visualBounds: {

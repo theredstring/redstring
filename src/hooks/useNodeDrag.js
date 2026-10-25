@@ -1754,7 +1754,7 @@ export const useNodeDrag = ({
     // Match the static render's label sizing (groupLabelMetrics). Without this
     // the tab re-measured at the fixed 36px base with no scale on grab and
     // jumped size mid-drag.
-    const { labelScale, labelFontSize } = groupLabelMetrics(useGraphStore.getState().textSettings);
+    const { labelScale, labelFontSize, labelGrowth } = groupLabelMetrics(useGraphStore.getState().textSettings);
     const layoutContext = {
       nodesById: dragNodesById,
       dimsById: curBaseDims,
@@ -1765,6 +1765,10 @@ export const useNodeDrag = ({
       measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
       labelScale,
       labelFontSize,
+      labelGrowth,
+      // A title that grows with its group stays the size it was on grab: the
+      // frames below move its pill and text but never resize them.
+      pinnedLabelGrowth: (id) => groupTitleRectsRef?.current?.get(id)?.titleGrowth,
       // A formula inside a group, as the settled layout measures it, carried as far as its Things are.
       ...formatLayoutHooks((memberIds) => {
         const id = memberIds.find(m => dragPos.has(m) && curNodeById.has(m));
@@ -1801,6 +1805,7 @@ export const useNodeDrag = ({
           x: labelX, y: labelY,
           width: groupLabelWidth, height: groupLabelHeight,
           groupId,
+          titleGrowth: label.growth,
           anchorInstanceId: layout.isNodeGroup ? (group.anchorInstanceId || null) : null,
         });
       }

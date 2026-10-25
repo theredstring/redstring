@@ -178,7 +178,7 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
   // the canvas actually draws (NodeCanvas base × user text settings)
   const edgeLabelFontSize = resolveEdgeLabelFontSize(st.textSettings, st.connectionLabelSize);
   // Same for a group's title tab, at the size the canvas draws it.
-  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize } = groupLabelMetrics(st.textSettings);
+  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, labelGrowth: groupLabelGrowth } = groupLabelMetrics(st.textSettings);
   // Member padding inside a group rect is derived from the grid, so the solver
   // needs the real value or it enforces against a rect narrower than the drawn
   // one. Only the snapping below used to read this.
@@ -198,6 +198,7 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
     edgeLabelFontSize,
     groupLabelFontSize,
     groupLabelScale,
+    groupLabelGrowth,
     gridSize,
     // Lombardi draws arcs, which changes both which layout fits a shape and how
     // much room each edge needs. The conditional dispatcher reads these.

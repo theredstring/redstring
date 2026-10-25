@@ -459,6 +459,28 @@ const SettingsModal = ({ isVisible, onClose }) => {
               onChange={(v) => useGraphStore.getState().setGroupTitleScale?.(v)}
             />
           </div>
+          <div className="settings-row">
+            <div className="settings-row-label">
+              Titles Grow With Groups
+              <div className="settings-row-description">Wider groups get larger titles.</div>
+            </div>
+            <Toggle
+              checked={!!textSettings?.groupTitleGrow}
+              onChange={(on) => useGraphStore.getState().setGroupTitleGrow?.(on)}
+            />
+          </div>
+          <div className="settings-slider-row">
+            <MaroonSlider
+              label="Largest Title"
+              value={textSettings?.groupTitleGrowMax ?? 2.0}
+              min={1.25}
+              max={4.0}
+              step={0.05}
+              suffix="x"
+              disabled={!textSettings?.groupTitleGrow}
+              onChange={(v) => useGraphStore.getState().setGroupTitleGrowMax?.(v)}
+            />
+          </div>
 
           <hr className="settings-section-divider" />
 

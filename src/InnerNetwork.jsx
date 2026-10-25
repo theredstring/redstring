@@ -116,7 +116,7 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     return null;
   }
 
-  const { dimsById, hiddenIds, groupShapes, groupFontSize, groupLabelScale, formulas, connections, clipRegion, connectionWidth, topSlot, scale, translateX, translateY } = layout;
+  const { dimsById, hiddenIds, groupShapes, groupFontSize, formulas, connections, clipRegion, connectionWidth, topSlot, scale, translateX, translateY } = layout;
   const nodesById = new Map(nodes.map(n => [n.id, n]));
 
   // Edges keep their true canvas weight (27 * connectionWidth in graph coordinates), so
@@ -140,19 +140,21 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
   // its tab, like groupElements.jsx. Dropped below the same legibility cutoff as
   // node labels.
   const renderGroupTitle = (shape, fill) => {
-    if (groupFontSize * scale < MIN_LABEL_PX) return null;
     const { label } = shape;
+    // Its own size: a title can grow with its group (groupLabelMetrics).
+    const fontSize = label.fontSize ?? groupFontSize;
+    if (fontSize * scale < MIN_LABEL_PX) return null;
     const lines = label.lines?.length ? label.lines : [shape.name];
-    const lineHeight = groupFontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
+    const lineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
     const cx = label.x + label.w / 2;
-    const arrows = vectorArrowsOver(lines, groupFontSize, lineHeight);
+    const arrows = vectorArrowsOver(lines, fontSize, lineHeight);
     return (
       <>
       <text
         x={cx}
         y={label.y + label.h / 2}
         fontFamily="EmOne, sans-serif"
-        fontSize={groupFontSize}
+        fontSize={fontSize}
         fontWeight="bold"
         fill={fill}
         textAnchor="middle"
@@ -199,8 +201,8 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
           rx={C.nodeGroupCornerRadius} ry={C.nodeGroupCornerRadius}
           fill="none" stroke={shape.color} strokeWidth={PLAIN_GROUP_STROKE} strokeDasharray={PLAIN_GROUP_DASH} />
         <rect x={label.x} y={label.y} width={label.w} height={label.h}
-          rx={GROUP_PILL_RADIUS * groupLabelScale} ry={GROUP_PILL_RADIUS * groupLabelScale}
-          fill={theme.canvas.bg} stroke={shape.color} strokeWidth={GROUP_PILL_STROKE * groupLabelScale} />
+          rx={GROUP_PILL_RADIUS * shape.labelScale} ry={GROUP_PILL_RADIUS * shape.labelScale}
+          fill={theme.canvas.bg} stroke={shape.color} strokeWidth={GROUP_PILL_STROKE * shape.labelScale} />
         {renderGroupTitle(shape, getTextColor(theme.canvas.bg, theme.darkMode))}
       </g>
     );

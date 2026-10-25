@@ -100,7 +100,7 @@ export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePro
   // Groups, laid out as the canvas lays them out (canvas/groups/groupLayouts.js).
   const groupsById = groups instanceof Map ? groups : new Map(Object.entries(groups || {}));
   const formulas = previewFormulas({ nodes, edges, groupsById, nodePrototypes, edgePrototypes, textSettings, gridSize, display });
-  const { labelScale: groupLabelScale, labelFontSize: groupFontSize } = groupLabelMetrics(textSettings);
+  const { labelScale: groupLabelScale, labelFontSize: groupFontSize, labelGrowth } = groupLabelMetrics(textSettings);
   const groupShapes = [];
   const anchors = new Map(); // anchor instance id -> the canvas's anchorPositions record
   let edgeSlots = new Map();
@@ -128,6 +128,7 @@ export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePro
       measureLabelWidth: (text) => measureTextWidth(text || 'Group', labelFont),
       labelScale: groupLabelScale,
       labelFontSize: groupFontSize,
+      labelGrowth,
       _cache: new Map(),
     };
     for (const [id, group] of namedGroups) {
@@ -142,7 +143,7 @@ export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePro
         name: group.name,
         depth: depths.get(group.id) ?? 0,
         color: proto?.color || group.color || '#8B0000',
-        labelScale: groupLabelScale,
+        labelScale: result.label.scale,
       });
       if (result.isNodeGroup && group.anchorInstanceId) {
         // On the canvas the anchor IS the title: connections meet the pill and

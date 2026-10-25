@@ -186,7 +186,7 @@ export const useGraphLayout = ({
     // width from character count and came out roughly half size, so every
     // group's name overhung the rect the layout had kept clear for it. Plain
     // numbers, because the solver runs in a worker.
-    const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize } = groupLabelMetrics(textSettings);
+    const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, labelGrowth: groupLabelGrowth } = groupLabelMetrics(textSettings);
     // Whether bulk auto-placement should snap to the grid, given the current
     // grid mode and the user's snap preference. The standalone snap-to-grid
     // action bypasses this (it's an explicit user request).
@@ -425,6 +425,7 @@ export const useGraphLayout = ({
             edgeLabelFontSize: connectionFontSize,
             groupLabelFontSize,
             groupLabelScale,
+            groupLabelGrowth,
             // Group rects are derived from gridSize (member padding scales with
             // it). Without it the solver enforces exclusion against a rect that
             // isn't the one on screen.

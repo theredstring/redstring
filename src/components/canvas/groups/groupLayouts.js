@@ -104,7 +104,7 @@ export function computeGroupLayouts({
   const tgMemberIds = new Set();
   const anchorIds = new Set();
   // Group labels scale with node size and read at a node title's size.
-  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, measureLabelWidth } = groupLabelSizing(textSettings, getTextWidth);
+  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, labelGrowth, measureLabelWidth } = groupLabelSizing(textSettings, getTextWidth);
   const result = {
     entries, groupCount: groups.length, titleRects, anchorPositions,
     thingGroupMemberIds: tgMemberIds, anchorIds, groupLabelScale, groupLabelFontSize,
@@ -154,6 +154,7 @@ export function computeGroupLayouts({
     measureLabelWidth,
     labelScale: groupLabelScale,
     labelFontSize: groupLabelFontSize,
+    labelGrowth,
     ...formatLayoutHooks(),
     _cache: new Map(),
   };
@@ -199,6 +200,8 @@ export function computeGroupLayouts({
       x: labelX, y: labelY,
       width: labelWidth, height: labelHeight,
       groupId: group.id,
+      // How far the title grew with its group, so a drag can hold it at this size.
+      titleGrowth: label.growth,
       anchorInstanceId: isNodeGroup ? (group.anchorInstanceId || null) : null,
     });
 
