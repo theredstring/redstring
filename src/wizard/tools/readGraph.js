@@ -133,7 +133,7 @@ export async function readGraph(args, graphState) {
 
         return {
             id: e.id,
-            triplet: `${sourceName} --[${type}]--> ${targetName}`,
+            triple: `${sourceName} --[${type}]--> ${targetName}`,
             sourceName,
             targetName,
             type,
@@ -172,7 +172,7 @@ export async function readGraph(args, graphState) {
         : null;
 
     // Reading the active graph is almost always redundant: the context header
-    // already carries its nodes, types, descriptions and connection triplets, and
+    // already carries its nodes, types, descriptions and connection triples, and
     // it is rebuilt from live state every iteration — so it is never staler than
     // this result. The data is still returned (the model may want the IDs), but
     // saying so is what stops the loop burning an iteration per re-read.

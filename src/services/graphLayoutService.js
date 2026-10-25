@@ -817,7 +817,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
   clearancePadding: 24,
 
   // Advanced forces
-  enableEdgeRepulsion: true, // Triplet repulsion
+  enableEdgeRepulsion: true, // Triple repulsion
   stiffness: 0.6,            // Rigid body stiffness (0.0 - 1.0)
 
   // Group clustering
@@ -2839,7 +2839,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     // ------------------------------------------------------------------------
     // Edges repel nodes (and thus other edges via their endpoints).
     // This prevents nodes from crossing edges or sitting on top of them.
-    // It naturally handles "triplet repulsion" (edge-edge) by repelling 
+    // It naturally handles "triple repulsion" (edge-edge) by repelling 
     // each edge's endpoints from the other edge's segment.
 
     if (config.enableEdgeRepulsion) {

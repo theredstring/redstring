@@ -79,7 +79,7 @@ hexagons, triangles and grids emerge. Iteratively forcing all edges toward lengt
 the layout into those symmetric configurations. Controlled by `stiffness` (0.0 organic →
 1.0 rigid).
 
-### 6. Triplet repulsion — node↔edge
+### 6. Triple repulsion — node↔edge
 
 Nodes are repelled from edges they are not endpoints of. For each node/edge pair the distance
 to the line segment is computed, repulsion is applied to the node, and an equal and opposite

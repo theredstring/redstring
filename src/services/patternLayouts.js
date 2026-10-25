@@ -677,7 +677,7 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
   // sentence: subject, the relation's label running along the line, object.
   // Labels are wide and short, so a horizontal edge holds its text along its
   // length, where a vertical one has to be stretched to fit it across. Grant
-  // found triplets far easier to read this way.
+  // found triples far easier to read this way.
   //
   // `rootPlacement: 'top'` still means the root at depth 0, which is now the
   // left edge: the general term first, the specific after it.

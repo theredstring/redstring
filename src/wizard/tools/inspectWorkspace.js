@@ -628,7 +628,7 @@ export async function inspectWorkspace(args, graphState) {
   if (graph.id === activeGraphId) {
     result.note =
       'This is the active graph — its names, types, descriptions and connection '
-      + 'triplets are already in your context header. Use the IDs here for tools '
+      + 'triples are already in your context header. Use the IDs here for tools '
       + 'that need them; do not re-read this graph just to see its contents.';
   }
 

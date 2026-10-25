@@ -438,7 +438,7 @@ let panelRenderCount = 0; // Add counter outside component
  * Rendered on the left (graph/type list) and right (node detail, AI assistant, settings)
  * sides of the canvas by PanelHost, which supplies stable props from the stores
  * (P2.09), so a plain memo keeps canvas renders out. Views that need live graph
- * data (Open Webs, the wizard, Semantic Discovery) subscribe for themselves.
+ * data (Open Webs, the wizard, Semantic Search) subscribe for themselves.
  *
  * @type {React.MemoExoticComponent<(props: PanelProps) => JSX.Element>}
  */
@@ -968,7 +968,7 @@ const Panel = memo(
     // move the user somewhere they never saw go by. (DuplicateManager needed this
     // because each view mounted its own copy.)
 
-    // Event listener: open Semantic Discovery (triggered by text-search icon)
+    // Event listener: open Semantic Search (triggered by text-search icon)
     useEffect(() => {
       // Only the left panel owns this view. The right panel used to re-dispatch
       // the very event it was handling, which re-entered both listeners and
@@ -1458,7 +1458,7 @@ const Panel = memo(
       defs.push(thingsScope === 'all'
         ? { key: 'library', title: 'All Things', Icon: LayoutGrid }
         : { key: 'library', title: 'Saved Things', Icon: Bookmark });
-      defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: BookSearch });
+      defs.push({ key: 'semantic', title: 'Semantic Search', Icon: BookSearch });
       defs.push({ key: 'history', title: 'Action History', Icon: History });
       if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       return defs;
@@ -1784,7 +1784,7 @@ const Panel = memo(
           </div>
         );
       } else if (leftViewActive === 'semantic') {
-        // Semantic Discovery view - concept discovery engine
+        // Semantic Search view - concept discovery engine
         panelContent = (
           <LeftSemanticDiscoveryView
             storeActions={storeActions}

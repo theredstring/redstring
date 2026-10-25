@@ -1,5 +1,5 @@
 /**
- * Client-side Wikidata slice fetcher for the Semantic Discovery catalog.
+ * Client-side Wikidata slice fetcher for the Semantic Search catalog.
  * Queries the Wikidata SPARQL endpoint directly from the browser using the
  * existing sparqlClient infrastructure (rate limiting, caching, timeout).
  */

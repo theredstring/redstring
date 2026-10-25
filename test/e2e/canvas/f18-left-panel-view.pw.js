@@ -23,13 +23,13 @@ test('F18 a Universes request opens the left panel there, and a repeat request s
   await expect.poll(() => isActive('Universes')).toBe('true');
 });
 
-// The pie's Semantic Search opens the left panel on Semantic Discovery, and on
+// The pie's Semantic Search opens the left panel's Semantic Search view, and on
 // its Discover list even if the view was last left on History: the search used
 // to run behind whichever mode the view was in, where nobody could see it.
-test('F18b the pie\'s Semantic Search opens Semantic Discovery on its results', async ({ page }) => {
+test('F18b the pie\'s Semantic Search opens the Semantic Search view on its results', async ({ page }) => {
   await openFixture(page, 'small');
   const isActive = (title) => page.locator(`.panel-view-tab[title="${title}"]`).first().getAttribute('data-active');
-  const modeButton = page.locator('h2', { hasText: 'Semantic Discovery' }).locator('xpath=following-sibling::div[1]/*').first();
+  const modeButton = page.locator('h2', { hasText: 'Semantic Search' }).locator('xpath=following-sibling::div[1]/*').first();
   const semanticSearchFromPie = async () => {
     await openPieMenu(page, 'i-alpha');
     if (await pieButton(page, 'text-search').count() === 0) {
@@ -43,7 +43,7 @@ test('F18b the pie\'s Semantic Search opens Semantic Discovery on its results', 
 
   await semanticSearchFromPie();
   await expect.poll(() => storeEval(page, (st) => st.leftPanelExpanded)).toBe(true);
-  await expect.poll(() => isActive('Semantic Discovery')).toBe('true');
+  await expect.poll(() => isActive('Semantic Search')).toBe('true');
 
   await clickCenter(page, modeButton);
   await page.locator('.context-menu-item', { hasText: /^History/ }).click();
@@ -55,6 +55,6 @@ test('F18b the pie\'s Semantic Search opens Semantic Discovery on its results', 
   await storeEval(page, (st) => st.setLeftPanelExpanded(false));
   await semanticSearchFromPie();
   await expect.poll(() => storeEval(page, (st) => st.leftPanelExpanded)).toBe(true);
-  await expect.poll(() => isActive('Semantic Discovery')).toBe('true');
+  await expect.poll(() => isActive('Semantic Search')).toBe('true');
   await expect(modeButton).toHaveText(/^Discover/);
 });

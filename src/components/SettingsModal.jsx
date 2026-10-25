@@ -51,7 +51,7 @@ const Toggle = ({ checked, onChange, disabled = false }) => (
 /**
  * A radio group built out of the panel's pill button, `active` marking the
  * chosen one. This is the same construction as the Concepts/Related switch in
- * the Semantic Discovery view: the selected pill wears the pie menu's lit
+ * the Semantic Search view: the selected pill wears the pie menu's lit
  * state, so "selected" and "hovered" are one visual idea rather than two.
  */
 const OptionGroup = ({ options, value, onChange }) => (

@@ -11,7 +11,7 @@ import useSemanticConnections from '../../hooks/useSemanticConnections.js';
 import useActiveGraphStructureKey from '../../hooks/useActiveGraphStructureKey.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ConfirmDialog from '../shared/ConfirmDialog.jsx';
-import TripletPreview from './TripletPreview.jsx';
+import TriplePreview from './TriplePreview.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './CompactConnectionRow.jsx';
 import TypeStatementDialog, { isTypeStatement } from './TypeStatementDialog.jsx';
 import {
@@ -313,10 +313,10 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
 
   const small = { fontSize: '12px', fontFamily: "'EmOne', sans-serif", color: theme.canvas.textSecondary, lineHeight: 1.4 };
   const sources = [...new Set(connections.map((c) => SOURCE_NAMES[c.provider] || c.provider))].join(' · ');
-  const tripletWidth = Math.max(160, width - ACTION_COLUMN - 8);
+  const tripleWidth = Math.max(160, width - ACTION_COLUMN - 8);
   // Whether the seed is here for rows to hang off; without it, a row brings it in too.
   const canAdd = !!anchor;
-  // Below this a triplet's names truncate to a few letters; rows go compact.
+  // Below this a triple's names truncate to a few letters; rows go compact.
   const compact = width > 0 && width < COMPACT_CONNECTIONS_BELOW;
   // Offered once the list has settled, so "all" means all of it.
   const remaining = canAdd && status === 'ready' ? visible.filter((c) => !presentAs(c)).length : 0;
@@ -431,14 +431,14 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     otherColor={otherColor}
                   />
                 ) : (
-                  <TripletPreview
+                  <TriplePreview
                     subject={c.subject}
                     predicate={c.predicate}
                     object={c.object}
                     subjectColor={isOut ? color : otherColor}
                     objectColor={isOut ? otherColor : color}
                     connectionColor={color}
-                    containerWidth={tripletWidth}
+                    containerWidth={tripleWidth}
                   />
                 )}
               </DraggableStatement>

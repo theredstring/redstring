@@ -226,7 +226,7 @@ describe('buildContext budget enforcement', () => {
 });
 
 describe('buildContext edges', () => {
-  it('renders active-graph edges as triplets with resolved type names', () => {
+  it('renders active-graph edges as triples with resolved type names', () => {
     const active = {
       id: 'act',
       name: 'Active',

@@ -6,7 +6,7 @@
  * rebuilt and re-uploaded on every iteration of every ask, which makes its size
  * the single largest recurring cost in an agentic run — and previously it had no
  * ceiling at all: it listed every node with its description, every edge as a
- * triplet, and every group of the active graph, then appended a roster of the
+ * triple, and every group of the active graph, then appended a roster of the
  * rest. On a large universe that alone could crowd out the conversation.
  *
  * Two ideas keep it bounded:
@@ -76,8 +76,8 @@ const trimText = (text, limit) => {
 
 // Detail levels, richest first. Demotion walks down this list.
 const DETAIL = {
-  FULL: 'full',       // names + types + descriptions, edge triplets, groups
-  NO_DESC: 'no_desc', // names + types, edge triplets, groups
+  FULL: 'full',       // names + types + descriptions, edge triples, groups
+  NO_DESC: 'no_desc', // names + types, edge triples, groups
   MEDIUM: 'medium',   // names + types, edge count only
   LIGHT: 'light',     // name + counts
   NAME: 'name'        // name only
@@ -177,7 +177,7 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, in
   };
 
   // MEDIUM: names and types, but connections collapse to a count. This is the
-  // tier that makes neighbouring tabs affordable — edge triplets are usually
+  // tier that makes neighbouring tabs affordable — edge triples are usually
   // the bulk of a graph's rendered size.
   if (level === DETAIL.MEDIUM) {
     let out = `  - "${name}" (${nodeCount} Things, ${edgeCount} Connections${formulaCount ? `, ${formulaCount} Formulas` : ''})`;
@@ -205,12 +205,12 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, in
   }
 
   if (edgeCount > 0) {
-    const triplets = graphEdges.map(e => {
+    const triples = graphEdges.map(e => {
       const sourceId = e.sourceId || e.source;
       const targetId = e.destinationId || e.targetId || e.target;
       return `  - ${nameOfEnd(sourceId)} --[${resolveEdgeType(e, protoMap)}]--> ${nameOfEnd(targetId)}`;
     });
-    sections.push(`Connections:\n${triplets.join('\n')}`);
+    sections.push(`Connections:\n${triples.join('\n')}`);
   }
 
   if (groups.length > 0) {

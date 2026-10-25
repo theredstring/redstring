@@ -34,7 +34,7 @@ Items marked **★** changed the most, or can't be exercised by the flows at all
 14. **Edges.** Click and Cmd/Ctrl-click select edges. Deleting a selected edge clears it from the selection.
 15. **★ Hover vision aid.** Hover a node, then a connection, then a header button: the aid shows each and doesn't flicker between near-tied connections.
 16. **★ Semantic orbit.**
-    - Open it on a node and hover candidates: the aid previews the triplet.
+    - Open it on a node and hover candidates: the aid previews the triple.
     - Click one: the node lands with its connection, and orbit exits.
     - **Bug fix B-16:** the placed concept and its predicate now appear in Saved Things. Before, they were silently un-bookmarked. The same goes for dropping a concept from the discovery panel onto the canvas, and for the panel's add.
 

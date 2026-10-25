@@ -1248,14 +1248,14 @@ const SharedPanelContent = ({
     </div>
   );
 
-  // Secondary row: Save toggle + Text Search to open Semantic Discovery
+  // Secondary row: Save toggle + Text Search to open Semantic Search
   const isSaved = !!(savedNodeIds && nodeData?.id && savedNodeIds.has(nodeData.id));
 
   const handleSemanticDiscoverySearch = () => {
     const query = nodeData?.name || '';
     if (!query.trim()) return;
     try {
-      // Ask left panel to switch to Semantic Discovery; its listener runs the
+      // Ask left panel to switch to Semantic Search; its listener runs the
       // search. The Thing goes along so a result can be linked back to it.
       window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query, prototypeId: nodeData.id } }));
     } catch { }
@@ -1289,7 +1289,7 @@ const SharedPanelContent = ({
       <PanelIconButton
         icon={BookSearch}
         onClick={handleSemanticDiscoverySearch}
-        title="Search this in Semantic Discovery"
+        title="Open in Semantic Search"
       />
       {wizardEnabled && nodeData?.id && (
         <PanelIconButton

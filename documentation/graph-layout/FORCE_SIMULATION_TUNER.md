@@ -107,7 +107,7 @@ Interactive, draggable modal for tuning force-directed graph layout parameters i
 ### Simulation Algorithm
 Custom force-directed layout implementation based on:
 - N-body repulsion (Barnes-Hut style, but O(n²) for simplicity)
-- **Edge Repulsion (Triplets)**: Edges repel each other to improve angular resolution, except for parallel edges (same two nodes).
+- **Edge Repulsion (Triples)**: Edges repel each other to improve angular resolution, except for parallel edges (same two nodes).
 - Spring forces on edges
 - Centering force
 - Collision detection and resolution

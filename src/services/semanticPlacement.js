@@ -488,7 +488,7 @@ function groupOf(graphId, instanceId, state) {
  * @param {string} args.graphId
  * @param {Object} args.concept        - the concept being brought in
  * @param {'cluster'|'open'} [args.mode]
- * @param {string} [args.anchorInstanceId] - the node it's connected to (triplets)
+ * @param {string} [args.anchorInstanceId] - the node it's connected to (triples)
  * @param {string} [args.predicate]    - the statement's predicate (raw or formatted)
  * @param {'out'|'in'} [args.direction] - 'out': anchor → predicate → concept;
  *                                        'in': concept → predicate → anchor

@@ -336,7 +336,7 @@ describe('parallel connections between the same two nodes', () => {
 });
 
 describe('a straight Lombardi connection centres its label on what is visible', () => {
-  // A subgraph of a single triplet is the case: both nodes are degree 1, so
+  // A subgraph of a single triple is the case: both nodes are degree 1, so
   // each one's single tangent slot lands on the bearing to the other, the two
   // demands cancel, and solveLombardiArc emits a LINE. The label then had no
   // arc to ride and was placed on the raw centre-to-centre chord — whose

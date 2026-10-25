@@ -276,7 +276,7 @@ function findNonOverlappingPosition(targetCenter, clipboardData, existingNodes, 
  * between selected nodes are captured on copy):
  *   1 node                              → Paste Thing
  *   many nodes, no connections          → Paste Things
- *   exactly 2 nodes + 1 directed edge   → Paste Triplet
+ *   exactly 2 nodes + 1 directed edge   → Paste Triple
  *   many nodes + any connections        → Paste Web
  */
 export function pasteLabelFor(clip) {
@@ -284,15 +284,15 @@ export function pasteLabelFor(clip) {
   const nodeCount = clip.nodes.length;
   const edges = Array.isArray(clip.edges) ? clip.edges : [];
   if (edges.length === 0) return nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
-  // A triplet is strictly subject → connection → object: exactly 2 nodes,
+  // A triple is strictly subject → connection → object: exactly 2 nodes,
   // exactly 1 connection between them, pointing exactly one way.
-  // Everything else with connections is a Web. Specifically NOT a triplet:
+  // Everything else with connections is a Web. Specifically NOT a triple:
   //   - more than 2 nodes
   //   - undirected connection (0 arrows)
   //   - doubly-connected / bidirectional (2 arrows)
   const arrows = edges.length === 1 ? edges[0]?.edgeData?.directionality?.arrowsToward : null;
   const arrowCount = arrows instanceof Set ? arrows.size : (Array.isArray(arrows) ? arrows.length : 0);
-  return nodeCount === 2 && edges.length === 1 && arrowCount === 1 ? 'Paste Triplet' : 'Paste Web';
+  return nodeCount === 2 && edges.length === 1 && arrowCount === 1 ? 'Paste Triple' : 'Paste Web';
 }
 
 /**

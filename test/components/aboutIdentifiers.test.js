@@ -55,7 +55,7 @@ describe('extractDOI', () => {
 
 describe('collectIdentifiers', () => {
   it('unions every place the app has stored links', () => {
-    // Semantic Discovery writes semanticMetadata.externalLinks rather than the
+    // Semantic Search writes semanticMetadata.externalLinks rather than the
     // top-level array, which is why those links were invisible before.
     const proto = {
       externalLinks: [WD],

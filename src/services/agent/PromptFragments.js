@@ -7,7 +7,7 @@ export const REDSTRING_CONTEXT = `
 
 - **Graph (Web)**: A workspace containing nodes and edges
 - **Node (Thing)**: A concept with a name, color, and optional description
-- **Edge (Connection)**: A link between two nodes. Uses Subject --[Verb]--> Object triplet style
+- **Edge (Connection)**: A link between two nodes. Uses Subject --[Verb]--> Object triple style
 - Every edge MUST have a \`definitionNode\` object that defines the "Verb"
 - Each Thing can have definition graphs describing what it is made of
 

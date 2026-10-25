@@ -30,7 +30,7 @@ const ConnectionControlPanel = ({
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   // The active web as viewed: a connection inside an open Thing group has ends
   // that live in the definition web, projected in at view positions, so the raw
-  // graph's instances would miss them and the triplet would come up empty.
+  // graph's instances would miss them and the triple would come up empty.
   const instances = useGraphStore((state) => (
     state.activeGraphId ? projectGraphView(state, state.activeGraphId)?.instances ?? null : null
   ));

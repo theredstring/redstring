@@ -2410,7 +2410,7 @@ export const useGamepad = ({
       // calling clearHoverImmediate: this runs every frame, and only
       // commitHoverTarget carries the "already showing this" guard that keeps a
       // steady crosshair from re-setting the same state 60 times a second.
-      // Connections raise the same triplet preview they do under a mouse.
+      // Connections raise the same triple preview they do under a mouse.
       if (target?.kind === 'node') {
         p.commitHoverTarget?.({ kind: 'node', id: target.id, node: target.node });
       } else if (target?.kind === 'connection') {

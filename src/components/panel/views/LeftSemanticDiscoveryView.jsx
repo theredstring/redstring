@@ -26,7 +26,7 @@ import { formatPredicate } from '../../../utils/predicateFormatter.js';
 import titleCaseName from '../../../utils/titleCaseName.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
 
-// Left Semantic Discovery View - Concept Discovery Engine
+// Left Semantic Search View - Concept Discovery Engine
 
 // The Catalog view is sealed off pending a rewrite of how it seeds.
 //
@@ -318,7 +318,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
   );
 };
 
-// Left Semantic Discovery View - Concept Discovery Engine
+// Left Semantic Search View - Concept Discovery Engine
 const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, onLoadWikidataCatalog }) => {
   const theme = useTheme();
   // Bottom clearance for the results lists.
@@ -640,7 +640,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   }, [discoveredConcepts]);
 
   // Watch the header's own width so the title/dropdown row reflows as the user
-  // drags the panel. 300px is where "Semantic Discovery" plus the Discover pill
+  // drags the panel. 300px is where "Semantic Search" plus the Discover pill
   // stop crowding each other.
   useEffect(() => {
     const el = headerRef.current;
@@ -1133,7 +1133,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           }}
         >
           <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: isHeaderWide ? 0 : '12px' }}>
-            Semantic Discovery
+            Semantic Search
           </h2>
           <div style={{ flexShrink: 0 }}>
             <PanelIconButton
