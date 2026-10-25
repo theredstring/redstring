@@ -53,6 +53,7 @@ import {
   anchorIdFromOpenGroupId,
   openGroupId,
   initialOpenOffset,
+  openInPlaceBlock,
   projectGraphView,
 } from '../core/openDefinitions.js';
 import { rightPanelTabKey } from '../utils/rightPanelTabs.js';
@@ -2603,7 +2604,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     updateGroupWithMembers: (graphId, groupId, updates = {}, contextOptions = {}) => {
-      if (anchorIdFromOpenGroupId(groupId)) return;
+      // An open box: its name and color are its Thing's, and a node joins it by
+      // moving into its definition. One leaves only by being deleted there.
+      if (anchorIdFromOpenGroupId(groupId)) {
+        const { name, color, addMemberIds = [] } = updates;
+        return api.withHistoryTransaction('Updated group', () => {
+          if (name || color) {
+            get().updateGroup(graphId, groupId, (g) => { if (name) g.name = name; if (color) g.color = color; }, contextOptions);
+          }
+          if (addMemberIds?.length) get().addInstancesToGroup(graphId, groupId, addMemberIds, contextOptions);
+        });
+      }
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -3112,6 +3123,170 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
     },
 
+
+    /**
+     * Makes a group a Thing-group the way definitions open here. Opening in
+     * place (the default): its members become the Thing's definition, the very
+     * instances, so their ids and connections stay, and the Thing is opened in
+     * place where they stood. The box is that definition: there is nothing to
+     * save or refresh. With the setting off, the copy-style Thing-group
+     * convertGroupToNodeGroup makes.
+     *
+     * Same arguments as convertGroupToNodeGroup. `viewGraphId` may be any web the
+     * group is seen in (it can live in a definition opened there).
+     *
+     * @returns {string|null} The Thing-group's id (`open:<node>` when opened in
+     *   place), or null when it was refused (an empty group).
+     */
+    convertGroupToThingInPlace: (viewGraphId, groupId, nodePrototypeId, createNewPrototype = false, newPrototypeName = '', newPrototypeColor = '#8B0000', contextOptions = {}) => {
+      const homeGraphId = groupHomeGraphId(get(), viewGraphId, groupId);
+      return api.withHistoryTransaction('Converted to Thing-group', () => {
+        get().convertGroupToNodeGroup(homeGraphId, groupId, nodePrototypeId, createNewPrototype, newPrototypeName, newPrototypeColor, contextOptions);
+        const group = get().graphs.get(homeGraphId)?.groups?.get(groupId);
+        if (!group?.linkedNodePrototypeId || !group.anchorInstanceId) return null;
+        // Read as a definition the Thing has already (a formula's): the group is its copy.
+        if (get().openDefinitionsInPlace === false || Number.isInteger(contextOptions.useDefinitionIndex)) return groupId;
+        const boxId = get().openThingGroupInPlace(viewGraphId, groupId, contextOptions);
+        if (!boxId) return groupId;
+        // Thing-groups it holds that are still copies open in place inside it too.
+        get().openCopiesInPlace(viewGraphId, boxId, contextOptions);
+        return boxId;
+      });
+    },
+
+    /**
+     * Every copy-style Thing-group drawn inside a box (or anywhere in the web,
+     * without one) made its Thing opened in place there, outermost first, until
+     * none is left: opening one shows the copies its own definition holds (a
+     * formula's parentheses inside parentheses). reopenThingGroupInPlace each.
+     *
+     * @param {string} viewGraphId
+     * @param {string|null} [boxId] - An open box's group id, to stay inside it.
+     */
+    openCopiesInPlace: (viewGraphId, boxId = null, contextOptions = {}) => {
+      if (get().openDefinitionsInPlace === false) return;
+      api.withHistoryTransaction('Opened in place', () => {
+        const tried = new Set();
+        for (;;) {
+          const view = projectGraphView(get(), viewGraphId);
+          const box = boxId ? view?.groups?.get(boxId) : null;
+          if (boxId && !box) return;
+          const inBox = box ? new Set(box.memberInstanceIds || []) : null;
+          const copies = [...(view?.groups?.values() || [])].filter(g => !g.isOpenDefinition && !tried.has(g.id)
+            && g.linkedNodePrototypeId && g.anchorInstanceId && (!inBox || inBox.has(g.anchorInstanceId)));
+          if (copies.length === 0) return;
+          copies.sort((a, b) => (b.memberInstanceIds?.length || 0) - (a.memberInstanceIds?.length || 0));
+          tried.add(copies[0].id);
+          get().reopenThingGroupInPlace(viewGraphId, copies[0].id, contextOptions);
+        }
+      });
+    },
+
+    /**
+     * A Thing-group just made from its group (convertGroupToNodeGroup, in the
+     * same step), opened in place over its members. Its definition holds copies
+     * of them; the members themselves go in instead, ids, connections and the
+     * groups inside them kept, and its node opens on it where they stood. How
+     * it is shown (a formula) moves to its node, as an open box's does.
+     *
+     * Only for one just made: a definition with a life of its own would lose
+     * what it holds (reopenThingGroupInPlace is for those).
+     *
+     * @returns {string|null} `open:<node>`, or null when it isn't such a group.
+     */
+    openThingGroupInPlace: (viewGraphId, groupId, contextOptions = {}) => {
+      const state = get();
+      const homeGraphId = groupHomeGraphId(state, viewGraphId, groupId);
+      const home = state.graphs.get(homeGraphId);
+      const group = home?.groups?.get(groupId);
+      if (!group?.linkedNodePrototypeId || !group.anchorInstanceId || !home.instances?.has(group.anchorInstanceId)) return null;
+      const anchorId = group.anchorInstanceId;
+      const index = group.linkedDefinitionIndex ?? 0;
+      const defGraphId = state.nodePrototypes.get(group.linkedNodePrototypeId)?.definitionGraphIds?.[index];
+      if (!defGraphId || !state.graphs.has(defGraphId)) return null;
+
+      const members = (group.memberInstanceIds || []).filter(id => id !== anchorId && home.instances.has(id));
+      const memberSet = new Set(members);
+      // The groups inside it go into the definition with their members, a
+      // Thing-group's title node with it.
+      const inside = [...home.groups.values()].filter(g => g.id !== groupId
+        && g.memberInstanceIds?.length > 0
+        && g.memberInstanceIds.every(id => memberSet.has(id)));
+      for (const g of inside) {
+        if (g.anchorInstanceId && g.anchorInstanceId !== anchorId && !memberSet.has(g.anchorInstanceId) && home.instances.has(g.anchorInstanceId)) {
+          memberSet.add(g.anchorInstanceId);
+          members.push(g.anchorInstanceId);
+        }
+      }
+
+      return api.withHistoryTransaction('Opened in place', () => {
+        api.setChangeContext({ type: 'group_convert', target: 'group', groupId, ...contextOptions });
+        set(produce((draft) => {
+          const def = draft.graphs.get(defGraphId);
+          const graph = draft.graphs.get(homeGraphId);
+          // Its copies out; the members themselves go in below.
+          (def.edgeIds || []).forEach(id => draft.edges.delete(id));
+          def.edgeIds = [];
+          def.instances = new Map();
+          def.groups = new Map();
+          for (const g of inside) {
+            const stored = graph.groups.get(g.id);
+            graph.groups.delete(g.id);
+            if (stored) def.groups.set(g.id, isDraft(stored) ? current(stored) : stored);
+          }
+          const anchor = graph.instances.get(anchorId);
+          moveFormat(graph.groups.get(groupId), anchor);
+          graph.groups.delete(groupId);
+          delete anchor.isGroupAnchor;
+          delete anchor.anchorForGroupId;
+          // The definition's coordinates are the web's: each member stays where it stood.
+          anchor.openDefinition = { index, offset: { x: 0, y: 0 } };
+        }));
+        get().moveInstancesIntoOpenDefinition(viewGraphId, anchorId, members, contextOptions);
+        return openGroupId(anchorId);
+      });
+    },
+
+    /**
+     * A copy-style Thing-group (from before definitions opened in place, or a
+     * copy of a definition other placements share) made its Thing opened in
+     * place: combined into its definition as its Combine does
+     * (collapseNodeGroupIntoDefinition decides what is saved), then opened
+     * where it stood. What was in it is the definition's own Things now.
+     *
+     * @returns {string|null} `open:<node>`, or null.
+     */
+    reopenThingGroupInPlace: (viewGraphId, groupId, contextOptions = {}) => {
+      const state = get();
+      if (state.openDefinitionsInPlace === false) return null;
+      const homeGraphId = groupHomeGraphId(state, viewGraphId, groupId);
+      const home = state.graphs.get(homeGraphId);
+      const group = home?.groups?.get(groupId);
+      if (!group?.linkedNodePrototypeId || !group.anchorInstanceId) return null;
+      // Its definition open here already (a definition opens once in a web): it stays the copy.
+      if (openInPlaceBlock(state.graphs, state.nodePrototypes, viewGraphId, group.anchorInstanceId, group.linkedDefinitionIndex ?? 0)) return null;
+      const protoId = group.linkedNodePrototypeId;
+      const definitionsBefore = state.nodePrototypes.get(protoId)?.definitionGraphIds?.length || 0;
+      // Where its Things stood, so the definition opens there.
+      let minX = Infinity, minY = Infinity;
+      for (const id of group.memberInstanceIds || []) {
+        const inst = home.instances?.get(id);
+        if (!inst || id === group.anchorInstanceId) continue;
+        minX = Math.min(minX, inst.x ?? 0); minY = Math.min(minY, inst.y ?? 0);
+      }
+      return api.withHistoryTransaction('Opened in place', () => {
+        const nodeId = get().collapseNodeGroupIntoDefinition(viewGraphId, groupId, contextOptions);
+        if (!nodeId) return null;
+        const ids = get().nodePrototypes.get(protoId)?.definitionGraphIds || [];
+        // Kept both (its definition changed elsewhere): the copy is the newest one.
+        const index = ids.length > definitionsBefore ? ids.length - 1 : (group.linkedDefinitionIndex ?? 0);
+        const def = get().graphs.get(ids[index]);
+        let defX = Infinity, defY = Infinity;
+        def?.instances?.forEach((inst) => { defX = Math.min(defX, inst.x ?? 0); defY = Math.min(defY, inst.y ?? 0); });
+        const offset = Number.isFinite(minX) && Number.isFinite(defX) ? { x: minX - defX, y: minY - defY } : null;
+        return get().openDefinitionInPlace(viewGraphId, nodeId, index, contextOptions, offset);
+      });
+    },
 
     // This action is deprecated. All loading now goes through loadUniverseFromFile.
     loadGraph: (graphInstance) => { },

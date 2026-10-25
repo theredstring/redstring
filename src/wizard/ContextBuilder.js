@@ -25,7 +25,7 @@
 import { estimateTokens } from './tokenEstimate.js';
 import { formulaCover, formulaLine, repeatedTermsLines } from './tools/utils/formulas.js';
 // The names the context shows are the names the tools resolve (webView.js).
-import { placeName, instanceNames } from './tools/utils/webView.js';
+import { placeName, instanceNames, drawnWebs } from './tools/utils/webView.js';
 
 /**
  * Total token budget for the graph portion of the context header.
@@ -273,12 +273,16 @@ export function buildContext(graphState) {
   }
 
   const {
-    graphs = [],
+    graphs: storedGraphs = [],
     nodePrototypes = [],
     edges = [],
     activeGraphId,
     openGraphIds = []
   } = graphState;
+  // Each web as drawn: a Thing opened in place shows its definition's Things,
+  // groups and connections in it, and is a Thing-group of them (webView.js).
+  const drawn = drawnWebs(graphState);
+  const graphs = storedGraphs.map(g => (g?.id ? drawn(g.id) || g : g));
 
   // Build the prototype map ONCE. The definition-graph branch below used to run
   // nodePrototypes.find() inside a loop over every instance of every graph —

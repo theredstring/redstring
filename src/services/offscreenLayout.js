@@ -5,6 +5,7 @@ import { getNodeDimensions } from '../utils.js';
 import useImageCache from './imageCache.js';
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { withEmptyGroupPlaceholders, groupLabelMetrics } from './groupLayout.js';
+import { projectGraphViewOf } from '../core/openDefinitions.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.
@@ -83,8 +84,12 @@ export async function layOutStateWebs(state, graphIds, { onProgress = null, yiel
  * @param {string} [options.algorithm] - in place of the user's layout setting
  */
 export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverride = null } = {}) {
-  const graph = st.graphs.get(graphId);
+  // The web as the canvas draws it: a Thing opened in place shows its
+  // definition's Things here, laid out as one block (graphLayoutService
+  // rigidBlocks) that the store moves as a whole.
+  const graph = projectGraphViewOf(st, graphId);
   if (!graph) return null;
+  const edgeOf = (id) => graph.openView?.edges?.get(id) || st.edges.get(id);
 
   const instances = Array.from(graph.instances?.values() || []);
   if (instances.length === 0) return null;
@@ -131,7 +136,7 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
   });
 
   const layoutEdges = (graph.edgeIds || [])
-    .map(eId => st.edges.get(eId))
+    .map(edgeOf)
     .filter(e => e && e.sourceId && e.destinationId)
     .map(e => {
       let connName = e.connectionName || '';

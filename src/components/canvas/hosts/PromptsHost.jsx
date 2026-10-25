@@ -10,6 +10,7 @@ import UnifiedSelector from '../../../UnifiedSelector';
 import { v4 as uuidv4 } from 'uuid';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
 import useGraphStore from '../../../store/graphStore.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setDialogColorPickerVisible } from '../colorPickers/colorPickers.js';
 import { attachOneShotOutcome } from '../../../services/oneShot.js';
@@ -234,7 +235,8 @@ export default function PromptsHost({ ctx }) {
               onClose={() => setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null })}
               onSubmit={({ name, color }) => {
                 if (name.trim() && activeGraphId && nodeGroupPrompt.groupId) {
-                  storeActions.convertGroupToNodeGroup(
+                  // Opened in place over its members (or the copy, with that setting off).
+                  const thingGroupId = storeActions.convertGroupToThingInPlace(
                     activeGraphId,
                     nodeGroupPrompt.groupId,
                     null, // nodePrototypeId (not used when creating new)
@@ -243,9 +245,7 @@ export default function PromptsHost({ ctx }) {
                     color
                   );
                   setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null });
-                  const currentState = useGraphStore.getState();
-                  const graph = currentState.graphs?.get(activeGraphId);
-                  const updatedGroup = graph?.groups?.get(nodeGroupPrompt.groupId);
+                  const updatedGroup = thingGroupId ? projectGraphView(useGraphStore.getState(), activeGraphId)?.groups?.get(thingGroupId) : null;
                   if (updatedGroup) {
                     setSelectedGroup(updatedGroup);
                     setGroupControlPanelShouldShow(true);
@@ -256,16 +256,14 @@ export default function PromptsHost({ ctx }) {
               }}
               onNodeSelect={(prototype) => {
                 if (activeGraphId && nodeGroupPrompt.groupId) {
-                  storeActions.convertGroupToNodeGroup(
+                  const thingGroupId = storeActions.convertGroupToThingInPlace(
                     activeGraphId,
                     nodeGroupPrompt.groupId,
                     prototype.id, // Link to existing prototype
                     false // Don't create new
                   );
                   setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null });
-                  const currentState = useGraphStore.getState();
-                  const graph = currentState.graphs?.get(activeGraphId);
-                  const updatedGroup = graph?.groups?.get(nodeGroupPrompt.groupId);
+                  const updatedGroup = thingGroupId ? projectGraphView(useGraphStore.getState(), activeGraphId)?.groups?.get(thingGroupId) : null;
                   if (updatedGroup) {
                     setSelectedGroup(updatedGroup);
                     setGroupControlPanelShouldShow(true);

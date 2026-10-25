@@ -19,6 +19,7 @@
  */
 
 import { graphStateFromStore } from './graphStateFromStore.js';
+import { projectGraphView } from '../core/openDefinitions.js';
 import { tokenize } from './recall.js';
 import { writeLanded } from './verifyWrite.js';
 import { BASE_PROTOTYPE_IDS } from '../formats/userDataCounts.js';
@@ -42,6 +43,9 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
 
   const proto = (id) => state().nodePrototypes.get(id) || null;
   const graph = (id) => state().graphs.get(id) || null;
+  // A web as drawn: a Thing opened in place there shows what is inside it, and
+  // is a Thing-group of that (core/openDefinitions.js).
+  const drawnGraph = (id) => (state().graphs.has(id) ? projectGraphView(state(), id) : null);
   const nameOf = (id) => proto(id)?.name || '';
   const druidOf = (id) => proto(id)?.semanticMetadata?.druid || {};
 
@@ -871,7 +875,7 @@ export function createWorld({ store, executeTool, applyToolResult, cid = 'druid'
     sameRelationAs: null,
     /** async (name) → 'thing' | 'process' | 'idea' | null (mind/helpers.js category). */
     category: null,
-    state, proto, graph, nameOf, druidOf, setDruid,
+    state, proto, graph, drawnGraph, nameOf, druidOf, setDruid,
     thingsIn, insideOf, ownerOf, websOf, isStage, findThing, linksIn, typeChain, membersOf, allThings, allThingsIncludingSystem, pathUp,
     act, focusWeb, place, unplace, unnest, isPartOf, isKindOf, topicOf, depthOf, addKind, writeLadders, classify, schemaOf, systemWeb, isSystemWeb, homeWeb, shelve, shelveAll, createThing, connect, ensureInside, relationsInUse, relationTypeIds, forget, repairDangling, foldInsides, noticedWeb, beliefsWeb, leaveNoticed, isOwnThinking, move
   };

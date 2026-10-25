@@ -35,10 +35,8 @@ import { getNodeDimensions } from '../../../../utils.js';
 import { canonicalizeLink, LINK_STATES } from '../../../../formats/linkState.js';
 import { OPERATORS } from './formulaNotation.js';
 import { chainFromText, chainText, isSymbolText, formulaLabelOf, readFormulaGroup } from './formulaChain.js';
-import { projectGraphView, openInPlaceBlock } from '../../../../core/openDefinitions.js';
-import { markFormulaSpawn, withFormulaOpenMorph } from './formulaSpawn.js';
-import { formulaCentreOf } from './formulaObjects.js';
-import { storeNodeRect } from '../../groups/boxMorphConnections.js';
+import { projectGraphView, openInPlaceBlock, anchorIdFromOpenGroupId } from '../../../../core/openDefinitions.js';
+import { markFormulaSpawn } from './formulaSpawn.js';
 import {
   BANK_AGENT, bankConcept, conceptOrigin, equationOrigin, disciplineOrigin, STARTER_ORIGIN,
 } from './bank/formulaBank.js';
@@ -463,16 +461,24 @@ function build(chain, graphId, at, bindings, title, equation) {
   if (linked && given && equation.replaces) takePlaceOf(graphId, equation.replaces, made.anchorInstanceId);
 
   if (equation.discipline && linked) placeInDiscipline(equation.discipline, equation.section || null, equationProto.id);
-  return { instanceIds: inside, groupId, anchorId: made?.anchorInstanceId || null, equationProtoId: linked ? equationProto.id : null, text };
+  return {
+    instanceIds: inside, groupId, anchorId: made?.anchorInstanceId || null, equationProtoId: linked ? equationProto.id : null, text,
+    // Read as the definition the equation has already (its first web): this build is a copy of it.
+    reusedDefinition: Number.isInteger(known) && known >= 0,
+  };
 }
 
 /**
- * A formula just built here as a Thing-group of copies, made what opening its
- * Thing shows: saved as that Thing's definition (Combine Into Thing), and the
- * Thing opened in place, shown as its formula, where the formula was built. So
- * it is the one equation everywhere, not a copy here to save or refresh. Left
- * as the Thing-group while definitions don't open in place (the setting off),
- * or when this web is inside the equation's own definition.
+ * A formula just built here as a Thing-group, made what opening its Thing
+ * shows: its Thing opened in place where it was built, shown as its formula,
+ * its definition those very Things (graphStore openThingGroupInPlace). The
+ * same equation again keeps the definition it has: this build was its copy
+ * (reopenThingGroupInPlace). So it is the one equation everywhere, not a copy
+ * here to save or refresh. Left as the Thing-group while definitions don't
+ * open in place (the setting off), or where it can't open here.
+ *
+ * Its parentheses stay Thing-groups inside it: one part can be written twice
+ * in a formula, (a + b) × (a + b), and a definition opens once in a web.
  */
 function openedInPlace(graphId, built) {
   const st = useGraphStore.getState();
@@ -480,21 +486,12 @@ function openedInPlace(graphId, built) {
   const group = st.graphs.get(graphId)?.groups?.get(built.groupId);
   const index = group?.linkedDefinitionIndex ?? 0;
   if (!group?.anchorInstanceId || openInPlaceBlock(st.graphs, st.nodePrototypes, graphId, group.anchorInstanceId, index)) return built;
-  const centre = formulaCentreOf(st, graphId, built.groupId);
-  const nodeId = st.collapseNodeGroupIntoDefinition(graphId, built.groupId);
-  if (!nodeId) return built;
-  const rect = storeNodeRect(graphId, nodeId);
-  useGraphStore.getState().updateNodeInstance(graphId, nodeId, (draft) => {
-    draft.format = 'formula';
-    // Centred where the formula was, as condenseFormula leaves it: it opens around that.
-    if (centre && rect) { draft.x += centre.x - (rect.x + rect.w / 2); draft.y += centre.y - (rect.y + rect.h / 2); }
-  });
-  const groupId = withFormulaOpenMorph({ viewGraphId: graphId, instanceId: nodeId }, () => (
-    useGraphStore.getState().openDefinitionInPlace(graphId, nodeId, index)
-  ));
-  if (!groupId) return { ...built, groupId: null, anchorId: nodeId, instanceIds: [] };
+  const groupId = built.reusedDefinition
+    ? st.reopenThingGroupInPlace(graphId, built.groupId)
+    : st.openThingGroupInPlace(graphId, built.groupId);
+  if (!groupId) return built;
   const opened = projectGraphView(useGraphStore.getState(), graphId)?.groups?.get(groupId);
-  return { ...built, groupId, anchorId: nodeId, instanceIds: [...(opened?.memberInstanceIds || [])] };
+  return { ...built, groupId, anchorId: anchorIdFromOpenGroupId(groupId), instanceIds: [...(opened?.memberInstanceIds || [])] };
 }
 
 /**

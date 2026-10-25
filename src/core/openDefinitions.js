@@ -299,7 +299,17 @@ export const projectGraphView = (state, viewGraphId) => {
 // viewGraphId → the inputs and result of the last projection.
 const lastProjection = new Map();
 
-const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId) => {
+/**
+ * projectGraphView for a state that isn't the store's (the wizard's snapshot,
+ * read as the store's shape): worked out fresh, and nothing cached, so the
+ * canvas's own projections stay as they were.
+ */
+export const projectGraphViewOf = (state, viewGraphId) => {
+  const { graphs, nodePrototypes, edges } = state || {};
+  return buildGraphView(graphs, nodePrototypes, edges, viewGraphId, null);
+};
+
+const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId, cache = viewCache) => {
   const raw = graphs?.get(viewGraphId);
   if (!raw?.instances) return raw;
   const { boxes, owners } = mapOpenDefinitions(graphs, nodePrototypes, viewGraphId);
@@ -309,13 +319,13 @@ const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId) => {
     return !!edge && (!raw.instances.has(edge.sourceId) || !raw.instances.has(edge.destinationId));
   };
   if (boxes.size === 0 && !(raw.edgeIds || []).some(reachesInside)) {
-    viewCache.delete(viewGraphId);
+    cache?.delete(viewGraphId);
     return raw;
   }
 
   const deps = [raw, nodePrototypes, edgesMap];
   boxes.forEach(box => deps.push(graphs.get(box.defGraphId)));
-  const cached = viewCache.get(viewGraphId);
+  const cached = cache?.get(viewGraphId);
   if (cached && cached.deps.length === deps.length && cached.deps.every((d, i) => d === deps[i])) {
     return cached.view;
   }
@@ -371,7 +381,7 @@ const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId) => {
     groups,
     openView: { boxes, owners, edges: shownEdges },
   };
-  viewCache.set(viewGraphId, { deps, view });
+  cache?.set(viewGraphId, { deps, view });
   return view;
 };
 

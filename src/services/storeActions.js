@@ -625,8 +625,9 @@ export function createStoreActions({
                       results.push({ type: op.type, ok: true, graphId: op.graphId });
                       break;
                     }
-                    case 'convertToNodeGroup':
-                      store.convertGroupToNodeGroup(
+                    case 'convertToNodeGroup': {
+                      // Opened in place over its members (`open:<node>`), or the copy with that setting off.
+                      const thingGroupId = store.convertGroupToThingInPlace(
                         op.graphId,
                         op.groupId,
                         op.nodePrototypeId,
@@ -634,8 +635,9 @@ export function createStoreActions({
                         op.newPrototypeName,
                         op.newPrototypeColor
                       );
-                      results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
+                      results.push({ type: op.type, ok: !!thingGroupId, graphId: op.graphId, groupId: thingGroupId || op.groupId });
                       break;
+                    }
                     case 'updateGroup':
                       // Membership goes through updateGroupWithMembers so it
                       // propagates through the nesting chain (up on add, down on

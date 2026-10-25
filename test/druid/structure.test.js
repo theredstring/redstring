@@ -686,7 +686,8 @@ describe('gathering nests; it does not repeat', () => {
     expect(three).toEqual([attachment, ids.Surface]);
     const second = await chunk.run(ctx, { members: three }, 'Stick-slip event');
     expect(second.ok).toBe(true);
-    const groups = [...world.graph(webs.Contact).groups.values()];
+    // As drawn: each gathering is its Thing opened in place, the first inside the second.
+    const groups = [...world.drawnGraph(webs.Contact).groups.values()];
     const inner = groups.find(g => g.linkedNodePrototypeId === attachment);
     const outer = groups.find(g => g.linkedNodePrototypeId === world.findThing('Stick-slip event'));
     expect(isGroupInsideGroup(inner, outer)).toBe(true);

@@ -229,7 +229,10 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
             color: instance.color || '',
             x: instance.x || 0,
             y: instance.y || 0,
-            scale: instance.scale || 1
+            scale: instance.scale || 1,
+            // Opened in place: its definition drawn in this web (core/openDefinitions.js).
+            ...(instance.openDefinition ? { openDefinition: { ...instance.openDefinition } } : {}),
+            ...(instance.format ? { format: instance.format } : {})
           }
         ])) : undefined
     })),
@@ -256,6 +259,8 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
 
     // UI state
     activeGraphId: state.activeGraphId,
+    // Whether a Thing-group the wizard makes opens in place (its definition) or is a copy.
+    openDefinitionsInPlace: state.openDefinitionsInPlace !== false,
     activeGraphName: state.activeGraphId ? (state.graphs.get(state.activeGraphId)?.name || null) : null,
     openGraphIds: state.openGraphIds,
     // Auto-layout settings (for AI to use same parameters as UI)

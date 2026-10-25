@@ -6,6 +6,7 @@ vi.mock('../../src/utils.js', async (orig) => ({
   getNodeDimensions: () => ({ currentWidth: 120, currentHeight: 100 }),
 }));
 import useGraphStore from '../../src/store/graphStore.js';
+import { projectGraphView } from '../../src/core/openDefinitions.js';
 import useHistoryStore from '../../src/store/historyStore.js';
 import { applyToolResultToStore } from '../../src/services/toolResultApplier.js';
 import { addFormulaForWizard } from '../../src/components/canvas/formats/formula/formulaWizard.js';
@@ -112,8 +113,9 @@ describe('a layer that uses an equation', () => {
     build({ layers: [{ name: 'Engine', use: 'Engine' }] });
 
     expect(formulasIn('main')).toHaveLength(0);
-    const groups = [...st().graphs.get('main').groups.values()];
-    expect(groups.some(g => g.linkedNodePrototypeId === 'p-engine')).toBe(true);
+    // Opened in place on its node: a Thing-group of its definition, as drawn.
+    const groups = [...projectGraphView(st(), 'main').groups.values()];
+    expect(groups.some(g => g.linkedNodePrototypeId === 'p-engine' && g.isOpenDefinition)).toBe(true);
   });
 
   it('never resolves to an orbit catalog Thing of the same name', () => {

@@ -2827,6 +2827,8 @@ const LeftAIView = ({ compact = false,
           }).filter(Boolean);
         })() : [],
         activeGraphId: effectiveActiveGraphId || null,
+        // Whether a Thing-group the wizard makes opens in place (its definition) or is a copy.
+        openDefinitionsInPlace: useGraphStore.getState().openDefinitionsInPlace !== false,
         // Ordered list of graphs open as tabs. The context builder grades how much
         // detail each graph gets by its distance from the active tab, so it needs
         // the ordering — not just the set. Graphs that aren't open at all are the

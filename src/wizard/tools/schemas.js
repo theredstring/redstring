@@ -1,4 +1,5 @@
 import { PALETTES } from '../../ai/palettes.js';
+import { webAsDrawn } from './utils/webView.js';
 import { NODE_SIZE_NAMES, NODE_SIZE_FIELD_DESC } from './utils/nodeSize.js';
 
 // Build a compact palette listing for tool descriptions
@@ -1473,7 +1474,10 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
         return allTools;
     }
 
-    const activeGraph = (graphState?.graphs || []).find(g => g.id === graphState?.activeGraphId);
+    // As drawn: a Thing opened in place is a Thing-group of what is inside it.
+    const activeGraph = (graphState?.graphs || []).some(g => g.id === graphState?.activeGraphId)
+        ? webAsDrawn(graphState, graphState.activeGraphId)
+        : null;
     const nodeCount = activeGraph?.instances?.length || 0;
     const edgeCount = activeGraph?.edgeIds?.length || 0;
     const groupCount = (activeGraph?.groups || []).length;

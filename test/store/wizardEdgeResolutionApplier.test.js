@@ -4,6 +4,7 @@ import { applyToolResultToStore } from '../../src/services/toolResultApplier.js'
 import { expandGraph } from '../../src/wizard/tools/expandGraph.js';
 import { createPopulatedGraph } from '../../src/wizard/tools/createPopulatedGraph.js';
 import { deleteEdge } from '../../src/wizard/tools/deleteEdge.js';
+import { projectGraphView } from '../../src/core/openDefinitions.js';
 
 // The tools run against plain state and the applier against the live store.
 // These pin the seams between them: an edge the tool reports added lands, an
@@ -42,8 +43,9 @@ const plainState = () => ({
   edges: Array.from(st().edges.values())
 });
 
+// As drawn: a layer opens in place, its Things in its definition, shown here.
 const nameOfInstance = (graphId, instId) => {
-  const inst = st().graphs.get(graphId)?.instances.get(instId);
+  const inst = projectGraphView(st(), graphId)?.instances.get(instId);
   return st().nodePrototypes.get(inst?.prototypeId)?.name;
 };
 

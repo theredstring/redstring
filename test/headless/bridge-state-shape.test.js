@@ -79,6 +79,7 @@ describe('buildBridgeState shape (MCP contract)', () => {
       'isUniverseLoaded',
       'isUniverseLoading',
       'nodePrototypes',
+      'openDefinitionsInPlace',
       'openGraphIds',
       'summary',
       'universeEquations',

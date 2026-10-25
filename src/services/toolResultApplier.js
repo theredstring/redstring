@@ -43,6 +43,7 @@ import {
   foldFormulaForWizard, rewriteFormulaForWizard, deleteFormulaForWizard,
 } from '../components/canvas/formats/formula/formulaWizard.js';
 import { equationOf } from '../components/canvas/formats/formula/formulaSnapshot.js';
+import { projectGraphView, anchorIdFromOpenGroupId } from '../core/openDefinitions.js';
 
 const FORMULA_ACTIONS = new Set(['addFormula', 'placeFormula', 'openFormula', 'foldFormula', 'rewriteFormula', 'deleteFormula']);
 
@@ -79,6 +80,24 @@ function noteStructureFollowThrough(groupName, memberNames) {
  * final spots, leaving nothing to animate. (Headless hosts have no canvas
  * listener; they run applyOffscreenLayout themselves via the runtime.)
  */
+/**
+ * A group of the web by name, as the user sees it: one of its own first (the
+ * first match, as these lookups always took), then one drawn in it: a group
+ * of a definition opened in place there, or an opened Thing itself (its
+ * `open:<node>` group, named for its Thing). Null when none has the name.
+ */
+function groupIdNamed(store, graphId, name) {
+  const key = String(name || '').toLowerCase().trim();
+  if (!key) return null;
+  for (const [gId, group] of store.graphs.get(graphId)?.groups || []) {
+    if ((group.name || '').toLowerCase().trim() === key) return gId;
+  }
+  for (const [gId, group] of projectGraphView(store, graphId)?.groups || []) {
+    if ((group.name || '').toLowerCase().trim() === key) return gId;
+  }
+  return null;
+}
+
 function layoutAfterWizardMutation(graphId) {
   try {
     if (typeof window !== 'undefined' && useGraphStore.getState().activeGraphId === graphId) {
@@ -551,7 +570,8 @@ function findAdoptableInstance(graphId, name) {
 
 function groupExistsForPrototypeName(graphId, name) {
   const st = useGraphStore.getState();
-  const graph = st.graphs.get(graphId);
+  // As drawn: a Thing opened in place here is its open box.
+  const graph = projectGraphView(st, graphId);
   if (!graph?.groups) return false;
   const nl = String(name || '').toLowerCase().trim();
   for (const g of graph.groups.values()) {
@@ -731,7 +751,78 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
   }
 }
 
+/**
+ * decomposeCompositionLayers with definitions opening in place (the default):
+ * each layer's Thing opens in place on its node, its definition drawn in it,
+ * and the layers inside open on their own nodes there. The composition is its
+ * definitions, each once, as the canvas opens one: no copy to save or refresh.
+ *
+ * @param {string} viewGraphId - The web it is seen from (the shells are in it,
+ *   or in a definition already opened in it).
+ */
+function openCompositionLayersInPlace(viewGraphId, layers, warnings) {
+  for (const layer of (Array.isArray(layers) ? layers : [])) {
+    if (!layer || layer._skip || !layer._protoId) continue;
+    // Placed as its formula already (materializeCompositionLevel).
+    if (layer._equation) continue;
+    const protoId = layer._protoId;
+
+    if (layer.display === 'collapsed') {
+      // The Thing stays closed here; its own children open inside its definition
+      // (seen when the user goes in).
+      if (!layer._reused && layer._defGraphId && layer.definition?.layers?.length) {
+        openCompositionLayersInPlace(layer._defGraphId, layer.definition.layers, warnings);
+        layoutAfterWizardMutation(layer._defGraphId);
+      }
+      continue;
+    }
+
+    const st = useGraphStore.getState();
+    const view = projectGraphView(st, viewGraphId);
+    if (!view?.instances) continue;
+    // Open here already (re-run safety): its children came with it.
+    if ([...(view.groups?.values() || [])].some(g => g.linkedNodePrototypeId === protoId)) continue;
+
+    // Its node: the one materialization just made, else the LAST of its Thing in sight.
+    let shellInstanceId = (layer._shellInstanceId && view.instances.has(layer._shellInstanceId)) ? layer._shellInstanceId : null;
+    if (!shellInstanceId) {
+      for (const [instId, inst] of view.instances) {
+        if (inst.prototypeId === protoId && !inst.isGroupAnchor) shellInstanceId = instId;
+      }
+    }
+    if (!shellInstanceId) {
+      shellInstanceId = `inst-shell-recover-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      st.addNodeInstance(viewGraphId, protoId, { x: Math.random() * 600 + 200, y: Math.random() * 500 + 200 }, shellInstanceId);
+      warnings.push(`Layer "${layer.name}": shell instance was missing and had to be recreated before opening it.`);
+    }
+
+    const proto = st.nodePrototypes.get(protoId);
+    const defGraphId = layer._defGraphId || proto?.definitionGraphIds?.[0] || null;
+    if (defGraphId === viewGraphId) {
+      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself — not opened.`);
+      continue;
+    }
+    const defIndex = defGraphId ? Math.max(0, (proto?.definitionGraphIds || []).indexOf(defGraphId)) : 0;
+    // An empty layer gets its definition made here, as opening an empty Thing does.
+    const boxId = st.openDefinitionInPlace(viewGraphId, shellInstanceId, defIndex);
+    if (!boxId) {
+      warnings.push(`Layer "${layer.name}": could not open here (it would open inside itself).`);
+      continue;
+    }
+
+    if (!layer._reused && layer.definition?.layers?.length) {
+      openCompositionLayersInPlace(viewGraphId, layer.definition.layers, warnings);
+      // Laid out again with its children open in it, each one block.
+      if (defGraphId) layoutAfterWizardMutation(defGraphId);
+    }
+  }
+}
+
 function decomposeCompositionLayers(graphId, layers, warnings) {
+  if (useGraphStore.getState().openDefinitionsInPlace !== false) {
+    openCompositionLayersInPlace(graphId, layers, warnings);
+    return;
+  }
   for (const layer of (Array.isArray(layers) ? layers : [])) {
     if (!layer || layer._skip || !layer._protoId) continue;
     // Placed as its formula already (materializeCompositionLevel).
@@ -852,7 +943,8 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
   // failed, the model saw a populated definition web, called the build done, and
   // the user got a handful of unopened nodes. Anything that goes wrong here has
   // to be loud, because nothing downstream will notice it.
-  const after = useGraphStore.getState().graphs.get(graphId);
+  // As drawn: a layer opened in place is its node's open box.
+  const after = projectGraphView(useGraphStore.getState(), graphId);
   const decomposedCount = layers.filter(l => {
     if (!l?._protoId || l._skip || l._equation || l.display === 'collapsed') return false;
     for (const g of (after?.groups?.values?.() || [])) {
@@ -1834,19 +1926,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
@@ -1871,19 +1951,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
@@ -1908,6 +1976,11 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         return ids;
       };
 
+      // A Thing opened in place keeps what its definition holds: a Thing leaves
+      // it only by being deleted there (graphStore removeInstancesFromGroup).
+      if (anchorIdFromOpenGroupId(realGroupId) && result.updates.removeMembers?.length) {
+        dispatchWizardToolFailed('updateGroup', `"${result.groupName || 'That Thing-group'}" is a Thing opened in place: what is in it is its definition. Delete a Thing there to take it out.`, result);
+      }
       // updateGroupWithMembers, so membership changes propagate through the
       // nesting chain rather than un-nesting this group.
       store.updateGroupWithMembers(graphId, realGroupId, {
@@ -1934,25 +2007,14 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
     }
     if (realGroupId) {
-      store.convertGroupToNodeGroup(
+      // Opened in place over its members, as the canvas makes one (the copy with that setting off).
+      const thingGroupId = store.convertGroupToThingInPlace(
         graphId,
         realGroupId,
         null,
@@ -1960,7 +2022,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         result.thingName || 'Thing Group',
         result.newThingColor // Let store fall back to group.color if not specified
       );
-      console.log('[Wizard] Successfully converted group to thing-group:', realGroupId);
+      console.log('[Wizard] Successfully converted group to thing-group:', thingGroupId || realGroupId);
       scheduleGraphLayout(graphId);
     } else {
       console.error('[Wizard] convertToThingGroup: Could not find group:', result.groupName);
@@ -1978,19 +2040,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
@@ -2022,7 +2072,21 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       }
     }
 
-    const createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0, result.instanceId ?? null);
+    let createdGroupId = null;
+    if (store.openDefinitionsInPlace !== false) {
+      // Opened in place on its node, as the canvas opens one: its definition, not a copy of it.
+      const view = projectGraphView(store, graphId);
+      let instanceId = result.instanceId && view?.instances?.has(result.instanceId) ? result.instanceId : null;
+      if (!instanceId) {
+        for (const [id, inst] of view?.instances || []) {
+          if (inst.prototypeId === realProtoId && !inst.isGroupAnchor) instanceId = id; // LAST match
+        }
+      }
+      createdGroupId = instanceId ? store.openDefinitionInPlace(graphId, instanceId, result.definitionIndex ?? 0) : null;
+      if (!createdGroupId) dispatchWizardToolFailed('decomposeNode', `"${result.nodeName}" could not open here.`, result);
+    } else {
+      createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0, result.instanceId ?? null);
+    }
     console.log('[Wizard] decomposeNode result: groupId=', createdGroupId);
     scheduleGraphLayout(graphId);
     return;
@@ -2107,19 +2171,20 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       memberInstanceIds
     });
 
-    // Step 3: Convert group to thing-group (creates prototype + definition graph from members)
-    store.convertGroupToNodeGroup(
+    // Step 3: Convert group to thing-group (creates prototype + definition graph from
+    // members), opened in place over them as the canvas makes one.
+    const thingGroupId = store.convertGroupToThingInPlace(
       graphId,
       groupId,
       null,
       true,
       result.nodeName,
       result.nodeColor || '#8B0000'
-    );
+    ) || groupId;
 
     // Step 4: If collapse requested, combine the thing-group into a single node
     if (result.collapse) {
-      store.combineNodeGroup(graphId, groupId);
+      store.combineNodeGroup(graphId, thingGroupId);
       console.log('[Wizard] condenseToNode: Collapsed group into single node:', result.nodeName);
     } else {
       console.log('[Wizard] condenseToNode: Created thing-group:', result.nodeName);

@@ -1,3 +1,4 @@
+import { webAsDrawn } from './utils/webView.js';
 /**
  * listGroups - List all groups in the active graph
  */
@@ -17,7 +18,8 @@ export async function listGroups(args, graphState, cid, ensureSchedulerStarted) 
     return { groups: [], message: 'No active graph' };
   }
   
-  const graph = graphs.find(g => g.id === activeGraphId);
+  // As drawn: a Thing opened in place is a Thing-group of its definition's Things.
+  const graph = graphs.some(g => g.id === activeGraphId) ? webAsDrawn(graphState, activeGraphId) : null;
   if (!graph) {
     return { groups: [], message: 'Active graph not found' };
   }

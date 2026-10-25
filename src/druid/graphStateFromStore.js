@@ -49,6 +49,8 @@ export function graphStateFromStore(st) {
       type: e.type || ''
     })),
     activeGraphId: st.activeGraphId || null,
+    // Whether a Thing-group the wizard makes opens in place (its definition) or is a copy.
+    openDefinitionsInPlace: st.openDefinitionsInPlace !== false,
     openGraphIds: [...(st.openGraphIds || [])],
     // Every formula a web shows, as its text and what its symbols mean, and
     // every equation the universe has.

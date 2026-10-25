@@ -425,6 +425,43 @@ function addEdgeToState(graphState, graph, sourceId, destinationId, type) {
  * handler that optimistically records a mutation the store rejected makes the
  * failure invisible to the model. Exported for tests that pin that honesty.
  */
+/**
+ * Predict a Thing opened in place over these members (graphStore
+ * convertGroupToThingInPlace): they move, ids and all, into a new definition
+ * of its Thing, with the connections and groups wholly among them; the node
+ * opens on it, so the tools read the web as drawn (webView.js drawnWebs). The
+ * node is a plain one, no longer a group's title. Returns the definition.
+ */
+function predictOpenedInPlace(graphState, graph, anchor, protoId, memberIds) {
+  const proto = (graphState.nodePrototypes || []).find(p => p.id === protoId);
+  const definition = {
+    id: `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: proto?.name || anchor.name || '', description: '', instances: [], edgeIds: [], groups: [], definingNodeIds: [protoId],
+  };
+  graphState.graphs.push(definition);
+  if (proto) proto.definitionGraphIds = [...(proto.definitionGraphIds || []), definition.id];
+  const inside = new Set(memberIds.filter(id => id !== anchor.id));
+  definition.instances = (graph.instances || []).filter(i => inside.has(i.id));
+  graph.instances = (graph.instances || []).filter(i => !inside.has(i.id));
+  const edgeById = new Map((graphState.edges || []).map(e => [e.id, e]));
+  const within = (id) => {
+    const e = edgeById.get(id);
+    return !!e && inside.has(e.sourceId) && inside.has(e.destinationId);
+  };
+  definition.edgeIds = (graph.edgeIds || []).filter(within);
+  graph.edgeIds = (graph.edgeIds || []).filter(id => !within(id));
+  const groupWithin = (g) => (g.memberInstanceIds || []).length > 0 && g.memberInstanceIds.every(id => inside.has(id));
+  definition.groups = (graph.groups || []).filter(groupWithin);
+  graph.groups = (graph.groups || []).filter(g => !groupWithin(g));
+  delete anchor.isGroupAnchor;
+  delete anchor.anchorForGroupId;
+  anchor.openDefinition = { index: Math.max(0, (proto?.definitionGraphIds || [definition.id]).indexOf(definition.id)), offset: { x: 0, y: 0 } };
+  return definition;
+}
+
+/** Whether a Thing-group the wizard makes opens in place (the store's setting, carried by the snapshot). */
+const opensInPlace = (graphState) => graphState?.openDefinitionsInPlace !== false;
+
 export function updateGraphState(graphState, _toolName, _args, result) {
   if (!result || result.error) return;
 
@@ -678,6 +715,12 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         group.linkedDefinitionIndex = 0;
         group.anchorInstanceId = anchorInstId;
         group.name = thingName;
+        // Opened in place over its members, as the store makes it.
+        if (opensInPlace(graphState)) {
+          const anchor = targetGraph.instances[targetGraph.instances.length - 1];
+          predictOpenedInPlace(graphState, targetGraph, anchor, protoId, group.memberInstanceIds || []);
+          targetGraph.groups = targetGraph.groups.filter(g => g.id !== group.id);
+        }
       }
     }
   } else if (result.action === 'combineThingGroup') {
@@ -698,6 +741,13 @@ export function updateGraphState(graphState, _toolName, _args, result) {
           prototypeId: group.linkedNodePrototypeId || 'proto-combined',
           name: group.name
         });
+      } else {
+        // A Thing opened in place (`open:<node>`, or by its Thing's name): combining closes it.
+        const anchorId = String(result.groupId || '').startsWith('open:') ? result.groupId.slice(5) : null;
+        const protoName = (id) => (graphState.nodePrototypes || []).find(p => p.id === id)?.name;
+        const opened = (targetGraph.instances || []).filter(i => i.openDefinition
+          && (i.id === anchorId || (result.groupName && (protoName(i.prototypeId) || i.name) === result.groupName))).pop();
+        if (opened) delete opened.openDefinition;
       }
     }
   } else if (result.action === 'addDefinitionGraph') {
@@ -834,7 +884,35 @@ export function updateGraphState(graphState, _toolName, _args, result) {
           linkedDefinitionIndex: 0,
           anchorInstanceId: anchorInstId
         });
+        // Opened in place over its members, as the store makes it.
+        if (opensInPlace(graphState)) {
+          const anchor = targetGraph.instances.find(i => i.id === anchorInstId);
+          predictOpenedInPlace(graphState, targetGraph, anchor, condensedProtoId, result.resolvedMemberIds || []);
+          targetGraph.groups = targetGraph.groups.filter(g => g.id !== groupId);
+        }
       }
+    }
+  } else if (result.action === 'decomposeNode' && opensInPlace(graphState)) {
+    // Opened in place on its node, as the store opens it: its definition, drawn here.
+    const targetGraphId = result.graphId || graphState.activeGraphId;
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    const index = result.definitionIndex ?? 0;
+    const holder = (graphState.graphs || []).find(g => (g.instances || []).some(i => i.id === result.originalInstanceId))
+      || (graphState.graphs || []).find(g => g.id === targetGraphId);
+    const node = (holder?.instances || []).find(i => i.id === result.originalInstanceId)
+      || (holder?.instances || []).filter(i => i.prototypeId === result.prototypeId && !i.isGroupAnchor).pop();
+    if (node) {
+      const defId = proto?.definitionGraphIds?.[index];
+      if (proto && !(graphState.graphs || []).some(g => g.id === defId)) {
+        // Its definition isn't in the snapshot: what the tool read of it.
+        const definition = {
+          id: defId || `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: proto.name, description: '',
+          instances: (result.definitionInstances || []).map(d => ({ ...d })), edgeIds: [], groups: [], definingNodeIds: [proto.id],
+        };
+        graphState.graphs.push(definition);
+        if (!defId) proto.definitionGraphIds = [...(proto.definitionGraphIds || []), definition.id];
+      }
+      node.openDefinition = { index, offset: { x: node.x || 0, y: node.y || 0 } };
     }
   } else if (result.action === 'decomposeNode') {
     // Keep original instance as group anchor, add decomposed instances from definition graph, add group
@@ -1058,8 +1136,34 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         }
       };
 
+      // Opened in place, as the store opens them (toolResultApplier
+      // openCompositionLayersInPlace): each layer's node opens on its
+      // definition, its children on their own nodes inside it.
+      const openInPlace = (layers) => {
+        for (const layer of (layers || [])) {
+          if (!layer._protoId) continue;
+          if (layer.display !== 'collapsed') {
+            const holder = graphState.graphs.find(g => (g.instances || []).some(i => i.id === layer._shellId));
+            const shell = holder?.instances.find(i => i.id === layer._shellId);
+            const proto = graphState.nodePrototypes.find(p => p.id === layer._protoId);
+            if (shell && proto) {
+              if (!layer._defGraph) {
+                // An empty layer: opening it makes its definition.
+                layer._defGraph = { id: uid('graph-def'), name: layer.name, instances: [], edgeIds: [], groups: [], definingNodeIds: [proto.id] };
+                graphState.graphs.push(layer._defGraph);
+                proto.definitionGraphIds = [...(proto.definitionGraphIds || []), layer._defGraph.id];
+              }
+              const index = Math.max(0, (proto.definitionGraphIds || []).indexOf(layer._defGraph.id));
+              shell.openDefinition = { index, offset: { x: shell.x || 0, y: shell.y || 0 } };
+            }
+          }
+          if (!layer.use && layer.definition?.layers?.length) openInPlace(layer.definition.layers);
+        }
+      };
+
       materialize(targetGraph, result.spec);
-      decompose(targetGraph, result.spec.layers);
+      if (opensInPlace(graphState)) openInPlace(result.spec.layers);
+      else decompose(targetGraph, result.spec.layers);
 
       console.error('[updateGraphState] buildComposition:', result.layerCount, 'layers, maxDepth', result.maxDepth, '→ graph', targetGraphId);
     }

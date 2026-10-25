@@ -17,9 +17,49 @@
  */
 import { formulasIn, formulaCover } from './formulas.js';
 import { resolveNodeSmart } from './resolveNodeSmart.js';
+import { projectGraphViewOf } from '../../../core/openDefinitions.js';
 
 const listOf = (v) => (v instanceof Map ? Array.from(v.values()) : Array.isArray(v) ? v : Object.values(v || {}));
 const key = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+const mapById = (v) => new Map(listOf(v).filter(x => x?.id).map(x => [x.id, x]));
+
+/**
+ * The webs as the canvas draws them, from the wizard's snapshot (plain lists):
+ * `(graphId) => web`, the web with its own Things, groups and connections
+ * followed by those of every definition opened in place in it, and one group
+ * per Thing opened there (`isOpenDefinition`, its id `open:<node>`, named for
+ * its Thing, its members everything in it). The same projection the canvas
+ * draws (core/openDefinitions.js), so what the wizard reads is what is on
+ * screen. A web with nothing open comes back as it was. Read once per
+ * snapshot; build again after the snapshot changes.
+ */
+export function drawnWebs(graphState) {
+  const byId = mapById(graphState?.graphs);
+  const state = {
+    graphs: new Map([...byId].map(([id, g]) => [id, { ...g, instances: mapById(g.instances), groups: mapById(g.groups), edgeIds: listOf(g.edgeIds) }])),
+    nodePrototypes: mapById(graphState?.nodePrototypes),
+    edges: mapById(graphState?.edges),
+  };
+  return (graphId) => {
+    const raw = byId.get(graphId);
+    if (!raw) return null;
+    const view = projectGraphViewOf(state, graphId);
+    if (!view?.openView) return raw;
+    // Its own connections all stay, the far end named wherever it is kept
+    // (nameOfEnd), with the ones inside what is opened here.
+    const own = listOf(raw.edgeIds);
+    const ownSet = new Set(own);
+    return {
+      ...raw,
+      instances: [...view.instances.values()],
+      groups: [...view.groups.values()],
+      edgeIds: [...own, ...view.edgeIds.filter(id => !ownSet.has(id))],
+    };
+  };
+}
+
+/** One web as the canvas draws it (drawnWebs), or null. */
+export const webAsDrawn = (graphState, graphId) => drawnWebs(graphState)(graphId);
 
 /** The name a placement goes by in its web. `cover` is its web's formulaCover. */
 export const placeName = (inst, protoName, cover) => cover.nameOf(inst.id, inst.name || protoName || '');
@@ -37,39 +77,16 @@ export function instanceNames(graphState, protoById) {
 }
 
 /**
- * A web's instances as the canvas draws them: its own, then those of every
- * definition opened in place in it (core/openDefinitions.js), at their place
- * in this web. A formula opened in place keeps its terms there.
- */
-function shownInstances(graphState, graph, protoById) {
-  const graphById = new Map(listOf(graphState?.graphs).filter(g => g?.id).map(g => [g.id, g]));
-  const shown = [];
-  const opened = new Set([graph?.id]);
-  const walk = (g, dx, dy) => {
-    for (const inst of listOf(g?.instances)) {
-      if (!inst?.id) continue;
-      shown.push(dx || dy ? { ...inst, x: (inst.x ?? 0) + dx, y: (inst.y ?? 0) + dy } : inst);
-      const open = inst.openDefinition;
-      const defId = open && protoById.get(inst.prototypeId)?.definitionGraphIds?.[open.index ?? 0];
-      if (!defId || opened.has(defId) || !graphById.has(defId)) continue;
-      opened.add(defId);
-      walk(graphById.get(defId), dx + (open.offset?.x ?? 0), dy + (open.offset?.y ?? 0));
-    }
-  };
-  walk(graph, 0, 0);
-  return shown;
-}
-
-/**
  * Read one web: its places (instances) under the names the wizard is shown,
  * and its connections that are the web's own (a formula's operations left out).
  */
 export function readWeb(graphState, graphId) {
-  const graph = listOf(graphState?.graphs).find(g => g?.id === graphId) || null;
+  // As drawn: a Thing opened in place shows its definition's Things here.
+  const graph = webAsDrawn(graphState, graphId);
   const protoById = new Map(listOf(graphState?.nodePrototypes).filter(p => p?.id).map(p => [p.id, p]));
   const cover = formulaCover(formulasIn(graphState, graphId));
 
-  const places = shownInstances(graphState, graph, protoById).map((inst) => {
+  const places = listOf(graph?.instances).filter(inst => inst?.id).map((inst) => {
     const proto = protoById.get(inst.prototypeId);
     const f = cover.of(inst.id);
     return {

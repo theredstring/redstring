@@ -1,7 +1,7 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 import { isSeededChain } from './utils/abstractionSpec.js';
 import { formulasIn, formulaCover, meaningsText, repeatedTermsLines } from './utils/formulas.js';
-import { readWeb, placeName } from './utils/webView.js';
+import { readWeb, placeName, webAsDrawn } from './utils/webView.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -24,7 +24,9 @@ export async function readGraph(args, graphState) {
         return { error: 'No graph specified. Create or open a graph first.' };
     }
 
-    const activeGraph = graphs.find(g => g.id === targetGraphId);
+    // As drawn: a Thing opened in place shows its definition's Things, groups and
+    // connections in this web, and is a Thing-group of them.
+    const activeGraph = graphs.some(g => g.id === targetGraphId) ? webAsDrawn(graphState, targetGraphId) : null;
     if (!activeGraph) {
         return { error: `Graph "${targetGraphId}" not found in state.` };
     }
