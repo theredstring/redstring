@@ -263,8 +263,8 @@ export function buildNodePieMenuPages(ctx) {
       }
     },
     {
-      id: 'semantic-search', label: 'Semantic Search', icon: BookSearch, action: (instanceId) => {
-        // Mirrors the right panel's Text Search: open Semantic Search for this
+      id: 'semantic-search', label: 'Semantic Web Search', icon: BookSearch, action: (instanceId) => {
+        // Mirrors the right panel's Text Search: open Semantic Web Search for this
         // node's name. The left panel's listener runs the search itself, so
         // calling triggerSemanticSearch here too would search twice. The Thing
         // goes along so a result can be linked back to it.

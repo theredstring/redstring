@@ -23,7 +23,7 @@ test("F20 the right panel's Expand definition hurtles into the definition graph"
   await expect.poll(() => storeEval(page, (st) => st.activeGraphId), { timeout: 10_000 }).toBe(defGraphId);
 });
 
-test('F20b Semantic Search offers the one selected node', async ({ page }) => {
+test('F20b Semantic Web Search offers the one selected node', async ({ page }) => {
   await openFixture(page, 'small');
   await openLeftView(page, 'semantic');
   const chip = page.locator('[title="Quick search from Selected"]');

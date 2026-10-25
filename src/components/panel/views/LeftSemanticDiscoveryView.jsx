@@ -26,7 +26,7 @@ import { formatPredicate } from '../../../utils/predicateFormatter.js';
 import titleCaseName from '../../../utils/titleCaseName.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
 
-// Left Semantic Search View - Concept Discovery Engine
+// Left Semantic Web Search View - Concept Discovery Engine
 
 // The Catalog view is sealed off pending a rewrite of how it seeds.
 //
@@ -318,7 +318,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
   );
 };
 
-// Left Semantic Search View - Concept Discovery Engine
+// Left Semantic Web Search View - Concept Discovery Engine
 const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, onLoadWikidataCatalog }) => {
   const theme = useTheme();
   // Bottom clearance for the results lists.
@@ -358,7 +358,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [isHeaderWide, setIsHeaderWide] = useState(false);
   const [manualQuery, setManualQuery] = useState('');
   // The Thing a search started from, when it started from one: a node's
-  // Semantic Search, a quick-search chip, a card from On This Web. Its results
+  // Semantic Web Search, a quick-search chip, a card from On This Web. Its results
   // can be linked back to it. Retyping the query keeps it, since a node's name
   // is often the wrong search term for the thing it is.
   const [searchOriginId, setSearchOriginId] = useState(null);
@@ -640,12 +640,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   }, [discoveredConcepts]);
 
   // Watch the header's own width so the title/dropdown row reflows as the user
-  // drags the panel. 300px is where "Semantic Search" plus the Discover pill
+  // drags the panel. 340px is where "Semantic Web Search" plus the Discover pill
   // stop crowding each other.
   useEffect(() => {
     const el = headerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setIsHeaderWide(el.clientWidth >= 300);
+    const measure = () => setIsHeaderWide(el.clientWidth >= 340);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
@@ -765,16 +765,22 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   ));
   const selectedNode = selectedPrototypeId ? { prototypeId: selectedPrototypeId } : null;
 
-  // The Things on the active web, once each, in the order they were placed.
-  // Before a search has anything to show, Discover lists these as its starting
-  // points. The instances Map is read as-is and the list built here, so the
-  // selector hands back a stable reference and only a change to the web
-  // recomputes it.
+  // The Things on the active web, once each, in the order they were placed,
+  // led by the Thing the web defines. Before a search has anything to show,
+  // Discover lists these as its starting points. The instances Map is read
+  // as-is and the list built here, so the selector hands back a stable
+  // reference and only a change to the web recomputes it.
   const activeWebInstances = useGraphStore(s => s.graphs.get(s.activeGraphId)?.instances);
+  const activeWebDefiningId = useGraphStore(s => s.graphs.get(s.activeGraphId)?.definingNodeIds?.[0] ?? null);
   const activeWebPrototypes = useMemo(() => {
-    if (!activeWebInstances) return [];
     const seen = new Set();
     const list = [];
+    const definingProto = activeWebDefiningId ? nodePrototypesMap?.get(activeWebDefiningId) : null;
+    if (definingProto?.name) {
+      seen.add(definingProto.id);
+      list.push(definingProto);
+    }
+    if (!activeWebInstances) return list;
     for (const instance of activeWebInstances.values()) {
       const proto = nodePrototypesMap?.get(instance.prototypeId);
       if (!proto?.name || seen.has(proto.id)) continue;
@@ -782,7 +788,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       list.push(proto);
     }
     return list;
-  }, [activeWebInstances, nodePrototypesMap]);
+  }, [activeWebInstances, activeWebDefiningId, nodePrototypesMap]);
 
   // The Thing this search is for, and the results that are already it. Those
   // lead the list: they answer the question the search was asked as.
@@ -801,7 +807,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   // Back to the empty Discover list. Dropping the token orphans any search
   // still in flight, so its results never land after the clear.
   const clearSearch = () => {
-    latestSearchTokenRef.current = null;
+    cancelSearch();
     setDiscoveredConcepts([]);
     setSelectedConcept(null);
     setManualQuery('');
@@ -904,6 +910,17 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
 
   const latestSearchTokenRef = React.useRef(null);
+  const searchAbortRef = React.useRef(null);
+
+  // Stop the search in flight: abort its requests and drop its token, so
+  // nothing it was waiting on lands afterwards. The query stays in the box.
+  const cancelSearch = () => {
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+    latestSearchTokenRef.current = null;
+    setIsSearching(false);
+    setSearchProgress('');
+  };
 
   const normalizeQuery = (q) => {
     if (!q) return '';
@@ -923,6 +940,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const performSearch = async (rawQuery) => {
     const token = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     latestSearchTokenRef.current = token;
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     setIsSearching(true);
     setDiscoveredConcepts([]);
     setSelectedConcept(null);
@@ -932,7 +952,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
     try {
       console.log(`[SemanticDiscovery] Starting search for "${rawQuery}" (token: ${token})`);
-      const hits = await searchConcepts(rawQuery, { limit: 8 });
+      const hits = await searchConcepts(rawQuery, { limit: 8, signal: controller.signal });
       if (latestSearchTokenRef.current !== token) return;
 
       const normalized = hits.map(hit => {
@@ -954,12 +974,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
         concepts: normalized.slice(0, 10)
       }, ...prev].slice(0, 40));
     } catch (error) {
-      console.error('[SemanticDiscovery] Search failed:', error);
       if (latestSearchTokenRef.current !== token) return;
+      console.error('[SemanticDiscovery] Search failed:', error);
       setDiscoveredConcepts([]);
       setSearchProgress('Search failed');
     } finally {
       if (latestSearchTokenRef.current === token) {
+        searchAbortRef.current = null;
         setIsSearching(false);
         setSearchProgress('');
       }
@@ -1133,7 +1154,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           }}
         >
           <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: isHeaderWide ? 0 : '12px' }}>
-            Semantic Search
+            Semantic Web Search
           </h2>
           <div style={{ flexShrink: 0 }}>
             <PanelIconButton
@@ -1665,6 +1686,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     textAlign: 'center'
                   }}>
                     {searchProgress || 'Please wait while we find related concepts'}
+                  </div>
+                  <div style={{ marginTop: '12px' }}>
+                    <PanelIconButton
+                      icon={X}
+                      size={14}
+                      label="Cancel"
+                      labelPosition="left"
+                      labelFontSize={11}
+                      variant="outline"
+                      onClick={cancelSearch}
+                      title="Stop this search"
+                    />
                   </div>
                 </div>
               )}

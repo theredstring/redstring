@@ -2396,7 +2396,7 @@ function NodeCanvas() {
    * step: PieMenu pages through it with its chevrons, the bottom control panel
    * pages through it with its own, and neither has to be edited to add a page.
    * The panel used to hand-transcribe a subset of page 0, which is how it ended
-   * up offering Orbit but not Duplicate, Copy, Swap, Add Image, Semantic Search,
+   * up offering Orbit but not Duplicate, Copy, Swap, Add Image, Semantic Web Search,
    * Ask The Wizard, or Open in Panel — those were reachable only from the canvas.
    *
    * An entry is a page: an array of the {id, label, icon, action} buttons PieMenu

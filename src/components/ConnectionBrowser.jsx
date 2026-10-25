@@ -336,7 +336,7 @@ const ConnectionBrowser = ({ nodeData }) => {
   return (
     <div className="connection-browser">
       {/* Scope chooser: the same outlined pill and maroon menu as the
-          Universes and Semantic Search headers. */}
+          Universes and Semantic Web Search headers. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <PanelIconButton
           icon={activeScope.Icon}

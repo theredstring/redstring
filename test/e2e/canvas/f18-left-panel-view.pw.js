@@ -23,27 +23,27 @@ test('F18 a Universes request opens the left panel there, and a repeat request s
   await expect.poll(() => isActive('Universes')).toBe('true');
 });
 
-// The pie's Semantic Search opens the left panel's Semantic Search view, and on
+// The pie's Semantic Web Search opens the left panel's Semantic Web Search view, and on
 // its Discover list even if the view was last left on History: the search used
 // to run behind whichever mode the view was in, where nobody could see it.
-test('F18b the pie\'s Semantic Search opens the Semantic Search view on its results', async ({ page }) => {
+test('F18b the pie\'s Semantic Web Search opens the Semantic Web Search view on its results', async ({ page }) => {
   await openFixture(page, 'small');
   const isActive = (title) => page.locator(`.panel-view-tab[title="${title}"]`).first().getAttribute('data-active');
-  const modeButton = page.locator('h2', { hasText: 'Semantic Search' }).locator('xpath=following-sibling::div[1]/*').first();
+  const modeButton = page.locator('h2', { hasText: 'Semantic Web Search' }).locator('xpath=following-sibling::div[1]/*').first();
   const semanticSearchFromPie = async () => {
     await openPieMenu(page, 'i-alpha');
-    if (await pieButton(page, 'text-search').count() === 0) {
+    if (await pieButton(page, 'book-search').count() === 0) {
       // Second page of the pie: the right-hand chevron.
       const chevrons = page.locator('svg.canvas g.pie-chevron-intro');
       const [a, b] = await Promise.all([chevrons.nth(0).boundingBox(), chevrons.nth(1).boundingBox()]);
       await clickCenter(page, chevrons.nth(a.x > b.x ? 0 : 1));
     }
-    await clickCenter(page, pieButton(page, 'text-search'));
+    await clickCenter(page, pieButton(page, 'book-search'));
   };
 
   await semanticSearchFromPie();
   await expect.poll(() => storeEval(page, (st) => st.leftPanelExpanded)).toBe(true);
-  await expect.poll(() => isActive('Semantic Search')).toBe('true');
+  await expect.poll(() => isActive('Semantic Web Search')).toBe('true');
 
   await clickCenter(page, modeButton);
   await page.locator('.context-menu-item', { hasText: /^History/ }).click();
@@ -55,6 +55,6 @@ test('F18b the pie\'s Semantic Search opens the Semantic Search view on its resu
   await storeEval(page, (st) => st.setLeftPanelExpanded(false));
   await semanticSearchFromPie();
   await expect.poll(() => storeEval(page, (st) => st.leftPanelExpanded)).toBe(true);
-  await expect.poll(() => isActive('Semantic Search')).toBe('true');
+  await expect.poll(() => isActive('Semantic Web Search')).toBe('true');
   await expect(modeButton).toHaveText(/^Discover/);
 });
