@@ -15,13 +15,14 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestRefresh } from '../dialogs/refresh.js';
 import { openFormulaComposer } from '../formats/formatsStore.js';
+import { selectPasted } from '../formats/formula/formulaSelection.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
 export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
   const {
     activeGraphId, canvasSize, clipboardRef, condenseGraphNodes, containerRef, graphsMap,
-    openWizardPicker, panOffsetRef, setForceSimModalVisible, setSelectedInstanceIds, snapToGrid, storeActions,
+    openWizardPicker, panOffsetRef, setForceSimModalVisible, snapToGrid, storeActions,
     triggerAutoLayout, wizardEnabled, zoomLevelRef,
   } = ctx;
   const options = [
@@ -147,9 +148,7 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
           currentGraph,
           getNodeDimensions
         );
-        if (result?.newInstanceIds) {
-          setSelectedInstanceIds(new Set(result.newInstanceIds));
-        }
+        selectPasted(result);
       }
     });
   }

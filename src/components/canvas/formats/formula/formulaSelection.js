@@ -28,6 +28,12 @@ function selectGroup(groupId) {
   ui.setConnectionControlPanelShouldShow(false);
 }
 
+/** Select what a paste made (utils/clipboard.pasteClipboard): a formula as itself, else what was pasted. */
+export function selectPasted(result) {
+  if (result?.selectGroupId) selectGroup(result.selectGroupId);
+  else if (result?.selectIds) useCanvasUIStore.getState().setSelectedInstanceIds(new Set(result.selectIds));
+}
+
 /** `ids` with a formula selected on its own (as its group) added as its anchor: what a tap or a box adds to. */
 export function withSelectedFormula(ids) {
   const next = new Set(ids);

@@ -5734,8 +5734,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Array<{instanceId: string, prototypeId: string, x: number, y: number, scale: number}>} nodes
      * @param {Array<EdgeData>} edges - Edges to restore; each must have valid source/destination IDs.
      * @param {Object} [contextOptions] - Save context flags.
+     * @param {Array<Object>} [groups] - Groups over the pasted nodes (a copied formula's), ids already new.
      */
-    pasteNodesAndEdges: (graphId, nodes, edges, contextOptions = {}) => {
+    pasteNodesAndEdges:(graphId, nodes, edges, contextOptions = {}, groups = []) => {
       api.setChangeContext({ type: 'paste', target: 'batch', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -5750,7 +5751,36 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             y: node.y,
             scale: node.scale || 1,
             // How this one is written where it stands (q₁ for Electric Charge): see formulaLabelOf.
-            ...(node.labels ? { labels: { ...node.labels } } : {})
+            ...(node.labels ? { labels: { ...node.labels } } : {}),
+            // How it is shown (opened in place, as a formula): see moveFormat.
+            ...(node.openDefinition ? { openDefinition: { ...node.openDefinition, offset: { ...node.openDefinition.offset } } } : {}),
+            ...Object.fromEntries(FORMAT_KEYS.filter(key => node[key]).map(key => [key, node[key]]))
+          });
+        }
+
+        // A copied formula's groups (utils/clipboard.js), their ids already new.
+        // Only whole ones: every Thing they hang on came along.
+        for (const group of groups) {
+          const memberIds = group.memberInstanceIds || [];
+          if (!memberIds.every(id => graph.instances.has(id))) continue;
+          if (group.anchorInstanceId && !graph.instances.has(group.anchorInstanceId)) continue;
+          if (group.anchorInstanceId) {
+            const anchor = graph.instances.get(group.anchorInstanceId);
+            anchor.isGroupAnchor = true;
+            anchor.anchorForGroupId = group.id;
+          }
+          const timestamp = new Date().toISOString();
+          if (!graph.groups) graph.groups = new Map();
+          graph.groups.set(group.id, {
+            ...group,
+            memberInstanceIds: [...memberIds],
+            hasCustomLayout: false,
+            semanticMetadata: {
+              type: 'Group',
+              relationships: memberIds.map(memberId => ({ predicate: 'memberOf', subject: memberId, object: group.id, source: 'redstring-grouping' })),
+              createdAt: timestamp,
+              lastModified: timestamp
+            }
           });
         }
 

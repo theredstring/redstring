@@ -1390,7 +1390,7 @@ const UnifiedBottomControlPanel = ({
                     {toggle.icon(iconSize)}
                   </div>
                 ))}
-                {/* A formula follows a Thing-group's order: Combine, Edit, Color, Ungroup, Delete. */}
+                {/* A formula follows a Thing-group's order: Combine, Edit, Color, Ungroup, Copy, Delete. */}
                 {isFormat && onCombineNodeGroup && (
                   <div
                     className="piemenu-button"
@@ -1433,6 +1433,17 @@ const UnifiedBottomControlPanel = ({
                   </div>
                 )}
                 {isFormat && groupUngroupButton}
+                {isFormat && onCopy && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onCopy}
+                    title="Copy"
+                    onMouseEnter={() => triggerActionHover('control-copy', 'Copy')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <ClipboardCopy size={iconSize} />
+                  </div>
+                )}
                 {isFormat && onDelete && (
                   <div
                     className="piemenu-button"

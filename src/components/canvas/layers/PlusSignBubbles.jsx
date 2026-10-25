@@ -23,6 +23,7 @@ import { PLUS_SIGN_SIZE, PLUS_SIGN_STROKE } from '../../../constants';
 import { haptic } from '../../../services/haptics.js';
 import { setActionHover, clearActionHoverIf } from '../../../utils/canvas/actionHover.js';
 import { openFormulaComposer } from '../formats/formatsStore.js';
+import { selectPasted } from '../formats/formula/formulaSelection.js';
 import { openThingGroupPrompt } from '../thingGroupPrompt/thingGroupPrompt.js';
 
 const BUBBLE_SHARE = 0.54; // diameter, of the plus sign's
@@ -163,7 +164,7 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, clipboardRef, h
     if (!clip || !graph) return;
     // One Thing: the plus sign becomes it (the selector's path, images and all).
     const only = clip.nodes.length === 1 ? store.nodePrototypes.get(clip.nodes[0].prototypeId) : null;
-    if (only && !clip.edges?.length) {
+    if (only && !clip.edges?.length && clip.kind !== 'formula') {
       setPlusSign(ps => ps && { ...ps, pastedLabels: clip.nodes[0].labels || null });
       handleNodeSelection(only);
       return;
@@ -188,7 +189,7 @@ export default function PlusSignBubbles({ plusSign, setPlusSign, clipboardRef, h
       origin: { x: plusSign.x, y: plusSign.y },
       positions: new Map(result.newInstanceIds.map(id => [id, placed?.get(id)]).filter(([, p]) => p)),
     });
-    useCanvasUIStore.getState().setSelectedInstanceIds(new Set(result.newInstanceIds));
+    selectPasted(result);
   };
 
   const newThingGroup = () => {

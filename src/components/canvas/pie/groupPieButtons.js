@@ -10,7 +10,7 @@
  */
 import { create } from 'zustand';
 import {
-  ArrowUpFromDot, Combine, Edit3, NotebookText, Palette, RefreshCw, Save, Scaling, Shapes, Sigma, SquarePlus, Superscript,
+  ArrowUpFromDot, ClipboardCopy, Combine, Edit3, NotebookText, Palette, RefreshCw, Save, Scaling, Shapes, Sigma, SquarePlus, Superscript,
   Trash2, Ungroup, WholeWord,
 } from 'lucide-react';
 import { nodeSizeLabel } from '../../../constants';
@@ -131,6 +131,11 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
   );
   if (!isThingGroup) buttons.push({ id: 'group-convert', label: 'Convert to Thing-Group', icon: SquarePlus, action: () => h.onConvertToNodeGroup() });
   buttons.push({ id: 'group-ungroup', label: 'Ungroup', icon: Ungroup, action: () => h.onUngroup() });
-  if (shownAsFormula) buttons.push({ id: 'group-delete', label: 'Delete', icon: Trash2, action: () => h.onDelete() });
+  if (shownAsFormula) {
+    buttons.push(
+      { id: 'group-copy', label: 'Copy', icon: ClipboardCopy, action: () => h.onCopy() },
+      { id: 'group-delete', label: 'Delete', icon: Trash2, action: () => h.onDelete() },
+    );
+  }
   return buttons;
 }

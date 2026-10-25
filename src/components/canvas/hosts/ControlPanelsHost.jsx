@@ -33,6 +33,7 @@ import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
 import { deleteFormula } from '../formats/formula/deleteFormula.js';
 import { condenseFormula } from '../formats/formula/condenseFormula.js';
+import { copyFormula } from '../formats/formula/copyFormula.js';
 import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
@@ -233,6 +234,16 @@ export default function ControlPanelsHost({ ctx }) {
     setSelectedGroup(null);
     setGroupControlPanelVisible(false);
   }, [activeGraphId, selectedGroup, setGroupControlPanelVisible]);
+
+  // A formula's Copy: its text for other apps, the formula itself for Paste (copyFormula).
+  const handleFormulaCopy = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    const copied = copyFormula(activeGraphId, selectedGroup.id);
+    if (copied) {
+      clipboardRef.current = copied;
+      markClipboardChanged();
+    }
+  }, [activeGraphId, selectedGroup, clipboardRef, markClipboardChanged]);
 
   // A formula's Combine Into Thing: saved into its Thing's definition, its band
   // folding into the node, which is left selected (as a Thing-group's Combine).
@@ -460,6 +471,7 @@ export default function ControlPanelsHost({ ctx }) {
     onColor: handleGroupPanelColor,
     onUngroup: handleGroupPanelUngroup,
     onDelete: groupPanelMode === 'format' ? handleFormulaDelete : handleNodeGroupDelete,
+    onCopy: handleFormulaCopy,
     onConvertToNodeGroup: handleGroupPanelConvertToNodeGroup,
     setFormulaNames: (shown) => { if (selectedGroup) showFormulaNames(selectedGroup.id, shown); },
     setStandardNotation: (standard) => setNotation(standard ? 'standard' : 'explicit'),
@@ -672,7 +684,7 @@ export default function ControlPanelsHost({ ctx }) {
             {...(groupFormulaText ? {
               formatSwap,
               formatToggles,
-              ...(currentFormat === 'formula' ? { onDelete: handleFormulaDelete } : {}),
+              ...(currentFormat === 'formula' ? { onDelete: handleFormulaDelete, onCopy: handleFormulaCopy } : {}),
               // Combined into its Thing, an equation folds as a Thing-group does; a plain group has no Thing to fold into.
               ...(currentFormat === 'formula' ? { onCombineNodeGroup: isThingGroup ? handleFormulaCondense : undefined } : {}),
               // An equation is a Thing-group already.
