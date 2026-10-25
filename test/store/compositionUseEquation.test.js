@@ -31,7 +31,6 @@ const reset = () => {
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(),
     savedGraphIds: new Set(),
-    openDefinitionsInPlace: true,
   });
   // The equation, written in another web: its Thing has a web that reads as it.
   addFormulaForWizard({ graphId: 'lab', text: 'P V = n R T', title: 'Ideal Gas Law', meanings: [{ symbol: 'P', thing: 'Pressure' }] });

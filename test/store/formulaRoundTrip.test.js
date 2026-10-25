@@ -34,9 +34,6 @@ const reset = () => {
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(),
     savedGraphIds: new Set(),
-    // Built as a Thing-group, the copy a node opens as with the setting off;
-    // with it on, a formula is built as its Thing opened in place (formulaWizard.test.js).
-    openDefinitionsInPlace: false,
   });
 };
 
@@ -44,9 +41,16 @@ const TEXT = 'a * (b + c)';
 /** The formula drawn for a group, or null. */
 const text = (groupId) => computeFormulaObjects(st()).objects.find(o => o.groupId === groupId)?.text ?? null;
 
-/** Builds the equation, shown as its formula; returns its group and Thing. */
+/**
+ * The equation as a copy-style Thing-group shown as its formula, as older
+ * builds made it (and old files hold it): built, folded, then opened as a copy.
+ * Returns its group and Thing.
+ */
 const buildEquation = () => {
-  const { groupId, equationProtoId } = buildFormulaInWeb(TEXT, 'main', { x: 0, y: 0 });
+  const built = buildFormulaInWeb(TEXT, 'main', { x: 0, y: 0 });
+  const nodeId = st().collapseNodeGroupIntoDefinition('main', built.groupId);
+  const { equationProtoId } = built;
+  const groupId = st().decomposeNodeToGroup('main', equationProtoId, 0, nodeId);
   expect(st().graphs.get('main').groups.get(groupId).format).toBe('formula');
   return { groupId, equationProtoId, drawn: text(groupId) };
 };

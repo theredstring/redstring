@@ -11,13 +11,12 @@ import { projectGraphView, openGroupId } from '../../src/core/openDefinitions.js
 
 // Making a group a Thing-group: its members become the Thing's definition,
 // themselves (same ids, same connections), and the Thing is opened in place
-// where they stood. With the setting off, the copy-style Thing-group.
+// where they stood.
 
 const st = () => useGraphStore.getState();
 const web = (id) => ({ id, name: id, description: '', instances: new Map(), edgeIds: [], groups: new Map(), definingNodeIds: [] });
 
-const reset = ({ inPlace = true } = {}) => {
-  const openDefinitionsInPlace = inPlace;
+const reset = () => {
   useHistoryStore.setState({ history: [], currentIndex: -1 });
   useGraphStore.setState({
     graphs: new Map([['main', web('main')]]),
@@ -29,7 +28,6 @@ const reset = ({ inPlace = true } = {}) => {
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(),
     savedGraphIds: new Set(),
-    openDefinitionsInPlace,
   });
   for (const [id, name, x] of [['a', 'A', 0], ['b', 'B', 300], ['c', 'C', 600], ['out', 'Outside', 2000]]) {
     st().addNodePrototype({ id: `p-${id}`, name, color: '#8B0000', definitionGraphIds: [] });
@@ -81,10 +79,9 @@ describe('making a group a Thing-group', () => {
   });
 
   it('opens a copy-style Thing-group it holds in place inside it', () => {
-    const { inner, groupId } = reset({ inPlace: false });
-    // The inner group a Thing-group the old way (a copy), then definitions open in place again.
-    st().convertGroupToThingInPlace('main', inner, null, true, 'Pair');
-    useGraphStore.setState({ openDefinitionsInPlace: true });
+    const { inner, groupId } = reset();
+    // The inner group a Thing-group the old way (a copy).
+    st().convertGroupToNodeGroup('main', inner, null, true, 'Pair');
     const pairAnchor = st().graphs.get('main').groups.get(inner).anchorInstanceId;
     const trio = st().convertGroupToThingInPlace('main', groupId, null, true, 'Trio');
     const view = projectGraphView(st(), 'main');
@@ -102,14 +99,6 @@ describe('making a group a Thing-group', () => {
     useHistoryStore.setState({ history: [], currentIndex: -1 });
     st().convertGroupToThingInPlace('main', groupId, null, true, 'Trio');
     expect(useHistoryStore.getState().history).toHaveLength(1);
-  });
-
-  it('with definitions not opening in place, is the copy-style Thing-group', () => {
-    const { groupId } = reset({ inPlace: false });
-    expect(st().convertGroupToThingInPlace('main', groupId, null, true, 'Trio')).toBe(groupId);
-    const group = st().graphs.get('main').groups.get(groupId);
-    expect(group.linkedNodePrototypeId).toBeTruthy();
-    expect(st().graphs.get('main').instances.has('a')).toBe(true);
   });
 
   it('refuses an empty group, as the copy does', () => {

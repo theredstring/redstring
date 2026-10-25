@@ -626,7 +626,7 @@ export function createStoreActions({
                       break;
                     }
                     case 'convertToNodeGroup': {
-                      // Opened in place over its members (`open:<node>`), or the copy with that setting off.
+                      // Opened in place over its members (`open:<node>`).
                       const thingGroupId = store.convertGroupToThingInPlace(
                         op.graphId,
                         op.groupId,

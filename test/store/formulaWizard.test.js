@@ -38,7 +38,6 @@ const reset = () => {
     expandedGraphIds: new Set(),
     savedNodeIds: new Set(),
     savedGraphIds: new Set(),
-    openDefinitionsInPlace: true,
   });
 };
 

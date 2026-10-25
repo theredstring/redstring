@@ -654,7 +654,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
       }
     }
     // Empty + decomposed layers get no definition graph here on purpose:
-    // decomposeEmptyNodeToGroup creates and links one itself in Phase B.
+    // opening it makes and links one (openCompositionLayersInPlace).
   }
 
   const specNodes = Array.isArray(graphSpec?.nodes) ? graphSpec.nodes : [];
@@ -696,7 +696,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     // An equation: open in place as its formula, or folded into a node that
     // opens as one. A node of it already here is the one placed. Its node is
     // the layer's shell, so connections named after the layer reach the whole
-    // formula; decomposeCompositionLayers leaves it be.
+    // formula; openCompositionLayersInPlace leaves it be.
     if (l._equation) {
       try {
         l._shellInstanceId = placeEquation({ graphId, ref: l._protoId, folded: l.display === 'collapsed' }).instanceId;
@@ -752,9 +752,9 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
 }
 
 /**
- * decomposeCompositionLayers with definitions opening in place (the default):
- * each layer's Thing opens in place on its node, its definition drawn in it,
- * and the layers inside open on their own nodes there. The composition is its
+ * A composition's layers opened: each layer's Thing opens in place on its
+ * node, its definition drawn in it, and the layers inside open on their own
+ * nodes there. The composition is its
  * definitions, each once, as the canvas opens one: no copy to save or refresh.
  *
  * @param {string} viewGraphId - The web it is seen from (the shells are in it,
@@ -818,86 +818,6 @@ function openCompositionLayersInPlace(viewGraphId, layers, warnings) {
   }
 }
 
-function decomposeCompositionLayers(graphId, layers, warnings) {
-  if (useGraphStore.getState().openDefinitionsInPlace !== false) {
-    openCompositionLayersInPlace(graphId, layers, warnings);
-    return;
-  }
-  for (const layer of (Array.isArray(layers) ? layers : [])) {
-    if (!layer || layer._skip || !layer._protoId) continue;
-    // Placed as its formula already (materializeCompositionLevel).
-    if (layer._equation) continue;
-    const st = useGraphStore.getState();
-    const protoId = layer._protoId;
-
-    if (layer.display === 'collapsed') {
-      // The Thing stays closed here; its own decomposed children spread open
-      // inside its definition graph (visible when the user navigates in).
-      if (!layer._reused && layer._defGraphId && layer.definition?.layers?.length) {
-        decomposeCompositionLayers(layer._defGraphId, layer.definition.layers, warnings);
-      }
-      continue;
-    }
-
-    const graph = st.graphs.get(graphId);
-    if (!graph) continue;
-
-    // Already decomposed here (re-run safety) — children came with it, skip.
-    let alreadyGrouped = false;
-    if (graph.groups) {
-      for (const g of graph.groups.values()) {
-        if (g.linkedNodePrototypeId === protoId) alreadyGrouped = true;
-      }
-    }
-    if (alreadyGrouped) continue;
-
-    // The shell to decompose. Prefer the one materialization just created; fall
-    // back to the LAST non-anchor instance of this prototype.
-    let shellInstanceId = (layer._shellInstanceId && graph.instances.has(layer._shellInstanceId))
-      ? layer._shellInstanceId
-      : null;
-    if (!shellInstanceId) {
-      for (const [instId, inst] of graph.instances) {
-        if (inst.prototypeId === protoId && !inst.isGroupAnchor) shellInstanceId = instId;
-      }
-    }
-    // Still nothing: place one rather than skipping. A layer that silently fails
-    // to decompose leaves the concept defined but never opened — which reads to
-    // the user as the composition simply not having happened, and to the model as
-    // success, because the definition web really is there.
-    if (!shellInstanceId) {
-      shellInstanceId = `inst-shell-recover-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      st.addNodeInstance(graphId, protoId, { x: Math.random() * 600 + 200, y: Math.random() * 500 + 200 }, shellInstanceId);
-      warnings.push(`Layer "${layer.name}": shell instance was missing and had to be recreated before decomposing.`);
-    }
-
-    const proto = st.nodePrototypes.get(protoId);
-    const defGraphId = layer._defGraphId || proto?.definitionGraphIds?.[0] || null;
-    if (defGraphId === graphId) {
-      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself — not decomposed.`);
-      continue;
-    }
-    const defIndex = defGraphId ? Math.max(0, (proto?.definitionGraphIds || []).indexOf(defGraphId)) : 0;
-    const defGraph = defGraphId ? st.graphs.get(defGraphId) : null;
-    const populated = !!(defGraph?.instances && defGraph.instances.size > 0);
-
-    const groupId = populated
-      ? st.decomposeNodeToGroup(graphId, protoId, defIndex, shellInstanceId)
-      : st.decomposeEmptyNodeToGroup(graphId, protoId, defIndex, shellInstanceId);
-    if (!groupId) {
-      warnings.push(`Layer "${layer.name}": decompose did not produce a group.`);
-      continue;
-    }
-
-    // Children decompose in the SAME graph — the parent's decompose just copied
-    // their shells in, and decomposing them here triggers the enclosing-group
-    // membership propagation that derives the nesting. Parent strictly first.
-    if (!layer._reused && layer.definition?.layers?.length) {
-      decomposeCompositionLayers(graphId, layer.definition.layers, warnings);
-    }
-  }
-}
-
 /**
  * Materialize and decompose a set of layers into a graph.
  *
@@ -932,7 +852,7 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
   materializeCompositionLevel(graphId, { layers }, options, 0, warnings);
   try { useGraphStore.getState().cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-  decomposeCompositionLayers(graphId, layers, warnings);
+  openCompositionLayersInPlace(graphId, layers, warnings);
 
   // Layout runs AFTER decomposition on purpose: the layout engine is group-aware,
   // so it can only place members sensibly once the groups exist.
@@ -2013,7 +1933,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       realGroupId = result.groupId;
     }
     if (realGroupId) {
-      // Opened in place over its members, as the canvas makes one (the copy with that setting off).
+      // Opened in place over its members, as the canvas makes one.
       const thingGroupId = store.convertGroupToThingInPlace(
         graphId,
         realGroupId,
@@ -2072,21 +1992,16 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       }
     }
 
-    let createdGroupId = null;
-    if (store.openDefinitionsInPlace !== false) {
-      // Opened in place on its node, as the canvas opens one: its definition, not a copy of it.
-      const view = projectGraphView(store, graphId);
-      let instanceId = result.instanceId && view?.instances?.has(result.instanceId) ? result.instanceId : null;
-      if (!instanceId) {
-        for (const [id, inst] of view?.instances || []) {
-          if (inst.prototypeId === realProtoId && !inst.isGroupAnchor) instanceId = id; // LAST match
-        }
+    // Opened in place on its node, as the canvas opens one: its definition, not a copy of it.
+    const view = projectGraphView(store, graphId);
+    let instanceId = result.instanceId && view?.instances?.has(result.instanceId) ? result.instanceId : null;
+    if (!instanceId) {
+      for (const [id, inst] of view?.instances || []) {
+        if (inst.prototypeId === realProtoId && !inst.isGroupAnchor) instanceId = id; // LAST match
       }
-      createdGroupId = instanceId ? store.openDefinitionInPlace(graphId, instanceId, result.definitionIndex ?? 0) : null;
-      if (!createdGroupId) dispatchWizardToolFailed('decomposeNode', `"${result.nodeName}" could not open here.`, result);
-    } else {
-      createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0, result.instanceId ?? null);
     }
+    const createdGroupId = instanceId ? store.openDefinitionInPlace(graphId, instanceId, result.definitionIndex ?? 0) : null;
+    if (!createdGroupId) dispatchWizardToolFailed('decomposeNode', `"${result.nodeName}" could not open here.`, result);
     console.log('[Wizard] decomposeNode result: groupId=', createdGroupId);
     scheduleGraphLayout(graphId);
     return;
@@ -2112,9 +2027,9 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     materializeCompositionLevel(graphId, result.spec, options, 0, warnings);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-    decomposeCompositionLayers(graphId, result.spec.layers, warnings);
+    openCompositionLayersInPlace(graphId, result.spec.layers, warnings);
 
-    // Ladders AFTER decomposition: decomposeCompositionLayers retargets instances at
+    // Ladders AFTER decomposition: openCompositionLayersInPlace retargets instances at
     // an existing prototype, which changes what a node name resolves to.
     try {
       applyNodeLadders(result.spec, { graphId, label: 'buildComposition' });

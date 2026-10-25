@@ -235,7 +235,7 @@ export default function PromptsHost({ ctx }) {
               onClose={() => setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null })}
               onSubmit={({ name, color }) => {
                 if (name.trim() && activeGraphId && nodeGroupPrompt.groupId) {
-                  // Opened in place over its members (or the copy, with that setting off).
+                  // Opened in place over its members.
                   const thingGroupId = storeActions.convertGroupToThingInPlace(
                     activeGraphId,
                     nodeGroupPrompt.groupId,

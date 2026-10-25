@@ -2,11 +2,9 @@
  * Expanding a node in place ("Decompose"), shared by the pie menu and the node
  * control panel.
  *
- * With "Open definitions in place" on (the default), the node opens onto its
- * definition itself: what is built inside is the definition, shown the same
- * everywhere (see src/core/openDefinitions.js). Off, it copies the definition into
- * a node-group, as it always has. A node already inside an open definition always
- * opens in place: copying needs the node to live in the graph being viewed.
+ * The node opens onto its definition itself: what is built inside is the
+ * definition, shown the same everywhere (see src/core/openDefinitions.js). It is
+ * never copied into a node-group.
  *
  * Either way the node morphs into the box (groups/boxMorph.js). A node that was
  * a formula opens back into the formula, which grows out of it on its own
@@ -26,26 +24,16 @@ import { openBoxOffset } from '../groups/openPlacement.js';
 /**
  * @returns {Object|null} The group now shown for the expanded node (as viewed), or null.
  */
-export function expandNodeInPlace({ viewGraphId, prototypeId, definitionIndex = 0, instanceId }) {
+export function expandNodeInPlace({ viewGraphId, definitionIndex = 0, instanceId }) {
   const store = useGraphStore.getState();
-  const ownsNode = store.graphs.get(viewGraphId)?.instances?.has(instanceId);
   if (expandBlockLabel({ viewGraphId, instanceId, definitionIndex })) return null;
 
-  const inPlace = store.openDefinitionsInPlace !== false || !ownsNode;
-  const asFormula = inPlace && opensAsFormula(viewGraphId, instanceId);
+  const asFormula = opensAsFormula(viewGraphId, instanceId);
   const withMorph = asFormula ? withFormulaOpenMorph : withBoxOpenMorph;
   // The box opens centred on the node, or at the nearest spot where it fits.
-  const offset = inPlace && !asFormula ? openBoxOffset({ viewGraphId, instanceId, definitionIndex }) : null;
-  const groupId = withMorph({ viewGraphId, instanceId }, () => {
-    if (inPlace) {
-      return store.openDefinitionInPlace(viewGraphId, instanceId, definitionIndex, {}, offset);
-    }
-    const defGraphId = store.nodePrototypes.get(prototypeId)?.definitionGraphIds?.[definitionIndex];
-    const defGraph = defGraphId ? store.graphs.get(defGraphId) : null;
-    return (!defGraph?.instances || defGraph.instances.size === 0)
-      ? store.decomposeEmptyNodeToGroup(viewGraphId, prototypeId, definitionIndex, instanceId)
-      : store.decomposeNodeToGroup(viewGraphId, prototypeId, definitionIndex, instanceId);
-  });
+  const offset = asFormula ? null : openBoxOffset({ viewGraphId, instanceId, definitionIndex });
+  const groupId = withMorph({ viewGraphId, instanceId },
+    () => store.openDefinitionInPlace(viewGraphId, instanceId, definitionIndex, {}, offset));
   if (!groupId) return null;
   // Framed once it has opened: by its title and menu if it is selected, else whole
   // (groups/openedBoxFrame.js). Selecting it after doesn't frame it again.
@@ -60,10 +48,9 @@ const BLOCK_LABELS = {
 
 /**
  * What a greyed-out Decompose says instead of its name, or null when the node
- * can expand. Copying into a node-group (the setting off) is never blocked.
+ * can expand.
  */
 export function expandBlockLabel({ viewGraphId, instanceId, definitionIndex = 0 }) {
-  const { graphs, nodePrototypes, openDefinitionsInPlace } = useGraphStore.getState();
-  if (openDefinitionsInPlace === false && graphs.get(viewGraphId)?.instances?.has(instanceId)) return null;
+  const { graphs, nodePrototypes } = useGraphStore.getState();
   return BLOCK_LABELS[openInPlaceBlock(graphs, nodePrototypes, viewGraphId, instanceId, definitionIndex)] || null;
 }

@@ -2065,9 +2065,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showEquationControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_equation_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
-    // Decompose opens a Thing onto its definition itself (true) or copies the
-    // definition into a node-group saved back by hand (false). See core/openDefinitions.js.
-    openDefinitionsInPlace: (() => { try { const s = localStorage.getItem('redstring_open_definitions_in_place'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     hoverPreviewSize: (() => {
       try {
@@ -3125,12 +3122,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
 
     /**
-     * Makes a group a Thing-group the way definitions open here. Opening in
-     * place (the default): its members become the Thing's definition, the very
-     * instances, so their ids and connections stay, and the Thing is opened in
-     * place where they stood. The box is that definition: there is nothing to
-     * save or refresh. With the setting off, the copy-style Thing-group
-     * convertGroupToNodeGroup makes.
+     * Makes a group a Thing-group opened in place: its members become the
+     * Thing's definition, the very instances, so their ids and connections
+     * stay, and the Thing is opened in place where they stood. The box is that
+     * definition: there is nothing to save or refresh.
      *
      * Same arguments as convertGroupToNodeGroup. `viewGraphId` may be any web the
      * group is seen in (it can live in a definition opened there).
@@ -3145,7 +3140,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const group = get().graphs.get(homeGraphId)?.groups?.get(groupId);
         if (!group?.linkedNodePrototypeId || !group.anchorInstanceId) return null;
         // Read as a definition the Thing has already (a formula's): the group is its copy.
-        if (get().openDefinitionsInPlace === false || Number.isInteger(contextOptions.useDefinitionIndex)) return groupId;
+        if (Number.isInteger(contextOptions.useDefinitionIndex)) return groupId;
         const boxId = get().openThingGroupInPlace(viewGraphId, groupId, contextOptions);
         if (!boxId) return groupId;
         // Thing-groups it holds that are still copies open in place inside it too.
@@ -3164,7 +3159,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string|null} [boxId] - An open box's group id, to stay inside it.
      */
     openCopiesInPlace: (viewGraphId, boxId = null, contextOptions = {}) => {
-      if (get().openDefinitionsInPlace === false) return;
       api.withHistoryTransaction('Opened in place', () => {
         const tried = new Set();
         for (;;) {
@@ -3258,7 +3252,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     reopenThingGroupInPlace: (viewGraphId, groupId, contextOptions = {}) => {
       const state = get();
-      if (state.openDefinitionsInPlace === false) return null;
       const homeGraphId = groupHomeGraphId(state, viewGraphId, groupId);
       const home = state.graphs.get(homeGraphId);
       const group = home?.groups?.get(groupId);
@@ -3511,8 +3504,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
       graphId = groupHomeGraphId(get(), graphId, groupId);
 
-      // A copy-style group (from before definitions opened in place, or with that
-      // setting off). What its definition gets depends on who changed what:
+      // A copy-style group (from before definitions opened in place). What its
+      // definition gets depends on who changed what:
       //   - the box matches its definition: nothing to save.
       //   - the definition is empty, or unchanged since the box opened: overwrite it.
       //   - the definition changed somewhere else meanwhile (or we can't tell): keep
@@ -7772,11 +7765,6 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     toggleShowEquationControlPanel: () => set(produce((draft) => {
       draft.showEquationControlPanel = !draft.showEquationControlPanel;
       try { localStorage.setItem('redstring_show_equation_cp', draft.showEquationControlPanel); } catch (_) { }
-    })),
-    /** Toggles whether Decompose opens definitions in place. Persists to localStorage. */
-    toggleOpenDefinitionsInPlace: () => set(produce((draft) => {
-      draft.openDefinitionsInPlace = draft.openDefinitionsInPlace === false;
-      try { localStorage.setItem('redstring_open_definitions_in_place', draft.openDefinitionsInPlace); } catch (_) { }
     })),
     /** Toggles the abstraction chain control panel. Persists to localStorage. */
     toggleShowAbstractionControlPanel: () => set(produce((draft) => {

@@ -852,8 +852,8 @@ export function buildTargetPieMenuButtons(ctx) {
         disabled: !!decompBlocked,
         position: 'top', topIndex: 3, topCount: 5,
         action: () => {
-          // Opens the definition in place (or copies it into a node-group with the
-          // setting off; an empty definition gets a buildable empty one) — see expandInPlace.
+          // Opens the definition in place (an empty definition gets a buildable
+          // empty one) — see expandInPlace.
           const newGroup = expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId: decompPrototypeId, definitionIndex: decompIndex, instanceId: previewingNodeId });
           if (!newGroup) return;
           dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });

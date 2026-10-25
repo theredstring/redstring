@@ -179,9 +179,7 @@ export function placeEquation({ graphId, ref, folded = false, at = null }) {
   const st = useGraphStore.getState();
   st.updateNodeInstance(graphId, instanceId, (draft) => { draft.format = 'formula'; });
   if (folded) return done(instanceId);
-  const groupId = st.openDefinitionsInPlace !== false
-    ? st.openDefinitionInPlace(graphId, instanceId, index)
-    : st.decomposeNodeToGroup(graphId, proto.id, index, instanceId);
+  const groupId = st.openDefinitionInPlace(graphId, instanceId, index);
   markFormulaSpawn(groupId);
   return done(instanceId);
 }

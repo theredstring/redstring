@@ -474,15 +474,14 @@ function build(chain, graphId, at, bindings, title, equation) {
  * its definition those very Things (graphStore openThingGroupInPlace). The
  * same equation again keeps the definition it has: this build was its copy
  * (reopenThingGroupInPlace). So it is the one equation everywhere, not a copy
- * here to save or refresh. Left as the Thing-group while definitions don't
- * open in place (the setting off), or where it can't open here.
+ * here to save or refresh. Left as the Thing-group where it can't open here.
  *
  * Its parentheses stay Thing-groups inside it: one part can be written twice
  * in a formula, (a + b) × (a + b), and a definition opens once in a web.
  */
 function openedInPlace(graphId, built) {
   const st = useGraphStore.getState();
-  if (!built?.equationProtoId || st.openDefinitionsInPlace === false) return built;
+  if (!built?.equationProtoId) return built;
   const group = st.graphs.get(graphId)?.groups?.get(built.groupId);
   const index = group?.linkedDefinitionIndex ?? 0;
   if (!group?.anchorInstanceId || openInPlaceBlock(st.graphs, st.nodePrototypes, graphId, group.anchorInstanceId, index)) return built;

@@ -2287,9 +2287,9 @@ function NodeCanvas() {
 
   // Handler to convert a node instance to a node group
   const handleNodeConvertToNodeGroup = useCallback((instanceId, prototypeId, definitionGraphId) => convertNodeToNodeGroup(instanceId, prototypeId, definitionGraphId, {
-    activeGraphId, edgesMap, graphsMap, nodePrototypesMap, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
-    setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, storeActions,
-  }), [activeGraphId, graphsMap, edgesMap, nodePrototypesMap, storeActions, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
+    activeGraphId, nodePrototypesMap, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds,
+  }), [activeGraphId, nodePrototypesMap, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
 
   // --- Refs (Keep these) ---
 

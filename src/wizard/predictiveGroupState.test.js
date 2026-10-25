@@ -12,12 +12,10 @@ import { drawnWebs } from './tools/utils/webView.js';
  * broken without anyone noticing.
  */
 
-// The copy-style mirror (definitions not opening in place); the opened one is below.
-const baseState = (groups = [], instances = [], protos = [], { openDefinitionsInPlace = false } = {}) => ({
+const baseState = (groups = [], instances = [], protos = []) => ({
   activeGraphId: 'g1',
   graphs: [{ id: 'g1', name: 'Main', instances, edgeIds: [], groups, definingNodeIds: [] }],
   nodePrototypes: protos,
-  openDefinitionsInPlace,
 });
 
 const groupsOf = (state) => state.graphs[0].groups;
@@ -33,98 +31,9 @@ describe('predictive state honesty — node-groups', () => {
     expect(groupsOf(state)[0].linkedNodePrototypeId).toBeUndefined();
   });
 
-  it('records a real prototype and anchor when the conversion would succeed', () => {
-    const state = baseState([{ id: 'grp', name: 'Cluster', color: '#111', memberInstanceIds: ['i1'] }]);
-
-    updateGraphState(state, 'thingGroup', {}, {
-      action: 'convertToThingGroup', graphId: 'g1', groupId: 'grp', groupName: 'Cluster', thingName: 'Cluster'
-    });
-
-    const group = groupsOf(state)[0];
-    expect(group.linkedNodePrototypeId).toBeTruthy();
-    expect(group.linkedDefinitionIndex).toBe(0);
-    expect(group.anchorInstanceId).toBeTruthy();
-    // The prototype must actually exist — a dangling id reads as a node-group
-    // backed by no Thing.
-    expect(state.nodePrototypes.some(p => p.id === group.linkedNodePrototypeId)).toBe(true);
-  });
-
-  it('does NOT invent a group when the definition graph is empty', () => {
-    const state = baseState([], [{ id: 'i1', prototypeId: 'p1', name: 'Thing' }]);
-
-    updateGraphState(state, 'decomposeNode', {}, {
-      action: 'decomposeNode', graphId: 'g1', prototypeId: 'p1', nodeName: 'Thing',
-      originalInstanceId: 'i1', definitionInstances: []
-    });
-
-    expect(groupsOf(state)).toHaveLength(0);
-  });
-
-  it('does NOT decompose twice into the same prototype/definition', () => {
-    const state = baseState(
-      [{ id: 'existing', name: 'Thing', memberInstanceIds: ['m1'], linkedNodePrototypeId: 'p1', linkedDefinitionIndex: 0 }],
-      [{ id: 'i1', prototypeId: 'p1', name: 'Thing' }]
-    );
-
-    updateGraphState(state, 'decomposeNode', {}, {
-      action: 'decomposeNode', graphId: 'g1', prototypeId: 'p1', nodeName: 'Thing',
-      originalInstanceId: 'i1', definitionIndex: 0,
-      definitionInstances: [{ prototypeId: 'p2', name: 'Part' }]
-    });
-
-    expect(groupsOf(state)).toHaveLength(1);
-  });
-
-  it('propagates decomposed members into an enclosing group so nesting derives', () => {
-    const state = baseState(
-      [{ id: 'outer', name: 'Outer', memberInstanceIds: ['i1', 'other'], linkedNodePrototypeId: 'p-outer', linkedDefinitionIndex: 0 }],
-      [{ id: 'i1', prototypeId: 'p1', name: 'Thing' }, { id: 'other', prototypeId: 'p9', name: 'Other' }]
-    );
-
-    updateGraphState(state, 'decomposeNode', {}, {
-      action: 'decomposeNode', graphId: 'g1', prototypeId: 'p1', nodeName: 'Thing',
-      originalInstanceId: 'i1', definitionIndex: 0,
-      definitionInstances: [{ prototypeId: 'p2', name: 'Part A' }, { prototypeId: 'p3', name: 'Part B' }]
-    });
-
-    const outer = groupsOf(state).find(g => g.id === 'outer');
-    const inner = groupsOf(state).find(g => g.id !== 'outer');
-    expect(inner.memberInstanceIds).toHaveLength(2);
-    for (const id of inner.memberInstanceIds) {
-      expect(outer.memberInstanceIds).toContain(id);
-    }
-  });
 });
 
 describe('predictive state — buildComposition mirror', () => {
-  it('mirrors nested layers as real node-groups with derived subset membership', () => {
-    const state = baseState();
-
-    updateGraphState(state, 'buildComposition', {}, {
-      action: 'buildComposition', graphId: 'g1', layerCount: 2, maxDepth: 2,
-      spec: {
-        nodes: [], edges: [], groups: [],
-        layers: [{
-          name: 'Car', color: '#a00', display: 'decomposed',
-          definition: {
-            nodes: [{ name: 'Chassis' }],
-            layers: [{ name: 'Engine', color: '#0a0', display: 'decomposed', definition: { nodes: [{ name: 'Pistons' }] } }]
-          }
-        }]
-      }
-    });
-
-    const car = groupsOf(state).find(g => g.name === 'Car');
-    const engine = groupsOf(state).find(g => g.name === 'Engine');
-    expect(car?.linkedNodePrototypeId).toBeTruthy();
-    expect(engine?.linkedNodePrototypeId).toBeTruthy();
-    expect(car.anchorInstanceId).toBeTruthy();
-
-    const outer = new Set(car.memberInstanceIds);
-    expect(engine.memberInstanceIds.length).toBeGreaterThan(0);
-    for (const id of engine.memberInstanceIds) expect(outer.has(id)).toBe(true);
-  });
-
   it('leaves a collapsed layer out of the parent graph\'s groups', () => {
     const state = baseState();
 
@@ -143,15 +52,14 @@ describe('predictive state — buildComposition mirror', () => {
   });
 });
 
-// Definitions opening in place (the default): the Thing opens on its node, and
-// the web as drawn (what every tool reads, webView.js drawnWebs) has it as a
-// Thing-group of what its definition holds.
+// Definitions open in place: the Thing opens on its node, and the web as drawn (what every
+// tool reads, webView.js drawnWebs) has it as a Thing-group of what its
+// definition holds.
 describe('predictive state — opened in place', () => {
-  const inPlace = (groups, instances, protos) => baseState(groups, instances, protos, { openDefinitionsInPlace: true });
   const drawnGroups = (state) => drawnWebs(state)('g1').groups;
 
   it('a group made a Thing-group opens its Thing over its members', () => {
-    const state = inPlace([{ id: 'grp', name: 'Cluster', color: '#111', memberInstanceIds: ['i1'] }], [{ id: 'i1', prototypeId: 'p1', name: 'Part' }], [{ id: 'p1', name: 'Part' }]);
+    const state = baseState([{ id: 'grp', name: 'Cluster', color: '#111', memberInstanceIds: ['i1'] }], [{ id: 'i1', prototypeId: 'p1', name: 'Part' }], [{ id: 'p1', name: 'Part' }]);
     updateGraphState(state, 'thingGroup', {}, {
       action: 'convertToThingGroup', graphId: 'g1', groupId: 'grp', groupName: 'Cluster', thingName: 'Cluster'
     });
@@ -162,7 +70,7 @@ describe('predictive state — opened in place', () => {
   });
 
   it('a decomposed node opens on its definition', () => {
-    const state = inPlace([], [{ id: 'i1', prototypeId: 'p1', name: 'Thing' }], [{ id: 'p1', name: 'Thing', definitionGraphIds: ['d1'] }]);
+    const state = baseState([], [{ id: 'i1', prototypeId: 'p1', name: 'Thing' }], [{ id: 'p1', name: 'Thing', definitionGraphIds: ['d1'] }]);
     state.graphs.push({ id: 'd1', name: 'Thing', instances: [{ id: 'part', prototypeId: 'p2', name: 'Part' }], edgeIds: [], groups: [] });
     state.nodePrototypes.push({ id: 'p2', name: 'Part' });
     updateGraphState(state, 'decomposeNode', {}, {
@@ -172,7 +80,7 @@ describe('predictive state — opened in place', () => {
   });
 
   it('a composition opens each layer on its node, the inner inside the outer', () => {
-    const state = inPlace();
+    const state = baseState();
     updateGraphState(state, 'buildComposition', {}, {
       action: 'buildComposition', graphId: 'g1', layerCount: 2, maxDepth: 2,
       spec: {

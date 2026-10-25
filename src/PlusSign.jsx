@@ -4,6 +4,7 @@ import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { setActionHover, clearActionHoverIf } from './utils/canvas/actionHover.js';
+import { cssColorToHex } from './utils/colorUtils.js';
 
 // The plus's own label, in the chip the pie menus' buttons raise (its bubbles
 // raise theirs: PlusSignBubbles).
@@ -239,7 +240,9 @@ const PlusSign = ({
       endWidth = targetWidth;
       endHeight = targetHeight;
       endCorner = targetCornerRadius ?? Math.min(targetWidth, targetHeight) / 4; // match actual node corner radius
-      endColor = plusSign.selectedColor || 'maroon'; // Use selected color if available
+      // As hex, once: the blend below reads only hex and names, and a Thing the
+      // wizard or an import made is hsl(), which held the plus colours to the end.
+      endColor = cssColorToHex(plusSign.selectedColor || 'maroon');
       /*
       console.log('Morph setup:', { 
         selectedColor: plusSign.selectedColor, 

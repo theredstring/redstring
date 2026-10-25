@@ -459,9 +459,6 @@ function predictOpenedInPlace(graphState, graph, anchor, protoId, memberIds) {
   return definition;
 }
 
-/** Whether a Thing-group the wizard makes opens in place (the store's setting, carried by the snapshot). */
-const opensInPlace = (graphState) => graphState?.openDefinitionsInPlace !== false;
-
 export function updateGraphState(graphState, _toolName, _args, result) {
   if (!result || result.error) return;
 
@@ -716,11 +713,9 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         group.anchorInstanceId = anchorInstId;
         group.name = thingName;
         // Opened in place over its members, as the store makes it.
-        if (opensInPlace(graphState)) {
-          const anchor = targetGraph.instances[targetGraph.instances.length - 1];
-          predictOpenedInPlace(graphState, targetGraph, anchor, protoId, group.memberInstanceIds || []);
-          targetGraph.groups = targetGraph.groups.filter(g => g.id !== group.id);
-        }
+        const anchor = targetGraph.instances[targetGraph.instances.length - 1];
+        predictOpenedInPlace(graphState, targetGraph, anchor, protoId, group.memberInstanceIds || []);
+        targetGraph.groups = targetGraph.groups.filter(g => g.id !== group.id);
       }
     }
   } else if (result.action === 'combineThingGroup') {
@@ -885,14 +880,12 @@ export function updateGraphState(graphState, _toolName, _args, result) {
           anchorInstanceId: anchorInstId
         });
         // Opened in place over its members, as the store makes it.
-        if (opensInPlace(graphState)) {
-          const anchor = targetGraph.instances.find(i => i.id === anchorInstId);
-          predictOpenedInPlace(graphState, targetGraph, anchor, condensedProtoId, result.resolvedMemberIds || []);
-          targetGraph.groups = targetGraph.groups.filter(g => g.id !== groupId);
-        }
+        const anchor = targetGraph.instances.find(i => i.id === anchorInstId);
+        predictOpenedInPlace(graphState, targetGraph, anchor, condensedProtoId, result.resolvedMemberIds || []);
+        targetGraph.groups = targetGraph.groups.filter(g => g.id !== groupId);
       }
     }
-  } else if (result.action === 'decomposeNode' && opensInPlace(graphState)) {
+  } else if (result.action === 'decomposeNode') {
     // Opened in place on its node, as the store opens it: its definition, drawn here.
     const targetGraphId = result.graphId || graphState.activeGraphId;
     const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
@@ -913,83 +906,6 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         if (!defId) proto.definitionGraphIds = [...(proto.definitionGraphIds || []), definition.id];
       }
       node.openDefinition = { index, offset: { x: node.x || 0, y: node.y || 0 } };
-    }
-  } else if (result.action === 'decomposeNode') {
-    // Keep original instance as group anchor, add decomposed instances from definition graph, add group
-    const targetGraphId = result.graphId || graphState.activeGraphId;
-    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
-    const definitionIndex = result.definitionIndex ?? 0;
-    // Mirror the store's two refusals: it aborts on an empty definition graph,
-    // and reuses an existing group for the same prototype/definition instead of
-    // minting a duplicate.
-    const defInstances = result.definitionInstances || [];
-    const alreadyDecomposed = (targetGraph?.groups || []).some(g =>
-      g.linkedNodePrototypeId === result.prototypeId && (g.linkedDefinitionIndex ?? 0) === definitionIndex
-    );
-    if (targetGraph && defInstances.length > 0 && !alreadyDecomposed) {
-      // Add decomposed instances from definition graph
-      targetGraph.instances = targetGraph.instances || [];
-      const memberInstIds = [];
-      for (const defInst of defInstances) {
-        const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        memberInstIds.push(newInstId);
-        targetGraph.instances.push({
-          id: newInstId,
-          prototypeId: defInst.prototypeId,
-          name: defInst.name,
-          x: defInst.x || 0,
-          y: defInst.y || 0,
-          scale: defInst.scale || 1
-        });
-      }
-
-      // Mark original instance as group anchor (do NOT remove it)
-      const groupId = `group-decomp-${Date.now()}`;
-      if (result.originalInstanceId) {
-        const originalInst = targetGraph.instances.find(i => i.id === result.originalInstanceId);
-        if (originalInst) {
-          originalInst.isGroupAnchor = true;
-          originalInst.anchorForGroupId = groupId;
-        }
-      }
-
-      // Add thing-group with anchor
-      targetGraph.groups = targetGraph.groups || [];
-      targetGraph.groups.push({
-        id: groupId,
-        name: result.nodeName,
-        color: '#8B0000',
-        memberInstanceIds: memberInstIds,
-        linkedNodePrototypeId: result.prototypeId,
-        linkedDefinitionIndex: definitionIndex,
-        anchorInstanceId: result.originalInstanceId
-      });
-
-      // Nested decompose: the new members belong to every group that already
-      // contained the original instance, or the containment hierarchy the canvas
-      // derives from subset membership never registers the nesting.
-      //
-      // TODO: this is a one-level approximation of `isGroupInsideGroup`
-      // (groupLayout.js), which the real store now shares between propagation
-      // and render-time depth. Left as-is deliberately: this mutates a plain-array
-      // predictive mirror that the real store result overwrites moments later, so
-      // adopting the shared predicate would mean a Map/array adapter for state
-      // that is about to be discarded.
-      if (result.originalInstanceId) {
-        for (const otherGroup of targetGraph.groups) {
-          if (otherGroup.id === groupId) continue;
-          if (!Array.isArray(otherGroup.memberInstanceIds)) continue;
-          if (!otherGroup.memberInstanceIds.includes(result.originalInstanceId)) continue;
-          for (const newId of memberInstIds) {
-            if (!otherGroup.memberInstanceIds.includes(newId)) otherGroup.memberInstanceIds.push(newId);
-          }
-        }
-      }
-
-      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', defInstances.length, 'instances, anchor=', result.originalInstanceId);
-    } else {
-      console.error('[updateGraphState] decomposeNode: no predictive group for', result.nodeName,
-        defInstances.length === 0 ? '(definition graph is empty)' : '(already decomposed)');
     }
   } else if (result.action === 'buildComposition' && result.spec) {
     // Mirror the deterministic executor in toolResultApplier: prototypes and
@@ -1079,63 +995,6 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         return createdIds;
       };
 
-      // Decompose top-down, parent strictly before child (same as the applier).
-      const decompose = (graph, layers) => {
-        for (const layer of (layers || [])) {
-          if (!layer._protoId) continue;
-          if (layer.display === 'collapsed') {
-            if (layer._defGraph && layer.definition?.layers?.length) {
-              decompose(layer._defGraph, layer.definition.layers);
-            }
-            continue;
-          }
-          const defGraph = layer._defGraph;
-          const memberIds = [];
-          graph.instances = graph.instances || [];
-          for (const defInst of (defGraph?.instances || [])) {
-            const newId = uid('inst-decomp');
-            graph.instances.push({ id: newId, prototypeId: defInst.prototypeId, name: defInst.name });
-            memberIds.push(newId);
-            // Carry the nested layer's shell identity into the parent graph, so a
-            // deeper decompose can find it here.
-            for (const child of (layer.definition?.layers || [])) {
-              if (child._shellId === defInst.id) child._shellId = newId;
-            }
-          }
-
-          const groupId = uid('group-decomp');
-          const anchor = graph.instances.find(i => i.id === layer._shellId);
-          if (anchor) {
-            anchor.isGroupAnchor = true;
-            anchor.anchorForGroupId = groupId;
-          }
-          graph.groups = graph.groups || [];
-          graph.groups.push({
-            id: groupId,
-            name: layer.name,
-            color: layer.color,
-            memberInstanceIds: memberIds,
-            linkedNodePrototypeId: layer._protoId,
-            linkedDefinitionIndex: 0,
-            anchorInstanceId: layer._shellId
-          });
-
-          // Enclosing-group propagation — what makes the nesting derive.
-          for (const other of graph.groups) {
-            if (other.id === groupId) continue;
-            if (!Array.isArray(other.memberInstanceIds)) continue;
-            if (!other.memberInstanceIds.includes(layer._shellId)) continue;
-            for (const newId of memberIds) {
-              if (!other.memberInstanceIds.includes(newId)) other.memberInstanceIds.push(newId);
-            }
-          }
-
-          if (layer.definition?.layers?.length) {
-            decompose(graph, layer.definition.layers);
-          }
-        }
-      };
-
       // Opened in place, as the store opens them (toolResultApplier
       // openCompositionLayersInPlace): each layer's node opens on its
       // definition, its children on their own nodes inside it.
@@ -1162,8 +1021,7 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       };
 
       materialize(targetGraph, result.spec);
-      if (opensInPlace(graphState)) openInPlace(result.spec.layers);
-      else decompose(targetGraph, result.spec.layers);
+      openInPlace(result.spec.layers);
 
       console.error('[updateGraphState] buildComposition:', result.layerCount, 'layers, maxDepth', result.maxDepth, '→ graph', targetGraphId);
     }
