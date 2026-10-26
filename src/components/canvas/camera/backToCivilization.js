@@ -43,14 +43,81 @@ export function backToCivilization(ctx) {
   transform.jumpTo(view.pan, view.zoom);
 }
 
-/** The pan and zoom that frame `nodes` in the viewport (the view Back to Civilization lands on). */
-export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize }) {
+// Two clusters count as separate when the empty space between them is at least
+// this many times the web's usual spacing (median gap from a node to its nearest
+// neighbour), and never less than MIN_CLUSTER_GAP canvas units.
+const CLUSTER_GAP_FACTOR = 5;
+const MIN_CLUSTER_GAP = 1000;
+
+const boxGap = (a, b) => Math.hypot(
+  Math.max(0, a.minX - b.maxX, b.minX - a.maxX),
+  Math.max(0, a.minY - b.maxY, b.minY - a.maxY),
+);
+
+/**
+ * The nodes worth framing: all of them, unless a wide gap splits the web into
+ * clusters, in which case the cluster with the most nodes (ties: the larger
+ * area). A far-off node or island would otherwise centre the view on the empty
+ * space between it and the rest.
+ */
+export function largestCluster(nodes, dimsFor) {
+  if (nodes.length < 2) return nodes;
+  const boxes = nodes.map((node, i) => {
+    const dims = dimsFor(node);
+    return { i, minX: node.x, minY: node.y, maxX: node.x + dims.currentWidth, maxY: node.y + dims.currentHeight };
+  }).sort((a, b) => a.minX - b.minX);
+
+  // Each node's nearest-neighbour gap, by a sweep along x (a pair can't be
+  // nearer than its x distance, so each scan stops once that passes the best).
+  const nearest = new Array(boxes.length).fill(Infinity);
+  for (let a = 0; a < boxes.length; a++) {
+    for (let b = a + 1; b < boxes.length && boxes[b].minX - boxes[a].maxX <= nearest[a]; b++) {
+      const gap = boxGap(boxes[a], boxes[b]);
+      if (gap < nearest[a]) nearest[a] = gap;
+      if (gap < nearest[b]) nearest[b] = gap;
+    }
+  }
+  const sorted = nearest.filter(Number.isFinite).sort((x, y) => x - y);
+  const threshold = Math.max(MIN_CLUSTER_GAP, CLUSTER_GAP_FACTOR * (sorted[Math.floor(sorted.length / 2)] || 0));
+
+  // Join every pair closer than the threshold (union-find).
+  const parent = boxes.map((_, k) => k);
+  const find = (k) => { while (parent[k] !== k) k = parent[k] = parent[parent[k]]; return k; };
+  for (let a = 0; a < boxes.length; a++) {
+    for (let b = a + 1; b < boxes.length && boxes[b].minX - boxes[a].maxX <= threshold; b++) {
+      if (boxGap(boxes[a], boxes[b]) <= threshold) parent[find(b)] = find(a);
+    }
+  }
+
+  const clusters = new Map();
+  boxes.forEach((box, k) => {
+    const root = find(k);
+    const c = clusters.get(root) || { members: [], minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+    c.members.push(box.i);
+    c.minX = Math.min(c.minX, box.minX); c.minY = Math.min(c.minY, box.minY);
+    c.maxX = Math.max(c.maxX, box.maxX); c.maxY = Math.max(c.maxY, box.maxY);
+    clusters.set(root, c);
+  });
+  if (clusters.size === 1) return nodes;
+  const area = (c) => (c.maxX - c.minX) * (c.maxY - c.minY);
+  let best = null;
+  for (const c of clusters.values()) {
+    if (!best || c.members.length > best.members.length
+      || (c.members.length === best.members.length && area(c) > area(best))) best = c;
+  }
+  return best.members.sort((x, y) => x - y).map(i => nodes[i]);
+}
+
+/** The pan and zoom that frame `nodes` in the viewport (the view Back to Civilization lands on).
+ * Frames the web's largest cluster when a wide gap separates it from the rest. */
+export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, maxZoom = MAX_ZOOM }) {
+  const dimsFor = (node) => baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
   // Calculate bounding box of relevant nodes
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
 
-  nodes.forEach(node => {
-    const dims = baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
+  largestCluster(nodes, dimsFor).forEach(node => {
+    const dims = dimsFor(node);
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x + dims.currentWidth);
@@ -70,7 +137,7 @@ export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize
   let targetZoom = Math.min(targetZoomX, targetZoomY);
 
   // Clamp zoom to reasonable bounds
-  targetZoom = Math.max(Math.min(targetZoom, MAX_ZOOM), 0.2);
+  targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
 
   // Calculate pan to center the target area (accounting for canvas offset)
   const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;

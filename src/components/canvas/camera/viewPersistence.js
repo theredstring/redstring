@@ -3,19 +3,25 @@
  * pan and zoom when the active web changes, and saving them once the view
  * settles.
  */
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import useGraphStore from '../../../store/graphStore.js';
 import { MAX_ZOOM } from '../../../constants';
 import { computeRelevantNodesVisible } from '../data/backToCivilization.js';
 import { civilizationView } from './backToCivilization.js';
 
+// Zoom ceiling when framing a web as it opens, so a web of one or two Things
+// doesn't open at the deepest zoom.
+const OPEN_FRAMING_MAX_ZOOM = 1;
+
 /** Restore the web's saved view, or centre it, when the active web changes (skipped mid-drag or mid-zoom).
  * Opening a web whose view would show none of its nodes (the view Back to
  * Civilization would appear over) lands on that button's framing instead,
- * before the first paint, so the empty view is never seen. */
+ * before the first paint, so the empty view is never seen. A web just added
+ * to the header (`newlyOpenedRef`) always gets that framing. */
 export function restoreViewForGraph(ctx) {
   const {
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform, nodes, baseDimsById, openedGraphRef,
+    canvasSize, transform, nodes, baseDimsById, openedGraphRef, newlyOpenedRef,
   } = ctx;
   // If we're dragging a node or animating zoom, DO NOT restore view from store
   // This prevents the "teleportation" where store state overrides our local interaction state
@@ -78,11 +84,17 @@ export function restoreViewForGraph(ctx) {
     // empty space the user panned to on purpose.
     const justOpened = openedGraphRef.current !== activeGraphId;
     openedGraphRef.current = activeGraphId;
+    const newlyOpened = justOpened && newlyOpenedRef?.current === activeGraphId;
+    if (newlyOpened) newlyOpenedRef.current = null;
     if (justOpened && nodes.length > 0) {
-      const anyNodeVisible = computeRelevantNodesVisible({
-        enableClustering: false, nodes, panOffset: view.pan, zoomLevel: view.zoom, viewportSize, canvasSize, baseDimsById,
-      });
-      if (!anyNodeVisible) view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize });
+      if (newlyOpened) {
+        view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, maxZoom: OPEN_FRAMING_MAX_ZOOM });
+      } else {
+        const anyNodeVisible = computeRelevantNodesVisible({
+          enableClustering: false, nodes, panOffset: view.pan, zoomLevel: view.zoom, viewportSize, canvasSize, baseDimsById,
+        });
+        if (!anyNodeVisible) view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize });
+      }
     }
 
     // Apply the view immediately (jumpTo flushes settled state synchronously).
@@ -94,6 +106,26 @@ export function restoreViewForGraph(ctx) {
   } else if (!activeGraphId) {
     setIsViewReady(true); // No graph, so "ready" to show nothing
   }
+}
+
+/** The web that just became active by being added to the header (the plus
+ * sign, opening a web from a panel), as opposed to switching to a tab already
+ * there or loading a universe. Read once by restoreViewForGraph. */
+export function watchNewlyOpenedWeb(newlyOpenedRef) {
+  return useGraphStore.subscribe((state, prev) => {
+    if (state.activeGraphId === prev.activeGraphId || !state.activeGraphId) return;
+    if (prev._isLoadingUniverse || prev.openGraphIds?.includes(state.activeGraphId)) return;
+    newlyOpenedRef.current = state.activeGraphId;
+  });
+}
+
+/** Restore (or orient) the view on graph change. Does NOT depend on graphsMap or nodes, so graph mutations never snap the view back. */
+export function useViewRestore(ctx) {
+  const openedGraphRef = useRef(null); // the web the last restore opened, so orienting happens once per opening
+  const newlyOpenedRef = useRef(null);
+  useEffect(() => watchNewlyOpenedWeb(newlyOpenedRef), []);
+  useLayoutEffect(() => restoreViewForGraph({ ...ctx, openedGraphRef, newlyOpenedRef }),
+    [ctx.activeGraphId, ctx.viewportSize, ctx.canvasSize]);
 }
 
 /** Save the view once panning and zooming stop. */

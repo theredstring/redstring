@@ -95,7 +95,7 @@ import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, 
 import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex, computeEdgeCurveInfo, computeLabelObstacleOptions } from './components/canvas/edges/edgeGeometry.js';
 import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
-import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
+import { useViewRestore, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
 import { writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
 import { runConnectionEdgePan, runMarqueeEdgePan } from './components/canvas/input/edgePan.js';
 import { fitOrbitInView } from './components/canvas/orbit/orbitData.js';
@@ -2438,12 +2438,11 @@ function NodeCanvas() {
     setPieMenuPage(0);
   }, [selectedNodeIdForPieMenu]);
 
-  // Restore (or orient) the view on graph change. Does NOT depend on graphsMap or nodes, so graph mutations never snap the view back.
-  const openedGraphRef = useRef(null); // the web the last restore opened, so orienting happens once per opening
-  useLayoutEffect(() => restoreViewForGraph({
+  // Restore the view on graph change; a web just added to the header is framed like Back to Civilization.
+  useViewRestore({
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform, nodes, baseDimsById, openedGraphRef,
-  }), [activeGraphId, viewportSize, canvasSize]);
+    canvasSize, transform, nodes, baseDimsById,
+  });
 
   // Track when panning/zooming operations are active
   const isPanningOrZooming = useRef(false);
