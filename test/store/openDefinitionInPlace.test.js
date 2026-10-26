@@ -147,6 +147,19 @@ describe('openDefinitionInPlace', () => {
     expect(view().instances.get('b')).toMatchObject({ x: 1800, y: 1100 });
   });
 
+  it('parking a nested box under its title never moves the box around it', () => {
+    // A box holding only another open box: parking that box's node under its
+    // title is a move of everything inside, and read as a drag it carried the box
+    // (and the title, and so the next parking) off up-left every frame.
+    st().addNodeInstance('main', 'p-box', { x: 1000, y: 1000 }, 'box');
+    st().addNodeInstance('main', 'p-a', { x: 1100, y: 1100 }, 'a');
+    st().addInstancesToGroup('main', st().openDefinitionInPlace('main', 'box'), ['a']);
+    st().openDefinitionInPlace('main', 'a');
+    st().updateMultipleNodeInstancePositions('main', [{ instanceId: 'a', x: 1150, y: 1040 }], { phase: 'end', parkedAnchors: true });
+    expect(mainGraph().instances.get('box').openDefinition.offset).toEqual({ x: 1000, y: 1000 });
+    expect(defGraph().instances.get('a')).toMatchObject({ x: 150, y: 40 });
+  });
+
   it('edits in view coordinates without disturbing stored positions', () => {
     buildInPlace();
     st().updateNodeInstance('main', 'a', (draft) => { draft.scale = 1.2; });

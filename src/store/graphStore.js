@@ -863,9 +863,12 @@ const setOpenBoxOrigin = (draft, map, anchorId, viewOrigin) => {
  * A box whose every instance moved (the box was dragged, or a group around it was)
  * moves as a whole: only its placement changes, so the definition's arrangement,
  * and every other place it is shown, stays put. Anything else inside a box moves
- * within the definition.
+ * within the definition. `parkedAnchors`: the batch only parks anchors under
+ * their titles (anchorFlush.js), so no box moves as a whole: a box holding
+ * nothing but another box's anchor would otherwise read as dragged, move its
+ * title, and be parked and moved again every frame.
  */
-const applyOpenDefinitionMoves = (draft, map, updates) => {
+const applyOpenDefinitionMoves = (draft, map, updates, parkedAnchors = false) => {
   const handled = new Set();
   const byId = new Map();
   updates.forEach(update => byId.set(update.instanceId, update));
@@ -887,7 +890,7 @@ const applyOpenDefinitionMoves = (draft, map, updates) => {
     });
   });
   const outermostFirst = Array.from(map.boxes.values()).sort((a, b) => a.path.length - b.path.length);
-  for (const box of outermostFirst) {
+  for (const box of parkedAnchors ? [] : outermostFirst) {
     const inside = subtrees.get(box.anchorId) || [];
     if (inside.length === 0 || !inside.every(id => byId.has(id) && !handled.has(id))) continue;
     const first = inside[0];
@@ -5667,7 +5670,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!graph || !graph.instances) return;
 
         // Moves inside open definitions go to the definitions (or move the box).
-        const ownUpdates = openMap.boxes.size > 0 ? applyOpenDefinitionMoves(draft, openMap, updates) : updates;
+        const ownUpdates = openMap.boxes.size > 0 ? applyOpenDefinitionMoves(draft, openMap, updates, !!contextOptions.parkedAnchors) : updates;
 
         ownUpdates.forEach(({ instanceId, x, y }) => {
           // Empty node-group placeholders are tracked via a synthetic

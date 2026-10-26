@@ -16,7 +16,7 @@ import { GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { getTextColor, blendColors } from '../../../utils/colorUtils.js';
 import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from './groupLiftShadow.js';
 import { vectorArrowsOver } from '../../VectorText.jsx';
-import { groupHeaderPath } from './groupHeader.js';
+import { NODE_CORNER_RADIUS } from '../../../constants.js';
 import { unmarked } from '../../../utils/vectorArrow.js';
 
 // Node-group interiors take this much of the group colour over the canvas.
@@ -170,8 +170,12 @@ export function buildGroupElements({
         onTouchEnd={(e) => handlers.titleTouchEnd(e, entry)}
         onTouchCancel={() => handlers.titleTouchCancel(entry)}
       >
-        <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20 * groupLabelScale} ry={20 * groupLabelScale}
-          fill={isNodeGroup ? "none" : theme.surface.bg}
+        {/* A Thing-group's title sits on a node-like fill in its colour, drawn
+            with the titles (above connections), so a connection through the
+            header passes behind the title as it would behind a node. */}
+        <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight}
+          rx={(isNodeGroup ? NODE_CORNER_RADIUS : 20) * groupLabelScale} ry={(isNodeGroup ? NODE_CORNER_RADIUS : 20) * groupLabelScale}
+          fill={isNodeGroup ? nodeGroupColor : theme.surface.bg}
           stroke={isNodeGroup ? "none" : strokeColor}
           strokeWidth={isNodeGroup ? 0 : 6 * groupLabelScale}
           pointerEvents="all"
@@ -303,15 +307,9 @@ export function buildGroupElements({
           />
         </g>
       );
-      // Thing-group titles → Phase 3 (rendered after member nodes), each on
-      // its header's fill, so connections through the header pass behind it.
+      // Thing-group titles → Phase 3 (rendered after member nodes)
       ngTitles.push(
         <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
-          <path data-group-header=""
-            d={groupHeaderPath(rectX, nodeGroupRectY, rectW, innerCanvasY, nodeGroupCornerR)}
-            fill={nodeGroupColor}
-            stroke={selectedGroupId === group.id ? 'black' : 'none'} strokeWidth={GROUP_SELECTION_STROKE}
-            pointerEvents="none" />
           {titleLabel}
         </g>
       );
