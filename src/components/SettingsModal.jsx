@@ -472,9 +472,9 @@ const SettingsModal = ({ isVisible, onClose }) => {
           <div className="settings-slider-row">
             <MaroonSlider
               label="Largest Title"
-              value={textSettings?.groupTitleGrowMax ?? 2.0}
+              value={textSettings?.groupTitleGrowMax ?? 3.0}
               min={1.25}
-              max={4.0}
+              max={6.0}
               step={0.05}
               suffix="x"
               disabled={!textSettings?.groupTitleGrow}

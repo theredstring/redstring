@@ -200,8 +200,6 @@ export function computeGroupLayouts({
       x: labelX, y: labelY,
       width: labelWidth, height: labelHeight,
       groupId: group.id,
-      // How far the title grew with its group, so a drag can hold it at this size.
-      titleGrowth: label.growth,
       anchorInstanceId: isNodeGroup ? (group.anchorInstanceId || null) : null,
     });
 

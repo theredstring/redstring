@@ -2171,10 +2171,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.0,
           groupTitleScale: parseFloat(localStorage.getItem('redstring_group_title_scale')) || 1.0,
           groupTitleGrow: localStorage.getItem('redstring_group_title_grow') === 'true',
-          groupTitleGrowMax: parseFloat(localStorage.getItem('redstring_group_title_grow_max')) || 2.0,
+          groupTitleGrowMax: parseFloat(localStorage.getItem('redstring_group_title_grow_max')) || 3.0,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0, groupTitleScale: 1.0, groupTitleGrow: false, groupTitleGrowMax: 2.0 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0, groupTitleScale: 1.0, groupTitleGrow: false, groupTitleGrowMax: 3.0 };
       }
     })(),
 
@@ -8286,7 +8286,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     setGroupTitleGrowMax: (value) => set(produce((draft) => {
       const v = Number(value);
-      if (!Number.isFinite(v) || v < 1.0 || v > 5.0) {
+      if (!Number.isFinite(v) || v < 1.0 || v > 6.0) {
         console.warn(`[setGroupTitleGrowMax] Invalid value: ${value}`);
         return;
       }

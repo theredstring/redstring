@@ -23,7 +23,7 @@ import { userDataCounts, countPlacements } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 import { vlog } from '../utils/verboseLog.js';
-import { getAutoSaveMode, autoSaves, universeItemCount, subscribeAutoSaveMode } from './autoSaveMode.js';
+import { getAutoSaveMode, autoSaves, subscribeAutoSaveMode } from './autoSaveMode.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce.
 // With the 500ms worker debounce, an edit reaches the file about 1.5s later. It
@@ -1302,7 +1302,7 @@ class SaveCoordinator {
     }
     // Autosave is off for this universe (autoSaveMode.js): the change stays
     // unsaved, and the indicator offers Save, until saveNow() asks.
-    if (!this.manualSaveRequested && !this.autoSaveActive(this.lastState)) {
+    if (!this.manualSaveRequested && !this.autoSaveActive()) {
       return;
     }
     if (this.isSaving) {
@@ -1667,7 +1667,7 @@ class SaveCoordinator {
     }
 
     // Checked before any timer is cleared: the pipeline carries on as it was.
-    if (!this.autoSaveActive(this.nextStateToProcess || this.lastState)) {
+    if (!this.autoSaveActive()) {
       vlog(`[SaveCoordinator] flush(${reason}) skipped: autosave is off for this universe`);
       return false;
     }
@@ -2183,14 +2183,12 @@ class SaveCoordinator {
 
   /**
    * Whether this universe saves on its own (autoSaveMode.js): the setting,
-   * and for Automatic, the universe's size (Things plus webs, and the bytes
-   * of the file the worker last built).
+   * and for Automatic, the bytes of the file the worker last built.
    *
-   * @param {Object} [state] - defaults to the newest state the coordinator has
    * @returns {boolean}
    */
-  autoSaveActive(state = this.nextStateToProcess || this.lastState) {
-    return autoSaves(getAutoSaveMode(), { items: universeItemCount(state), bytes: this.lastFileBytes });
+  autoSaveActive() {
+    return autoSaves(getAutoSaveMode(), { bytes: this.lastFileBytes });
   }
 
   /**

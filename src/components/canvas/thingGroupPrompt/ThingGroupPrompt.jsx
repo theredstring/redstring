@@ -8,7 +8,7 @@
  * Choosing ends in the plus sign: it morphs into the Thing, which opens in
  * place once it has landed (plusSign.js, `openDefinition`).
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import UnifiedSelector from '../../../UnifiedSelector';
 import WebCard from '../../webPreview/WebCard.jsx';
 import { DefinitionCard } from '../../panel/WebDefinitionsSection.jsx';
@@ -136,6 +136,7 @@ export default function ThingGroupPrompt({ plusSign, setPlusSign, handleNodeSele
   const prompt = useThingGroupPromptStore(s => s.prompt);
   const prototype = useGraphStore(s => (prompt?.step === 'web' ? s.nodePrototypes.get(prompt.prototypeId) : null));
   const graphs = useGraphStore(s => s.graphs);
+  const webCount = useCallback((thing) => websOf(thing, graphs).length, [graphs]);
 
   // The plus sign it was opened from went (undone, cleared): so does the prompt.
   useEffect(() => { if (prompt && !plusSign) closeThingGroupPrompt(); }, [prompt, plusSign]);
@@ -189,7 +190,7 @@ export default function ThingGroupPrompt({ plusSign, setPlusSign, handleNodeSele
       // Always the Web step, even when New Web is its only choice.
       onNodeSelect={(picked) => showThingWebs(picked.id)}
       // Its Webs that exist; the New Web card isn't one.
-      cardBadge={(thing) => websOf(thing, graphs).length}
+      cardBadge={webCount}
       title="Pick or name a Thing"
     />
   );

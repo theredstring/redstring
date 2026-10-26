@@ -209,9 +209,12 @@ const UnifiedSelector = ({
     if (activeType) prototypes = prototypes.filter(p => p.typeNodeId === activeType.id);
     // Always use 'name' for live search when typing, fallback to searchTerm for initial filter
     const searchText = name || searchTerm;
-    if (!searchText) return prototypes;
-    return prototypes.filter(p => p.name && p.name.toLowerCase().includes(searchText.toLowerCase()));
-  }, [allowedPrototypes, activeType, name, searchTerm]);
+    if (searchText) prototypes = prototypes.filter(p => p.name && p.name.toLowerCase().includes(searchText.toLowerCase()));
+    if (!cardBadge) return prototypes;
+    // Badged, the highest counts lead; within a count, the order as it was.
+    const counts = new Map(prototypes.map(p => [p.id, cardBadge(p) || 0]));
+    return [...prototypes].sort((a, b) => counts.get(b.id) - counts.get(a.id));
+  }, [allowedPrototypes, activeType, name, searchTerm, cardBadge]);
 
   // Dismissing (backdrop, Escape, the controller's closer) plays the exit,
   // then closes. Picking or creating closes at once: the caller has

@@ -386,7 +386,8 @@ describe('computeGroupLayout', () => {
 });
 
 describe('titles that grow with their group', () => {
-  const growth = { from: 1000, max: 2 };
+  // 1x at 1000 wide, 3x at 4000: 2x at 2000, one doubling of two.
+  const growth = { from: 1000, to: 4000, max: 3 };
   const wideGroup = (ctx, w) => {
     addNode(ctx, 'a', 0, 0, 200, 150);
     addNode(ctx, 'b', w - 200, 0, 200, 150);
@@ -397,7 +398,7 @@ describe('titles that grow with their group', () => {
 
   it('is off unless the setting is on', () => {
     expect(groupTitleGrowthOf({})).toBeNull();
-    expect(groupTitleGrowthOf({ groupTitleGrow: true, nodeScale: 2, groupTitleGrowMax: 3 })).toEqual({ from: 2400, max: 3 });
+    expect(groupTitleGrowthOf({ groupTitleGrow: true, nodeScale: 2, groupTitleGrowMax: 4 })).toEqual({ from: 2400, to: 24000, max: 4 });
   });
 
   it('a narrow group keeps its usual title', () => {
@@ -409,27 +410,27 @@ describe('titles that grow with their group', () => {
     expect(r.label).toMatchObject({ w: plain.label.w, h: plain.label.h });
   });
 
-  it('grows in proportion to the band, title, tab and shell together', () => {
+  it('grows evenly per doubling of the band, title, tab and shell together', () => {
     const ctx = buildContext({ labelGrowth: growth });
-    const g = wideGroup(ctx, 1500 - margin * 2);
+    const g = wideGroup(ctx, 2000 - margin * 2);
     const base = computeGroupLayout(g, { ...ctx, labelGrowth: null, _cache: new Map() });
     const r = computeGroupLayout(g, ctx);
-    expect(r.label.growth).toBeCloseTo(1.5);
-    expect(r.label.w).toBeCloseTo(base.label.w * 1.5);
-    expect(r.label.h).toBeCloseTo(base.label.h * 1.5);
-    expect(r.label.fontSize).toBeCloseTo(C.fontSize * 1.5);
+    expect(r.label.growth).toBeCloseTo(2);
+    expect(r.label.w).toBeCloseTo(base.label.w * 2);
+    expect(r.label.h).toBeCloseTo(base.label.h * 2);
+    expect(r.label.fontSize).toBeCloseTo(C.fontSize * 2);
     expect(r.rect).toEqual(base.rect);
-    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h * 0.5);
+    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h);
   });
 
   it('stops at the ceiling', () => {
     const ctx = buildContext({ labelGrowth: growth });
-    const r = computeGroupLayout(wideGroup(ctx, 6000), ctx);
-    expect(r.label.growth).toBe(2);
+    const r = computeGroupLayout(wideGroup(ctx, 9000), ctx);
+    expect(r.label.growth).toBe(3);
   });
 
   it('never grows a title past what its band holds', () => {
-    const ctx = buildContext({ labelGrowth: { from: 100, max: 10 } });
+    const ctx = buildContext({ labelGrowth: { from: 100, to: 200, max: 10 } });
     addNode(ctx, 'a', 0, 0, 1200, 150);
     const g = { id: 'g', name: 'A rather long group name', memberInstanceIds: ['a'] };
     addGroup(ctx, g);
@@ -438,12 +439,6 @@ describe('titles that grow with their group', () => {
     expect(r.label.growth).toBeGreaterThan(1);
     expect(r.rect.w).toBe(base.rect.w);
     expect(r.label.w).toBeCloseTo(r.rect.w - C.titlePaddingHorizontal * 2);
-  });
-
-  it('a pinned growth wins over the band (a drag holds it)', () => {
-    const ctx = buildContext({ labelGrowth: growth, pinnedLabelGrowth: () => 1.25 });
-    const r = computeGroupLayout(wideGroup(ctx, 6000), ctx);
-    expect(r.label.growth).toBe(1.25);
   });
 });
 

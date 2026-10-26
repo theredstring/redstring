@@ -350,7 +350,7 @@ export const assertGroupContract = (root, { regularGroupId, nodeGroupId }) => {
   expect(regularLabel[0].querySelector('rect'), 'regular group: .group-label has no <rect>').toBeTruthy();
   expect(regularLabel[0].querySelector('text'), 'regular group: .group-label has no <text>').toBeTruthy();
   // A wrapped title is one <text> of <tspan> lines, each with its own absolute
-  // x. The drag re-centres every one of them (setLabelTextX, useNodeDrag.js:1742-1745).
+  // x. The drag carries the whole title by one transform (placeLabel, useNodeDrag.js).
   const lines = all(regularLabel[0], 'text tspan');
   expect(lines.length, 'regular group: long title did not wrap into <tspan> lines').toBeGreaterThan(1);
   lines.forEach((span) => expect(span.getAttribute('x'), 'regular group: title <tspan> has no x').toBeTruthy());

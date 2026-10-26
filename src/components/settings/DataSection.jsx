@@ -6,7 +6,7 @@ import FormulaBankRows from './FormulaBankRows.jsx';
 import FormulaStarterRows from './FormulaStarterRows.jsx';
 import { formatBytes } from '../../utils/formatBytes.js';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
-import { getAutoSaveMode, setAutoSaveMode, subscribeAutoSaveMode, AUTO_SAVE_MAX_ITEMS, AUTO_SAVE_MAX_BYTES } from '../../services/autoSaveMode.js';
+import { getAutoSaveMode, setAutoSaveMode, subscribeAutoSaveMode, AUTO_SAVE_MAX_BYTES } from '../../services/autoSaveMode.js';
 import { getBackupMode, setBackupMode, subscribeBackupMode, backupUsage, deleteAllBackups } from '../../services/universeBackups.js';
 import { measureCachedData, clearCachedData, measureDiscoveryHistory, clearDiscoveryHistory } from '../../services/localCaches.js';
 import { exportSettings, importSettings, resetSettings } from '../../services/devicePreferences.js';
@@ -99,7 +99,7 @@ const DataSection = ({ onCloseSettings }) => {
           Autosave
           <div className="settings-row-description">
             {autoSaveMode === 'auto'
-              ? `Off past ${AUTO_SAVE_MAX_ITEMS.toLocaleString()} items or ${Math.round(AUTO_SAVE_MAX_BYTES / (1024 * 1024))} MB`
+              ? `Off past ${Math.round(AUTO_SAVE_MAX_BYTES / (1024 * 1024))} MB`
               : autoSaveMode === 'always'
                 ? 'After every change'
                 : 'Only when you save'}

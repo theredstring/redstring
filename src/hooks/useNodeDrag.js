@@ -746,6 +746,8 @@ export const useNodeDrag = ({
           labelRect,
           labelText,
           labelArrows,
+          labelX: labelRect ? parseFloat(labelRect.getAttribute('x')) : 0,
+          labelY: labelRect ? parseFloat(labelRect.getAttribute('y')) : 0,
           labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
           labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
         };
@@ -1766,9 +1768,6 @@ export const useNodeDrag = ({
       labelScale,
       labelFontSize,
       labelGrowth,
-      // A title that grows with its group stays the size it was on grab: the
-      // frames below move its pill and text but never resize them.
-      pinnedLabelGrowth: (id) => groupTitleRectsRef?.current?.get(id)?.titleGrowth,
       // A formula inside a group, as the settled layout measures it, carried as far as its Things are.
       ...formatLayoutHooks((memberIds) => {
         const id = memberIds.find(m => dragPos.has(m) && curNodeById.has(m));
@@ -1805,7 +1804,6 @@ export const useNodeDrag = ({
           x: labelX, y: labelY,
           width: groupLabelWidth, height: groupLabelHeight,
           groupId,
-          titleGrowth: label.growth,
           anchorInstanceId: layout.isNodeGroup ? (group.anchorInstanceId || null) : null,
         });
       }
@@ -1866,18 +1864,38 @@ export const useNodeDrag = ({
         if (matrix) el.setAttribute('transform', matrix);
         else el.removeAttribute('transform');
       };
-      // A wrapped title is a <text> of <tspan> lines, and each line carries its
-      // own absolute `x` (that's what re-centres it after the previous line's
-      // advance). Moving only the parent leaves every line behind.
-      const setLabelTextX = (el, x) => {
-        el.setAttribute('x', x);
-        const spans = el.getElementsByTagName('tspan');
-        for (let i = 0; i < spans.length; i++) spans[i].setAttribute('x', x);
-      };
-      // A title's vector arrows (VectorText) are drawn from its middle, lifted with it.
-      const placeLabelArrows = (el, x, y, matrix) => {
-        el.dataset.at = `translate(${x} ${y})`;
-        el.setAttribute('transform', matrix ? `${matrix} ${el.dataset.at}` : el.dataset.at);
+      // The title as React last drew it (sub.labelX/Y/Width/Height), carried
+      // onto its live box by one transform: moved, grown or shrunk with its
+      // group (a title can grow with its group's width, groupLabelMetrics), and
+      // popped for the lift. Every part of a title, wrapped lines and vector
+      // arrows included, scales about its middle, so one matrix places it all;
+      // and its own attributes stay as React drew them, so the settled render
+      // has no leftover drag values to miss. The drop clears the matrix.
+      const placeLabel = (sub) => {
+        if (!sub.labelRect) return;
+        const lcx = labelX + groupLabelWidth / 2;
+        const lcy = labelY + groupLabelHeight / 2;
+        const ocx = sub.labelX + sub.labelWidth / 2;
+        const ocy = sub.labelY + sub.labelHeight / 2;
+        const grow = sub.labelWidth > 0 ? groupLabelWidth / sub.labelWidth : 1;
+        const matrix = `translate(${lcx} ${lcy}) scale(${grow * (isGrabbedGroup ? 1.08 : 1)}) translate(${-ocx} ${-ocy})`;
+        // Attribute, not CSS transform-box:fill-box, which (with the drop-shadow
+        // filter the drag used to carry) clipped the stroke. Clear any stale CSS
+        // transform so it can't fight the attribute.
+        sub.labelRect.setAttribute('transform', matrix);
+        sub.labelRect.style.transform = '';
+        sub.labelRect.style.transformBox = '';
+        sub.labelRect.style.transformOrigin = '';
+        if (sub.labelText) sub.labelText.setAttribute('transform', matrix);
+        if (sub.labelArrows) {
+          // Drawn from the title's middle (groupElements); the drop puts this back.
+          sub.labelArrows.dataset.at = `translate(${ocx} ${ocy})`;
+          sub.labelArrows.setAttribute('transform', `${matrix} ${sub.labelArrows.dataset.at}`);
+        }
+        if (sub.shadowPill) {
+          placeGroupLiftShadow(sub.shadowPill, { x: labelX, y: labelY, w: groupLabelWidth, h: groupLabelHeight });
+          applyLiftMatrix(sub.shadowPill, liftMatrixFor(lcx, lcy));
+        }
       };
 
       meta.elements.forEach(sub => {
@@ -1893,32 +1911,7 @@ export const useNodeDrag = ({
             sub.directRects[0].setAttribute('height', rectH);
           }
           placeGroupLiftShadow(sub.shadowOutline, { x: rectX, y: rectY, w: rectW, h: rectH });
-          if (sub.labelRect) {
-            sub.labelRect.setAttribute('x', labelX);
-            sub.labelRect.setAttribute('y', labelY);
-            // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
-            // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
-            // which — combined with the drop-shadow filter the drag used to carry — clipped the stroke. Clear any
-            // stale CSS transform so it can't fight the attribute.
-            const lcx = labelX + groupLabelWidth / 2;
-            const lcy = labelY + groupLabelHeight / 2;
-            const liftMatrix = liftMatrixFor(lcx, lcy);
-            applyLiftMatrix(sub.labelRect, liftMatrix);
-            if (sub.shadowPill) {
-              placeGroupLiftShadow(sub.shadowPill, { x: labelX, y: labelY, w: groupLabelWidth, h: groupLabelHeight });
-              applyLiftMatrix(sub.shadowPill, liftMatrix);
-            }
-            sub.labelRect.style.transform = '';
-            sub.labelRect.style.transformBox = '';
-            sub.labelRect.style.transformOrigin = '';
-            if (sub.labelText) {
-              setLabelTextX(sub.labelText, labelX + groupLabelWidth / 2);
-              sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
-              // Pop the text with the pill, pivoting off the same center.
-              applyLiftMatrix(sub.labelText, liftMatrix);
-            }
-            if (sub.labelArrows) placeLabelArrows(sub.labelArrows, lcx, lcy, liftMatrix);
-          }
+          placeLabel(sub);
         } else if (sub.type === 'bg') {
           // Node-group background: outer rect spans the title-included box;
           // inner canvas inset starts below the label.
@@ -1943,28 +1936,7 @@ export const useNodeDrag = ({
             sub.directRects[i].setAttribute('height', innerH);
           }
         } else if (sub.type === 'title') {
-          if (sub.labelRect) {
-            sub.labelRect.setAttribute('x', labelX);
-            sub.labelRect.setAttribute('y', labelY);
-            // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
-            // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
-            // which — combined with the drop-shadow filter the drag used to carry — clipped the stroke. Clear any
-            // stale CSS transform so it can't fight the attribute.
-            const lcx = labelX + groupLabelWidth / 2;
-            const lcy = labelY + groupLabelHeight / 2;
-            const liftMatrix = liftMatrixFor(lcx, lcy);
-            applyLiftMatrix(sub.labelRect, liftMatrix);
-            sub.labelRect.style.transform = '';
-            sub.labelRect.style.transformBox = '';
-            sub.labelRect.style.transformOrigin = '';
-            if (sub.labelText) {
-              setLabelTextX(sub.labelText, labelX + groupLabelWidth / 2);
-              sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
-              // Pop the text with the pill, pivoting off the same center.
-              applyLiftMatrix(sub.labelText, liftMatrix);
-            }
-            if (sub.labelArrows) placeLabelArrows(sub.labelArrows, lcx, lcy, liftMatrix);
-          }
+          placeLabel(sub);
         }
       });
     });

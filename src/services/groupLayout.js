@@ -549,30 +549,39 @@ export const groupLabelMetrics = (textSettings) => {
   return { labelScale, labelFontSize, labelGrowth: groupTitleGrowthOf(textSettings) };
 };
 
-// When titles grow with their group (textSettings.groupTitleGrow), a group this
-// wide (at node size 1) draws its title at the usual size, and a wider one draws
-// it larger in proportion, up to textSettings.groupTitleGrowMax.
+// When titles grow with their group (textSettings.groupTitleGrow), a group up
+// to GROW_FROM wide (at node size 1) draws its title at the usual size, and the
+// title grows evenly with each doubling of width until, at GROW_TO, it reaches
+// textSettings.groupTitleGrowMax. Even per doubling, because real groups range
+// from a few hundred to tens of thousands wide: grown in straight proportion,
+// every group past twice GROW_FROM sat at the ceiling and they all read alike.
 export const GROUP_TITLE_GROW_FROM = 1200;
-export const GROUP_TITLE_GROW_MAX_DEFAULT = 2.0;
+export const GROUP_TITLE_GROW_TO = 12000;
+export const GROUP_TITLE_GROW_MAX_DEFAULT = 3.0;
 
-/** `{ from, max }` for labelGrowthFactor, or null when titles keep one size. */
-export const groupTitleGrowthOf = (textSettings) => (textSettings?.groupTitleGrow
-  ? {
-    from: GROUP_TITLE_GROW_FROM * (textSettings?.nodeScale ?? 1.0),
+/** `{ from, to, max }` for labelGrowthFactor, or null when titles keep one size. */
+export const groupTitleGrowthOf = (textSettings) => {
+  if (!textSettings?.groupTitleGrow) return null;
+  const nodeScale = textSettings?.nodeScale ?? 1.0;
+  return {
+    from: GROUP_TITLE_GROW_FROM * nodeScale,
+    to: GROUP_TITLE_GROW_TO * nodeScale,
     max: textSettings?.groupTitleGrowMax ?? GROUP_TITLE_GROW_MAX_DEFAULT,
-  }
-  : null);
+  };
+};
 
 /**
  * How many times its usual size a group's title is drawn: 1 unless titles grow
- * (`growth`), else the band's width over `growth.from`, up to `growth.max`, and
- * never past what the band holds. `bandW` is the members' box before the title
- * widens it, so a grown title never makes its group wider, only its tab taller.
+ * (`growth`), else from 1 at `growth.from` wide to `growth.max` at `growth.to`,
+ * evenly per doubling of the band's width, and never past what the band holds.
+ * `bandW` is the members' box before the title widens it, so a grown title
+ * never makes its group wider, only its tab taller.
  */
 export const labelGrowthFactor = (growth, bandW, baseLabelW) => {
-  if (!growth || !(baseLabelW > 0)) return 1;
+  if (!growth || !(baseLabelW > 0) || !(bandW > growth.from)) return 1;
+  const t = Math.min(1, Math.log(bandW / growth.from) / Math.log(growth.to / growth.from));
   const fits = (bandW - GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2) / baseLabelW;
-  return Math.max(1, Math.min(growth.max, bandW / growth.from, fits));
+  return Math.max(1, Math.min(1 + (growth.max - 1) * t, fits));
 };
 
 /**
@@ -822,9 +831,6 @@ function computeGroupLayoutInner(group, context) {
     labelFontSize = null,
     // Titles that grow with their group (groupTitleGrowthOf), or null.
     labelGrowth = null,
-    // groupId → the growth to draw a title at instead (a drag holds each
-    // title at its size on grab), or undefined to work it out.
-    pinnedLabelGrowth = null,
     // A child drawn its own way (a formula) is as large as what is drawn of it,
     // not its Things' shell: groupId → { x, y, w, h }, or null.
     drawnBoundsOf = null,
@@ -997,7 +1003,7 @@ function computeGroupLayoutInner(group, context) {
 
   const labelText = group.name || 'Group';
   const baseLabelBox = labelBoxFor(labelText, measureLabelWidth, labelScale, labelFontSize);
-  const growth = pinnedLabelGrowth?.(group.id) ?? labelGrowthFactor(labelGrowth, rectW, baseLabelBox.w);
+  const growth = labelGrowthFactor(labelGrowth, rectW, baseLabelBox.w);
   const labelBox = grownLabelBox(baseLabelBox, growth);
   const labelWidth = labelBox.w;
   const labelHeight = labelBox.h;

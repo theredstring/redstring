@@ -1,4 +1,4 @@
-import React, { Profiler, memo, useMemo, useState } from 'react';
+import React, { Profiler, memo, useCallback, useMemo, useState } from 'react';
 import UnifiedSelector from '../../../UnifiedSelector.jsx';
 import { WebGrid } from '../thingGroupPrompt/ThingGroupPrompt.jsx';
 import { websOf } from '../thingGroupPrompt/thingGroupPrompt.js';
@@ -73,6 +73,7 @@ function NewWebPrompt({ leftPanelExpanded, rightPanelExpanded }) {
   const [prototypeId, setPrototypeId] = useState(null);
   const prototype = useGraphStore(s => (prototypeId ? s.nodePrototypes.get(prototypeId) : null));
   const graphs = useGraphStore(s => s.graphs);
+  const webCount = useCallback((thing) => websOf(thing, graphs).length, [graphs]);
 
   if (prototype) {
     return (
@@ -100,7 +101,7 @@ function NewWebPrompt({ leftPanelExpanded, rightPanelExpanded }) {
       onClose={closeNewWeb}
       onSubmit={submitNewWeb}
       onNodeSelect={(picked) => { if (picked?.id) setPrototypeId(picked.id); }}
-      cardBadge={(thing) => websOf(thing, graphs).length}
+      cardBadge={webCount}
       title="Choose the Thing this Web defines"
     />
   );
