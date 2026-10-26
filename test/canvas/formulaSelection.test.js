@@ -38,6 +38,21 @@ describe('a formula in the selection', () => {
     expect(st().selectedInstanceIds.size).toBe(0);
   });
 
+  it('boxed alone, waits for the box to be let go to be selected as its group, as a Thing waits for its pie', () => {
+    st().dispatchPie({ type: 'MARQUEE', active: true });
+    st().setSelectedInstanceIds(new Set(['aF']));
+    expect(st().selectedGroupId).toBe(null);
+    expect([...st().selectedInstanceIds]).toEqual(['aF']);
+    expect(st().selectedNodeIdForPieMenu).toBe(null);
+    st().setSelectedInstanceIds(new Set(['aF', 'n']));
+    st().setSelectedInstanceIds(new Set(['aF']));
+    expect(st().selectedGroupId).toBe(null);
+    st().dispatchPie({ type: 'MARQUEE', active: false });
+    expect(st().selectedGroupId).toBe('gF');
+    expect(st().selectedInstanceIds.size).toBe(0);
+    expect(st().selectedNodeIdForPieMenu).toBe(null);
+  });
+
   it('among Things, stays as its anchor; its drawn Things and other anchors do not', () => {
     st().setSelectedInstanceIds(new Set(['n', 'aF', 't1', 'aG']));
     expect([...st().selectedInstanceIds].sort()).toEqual(['aF', 'n']);

@@ -409,12 +409,14 @@ export function setGroupAnchorLookup(lookup) {
  * `ids` without anchors. A lone anchor selects its group instead, as clicking
  * the title does (and like that click, clears the connection selection).
  * Among several, a format's anchor stays: a formula is selected along with
- * Things as a Thing is, standing in for its group (formats/formula).
+ * Things as a Thing is, standing in for its group (formats/formula). While a
+ * marquee is dragged a lone format anchor stays too, as a lone Thing gets no
+ * pie until the box is let go: the MARQUEE event's end swaps it then.
  */
-function withoutGroupAnchors(ids, set, get) {
+function withoutGroupAnchors(ids, set, get, marqueeActive = get().marqueeActive) {
   const anchors = ids.size > 0 && groupAnchorLookup ? groupAnchorLookup(ids) : null;
   if (!anchors?.size) return ids;
-  if (ids.size === 1) {
+  if (ids.size === 1 && !(marqueeActive && formatGroupOfAnchor(anchors.keys().next().value))) {
     set({
       ...edgeSelectionCleared(get()),
       selectedGroupId: anchors.values().next().value,
@@ -572,6 +574,12 @@ const useCanvasUIStore = create((set, get) => ({
       const selection = withoutReplaced(withoutGroupAnchors(asked, set, get));
       const droppedTarget = asked.has(event.id) && !selection.has(event.id);
       event = { ...event, selection, id: droppedTarget ? null : event.id };
+    }
+    // A formula boxed alone is selected as its group once the box is let go.
+    if (event?.type === 'MARQUEE' && !event.active && get().marqueeActive) {
+      const ids = get().selectedInstanceIds;
+      const next = withoutGroupAnchors(ids, set, get, false);
+      if (next !== ids) set({ selectedInstanceIds: next });
     }
     const result = reducePie(get(), event, env);
     // Selecting Things deselects connections, in the same write (edgeSelectionCleared).
