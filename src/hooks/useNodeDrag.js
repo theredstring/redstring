@@ -15,6 +15,7 @@ import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransfo
 import { glyphQuadAt, peekLabelSprite, peekNearbyLabelSprite, requestLabelSprite } from '../services/labelSpriteCache.js';
 import { collectDragOwnedEdges, dragNodeIdsOf } from '../components/canvas/edges/dragOwnedEdges.js';
 import { placeGroupLiftShadow } from '../components/canvas/groups/groupLiftShadow.js';
+import { groupHeaderPath } from '../components/canvas/groups/groupHeader.js';
 import {
   computeGroupLayout,
   groupLabelMetrics,
@@ -743,6 +744,8 @@ export const useNodeDrag = ({
           shadowBox: el.querySelector(':scope > [data-group-shadow="box"]'),
           shadowOutline: el.querySelector(':scope > [data-group-shadow="outline"]'),
           shadowPill: el.querySelector(':scope > [data-group-shadow="pill"]'),
+          // A Thing-group's header fill (groupHeader.js), on its title.
+          header: el.querySelector(':scope > [data-group-header]'),
           labelRect,
           labelText,
           labelArrows,
@@ -1936,6 +1939,7 @@ export const useNodeDrag = ({
             sub.directRects[i].setAttribute('height', innerH);
           }
         } else if (sub.type === 'title') {
+          sub.header?.setAttribute('d', groupHeaderPath(rectX, nodeGroupRect.y, rectW, innerCanvasY, C.nodeGroupCornerRadius));
           placeLabel(sub);
         }
       });

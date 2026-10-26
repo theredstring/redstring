@@ -386,7 +386,7 @@ describe('computeGroupLayout', () => {
 });
 
 describe('titles that grow with their group', () => {
-  // 1x at 1000 wide, 3x at 4000: 2x at 2000, one doubling of two.
+  // 1x at 1000 wide, 3x at 4000: one doubling of two is t = 1/2, eased to 1/4, so 1.5x at 2000.
   const growth = { from: 1000, to: 4000, max: 3 };
   const wideGroup = (ctx, w) => {
     addNode(ctx, 'a', 0, 0, 200, 150);
@@ -398,7 +398,7 @@ describe('titles that grow with their group', () => {
 
   it('is off unless the setting is on', () => {
     expect(groupTitleGrowthOf({})).toBeNull();
-    expect(groupTitleGrowthOf({ groupTitleGrow: true, nodeScale: 2, groupTitleGrowMax: 4 })).toEqual({ from: 2400, to: 24000, max: 4 });
+    expect(groupTitleGrowthOf({ groupTitleGrow: true, nodeScale: 2, groupTitleGrowMax: 4 })).toEqual({ from: 3200, to: 96000, max: 4 });
   });
 
   it('a narrow group keeps its usual title', () => {
@@ -410,17 +410,17 @@ describe('titles that grow with their group', () => {
     expect(r.label).toMatchObject({ w: plain.label.w, h: plain.label.h });
   });
 
-  it('grows evenly per doubling of the band, title, tab and shell together', () => {
+  it('grows by doublings of the band, eased in, title, tab and shell together', () => {
     const ctx = buildContext({ labelGrowth: growth });
     const g = wideGroup(ctx, 2000 - margin * 2);
     const base = computeGroupLayout(g, { ...ctx, labelGrowth: null, _cache: new Map() });
     const r = computeGroupLayout(g, ctx);
-    expect(r.label.growth).toBeCloseTo(2);
-    expect(r.label.w).toBeCloseTo(base.label.w * 2);
-    expect(r.label.h).toBeCloseTo(base.label.h * 2);
-    expect(r.label.fontSize).toBeCloseTo(C.fontSize * 2);
+    expect(r.label.growth).toBeCloseTo(1.5);
+    expect(r.label.w).toBeCloseTo(base.label.w * 1.5);
+    expect(r.label.h).toBeCloseTo(base.label.h * 1.5);
+    expect(r.label.fontSize).toBeCloseTo(C.fontSize * 1.5);
     expect(r.rect).toEqual(base.rect);
-    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h);
+    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h * 0.5);
   });
 
   it('stops at the ceiling', () => {

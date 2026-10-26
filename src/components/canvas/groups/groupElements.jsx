@@ -16,6 +16,7 @@ import { GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { getTextColor, blendColors } from '../../../utils/colorUtils.js';
 import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from './groupLiftShadow.js';
 import { vectorArrowsOver } from '../../VectorText.jsx';
+import { groupHeaderPath } from './groupHeader.js';
 import { unmarked } from '../../../utils/vectorArrow.js';
 
 // Node-group interiors take this much of the group colour over the canvas.
@@ -302,9 +303,15 @@ export function buildGroupElements({
           />
         </g>
       );
-      // Thing-group titles → Phase 3 (rendered after member nodes)
+      // Thing-group titles → Phase 3 (rendered after member nodes), each on
+      // its header's fill, so connections through the header pass behind it.
       ngTitles.push(
         <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
+          <path data-group-header=""
+            d={groupHeaderPath(rectX, nodeGroupRectY, rectW, innerCanvasY, nodeGroupCornerR)}
+            fill={nodeGroupColor}
+            stroke={selectedGroupId === group.id ? 'black' : 'none'} strokeWidth={GROUP_SELECTION_STROKE}
+            pointerEvents="none" />
           {titleLabel}
         </g>
       );

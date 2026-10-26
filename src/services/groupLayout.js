@@ -551,13 +551,16 @@ export const groupLabelMetrics = (textSettings) => {
 
 // When titles grow with their group (textSettings.groupTitleGrow), a group up
 // to GROW_FROM wide (at node size 1) draws its title at the usual size, and the
-// title grows evenly with each doubling of width until, at GROW_TO, it reaches
-// textSettings.groupTitleGrowMax. Even per doubling, because real groups range
-// from a few hundred to tens of thousands wide: grown in straight proportion,
-// every group past twice GROW_FROM sat at the ceiling and they all read alike.
-export const GROUP_TITLE_GROW_FROM = 1200;
-export const GROUP_TITLE_GROW_TO = 12000;
-export const GROUP_TITLE_GROW_MAX_DEFAULT = 3.0;
+// title grows with each doubling of width until, at GROW_TO, it reaches
+// textSettings.groupTitleGrowMax. By doubling, because real groups range from a
+// few hundred to tens of thousands wide: grown in straight proportion, every
+// group past twice GROW_FROM sat at the ceiling and they all read alike. Slowly
+// at first and faster toward GROW_TO (GROW_EASE), so everyday groups stay near
+// their usual size and the largest stand out.
+export const GROUP_TITLE_GROW_FROM = 1600;
+export const GROUP_TITLE_GROW_TO = 48000;
+export const GROUP_TITLE_GROW_MAX_DEFAULT = 6.0;
+export const GROUP_TITLE_GROW_EASE = 2;
 
 /** `{ from, to, max }` for labelGrowthFactor, or null when titles keep one size. */
 export const groupTitleGrowthOf = (textSettings) => {
@@ -573,13 +576,13 @@ export const groupTitleGrowthOf = (textSettings) => {
 /**
  * How many times its usual size a group's title is drawn: 1 unless titles grow
  * (`growth`), else from 1 at `growth.from` wide to `growth.max` at `growth.to`,
- * evenly per doubling of the band's width, and never past what the band holds.
+ * by doublings of the band's width, eased in, and never past what the band holds.
  * `bandW` is the members' box before the title widens it, so a grown title
  * never makes its group wider, only its tab taller.
  */
 export const labelGrowthFactor = (growth, bandW, baseLabelW) => {
   if (!growth || !(baseLabelW > 0) || !(bandW > growth.from)) return 1;
-  const t = Math.min(1, Math.log(bandW / growth.from) / Math.log(growth.to / growth.from));
+  const t = Math.min(1, Math.log(bandW / growth.from) / Math.log(growth.to / growth.from)) ** GROUP_TITLE_GROW_EASE;
   const fits = (bandW - GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2) / baseLabelW;
   return Math.max(1, Math.min(1 + (growth.max - 1) * t, fits));
 };
