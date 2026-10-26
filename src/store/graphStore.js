@@ -883,11 +883,15 @@ const applyOpenDefinitionMoves = (draft, map, updates, parkedAnchors = false) =>
   const byId = new Map();
   updates.forEach(update => byId.set(update.instanceId, update));
 
+  // An empty box has nothing inside to move it: the drag carries its origin
+  // (a placeholder id). Set after the boxes moved whole below, so one inside a
+  // box that moved rides with it instead of moving again on top.
+  const emptyBoxMoves = [];
   updates.forEach(({ instanceId, x, y }) => {
     if (typeof instanceId !== 'string' || !instanceId.startsWith(PLACEHOLDER_ID_PREFIX)) return;
     const anchorId = anchorIdFromOpenGroupId(instanceId.slice(PLACEHOLDER_ID_PREFIX.length));
     if (anchorId && map.boxes.has(anchorId)) {
-      setOpenBoxOrigin(draft, map, anchorId, { x, y });
+      emptyBoxMoves.push({ anchorId, x, y });
       handled.add(instanceId);
     }
   });
@@ -900,6 +904,7 @@ const applyOpenDefinitionMoves = (draft, map, updates, parkedAnchors = false) =>
     });
   });
   const outermostFirst = Array.from(map.boxes.values()).sort((a, b) => a.path.length - b.path.length);
+  const movedWhole = new Set();
   for (const box of parkedAnchors ? [] : outermostFirst) {
     const inside = subtrees.get(box.anchorId) || [];
     if (inside.length === 0 || !inside.every(id => byId.has(id) && !handled.has(id))) continue;
@@ -911,7 +916,12 @@ const applyOpenDefinitionMoves = (draft, map, updates, parkedAnchors = false) =>
     const dy = byId.get(first).y - ((stored.y ?? 0) + owner.offset.y);
     setOpenBoxOrigin(draft, map, box.anchorId, { x: box.offset.x + dx, y: box.offset.y + dy });
     inside.forEach(id => handled.add(id));
+    movedWhole.add(box.anchorId);
   }
+  emptyBoxMoves.forEach(({ anchorId, x, y }) => {
+    if (map.boxes.get(anchorId).path.some(step => movedWhole.has(step.anchorId))) return;
+    setOpenBoxOrigin(draft, map, anchorId, { x, y });
+  });
 
   const rest = [];
   updates.forEach(update => {

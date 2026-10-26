@@ -11,6 +11,7 @@ import {
   viewIdOf,
   storedIdOf,
   storedGroupIdOf,
+  dragCopiesOf,
 } from '../../src/core/openDefinitions.js';
 
 const graph = (id, instances = [], edgeIds = [], groups = []) => ({
@@ -297,3 +298,23 @@ describe('openDefinitions: one definition open in two boxes', () => {
     expect(Array.from(boxes.keys())).toEqual(['box', 'again']);
   });
 });
+
+describe('openDefinitions: what a drag carries along', () => {
+  it('a node moved within its definition: its copy in the other box', () => {
+    const v = projectGraphView(twice(), 'main');
+    expect([...dragCopiesOf(v, ['again/a'])]).toEqual([['a', 'again/a']]);
+  });
+
+  it('a box moved whole whose anchor is in the view: nothing', () => {
+    const v = projectGraphView(twice(), 'main');
+    expect(dragCopiesOf(v, ['again/a', 'again/b', 'again/sub']).size).toBe(0);
+  });
+
+  it('a box moved whole inside a repeated definition: its copy and what is in it', () => {
+    const v = projectGraphView(twice({ subOpen: true }), 'main');
+    // Sub, in the second Box, moved by its title: its anchor and its Things.
+    const copies = dragCopiesOf(v, ['again/sub', 'again/sub/s1']);
+    expect(Object.fromEntries(copies)).toEqual({ sub: 'again/sub', s1: 'again/sub/s1' });
+  });
+});
+

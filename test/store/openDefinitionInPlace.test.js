@@ -320,3 +320,34 @@ describe('a definition open in two boxes', () => {
     expect(mainGraph().instances.get('box').openDefinition).toBeTruthy();
   });
 });
+
+describe('dragging a box that holds an empty box', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    reset();
+    // Box open, holding Inner (open and empty), inside which is nothing.
+    st().addNodeInstance('main', 'p-box', { x: 1000, y: 1000 }, 'box');
+    st().addNodeInstance('main', 'p-a', { x: 1100, y: 1100 }, 'a');
+    st().openDefinitionInPlace('main', 'box', 0, {}, { x: 0, y: 0 });
+    st().addInstancesToGroup('main', openGroupId('box'), ['a']);
+    st().addNodeInstance('main', 'p-b', { x: 1200, y: 1300 }, 'inner');
+    st().addInstancesToGroup('main', openGroupId('box'), ['inner']);
+    st().openDefinitionInPlace('main', 'inner', 0, {}, { x: 50, y: 60 });
+  });
+
+  it('moves the empty box once, with its box', () => {
+    const v = view();
+    const innerBox = v.groups.get(openGroupId('inner'));
+    const ph = innerBox.emptyPlaceholderOrigin;
+    const d = { x: 300, y: 200 };
+    // What a drag of the outer box sends: its Things, its inner anchor, the empty box's spot.
+    st().updateMultipleNodeInstancePositions('main', [
+      { instanceId: 'a', x: v.instances.get('a').x + d.x, y: v.instances.get('a').y + d.y },
+      { instanceId: 'inner', x: v.instances.get('inner').x + d.x, y: v.instances.get('inner').y + d.y },
+      { instanceId: `__placeholder__${openGroupId('inner')}`, x: ph.x + d.x, y: ph.y + d.y },
+    ]);
+    expect(view().groups.get(openGroupId('inner')).emptyPlaceholderOrigin).toEqual({ x: ph.x + d.x, y: ph.y + d.y });
+    expect(view().instances.get('a').x).toBe(v.instances.get('a').x + d.x);
+  });
+});
+

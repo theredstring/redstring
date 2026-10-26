@@ -486,35 +486,61 @@ export const initialOpenOffset = (anchor, defGraph) => {
 // ─── For the canvas ───────────────────────────────────────────────────────────
 
 /**
- * The other copies of instances being dragged in a view: an instance moved within
- * its definition is moved in every box that shows that definition, so a drag
- * carries its copies along (view ids). None for an instance whose whole box moves
- * with it (then the box moves, not the definition), or one outside any box.
+ * The other copies of what a drag moves, in a view where a definition is open in
+ * more than one box: each copy's view id → the dragged view id it follows.
+ *
+ * A dragged instance that moves within its definition moves in every box that
+ * shows that definition. A box that moves whole changes only its own placement,
+ * which is stored on its anchor: when that anchor sits in a definition shown more
+ * than once (Sandy inside a Spongebob open twice), the box's copies move too, and
+ * everything inside them follows what it copies.
  *
  * @param {Object} view - projectGraphView's result.
  * @param {Iterable<string>} ids - View ids being dragged.
- * @returns {string[]}
+ * @returns {Map<string, string>}
  */
 export const dragCopiesOf = (view, ids) => {
+  const copies = new Map();
   const owners = view?.openView?.owners;
-  if (!owners || owners.size === 0) return [];
+  const boxes = view?.openView?.boxes;
+  if (!owners || owners.size === 0) return copies;
   const moving = new Set(ids);
   const insideBox = new Map();
   owners.forEach((owner, id) => owner.path.forEach((step) => {
     if (!insideBox.has(step.anchorId)) insideBox.set(step.anchorId, []);
     insideBox.get(step.anchorId).push(id);
   }));
-  const stored = new Set();
+  const movesWhole = (boxId) => (insideBox.get(boxId) || []).every(m => moving.has(m));
+  // An id inside a box, named relative to it: the stored anchors between, then its own.
+  const keyWithin = (owner, at) => [...owner.path.slice(at + 1).map(step => storedIdOf(step.anchorId)), owner.instanceId].join('/');
+
+  const byStored = new Map(); // stored instance → the dragged view id moving it
+  const byWholeBox = new Map(); // box anchor view id → Map(key within it → dragged view id)
   moving.forEach((id) => {
     const owner = owners.get(id);
     if (!owner) return;
-    const boxId = owner.path[owner.path.length - 1].anchorId;
-    if ((insideBox.get(boxId) || []).every(m => moving.has(m))) return;
-    stored.add(owner.instanceId);
+    const at = owner.path.findIndex(step => movesWhole(step.anchorId));
+    if (at < 0) { byStored.set(owner.instanceId, id); return; }
+    const boxId = owner.path[at].anchorId;
+    if (!byWholeBox.has(boxId)) byWholeBox.set(boxId, new Map());
+    byWholeBox.get(boxId).set(keyWithin(owner, at), id);
   });
-  if (stored.size === 0) return [];
-  const copies = [];
-  owners.forEach((owner, id) => { if (stored.has(owner.instanceId) && !moving.has(id)) copies.push(id); });
+  // Moved whole, by its anchor's stored instance (which every copy of it shares).
+  const wholeByAnchor = new Map();
+  byWholeBox.forEach((keys, boxId) => wholeByAnchor.set(boxes.get(boxId)?.instanceId, { boxId, keys }));
+
+  owners.forEach((owner, id) => {
+    if (moving.has(id)) return;
+    const original = byStored.get(owner.instanceId);
+    if (original) { copies.set(id, original); return; }
+    for (let at = 0; at < owner.path.length; at++) {
+      const boxId = owner.path[at].anchorId;
+      const whole = wholeByAnchor.get(boxes.get(boxId)?.instanceId);
+      if (!whole || whole.boxId === boxId) continue;
+      const followed = whole.keys.get(keyWithin(owner, at));
+      if (followed) { copies.set(id, followed); return; }
+    }
+  });
   return copies;
 };
 

@@ -31,7 +31,8 @@ import { haptic } from '../services/haptics.js';
 import { createFrameClock } from '../components/canvas/camera/frameClock.js';
 import { markNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withFormulaParts } from '../components/canvas/formats/formula/formulaSelection.js';
-import { projectGraphView, dragCopiesOf } from '../core/openDefinitions.js';
+import { projectGraphView, dragCopiesOf, anchorIdFromOpenGroupId, openGroupId } from '../core/openDefinitions.js';
+import { PLACEHOLDER_ID_PREFIX, placeholderIdForGroup } from '../services/groupLayout.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -51,6 +52,8 @@ const LIFT_DURATION = 100; // ms
 // Drop-on-release: the scale settles node.scale → 1 when the drag ends. Kept
 // snappier than the lift so the node "lands" rather than drifting back down.
 const DROP_DURATION = 50; // ms
+// How often a dragged node that isn't mounted yet is looked for (see lateNodeEl).
+const LATE_LOOKUP_MS = 100;
 // Lift target scale. Both the lift ramp and the drop read node.scale, so this
 // is the single knob for how far the node grows on grab. Boosted when drag-zoom
 // is on: the canvas zoom-out/in works against the node's own scale, so a bigger
@@ -488,6 +491,23 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   // DOM Element Caching (called once on drag start)
   // ---------------------------------------------------------------------------
+  // A dragged node with no element when the drag began: culled off screen then,
+  // mounted since (the zoom-out or an auto-pan brought it in; a copy in another
+  // box often starts out of view). Found here on the frame it appears, so it
+  // rides the drag instead of jumping the whole distance on release. Looked for
+  // at most every LATE_LOOKUP_MS per node while it stays unmounted.
+  const lateLookupAtRef = useRef(new Map());
+  const lateNodeEl = (id) => {
+    const now = performance.now();
+    if (now - (lateLookupAtRef.current.get(id) ?? -Infinity) < LATE_LOOKUP_MS) return null;
+    lateLookupAtRef.current.set(id, now);
+    const el = containerRef.current?.querySelector(`[data-instance-id="${CSS.escape(id)}"]`);
+    if (!el) return null;
+    el.style.transition = 'none';
+    dragNodeElsRef.current.set(id, el);
+    return el;
+  };
+
   const cacheDOMElements = useCallback((nodeIds) => {
     const container = containerRef.current;
     if (!container) return;
@@ -520,6 +540,7 @@ export const useNodeDrag = ({
     });
 
     dragNodeElsRef.current.clear();
+    lateLookupAtRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();
     dragLombardiExtraEdgeIdsRef.current.clear();
@@ -823,7 +844,7 @@ export const useNodeDrag = ({
     // performDOMDragUpdate skips DOM work on frames where no member crossed
     // a grid line, so this stays cheap.
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
-      return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
+      const updates = draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
         // A group ANCHOR is not a node on the lattice. It is the group's title
@@ -855,6 +876,18 @@ export const useNodeDrag = ({
         const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
         const snappedCenterY = Math.round(centerY / gridSize) * gridSize;
         return { instanceId: id, x: snappedCenterX - dims.currentWidth / 2, y: snappedCenterY - dims.currentHeight / 2 };
+      });
+      if (!draggingInfo.copyOf) return updates;
+      // A copy moves exactly as what it copies does, snap included.
+      const { copyOf, startAt } = draggingInfo;
+      const at = new Map(updates.map(u => [u.instanceId, u]));
+      return updates.map((u) => {
+        const originalId = copyOf.get(u.instanceId);
+        const moved = originalId && at.get(originalId);
+        const original = originalId && startAt.get(originalId);
+        const copy = startAt.get(u.instanceId);
+        if (!moved || !original || !copy) return u;
+        return { ...u, x: copy.x + moved.x - original.x, y: copy.y + moved.y - original.y };
       });
     }
 
@@ -2020,7 +2053,7 @@ export const useNodeDrag = ({
     const curBaseDims = baseDimsByIdRef.current;
     positionUpdates.forEach(({ instanceId, x, y }) => {
       if (!movedNodeIds.has(instanceId)) return;
-      const nodeEl = dragNodeElsRef.current.get(instanceId);
+      const nodeEl = dragNodeElsRef.current.get(instanceId) || lateNodeEl(instanceId);
       if (!nodeEl) return;
 
       const node = curNodeById.get(instanceId);
@@ -2663,7 +2696,7 @@ export const useNodeDrag = ({
     // (the drop writes only the dragged ones; see copyIds in handleDragEnd).
     const isMulti = selectedInstanceIds.has(instanceId);
     const baseIds = isMulti ? withFormulaParts(selectedInstanceIds) : new Set([instanceId]);
-    const copyIds = new Set(dragCopiesOf(projectGraphView(useGraphStore.getState(), activeGraphId), baseIds));
+    const copyIds = new Set(dragCopiesOf(projectGraphView(useGraphStore.getState(), activeGraphId), baseIds).keys());
 
     if (isMulti || copyIds.size > 0) {
       // Multi-node drag
@@ -2765,7 +2798,39 @@ export const useNodeDrag = ({
     // touch group drag flashes to a stale coord (often {0,0}) for one frame
     // before the first pointermove corrects it. Mirrors startDragForNode.
     mousePositionRef.current = { x: clientX, y: clientY };
-    setDraggingNodeInfo({ groupId, memberOffsets });
+    // Copies of what this moves in other boxes ride along (see dragCopiesOf),
+    // an empty box's held-open spot (its placeholder) included: each starts at
+    // its own spot and moves exactly as what it copies does.
+    const view = projectGraphView(useGraphStore.getState(), activeGraphId);
+    const copyOf = dragCopiesOf(view, memberOffsets.map(m => m.id));
+    const startAt = new Map();
+    if (copyOf.size > 0) {
+      const nodesById = nodeByIdRef.current;
+      const placeOf = (id) => {
+        const anchorId = id.startsWith(PLACEHOLDER_ID_PREFIX) ? anchorIdFromOpenGroupId(id.slice(PLACEHOLDER_ID_PREFIX.length)) : null;
+        return anchorId ? view.groups?.get(openGroupId(anchorId))?.emptyPlaceholderOrigin : nodesById.get(id);
+      };
+      memberOffsets.forEach(({ id }) => {
+        const anchorId = id.startsWith(PLACEHOLDER_ID_PREFIX) ? anchorIdFromOpenGroupId(id.slice(PLACEHOLDER_ID_PREFIX.length)) : null;
+        if (!anchorId) return;
+        copyOf.forEach((originalId, copyId) => {
+          if (originalId === anchorId) copyOf.set(placeholderIdForGroup(openGroupId(copyId)), id);
+        });
+      });
+      const offsetOf = new Map(memberOffsets.map(m => [m.id, m]));
+      memberOffsets = [...memberOffsets];
+      copyOf.forEach((originalId, copyId) => {
+        const o = offsetOf.get(originalId);
+        const original = placeOf(originalId);
+        const copy = placeOf(copyId);
+        if (!o || !original || !copy) { copyOf.delete(copyId); return; }
+        startAt.set(originalId, { x: original.x, y: original.y });
+        startAt.set(copyId, { x: copy.x, y: copy.y });
+        memberOffsets.push({ id: copyId, dx: o.dx + original.x - copy.x, dy: o.dy + original.y - copy.y });
+      });
+    }
+    const copyIds = copyOf.size > 0 ? new Set(copyOf.keys()) : null;
+    setDraggingNodeInfo({ groupId, memberOffsets, ...(copyIds ? { copyIds, copyOf, startAt } : {}) });
     haptic('nodeLift');
     dragHistoryRecordedRef.current = false;
     // Group members don't get a per-node lift scale — fall back to node.scale (1)
@@ -2776,7 +2841,7 @@ export const useNodeDrag = ({
     // Cache DOM elements for all group members
     const memberIds = memberOffsets.map(m => m.id);
     cacheDOMElements(memberIds);
-  }, [triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, mousePositionRef]);
+  }, [triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, mousePositionRef, activeGraphId]);
 
   // ---------------------------------------------------------------------------
   // Cancel Drag (for touch cancel, escape key, etc.)
@@ -3003,7 +3068,9 @@ export const useNodeDrag = ({
       // from the ones the DOM was showing a frame earlier (they did: this copy
       // never learned about placeholder ids and dropped empty node-groups
       // unsnapped).
-      const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, info);
+      // Copies only rode along on screen: the write moves them (see copyIds).
+      const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, info)
+        .filter(u => !info.copyIds?.has(u.instanceId));
 
       const graph = graphsMap?.get(activeGraphId);
       const groupName = graph?.groups?.get(info.groupId)?.name;
