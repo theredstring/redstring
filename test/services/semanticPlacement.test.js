@@ -321,4 +321,72 @@ describe('semanticPlacement', () => {
       expect(st().graphs.get(graphId).instances.size).toBe(instances);
     });
   });
+
+  describe('Things inside a box opened in place', () => {
+    // France sits in Main opened in place; Paris lives in France's definition,
+    // drawn inside the box, and nowhere in Main itself.
+    beforeEach(() => {
+      const s0 = st();
+      const graphs = new Map(s0.graphs);
+      const main = graphs.get(graphId);
+      const instances = new Map(main.instances);
+      instances.delete('i-paris');
+      instances.set('i-france', { id: 'i-france', prototypeId: 'p-france', x: 0, y: 0, scale: 1, openDefinition: { index: 0, offset: { x: 0, y: 200 } } });
+      graphs.set(graphId, { ...main, instances, edgeIds: [] });
+      graphs.set('g-france', {
+        id: 'g-france', name: 'France', instances: new Map([['i-paris', { id: 'i-paris', prototypeId: 'p-paris', x: 0, y: 0, scale: 1 }]]),
+        edgeIds: [], groups: new Map(), definingNodeIds: ['p-france']
+      });
+      const nodePrototypes = new Map(s0.nodePrototypes).set('p-france', {
+        id: 'p-france', name: 'France', description: '', color: '#444444', typeNodeId: null, definitionGraphIds: ['g-france']
+      });
+      useGraphStore.setState({ graphs, nodePrototypes, edges: new Map() });
+    });
+
+    it('adds the other end in the Web itself, linked to the Thing inside the box', () => {
+      const res = placeStatement({
+        graphId, seed: { id: 'p-paris', name: 'Paris' }, seedPrototypeId: 'p-paris', concept: concept('Eiffel Tower', 'Q243'),
+        predicate: 'Contains', direction: 'out'
+      });
+      expect(res.seedInstanceId).toBe('i-paris');
+      expect(st().graphs.get(graphId).instances.has(res.instanceId)).toBe(true);
+      expect(st().graphs.get('g-france').instances.size).toBe(1);
+      expect(st().graphs.get(graphId).instances.size).toBe(3);
+      const edge = st().edges.get(res.edgeId);
+      expect([edge.sourceId, edge.destinationId]).toEqual(['i-paris', res.instanceId]);
+      expect(edge.sourceVia).toEqual(['i-france']);
+      expect(st().graphs.get(graphId).edgeIds).toContain(res.edgeId);
+    });
+
+    it('links to a Thing inside the box rather than adding a copy', () => {
+      const res = placeStatement({
+        graphId, seed: { id: 'p-seine', name: 'Seine' }, seedPrototypeId: 'p-seine', concept: concept('Paris', 'Q90'),
+        predicate: 'Flows Through', direction: 'out'
+      });
+      expect(res).toMatchObject({ linked: true, instanceId: 'i-paris', seedInstanceId: 'i-seine' });
+      expect(st().graphs.get(graphId).instances.size).toBe(2);
+      expect(st().edges.get(res.edgeId).destinationVia).toEqual(['i-france']);
+      expect(hasConnection(graphId, 'i-seine', concept('Paris', 'Q90'), 'Flows Through')).toBe(true);
+    });
+
+    it("places beside the Thing inside the box, out past the box's frame", () => {
+      // A roomy box: France's Things spread well around Paris.
+      const graphs = new Map(st().graphs);
+      const def = graphs.get('g-france');
+      const instances = new Map(def.instances);
+      [[-900, -700], [900, -700], [-900, 700], [900, 700]].forEach(([x, y], i) => {
+        instances.set(`i-corner-${i}`, { id: `i-corner-${i}`, prototypeId: 'p-seine', x, y, scale: 1 });
+      });
+      graphs.set('g-france', { ...def, instances });
+      useGraphStore.setState({ graphs });
+
+      const { boxes } = clustersOf(graphId);
+      const inside = [...instances.keys()].map((id) => boxes.get(id));
+      const minX = Math.min(...inside.map((b) => b.x)); const minY = Math.min(...inside.map((b) => b.y));
+      const maxX = Math.max(...inside.map((b) => b.x + b.w)); const maxY = Math.max(...inside.map((b) => b.y + b.h));
+      const frame = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+      const pos = findPlacement({ graphId, mode: 'cluster', anchorInstanceId: 'i-paris', size: { w: 150, h: 60 }, predicateLabel: 'Contains' });
+      expect(boxesOverlap({ ...pos, w: 150, h: 60 }, frame)).toBe(false);
+    });
+  });
 });

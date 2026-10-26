@@ -14,7 +14,7 @@
  *  - 'open': out in open canvas, clear of every existing cluster.
  */
 import useGraphStore from '../store/graphStore.js';
-import { projectGraphView } from '../core/openDefinitions.js';
+import { projectGraphView, openGroupId } from '../core/openDefinitions.js';
 import { backfillConceptLinks, conceptToPrototypeFields } from './candidates.js';
 import { enrichPrototypeFromLinks } from './conceptEnrichment.js';
 import { formatPredicate } from '../utils/predicateFormatter.js';
@@ -32,6 +32,8 @@ const BULK_STRETCHES = [1, 1.3, 1.7, 2.2, 2.8, 3.5, 4.4, 5.5, 7, 9];
 const NODE_GAP = 48;
 // Room left between a node placed in open space and any cluster.
 const CLUSTER_CLEARANCE = 220;
+// Around an open box's Things to the frame drawn about them, its title included.
+const BOX_FRAME_PAD = 72;
 
 const lower = (s) => (typeof s === 'string' ? s.trim().toLowerCase() : '');
 
@@ -164,11 +166,22 @@ export function ensurePredicatePrototype(label, color = '#666666') {
 // ---------------------------------------------------------------------------
 // Reading the Web
 
-/** Instances of a prototype in a Web's own instances (not ones inside open boxes). */
+/**
+ * A Web as the canvas shows it: its own Things and every Thing inside a box
+ * opened in place, at the positions they're drawn at. A Thing seen inside a box
+ * is as much "here" as one beside it, and a connection drawn to it from outside
+ * is routed through the box by the store (addEdge).
+ */
+function viewOf(graphId, state) {
+  const full = state.nodePrototypes && state.edges ? state : { ...useGraphStore.getState(), ...state };
+  return projectGraphView(full, graphId);
+}
+
+/** Instances of a prototype in a Web as it's shown, open boxes' Things included. */
 export function instancesOfPrototype(graphId, prototypeId, state = useGraphStore.getState()) {
-  const graph = state.graphs.get(graphId);
-  if (!graph?.instances || !prototypeId) return [];
-  return [...graph.instances.values()].filter((inst) => inst.prototypeId === prototypeId);
+  const view = viewOf(graphId, state);
+  if (!view?.instances || !prototypeId) return [];
+  return [...view.instances.values()].filter((inst) => inst.prototypeId === prototypeId);
 }
 
 /**
@@ -188,7 +201,7 @@ export function anchorInstanceFor(graphId, prototypeId, selectedInstanceIds = nu
  * of a Thing with this name (or URI), named after this predicate, either way round.
  */
 export function hasConnection(graphId, anchorInstanceId, otherConcept, predicate, state = useGraphStore.getState()) {
-  const graph = state.graphs.get(graphId);
+  const graph = viewOf(graphId, state);
   if (!graph || !anchorInstanceId) return false;
   const label = lower(formatPredicate(predicate || 'relatedTo'));
   const otherProto = findPrototypeForConcept(otherConcept, state.nodePrototypes);
@@ -373,6 +386,22 @@ export function findPlacement({ graphId, mode, anchorInstanceId = null, origin =
     const center = (b) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
 
     const view = projectGraphView(state, graphId);
+    // A node placed here sits in the Web itself, so it keeps out of every box
+    // opened in place, the anchor's own included: inside a frame it would read
+    // as one of that box's Things.
+    const frames = [];
+    view?.openView?.boxes?.forEach((_, anchorId) => {
+      const members = (view.groups?.get(openGroupId(anchorId))?.memberInstanceIds || [])
+        .map((id) => boxes.get(id)).filter(Boolean);
+      if (members.length === 0) return;
+      const minX = Math.min(...members.map((b) => b.x)); const minY = Math.min(...members.map((b) => b.y));
+      const maxX = Math.max(...members.map((b) => b.x + b.w)); const maxY = Math.max(...members.map((b) => b.y + b.h));
+      frames.push({ x: minX - BOX_FRAME_PAD, y: minY - BOX_FRAME_PAD, w: maxX - minX + BOX_FRAME_PAD * 2, h: maxY - minY + BOX_FRAME_PAD * 2 });
+    });
+    // From inside a box, look far enough out to clear its frame.
+    const reaches = frames.some((f) => overlaps(anchorBox, f, 0)) && stretches.length < BULK_STRETCHES.length
+      ? BULK_STRETCHES
+      : stretches;
     const segments = [];
     let nx = 0; let ny = 0; let n = 0;
     (view?.edgeIds || []).forEach((eid) => {
@@ -393,7 +422,7 @@ export function findPlacement({ graphId, mode, anchorInstanceId = null, origin =
       const angle = (k / DIRECTIONS) * 2 * Math.PI;
       const dx = Math.cos(angle); const dy = Math.sin(angle);
       const reach = extentTowards(anchorBox, dx, dy) + extentTowards({ w, h }, dx, dy) + labelLength + labelAir * 2 + NODE_GAP;
-      for (const stretch of stretches) {
+      for (const stretch of reaches) {
         const r = reach * stretch;
         const cx = ax + dx * r; const cy = ay + dy * r;
         const box = at(cx, cy);
@@ -406,6 +435,7 @@ export function findPlacement({ graphId, mode, anchorInstanceId = null, origin =
           if (segmentHitsBox(ax, ay, cx, cy, b, labelHalfHeight)) score += 400;
         }
         if (overlaps(box, anchorBox, NODE_GAP)) score += 1000;
+        for (const f of frames) if (overlaps(box, f, NODE_GAP / 2)) score += 1000;
 
         for (const seg of segments) {
           const { distSq } = getPointSegmentDistSq(cx, cy, seg.ax, seg.ay, seg.bx, seg.by);
@@ -512,7 +542,7 @@ export function placeConcept({
 }) {
   const predicateLabel = predicate ? formatPredicate(predicate) : '';
   const st0 = useGraphStore.getState();
-  const anchored = !!(graphId && anchorInstanceId && st0.graphs.get(graphId)?.instances?.has(anchorInstanceId));
+  const anchored = !!(graphId && anchorInstanceId && viewOf(graphId, st0)?.instances?.has(anchorInstanceId));
 
   // Both ends already here: the statement is a connection between them, not a
   // second copy of the other end.
@@ -525,7 +555,7 @@ export function placeConcept({
       anchorInstanceId, otherInstanceId: existingEnd
     });
     if (reveal) setTimeout(() => revealInstances(graphId, [anchorInstanceId, existingEnd]), 0);
-    const prototypeId = st0.graphs.get(graphId).instances.get(existingEnd).prototypeId;
+    const prototypeId = viewOf(graphId, st0).instances.get(existingEnd).prototypeId;
     // The same Thing by a shared link: it learns the statement's other links.
     // One matched only by name (a hand-made "France") is left as it is.
     const endProto = st0.nodePrototypes.get(prototypeId);
@@ -594,7 +624,7 @@ export function placeConcept({
 export function placeConnections({ graphId, anchorInstanceId, statements, label = 'Added connections' }) {
   const result = { added: 0, linked: 0, skipped: 0, instanceIds: [] };
   const st = useGraphStore.getState();
-  if (!st.graphs.get(graphId)?.instances?.has(anchorInstanceId)) return result;
+  if (!viewOf(graphId, st)?.instances?.has(anchorInstanceId)) return result;
   const run = () => {
     for (const { concept, predicate, direction, provenance } of statements) {
       if (hasConnection(graphId, anchorInstanceId, concept, predicate)) { result.skipped += 1; continue; }
@@ -675,7 +705,7 @@ export function placeStatement({
         graphId, concept: seed, prototypeId: seedProtoId, anchorInstanceId: otherInst, predicate,
         direction: direction === 'in' ? 'out' : 'in', provenance, at, joinGroup
       });
-      const prototypeId = useGraphStore.getState().graphs.get(graphId).instances.get(otherInst).prototypeId;
+      const prototypeId = viewOf(graphId, useGraphStore.getState()).instances.get(otherInst).prototypeId;
       result = { prototypeId, instanceId: otherInst, edgeId: placed.edgeId, linked: true, seedInstanceId: placed.instanceId };
       return;
     }
@@ -704,7 +734,7 @@ export function placeStatement({
  * @param {string} [prototypeId] - the prototype already chosen for the concept, if any
  */
 export function existingInstanceFor(graphId, concept, anchorInstanceId, state = useGraphStore.getState(), prototypeId = null) {
-  const anchor = state.graphs.get(graphId)?.instances?.get(anchorInstanceId);
+  const anchor = viewOf(graphId, state)?.instances?.get(anchorInstanceId);
   if (!anchor) return null;
   return instanceForConcept(graphId, concept, anchor, state, prototypeId, anchorInstanceId);
 }
@@ -714,7 +744,7 @@ export function existingInstanceFor(graphId, concept, anchorInstanceId, state = 
  * name), nearest a point; null when there isn't one.
  */
 function instanceForConcept(graphId, concept, near, state, prototypeId = null, skipInstanceId = null) {
-  const instances = state.graphs.get(graphId)?.instances;
+  const instances = viewOf(graphId, state)?.instances;
   if (!instances) return null;
   const byUri = (prototypeId && state.nodePrototypes.get(prototypeId)) || findPrototypeForConcept(concept, state.nodePrototypes);
   const name = lower(concept?.name);
@@ -741,7 +771,7 @@ function connect({ graphId, concept, predicate, predicateLabel, direction, prove
   const sourceId = direction === 'in' ? otherInstanceId : anchorInstanceId;
   const destinationId = direction === 'in' ? anchorInstanceId : otherInstanceId;
   const st = useGraphStore.getState();
-  const already = (st.graphs.get(graphId)?.edgeIds || []).find((eid) => {
+  const already = (viewOf(graphId, st)?.edgeIds || []).find((eid) => {
     const e = st.edges.get(eid);
     return e && e.sourceId === sourceId && e.destinationId === destinationId && lower(e.name || e.label || e.type) === lower(predicateLabel);
   });

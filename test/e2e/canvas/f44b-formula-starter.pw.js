@@ -22,6 +22,8 @@ const openComposer = async (page, at = BARE) => {
   await page.mouse.click(at.x, at.y, { button: 'right' });
   await page.locator('.context-menu-item', { hasText: /^New Formula$/ }).click();
   await expect(page.locator('.formula-selector .unified-selector-pill input')).toBeFocused();
+  // Clicks this soon after it opens are dropped (UnifiedSelector, INPUT_GRACE_MS).
+  await page.waitForTimeout(300);
 };
 const named = (page, name) => storeEval(page, (st, n) => [...st.nodePrototypes.values()].filter(p => p.name === n).length, name);
 const webOf = (page, name) => storeEval(page, (st, n) => {

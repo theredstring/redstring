@@ -4,6 +4,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2, ListPlus } from 'lucide-react';
 import useGraphStore from '../../store/graphStore.js';
+import { projectGraphView } from '../../core/openDefinitions.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import useElementWidth from '../../hooks/useElementWidth.js';
@@ -94,7 +95,6 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const activeGraphId = useGraphStore((s) => s.activeGraphId);
   // What's in the Web, not where it sits: a drag must not redraw every row.
   const structureKey = useActiveGraphStructureKey();
-  const graphs = useGraphStore.getState().graphs;
   const edges = useGraphStore((s) => s.edges);
   const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
@@ -104,9 +104,10 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const seedName = seed?.name || '';
   const seedProtoId = seedPrototypeId || findPrototypeForConcept(seed, nodePrototypes)?.id || null;
   const color = seedColor || seed?.color || theme.accent.primary;
-  const graph = activeGraphId ? graphs.get(activeGraphId) : null;
+  // The Web as it's shown: Things inside its open boxes are here too.
+  const graph = activeGraphId ? projectGraphView(useGraphStore.getState(), activeGraphId) : null;
   const anchor = useMemo(() => (graph && seedProtoId
-    ? anchorInstanceFor(activeGraphId, seedProtoId, selectedInstanceIds, { graphs })
+    ? anchorInstanceFor(activeGraphId, seedProtoId, selectedInstanceIds, useGraphStore.getState())
     : null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ), [structureKey, seedProtoId, selectedInstanceIds]);
@@ -156,7 +157,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const linkable = useMemo(() => {
     const ids = new Set();
     if (!graph || !anchor) return ids;
-    const state = { graphs, nodePrototypes };
+    const state = useGraphStore.getState();
     connections.forEach((c) => {
       if (!presentAs(c) && existingInstanceFor(activeGraphId, c.other, anchor.id, state)) ids.add(c.id);
     });
@@ -257,7 +258,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   // Things and links to ones already here, for the dialog to state.
   const askAddAll = () => {
     if (!activeGraphId || !anchor) return;
-    const state = { graphs, nodePrototypes };
+    const state = useGraphStore.getState();
     const pending = visible.filter((c) => !presentAs(c));
     if (pending.length === 0) return;
     // A Thing reached by two connections is made once; the second one links to it.
