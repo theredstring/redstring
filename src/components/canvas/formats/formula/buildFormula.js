@@ -476,8 +476,8 @@ function build(chain, graphId, at, bindings, title, equation) {
  * (reopenThingGroupInPlace). So it is the one equation everywhere, not a copy
  * here to save or refresh. Left as the Thing-group where it can't open here.
  *
- * Its parentheses stay Thing-groups inside it: one part can be written twice
- * in a formula, (a + b) × (a + b), and a definition opens once in a web.
+ * Its parentheses stay Thing-groups inside it, as copies: one part can be
+ * written twice in a formula, (a + b) × (a + b), each its own group.
  */
 function openedInPlace(graphId, built) {
   const st = useGraphStore.getState();

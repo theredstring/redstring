@@ -39,7 +39,7 @@ function isPartOf(state, view, g) {
   if (!g?.anchorInstanceId) return false;
   const members = new Set(g.memberInstanceIds || []);
   return (view.edgeIds || []).some((edgeId) => {
-    const e = state.edges.get(edgeId);
+    const e = view.openView?.edges?.get(edgeId) || state.edges.get(edgeId);
     if (!e || (e.sourceId !== g.anchorInstanceId && e.destinationId !== g.anchorInstanceId)) return false;
     const other = e.sourceId === g.anchorInstanceId ? e.destinationId : e.sourceId;
     return !members.has(other) && !!operationOf(e, state);

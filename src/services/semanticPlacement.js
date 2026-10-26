@@ -285,7 +285,7 @@ export function clustersOf(graphId, state = useGraphStore.getState()) {
     if (ra !== rb) parent.set(ra, rb);
   };
   (view?.edgeIds || []).forEach((eid) => {
-    const e = state.edges.get(eid);
+    const e = view.openView?.edges?.get(eid) || state.edges.get(eid);
     if (e) union(e.sourceId, e.destinationId);
   });
   view?.groups?.forEach((group) => {
@@ -405,7 +405,7 @@ export function findPlacement({ graphId, mode, anchorInstanceId = null, origin =
     const segments = [];
     let nx = 0; let ny = 0; let n = 0;
     (view?.edgeIds || []).forEach((eid) => {
-      const e = state.edges.get(eid);
+      const e = view.openView?.edges?.get(eid) || state.edges.get(eid);
       const sb = e && boxes.get(e.sourceId); const db = e && boxes.get(e.destinationId);
       if (!sb || !db || e.sourceId === e.destinationId) return;
       const sc = center(sb); const dc = center(db);

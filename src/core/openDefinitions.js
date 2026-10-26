@@ -23,12 +23,36 @@
  *   to a node outside it lives in the outer graph with `sourceVia: [box]`. When Box
  *   is closed it is drawn to Box; open, to the node itself. Nothing is rewritten.
  *
- * A definition opens at most once per view. A second box of the same definition,
- * or a definition opened inside itself, shows closed. That keeps every drawn
- * instance id unique, so the canvas needs no per-path ids.
+ * A definition can be open in several boxes of one view. The first box it opens
+ * in shows its instances under their own ids; a box that repeats it shows them
+ * under view ids, its anchor's view id joined to theirs (`box/node`, see
+ * `viewIdOf`), so every drawn id stays unique. Everything inside a repeated box is
+ * addressed that way, nested boxes included (their `scope`). View ids exist only
+ * in the view: the store reads the stored id back off the end (`storedIdOf`), and
+ * nothing saved ever holds one. A definition opened inside itself shows closed.
  */
 
 export const OPEN_GROUP_PREFIX = 'open:';
+
+/** Joins a repeated box's scope to an id inside it. */
+export const VIEW_ID_SEPARATOR = '/';
+
+/** How an instance, connection or group inside a box with `scope` is addressed in the view. */
+export const viewIdOf = (scope, id) => (scope ? `${scope}${VIEW_ID_SEPARATOR}${id}` : id);
+
+/**
+ * The stored id behind a view id: an instance, connection or group's own id. Ids
+ * that aren't view ids come back as they are. Not for `open:` group ids, whose
+ * anchor is a view id (anchorIdFromOpenGroupId).
+ */
+export const storedIdOf = (viewId) => {
+  if (typeof viewId !== 'string') return viewId;
+  const at = viewId.lastIndexOf(VIEW_ID_SEPARATOR);
+  return at < 0 ? viewId : viewId.slice(at + 1);
+};
+
+/** A group id as stored: an `open:` id stays as it is (its anchor names the box). */
+export const storedGroupIdOf = (groupId) => (anchorIdFromOpenGroupId(groupId) ? groupId : storedIdOf(groupId));
 
 /** The synthetic group id the view gives an open box. */
 export const openGroupId = (anchorId) => `${OPEN_GROUP_PREFIX}${anchorId}`;
@@ -56,10 +80,14 @@ const addOffset = (a, b) => ({ x: (a?.x ?? 0) + (b?.x ?? 0), y: (a?.y ?? 0) + (b
  * Walks the view graph and every definition opened inside it.
  *
  * @returns {{ boxes: Map<string, Object>, owners: Map<string, Object> }}
- *   boxes: anchorId → { anchorId, prototypeId, index, format, linkedFormat, ownerGraphId, defGraphId, path, offset }
- *     where `offset` maps the definition's coordinates to the view's.
- *   owners: instanceId → { graphId, path, offset } for every instance inside a box.
- *     Instances of the view graph itself are not listed.
+ *   boxes: anchor view id → { anchorId, instanceId, prototypeId, index, format, linkedFormat, ownerGraphId, defGraphId, path, offset, scope, repeat }
+ *     where `offset` maps the definition's coordinates to the view's, `instanceId`
+ *     is the anchor's stored id, `scope` prefixes the view ids of everything inside
+ *     (empty unless the box or one around it repeats a definition open before it),
+ *     and `repeat` marks a box whose definition opened earlier in the walk.
+ *   owners: instance view id → { graphId, path, offset, instanceId } for every
+ *     instance inside a box (`instanceId` is its stored id). Path steps name
+ *     anchors by view id. Instances of the view graph itself are not listed.
  */
 export const mapOpenDefinitions = (graphs, nodePrototypes, viewGraphId) => {
   const boxes = new Map();
@@ -67,20 +95,25 @@ export const mapOpenDefinitions = (graphs, nodePrototypes, viewGraphId) => {
   const root = graphs?.get(viewGraphId);
   if (!root?.instances) return { boxes, owners };
 
-  const opened = new Set([viewGraphId]);
-  const walk = (graph, graphId, path, offset) => {
-    for (const instance of graph.instances.values()) {
-      if (path.length > 0) owners.set(instance.id, { graphId, path, offset });
+  const opened = new Set();
+  const walk = (graph, graphId, path, offset, scope) => {
+    const around = [viewGraphId, ...path.map(step => step.graphId)];
+    for (const [instanceId, instance] of graph.instances) {
+      const id = viewIdOf(scope, instanceId);
+      if (path.length > 0) owners.set(id, { graphId, path, offset, instanceId });
       if (!instance.openDefinition) continue;
       const defGraphId = openDefinitionGraphId(instance, nodePrototypes);
-      if (!defGraphId || opened.has(defGraphId)) continue;
+      if (!defGraphId || around.includes(defGraphId)) continue;
       const defGraph = graphs.get(defGraphId);
       if (!defGraph?.instances) continue;
+      const repeat = opened.has(defGraphId);
       opened.add(defGraphId);
+      const innerScope = repeat ? id : scope;
       const boxOffset = addOffset(offset, instance.openDefinition.offset);
-      const boxPath = [...path, { anchorId: instance.id, graphId: defGraphId }];
-      boxes.set(instance.id, {
-        anchorId: instance.id,
+      const boxPath = [...path, { anchorId: id, graphId: defGraphId }];
+      boxes.set(id, {
+        anchorId: id,
+        instanceId,
         prototypeId: instance.prototypeId,
         index: instance.openDefinition.index ?? 0,
         // How this node shows its definition (formats/), kept on the node.
@@ -92,24 +125,27 @@ export const mapOpenDefinitions = (graphs, nodePrototypes, viewGraphId) => {
         defGraphId,
         path,
         offset: boxOffset,
+        scope: innerScope,
+        repeat,
       });
-      walk(defGraph, defGraphId, boxPath, boxOffset);
+      walk(defGraph, defGraphId, boxPath, boxOffset, innerScope);
     }
   };
-  walk(root, viewGraphId, [], ZERO);
+  walk(root, viewGraphId, [], ZERO, '');
   return { boxes, owners };
 };
 
 /**
- * Where an instance seen in `viewGraphId` really lives.
+ * Where an instance seen in `viewGraphId` (by its view id) really lives.
  *
- * @returns {{ graphId: string, path: Array, offset: {x,y} }|null} null when the
- *   instance is not visible in the view. Instances of the view graph itself come
- *   back with an empty path and a zero offset.
+ * @returns {{ graphId: string, path: Array, offset: {x,y}, instanceId: string }|null}
+ *   null when the instance is not visible in the view. `instanceId` is its stored
+ *   id. Instances of the view graph itself come back with an empty path and a
+ *   zero offset.
  */
 export const resolveOwner = (graphs, nodePrototypes, viewGraphId, instanceId, map = null) => {
   if (graphs?.get(viewGraphId)?.instances?.has(instanceId)) {
-    return { graphId: viewGraphId, path: [], offset: ZERO };
+    return { graphId: viewGraphId, path: [], offset: ZERO, instanceId };
   }
   const { owners } = map || mapOpenDefinitions(graphs, nodePrototypes, viewGraphId);
   return owners.get(instanceId) || null;
@@ -117,75 +153,82 @@ export const resolveOwner = (graphs, nodePrototypes, viewGraphId, instanceId, ma
 
 /**
  * The graph a new connection between two visible instances belongs in, and the via
- * chain for each end: the innermost graph both ends can be reached from.
+ * chain for each end: the innermost box both ends are inside (or the view graph).
+ * Boxes are told apart by anchor, so two boxes of one definition are two places:
+ * a connection between them lives around both.
  *
  * @param {{graphId, path}} a - Owner of one end (from resolveOwner).
  * @param {{graphId, path}} b - Owner of the other end.
  * @param {string} viewGraphId
  */
 export const connectionHome = (a, b, viewGraphId) => {
-  const chainA = [viewGraphId, ...a.path.map(step => step.graphId)];
-  const chainB = [viewGraphId, ...b.path.map(step => step.graphId)];
   let shared = 0;
-  while (shared < chainA.length && shared < chainB.length && chainA[shared] === chainB[shared]) shared++;
-  const homeGraphId = chainA[shared - 1];
+  while (shared < a.path.length && shared < b.path.length
+    && a.path[shared].anchorId === b.path[shared].anchorId) shared++;
+  const homeGraphId = shared === 0 ? viewGraphId : a.path[shared - 1].graphId;
+  // Path steps name anchors by view id; a via holds stored ids.
   return {
     homeGraphId,
-    viaA: a.path.slice(shared - 1).map(step => step.anchorId),
-    viaB: b.path.slice(shared - 1).map(step => step.anchorId),
+    viaA: a.path.slice(shared).map(step => storedIdOf(step.anchorId)),
+    viaB: b.path.slice(shared).map(step => storedIdOf(step.anchorId)),
   };
 };
 
 /**
- * Why a node seen in `viewGraphId` can't open definition `definitionIndex` in
- * place, or null when it can (a definition not made yet always can).
- * 'open': another box in this view shows that definition already (one per view).
- * 'inside': the node sits in that definition, so it would open inside itself.
+ * Why a node seen in `viewGraphId` (by its view id) can't open definition
+ * `definitionIndex` in place, or null when it can (a definition not made yet
+ * always can). 'inside': the node sits in that definition, so it would open
+ * inside itself. A definition open in another box here doesn't block it.
  *
- * @returns {'open'|'inside'|null}
+ * @returns {'inside'|null}
  */
 export const openInPlaceBlock = (graphs, nodePrototypes, viewGraphId, instanceId, definitionIndex = 0, map = null) => {
   const own = graphs?.get(viewGraphId)?.instances?.get(instanceId);
-  const m = own ? null : (map || mapOpenDefinitions(graphs, nodePrototypes, viewGraphId));
-  const owner = own ? { graphId: viewGraphId, path: [] } : m.owners.get(instanceId);
+  const owner = own
+    ? { graphId: viewGraphId, path: [], instanceId }
+    : (map || mapOpenDefinitions(graphs, nodePrototypes, viewGraphId)).owners.get(instanceId);
   if (!owner) return null;
-  const instance = own || graphs.get(owner.graphId)?.instances?.get(instanceId);
+  const instance = own || graphs.get(owner.graphId)?.instances?.get(owner.instanceId);
   const defGraphId = nodePrototypes?.get(instance?.prototypeId)?.definitionGraphIds?.[definitionIndex];
   if (!defGraphId || !graphs.has(defGraphId)) return null;
   if ([viewGraphId, ...owner.path.map(step => step.graphId)].includes(defGraphId)) return 'inside';
-  const { boxes } = m || map || mapOpenDefinitions(graphs, nodePrototypes, viewGraphId);
-  for (const box of boxes.values()) {
-    if (box.defGraphId === defGraphId && box.anchorId !== instanceId) return 'open';
-  }
   return null;
 };
 
 // ─── The view ─────────────────────────────────────────────────────────────────
 
-// instance object → { ox, oy, flags, value }: an instance drawn at the same offset
-// with the same flags keeps its projected object, so memoized nodes don't re-render.
+// instance object → view id → { ox, oy, flags, value }: an instance drawn at the
+// same offset with the same flags keeps its projected object, so memoized nodes
+// don't re-render. Keyed by view id too, since a repeated box draws it again.
 const projectedInstances = new WeakMap();
-const projectInstance = (instance, offset, anchorGroupId) => {
+// `viewId`: set for an instance in a repeated box, null for one under its own id.
+const projectInstance = (instance, offset, anchorGroupId, viewId = null) => {
   const ox = offset?.x ?? 0;
   const oy = offset?.y ?? 0;
-  if (ox === 0 && oy === 0 && !anchorGroupId) return instance;
-  const cached = projectedInstances.get(instance);
+  if (ox === 0 && oy === 0 && !anchorGroupId && !viewId) return instance;
+  let byView = projectedInstances.get(instance);
+  if (!byView) { byView = new Map(); projectedInstances.set(instance, byView); }
+  const cached = byView.get(viewId || '');
   if (cached && cached.ox === ox && cached.oy === oy && cached.anchorGroupId === anchorGroupId) return cached.value;
   const value = {
     ...instance,
+    ...(viewId ? { id: viewId } : {}),
     x: (instance.x ?? 0) + ox,
     y: (instance.y ?? 0) + oy,
     ...(anchorGroupId ? { isGroupAnchor: true, anchorForGroupId: anchorGroupId } : {}),
   };
-  projectedInstances.set(instance, { ox, oy, anchorGroupId, value });
+  byView.set(viewId || '', { ox, oy, anchorGroupId, value });
   return value;
 };
 
-// edge object → { sourceId, destinationId, value }
+// edge object → view id → { sourceId, destinationId, value }. `viewId`: set for a
+// connection in a repeated box, null for one under its own id.
 const displayedEdges = new WeakMap();
-const displayEdge = (edge, sourceId, destinationId) => {
-  if (sourceId === edge.sourceId && destinationId === edge.destinationId) return edge;
-  const cached = displayedEdges.get(edge);
+const displayEdge = (edge, viewId, sourceId, destinationId) => {
+  if (!viewId && sourceId === edge.sourceId && destinationId === edge.destinationId) return edge;
+  let byView = displayedEdges.get(edge);
+  if (!byView) { byView = new Map(); displayedEdges.set(edge, byView); }
+  const cached = byView.get(viewId || '');
   if (cached && cached.sourceId === sourceId && cached.destinationId === destinationId) return cached.value;
   const arrows = edge.directionality?.arrowsToward;
   const arrowList = arrows instanceof Set ? Array.from(arrows) : (Array.isArray(arrows) ? arrows : []);
@@ -194,11 +237,31 @@ const displayEdge = (edge, sourceId, destinationId) => {
   )));
   const value = {
     ...edge,
+    ...(viewId ? { id: viewId } : {}),
     sourceId,
     destinationId,
     directionality: { ...(edge.directionality || {}), arrowsToward },
   };
-  displayedEdges.set(edge, { sourceId, destinationId, value });
+  byView.set(viewId || '', { sourceId, destinationId, value });
+  return value;
+};
+
+// group object → scope → value: a group inside a repeated box, under view ids.
+const scopedGroups = new WeakMap();
+const scopeGroup = (group, groupId, scope) => {
+  if (!scope) return group;
+  let byScope = scopedGroups.get(group);
+  if (!byScope) { byScope = new Map(); scopedGroups.set(group, byScope); }
+  let value = byScope.get(scope);
+  if (!value) {
+    value = {
+      ...group,
+      id: viewIdOf(scope, groupId),
+      memberInstanceIds: (group.memberInstanceIds || []).map(id => viewIdOf(scope, id)),
+      ...(group.anchorInstanceId ? { anchorInstanceId: viewIdOf(scope, group.anchorInstanceId) } : {}),
+    };
+    byScope.set(scope, value);
+  }
   return value;
 };
 
@@ -216,20 +279,34 @@ const ownerGraphIdOf = (graphs, instanceId) => {
 };
 
 /**
- * The instance a connection end is drawn to in the view: the end itself when it is
- * visible, otherwise the closed box that holds it. Null when neither is on screen.
+ * The view id a connection end is drawn to: the end itself when it is visible,
+ * otherwise the closed box that holds it. Null when neither is on screen. `scope`
+ * is the box the connection is drawn in (its own graph's scope), so its ends and
+ * via are read from there.
  */
-const displayEnd = (instanceId, via, visible, boxes, graphs, nodePrototypes, instancesInView) => {
-  if (visible(instanceId)) return instanceId;
+const displayEnd = (instanceId, via, scope, visible, boxes, owners, graphs, nodePrototypes, instancesInView) => {
+  const own = viewIdOf(scope, instanceId);
   if (Array.isArray(via) && via.length > 0) {
+    // Follow the via box by box: which box it goes through decides which copy of
+    // a repeated definition the end is in.
+    let at = scope;
     let deepestVisible = null;
+    let through = true;
     for (const anchorId of via) {
-      if (!visible(anchorId)) break;
-      deepestVisible = anchorId;
-      if (!boxes.has(anchorId)) break; // closed: everything below is hidden inside it
+      const shown = viewIdOf(at, anchorId);
+      if (!visible(shown)) { through = false; break; }
+      deepestVisible = shown;
+      const box = boxes.get(shown);
+      if (!box) { through = false; break; } // closed: everything below is hidden inside it
+      at = box.scope;
     }
-    if (deepestVisible) return deepestVisible;
+    const end = through ? viewIdOf(at, instanceId) : null;
+    if (end && visible(end)) return end;
+    // Drawn to the closed box on its way, unless the end sits in the web itself
+    // (a via left over from before it moved out).
+    if (deepestVisible && !(visible(own) && !owners.has(own))) return deepestVisible;
   }
+  if (visible(own)) return own;
   // No via (or a stale one): any closed node on screen whose definition holds it.
   const ownerGraphId = ownerGraphIdOf(graphs, instanceId);
   if (!ownerGraphId) return null;
@@ -275,14 +352,16 @@ const viewCache = new Map();
  * @param {string} viewGraphId
  *
  * The view has the raw graph's fields plus:
- * - `instances`: its own instances, then every open definition's, at view positions.
- *   An open box's anchor is flagged `isGroupAnchor` so it hides behind its shell.
- * - `edgeIds`: the connections drawn: its own plus every open definition's, less any
- *   with an end that is nowhere on screen.
- * - `groups`: its own groups, every open definition's, and one group per open box
- *   (`isOpenDefinition: true`, id from `openGroupId`).
- * - `openView`: `{ boxes, owners, edges }`. `edges` maps an edge id to the version
- *   drawn in this view when an end is hidden inside a closed box.
+ * - `instances`: its own instances, then every open definition's, at view positions,
+ *   keyed by view id (a repeated box's carry it as `id` too). An open box's anchor is
+ *   flagged `isGroupAnchor` so it hides behind its shell.
+ * - `edgeIds`: the connections drawn, by view id: its own plus every open
+ *   definition's, less any with an end that is nowhere on screen.
+ * - `groups`: its own groups, every open definition's (by view id), and one group
+ *   per open box (`isOpenDefinition: true`, id from `openGroupId`).
+ * - `openView`: `{ boxes, owners, edges }`. `edges` maps a connection's view id to
+ *   the version drawn in this view when an end is hidden inside a closed box or the
+ *   connection is in a repeated box (ends, arrows and `id` as view ids).
  */
 export const projectGraphView = (state, viewGraphId) => {
   const { graphs, nodePrototypes, edges } = state || {};
@@ -335,7 +414,8 @@ const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId, cache = v
   raw.instances.forEach((instance, id) => {
     instances.set(id, projectInstance(instance, ZERO, boxes.has(id) ? openGroupId(id) : null));
   });
-  const edgeIds = [...(raw.edgeIds || [])];
+  // [edgeId, scope]: each connection with the scope of the box it is drawn in.
+  const edgeEntries = (raw.edgeIds || []).map(edgeId => [edgeId, '']);
   const groups = new Map(raw.groups || []);
   const membersByBox = new Map();
   boxes.forEach((box) => membersByBox.set(box.anchorId, []));
@@ -343,10 +423,14 @@ const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId, cache = v
   boxes.forEach((box) => {
     const defGraph = graphs.get(box.defGraphId);
     defGraph.instances.forEach((instance, id) => {
-      instances.set(id, projectInstance(instance, box.offset, boxes.has(id) ? openGroupId(id) : null));
+      const viewId = viewIdOf(box.scope, id);
+      instances.set(viewId, projectInstance(instance, box.offset, boxes.has(viewId) ? openGroupId(viewId) : null, box.scope ? viewId : null));
     });
-    edgeIds.push(...(defGraph.edgeIds || []));
-    defGraph.groups?.forEach((group, groupId) => groups.set(groupId, group));
+    (defGraph.edgeIds || []).forEach(edgeId => edgeEntries.push([edgeId, box.scope]));
+    defGraph.groups?.forEach((group, groupId) => {
+      const shown = scopeGroup(group, groupId, box.scope);
+      groups.set(viewIdOf(box.scope, groupId), shown);
+    });
   });
 
   // Every box counts everything nested inside it as a member, nested anchors
@@ -363,16 +447,17 @@ const buildGraphView = (graphs, nodePrototypes, edgesMap, viewGraphId, cache = v
   const instancesInView = Array.from(instances.values());
   const shownEdges = new Map();
   const shownEdgeIds = [];
-  for (const edgeId of edgeIds) {
+  for (const [edgeId, scope] of edgeEntries) {
     const edge = edgesMap?.get(edgeId);
     if (!edge) continue;
-    const sourceId = displayEnd(edge.sourceId, edge.sourceVia, visible, boxes, graphs, nodePrototypes, instancesInView);
-    const destinationId = displayEnd(edge.destinationId, edge.destinationVia, visible, boxes, graphs, nodePrototypes, instancesInView);
+    const sourceId = displayEnd(edge.sourceId, edge.sourceVia, scope, visible, boxes, owners, graphs, nodePrototypes, instancesInView);
+    const destinationId = displayEnd(edge.destinationId, edge.destinationVia, scope, visible, boxes, owners, graphs, nodePrototypes, instancesInView);
     if (!sourceId || !destinationId) continue;
     if (sourceId === destinationId && edge.sourceId !== edge.destinationId) continue; // folded into one box
-    const shown = displayEdge(edge, sourceId, destinationId);
-    if (shown !== edge) shownEdges.set(edgeId, shown);
-    shownEdgeIds.push(edgeId);
+    const viewEdgeId = viewIdOf(scope, edgeId);
+    const shown = displayEdge(edge, scope ? viewEdgeId : null, sourceId, destinationId);
+    if (shown !== edge) shownEdges.set(viewEdgeId, shown);
+    shownEdgeIds.push(viewEdgeId);
   }
 
   const view = {

@@ -71,7 +71,8 @@ export function copySelection(selectedInstanceIds, graph, nodePrototypes, edges)
   // Collect edges where both endpoints are in selection
   const copiedEdges = [];
   for (const edgeId of graph.edgeIds) {
-    const edge = edges.get(edgeId);
+    // As drawn in the view: its ends are the ids the selection holds.
+    const edge = graph.openView?.edges?.get(edgeId) || edges.get(edgeId);
     if (!edge) continue;
 
     if (selectedInstanceIds.has(edge.sourceId) && selectedInstanceIds.has(edge.destinationId)) {

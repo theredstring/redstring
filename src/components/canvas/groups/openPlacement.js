@@ -66,9 +66,12 @@ export function nearestFreeShift(box, obstacles, want) {
 export function openBoxOffset({ viewGraphId, instanceId, definitionIndex = 0 }) {
   const state = useGraphStore.getState();
   const { graphs, nodePrototypes, edges, textSettings } = state;
-  const ownerGraphId = mapOpenDefinitions(graphs, nodePrototypes, viewGraphId).owners.get(instanceId)?.graphId || viewGraphId;
+  // `instanceId` is the node's view id; it is stored under its own id.
+  const owner = mapOpenDefinitions(graphs, nodePrototypes, viewGraphId).owners.get(instanceId);
+  const ownerGraphId = owner?.graphId || viewGraphId;
+  const storedId = owner?.instanceId || instanceId;
   const ownerGraph = graphs.get(ownerGraphId);
-  const instance = ownerGraph?.instances?.get(instanceId);
+  const instance = ownerGraph?.instances?.get(storedId);
   const prototype = instance ? nodePrototypes.get(instance.prototypeId) : null;
   if (!prototype) return null;
   const restingView = projectGraphView(state, viewGraphId)?.instances?.get(instanceId);
@@ -90,7 +93,7 @@ export function openBoxOffset({ viewGraphId, instanceId, definitionIndex = 0 }) 
   const defaultOffset = initialOpenOffset(instance, hypoGraphs.get(defGraphId));
   hypoGraphs.set(ownerGraphId, {
     ...ownerGraph,
-    instances: new Map(ownerGraph.instances).set(instanceId, {
+    instances: new Map(ownerGraph.instances).set(storedId, {
       ...instance, openDefinition: { index: definitionIndex, offset: defaultOffset },
     }),
   });

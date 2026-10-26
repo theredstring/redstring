@@ -8,6 +8,9 @@ import {
   anchorIdFromOpenGroupId,
   initialOpenOffset,
   openInPlaceBlock,
+  viewIdOf,
+  storedIdOf,
+  storedGroupIdOf,
 } from '../../src/core/openDefinitions.js';
 
 const graph = (id, instances = [], edgeIds = [], groups = []) => ({
@@ -122,13 +125,6 @@ describe('openDefinitions: projection', () => {
     expect(Array.from(boxes.keys())).toEqual(['box']);
   });
 
-  it('opens a definition once per view', () => {
-    const state = world();
-    state.graphs.get('main').instances.set('box-again', inst('box-again', 'p-box', 0, 900, { openDefinition: { index: 0, offset: { x: 0, y: 0 } } }));
-    const { boxes } = mapOpenDefinitions(state.graphs, state.nodePrototypes, 'main');
-    expect(Array.from(boxes.keys())).toEqual(['box']);
-  });
-
   it('draws a connection with no via to the closed node whose definition holds its end', () => {
     const state = world({ boxOpen: false });
     state.edges.set('e-across', edge('e-across', 'a', 'out'));
@@ -183,10 +179,10 @@ describe('openDefinitions: what can open in place', () => {
     expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'box')).toBeNull();
   });
 
-  it('blocks a second node of a definition already open in the view', () => {
+  it('lets a second node open a definition already open in the view', () => {
     const { graphs, nodePrototypes } = world();
     graphs.get('main').instances.set('box2', inst('box2', 'p-box', 0, 900));
-    expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'box2')).toBe('open');
+    expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'box2')).toBeNull();
   });
 
   it('blocks a node opening its own definition inside itself', () => {
@@ -201,5 +197,103 @@ describe('openDefinitions: what can open in place', () => {
   it('never blocks a node with no definition yet', () => {
     const { graphs, nodePrototypes } = world();
     expect(openInPlaceBlock(graphs, nodePrototypes, 'main', 'out')).toBeNull();
+  });
+});
+
+/** world(), plus a second Box ('again') open at 0,2000. */
+const twice = (options = {}, againOpen = true) => {
+  const state = world(options);
+  state.graphs.get('main').instances.set('again', inst('again', 'p-box', 0, 900,
+    againOpen ? { openDefinition: { index: 0, offset: { x: 0, y: 2000 } } } : {}));
+  return state;
+};
+
+describe('openDefinitions: one definition open in two boxes', () => {
+  it('reads view ids back to stored ids', () => {
+    expect(viewIdOf('', 'a')).toBe('a');
+    expect(viewIdOf('again', 'a')).toBe('again/a');
+    expect(viewIdOf('again/sub', 's1')).toBe('again/sub/s1');
+    expect(storedIdOf('again/sub/s1')).toBe('s1');
+    expect(storedIdOf('a')).toBe('a');
+    expect(storedGroupIdOf('again/g')).toBe('g');
+    expect(storedGroupIdOf(openGroupId('again/sub'))).toBe(openGroupId('again/sub'));
+  });
+
+  it('opens both: the first under stored ids, the repeat under view ids', () => {
+    const view = projectGraphView(twice(), 'main');
+    expect(view.instances.get('a')).toMatchObject({ id: 'a', x: 1000, y: 0 });
+    expect(view.instances.get('again/a')).toMatchObject({ id: 'again/a', x: 0, y: 2000, prototypeId: 'p-a' });
+    expect(view.instances.get('again/b')).toMatchObject({ x: 200, y: 2000 });
+    expect(view.groups.get(openGroupId('box')).memberInstanceIds).toEqual(['a', 'b', 'sub']);
+    expect(view.groups.get(openGroupId('again')).memberInstanceIds).toEqual(['again/a', 'again/b', 'again/sub']);
+    expect(view.openView.boxes.get('again')).toMatchObject({ instanceId: 'again', repeat: true, scope: 'again' });
+    expect(view.openView.boxes.get('box')).toMatchObject({ repeat: false, scope: '' });
+  });
+
+  it('draws the definition\'s own connections in each box', () => {
+    const view = projectGraphView(twice(), 'main');
+    expect(view.edgeIds).toEqual(expect.arrayContaining(['e-in', 'again/e-in']));
+    expect(view.openView.edges.has('e-in')).toBe(false);
+    expect(view.openView.edges.get('again/e-in')).toMatchObject({ id: 'again/e-in', sourceId: 'again/a', destinationId: 'again/b' });
+  });
+
+  it('draws a connection across a box\'s edge to the copy its via goes through', () => {
+    const state = twice();
+    state.graphs.get('main').edgeIds.push('e-across-again');
+    state.edges.set('e-across-again', edge('e-across-again', 'a', 'out', {
+      sourceVia: ['again'], directionality: { arrowsToward: new Set(['a']) },
+    }));
+    const view = projectGraphView(state, 'main');
+    expect(view.openView.edges.has('e-across')).toBe(false); // to 'a', through 'box'
+    const shown = view.openView.edges.get('e-across-again');
+    expect(shown).toMatchObject({ sourceId: 'again/a', destinationId: 'out' });
+    expect(Array.from(shown.directionality.arrowsToward)).toEqual(['again/a']);
+  });
+
+  it('draws it to the closed node it goes through, not the open copy', () => {
+    const state = twice({}, false);
+    state.graphs.get('main').edgeIds.push('e-across-again');
+    state.edges.set('e-across-again', edge('e-across-again', 'a', 'out', { sourceVia: ['again'] }));
+    const view = projectGraphView(state, 'main');
+    expect(view.openView.edges.get('e-across-again').sourceId).toBe('again');
+  });
+
+  it('nests: a box inside the repeat is addressed through it', () => {
+    const view = projectGraphView(twice({ subOpen: true }), 'main');
+    expect(view.instances.get('s1')).toMatchObject({ x: 1010, y: 510 });
+    expect(view.instances.get('again/sub/s1')).toMatchObject({ x: 10, y: 2510 });
+    expect(view.groups.get(openGroupId('again/sub')).memberInstanceIds).toEqual(['again/sub/s1']);
+    expect(view.openView.edges.get('again/e-into-sub')).toMatchObject({ sourceId: 'again/b', destinationId: 'again/sub/s1' });
+  });
+
+  it('shows the groups inside the definition in each box', () => {
+    const state = twice();
+    state.graphs.get('box-def').groups.set('g', { id: 'g', name: 'G', memberInstanceIds: ['a', 'b'] });
+    const view = projectGraphView(state, 'main');
+    expect(view.groups.get('g').memberInstanceIds).toEqual(['a', 'b']);
+    expect(view.groups.get('again/g')).toMatchObject({ id: 'again/g', name: 'G', memberInstanceIds: ['again/a', 'again/b'] });
+  });
+
+  it('resolves a repeat\'s instance to where it is stored', () => {
+    const state = twice({ subOpen: true });
+    const owner = resolveOwner(state.graphs, state.nodePrototypes, 'main', 'again/sub/s1');
+    expect(owner).toMatchObject({ graphId: 'sub-def', instanceId: 's1', offset: { x: 0, y: 2500 } });
+    expect(owner.path.map(step => step.anchorId)).toEqual(['again', 'again/sub']);
+  });
+
+  it('puts a connection between the two boxes around both, and one inside a box inside it', () => {
+    const state = twice({ subOpen: true });
+    const owner = (id) => resolveOwner(state.graphs, state.nodePrototypes, 'main', id);
+    expect(connectionHome(owner('a'), owner('again/b'), 'main')).toEqual({ homeGraphId: 'main', viaA: ['box'], viaB: ['again'] });
+    expect(connectionHome(owner('again/a'), owner('again/b'), 'main')).toEqual({ homeGraphId: 'box-def', viaA: [], viaB: [] });
+    expect(connectionHome(owner('again/sub/s1'), owner('out'), 'main')).toEqual({ homeGraphId: 'main', viaA: ['again', 'sub'], viaB: [] });
+    expect(connectionHome(owner('again/sub/s1'), owner('again/a'), 'main')).toEqual({ homeGraphId: 'box-def', viaA: ['sub'], viaB: [] });
+  });
+
+  it('still shows a definition opened inside itself closed', () => {
+    const state = twice();
+    state.graphs.get('box-def').instances.set('box2', inst('box2', 'p-box', 0, 600, { openDefinition: { index: 0, offset: { x: 0, y: 0 } } }));
+    const { boxes } = mapOpenDefinitions(state.graphs, state.nodePrototypes, 'main');
+    expect(Array.from(boxes.keys())).toEqual(['box', 'again']);
   });
 });

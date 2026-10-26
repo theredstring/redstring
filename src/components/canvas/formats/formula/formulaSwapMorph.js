@@ -112,7 +112,7 @@ function captureThings(graphId, groupId, { connections = true } = {}) {
   });
   const edgeIds = [];
   (view.edgeIds || []).forEach((id) => {
-    const e = useGraphStore.getState().edges.get(id);
+    const e = view.openView?.edges?.get(id) || useGraphStore.getState().edges.get(id);
     if (!e || !(members.has(e.sourceId) || members.has(e.destinationId))) return;
     edgeIds.push(id);
     if (connections) scene.querySelectorAll(`[data-edge-id="${esc(id)}"]`).forEach(el => fades.push(detachedCopy(el)));
@@ -141,7 +141,7 @@ function revealSelectorOf(graphId, groupId) {
   });
   const edgeIds = [];
   (view.edgeIds || []).forEach((id) => {
-    const e = useGraphStore.getState().edges.get(id);
+    const e = view.openView?.edges?.get(id) || useGraphStore.getState().edges.get(id);
     if (e && (members.has(e.sourceId) || members.has(e.destinationId))) edgeIds.push(id);
   });
   return [

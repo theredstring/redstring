@@ -17,7 +17,7 @@
  */
 import { formulasIn, formulaCover } from './formulas.js';
 import { resolveNodeSmart } from './resolveNodeSmart.js';
-import { projectGraphViewOf } from '../../../core/openDefinitions.js';
+import { projectGraphViewOf, storedIdOf, anchorIdFromOpenGroupId } from '../../../core/openDefinitions.js';
 
 const listOf = (v) => (v instanceof Map ? Array.from(v.values()) : Array.isArray(v) ? v : Object.values(v || {}));
 const key = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -30,8 +30,11 @@ const mapById = (v) => new Map(listOf(v).filter(x => x?.id).map(x => [x.id, x]))
  * per Thing opened there (`isOpenDefinition`, its id `open:<node>`, named for
  * its Thing, its members everything in it). The same projection the canvas
  * draws (core/openDefinitions.js), so what the wizard reads is what is on
- * screen. A web with nothing open comes back as it was. Read once per
- * snapshot; build again after the snapshot changes.
+ * screen. A definition open in more than one box is read once: a repeated
+ * box's group lists the same Things as the first, by their own ids, and the
+ * copies drawn in it (view ids) are left out. A web with nothing open comes
+ * back as it was. Read once per snapshot; build again after the snapshot
+ * changes.
  */
 export function drawnWebs(graphState) {
   const byId = mapById(graphState?.graphs);
@@ -49,11 +52,19 @@ export function drawnWebs(graphState) {
     // (nameOfEnd), with the ones inside what is opened here.
     const own = listOf(raw.edgeIds);
     const ownSet = new Set(own);
+    const stored = (id) => storedIdOf(id) === id;
+    const groups = [];
+    view.groups.forEach((g) => {
+      const anchorId = anchorIdFromOpenGroupId(g.id);
+      if (anchorId ? !stored(anchorId) : !stored(g.id)) return;
+      const members = g.memberInstanceIds || [];
+      groups.push(members.every(stored) ? g : { ...g, memberInstanceIds: [...new Set(members.map(storedIdOf))] });
+    });
     return {
       ...raw,
-      instances: [...view.instances.values()],
-      groups: [...view.groups.values()],
-      edgeIds: [...own, ...view.edgeIds.filter(id => !ownSet.has(id))],
+      instances: [...view.instances.values()].filter(inst => stored(inst.id)),
+      groups,
+      edgeIds: [...own, ...view.edgeIds.filter(id => !ownSet.has(id) && stored(id))],
     };
   };
 }

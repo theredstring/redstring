@@ -1,8 +1,9 @@
 /**
  * The webs opened in place inside a web: a definition or a formula shown open
  * on a node, its Things kept in its own web and drawn in this one
- * (core/openDefinitions.js). Each opens once, nested ones included, so a
- * web's Things as the user sees them are its own plus these webs'.
+ * (core/openDefinitions.js). Each is listed once, nested ones included (a
+ * definition open on two nodes is one web), so a web's Things as the user sees
+ * them are its own plus these webs'.
  */
 const listOf = (v) => (v instanceof Map ? Array.from(v.values()) : Array.isArray(v) ? v : Object.values(v || {}));
 

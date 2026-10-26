@@ -10,9 +10,9 @@
  * a formula opens back into the formula, which grows out of it on its own
  * (formats/formula/formulaSpawn.js).
  *
- * Opening in place can't happen twice for one definition in a web, or inside the
- * definition itself (src/core/openDefinitions.js); the buttons that offer it grey
- * out, saying why (expandBlockLabel).
+ * A definition can open in any number of nodes in one web, but never inside
+ * itself (src/core/openDefinitions.js); the buttons that offer it grey out then,
+ * saying why (expandBlockLabel).
  */
 import useGraphStore from '../../../store/graphStore.js';
 import { projectGraphView, openInPlaceBlock } from '../../../core/openDefinitions.js';
@@ -42,7 +42,6 @@ export function expandNodeInPlace({ viewGraphId, definitionIndex = 0, instanceId
 }
 
 const BLOCK_LABELS = {
-  open: 'Already Open Here',
   inside: "Can't Open Inside Itself",
 };
 
