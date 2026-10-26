@@ -77,7 +77,7 @@ test('F39b Decompose opens a definition already open in the web a second time', 
   expect(defIds).toEqual([ZETA, ETA].sort());
 });
 
-test('F39b dragging a node in the second box moves it in the definition, in both boxes', async ({ page }) => {
+test('F39b dragging a node in the second box moves it in both boxes as it goes', async ({ page }) => {
   await openTwice(page);
   const firstBefore = await nodeBox(page, ZETA);
   const zetaX = () => storeEval(page, (st, [d, z]) => st.graphs.get(d).instances.get(z).x, [DEF, ZETA]);
@@ -95,7 +95,11 @@ test('F39b dragging a node in the second box moves it in the definition, in both
   await page.waitForTimeout(NODE_LIFT_DELAY_MS + 150);
   await page.mouse.move(start.x + 4, start.y);
   await waitForCameraSettled(page);
+  const firstMidDrag = await nodeBox(page, ZETA);
   for (let i = 1; i <= 10; i++) await page.mouse.move(start.x + 4 + 6 * i, start.y);
+  await nextFrames(page, 3);
+  // The first box's Zeta is the same node: it follows during the drag, not at the drop.
+  expect((await nodeBox(page, ZETA)).x - firstMidDrag.x).toBeGreaterThan(20);
   await page.mouse.up();
   await waitForCameraSettled(page);
 

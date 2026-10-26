@@ -31,6 +31,7 @@ import { haptic } from '../services/haptics.js';
 import { createFrameClock } from '../components/canvas/camera/frameClock.js';
 import { markNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withFormulaParts } from '../components/canvas/formats/formula/formulaSelection.js';
+import { projectGraphView, dragCopiesOf } from '../core/openDefinitions.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -2657,7 +2658,14 @@ export const useNodeDrag = ({
     // Collect all node IDs that will be dragged (for DOM caching)
     const draggedIds = [];
 
-    if (selectedInstanceIds.has(instanceId)) {
+    // A Thing open in more than one box here draws its definition's nodes once
+    // per box: moving one moves them all, so its copies ride along on screen
+    // (the drop writes only the dragged ones; see copyIds in handleDragEnd).
+    const isMulti = selectedInstanceIds.has(instanceId);
+    const baseIds = isMulti ? withFormulaParts(selectedInstanceIds) : new Set([instanceId]);
+    const copyIds = new Set(dragCopiesOf(projectGraphView(useGraphStore.getState(), activeGraphId), baseIds));
+
+    if (isMulti || copyIds.size > 0) {
       // Multi-node drag
       const primaryNodeData = nodeById.get(instanceId);
       if (!primaryNodeData) return false;
@@ -2666,7 +2674,7 @@ export const useNodeDrag = ({
       const initialPositions = {};
       draggedIds.push(instanceId);
       // A formula in the selection is selected as its anchor; its Things move with it.
-      const movingIds = withFormulaParts(selectedInstanceIds);
+      const movingIds = new Set([...baseIds, ...copyIds]);
       nodes.forEach(n => {
         if (movingIds.has(n.id) && n.id !== instanceId) {
           initialPositions[n.id] = { offsetX: n.x - initialPrimaryPos.x, offsetY: n.y - initialPrimaryPos.y };
@@ -2691,7 +2699,8 @@ export const useNodeDrag = ({
         initialMouseCanvas: { x: initMouseCanvasX, y: initMouseCanvasY },
         initialPrimaryPos,
         relativeOffsets: initialPositions,
-        primaryId: instanceId
+        primaryId: instanceId,
+        ...(copyIds.size > 0 ? { copyIds } : {}),
       };
       setDraggingNodeInfo(multiInfo);
       // Fired here rather than at the top of the function: everything above can
@@ -2704,7 +2713,7 @@ export const useNodeDrag = ({
 
       const liftScale = dragZoomSettings.enabled ? LIFT_SCALE_ZOOM : LIFT_SCALE;
       liftTargetScaleRef.current = liftScale;
-      selectedInstanceIds.forEach(id => {
+      (isMulti ? selectedInstanceIds : [instanceId]).forEach(id => {
         storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = liftScale; }, { isDragging: true, phase: 'start', ignore: true });
       });
 
@@ -2900,7 +2909,13 @@ export const useNodeDrag = ({
     }
 
     // --- Capture final positions (NOT flushed yet — deferred to performCleanup) ---
+    // Copies of the dragged nodes in other boxes only rode along on screen: the
+    // dragged ones' write moves them, so they are left out of everything below.
     const finalPositions = new Map(dragPositionsRef.current);
+    info.copyIds?.forEach(id => finalPositions.delete(id));
+    const relativeOffsets = info.relativeOffsets && info.copyIds
+      ? Object.fromEntries(Object.entries(info.relativeOffsets).filter(([id]) => !info.copyIds.has(id)))
+      : info.relativeOffsets;
     const finalUpdates = finalPositions.size > 0
       ? Array.from(finalPositions.entries()).map(
         ([instanceId, { x, y }]) => ({ instanceId, x, y })
@@ -2924,9 +2939,9 @@ export const useNodeDrag = ({
         return false;
       };
 
-      if (info.relativeOffsets) {
+      if (relativeOffsets) {
         checkAndRecord(info.primaryId, info.initialPrimaryPos.x, info.initialPrimaryPos.y);
-        Object.entries(info.relativeOffsets).forEach(([id, rel]) => {
+        Object.entries(relativeOffsets).forEach(([id, rel]) => {
           checkAndRecord(id, info.initialPrimaryPos.x + rel.offsetX, info.initialPrimaryPos.y + rel.offsetY);
         });
       } else if (info.initialPos) {
@@ -2947,9 +2962,9 @@ export const useNodeDrag = ({
 
     // --- Collect IDs for scale reset ---
     const instanceIdsToReset = new Set();
-    if (info.relativeOffsets) {
+    if (relativeOffsets) {
       instanceIdsToReset.add(info.primaryId);
-      Object.keys(info.relativeOffsets).forEach(id => instanceIdsToReset.add(id));
+      Object.keys(relativeOffsets).forEach(id => instanceIdsToReset.add(id));
     } else if (info.instanceId) {
       instanceIdsToReset.add(info.instanceId);
     }
@@ -2965,9 +2980,9 @@ export const useNodeDrag = ({
 
     if (!wasGroupDrag) {
       checkGroupDrop = true;
-      if (info.relativeOffsets) {
+      if (relativeOffsets) {
         draggedNodeIds.push(info.primaryId);
-        Object.keys(info.relativeOffsets).forEach(id => draggedNodeIds.push(id));
+        Object.keys(relativeOffsets).forEach(id => draggedNodeIds.push(id));
       } else if (info.instanceId) {
         draggedNodeIds.push(info.instanceId);
       }

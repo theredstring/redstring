@@ -486,6 +486,39 @@ export const initialOpenOffset = (anchor, defGraph) => {
 // ─── For the canvas ───────────────────────────────────────────────────────────
 
 /**
+ * The other copies of instances being dragged in a view: an instance moved within
+ * its definition is moved in every box that shows that definition, so a drag
+ * carries its copies along (view ids). None for an instance whose whole box moves
+ * with it (then the box moves, not the definition), or one outside any box.
+ *
+ * @param {Object} view - projectGraphView's result.
+ * @param {Iterable<string>} ids - View ids being dragged.
+ * @returns {string[]}
+ */
+export const dragCopiesOf = (view, ids) => {
+  const owners = view?.openView?.owners;
+  if (!owners || owners.size === 0) return [];
+  const moving = new Set(ids);
+  const insideBox = new Map();
+  owners.forEach((owner, id) => owner.path.forEach((step) => {
+    if (!insideBox.has(step.anchorId)) insideBox.set(step.anchorId, []);
+    insideBox.get(step.anchorId).push(id);
+  }));
+  const stored = new Set();
+  moving.forEach((id) => {
+    const owner = owners.get(id);
+    if (!owner) return;
+    const boxId = owner.path[owner.path.length - 1].anchorId;
+    if ((insideBox.get(boxId) || []).every(m => moving.has(m))) return;
+    stored.add(owner.instanceId);
+  });
+  if (stored.size === 0) return [];
+  const copies = [];
+  owners.forEach((owner, id) => { if (stored.has(owner.instanceId) && !moving.has(id)) copies.push(id); });
+  return copies;
+};
+
+/**
  * A read-only graphs Map whose `get` returns each graph as viewed, with its open
  * definitions projected in. Iteration yields the raw graphs. Reads the state on
  * every call, like createLiveMapView, so callbacks never hold a stale graph.
