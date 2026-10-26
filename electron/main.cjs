@@ -687,7 +687,7 @@ function createMenu() {
           // accelerator: browsers keep Cmd/Ctrl+N for themselves and never hand
           // the keydown to the page, so the desktop app is where this shortcut
           // can actually exist. The renderer opens the selector.
-          label: 'New Thing',
+          label: 'Create or Open Web',
           accelerator: 'CmdOrCtrl+N',
           click: () => sendMenuCommand('new-web')
         },

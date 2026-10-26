@@ -22,12 +22,12 @@ export default function EmptyWebPrompt({ ctx }) {
         fontFamily: "'EmOne', sans-serif"
       }}>
         <div style={{ fontSize: '16px', color: theme.canvas.textPrimary, opacity: 0.7 }}>
-          Open a New Thing
+          Create or Open Web
         </div>
         <button
           onClick={(e) => {
             e.stopPropagation();
-            // Same act as the header's + (Create New Thing), so it gets the
+            // Same act as the header's + (Create or Open Web), so it gets the
             // same feedback — see Header.jsx's action row — and opens the
             // same selector rather than minting an unnamed Web.
             haptic('menuSelect');
@@ -63,7 +63,7 @@ export default function EmptyWebPrompt({ ctx }) {
             e.currentTarget.style.backgroundColor = 'transparent';
             e.currentTarget.style.borderWidth = '3px';
           }}
-          title="Create New Thing"
+          title="Create or Open Web"
         >
           <Plus size={48} strokeWidth={2} color={theme.canvas.textPrimary} />
         </button>

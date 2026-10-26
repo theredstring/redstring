@@ -14,6 +14,6 @@ test('F28 hovering a node, then a header button, shows each in the vision aid', 
   await page.mouse.move(c.x, c.y, { steps: 3 });
   await expect(aid).toContainText(alphaName, { timeout: 5_000 });
 
-  await page.locator('.header-action-btn[title="Create New Thing"]:visible').first().hover();
-  await expect(aid).toContainText('Create New Thing', { timeout: 5_000 });
+  await page.locator('.header-action-btn[title="Create or Open Web"]:visible').first().hover();
+  await expect(aid).toContainText('Create or Open Web', { timeout: 5_000 });
 });

@@ -1739,7 +1739,7 @@ function NodeCanvas() {
   const setNodeGroupPrompt = useCanvasUIStore(s => s.setNodeGroupPrompt);
 
   /**
-   * "Create New Thing" — the selector that opens a new Web by settling what
+   * "Create or Open Web" — the selector that opens a new Web by settling what
    * defines it.
    *
    * A Web is never anonymous: `createNewGraph` always mints a prototype to

@@ -68,9 +68,10 @@ function WebChoice({ title, onChoose, children }) {
 /**
  * The Thing's Webs and the new-Web card, in the selector's grid box: as large
  * as the box's width allows. A single row is also kept to the box's height, so
- * it shows whole without scrolling.
+ * it shows whole without scrolling. The header's New Web prompt shows it too
+ * (hosts/SearchHosts.jsx).
  */
-function WebGrid({ prototype, onChoose }) {
+export function WebGrid({ prototype, onChoose }) {
   const graphs = useGraphStore(s => s.graphs);
   useGraphStore(s => s.textSettings); // the cards' proportions follow it
   const ref = useRef(null);

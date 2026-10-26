@@ -464,7 +464,7 @@ const LeftGridView = ({
             // selector is mounted by NodeCanvas, the same route Merge
             // Duplicates takes out of this panel (see above).
             onClick={() => window.dispatchEvent(new Event('redstring:new-web'))}
-            title="Create New Thing with Graph Definition"
+            title="Create or Open Web"
           />
           <PanelIconButton
             icon={SlidersHorizontal}
