@@ -124,7 +124,8 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
         action: () => h.setStandardNotation(!standardNotation),
       });
     }
-    // Its size, in a Thing's steps (M → L → XL → XS → S → M), saved as group.formulaSize.
+    // Its size, in a Thing's steps (M → L → XL → XS → S → M), saved as group.formulaSize
+    // (opened in place, as its node's size).
     buttons.push({ id: 'group-size', label: `Size: ${nodeSizeLabel(group.formulaSize ?? 1)}`, icon: Scaling, action: () => h.cycleFormulaSize() });
     if (isThingGroup) buttons.push({ id: 'group-combine', label: 'Combine Into Thing', icon: Combine, action: () => h.onCombine() });
   }

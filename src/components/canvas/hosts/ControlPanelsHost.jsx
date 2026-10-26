@@ -28,6 +28,7 @@ import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { expandNodeInPlace } from '../actions/expandInPlace.js';
+import { resizeNodeInPlace } from '../actions/resizeNode.js';
 import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
@@ -479,9 +480,20 @@ export default function ControlPanelsHost({ ctx }) {
     cycleFormulaSize: () => {
       if (!selectedGroup || !activeGraphId) return;
       const next = nextNodeSizeStep(selectedGroup.formulaSize ?? 1);
-      useGraphStore.getState().updateGroup(activeGraphId, selectedGroup.id, (g) => {
-        if (next === 1) delete g.formulaSize; else g.formulaSize = next;
-      }, { finalize: true });
+      // Opened in place, the equation's size is its node's: that node grows
+      // around its middle, so it folds back that size where it stood.
+      const state = useGraphStore.getState();
+      const anchor = selectedGroup.isOpenDefinition
+        ? projectGraphView(state, activeGraphId)?.instances?.get(selectedGroup.anchorInstanceId)
+        : null;
+      const prototype = anchor ? state.nodePrototypes.get(anchor.prototypeId) : null;
+      if (anchor && prototype) {
+        resizeNodeInPlace(activeGraphId, { ...prototype, ...anchor }, next);
+      } else {
+        state.updateGroup(activeGraphId, selectedGroup.id, (g) => {
+          if (next === 1) delete g.formulaSize; else g.formulaSize = next;
+        }, { finalize: true });
+      }
       // The hover chip keeps the label it had when the pointer came in (as the node pie's Size does).
       if (getActionHoverItem()?.id === 'group-size') {
         useCanvasUIStore.getState().setActivePieMenuItemForVision({ id: 'group-size', label: `Size: ${nodeSizeLabel(next)}` });

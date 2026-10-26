@@ -57,7 +57,8 @@ export const VERSION_HISTORY = {
       'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged',
       'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context; the same field on an instance is how that one is written where it stands (q_1 for Electric Charge), over its Thing\'s. Builds that predate them show the Things and keep the labels in _preserved',
       'Formats on nodes (additive, no version bump): optional instance fields redstring:format and redstring:linkedFormat carry a Thing-group\'s format onto its node while it is folded, so it opens the same way; per placement, not per Thing. Builds that predate them keep both in _preserved',
-      'Formula size (additive, no version bump): optional group field redstring:formulaSize (a multiplier, 1 when absent) is the size a group shown as its formula is drawn at; the same field on an instance carries it while its Thing-group is folded. Builds that predate it draw the formula at the default size'
+      'Formula size (additive, no version bump): optional group field redstring:formulaSize (a multiplier, 1 when absent) is the size a group shown as its formula is drawn at; the same field on an instance carries it while its Thing-group is folded. Builds that predate it draw the formula at the default size',
+      'Formula size is its node\'s (2026-10-26, no version bump): an equation opened in place is drawn at its node\'s redstring:sizeMultiplier, and a Thing-group\'s redstring:formulaSize moves onto its node\'s size when it folds. Instances no longer write redstring:formulaSize; read, an open equation\'s becomes its node\'s size'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -890,7 +891,6 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
         // redstring:format / redstring:linkedFormat, kept on its node while folded.
         ...(instance.format ? { "redstring:format": instance.format } : {}),
         ...(instance.linkedFormat ? { "redstring:linkedFormat": instance.linkedFormat } : {}),
-        ...(instance.formulaSize ? { "redstring:formulaSize": instance.formulaSize } : {}),
 
         // Shown open in place: which of its prototype's definitions, and where that
         // definition's origin sits relative to this graph (core/openDefinitions.js).
@@ -1867,7 +1867,6 @@ export const importFromRedstring = (redstringData, storeActions) => {
             // How it shows its definition when it opens (formats/)
             if (typeof instance['redstring:format'] === 'string') convertedInstance.format = instance['redstring:format'];
             if (typeof instance['redstring:linkedFormat'] === 'string') convertedInstance.linkedFormat = instance['redstring:linkedFormat'];
-            if (validFormulaSize(instance['redstring:formulaSize'])) convertedInstance.formulaSize = instance['redstring:formulaSize'];
 
             // Shown open in place (core/openDefinitions.js)
             const openDefinition = instance['redstring:openDefinition'];
@@ -1908,10 +1907,12 @@ export const importFromRedstring = (redstringData, storeActions) => {
             const banked = takeFromPreserved(convertedInstance, key);
             if (typeof banked === 'string') convertedInstance[field] = banked;
           }
-          if (!convertedInstance.formulaSize) {
-            const banked = validFormulaSize(takeFromPreserved(convertedInstance, 'redstring:formulaSize'));
-            if (banked) convertedInstance.formulaSize = banked;
-          }
+          // Before an equation's size was its node's, a node kept its formula's own
+          // (redstring:formulaSize). Open, that is the size it was seen at, so it
+          // becomes the node's; folded, the node's size wins.
+          const ownFormulaSize = validFormulaSize(instance['redstring:formulaSize'] ?? convertedInstance.formulaSize)
+            ?? validFormulaSize(takeFromPreserved(convertedInstance, 'redstring:formulaSize'));
+          delete convertedInstance.formulaSize;
 
           // A build that predates open definitions banked the field in _preserved.
           if (!convertedInstance.openDefinition) {
@@ -1922,6 +1923,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 offset: { x: Number(banked['redstring:xOffset']) || 0, y: Number(banked['redstring:yOffset']) || 0 },
               };
             }
+          }
+          if (ownFormulaSize && convertedInstance.openDefinition && convertedInstance.format === 'formula') {
+            convertedInstance.sizeMul = ownFormulaSize;
           }
 
           instancesMap.set(instanceId, convertedInstance);

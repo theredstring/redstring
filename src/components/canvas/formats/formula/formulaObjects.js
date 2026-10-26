@@ -469,7 +469,7 @@ export function formulaObjectsIn(state, view, graphId, { standard = true, namesS
     const { x: cx, y: cy } = centre;
 
     const tokens = tokensOf(chain, { standard, expand: expandFor(namesShown.has(group.id), flipped.get(group.id)) });
-    // Its own size (group.formulaSize, the group pie's Size), as a Thing's sizeMul is.
+    // Its size (group.formulaSize, the group pie's Size): opened in place, its node's sizeMul.
     const font = FORMULA_FONT * (group.formulaSize > 0 ? group.formulaSize : 1);
     const line = layoutFormulaLine(tokens, font);
     const left = cx - line.width / 2;

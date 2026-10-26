@@ -1140,19 +1140,28 @@ const copyGroupsInto = (draft, { sourceGraph, targetGraph, instanceIdMap, offset
  * @returns {boolean}
  */
 /**
- * Moves how a Thing-group is shown (formats/: `format`, 'formula'), the size its
- * formula is drawn at (`formulaSize`) and the format
+ * Moves how a Thing-group is shown (formats/: `format`, 'formula') and the format
  * it is still linked to while shown as its Things (`linkedFormat`) between the
  * group and its node. The group holds them while it is open; folded, its node
  * does, so opening it again shows it the same way. Per placement: another
  * instance of the same Thing opens as its Things.
+ *
+ * A formula's size is its node's: folded it is that Size of Thing, open that
+ * Size of equation. A group holds it as `formulaSize`, its node as `sizeMul`.
  */
-const FORMAT_KEYS = ['format', 'linkedFormat', 'formulaSize'];
+const FORMAT_KEYS = ['format', 'linkedFormat'];
+const isGroupRecord = (record) => Array.isArray(record?.memberInstanceIds);
 const moveFormat = (from, to) => {
+  const formatted = Boolean(from?.format || from?.linkedFormat);
   for (const key of FORMAT_KEYS) {
     if (from?.[key]) to[key] = from[key]; else delete to[key];
     if (from) delete from[key];
   }
+  if (!formatted) return;
+  const size = isGroupRecord(from) ? from.formulaSize : from.sizeMul;
+  const sizeKey = isGroupRecord(to) ? 'formulaSize' : 'sizeMul';
+  if (size > 0 && size !== 1) to[sizeKey] = size; else delete to[sizeKey];
+  if (isGroupRecord(from)) delete from.formulaSize;
 };
 
 const isGroupContainedInInstances = (group, instanceIdSet) => {
@@ -2488,18 +2497,23 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [],
           ...(anchor.format ? { format: anchor.format } : {}),
           ...(anchor.linkedFormat ? { linkedFormat: anchor.linkedFormat } : {}),
-          ...(anchor.formulaSize ? { formulaSize: anchor.formulaSize } : {}),
+          // Its formula's size is its node's (see moveFormat).
+          ...(anchor.sizeMul > 0 && anchor.sizeMul !== 1 ? { formulaSize: anchor.sizeMul } : {}),
         };
+        const sizeBefore = standIn.formulaSize || null;
         recipe(standIn);
         const nameChanged = standIn.name !== prototype.name;
         const colorChanged = standIn.color !== prototype.color;
-        const formatChanged = FORMAT_KEYS.some(key => (standIn[key] || null) !== (anchor[key] || null));
+        const formatChanged = FORMAT_KEYS.some(key => (standIn[key] || null) !== (anchor[key] || null))
+          || (standIn.formulaSize || null) !== sizeBefore;
         if (!nameChanged && !colorChanged && !formatChanged) return;
         api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
         return set(produce((draft) => {
           if (nameChanged || colorChanged) syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged);
           const draftAnchor = draft.graphs.get(ownerGraphId)?.instances?.get(anchorId);
-          if (formatChanged && draftAnchor) moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat, formulaSize: standIn.formulaSize }, draftAnchor);
+          if (formatChanged && draftAnchor) {
+            moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat, formulaSize: standIn.formulaSize, memberInstanceIds: [] }, draftAnchor);
+          }
         }));
       }
       graphId = groupHomeGraphId(get(), graphId, groupId);
@@ -5759,7 +5773,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             ...(node.labels ? { labels: { ...node.labels } } : {}),
             // How it is shown (opened in place, as a formula): see moveFormat.
             ...(node.openDefinition ? { openDefinition: { ...node.openDefinition, offset: { ...node.openDefinition.offset } } } : {}),
-            ...Object.fromEntries(FORMAT_KEYS.filter(key => node[key]).map(key => [key, node[key]]))
+            ...Object.fromEntries(FORMAT_KEYS.filter(key => node[key]).map(key => [key, node[key]])),
+            // Its size (and an equation's: see moveFormat).
+            ...(node.sizeMul > 0 && node.sizeMul !== 1 ? { sizeMul: node.sizeMul } : {})
           });
         }
 

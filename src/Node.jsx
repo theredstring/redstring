@@ -395,8 +395,8 @@ const Node = ({
   // around it, never the definition's drawing.
   // A node that opens as its formula shows it here, as opening it would.
   const previewGroups = useMemo(
-    () => previewGroupsFor({ id: node.id, format: node.format, formulaSize: node.formulaSize, color: node.color }, currentViewGraph),
-    [node.id, node.format, node.formulaSize, node.color, currentViewGraph],
+    () => previewGroupsFor({ id: node.id, format: node.format, formulaSize: node.sizeMul, color: node.color }, currentViewGraph),
+    [node.id, node.format, node.sizeMul, node.color, currentViewGraph],
   );
   const innerNetworkElement = useMemo(() => (
     showPreview && openNetworkWidth > 0 && openNetworkHeight > 0 ? (

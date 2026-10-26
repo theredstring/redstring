@@ -86,7 +86,8 @@ export const mapOpenDefinitions = (graphs, nodePrototypes, viewGraphId) => {
         // How this node shows its definition (formats/), kept on the node.
         format: instance.format || null,
         linkedFormat: instance.linkedFormat || null,
-        formulaSize: instance.formulaSize || null,
+        // Its formula is drawn at the node's own size (graphStore moveFormat).
+        formulaSize: instance.sizeMul > 0 && instance.sizeMul !== 1 ? instance.sizeMul : null,
         ownerGraphId: graphId,
         defGraphId,
         path,

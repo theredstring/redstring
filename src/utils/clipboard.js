@@ -2,13 +2,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 /**
  * How a placement is shown, which a copy keeps: opened in place (its box where
- * it stood from the node, `openFromNode`), and as what (formats/: a formula).
+ * it stood from the node, `openFromNode`), as what (formats/: a formula) and
+ * at what size (an equation's is its node's).
  * A box's offset is where its definition lands in the view, so it is kept from
  * the node's place in the same view (projectGraphView's openView), not as saved.
  */
 function showStateOf(graph, instance) {
   const out = {};
-  for (const key of ['format', 'linkedFormat', 'formulaSize']) {
+  for (const key of ['format', 'linkedFormat', 'sizeMul']) {
     if (instance[key]) out[key] = instance[key];
   }
   const open = instance.openDefinition;
@@ -371,7 +372,7 @@ export function pasteClipboard(
       ...(node.labels ? { labels: node.labels } : {}),
       ...(node.format ? { format: node.format } : {}),
       ...(node.linkedFormat ? { linkedFormat: node.linkedFormat } : {}),
-      ...(node.formulaSize ? { formulaSize: node.formulaSize } : {}),
+      ...(node.sizeMul ? { sizeMul: node.sizeMul } : {}),
       ...(open ? { openDefinition: { index: open.index, offset: { x: pos.x + open.dx, y: pos.y + open.dy } } } : {})
     };
   });

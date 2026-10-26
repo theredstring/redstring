@@ -89,7 +89,7 @@ describe('copying a formula opened in place', () => {
     const nodePrototypes = new Map(defWeb.nodePrototypes);
     nodePrototypes.set('eq', { id: 'eq', name: 'Sum', color: '#8B0000', definitionGraphIds: ['def'] });
     const instances = new Map([['box', {
-      id: 'box', prototypeId: 'eq', x: 100, y: 100, format: 'formula', formulaSize: 2,
+      id: 'box', prototypeId: 'eq', x: 100, y: 100, format: 'formula', sizeMul: 2,
       openDefinition: { index: 0, offset: { x: 150, y: 120 } },
     }]]);
     useGraphStore.setState({
@@ -111,7 +111,7 @@ describe('copying a formula opened in place', () => {
     const st = useGraphStore.getState();
     const result = pasteClipboard(clip, 'other', { x: 500, y: 500 }, st, st.graphs.get('other'), dims);
     const pasted = useGraphStore.getState().graphs.get('other').instances.get(result.newInstanceIds[0]);
-    expect(pasted).toMatchObject({ prototypeId: 'eq', format: 'formula', formulaSize: 2 });
+    expect(pasted).toMatchObject({ prototypeId: 'eq', format: 'formula', sizeMul: 2 });
     expect(pasted.openDefinition.index).toBe(0);
     expect(pasted.openDefinition.offset).toEqual({ x: pasted.x + 50, y: pasted.y + 20 });
     expect(result.selectIds).toEqual([pasted.id]);
