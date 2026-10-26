@@ -219,7 +219,7 @@ export default function PromptsHost({ ctx }) {
               initialName={connectionNamePrompt.name}
               initialColor={connectionNamePrompt.color}
               title="Choose a Connection"
-              placeholder="e.g. supports"
+              placeholder="e.g. Supports, Friendship, Causes"
               searchTerm={connectionNamePrompt.name}
             />
           );
