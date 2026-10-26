@@ -3367,7 +3367,7 @@ function NodeCanvas() {
   const svgOverlaysCtx = {
     selectionStart, setMarqueeRectEl, plusSign, handlePlusSignClick, handleMorphDone, setPlusSign,
     gestureBlockRef, isPanningOrZooming, getPlusSignMorphTarget, textSettings, videoAnimation,
-    handleVideoAnimationComplete, clipboardRef, handleNodeSelection,
+    handleVideoAnimationComplete, clipboardRef, handleNodeSelection, edgePieMenuVisible,
   };
 
   // OrbitDimRect's inputs (moved JSX, wave 6).

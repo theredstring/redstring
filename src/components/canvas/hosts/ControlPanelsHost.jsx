@@ -205,7 +205,8 @@ export default function ControlPanelsHost({ ctx }) {
       }] : []),
     ]
     : null;
-  // Formula or Things: one button, first in the panel's row as in the group pie.
+  // Formula or Things: one button, first in the panel's row as in the group pie
+  // (after Show Names / Symbols when shown as a formula).
   const nextFormat = formatOrder[(formatOrder.indexOf(currentFormat) + 1) % formatOrder.length];
   const formatSwap = groupFormulaText && nextFormat !== currentFormat
     ? {

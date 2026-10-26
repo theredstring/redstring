@@ -75,11 +75,13 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
   const buttons = [];
 
   // Formula, or its Things: the panel's ◀ ▶, as one button (there are two formats).
-  if (formulaText) {
-    buttons.push(currentFormat === 'formula'
+  // Shown as a formula, it comes after Show Names / Symbols.
+  const formatSwap = formulaText
+    ? (currentFormat === 'formula'
       ? { id: 'group-show-things', label: 'Show as Things', icon: Shapes, action: () => h.swapFormat(1) }
-      : { id: 'group-show-formula', label: 'Show as Formula', icon: Sigma, action: () => h.swapFormat(1) });
-  }
+      : { id: 'group-show-formula', label: 'Show as Formula', icon: Sigma, action: () => h.swapFormat(1) })
+    : null;
+  if (formatSwap && !(mode === 'format' && currentFormat === 'formula')) buttons.push(formatSwap);
 
   if (mode === 'nodegroup') {
     buttons.push(
@@ -113,6 +115,7 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
       icon: WholeWord,
       action: () => h.setFormulaNames(!formulaNames),
     });
+    if (formatSwap) buttons.push(formatSwap);
     if (/[×^]/.test(formulaText || '')) {
       buttons.push({
         id: 'group-notation',

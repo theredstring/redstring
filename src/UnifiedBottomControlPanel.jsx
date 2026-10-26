@@ -532,6 +532,18 @@ const UnifiedBottomControlPanel = ({
   // UnifiedBottomControlPanel.css — the glyph has to grow with the bubble or a
   // wider button just buys more empty margin around the same small icon.
   const iconSize = mobileState.isMobile ? 18 : 22;
+  const renderFormatToggle = (toggle) => (
+    <div
+      key={toggle.key}
+      className="piemenu-button"
+      onClick={toggle.onClick}
+      title={toggle.title}
+      onMouseEnter={() => triggerActionHover(`control-format-${toggle.key}`, toggle.title)}
+      onMouseLeave={clearActionHover}
+    >
+      {toggle.icon(iconSize)}
+    </div>
+  );
   const formatSwapButton = formatSwap ? (
     <div
       className="piemenu-button"
@@ -1377,19 +1389,10 @@ const UnifiedBottomControlPanel = ({
             ) : isGroup ? (
               // Group mode: Show group actions (ungroup, edit, color, convert to node-group)
               <>
+                {/* Show Names / Symbols comes before the format swap, then the rest of the toggles. */}
+                {isFormat && Array.isArray(formatToggles) && formatToggles.slice(0, 1).map(renderFormatToggle)}
                 {formatSwapButton}
-                {isFormat && Array.isArray(formatToggles) && formatToggles.map((toggle) => (
-                  <div
-                    key={toggle.key}
-                    className="piemenu-button"
-                    onClick={toggle.onClick}
-                    title={toggle.title}
-                    onMouseEnter={() => triggerActionHover(`control-format-${toggle.key}`, toggle.title)}
-                    onMouseLeave={clearActionHover}
-                  >
-                    {toggle.icon(iconSize)}
-                  </div>
-                ))}
+                {isFormat && Array.isArray(formatToggles) && formatToggles.slice(1).map(renderFormatToggle)}
                 {/* A formula follows a Thing-group's order: Combine, Edit, Color, Ungroup, Copy, Delete. */}
                 {isFormat && onCombineNodeGroup && (
                   <div

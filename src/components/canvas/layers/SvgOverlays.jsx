@@ -2,7 +2,10 @@
  * The overlays at the top of the canvas content group (moved verbatim from
  * NodeCanvas): the marquee rect, the plus sign and the video effect.
  */
-import { Profiler } from 'react';
+import { Profiler, useEffect } from 'react';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { useGroupPieStore } from '../pie/groupPieButtons.js';
+import { useThingGroupPromptStore } from '../thingGroupPrompt/thingGroupPrompt.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import PlusSign from '../../../PlusSign.jsx';
 import PlusSignBubbles from './PlusSignBubbles.jsx';
@@ -13,8 +16,20 @@ export default function SvgOverlays({ ctx }) {
   const {
     selectionStart, setMarqueeRectEl, plusSign, handlePlusSignClick, handleMorphDone, setPlusSign,
     gestureBlockRef, isPanningOrZooming, getPlusSignMorphTarget, textSettings, videoAnimation,
-    handleVideoAnimationComplete, clipboardRef, handleNodeSelection,
+    handleVideoAnimationComplete, clipboardRef, handleNodeSelection, edgePieMenuVisible,
   } = ctx;
+
+  // Any pie (node, carousel, connection, group) opening sends the plus sign
+  // back in. Its own bubbles aren't a pie; a plus that is being named, waiting
+  // on its Add Web selector, or already becoming a Thing is committed and stays.
+  const nodePieTarget = useCanvasUIStore(s => s.selectedNodeIdForPieMenu);
+  const groupPieShown = useGroupPieStore(s => Boolean(s.groupId && s.buttons.length));
+  const pieShown = Boolean(nodePieTarget || edgePieMenuVisible || groupPieShown);
+  useEffect(() => {
+    if (!pieShown || plusSign?.mode !== 'appear' || plusSign.prompting) return;
+    if (useThingGroupPromptStore.getState().prompt) return;
+    setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+  }, [pieShown, nodePieTarget]);
 
   return (
     <Profiler id="SvgOverlays" onRender={onRenderProbe}>
