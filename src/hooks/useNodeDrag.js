@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
-import { standInFor, isReplacedGroup } from '../components/canvas/formats/replaced.js';
-import { formatAnchorPosition, formatLayoutHooks } from '../components/canvas/groups/groupLayouts.js';
+import { standInFor, isReplacedGroup, isReplacedInstance } from '../components/canvas/formats/replaced.js';
+import { formatAnchorPosition, formatLayoutHooks, connectionEndGeometry } from '../components/canvas/groups/groupLayouts.js';
+import { makeConnectionBoundsOf, routeFrom } from '../components/canvas/groups/connectionBounds.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
@@ -1752,6 +1753,63 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
   // ---------------------------------------------------------------------------
+  // computeGroupLayout's connectionBoundsOf for a drag frame: the connections at
+  // their live ends, with the live Lombardi fan and clean routing's frozen ports
+  // carried as far as each end has moved (as updateEdgesInDOM routes them).
+  const liveConnectionBoundsOf = useCallback((dragNodesById) => {
+    const curNodeById = nodeByIdRef.current;
+    const edges = edgesRef?.current || [];
+    const spacing = 200 * (multiConnectionCurveRef?.current ?? 1);
+    const nodeOf = (id) => {
+      const stored = curNodeById.get(id);
+      const live = dragNodesById.get(id);
+      return stored && live && live !== stored ? { ...stored, x: live.x, y: live.y } : stored;
+    };
+    const frozenPorts = cleanLaneOffsetsRef?.current || new Map();
+    const edgeById = routingStyleRef.current === 'clean' ? new Map(edges.map(e => [e.id, e])) : null;
+    const movedBy = (id) => {
+      const stored = curNodeById.get(id);
+      const live = nodeOf(id);
+      return stored && live ? { x: live.x - stored.x, y: live.y - stored.y } : { x: 0, y: 0 };
+    };
+    const livePorts = {
+      get: (edgeId) => {
+        const frozen = frozenPorts.get?.(edgeId);
+        const edge = edgeById?.get(edgeId);
+        if (!frozen || !edge) return frozen;
+        const s = movedBy(edge.sourceId);
+        const d = movedBy(edge.destinationId);
+        return {
+          ...frozen,
+          sourcePort: { x: frozen.sourcePort.x + s.x, y: frozen.sourcePort.y + s.y },
+          destPort: { x: frozen.destPort.x + d.x, y: frozen.destPort.y + d.y },
+        };
+      },
+    };
+    return makeConnectionBoundsOf({
+      edges,
+      nodeOf,
+      dimsOf: id => baseDimsByIdRef.current.get(id),
+      geometryFor: (node, dims) => connectionEndGeometry(node, dims, anchorPositionUpdatesRef?.current),
+      skipGroup: isReplacedGroup,
+      isDrawnElsewhere: isReplacedInstance,
+      route: routeFrom({
+        enableAutoRouting: enableAutoRoutingRef.current,
+        routingStyle: routingStyleRef.current,
+        lombardiTangents: lombardiTangentsRef?.current,
+        lombardiCurvature: lombardiCurvatureRef?.current ?? 1,
+        lombardiLaneSpacing: spacing * LOMBARDI_LANE_FRACTION,
+        manhattanBends: manhattanBendsRef?.current || 'auto',
+        orthogonalLaneSpacing: spacing * ORTHOGONAL_LANE_FRACTION,
+        cleanLaneOffsets: livePorts,
+        cleanLaneSpacing: cleanLaneSpacingRef?.current ?? 24,
+        curveSpacing: spacing,
+        edgeCurveInfo: edgeCurveInfoRef.current,
+      }),
+    });
+  }, [nodeByIdRef, edgesRef, multiConnectionCurveRef, cleanLaneOffsetsRef, routingStyleRef, baseDimsByIdRef, anchorPositionUpdatesRef,
+    enableAutoRoutingRef, lombardiTangentsRef, lombardiCurvatureRef, manhattanBendsRef, cleanLaneSpacingRef, edgeCurveInfoRef]);
+
   const updateGroupBoundsInDOM = useCallback((movedNodeIds) => {
     const groupsByNode = groupsByNodeIdRef.current;
     const groupsById = groupsByIdRef?.current || new Map();
@@ -1810,6 +1868,9 @@ export const useNodeDrag = ({
         const id = memberIds.find(m => dragPos.has(m) && curNodeById.has(m));
         return id ? { dx: dragPos.get(id).x - curNodeById.get(id).x, dy: dragPos.get(id).y - curNodeById.get(id).y } : null;
       }),
+      // Its connections, routed where they are drawn this frame (the settled
+      // layout's rule, groupLayouts.js), so the box doesn't jump on the drop.
+      connectionBoundsOf: liveConnectionBoundsOf(dragNodesById),
       _cache: new Map(),
     };
 
@@ -1980,7 +2041,7 @@ export const useNodeDrag = ({
     });
 
     return affectedAnchorIds;
-  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize, collectAffectedGroupIds]);
+  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize, collectAffectedGroupIds, liveConnectionBoundsOf]);
 
   // ---------------------------------------------------------------------------
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)

@@ -839,6 +839,8 @@ function computeGroupLayoutInner(group, context) {
     drawnBoundsOf = null,
     // A Thing drawn there instead (a formula's term): not where it stands. id → boolean.
     isDrawnElsewhere = null,
+    // The box of the connections drawn among its members (connectionBounds.js), or null.
+    connectionBoundsOf = null,
   } = context;
   const childBounds = (childId, nested) => drawnBoundsOf?.(childId) || (nested?.ok ? nested.visualBounds : null);
 
@@ -967,6 +969,16 @@ function computeGroupLayoutInner(group, context) {
         });
       }
     }
+  }
+
+  // Its connections are inside it too: a Lombardi arc, a bundle's lane or a
+  // self-loop can reach well past the Things it joins.
+  const links = isFinite(minX) ? connectionBoundsOf?.(group) : null;
+  if (links) {
+    if (links.minX < minX) minX = links.minX;
+    if (links.minY < minY) minY = links.minY;
+    if (links.maxX > maxX) maxX = links.maxX;
+    if (links.maxY > maxY) maxY = links.maxY;
   }
 
   if (!isFinite(minX) && group.linkedNodePrototypeId) {

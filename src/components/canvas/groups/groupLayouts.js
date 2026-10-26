@@ -9,6 +9,7 @@
 import { computeGroupLayout, groupLabelSizing, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { anchorPillEndBox, anchorEndBox } from '../../../utils/canvas/anchorEnd.js';
 import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
+import { makeConnectionBoundsOf, routeFrom } from './connectionBounds.js';
 
 /**
  * Publish a layout to the refs the rest of the canvas reads (drag, gamepad,
@@ -76,6 +77,11 @@ export function formatLayoutHooks(dragDelta = null) {
 }
 
 /**
+ * `connections`: the connections drawn and how they are routed, so each group's
+ * box holds the ones among its Things (connectionBounds.js): { edges, anchors,
+ * ...routeFrom's inputs } (anchors: the anchor title boxes connections meet).
+ * Without it a box holds only its Things.
+ *
  * @returns {{
  *   entries: Array<{ group, members, layout, effectiveGroupName, effectiveGroupColor }>,
  *   groupCount: number,
@@ -89,7 +95,7 @@ export function formatLayoutHooks(dragDelta = null) {
  */
 export function computeGroupLayouts({
   graphData, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName,
-  nodePrototypesMap, baseDimsById, gridSize, getTextWidth,
+  nodePrototypesMap, baseDimsById, gridSize, getTextWidth, connections = null,
 }) {
   // Shallowest-first so nested shells/titles emit after (above) their
   // parents within each z-layer; stable sort keeps insertion order
@@ -157,6 +163,7 @@ export function computeGroupLayouts({
     labelFontSize: groupLabelFontSize,
     labelGrowth,
     ...formatLayoutHooks(),
+    connectionBoundsOf: connections ? connectionBoundsHook(connections, hydratedNodes, baseDimsById) : null,
     _cache: new Map(),
   };
 
@@ -232,4 +239,18 @@ export function computeGroupLayouts({
     entries.push({ group, members, layout, effectiveGroupName, effectiveGroupColor });
   });
   return result;
+}
+
+/** The settled layout's connectionBoundsOf, from the nodes as hydrated (see computeGroupLayouts' `connections`). */
+function connectionBoundsHook({ edges, anchors, ...routing }, hydratedNodes, baseDimsById) {
+  const nodeById = new Map(hydratedNodes.map(n => [n.id, n]));
+  return makeConnectionBoundsOf({
+    edges,
+    nodeOf: id => nodeById.get(id),
+    dimsOf: id => baseDimsById.get(id),
+    geometryFor: (node, dims) => connectionEndGeometry(node, dims, anchors),
+    skipGroup: isReplacedGroup,
+    isDrawnElsewhere: isReplacedInstance,
+    route: routeFrom(routing),
+  });
 }

@@ -3232,9 +3232,9 @@ function NodeCanvas() {
   // rename draft or the label font change, not on every render.
   const groupLayouts = useMemo(() => computeGroupLayouts({
     graphData: activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName,
-    nodePrototypesMap, baseDimsById, gridSize, getTextWidth,
+    nodePrototypesMap, baseDimsById, gridSize, getTextWidth, connections: { edges, anchors: anchorPositionUpdatesRef.current, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo },
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getTextWidth is a stateless wrapper; labelFontVersion re-measures once the font arrives
-  }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion]);
+  }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion, edges, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo]);
 
   // Everything renderConnectionEdge reads except hover, gathered in one place;
   // EdgeLayer adds hover from canvasUIStore (P3.06a).
