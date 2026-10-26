@@ -7,7 +7,7 @@ import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
-import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, anchorPillEndBox, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
@@ -1811,8 +1811,7 @@ export const useNodeDrag = ({
       if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current && !isReplacedGroup(groupId)) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
-          x: labelX, y: labelY,
-          width: groupLabelWidth, height: groupLabelHeight,
+          ...anchorPillEndBox(labelX, labelY, groupLabelWidth, groupLabelHeight),
           groupId,
           outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
           // The shell as drawn — the shell-cutout clip on connections reads this.

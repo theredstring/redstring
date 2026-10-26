@@ -7,6 +7,7 @@
  * The code below is that pass's computation, moved verbatim.
  */
 import { computeGroupLayout, groupLabelSizing, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
+import { anchorPillEndBox } from '../../../utils/canvas/nodeHitbox.js';
 import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
 
 /**
@@ -206,8 +207,7 @@ export function computeGroupLayouts({
     if (isNodeGroup && group.anchorInstanceId) {
       const vb = layout.visualBounds;
       anchorPositions.set(group.anchorInstanceId, {
-        x: labelX, y: labelY,
-        width: labelWidth, height: labelHeight,
+        ...anchorPillEndBox(labelX, labelY, labelWidth, labelHeight),
         groupId: group.id,
         outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
         // The shell exactly as drawn (rounded rect, not the AABB above), so a

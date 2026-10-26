@@ -13,10 +13,26 @@
  * @param {boolean} isSelected - Whether node is selected (adds 8px stroke)
  * @returns {Object} { minX, minY, maxX, maxY } - Rectangular bounds
  */
+// Visual inset: Node background rect is positioned at (x+6, y+6) with dimensions (width-12, height-12)
+// This creates a 6px visual inset on all sides (from Node.jsx rendering)
+const VISUAL_INSET = 6;
+
+/**
+ * A Thing-group's title pill as an anchorPositions record's box ({ x, y,
+ * width, height }), the box its connections end on. The pill is filled edge to
+ * edge, where a node's fill sits VISUAL_INSET inside its box; the box is grown
+ * by that much so a connection's arrow tip, hover dot and glow land just
+ * outside the pill, as they do outside a node, and aren't cut off under its
+ * fill. `pill` is the pill's own corner, where its anchor instance is kept
+ * (anchorFlush), so the stored position doesn't move.
+ */
+export const anchorPillEndBox = (x, y, width, height) => ({
+  x: x - VISUAL_INSET, y: y - VISUAL_INSET,
+  width: width + VISUAL_INSET * 2, height: height + VISUAL_INSET * 2,
+  pill: { x, y },
+});
+
 export const getNodeHitbox = (node, dims, isSelected = false) => {
-  // Visual inset: Node background rect is positioned at (x+6, y+6) with dimensions (width-12, height-12)
-  // This creates a 6px visual inset on all sides (from Node.jsx rendering)
-  const VISUAL_INSET = 6;
 
   // Selection stroke is 12px wide (from Node.jsx: strokeWidth={12})
   // The stroke is centered on the rect edge, so it extends 6px outward from the visual boundary

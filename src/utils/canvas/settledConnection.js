@@ -18,7 +18,7 @@
  *   settledConnectionGeometry(edge, scene)      one connection's stroke and arrows
  */
 import { CONNECTION_WIDTH_BASE_SCALE, NODE_DEFAULT_COLOR } from '../../constants.js';
-import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
+import { anchorInfoFacing, anchorPillEndBox, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
 import {
   computeCleanRouting, computeLombardiRouting, computeLombardiTangents, computeManhattanRouting,
   connectionCurveMinBow, LOMBARDI_LANE_FRACTION, ORTHOGONAL_LANE_FRACTION,
@@ -57,8 +57,7 @@ export function connectionRoutingSettings(state) {
 export function anchorInfoFromGroupLayout(layout, cornerRadius) {
   const { label, rect, nodeGroupRect, visualBounds } = layout;
   return {
-    x: label.x, y: label.y,
-    width: label.w, height: label.h,
+    ...anchorPillEndBox(label.x, label.y, label.w, label.h),
     outerBounds: visualBounds ? { x: visualBounds.x, y: visualBounds.y, width: visualBounds.w, height: visualBounds.h } : null,
     shellRect: { x: rect.x, y: nodeGroupRect.y, w: rect.w, h: nodeGroupRect.h, r: cornerRadius },
   };
