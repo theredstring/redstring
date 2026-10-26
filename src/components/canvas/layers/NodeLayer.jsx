@@ -21,6 +21,7 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import FormulaObjectsLayer from '../formats/formula/FormulaObjectsLayer.jsx';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import NodeSpawnLayer from '../spawn/NodeSpawnLayer.jsx';
+import { cullUndecided } from '../data/culling.js';
 
 function NodeLayer({
   part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, draggingGroupId, marqueeActive,
@@ -28,6 +29,8 @@ function NodeLayer({
 }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
   const previewingNodeId = useCanvasUIStore((s) => s.previewingNodeId);
+  // On screen, or new since the last culling pass (see cullUndecided).
+  const isShown = (id) => visibleNodeIds.has(id) || cullUndecided(visibleNodeIds, id);
   const currentPieMenuNodeId = useCanvasUIStore((s) => s.currentPieMenuData?.node?.id ?? null);
   const selectedNodeIdForPieMenu = useCanvasUIStore((s) => s.selectedNodeIdForPieMenu);
   const abstractionCarouselVisible = useCanvasUIStore((s) => s.abstractionCarouselVisible);
@@ -57,7 +60,7 @@ function NodeLayer({
   const allOtherNodes = nodes.filter(node =>
     node.id !== nodeIdToKeepActiveForStacking &&
     node.id !== draggingNodeId &&
-    visibleNodeIds.has(node.id) &&
+    isShown(node.id) &&
     !node.isGroupAnchor &&
     !formulaHiddenIds.has(node.id)
   );
@@ -144,7 +147,7 @@ function NodeLayer({
   return (
     <>
       {/* Render the "Active" Node (if it exists and not being dragged) */}
-      {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
+      {activeNodeToRender && isShown(activeNodeToRender.id) && (
         (() => {
           const isPreviewing = previewingNodeId === activeNodeToRender.id;
           const baseDimensions = baseDimsById.get(activeNodeToRender.id);
@@ -182,7 +185,7 @@ function NodeLayer({
       )}
 
       {/* Render the Dragging Node last (on top) */}
-      {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
+      {draggingNodeToRender && isShown(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
     </>
   );
 }

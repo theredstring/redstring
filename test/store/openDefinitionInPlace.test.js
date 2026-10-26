@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
+import useCanvasUIStore from '../../src/store/canvasUIStore.js';
 import { projectGraphView, openGroupId } from '../../src/core/openDefinitions.js';
 
 // A node opened in place shows its definition's own nodes; editing them edits the
@@ -304,6 +305,13 @@ describe('a definition open in two boxes', () => {
     // c (now in box-2) to a in the first box: still between the two boxes.
     expect(st().edges.get('e-c-a')).toMatchObject({ sourceId: 'c', destinationId: 'a', sourceVia: ['box-2'], destinationVia: ['box'] });
     expect(view().instances.has('box-2/c')).toBe(true);
+  });
+
+  it('keeps a node dropped into the second box selected, under its id there', () => {
+    st().addNodeInstance('main', 'p-a', { x: 0, y: 500 }, 'c');
+    useCanvasUIStore.getState().setSelectedInstanceIds(new Set(['c']));
+    st().addInstancesToGroup('main', openGroupId('box-2'), ['c']);
+    expect([...useCanvasUIStore.getState().selectedInstanceIds]).toEqual(['box-2/c']);
   });
 
   it('closes the second box alone', () => {

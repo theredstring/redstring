@@ -57,6 +57,7 @@ import {
   projectGraphView,
   storedIdOf,
   storedGroupIdOf,
+  viewIdOf,
 } from '../core/openDefinitions.js';
 import { rightPanelTabKey } from '../utils/rightPanelTabs.js';
 import useHistoryStore from './historyStore.js';
@@ -3724,6 +3725,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!stored) continue;
         movedViewIds.add(instanceId);
         moves.push({
+          viewId: instanceId,
           instanceId: owner.instanceId,
           fromGraphId: owner.graphId,
           x: (stored.x ?? 0) + owner.offset.x - box.offset.x,
@@ -3805,6 +3807,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         });
       }));
+
+      // A node moved into a box goes by that box's view id now (its stored id
+      // when the box is the first of its definition here, `box/node` in a
+      // repeat). What was selected stays selected under its new id, so nothing
+      // that follows the selection jumps to the copy in another box.
+      const renamed = new Map();
+      moves.forEach(move => {
+        const nowId = viewIdOf(box.scope, move.instanceId);
+        if (nowId !== move.viewId) renamed.set(move.viewId, nowId);
+      });
+      const ui = useCanvasUIStore.getState();
+      if (renamed.size > 0 && [...ui.selectedInstanceIds].some(id => renamed.has(id))) {
+        ui.setSelectedInstanceIds(new Set([...ui.selectedInstanceIds].map(id => renamed.get(id) || id)));
+      }
     },
 
     /**

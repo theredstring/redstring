@@ -37,6 +37,28 @@ export const ENABLE_CULLING = (() => {
   }
 })();
 
+// A visible set → the node ids the pass that made it looked at. A pass runs a
+// frame after the data changes, so a node that appears in between (a new one, or
+// one a repeated Thing-group now draws under another id) isn't decided yet:
+// `cullUndecided` says so, and NodeLayer draws it until the next pass does,
+// instead of leaving a one-frame hole where it was dropped.
+const consideredBy = new WeakMap();
+let lastConsidered = { nodes: null, ids: null };
+const consideredIdsOf = (nodes) => {
+  if (lastConsidered.nodes !== nodes) {
+    const ids = new Set();
+    for (let i = 0; i < nodes.length; i++) ids.add(nodes[i].id);
+    lastConsidered = { nodes, ids };
+  }
+  return lastConsidered.ids;
+};
+
+/** Whether no culling pass has decided `id` yet (a set from before any pass counts as decided). */
+export const cullUndecided = (visibleNodeIds, id) => {
+  const considered = consideredBy.get(visibleNodeIds);
+  return !!considered && !considered.has(id);
+};
+
 /** One culling pass (see the header). `ctx` carries NodeCanvas's refs and setters. */
 export function runCullingPass(ctx) {
   const {
@@ -87,6 +109,7 @@ export function runCullingPass(ctx) {
       if (!nodesUnchanged) {
         const allIds = new Set();
         for (let i = 0; i < all.length; i++) allIds.add(all[i].id);
+        consideredBy.set(allIds, allIds);
         visibleNodeIdsRef.current = allIds;
         setVisibleNodeIds(allIds);
       }
@@ -338,14 +361,16 @@ export function runCullingPass(ctx) {
     // immediately but the deferred visibility commit lags by a frame or two.
     // The updaters return prev when membership is unchanged, and useTrackedState
     // then skips the set, so a steady-state pan costs no render (F-79).
+    const considered = consideredIdsOf(currentNodes);
     setVisibleNodeIds(prev => {
       if (prev.size === commitNodeIds.size) {
         let same = true;
         for (const id of commitNodeIds) {
           if (!prev.has(id)) { same = false; break; }
         }
-        if (same) return prev;
+        if (same) { consideredBy.set(prev, considered); return prev; }
       }
+      consideredBy.set(commitNodeIds, considered);
       return commitNodeIds;
     });
     setVisibleEdges(prev => {
