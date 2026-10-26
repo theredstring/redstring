@@ -148,7 +148,7 @@ export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePro
       if (result.isNodeGroup && group.anchorInstanceId) {
         // On the canvas the anchor IS the title: connections meet the pill and
         // are cut along the shell.
-        anchors.set(group.anchorInstanceId, anchorInfoFromGroupLayout(result, GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius));
+        anchors.set(group.anchorInstanceId, anchorInfoFromGroupLayout(result, GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius, textSettings));
       }
     }
     // Shallowest first, so nested shells paint above their parents.

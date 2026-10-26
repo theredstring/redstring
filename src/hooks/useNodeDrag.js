@@ -7,7 +7,7 @@ import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
-import { anchorInfoFacing, anchorPillEndBox, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
@@ -15,6 +15,7 @@ import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransfo
 import { glyphQuadAt, peekLabelSprite, peekNearbyLabelSprite, requestLabelSprite } from '../services/labelSpriteCache.js';
 import { collectDragOwnedEdges, dragNodeIdsOf } from '../components/canvas/edges/dragOwnedEdges.js';
 import { placeGroupLiftShadow } from '../components/canvas/groups/groupLiftShadow.js';
+import { anchorPillEndBox, anchorEndBox } from '../utils/canvas/anchorEnd.js';
 import {
   computeGroupLayout,
   groupLabelMetrics,
@@ -1062,12 +1063,14 @@ export const useNodeDrag = ({
       // already does with this same map, and what the settled render does via
       // anchorGeometryFor. This was the one reader that disagreed.
       if (sAnchor) {
-        sDims = { currentWidth: sAnchor.width, currentHeight: sAnchor.height };
-        sPos = { x: sAnchor.x, y: sAnchor.y };
+        const end = anchorEndBox(sAnchor);
+        sDims = { currentWidth: end.width, currentHeight: end.height };
+        sPos = { x: end.x, y: end.y };
       }
       if (eAnchor) {
-        dDims = { currentWidth: eAnchor.width, currentHeight: eAnchor.height };
-        dPos = { x: eAnchor.x, y: eAnchor.y };
+        const end = anchorEndBox(eAnchor);
+        dDims = { currentWidth: end.width, currentHeight: end.height };
+        dPos = { x: end.x, y: end.y };
       }
       // A member wired to its own group's Thing draws to the pill, not the
       // group's box: the same call the settled render makes (anchorInfoFacing).
@@ -1811,7 +1814,9 @@ export const useNodeDrag = ({
       if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current && !isReplacedGroup(groupId)) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
-          ...anchorPillEndBox(labelX, labelY, groupLabelWidth, groupLabelHeight),
+          x: labelX, y: labelY,
+          width: groupLabelWidth, height: groupLabelHeight,
+          end: anchorPillEndBox(labelX, labelY, groupLabelWidth, groupLabelHeight, useGraphStore.getState().textSettings),
           groupId,
           outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
           // The shell as drawn — the shell-cutout clip on connections reads this.

@@ -8,6 +8,7 @@ import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
 import { buildShellCutoutPath } from '../../services/groupLayout.js';
 import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints, straightArrowHeads } from '../../utils/canvas/nodeHitbox.js';
 import { connectionEndInfo } from './formats/replaced.js';
+import { anchorEndBox } from '../../utils/canvas/anchorEnd.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
 import { bundleFrameSign, computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, parallelLaneRank, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
@@ -133,13 +134,16 @@ export function renderConnectionEdge(edge, ctx) {
   // token or title) stops at its band, as an anchor's at its group's box.
   let sAnchorInfo = connectionEndInfo(sourceNode, anchorPositionUpdatesRef.current);
   let eAnchorInfo = connectionEndInfo(destNode, anchorPositionUpdatesRef.current);
-  if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
-  if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
-  const sNodeDims = sAnchorInfo
-    ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+  // A Thing-group's title is ended on clear of its fill (anchorEnd.js).
+  const sEnd = anchorEndBox(sAnchorInfo);
+  const eEnd = anchorEndBox(eAnchorInfo);
+  if (sEnd) sourceNode = { ...sourceNode, x: sEnd.x, y: sEnd.y };
+  if (eEnd) destNode = { ...destNode, x: eEnd.x, y: eEnd.y };
+  const sNodeDims = sEnd
+    ? { currentWidth: sEnd.width, currentHeight: sEnd.height }
     : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
-  const eNodeDims = eAnchorInfo
-    ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+  const eNodeDims = eEnd
+    ? { currentWidth: eEnd.width, currentHeight: eEnd.height }
     : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
   // A member wired to its own group's Thing draws to the pill, not the box.
   sAnchorInfo = anchorInfoFacing(sAnchorInfo, destNode, eNodeDims);

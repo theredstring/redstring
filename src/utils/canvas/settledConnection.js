@@ -18,7 +18,7 @@
  *   settledConnectionGeometry(edge, scene)      one connection's stroke and arrows
  */
 import { CONNECTION_WIDTH_BASE_SCALE, NODE_DEFAULT_COLOR } from '../../constants.js';
-import { anchorInfoFacing, anchorPillEndBox, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
+import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
 import {
   computeCleanRouting, computeLombardiRouting, computeLombardiTangents, computeManhattanRouting,
   connectionCurveMinBow, LOMBARDI_LANE_FRACTION, ORTHOGONAL_LANE_FRACTION,
@@ -27,6 +27,7 @@ import { DEFAULT_TIP_INSET, calculateParallelEdgePath, getCurvedArrowPlacement, 
 import { computeCleanLaneOffsets } from './cleanLaneOffsets.js';
 import { calculateSelfLoopPath } from './selfLoopUtils.js';
 import { computeEdgeCurveInfo } from '../../components/canvas/edges/edgeGeometry.js';
+import { anchorPillEndBox, anchorEndBox } from './anchorEnd.js';
 
 /** The arrowhead polygon, drawn at scale(connectionWidth). */
 export const ARROW_POLYGON_POINTS = '-26,34 26,34 0,-34';
@@ -54,10 +55,12 @@ export function connectionRoutingSettings(state) {
  * The anchor record the canvas's group pass publishes for a Thing-group
  * (groupLayouts.js anchorPositions), built from a computeGroupLayout result.
  */
-export function anchorInfoFromGroupLayout(layout, cornerRadius) {
+export function anchorInfoFromGroupLayout(layout, cornerRadius, textSettings) {
   const { label, rect, nodeGroupRect, visualBounds } = layout;
   return {
-    ...anchorPillEndBox(label.x, label.y, label.w, label.h),
+    x: label.x, y: label.y,
+    width: label.w, height: label.h,
+    end: anchorPillEndBox(label.x, label.y, label.w, label.h, textSettings),
     outerBounds: visualBounds ? { x: visualBounds.x, y: visualBounds.y, width: visualBounds.w, height: visualBounds.h } : null,
     shellRect: { x: rect.x, y: nodeGroupRect.y, w: rect.w, h: nodeGroupRect.h, r: cornerRadius },
   };
@@ -89,7 +92,7 @@ export function buildConnectionScene({ nodes, edges, dimsById, anchors = new Map
 
   // NodeCanvas anchorGeometryFor: a Thing-group's anchor is its title pill.
   const anchorGeometryFor = (node, dims) => {
-    const info = node?.isGroupAnchor ? anchors.get(node.id) : null;
+    const info = anchorEndBox(node?.isGroupAnchor ? anchors.get(node.id) : null);
     if (!info) return { node, dims };
     return { node: { ...node, x: info.x, y: info.y }, dims: { currentWidth: info.width, currentHeight: info.height } };
   };
@@ -182,13 +185,15 @@ export function settledConnectionGeometry(edge, scene) {
 
   let sAnchorInfo = sourceNode.isGroupAnchor ? anchors.get(sourceNode.id) : null;
   let eAnchorInfo = destNode.isGroupAnchor ? anchors.get(destNode.id) : null;
-  if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
-  if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
-  const sNodeDims = sAnchorInfo
-    ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+  const sEnd = anchorEndBox(sAnchorInfo);
+  const eEnd = anchorEndBox(eAnchorInfo);
+  if (sEnd) sourceNode = { ...sourceNode, x: sEnd.x, y: sEnd.y };
+  if (eEnd) destNode = { ...destNode, x: eEnd.x, y: eEnd.y };
+  const sNodeDims = sEnd
+    ? { currentWidth: sEnd.width, currentHeight: sEnd.height }
     : dimsById.get(sourceNode.id);
-  const eNodeDims = eAnchorInfo
-    ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+  const eNodeDims = eEnd
+    ? { currentWidth: eEnd.width, currentHeight: eEnd.height }
     : dimsById.get(destNode.id);
   if (!sNodeDims || !eNodeDims) return null;
   sAnchorInfo = anchorInfoFacing(sAnchorInfo, destNode, eNodeDims);

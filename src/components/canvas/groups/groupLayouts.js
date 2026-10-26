@@ -7,7 +7,7 @@
  * The code below is that pass's computation, moved verbatim.
  */
 import { computeGroupLayout, groupLabelSizing, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
-import { anchorPillEndBox } from '../../../utils/canvas/nodeHitbox.js';
+import { anchorPillEndBox, anchorEndBox } from '../../../utils/canvas/anchorEnd.js';
 import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
 
 /**
@@ -50,7 +50,7 @@ export function formatAnchorPosition(anchorId, pill, dx = 0, dy = 0) {
  * different shape.
  */
 export function connectionEndGeometry(node, dims, anchors) {
-  const info = connectionEndInfo(node, anchors);
+  const info = anchorEndBox(connectionEndInfo(node, anchors));
   if (!info) return { node, dims };
   return { node: { ...node, x: info.x, y: info.y }, dims: { currentWidth: info.width, currentHeight: info.height } };
 }
@@ -207,7 +207,10 @@ export function computeGroupLayouts({
     if (isNodeGroup && group.anchorInstanceId) {
       const vb = layout.visualBounds;
       anchorPositions.set(group.anchorInstanceId, {
-        ...anchorPillEndBox(labelX, labelY, labelWidth, labelHeight),
+        x: labelX, y: labelY,
+        width: labelWidth, height: labelHeight,
+        // Where its connections end (anchorEnd.js).
+        end: anchorPillEndBox(labelX, labelY, labelWidth, labelHeight, textSettings),
         groupId: group.id,
         outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
         // The shell exactly as drawn (rounded rect, not the AABB above), so a

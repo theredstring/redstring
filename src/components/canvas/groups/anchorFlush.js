@@ -28,10 +28,8 @@ export function flushAnchorPositions(ctx) {
         updates.delete(anchorId);
         continue;
       }
-      // At the pill's own corner, not the grown box connections end on (anchorPillEndBox).
-      const at = pos.pill || pos;
-      if (Math.abs((inst.x ?? 0) - at.x) > 1 || Math.abs((inst.y ?? 0) - at.y) > 1) {
-        positionUpdates.push({ instanceId: anchorId, x: at.x, y: at.y });
+      if (Math.abs((inst.x ?? 0) - pos.x) > 1 || Math.abs((inst.y ?? 0) - pos.y) > 1) {
+        positionUpdates.push({ instanceId: anchorId, x: pos.x, y: pos.y });
       }
     }
     if (positionUpdates.length > 0) {

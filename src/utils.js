@@ -338,8 +338,12 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
           // Mussel" narrowed to a 329px text box while "Bathymodiolin" needs
           // 330.3px, and rendered as "Bathymodioli / n Mussel" in a node 175px
           // narrower than the cap. Never propose a width the words can't survive.
+          //
+          // The floor carries OVERSHOOT_CUSHION because Pretext under-measures
+          // dash-joined words: "Hagen–Poiseuille" measures 394.87px but renders at
+          // 395.61px, so a 395px box sent it to "Hagen– / Poiseuille / Equation".
           const candidateTextWidth = Math.ceil(
-            Math.max((textWidth / numLines) * 1.3, longestWordWidth(nodeName, fontString))
+            Math.max((textWidth / numLines) * 1.3, longestWordWidth(nodeName, fontString) * OVERSHOOT_CUSHION)
           );
           const candidateWidth = Math.max(sW, Math.min(candidateTextWidth + 2 * sP, currentWidth));
           if (candidateWidth < currentWidth) {
