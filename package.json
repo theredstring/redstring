@@ -47,6 +47,7 @@
     "cap:sync:android": "npm run build:cap && npx cap sync android",
     "cap:android": "./scripts/android-run.sh",
     "cap:android:fast": "./scripts/android-run.sh --no-web",
+    "cap:bundle:android": "./scripts/android-bundle.sh",
     "lint": "eslint .",
     "preview": "vite preview",
     "start": "node deployment/app-semantic-server.js",

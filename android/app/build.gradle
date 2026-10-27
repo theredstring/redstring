@@ -1,5 +1,22 @@
 apply plugin: 'com.android.application'
 
+// The upload key for Google Play (Play App Signing holds the key the app is
+// actually signed with; this one only proves an upload is ours). It is read
+// from android/keystore.properties, which is gitignored:
+//
+//   storeFile=/absolute/path/to/redstring-upload.jks
+//   storePassword=...
+//   keyAlias=upload
+//   keyPassword=...
+//
+// or from REDSTRING_UPLOAD_STORE_FILE / _STORE_PASSWORD / _KEY_ALIAS /
+// _KEY_PASSWORD in the environment. Debug builds never need it.
+def uploadProps = new Properties()
+def uploadPropsFile = rootProject.file('keystore.properties')
+if (uploadPropsFile.exists()) uploadPropsFile.withInputStream { uploadProps.load(it) }
+def upload = { String key, String env -> uploadProps.getProperty(key) ?: System.getenv(env) }
+def uploadStoreFile = upload('storeFile', 'REDSTRING_UPLOAD_STORE_FILE')
+
 android {
     namespace "io.redstring.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +24,8 @@ android {
         applicationId "io.redstring.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 1500999
+        versionName "0.15.9"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +33,19 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (uploadStoreFile) {
+                storeFile rootProject.file(uploadStoreFile)
+                storePassword upload('storePassword', 'REDSTRING_UPLOAD_STORE_PASSWORD')
+                keyAlias upload('keyAlias', 'REDSTRING_UPLOAD_KEY_ALIAS')
+                keyPassword upload('keyPassword', 'REDSTRING_UPLOAD_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (uploadStoreFile) signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -56,4 +84,14 @@ try {
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
+
+// An unsigned release bundle is useless to Play and easy to upload by mistake,
+// so a release build without the upload key stops here, saying what's missing.
+gradle.taskGraph.whenReady { graph ->
+    def wantsRelease = graph.allTasks.any { it.project == project && it.name ==~ /(bundle|assemble)Release/ }
+    if (wantsRelease && !uploadStoreFile) {
+        throw new GradleException("No upload key for the release build. Create android/keystore.properties " +
+            "(see the top of android/app/build.gradle) or set REDSTRING_UPLOAD_STORE_FILE and the other REDSTRING_UPLOAD_* variables.")
+    }
 }

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { mobileVersion, setGradleVersion, setXcodeVersion } from './mobile-version.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,6 +55,24 @@ if (readmeContent !== updatedReadme) {
   console.log(`[bump-version] README.md → v${newVersion}`);
 } else {
   console.log(`[bump-version] README.md already at v${newVersion}`);
+}
+
+// The store builds carry the same version, and a build number derived from it
+// (scripts/mobile-version.js), so every upload is numbered above the last.
+const mobile = mobileVersion(newVersion);
+for (const [label, rel, update] of [
+  ['Android', '../android/app/build.gradle', setGradleVersion],
+  ['iOS', '../ios/App/App.xcodeproj/project.pbxproj', setXcodeVersion],
+]) {
+  const file = path.join(__dirname, rel);
+  const before = fs.readFileSync(file, 'utf8');
+  const after = update(before, mobile);
+  if (after !== before) {
+    fs.writeFileSync(file, after);
+    console.log(`[bump-version] ${label} → ${mobile.name} (build ${mobile.code})`);
+  } else {
+    console.log(`[bump-version] ${label} already at ${mobile.name} (build ${mobile.code})`);
+  }
 }
 
 try {
