@@ -517,6 +517,8 @@ export class GitHubSemanticProvider extends SemanticProvider {
     this.token = config.token;
     this.semanticPath = config.semanticPath || 'schema';
     this.authMethod = config.authMethod || 'oauth';
+    // { name, email } named as each commit's author (see createProviderForUniverse).
+    this.commitAuthor = config.commitAuthor || null;
   }
 
   // Prefer correct auth scheme for GitHub App tokens
@@ -1090,7 +1092,7 @@ This repository was automatically initialized by Redstring UI React. You can now
     // moved the remote, and blindly re-PUTting would overwrite their work.
     // `expectedSha: null` asserts "the file should not exist yet".
     if ('expectedSha' in options) {
-      return this._writeWithExpectedSha(safePath, apiPath, content, options.expectedSha);
+      return this._writeWithExpectedSha(safePath, apiPath, content, options.expectedSha, options.message);
     }
 
     try {
@@ -1290,13 +1292,15 @@ This repository was automatically initialized by Redstring UI React. You can now
    *
    * @private
    */
-  async _writeWithExpectedSha(safePath, apiPath, content, expectedSha) {
+  async _writeWithExpectedSha(safePath, apiPath, content, expectedSha, message) {
     await githubRateLimiter.waitForAvailability(this.authMethod);
 
     const body = {
-      message: `Update ${safePath}`,
+      // What the save changed (GitSyncEngine), shown in History's Git list.
+      message: message || `Update ${safePath}`,
       content: this.contentToBase64(content)
     };
+    if (this.commitAuthor?.name && this.commitAuthor?.email) body.author = this.commitAuthor;
     if (typeof expectedSha === 'string' && expectedSha) {
       body.sha = expectedSha;
     }
@@ -1940,7 +1944,7 @@ export class GiteaSemanticProvider extends SemanticProvider {
     // the write below reads the current SHA and uses it, so a save always
     // won and silently overwrote whatever another device had pushed.
     if ('expectedSha' in options) {
-      return this._writeWithExpectedSha(safePath, apiPath, content, options.expectedSha);
+      return this._writeWithExpectedSha(safePath, apiPath, content, options.expectedSha, options.message);
     }
 
     try {
@@ -2067,10 +2071,10 @@ export class GiteaSemanticProvider extends SemanticProvider {
     }
   }
 
-  async _writeWithExpectedSha(safePath, apiPath, content, expectedSha) {
+  async _writeWithExpectedSha(safePath, apiPath, content, expectedSha, message) {
     const creating = !(typeof expectedSha === 'string' && expectedSha);
     const body = {
-      message: `Update ${safePath}`,
+      message: message || `Update ${safePath}`,
       content: this.contentToBase64(content),
       branch: 'main'
     };

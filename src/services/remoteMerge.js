@@ -11,6 +11,7 @@ import { exportToRedstring, importFromRedstring } from '../formats/redstringForm
 import { serializeRedstring } from '../formats/universeBytes.js';
 import { syncMerge, rememberInlineImageRef, knowsInlineImageRef, deepEqual } from '../formats/syncMerge.js';
 import { computeImageRef, isDataUrl } from '../formats/imageRefs.js';
+import { describeChanges } from '../formats/changeSummary.js';
 
 /**
  * Learn the content ref of every inline image in these states, so the merge
@@ -88,7 +89,7 @@ function keepLive(merged, saved, live) {
  * @param {string} [input.applyBaseJson] - what the canvas was built from, when
  *   that is not `localJson` (a second round after the remote moved mid-merge)
  * @param {Object} input.remoteData - the repository's file now, parsed
- * @returns {{ ok: true, content: string, merged: Object, report: Object, applyBase: Object }
+ * @returns {{ ok: true, content: string, merged: Object, report: Object, applyBase: Object, summary: string|null }
  *         | { ok: false, reason: string, report?: Object }}
  */
 export async function planMerge({ baseText, localJson, applyBaseJson, remoteData }) {
@@ -107,7 +108,8 @@ export async function planMerge({ baseText, localJson, applyBaseJson, remoteData
 
   const content = new TextDecoder().decode(serializeRedstring(exportToRedstring(merged)));
   const applyBase = applyBaseJson && applyBaseJson !== localJson ? read(applyBaseJson) : ours;
-  return { ok: true, content, merged, report, applyBase };
+  // The commit's line: what this side changed (theirs is in their own commits).
+  return { ok: true, content, merged, report, applyBase, summary: describeChanges(base, ours) };
 }
 
 /**

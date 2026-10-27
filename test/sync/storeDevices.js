@@ -90,7 +90,7 @@ export function makeHost({ readLag = 0 } = {}) {
       if (!history.has(path)) history.set(path, []);
       history.get(path).push(version);
       blobs.set(sha, text);
-      commits.push({ path, sha, author });
+      commits.push({ path, sha, author, message: options.message || `Update ${path}` });
       return { content: { sha } };
     },
     async readFileRawWithMeta(path) {
@@ -110,7 +110,7 @@ export function makeHost({ readLag = 0 } = {}) {
       return visible(path)?.sha || null;
     },
     async listFileHistory(path) {
-      return commits.filter((c) => c.path === path).reverse().map((c) => ({ sha: c.sha, author: c.author }));
+      return commits.filter((c) => c.path === path).reverse().map((c) => ({ sha: c.sha, author: c.author, message: c.message }));
     },
     async readBinaryFile(path) { throw notFound(path); }
   });
@@ -156,6 +156,7 @@ export function makeDevice(host, author) {
     }
     return {
       content: plan.content,
+      message: plan.summary || undefined, // as universeBackend._planRemoteMerge does
       apply: async () => {
         await primeImageRefs(device.state); // as universeBackend._applyMergedState does
         const before = device.state;
@@ -207,7 +208,7 @@ export function makeDevice(host, author) {
     if (!useGraphStore.getState().loadUniverseFromFile(JSON.parse(remote.content))) throw new Error(`${author}: load failed`);
     useGraphStore.getState().markDocumentSynced();
     device.state = snapshot();
-    engine.markRemoteObserved({ sha: remote.sha, nodeCount: device.state.nodePrototypes.size, contentHash: engine.generateStateHash(device.state) });
+    engine.markRemoteObserved({ sha: remote.sha, nodeCount: device.state.nodePrototypes.size, contentHash: engine.generateStateHash(device.state), state: device.state });
   };
   return device;
 }

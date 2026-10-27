@@ -16,7 +16,8 @@ const backend = {
   getActiveUniverse: vi.fn(),
   listUniverseHistory: vi.fn(),
   describeUniverseVersion: vi.fn(),
-  restoreUniverseVersion: vi.fn()
+  restoreUniverseVersion: vi.fn(),
+  currentAccount: vi.fn()
 };
 
 vi.mock('../../src/services/universeBackend.js', () => ({
@@ -132,6 +133,23 @@ describe('GitHistoryList', () => {
     fireEvent.click(await screen.findByText('Restore'));
 
     await waitFor(() => expect(backend.listUniverseHistory).toHaveBeenCalledTimes(2));
+  });
+
+  it('in a shared universe, says who saved and what each save did', async () => {
+    backend.currentAccount.mockReturnValue('Ana');
+    backend.listUniverseHistory.mockResolvedValue([
+      { sha: 'c3', date: '2026-10-27T10:00:00Z', message: 'Connected "Tree" to "Bird"', author: 'ben', size: 2048 },
+      { sha: 'c2', date: '2026-10-27T09:00:00Z', message: 'Added "Tree"', author: 'ana', size: 1024 },
+      { sha: 'c1', date: '2026-10-26T09:00:00Z', message: 'Update universes/forest/forest.redstring', author: 'ana', size: 512 }
+    ]);
+    const { container } = render(<GitHistoryList />);
+    await screen.findByText('Connected "Tree" to "Bird"');
+
+    const rows = [...container.querySelectorAll('.git-revision')];
+    const author = (row) => row.querySelector('.git-revision-author')?.textContent;
+    expect(rows.map(author)).toEqual(['ben', 'you', 'you']);
+    // A save from before saves said what they changed.
+    expect(rows[2].querySelector('.history-item-description').textContent).toBe('Saved');
   });
 
   it('keeps the dialog closed until a revision is chosen', async () => {

@@ -22,6 +22,11 @@ import RestoreVersionDialog from '../../shared/RestoreVersionDialog.jsx';
  *
  * Counts cost a download, so they are fetched only for the revision the user
  * actually points at, and they arrive in the confirm dialog rather than here.
+ *
+ * In a shared universe this is also where to see who did what: each save
+ * names the account that made it, and its commit says what it changed
+ * (GitSyncEngine, describeChanges). The save status in the corner only ever
+ * says "Syncing...".
  */
 
 export const formatRevisionTime = (date) => {
@@ -36,10 +41,20 @@ export const formatRevisionTime = (date) => {
   return new Date(ms).toLocaleDateString();
 };
 
-/** The commit subject only — the body is never short enough for a panel row. */
+/**
+ * The commit subject only — the body is never short enough for a panel row.
+ * Saves from before commits said what they changed read "Update <path>".
+ */
 const subjectOf = (message) => {
   const subject = String(message || '').split('\n')[0].trim();
-  return subject || 'Update';
+  if (!subject || /^Update \S+( semantic data)?$/.test(subject)) return 'Saved';
+  return subject;
+};
+
+/** Who saved it: "you" for this device's account. */
+const whoOf = (author, me) => {
+  if (!author) return null;
+  return me && String(author).toLowerCase() === String(me).toLowerCase() ? 'you' : author;
 };
 
 const GitHistoryList = ({ universeSlug = null, isSlim = false }) => {
@@ -54,6 +69,7 @@ const GitHistoryList = ({ universeSlug = null, isSlim = false }) => {
     ? universeBackend.getUniverse(universeSlug)
     : universeBackend.getActiveUniverse();
   const slug = universe?.slug || null;
+  const me = universeBackend.currentAccount?.() || null;
   const linked = universe?.gitRepo?.linkedRepo;
   const hasRepo = !!(universe?.gitRepo?.enabled && linked);
 
@@ -156,6 +172,7 @@ const GitHistoryList = ({ universeSlug = null, isSlim = false }) => {
               revision={revision}
               isHead={index === 0}
               isSlim={isSlim}
+              me={me}
               onClick={() => choose(revision)}
             />
           ))
@@ -177,9 +194,11 @@ const GitHistoryList = ({ universeSlug = null, isSlim = false }) => {
   );
 };
 
-const RevisionItem = ({ revision, isHead, isSlim, onClick }) => {
+const RevisionItem = ({ revision, isHead, isSlim, me, onClick }) => {
   const size = formatBytes(revision.size);
   const when = formatRevisionTime(revision.date);
+  const who = whoOf(revision.author, me);
+  const subject = subjectOf(revision.message);
 
   return (
     <div
@@ -192,8 +211,9 @@ const RevisionItem = ({ revision, isHead, isSlim, onClick }) => {
         <GitCommitVertical size={14} />
       </div>
       <div className="history-item-content">
-        <div className="history-item-description">{subjectOf(revision.message)}</div>
+        <div className="history-item-description" title={subject}>{subject}</div>
         <div className="history-item-meta">
+          {who && <span className="git-revision-author">{who}</span>}
           <span className="history-time">{when}</span>
           {size && <span className="git-revision-size">{size}</span>}
           {isHead && !isSlim && <span className="git-revision-tag">current</span>}

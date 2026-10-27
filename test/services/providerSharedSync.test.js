@@ -128,8 +128,31 @@ for (const [name, setup] of Object.entries(PROVIDERS)) {
       const revisions = await p.listFileHistory('f.redstring', { withSize: false });
       expect(revisions.map((r) => r.author)).toEqual(['ana', 'Ben B']);
     });
+
+    it('a save carries the line saying what it changed', async () => {
+      const p = setup.make();
+      fetch.mockResolvedValueOnce(ok({ content: { sha: 'new' } }));
+      await p.writeFileRaw('f.redstring', '{}', { expectedSha: 'old', message: 'Added "Pressure"' });
+      expect(JSON.parse(fetch.mock.calls[0][1].body).message).toBe('Added "Pressure"');
+    });
   });
 }
+
+describe('github: saves name the person, not the app', () => {
+  it('names the signed-in account as author when it is known', async () => {
+    const p = new GitHubSemanticProvider({ user: 'u', repo: 'r', token: 't', authMethod: 'github-app', commitAuthor: { name: 'ana', email: '7+ana@users.noreply.github.com' } });
+    fetch.mockResolvedValueOnce(ok({ content: { sha: 'new' } }));
+    await p.writeFileRaw('f.redstring', '{}', { expectedSha: 'old' });
+    expect(JSON.parse(fetch.mock.calls[0][1].body).author).toEqual({ name: 'ana', email: '7+ana@users.noreply.github.com' });
+  });
+
+  it('leaves the author to GitHub when it is not', async () => {
+    const p = PROVIDERS.github.make();
+    fetch.mockResolvedValueOnce(ok({ content: { sha: 'new' } }));
+    await p.writeFileRaw('f.redstring', '{}', { expectedSha: 'old' });
+    expect(JSON.parse(fetch.mock.calls[0][1].body).author).toBeUndefined();
+  });
+});
 
 describe('gitea: creating a file that must not exist yet', () => {
   it('POSTs without a sha', async () => {

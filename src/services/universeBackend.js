@@ -1826,7 +1826,9 @@ class UniverseBackend {
                   // What the store now holds = what the repository holds, so
                   // the engine has nothing to commit until a real edit —
                   // unless this is a merge made at load, which it still has to push.
-                  contentHash: observation.unpushed ? null : this._contentHashOf(useGraphStore.getState())
+                  contentHash: observation.unpushed ? null : this._contentHashOf(useGraphStore.getState()),
+                  // What each commit after this says it changed is measured from here.
+                  state: observation.unpushed ? null : useGraphStore.getState()
                 });
                 if (observation.unpushed) this._flushPendingPush(observation.universeSlug);
               } else if (applied !== false && storeState?._universeSlug) {
@@ -2655,6 +2657,14 @@ class UniverseBackend {
 
     if (installationId) {
       providerConfig.installationId = installationId;
+    }
+
+    // Saves made with the GitHub App's token are otherwise all signed by the
+    // app: name the person, so History shows who saved what. GitHub links a
+    // commit to an account by its noreply address.
+    const me = persistentAuth.getUserData?.();
+    if (me?.login && me?.id) {
+      providerConfig.commitAuthor = { name: me.login, email: `${me.id}+${me.login}@users.noreply.github.com` };
     }
 
     return SemanticProviderFactory.createProvider(providerConfig);
@@ -5248,6 +5258,7 @@ class UniverseBackend {
     return {
       content: plan.content,
       report: plan.report,
+      message: plan.summary || undefined,
       apply: async () => this._applyMergedState(universeSlug, plan.applyBase, plan.merged, plan.report)
     };
   }
@@ -5802,13 +5813,14 @@ class UniverseBackend {
     this.gitSyncEngines.get(universeSlug)?.adoptBase?.(base);
   }
 
-  _recordRemoteObservation(universeSlug, { sha, nodeCount, contentHash = null } = {}) {
+  _recordRemoteObservation(universeSlug, { sha, nodeCount, contentHash = null, state = null } = {}) {
     this.storeLineage?.delete(universeSlug);
     try {
       const observation = {
         sha,
         nodeCount: Number.isFinite(Number(nodeCount)) ? Number(nodeCount) : 0,
         contentHash,
+        state,
         ts: Date.now()
       };
       this.remoteObservations.set(universeSlug, observation);
@@ -5877,6 +5889,13 @@ class UniverseBackend {
     const fileName = universe?.gitRepo?.universeFile || `${universe?.slug}.redstring`;
     const { sanitizeGitFileBaseName } = await import('./gitSyncEngine.js');
     return `universes/${folder}/${sanitizeGitFileBaseName(fileName)}.redstring`;
+  }
+
+  /** The account this device saves as, to tell its own saves apart in History; null when unknown. */
+  currentAccount() {
+    const forge = devForgeConfig();
+    if (forge) return forge.token; // the fake host's accounts are their tokens
+    return persistentAuth.getUserData?.()?.login || null;
   }
 
   /**
@@ -6060,12 +6079,14 @@ class UniverseBackend {
     if (this.storeOperations?.loadUniverseFromFile) {
       this.storeOperations.loadUniverseFromFile(storeState);
     }
-    await this.saveActiveUniverse(null, { isConflictResolution: true });
-
     let when = 'an earlier version';
     if (date) {
       try { when = new Date(date).toLocaleString(); } catch { /* keep the fallback */ }
     }
+    // History's Git list shows the restore as what it was, not as its edits.
+    if (engine) engine.nextCommitMessage = date ? `Restored the version from ${when}` : 'Restored an earlier version';
+    await this.saveActiveUniverse(null, { isConflictResolution: true });
+
     this.notifyStatus('success', `Restored ${counts.userNodeCount} things from ${when}`);
     return { nodeCount: counts.userNodeCount, graphCount: counts.graphCount };
   }
