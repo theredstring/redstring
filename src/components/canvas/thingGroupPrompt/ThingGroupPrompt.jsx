@@ -135,8 +135,10 @@ export function WebGrid({ prototype, onChoose }) {
 export default function ThingGroupPrompt({ plusSign, setPlusSign, handleNodeSelection, leftPanelExpanded, rightPanelExpanded }) {
   const prompt = useThingGroupPromptStore(s => s.prompt);
   const prototype = useGraphStore(s => (prompt?.step === 'web' ? s.nodePrototypes.get(prompt.prototypeId) : null));
-  const graphs = useGraphStore(s => s.graphs);
-  const webCount = useCallback((thing) => websOf(thing, graphs).length, [graphs]);
+  // Only while the prompt is up: this host stays mounted, and reading graphs
+  // while it is closed re-rendered it on every edit to any web (S11).
+  const graphs = useGraphStore(s => (prompt ? s.graphs : null));
+  const webCount = useCallback((thing) => (graphs ? websOf(thing, graphs).length : 0), [graphs]);
 
   // The plus sign it was opened from went (undone, cleared): so does the prompt.
   useEffect(() => { if (prompt && !plusSign) closeThingGroupPrompt(); }, [prompt, plusSign]);
