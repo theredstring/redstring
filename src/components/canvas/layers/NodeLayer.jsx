@@ -6,7 +6,9 @@
  *   - part="top": the active node (pie target, preview, or sole selection; with
  *     the orbit overlay while orbiting) and, last, the dragged node.
  * NodeCanvas draws node-group titles, delete ghosts and the pie menus between
- * the two.
+ * the two. While a Thing-group is lifted (groupLift.js), both skip its Things
+ * and formulas, and a third instance (part="lifted", in LiftedGroupLayer) draws
+ * them, the active and dragged ones last.
  *
  * It reads selection, preview, pie target, carousel, rename and definition
  * indices from canvasUIStore itself and is memoized, so a NodeCanvas render that
@@ -25,12 +27,15 @@ import { cullUndecided } from '../data/culling.js';
 
 function NodeLayer({
   part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, draggingGroupId, marqueeActive,
-  activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
+  activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay, lift = null,
 }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
   const previewingNodeId = useCanvasUIStore((s) => s.previewingNodeId);
   // On screen, or new since the last culling pass (see cullUndecided).
   const isShown = (id) => visibleNodeIds.has(id) || cullUndecided(visibleNodeIds, id);
+  // This instance's share of the Things: the lift's, or everything else.
+  const isLiftedPart = part === 'lifted';
+  const inPart = (id) => !!lift?.instanceIds.has(id) === isLiftedPart;
   const currentPieMenuNodeId = useCanvasUIStore((s) => s.currentPieMenuData?.node?.id ?? null);
   const selectedNodeIdForPieMenu = useCanvasUIStore((s) => s.selectedNodeIdForPieMenu);
   const abstractionCarouselVisible = useCanvasUIStore((s) => s.abstractionCarouselVisible);
@@ -58,6 +63,7 @@ function NodeLayer({
   }
 
   const allOtherNodes = nodes.filter(node =>
+    inPart(node.id) &&
     node.id !== nodeIdToKeepActiveForStacking &&
     node.id !== draggingNodeId &&
     isShown(node.id) &&
@@ -73,7 +79,7 @@ function NodeLayer({
   // panel, search, a connection) must not pop the full Thing up at the tab.
   const findDrawable = (id) => {
     const n = id ? nodes.find(node => node.id === id) : null;
-    return n && !n.isGroupAnchor && !formulaHiddenIds.has(n.id) ? n : null;
+    return n && !n.isGroupAnchor && !formulaHiddenIds.has(n.id) && inPart(n.id) ? n : null;
   };
   const activeNodeToRender = findDrawable(nodeIdToKeepActiveForStacking);
   const draggingNodeToRender = findDrawable(draggingNodeId);
@@ -136,10 +142,21 @@ function NodeLayer({
         {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
 
         {/* Formulas shown in place, where their Things were (formats/formula) */}
-        <FormulaObjectsLayer draggingGroupId={draggingGroupId} />
+        <FormulaObjectsLayer draggingGroupId={draggingGroupId} lift={lift} />
 
         {/* Things just added in a batch grow in (spawn/nodeSpawn.js) */}
         <NodeSpawnLayer />
+      </>
+    );
+  }
+
+  if (isLiftedPart) {
+    return (
+      <>
+        {allOtherNodes.map((n) => renderNodeElement(n))}
+        {activeNodeToRender && isShown(activeNodeToRender.id) && renderNodeElement(activeNodeToRender)}
+        {draggingNodeToRender && isShown(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
+        <FormulaObjectsLayer draggingGroupId={draggingGroupId} lift={lift} lifted />
       </>
     );
   }

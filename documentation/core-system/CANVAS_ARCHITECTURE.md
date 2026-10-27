@@ -101,7 +101,8 @@ NodeCanvas's JSX is a list of layers. From the bottom:
 9. `PieMenusLayer`: the node pie (`NodePieMenuLayer`, memoized, reads its data from canvasUIStore), the edge pie (memoized) and the group pie (`GroupPieMenuLayer`: a selected Thing-group's or equation's menu over its title, the edge pie's level row; its buttons are the group panel's actions, published by `ControlPanelsHost` through `pie/groupPieButtons.js`; selecting frames the group, Settings › Input › Zoom on Select, except a box just opened or an equation's symbol tapped, `holdGroupFocus`)
 10. `OrbitDimRect`
 11. `NodeLayer part="top"`: the active node (with the orbit overlay while orbiting), then the dragged node
-12. `SvgOverlays`: marquee, plus sign, video node
+12. `LiftedGroupLayer`: a dragged Thing-group and everything in it (nested groups, Things, formulas, every connection touching them), over everything else, until `LIFT_SETTLE_MS` after the drop (`groups/groupLift.js`). It is a second `EdgeLayer` (`lifted`), `NodeLayer part="lifted"` and the lifted titles (`groupElements.lifted`); the layers below skip what it draws
+13. `SvgOverlays`: marquee, plus sign, video node
 
 Outside the content group, but still within the canvas area:
 - `OrbitLayers`

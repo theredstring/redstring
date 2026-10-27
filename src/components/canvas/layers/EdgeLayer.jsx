@@ -7,6 +7,9 @@
  * The whole pass still runs together on every render: routed labels dodge the
  * labels placed before them (placedLabelsRef), so their order matters until
  * placement is computed up front (P3.05).
+ *
+ * While a Thing-group is lifted (groupLift.js), the connections touching it are
+ * drawn by a second instance (`lifted`) in LiftedGroupLayer, and this one skips them.
  */
 import React, { Profiler, useMemo, useRef } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
@@ -26,14 +29,21 @@ import { redirectEdgeCtx, filterFormulaEdges } from '../formats/formula/formulaO
  * @param {Map} p.nodeGroupShellsByDepth  groupElements.backgroundsByDepth
  * @param {Map} p.nestedRegularGroupsByDepth  groupElements.nestedRegularByDepth
  * @param {{ current: object }} p.edgePerfRef  the window.__edgePerf accumulator
+ * @param {object|null} [p.lift]  the lifted Thing-group (groupLift.js)
+ * @param {boolean} [p.lifted]  draw only the lift's connections, and none of the transitions
  */
-export default function EdgeLayer({ ctx: canvasCtx, visibleEdges: canvasEdges, edgeZSlots, nodeGroupShellsByDepth, nestedRegularGroupsByDepth, edgePerfRef }) {
+export default function EdgeLayer({ ctx: canvasCtx, visibleEdges: canvasEdges, edgeZSlots, nodeGroupShellsByDepth, nestedRegularGroupsByDepth, edgePerfRef, lift = null, lifted = false }) {
   // Formulas shown in place: their inner connections go, and connections from
   // outside land on the token their Thing became. Both are the inputs
   // unchanged (same identity) while no formula is shown.
   const formulaObjects = useFormulaObjects();
   const ctx = useMemo(() => redirectEdgeCtx(canvasCtx, formulaObjects), [canvasCtx, formulaObjects]);
-  const visibleEdges = useMemo(() => filterFormulaEdges(canvasEdges, formulaObjects), [canvasEdges, formulaObjects]);
+  const visibleEdges = useMemo(() => {
+    const edges = filterFormulaEdges(canvasEdges, formulaObjects);
+    if (!lift) return lifted ? [] : edges;
+    const touches = (e) => lift.instanceIds.has(e.sourceId) || lift.instanceIds.has(e.destinationId);
+    return edges.filter(e => touches(e) === lifted);
+  }, [canvasEdges, formulaObjects, lift, lifted]);
   const hoveredEdgeInfo = useCanvasUIStore((s) => s.hoveredEdgeInfo);
   const spawnDropEdgeId = useCanvasUIStore((s) => s.spawnDropEdgeId);
   // --- Connection z-order -------------------------------------------------
@@ -97,7 +107,7 @@ export default function EdgeLayer({ ctx: canvasCtx, visibleEdges: canvasEdges, e
   };
 
   return (
-    <Profiler id="EdgeLayer" onRender={onRenderProbe}>
+    <Profiler id={lifted ? 'EdgeLayer.lifted' : 'EdgeLayer'} onRender={onRenderProbe}>
       <>
         {/* No per-pass reset any more — see connectionOrbHitsRef.
             Each edge now owns its own entry and sets or deletes
@@ -128,10 +138,10 @@ export default function EdgeLayer({ ctx: canvasCtx, visibleEdges: canvasEdges, e
           </React.Fragment>
         ))}
         {/* Create/delete animations: masks, and the ghosts of deleted connections. */}
-        <EdgeTransitionLayer />
+        {!lifted && <EdgeTransitionLayer />}
         {/* A Thing opening into its box and folding back: over every shell and
             connection, under the nodes, as the box it stands in for is drawn. */}
-        <BoxMorphLayer />
+        {!lifted && <BoxMorphLayer />}
       </>
     </Profiler>
   );

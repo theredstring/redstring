@@ -22,7 +22,6 @@ import {
 import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 
-
 // Import Zustand store and selectors/actions
 import useGraphStore from "./store/graphStore.js";
 import useCanvasUIStore, { setPieCommandHandler } from './store/canvasUIStore.js';
@@ -84,6 +83,8 @@ import { computeLombardiTangents, connectionCurveMinBow, labelCurveMinBow, curve
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
 import NodeLayer from './components/canvas/layers/NodeLayer.jsx';
+import LiftedGroupLayer from './components/canvas/layers/LiftedGroupLayer.jsx';
+import { useGroupLift } from './components/canvas/groups/groupLift.js';
 import ControlPanelsHost from './components/canvas/hosts/ControlPanelsHost.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
@@ -129,7 +130,6 @@ import { useSemanticOrbit } from './components/canvas/orbit/semanticOrbit.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-
 // A multi-node delete fires its ghosts in shuffled order, one step apart, rather
 // than all at once. Shuffling keeps it from reading as a mechanical sweep in
 // whatever order the selection happened to be stored, and a fixed step reads as a
@@ -161,7 +161,6 @@ const CONNECTION_DETENT_PX = 44;
  * Mounted once by CanvasShell; takes no props. See
  * documentation/dev-ops/nodecanvas-refactor/ for where each part lives now.
  */
-
 
 function NodeCanvas() {
   // Get theme colors
@@ -260,7 +259,6 @@ function NodeCanvas() {
   // Use a defensive approach to avoid initialization errors
   const storeActions = useMemo(() => resolveStoreActions({}), []);
 
-
   // Filled by PanelResizers (P2.12): the gamepad resizes through it, and a canvas
   // press checks it so a resize drag never starts a pan.
   const panelResizeControlRef = useRef(null);
@@ -319,8 +317,6 @@ function NodeCanvas() {
     };
   }, []);
 
-
-
   // Track active input modality via PointerEvent.pointerType so we never
   // mistake touch-synthesized mousedown for a real mouse click. We bind to
   // pointerdown only (not mousedown) — synthesized mouse events from touch
@@ -358,7 +354,6 @@ function NodeCanvas() {
 
     return unsubscribe;
   }, []);
-
 
   // storeActions is now defined above with defensive initialization
 
@@ -3301,10 +3296,13 @@ function NodeCanvas() {
     visibleNodeIds,
   };
 
+  // A dragged Thing-group and everything in it draw above the rest (groupLift.js).
+  const draggingGroupId = draggingNodeInfo?.groupId ?? null;
+  const lift = useGroupLift(draggingGroupId, groupStructure);
   const nodeLayerProps = {
     nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds: groupLayouts.thingGroupMemberIds,
-    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart, draggingGroupId: draggingNodeInfo?.groupId ?? null,
-    activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
+    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart, draggingGroupId,
+    activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay, lift,
   };
 
   // The control panels' handlers and derived data (P5.05a).
@@ -3474,11 +3472,10 @@ function NodeCanvas() {
     selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, selectedEdgeId, selectedEdgeIds,
   });
   const groupInputHandlers = useMemo(() => createGroupInputHandlers(groupInputCtxRef), [groupInputCtxRef]);
-  const draggingGroupId = draggingNodeInfo?.groupId ?? null;
   const groupElements = useMemo(() => buildGroupElements({
-    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName,
+    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName, lift,
     theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers, liftedThingShadow: useGraphStore.getState().liftedThingShadow,
-  }), [groupLayouts, groupStructure, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
+  }), [groupLayouts, groupStructure, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName, lift, theme, gridActive, gridPatternId, groupInputHandlers]);
 
   // Publish the layout to the refs the rest of the canvas reads (groupLayouts.js).
   publishGroupLayouts(groupLayouts, groupTitleRectsRef, anchorPositionUpdatesRef);
@@ -3557,7 +3554,7 @@ function NodeCanvas() {
                     <EdgeLayer
                       ctx={edgeRenderCtx} visibleEdges={visibleEdges} edgeZSlots={groupStructure.edgeZSlots}
                       nodeGroupShellsByDepth={groupElements.backgroundsByDepth}
-                      nestedRegularGroupsByDepth={groupElements.nestedRegularByDepth} edgePerfRef={edgePerfRef}
+                      nestedRegularGroupsByDepth={groupElements.nestedRegularByDepth} edgePerfRef={edgePerfRef} lift={lift}
                     />
                   )}
 
@@ -3573,8 +3570,10 @@ function NodeCanvas() {
 
                   <PieMenusLayer ctx={pieMenusCtx} />
                   <OrbitDimRect ctx={orbitDimCtx} />
-                  {/* The active node (with the orbit overlay while orbiting), then the dragged node, on top. */}
+                  {/* The active node (with the orbit overlay while orbiting), then the dragged node, then a lifted Thing-group, on top. */}
                   <NodeLayer part="top" {...nodeLayerProps} />
+                  <LiftedGroupLayer lift={lift} groups={groupElements.lifted} nodeLayerProps={nodeLayerProps}
+                    edgeProps={{ ctx: edgeRenderCtx, visibleEdges, edgeZSlots: groupStructure.edgeZSlots, edgePerfRef }} />
 
                   <SvgOverlays ctx={svgOverlaysCtx} />
                 </g>
@@ -3587,7 +3586,6 @@ function NodeCanvas() {
 
           <CanvasChrome ctx={canvasChromeCtx} />
           <PromptsHost ctx={promptsCtx} />
-          {/* Debug overlay disabled */}
         </div>
 
         <HurtleOrb flight={hurtleFlight} onLand={handleHurtleLand} />

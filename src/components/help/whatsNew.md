@@ -11,14 +11,7 @@ Shipped builds older than that version leave the note out; dev builds show
 it, marked "Not released yet"; Settings › Debug › Preview as Version shows
 it as that version would.
 -->
-<!-- from 1.0.0 -->
 
-## Redstring 1.0
+## Welcome to Redstring
 
-Placeholder for the note. A few lines on what this release means, in your own words: where Redstring has been, what 1.0 settles, and what comes next.
-
-- **Something worth pointing to first.** One line on why it matters.
-- **A second thing.** Where to find it.
-- **A request or a heads-up.** Feedback you want, or a change people should know about.
-
-Thanks for building with it.
+**How are you using Redstring?** [Take the survey and help us improve your experience.](https://docs.google.com/forms/d/e/1FAIpQLSfDR-TuAWfVKXofFDxHJ9aSkpz8kXLQn3MSS9DBI06UjFLqcQ/viewform)

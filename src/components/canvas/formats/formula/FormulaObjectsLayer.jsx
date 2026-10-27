@@ -1076,8 +1076,12 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   );
 }
 
-/** `draggingGroupId`: the group the canvas's drag is carrying, if any. */
-function FormulaObjectsLayer({ draggingGroupId = null }) {
+/**
+ * `draggingGroupId`: the group the canvas's drag is carrying, if any. `lift`:
+ * the lifted Thing-group (groupLift.js), whose formulas only the `lifted`
+ * instance draws.
+ */
+function FormulaObjectsLayer({ draggingGroupId = null, lift = null, lifted = false }) {
   const formulaObjects = useFormulaObjects();
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   // Selected on its own (its group), or among several (its anchor, formulaSelection).
@@ -1086,17 +1090,20 @@ function FormulaObjectsLayer({ draggingGroupId = null }) {
   const leavingAll = useSyncExternalStore(subscribeLeavingFormulas, leavingFormulasNow);
   const leaving = leavingAll.filter(l => l.obj.graphId === activeGraphId);
   const theme = useTheme();
+  const objects = formulaObjects.objects.filter(obj => !!lift?.groupIds.has(obj.groupId) === lifted);
+  const drawObject = (obj) => (
+    <FormulaObject
+      key={obj.groupId} obj={obj} theme={theme}
+      selected={selectedGroupId === obj.groupId || selectedInstanceIds.has(obj.anchorId)} lifted={draggingGroupId === obj.groupId}
+    />
+  );
+  if (lifted) return objects.length ? <g className="formula-objects-layer">{objects.map(drawObject)}</g> : null;
   if (!formulaObjects.objects.length && !leaving.length) return null;
   const hideGroups = [...formulaObjects.hiddenGroupIds].map(id => `[data-group-id=${JSON.stringify(id)}]`).join(',');
   return (
     <g className="formula-objects-layer">
       {hideGroups && <style>{`${hideGroups}{display:none}`}</style>}
-      {formulaObjects.objects.map(obj => (
-        <FormulaObject
-          key={obj.groupId} obj={obj} theme={theme}
-          selected={selectedGroupId === obj.groupId || selectedInstanceIds.has(obj.anchorId)} lifted={draggingGroupId === obj.groupId}
-        />
-      ))}
+      {objects.map(drawObject)}
       {leaving.map(({ obj, start, into, reveal }) => (
         <FormulaObject key={`leaving-${obj.groupId}-${start}`} obj={obj} theme={theme} leavingStart={start} into={into} reveal={reveal} />
       ))}

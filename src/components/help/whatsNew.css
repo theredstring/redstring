@@ -6,12 +6,7 @@
   gap: 28px;
 }
 
-/* The note: a recessed block, ruled in the one maroon. */
 .whats-new-note {
-  padding: 14px 18px;
-  border-left: 3px solid var(--rs-modal-accent);
-  border-radius: 4px;
-  background: var(--rs-modal-sunken);
   color: var(--rs-modal-text);
 }
 
