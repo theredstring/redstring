@@ -2366,7 +2366,7 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setAllThingsSearchVisible(false);
           }}
-          title="Search everything"
+          title="Search Everything"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchOnly={true}

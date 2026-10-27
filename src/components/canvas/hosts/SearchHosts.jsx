@@ -154,7 +154,7 @@ function SearchHosts() {
           isVisible={true}
           onClose={closeAllThingsSearch}
           onNodeSelect={selectAnyThing}
-          title="Search everything"
+          title="Search Everything"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchOnly={true}
