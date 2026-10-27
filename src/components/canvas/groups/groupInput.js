@@ -47,16 +47,22 @@ export function createGroupInputHandlers(ctxRef) {
 }
 
 /**
- * A group selected among Things (a formula, as its anchor: formats/formula/
- * formulaSelection) is held like a Thing of the selection: the whole selection
- * lifts. False when it isn't, and its own group drag goes ahead.
+ * A group selected among Things is held like a Thing of the selection: the
+ * whole selection lifts. A formula is in it as its anchor (formats/formula/
+ * formulaSelection); any other group as its Things, its anchor left out
+ * (canvasUIStore.withoutGroupAnchors), so it is in it when all of them are and
+ * something else is too. False when it isn't, and its own group drag goes ahead.
  */
 function dragSelectionFrom(group, clientX, clientY, ctx) {
-  const anchorId = group.anchorInstanceId;
   const selected = useCanvasUIStore.getState().selectedInstanceIds;
-  if (!anchorId || selected.size < 2 || !selected.has(anchorId)) return false;
-  const anchorNode = ctx.nodes?.find(n => n.id === anchorId);
-  return !!anchorNode && ctx.nodeDrag?.startDragForNode(anchorNode, clientX, clientY) !== false;
+  if (selected.size < 2) return false;
+  const nodeById = new Map((ctx.nodes || []).map(n => [n.id, n]));
+  const things = (group.memberInstanceIds || []).filter(id => !nodeById.get(id)?.isGroupAnchor);
+  const heldId = selected.has(group.anchorInstanceId)
+    ? group.anchorInstanceId
+    : (things.length > 0 && things.every(id => selected.has(id)) && selected.size > things.length ? things[0] : null);
+  const heldNode = heldId ? nodeById.get(heldId) : null;
+  return !!heldNode && ctx.nodeDrag?.startDragForNode(heldNode, clientX, clientY) !== false;
 }
 
 function createHandlers(ctxRef) {

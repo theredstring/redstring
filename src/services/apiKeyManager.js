@@ -222,14 +222,17 @@ class APIKeyManager {
       // Remove active profile only
       const activeId = localStorage.getItem(this.ACTIVE_PROFILE);
       const profiles = await this._getProfilesInternal();
+      let removedKey = null;
       if (activeId && profiles[activeId]) {
-        const removedKey = profiles[activeId].key;
+        removedKey = profiles[activeId].key;
         delete profiles[activeId];
         localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
-        await this._releaseSecretIfUnused(removedKey);
       }
       localStorage.removeItem(this.ACTIVE_PROFILE);
-      // Keep legacy key for safety
+      // The mirror is a copy of the active key, and with no active profile
+      // _getActiveProfileData revives it, so a removed key kept working.
+      await this._dropMirror();
+      if (removedKey) await this._releaseSecretIfUnused(removedKey);
       vlog('[API Key Manager] API key removed successfully');
       return { success: true };
     } catch (error) {
@@ -259,10 +262,11 @@ class APIKeyManager {
       const removedKey = profiles[profileId].key;
       delete profiles[profileId];
       localStorage.setItem(this.STORAGE_PROFILES, JSON.stringify(profiles));
-      await this._releaseSecretIfUnused(removedKey);
       if (localStorage.getItem(this.ACTIVE_PROFILE) === profileId) {
         localStorage.removeItem(this.ACTIVE_PROFILE);
+        await this._dropMirror();
       }
+      await this._releaseSecretIfUnused(removedKey);
       return { success: true };
     }
     throw new Error('Profile not found');
@@ -405,6 +409,14 @@ class APIKeyManager {
         if (ref) localStorage.setItem(this.STORAGE_KEY, JSON.stringify({ ...mirror, key: ref }));
       }
     }
+  }
+
+  /** Remove the legacy single-key mirror, and its own native secret if it had one. */
+  async _dropMirror() {
+    let mirrorKey = null;
+    try { mirrorKey = JSON.parse(localStorage.getItem(this.STORAGE_KEY) || 'null')?.key ?? null; } catch { mirrorKey = null; }
+    localStorage.removeItem(this.STORAGE_KEY);
+    if (mirrorKey) await this._releaseSecretIfUnused(mirrorKey);
   }
 
   /** Delete a native-store secret once no profile (or the mirror) points at it. */

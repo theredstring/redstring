@@ -645,6 +645,9 @@ const LeftAIView = ({ compact = false,
   const [selectedTestTool, setSelectedTestTool] = React.useState(null);
   const [testToolArgs, setTestToolArgs] = React.useState('');
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
+  // False until the first key check lands, so the empty state's Link API Key
+  // button doesn't flash for someone who has one.
+  const [apiKeyChecked, setApiKeyChecked] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
   // 'wizard', 'chat', 'druid'. Remembered on this device, so a reload comes
   // back to the Druid's run rather than to the Wizard.
@@ -1752,6 +1755,7 @@ const LeftAIView = ({ compact = false,
       setHasAPIKey(hasKey);
       setApiKeyInfo(keyInfo);
     } catch (error) { console.error('Failed to check API key:', error); }
+    setApiKeyChecked(true);
   };
 
 
@@ -4134,6 +4138,16 @@ const LeftAIView = ({ compact = false,
                   </g>
                 </svg>
                 <div style={{ color: 'var(--canvas-text-muted)', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
+                {apiKeyChecked && !hasAPIKey && (
+                  <PanelIconButton
+                    icon={Key}
+                    size={14}
+                    label="Link API Key"
+                    variant="outline"
+                    onClick={() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }))}
+                    style={{ marginTop: '16px' }}
+                  />
+                )}
               </div>
             )}
             {/* Only emit the message-list DOM when this view is the active tab.

@@ -59,6 +59,15 @@ describe('web (no native store): unchanged format', () => {
     expect(isEncrypted(record.key)).toBe(true);
     expect(await apiKeyManager.getAPIKey()).toBe(KEY);
   });
+
+  it('a removed key stays removed (the mirror used to bring it back)', async () => {
+    __setSecretBackendForTests(null);
+    await apiKeyManager.storeAPIKey(KEY, 'openrouter');
+    await apiKeyManager.removeAPIKey();
+    expect(await apiKeyManager.getAPIKey()).toBe(null);
+    expect(await apiKeyManager.getAPIKey()).toBe(null);
+    expect(ls.has(MIRROR)).toBe(false);
+  });
 });
 
 describe('native store', () => {
@@ -126,15 +135,28 @@ describe('native store', () => {
     expect(profiles().prof_1.key).toBe(enc);
   });
 
-  it('deleting a profile deletes its native secret unless the mirror still points at it', async () => {
+  it('deleting a profile deletes its native secret, and the active one takes the mirror with it', async () => {
     const backend = memoryBackend();
     __setSecretBackendForTests(backend);
     const a = await apiKeyManager.storeAPIKey('key-a-123456', 'openai');
     const b = await apiKeyManager.storeAPIKey('key-b-123456', 'anthropic'); // mirror now = b
     await apiKeyManager.deleteProfile(a.id);
     expect(backend.data.has(`redstring_ai_key.${a.id}`)).toBe(false);
+    expect(ls.has(MIRROR)).toBe(true);
     await apiKeyManager.deleteProfile(b.id);
-    // The legacy mirror (kept "for safety") still references b.
-    expect(backend.data.has(`redstring_ai_key.${b.id}`)).toBe(true);
+    expect(ls.has(MIRROR)).toBe(false);
+    expect(backend.data.has(`redstring_ai_key.${b.id}`)).toBe(false);
+    expect(await apiKeyManager.getAPIKey()).toBe(null);
+  });
+
+  it('removing the active key leaves no key behind, native secret included', async () => {
+    const backend = memoryBackend();
+    __setSecretBackendForTests(backend);
+    const a = await apiKeyManager.storeAPIKey(KEY, 'openrouter');
+    await apiKeyManager.removeAPIKey();
+    expect(await apiKeyManager.hasAPIKey()).toBe(false);
+    expect(await apiKeyManager.getAPIKeyInfo()).toBe(null);
+    expect(ls.has(MIRROR)).toBe(false);
+    expect(backend.data.has(`redstring_ai_key.${a.id}`)).toBe(false);
   });
 });
