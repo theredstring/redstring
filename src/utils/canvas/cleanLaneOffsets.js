@@ -2,7 +2,7 @@
  * Lane offsets for the clean routing style (moved verbatim from NodeCanvas's
  * cleanLaneOffsets memo). NodeCanvas memoizes it on the same dependencies.
  */
-import { NODE_CORNER_RADIUS } from '../../constants';
+import { NODE_CORNER_RADIUS } from '../../constants.js';
 import { calculateStaggeredPosition, getPortPosition } from './portPositioning.js';
 
 export function computeCleanLaneOffsets(ctx) {

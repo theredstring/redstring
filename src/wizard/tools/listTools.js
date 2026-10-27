@@ -20,7 +20,7 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **createNode**(name*, color, description, size, targetGraphId) — Create a single Thing
 - **updateNode**(nodeName*, updates: {name, color, description, imageSrc}, targetGraphId) — Update a Thing
 - **setNodeSize**(nodeName*, size*, targetGraphId) — Resize one Thing on the canvas: "extra-small" | "small" | "medium" (default) | "large" | "extra-large"
-- **deleteNode**(nodeName*, targetGraphId) — Remove a Thing
+- **deleteNode**(nodeName or instanceId*, targetGraphId) — Remove a Thing (exact name; several matches return candidates)
 - **selectNode**(nodeName*) — Highlight a Thing for the user
 - **setNodeType**(nodeName*, typeName*, typeColor, typeDescription) — Assign a type/category
 - **inspectPrototype**(nodeName*) — View full prototype data (definitions, types, metadata)
@@ -44,7 +44,7 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 ## Connections (Edges)
 - **createEdge**(sourceName*, targetName*, definitionNode:{name,description}*, targetGraphId) — Add a Connection
 - **updateEdge**(sourceName*, targetName*, edgeName*, updates:{definitionNode,directionality}) — Modify a Connection
-- **deleteEdge**(sourceName*, targetName*, edgeName*, targetGraphId) — Remove a Connection
+- **deleteEdge**(sourceName + targetName, or edgeId*, targetGraphId) — Remove a Connection (several matches return candidates with edgeIds)
 - **replaceEdges**(edges[{source,target,oldEdgeName,newDefinitionNode}]*, targetGraphId) — Bulk-replace Connections
 
 ## Groups & Composition
@@ -57,6 +57,11 @@ Every node-creating tool also accepts an optional per-node \`size\` ("extra-smal
 - **decomposeNode**(nodeName*, targetGraphId) — Unpack a Thing's definition into current Web
 - **manageDefinitions**(nodeName*, action*:"add"|"remove"|"setActive", definitionGraphId) — Manage definition Webs
 - **abstractionChain**(nodeName*, action*:"read"|"build"|"add"|"remove", dimension, moreGeneric[], moreSpecific[]) — Is-a ladder on the abstraction axis (Ford Motor Company → Automaker → Company). "build" does a whole ladder in one call. While building a Web, use the \`isA\` field on a node instead.
+
+## Formulas
+- **addFormula**(text or bankId, title, description, meanings[{symbol,thing,color}], forThing, palette, color, targetGraphId) — Write a formula into a Web, shown as its formula ("P * V = n * R * T"); each symbol tied to the Thing it means. An equation Thing like any other: connect it, place it, fold it. Without a color it takes the Web's colors
+- **searchFormulaBank**(query, discipline, limit) — Find equations by title, topic or concept: this universe's (place with formula) and well-known ones (Wikidata; bankIds for addFormula)
+- **formula**(formulaName*, action:"place"|"open"|"fold"|"rewrite"|"delete", text, title, meanings, folded, targetGraphId) — Use an existing formula: place it in another Web, fold/open it, rewrite it in place, delete it
 
 ## Planning & Interaction
 - **planTask**(steps[{description,status,substeps}]*) — Create/update a multi-step plan

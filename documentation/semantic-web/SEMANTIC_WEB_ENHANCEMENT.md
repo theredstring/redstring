@@ -313,24 +313,24 @@ const REDSTRING_TYPES = {
     }
   }
 }
-## Native Triplet Support
+## Native Triple Support
 
-**Redstring stores semantic relationships as explicit RDF triplets while maintaining visual connections:**
+**Redstring stores semantic relationships as explicit RDF triples while maintaining visual connections:**
 
 ```javascript
-// Edge with native triplet support
+// Edge with native triple support
 {
   "id": "connection-123",
   "@type": "redstring:SemanticConnection",
   
-  // Native RDF triplets (semantic meaning)
-  "triplets": [
+  // Native RDF triples (semantic meaning)
+  "triples": [
     {
       "subject": { "@id": "prototype:barack-obama" },
       "predicate": { "@id": "prototype:implements" },
       "object": { "@id": "prototype:climate-policy" }
     }
-    // Future: multiple triplets per edge for complex relationships
+    // Future: multiple triples per edge for complex relationships
   ],
   
   // Visual connection data (spatial representation)
@@ -342,16 +342,16 @@ const REDSTRING_TYPES = {
     "thickness": 2
   },
   
-  // User interaction - click connection to see triplet context
-  "redstring:displayMode": "triplet-aware"
+  // User interaction - click connection to see triple context
+  "redstring:displayMode": "triple-aware"
 }
 ```
 
-**Bidirectional connections become two triplets:**
+**Bidirectional connections become two triples:**
 ```javascript
-// Non-directional edge → 2 symmetric triplets
+// Non-directional edge → 2 symmetric triples
 {
-  "triplets": [
+  "triples": [
     {
       "subject": { "@id": "prototype:climate-policy" },
       "predicate": { "@id": "prototype:relates-to" },
@@ -485,7 +485,7 @@ const WebResourcesSection = ({ node, onUpdate }) => (
 - [ ] **Prototype export enhancement**: `redstring:ThingPrototype` + `rdfs:Class`
 - [ ] **Instance export enhancement**: `rdf:type` relationships
 - [ ] **Type → subClassOf automation**: Panel Type selection creates semantic hierarchy
-- [ ] **Bidirectional edges**: Export as 2 triplets
+- [ ] **Bidirectional edges**: Export as 2 triples
 - [ ] **Format consistency tests**: Ensure round-trip fidelity
 
 ### 🎯 Sprint 2: Separated Storage Architecture
@@ -501,11 +501,11 @@ const WebResourcesSection = ({ node, onUpdate }) => (
 - [ ] **Academic References section**: DOI/ORCID/arXiv inputs
 - [ ] **Web Resources section**: Wikipedia/URL management
 
-### 🎯 Sprint 4: Native Triplet Support
-- [ ] **Triplet array in edges**: Explicit RDF statements
-- [ ] **Click connection → triplet context**: Visual triplet display
-- [ ] **Multiple triplets per edge**: Complex relationship support
-- [ ] **Triplet validation**: Ensure semantic consistency
+### 🎯 Sprint 4: Native Triple Support
+- [ ] **Triple array in edges**: Explicit RDF statements
+- [ ] **Click connection → triple context**: Visual triple display
+- [ ] **Multiple triples per edge**: Complex relationship support
+- [ ] **Triple validation**: Ensure semantic consistency
 
 ### 🎯 Sprint 5: Advanced Features
 - [ ] **AbstractionCarousel integration**: Chain → subClassOf mapping

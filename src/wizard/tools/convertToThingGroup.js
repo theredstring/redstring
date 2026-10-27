@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { webAsDrawn } from './utils/webView.js';
 
 /**
  * convertToThingGroup - Convert a Group into a Thing-Group (backed by a node prototype)
@@ -12,7 +13,7 @@ function findGroupByName(name, graphState, graphId) {
   const { graphs = [] } = graphState;
   if (!graphId) return null;
 
-  const graph = graphs.find(g => g.id === graphId);
+  const graph = graphs.some(g => g.id === graphId) ? webAsDrawn(graphState, graphId) : null; // as drawn: opened Things are Thing-groups
   if (!graph || !graph.groups) return null;
 
   const groupsIterable = graph.groups instanceof Map

@@ -1,0 +1,22 @@
+/* The wizard's math in the chat (chatMath.jsx): formulas in the canvas's
+   formula type (formats.css .formula-tokens), a little larger than the text
+   around them. */
+.chat-math {
+  font-size: 1.08em;
+  white-space: nowrap;
+}
+
+/* $$…$$: on its own line, centred, scrolling sideways rather than wrapping. */
+.chat-math.is-display {
+  display: block;
+  margin: 8px 0;
+  font-size: 1.2em;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chat-math-loose sub,
+.chat-math-loose sup {
+  font-size: 0.7em;
+}

@@ -6,6 +6,7 @@
  * store so the layers subscribe to it instead of NodeCanvas.
  */
 import * as GeometryUtils from '../../../utils/canvas/geometryUtils.js';
+import { makeConnectionProbe } from '../../../utils/canvas/edgeHitTest.js';
 
 // Viewport culling for nodes and edges.
 //
@@ -36,13 +37,35 @@ export const ENABLE_CULLING = (() => {
   }
 })();
 
+// A visible set → the node ids the pass that made it looked at. A pass runs a
+// frame after the data changes, so a node that appears in between (a new one, or
+// one a repeated Thing-group now draws under another id) isn't decided yet:
+// `cullUndecided` says so, and NodeLayer draws it until the next pass does,
+// instead of leaving a one-frame hole where it was dropped.
+const consideredBy = new WeakMap();
+let lastConsidered = { nodes: null, ids: null };
+const consideredIdsOf = (nodes) => {
+  if (lastConsidered.nodes !== nodes) {
+    const ids = new Set();
+    for (let i = 0; i < nodes.length; i++) ids.add(nodes[i].id);
+    lastConsidered = { nodes, ids };
+  }
+  return lastConsidered.ids;
+};
+
+/** Whether no culling pass has decided `id` yet (a set from before any pass counts as decided). */
+export const cullUndecided = (visibleNodeIds, id) => {
+  const considered = consideredBy.get(visibleNodeIds);
+  return !!considered && !considered.has(id);
+};
+
 /** One culling pass (see the header). `ctx` carries NodeCanvas's refs and setters. */
 export function runCullingPass(ctx) {
   const {
     cullingRafIdRef, zoomPerfRef, glowUpdateRef, ENABLE_CULLING, nodesRef, edgesRef, visibleNodeIdsRef,
     setVisibleNodeIds, visibleEdgesRef, setVisibleEdges, viewportSizeRef, canvasSizeRef, draggingNodeInfoRef,
     isAnimatingZoomRef, panOffsetRef, zoomLevelRef, cullPruneRef, isViewMovingRef, cullGuardRectRef,
-    baseDimsByIdRef, nodeByIdRef,
+    baseDimsByIdRef, nodeByIdRef, connectionSceneRef,
   } = ctx;
   if (cullingRafIdRef.current != null) return;
 
@@ -86,6 +109,7 @@ export function runCullingPass(ctx) {
       if (!nodesUnchanged) {
         const allIds = new Set();
         for (let i = 0; i < all.length; i++) allIds.add(all[i].id);
+        consideredBy.set(allIds, allIds);
         visibleNodeIdsRef.current = allIds;
         setVisibleNodeIds(allIds);
       }
@@ -236,9 +260,22 @@ export function runCullingPass(ctx) {
 
     // Visible edges — include if either endpoint node is visible, OR if the
     // straight line between node centers crosses the viewport area (handles
-    // long edges where both endpoints are off-screen but the edge itself is visible).
-    // Hysteresis applied to the slow-path line intersection test as well.
+    // long edges where both endpoints are off-screen but the edge itself is visible),
+    // OR if the connection as DRAWN reaches it (see makeConnectionProbe: curves,
+    // arcs, routed runs and moved ends all leave the chord).
+    // Hysteresis applied to the slow-path tests as well.
     const nextVisibleEdges = [];
+    // Built on the first connection that needs it; most passes never do.
+    let probe;
+    const probeCircle = (rect) => ({
+      cx: (rect.minX + rect.maxX) / 2,
+      cy: (rect.minY + rect.maxY) / 2,
+      // The rect's circumcircle: it contains the rect, so nothing on it is
+      // missed; it overreaches only near the corners, inside the padding.
+      r: Math.hypot(rect.maxX - rect.minX, rect.maxY - rect.minY) / 2,
+    });
+    const innerCircle = probeCircle(innerRect);
+    const outerCircle = probeCircle(outerRect);
     for (const edge of currentEdges) {
       const s = nodeMap.get(edge.sourceId);
       const d = nodeMap.get(edge.destinationId);
@@ -260,8 +297,16 @@ export function runCullingPass(ctx) {
       const sy = s.y + sDims.currentHeight / 2;
       const dx = d.x + dDims.currentWidth / 2;
       const dy = d.y + dDims.currentHeight / 2;
-      const edgeRect = prevVisibleEdgeIds.has(edge.id) ? outerRect : innerRect;
+      const wasVisible = prevVisibleEdgeIds.has(edge.id);
+      const edgeRect = wasVisible ? outerRect : innerRect;
       if (GeometryUtils.lineIntersectsRect(sx, sy, dx, dy, edgeRect)) {
+        nextVisibleEdges.push(edge);
+        continue;
+      }
+
+      if (probe === undefined) probe = connectionSceneRef?.current ? makeConnectionProbe(connectionSceneRef.current) : null;
+      const circle = wasVisible ? outerCircle : innerCircle;
+      if (probe && probe(edge, circle.cx, circle.cy, circle.r)) {
         nextVisibleEdges.push(edge);
       }
     }
@@ -316,14 +361,16 @@ export function runCullingPass(ctx) {
     // immediately but the deferred visibility commit lags by a frame or two.
     // The updaters return prev when membership is unchanged, and useTrackedState
     // then skips the set, so a steady-state pan costs no render (F-79).
+    const considered = consideredIdsOf(currentNodes);
     setVisibleNodeIds(prev => {
       if (prev.size === commitNodeIds.size) {
         let same = true;
         for (const id of commitNodeIds) {
           if (!prev.has(id)) { same = false; break; }
         }
-        if (same) return prev;
+        if (same) { consideredBy.set(prev, considered); return prev; }
       }
+      consideredBy.set(commitNodeIds, considered);
       return commitNodeIds;
     });
     setVisibleEdges(prev => {

@@ -108,7 +108,7 @@ export function buildWizardConnectionPrompt(edges, opts = {}) {
       lines.push(`- Connection ${idx + 1}: identify with sourceName="${sourceName}" and targetName="${targetName}".`);
     });
     lines.push('- To modify a connection, call updateEdge or replaceEdges with the source and target NODE NAMES above.');
-    lines.push('- To remove a connection, call deleteEdge with sourceName and targetName. DO NOT pass an edgeId — edge IDs are not visible to you and any value you supply will be ignored.');
+    lines.push('- To remove a connection, call deleteEdge with sourceName and targetName. If several connections match, it returns them with their edgeIds: call again with the edgeId of the one to remove.');
     lines.push('');
     lines.push('Please review the selected connection(s) and recommend a concrete action.');
   } else {

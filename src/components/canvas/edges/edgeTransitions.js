@@ -216,6 +216,22 @@ const openEdge = (host, wrapper) => revealEdge(host, wrapper, OPEN_MS, p => [0.5
 
 const traceEdge = (host, wrapper) => revealEdge(host, wrapper, TRACE_MS, p => [0, p]);
 
+/**
+ * Draw connections already on the canvas in along their own paths, from their
+ * first end, as a drawn connection comes in: for a morph that brings them back
+ * (a formula shown as its Things, once its Things have landed). Started before
+ * paint, so a connection never shows whole first.
+ */
+export function traceEdgesIn(edgeIds) {
+  if (!edgeIds?.length || typeof document === 'undefined' || prefersReducedMotion()) return;
+  const host = document.querySelector('svg.canvas [data-edge-transitions]');
+  if (!host) return;
+  edgeIds.forEach((id) => {
+    const wrapper = findEdgeWrapper(host, id);
+    if (wrapper) traceEdge(host, wrapper);
+  });
+}
+
 // ─── Retract ──────────────────────────────────────────────────────────────────
 
 /** The connection's spine: its hit path, or for a self-loop, its first path. */

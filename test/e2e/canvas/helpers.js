@@ -227,7 +227,15 @@ export async function expectBareCanvas(page, point) {
  * the bottom bar and the panel toggles.
  */
 export async function findBareSpot(page, { halfW = 110, halfH = 70 } = {}) {
-  const spot = await page.evaluate(({ hw, hh }) => {
+  // A selected group's pie (GroupPieMenuLayer) takes up canvas the flows used to
+  // click away on: settle for a smaller clear patch before giving up.
+  const spot = await bareSpotOfSize(page, halfW, halfH) || await bareSpotOfSize(page, halfW / 2, halfH / 2);
+  if (!spot) throw new Error('no bare patch of canvas on screen');
+  return { x: spot.x, y: spot.y };
+}
+
+function bareSpotOfSize(page, halfW, halfH) {
+  return page.evaluate(({ hw, hh }) => {
     const area = document.querySelector('.canvas-area').getBoundingClientRect();
     const boxes = [...document.querySelectorAll('svg.canvas g.node')].map((n) => n.getBoundingClientRect());
     const isBare = (x, y) => {
@@ -253,8 +261,6 @@ export async function findBareSpot(page, { halfW = 110, halfH = 70 } = {}) {
     }
     return best;
   }, { hw: halfW, hh: halfH });
-  if (!spot) throw new Error('no bare patch of canvas on screen');
-  return { x: spot.x, y: spot.y };
 }
 
 /**

@@ -5,7 +5,7 @@
  * to catch edges that reference non-existent nodes (common with small local LLMs).
  */
 
-import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { calculateStringSimilarity } from './utils/stringSimilarity.js';
 
 /**
  * Validate edges against known node names, stripping invalid ones.
@@ -63,81 +63,190 @@ export function validateEdges(nodeSpecs, edges, existingNodeNames = []) {
   return { validEdges, droppedEdges };
 }
 
+/** Case and spacing never distinguish two names. Nothing else is forgiven. */
+export const normalizeEndpointName = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+const listOf = (c) => (Array.isArray(c)
+  ? c
+  : c instanceof Map ? Array.from(c.values()) : Object.values(c || {}));
+
 /**
- * Smart edge validation: instead of silently dropping every edge whose endpoint
- * isn't an EXACT name match, first try to resolve each unmatched endpoint to a
- * known node (exact → model → substring). Only genuinely unresolvable endpoints
- * cause a drop, and any endpoint that was remapped is reported (never silent).
- *
- * With no model configured this degrades to substring/exact resolution, so it
- * still drops true non-existent references (same net effect as validateEdges)
- * while recovering near-miss casing/whitespace/synonym references.
- *
- * @returns {Promise<{ validEdges: Array, droppedEdges: Array, remappedEndpoints: Array }>}
+ * The names a call's own layers put in the web: each layer, and, for a layer
+ * that opens in place, everything its definition holds (copied in when it
+ * decomposes). A collapsed layer keeps its contents inside it.
  */
-export async function validateEdgesSmart(nodeSpecs, edges, existingNodeNames = []) {
+function collectLayerNames(layers, out = []) {
+  for (const layer of listOf(layers)) {
+    if (!layer?.name) continue;
+    out.push(String(layer.name));
+    if (layer.display === 'collapsed' || layer.use) continue;
+    const def = layer.definition || {};
+    for (const n of listOf(def.nodes)) {
+      const name = typeof n === 'string' ? n : n?.name;
+      if (name) out.push(String(name));
+    }
+    collectLayerNames(def.layers, out);
+  }
+  return out;
+}
+
+/**
+ * What an edge endpoint may resolve against outside the call: the target web's
+ * instances by name, and every Thing in the universe (last match per name).
+ * The Thing a web defines is left out of the universe: placing it inside its
+ * own definition is never what an edge meant.
+ */
+export function edgeScopeFromState(graphState, graphId, { exclude = [] } = {}) {
+  const protos = listOf(graphState?.nodePrototypes);
+  const protoById = new Map(protos.map((p) => [p?.id, p]));
+  const graph = graphId ? listOf(graphState?.graphs).find((g) => g?.id === graphId) : null;
+  const webNames = graph
+    ? listOf(graph.instances).map((i) => i?.name || protoById.get(i?.prototypeId)?.name).filter(Boolean)
+    : [];
+  const skip = new Set([...(Array.isArray(graph?.definingNodeIds) ? graph.definingNodeIds : []), ...exclude]);
+  const universe = protos
+    .filter((p) => p?.name && !skip.has(p.id))
+    .map((p) => ({ name: p.name, prototypeId: p.id }));
+  return { webNames, universe };
+}
+
+/** The few existing names nearest to one that matched nothing. */
+function closestNames(raw, pool, max = 3) {
+  const q = normalizeEndpointName(raw);
+  return pool
+    .map((name) => {
+      const n = normalizeEndpointName(name);
+      const contains = q && n && (n.includes(q) || q.includes(n)) ? 0.5 : 0;
+      return { name, score: calculateStringSimilarity(q, n) + contains };
+    })
+    .filter((e) => e.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, max)
+    .map((e) => e.name);
+}
+
+/**
+ * Edge validation by exact name. An endpoint resolves, case and spacing aside,
+ * in this order:
+ *   1. a name this call puts in the web: its nodes, its layers, and what those
+ *      layers open into
+ *   2. a Thing already in the target web
+ *   3. a Thing elsewhere in the universe (last match), which the applier places
+ *      in the web so the edge has an end
+ * Anything else drops the edge, with the closest existing names in the reason.
+ * There is no substring or model fallback: "Softmax Function" is not "max", and
+ * a wrong guess wires the graph wrong without anyone being told.
+ *
+ * @param {Array} nodeSpecs - the call's nodes (each has .name)
+ * @param {Array} edges - raw edges (.source, .target)
+ * @param {Object} [scope] - { layers, webNames, universe: [{ name, prototypeId }] }.
+ *   An array here is read as webNames.
+ * @returns {Promise<{ validEdges, droppedEdges, remappedEndpoints, placedExisting }>}
+ *   validEdges carry the canonical names, and toLayer: true when an end is one
+ *   of the call's layers (or inside one), so the applier can add them after the
+ *   layers exist. placedExisting lists the universe Things tier 3 resolved to.
+ */
+export async function validateEdgesSmart(nodeSpecs, edges, scope = {}) {
   if (!edges || edges.length === 0) {
-    return { validEdges: [], droppedEdges: [], remappedEndpoints: [] };
+    return { validEdges: [], droppedEdges: [], remappedEndpoints: [], placedExisting: [] };
   }
 
-  // Canonical candidate names (preserve original casing for rewriting).
-  const canonicalByLower = new Map();
-  const addName = (name) => {
-    if (!name) return;
-    const lower = String(name).toLowerCase().trim();
-    if (lower && !canonicalByLower.has(lower)) canonicalByLower.set(lower, String(name));
+  const { layers = [], webNames = [], universe = [] } = Array.isArray(scope) ? { webNames: scope } : (scope || {});
+
+  const callNames = new Map();
+  for (const spec of listOf(nodeSpecs)) {
+    if (spec?.name) callNames.set(normalizeEndpointName(spec.name), { name: String(spec.name), toLayer: false });
+  }
+  for (const name of collectLayerNames(layers)) {
+    callNames.set(normalizeEndpointName(name), { name, toLayer: true });
+  }
+  const webByName = new Map();
+  for (const name of webNames) if (name) webByName.set(normalizeEndpointName(name), String(name));
+  const universeByName = new Map();
+  for (const u of listOf(universe)) {
+    if (u?.name) universeByName.set(normalizeEndpointName(u.name), { name: String(u.name), prototypeId: u.prototypeId || u.id });
+  }
+
+  const resolve = (raw) => {
+    const q = normalizeEndpointName(raw);
+    if (!q) return null;
+    if (callNames.has(q)) return { ...callNames.get(q) };
+    if (webByName.has(q)) return { name: webByName.get(q), toLayer: false };
+    if (universeByName.has(q)) return { ...universeByName.get(q), toLayer: false, fromUniverse: true };
+    return null;
   };
-  for (const spec of nodeSpecs) addName(spec.name);
-  for (const name of existingNodeNames) addName(name);
 
-  const candidates = Array.from(canonicalByLower.values()).map((name) => ({ name }));
-  const knownLower = new Set(canonicalByLower.keys());
-
-  // Resolve each distinct unknown name at most once.
-  const resolutionCache = new Map();
-  async function resolveEndpoint(rawName) {
-    const lower = String(rawName || '').toLowerCase().trim();
-    if (!lower) return { canonical: null, remapped: false };
-    if (knownLower.has(lower)) return { canonical: canonicalByLower.get(lower), remapped: false };
-    if (resolutionCache.has(lower)) return resolutionCache.get(lower);
-
-    const { match } = await resolveNodeSmart(rawName, candidates, { callSite: 'edgeValidator' });
-    const res = match
-      ? { canonical: match.name, remapped: true }
-      : { canonical: null, remapped: false };
-    resolutionCache.set(lower, res);
-    return res;
-  }
+  let pool = null;
+  const missing = (role, raw) => {
+    if (!pool) {
+      pool = Array.from(new Set([...Array.from(callNames.values()).map((c) => c.name), ...webByName.values()]));
+      if (pool.length < 3) pool = Array.from(new Set([...pool, ...Array.from(universeByName.values()).map((u) => u.name)]));
+    }
+    const near = closestNames(raw, pool);
+    return `${role} "${raw ?? ''}" is not a Thing in this call, this web or the universe`
+      + (near.length > 0 ? ` (closest: ${near.map((n) => `"${n}"`).join(', ')})` : '');
+  };
 
   const validEdges = [];
   const droppedEdges = [];
   const remappedEndpoints = [];
+  const placed = new Map();
 
   for (const edge of edges) {
-    const s = await resolveEndpoint(edge.source);
-    const t = await resolveEndpoint(edge.target);
-
-    if (s.canonical && t.canonical) {
-      const rewritten = { ...edge, source: s.canonical, target: t.canonical };
-      if (s.remapped) remappedEndpoints.push({ from: edge.source, to: s.canonical });
-      if (t.remapped) remappedEndpoints.push({ from: edge.target, to: t.canonical });
-      validEdges.push(rewritten);
-    } else {
+    const s = resolve(edge.source);
+    const t = resolve(edge.target);
+    if (!s || !t) {
       const reasons = [];
-      if (!s.canonical) reasons.push(`source "${edge.source}" could not be resolved to any node`);
-      if (!t.canonical) reasons.push(`target "${edge.target}" could not be resolved to any node`);
+      if (!s) reasons.push(missing('source', edge.source));
+      if (!t) reasons.push(missing('target', edge.target));
       droppedEdges.push({ source: edge.source, target: edge.target, reason: reasons.join('; ') });
+      continue;
     }
+    if (s.name !== edge.source) remappedEndpoints.push({ from: edge.source, to: s.name });
+    if (t.name !== edge.target) remappedEndpoints.push({ from: edge.target, to: t.name });
+    for (const end of [s, t]) {
+      if (end.fromUniverse && end.prototypeId) placed.set(end.prototypeId, { name: end.name, prototypeId: end.prototypeId });
+    }
+    const { toLayer, ...rest } = edge;
+    validEdges.push({ ...rest, source: s.name, target: t.name, ...(s.toLayer || t.toLayer ? { toLayer: true } : {}) });
   }
 
   if (remappedEndpoints.length > 0) {
-    console.error(`[edgeValidator] Remapped ${remappedEndpoints.length} near-miss endpoint(s):`);
-    for (const r of remappedEndpoints) console.error(`[edgeValidator]   "${r.from}" → "${r.to}"`);
+    console.error(`[edgeValidator] ${remappedEndpoints.length} endpoint(s) matched ignoring case/spacing:`);
+    for (const r of remappedEndpoints) console.error(`[edgeValidator]   "${r.from}" -> "${r.to}"`);
   }
   if (droppedEdges.length > 0) {
-    console.error(`[edgeValidator] Dropped ${droppedEdges.length} unresolvable edge(s):`);
-    for (const d of droppedEdges) console.error(`[edgeValidator]   ${d.source} → ${d.target}: ${d.reason}`);
+    console.error(`[edgeValidator] Dropped ${droppedEdges.length} edge(s) with unknown endpoints:`);
+    for (const d of droppedEdges) console.error(`[edgeValidator]   ${d.source} -> ${d.target}: ${d.reason}`);
   }
 
-  return { validEdges, droppedEdges, remappedEndpoints };
+  return { validEdges, droppedEdges, remappedEndpoints, placedExisting: Array.from(placed.values()) };
+}
+
+/**
+ * The model-facing account of what validation did to the edges: every drop,
+ * every name matched only after ignoring case/spacing, and every Thing brought
+ * in from elsewhere in the universe. Null when it changed nothing.
+ */
+export function describeEdgeValidation({ droppedEdges = [], remappedEndpoints = [], placedExisting = [] } = {}) {
+  const parts = [];
+  if (droppedEdges.length > 0) {
+    parts.push(
+      `${droppedEdges.length} edge(s) were dropped because an endpoint names no existing Thing: `
+      + droppedEdges.map((d) => `${d.source} → ${d.target} (${d.reason})`).join('; ')
+      + '. Nothing was guessed: send them again with the exact names.'
+    );
+  }
+  if (remappedEndpoints.length > 0) {
+    const pairs = new Map();
+    for (const r of remappedEndpoints) pairs.set(`${r.from}\u0000${r.to}`, r);
+    parts.push(`Matched ignoring case/spacing: ${Array.from(pairs.values()).map((r) => `"${r.from}" as "${r.to}"`).join(', ')}.`);
+  }
+  if (placedExisting.length > 0) {
+    parts.push(
+      'Placed existing Things from elsewhere in the universe into this web so their edges have an end: '
+      + `${placedExisting.map((p) => `"${p.name}"`).join(', ')}.`
+    );
+  }
+  return parts.length > 0 ? parts.join(' ') : null;
 }

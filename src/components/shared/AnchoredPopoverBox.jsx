@@ -140,7 +140,7 @@ const AnchoredPopoverBox = ({
         width: boxWidth,
         maxWidth: 'calc(100vw - 24px)',
         ...(scrollable
-          ? { overflowY: 'auto' }
+          ? { overflowY: 'auto', overflowX: 'hidden' }
           : { display: 'flex', flexDirection: 'column', overflow: 'hidden' }),
         background: '#DEDADA',
         border: '2px solid maroon',

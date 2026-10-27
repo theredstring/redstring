@@ -112,7 +112,7 @@ export default function CanvasOverlaysHost({ ctx }) {
               setAddToGroupDialog(null);
             }}
             title={`Add to ${addToGroupDialog.isNodeGroup ? 'Thing' : 'Group'}?`}
-            message={`Add ${addToGroupDialog.nodeIds.length > 1 ? `${addToGroupDialog.nodeIds.length} nodes` : 'this node'} to ${addToGroupDialog.isNodeGroup ? 'the Thing' : 'the group'} "${addToGroupDialog.groupName}"?`}
+            message={`Add ${addToGroupDialog.what || (addToGroupDialog.nodeIds.length > 1 ? `${addToGroupDialog.nodeIds.length} nodes` : 'this node')} to ${addToGroupDialog.isNodeGroup ? 'the Thing' : 'the group'} "${addToGroupDialog.groupName}"?`}
             confirmLabel="Add"
             cancelLabel="Cancel"
             variant="default"

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
+import useCanvasUIStore from '../../src/store/canvasUIStore.js';
 import { projectGraphView, openGroupId } from '../../src/core/openDefinitions.js';
 
 // A node opened in place shows its definition's own nodes; editing them edits the
@@ -147,6 +148,19 @@ describe('openDefinitionInPlace', () => {
     expect(view().instances.get('b')).toMatchObject({ x: 1800, y: 1100 });
   });
 
+  it('parking a nested box under its title never moves the box around it', () => {
+    // A box holding only another open box: parking that box's node under its
+    // title is a move of everything inside, and read as a drag it carried the box
+    // (and the title, and so the next parking) off up-left every frame.
+    st().addNodeInstance('main', 'p-box', { x: 1000, y: 1000 }, 'box');
+    st().addNodeInstance('main', 'p-a', { x: 1100, y: 1100 }, 'a');
+    st().addInstancesToGroup('main', st().openDefinitionInPlace('main', 'box'), ['a']);
+    st().openDefinitionInPlace('main', 'a');
+    st().updateMultipleNodeInstancePositions('main', [{ instanceId: 'a', x: 1150, y: 1040 }], { phase: 'end', parkedAnchors: true });
+    expect(mainGraph().instances.get('box').openDefinition.offset).toEqual({ x: 1000, y: 1000 });
+    expect(defGraph().instances.get('a')).toMatchObject({ x: 150, y: 40 });
+  });
+
   it('edits in view coordinates without disturbing stored positions', () => {
     buildInPlace();
     st().updateNodeInstance('main', 'a', (draft) => { draft.scale = 1.2; });
@@ -180,11 +194,13 @@ describe('openDefinitionInPlace', () => {
     expect(defGraph().instances.size).toBe(2);
   });
 
-  it('opens a definition once per view', () => {
-    const groupId = buildInPlace();
+  it('opens a definition again in a second box', () => {
+    buildInPlace();
     st().addNodeInstance('main', 'p-box', { x: 3000, y: 0 }, 'box-2');
-    expect(st().openDefinitionInPlace('main', 'box-2')).toBe(groupId);
-    expect(mainGraph().instances.get('box-2').openDefinition).toBeUndefined();
+    expect(st().openDefinitionInPlace('main', 'box-2')).toBe(openGroupId('box-2'));
+    expect(mainGraph().instances.get('box-2').openDefinition).toBeTruthy();
+    expect(view().groups.get(openGroupId('box-2')).memberInstanceIds).toEqual(['box-2/a', 'box-2/b']);
+    expect(view().edgeIds).toEqual(expect.arrayContaining(['e-in', 'box-2/e-in']));
   });
 
   it('renaming the open box renames the Thing', () => {
@@ -211,3 +227,127 @@ describe('openDefinitionInPlace', () => {
     expect(mainGraph().instances.get('box').openDefinition).toBeUndefined();
   });
 });
+
+describe('a definition open in two boxes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    reset();
+    buildInPlace();
+    st().addNodeInstance('main', 'p-box', { x: 3000, y: 0 }, 'box-2');
+    st().openDefinitionInPlace('main', 'box-2', 0, {}, { x: 2000, y: -1000 });
+  });
+
+  it('edits the definition from either box, under stored ids', () => {
+    const before = defGraph().instances.get('a');
+    const shown = view().instances.get('box-2/a');
+    st().updateMultipleNodeInstancePositions('main', [{ instanceId: 'box-2/a', x: shown.x + 50, y: shown.y }]);
+    expect(defGraph().instances.get('a').x).toBe(before.x + 50);
+    expect(view().instances.get('a').x).toBe(view().instances.get('box-2/a').x - 2000 + (mainGraph().instances.get('box').openDefinition.offset.x));
+    st().updateNodeInstance('main', 'box-2/b', (inst) => { inst.scale = 2; });
+    expect(defGraph().instances.get('b').scale).toBe(2);
+    expect([...defGraph().instances.keys()].some(id => id.includes('/'))).toBe(false);
+  });
+
+  it('moves the second box on its own when all of it is dragged', () => {
+    const firstOffset = { ...mainGraph().instances.get('box').openDefinition.offset };
+    const updates = ['box-2/a', 'box-2/b'].map(id => ({ instanceId: id, x: view().instances.get(id).x + 10, y: view().instances.get(id).y + 20 }));
+    st().updateMultipleNodeInstancePositions('main', updates);
+    expect(mainGraph().instances.get('box-2').openDefinition.offset).toEqual({ x: 2010, y: -980 });
+    expect(mainGraph().instances.get('box').openDefinition.offset).toEqual(firstOffset);
+  });
+
+  it('connects a node in the second box to the outside through that box', () => {
+    st().addEdge('main', { id: 'e-2', sourceId: 'box-2/b', destinationId: 'out', directionality: { arrowsToward: new Set(['box-2/b']) } });
+    const stored = st().edges.get('e-2');
+    expect(stored).toMatchObject({ sourceId: 'b', destinationId: 'out', sourceVia: ['box-2'] });
+    expect(Array.from(stored.directionality.arrowsToward)).toEqual(['b']);
+    expect(mainGraph().edgeIds).toContain('e-2');
+    expect(view().openView.edges.get('e-2')).toMatchObject({ sourceId: 'box-2/b', destinationId: 'out' });
+  });
+
+  it('connects the two boxes to each other around both', () => {
+    st().addEdge('main', { id: 'e-between', sourceId: 'a', destinationId: 'box-2/b' });
+    expect(st().edges.get('e-between')).toMatchObject({ sourceId: 'a', destinationId: 'b', sourceVia: ['box'], destinationVia: ['box-2'] });
+    expect(mainGraph().edgeIds).toContain('e-between');
+    expect(defGraph().edgeIds).not.toContain('e-between');
+  });
+
+  it('connects inside the second box into the definition itself', () => {
+    st().addEdge('main', { id: 'e-in-2', sourceId: 'box-2/b', destinationId: 'box-2/a' });
+    expect(st().edges.get('e-in-2')).toMatchObject({ sourceId: 'b', destinationId: 'a' });
+    expect(st().edges.get('e-in-2').sourceVia).toBeUndefined();
+    expect(defGraph().edgeIds).toContain('e-in-2');
+    expect(view().edgeIds).toEqual(expect.arrayContaining(['e-in-2', 'box-2/e-in-2']));
+  });
+
+  it('updates and deletes a connection picked in the second box', () => {
+    st().updateEdge('box-2/e-in', (edge) => { edge.directionality.arrowsToward = new Set(['box-2/b']); });
+    expect(Array.from(st().edges.get('e-in').directionality.arrowsToward)).toEqual(['b']);
+    st().removeEdge('box-2/e-in');
+    expect(st().edges.has('e-in')).toBe(false);
+    expect(view().edgeIds).not.toContain('e-in');
+  });
+
+  it('deletes a node picked in the second box from the definition', () => {
+    st().removeMultipleNodeInstances('main', ['box-2/b']);
+    expect(defGraph().instances.has('b')).toBe(false);
+    expect(st().edges.has('e-in')).toBe(false);
+    expect(view().instances.has('b')).toBe(false);
+  });
+
+  it('drops a node into the second box, keeping its connection on that box', () => {
+    st().addNodeInstance('main', 'p-a', { x: 0, y: 500 }, 'c');
+    st().addEdge('main', { id: 'e-c', sourceId: 'c', destinationId: 'out' });
+    st().addEdge('main', { id: 'e-c-a', sourceId: 'c', destinationId: 'a' });
+    st().addInstancesToGroup('main', openGroupId('box-2'), ['c']);
+    expect(defGraph().instances.has('c')).toBe(true);
+    expect(st().edges.get('e-c')).toMatchObject({ sourceId: 'c', sourceVia: ['box-2'] });
+    // c (now in box-2) to a in the first box: still between the two boxes.
+    expect(st().edges.get('e-c-a')).toMatchObject({ sourceId: 'c', destinationId: 'a', sourceVia: ['box-2'], destinationVia: ['box'] });
+    expect(view().instances.has('box-2/c')).toBe(true);
+  });
+
+  it('keeps a node dropped into the second box selected, under its id there', () => {
+    st().addNodeInstance('main', 'p-a', { x: 0, y: 500 }, 'c');
+    useCanvasUIStore.getState().setSelectedInstanceIds(new Set(['c']));
+    st().addInstancesToGroup('main', openGroupId('box-2'), ['c']);
+    expect([...useCanvasUIStore.getState().selectedInstanceIds]).toEqual(['box-2/c']);
+  });
+
+  it('closes the second box alone', () => {
+    expect(st().closeDefinitionInPlace('main', 'box-2')).toBe('box-2');
+    expect(mainGraph().instances.get('box-2').openDefinition).toBeUndefined();
+    expect(mainGraph().instances.get('box').openDefinition).toBeTruthy();
+  });
+});
+
+describe('dragging a box that holds an empty box', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    reset();
+    // Box open, holding Inner (open and empty), inside which is nothing.
+    st().addNodeInstance('main', 'p-box', { x: 1000, y: 1000 }, 'box');
+    st().addNodeInstance('main', 'p-a', { x: 1100, y: 1100 }, 'a');
+    st().openDefinitionInPlace('main', 'box', 0, {}, { x: 0, y: 0 });
+    st().addInstancesToGroup('main', openGroupId('box'), ['a']);
+    st().addNodeInstance('main', 'p-b', { x: 1200, y: 1300 }, 'inner');
+    st().addInstancesToGroup('main', openGroupId('box'), ['inner']);
+    st().openDefinitionInPlace('main', 'inner', 0, {}, { x: 50, y: 60 });
+  });
+
+  it('moves the empty box once, with its box', () => {
+    const v = view();
+    const innerBox = v.groups.get(openGroupId('inner'));
+    const ph = innerBox.emptyPlaceholderOrigin;
+    const d = { x: 300, y: 200 };
+    // What a drag of the outer box sends: its Things, its inner anchor, the empty box's spot.
+    st().updateMultipleNodeInstancePositions('main', [
+      { instanceId: 'a', x: v.instances.get('a').x + d.x, y: v.instances.get('a').y + d.y },
+      { instanceId: 'inner', x: v.instances.get('inner').x + d.x, y: v.instances.get('inner').y + d.y },
+      { instanceId: `__placeholder__${openGroupId('inner')}`, x: ph.x + d.x, y: ph.y + d.y },
+    ]);
+    expect(view().groups.get(openGroupId('inner')).emptyPlaceholderOrigin).toEqual({ x: ph.x + d.x, y: ph.y + d.y });
+    expect(view().instances.get('a').x).toBe(v.instances.get('a').x + d.x);
+  });
+});
+

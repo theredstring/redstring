@@ -223,7 +223,7 @@ function buildModel(nodes, edges, centers, groups, cfg) {
         nodesById, dimsById, groupsById, groupsByMemberId, childGroupIdsByGroupId: childIdx,
         gridSize: cfg.gridSize ?? 200,
         measureLabelWidth: (t) => estimateEdgeLabelWidth(t || 'Group', cfg.groupLabelFontSize ?? 45),
-        labelFontSize: cfg.groupLabelFontSize ?? 45, labelScale: cfg.groupLabelScale ?? 1,
+        labelFontSize: cfg.groupLabelFontSize ?? 45, labelScale: cfg.groupLabelScale ?? 1, labelGrowth: cfg.groupLabelGrowth ?? null,
         _cache: new Map(), _visiting: new Set()
       };
       const out = new Map();
@@ -587,7 +587,8 @@ function localCost(model, cfg, state, dirtyNodes, dirtyConns, sink = null, split
  */
 export function explainScene(positions, nodes, edges, options = {}) {
   const cfg = { ...REPAIR_DEFAULTS, ...(options.repair || {}), edgeLabelFontSize: options.edgeLabelFontSize,
-    groupLabelFontSize: options.groupLabelFontSize, groupLabelScale: options.groupLabelScale, gridSize: options.gridSize };
+    groupLabelFontSize: options.groupLabelFontSize, groupLabelScale: options.groupLabelScale,
+    groupLabelGrowth: options.groupLabelGrowth, gridSize: options.gridSize };
   const sized = nodes.filter(n => positions.has(n.id)).map(n => ({ id: n.id, width: Math.max(1, n.width || 0), height: Math.max(1, n.height || 0) }));
   const centers = new Map(sized.map(n => { const p = positions.get(n.id); return [n.id, { x: p.x + n.width / 2, y: p.y + n.height / 2 }]; }));
   const model = buildModel(sized, edges, centers, options.groups || [], cfg);
@@ -646,7 +647,8 @@ const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [0.7071, 0.7071], [-0.7071, 0.70
  */
 export function repairLayout(positions, nodes, edges, options = {}) {
   const cfg = { ...REPAIR_DEFAULTS, ...(options.repair || {}), edgeLabelFontSize: options.edgeLabelFontSize,
-    groupLabelFontSize: options.groupLabelFontSize, groupLabelScale: options.groupLabelScale, gridSize: options.gridSize };
+    groupLabelFontSize: options.groupLabelFontSize, groupLabelScale: options.groupLabelScale,
+    groupLabelGrowth: options.groupLabelGrowth, gridSize: options.gridSize };
   const sized = nodes.filter(n => positions.has(n.id)).map(n => ({
     id: n.id, width: Math.max(1, n.width || 0), height: Math.max(1, n.height || 0)
   }));

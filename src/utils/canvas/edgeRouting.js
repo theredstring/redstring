@@ -1558,7 +1558,7 @@ const MIN_VISIBLE_ARC_FRACTION = 0.05;
  * occluder (node hitbox, or a thing-group's whole outer box).
  *
  * A Lombardi edge whose two tangent demands cancel is drawn as a LINE, not an
- * arc — the whole of a single-triplet subgraph is that case, and so is every
+ * arc — the whole of a single-triple subgraph is that case, and so is every
  * degree-2 node whose neighbours sit on opposite bearings. Such an edge has no
  * arc, so it never reaches `visibleRange`, and the label placer was handed the
  * raw centre-to-centre polyline instead. Its midpoint is only the middle of the

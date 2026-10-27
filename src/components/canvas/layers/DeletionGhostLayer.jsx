@@ -11,7 +11,27 @@ const removeGhost = (id) => useCanvasUIStore.getState().removeDeletionGhost(id);
  */
 function DeletionGhostLayer() {
   const ghosts = useCanvasUIStore(s => s.deletionGhosts);
-  return ghosts.map(ghost => (
+  return ghosts.map(ghost => ghost.inner ? (
+    // A Thing-group's shell (groups/deleteNodeGroup.js): band and interior
+    // shrinking as one, about the band's centre.
+    <g
+      key={ghost.id}
+      className="node-delete-ghost"
+      style={{
+        pointerEvents: 'none',
+        animationDelay: `${ghost.delay}ms`,
+        transformBox: 'view-box',
+        transformOrigin: `${ghost.x + ghost.width / 2}px ${ghost.y + ghost.height / 2}px`,
+      }}
+      onAnimationEnd={() => removeGhost(ghost.id)}
+    >
+      <rect x={ghost.x} y={ghost.y} width={ghost.width} height={ghost.height} rx={ghost.rx} ry={ghost.rx} fill={ghost.color} />
+      <rect
+        x={ghost.inner.x} y={ghost.inner.y} width={ghost.inner.width} height={ghost.inner.height}
+        rx={ghost.inner.rx} ry={ghost.inner.rx} fill={ghost.inner.color}
+      />
+    </g>
+  ) : (
     <rect
       key={ghost.id}
       className="node-delete-ghost"

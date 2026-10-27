@@ -60,6 +60,8 @@ import { buildEnrichmentUpdates, linkedWikipediaTitle } from '../../../services/
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { openExternalUrl } from '../../../utils/safeUrl.js';
 import { buildAIOutputReportUrl } from '../../../services/aiConsent.js';
+import { formulaSnapshotForWizard } from '../../canvas/formats/formula/formulaSnapshot.js';
+import { extractChatMath } from '../../wizard/chatMath.jsx';
 
 /**
  * services/aiConsent.js refuses to send graph content to a provider the person
@@ -643,6 +645,9 @@ const LeftAIView = ({ compact = false,
   const [selectedTestTool, setSelectedTestTool] = React.useState(null);
   const [testToolArgs, setTestToolArgs] = React.useState('');
   const [hasAPIKey, setHasAPIKey] = React.useState(false);
+  // False until the first key check lands, so the empty state's Link API Key
+  // button doesn't flash for someone who has one.
+  const [apiKeyChecked, setApiKeyChecked] = React.useState(false);
   const [apiKeyInfo, setApiKeyInfo] = React.useState(null);
   // 'wizard', 'chat', 'druid'. Remembered on this device, so a reload comes
   // back to the Druid's run rather than to the Wizard.
@@ -1750,6 +1755,7 @@ const LeftAIView = ({ compact = false,
       setHasAPIKey(hasKey);
       setApiKeyInfo(keyInfo);
     } catch (error) { console.error('Failed to check API key:', error); }
+    setApiKeyChecked(true);
   };
 
 
@@ -1806,7 +1812,9 @@ const LeftAIView = ({ compact = false,
   // Simple markdown renderer for chat messages
   const renderMarkdown = (text) => {
     if (!text) return text;
-    text = text.trimStart();
+    // Math ($…$, $$…$$) comes out first and goes back drawn as formulas (chatMath.jsx).
+    const math = extractChatMath(text.trimStart());
+    text = math.text;
 
     const escapeHtml = (str) =>
       str
@@ -1876,7 +1884,7 @@ const LeftAIView = ({ compact = false,
     // Also strip a leading <br> right before a <ul> that creates a gap above the list
     html = html.replace(/(<br>\s*)+(<ul)/g, '$2');
 
-    return html;
+    return math.restore(html);
   };
 
   const upsertToolCall = React.useCallback((toolUpdate, targetId) => {
@@ -2831,6 +2839,9 @@ const LeftAIView = ({ compact = false,
           const ids = useGraphStore.getState().openGraphIds;
           return Array.isArray(ids) ? [...ids] : [];
         })(),
+        // Every formula a web shows, as its text and what its symbols mean:
+        // without it the wizard reads a formula as a row of small Things.
+        ...formulaSnapshotForWizard(useGraphStore.getState()),
         // Seed durable wizard plan so small models can resume after context clears.
         // Plans are keyed by conversation/tab ID so tabs don't contaminate each other.
         _currentPlan: (() => {
@@ -3838,7 +3849,7 @@ const LeftAIView = ({ compact = false,
           borderBottom: `1px solid ${theme.canvas.border}`,
           fontSize: '12px',
           color: theme.canvas.textSecondary,
-          animation: 'slideDown 0.2s ease-out'
+          animation: 'ai-slide-down 0.2s ease-out'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <div style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -4016,6 +4027,7 @@ const LeftAIView = ({ compact = false,
                 } else {
                   const graphState = {
                     activeGraphId,
+                    ...formulaSnapshotForWizard(useGraphStore.getState()),
                     graphs: activeGraphId && graphsMap ? Array.from(graphsMap.values()).map(g => ({
                       id: g.id, name: g.name,
                       instances: g.instances instanceof Map ? Array.from(g.instances.values()) : Object.values(g.instances || {}),
@@ -4126,6 +4138,16 @@ const LeftAIView = ({ compact = false,
                   </g>
                 </svg>
                 <div style={{ color: 'var(--canvas-text-muted)', fontFamily: "'EmOne', sans-serif", fontSize: '14px' }}>What will we build today?</div>
+                {apiKeyChecked && !hasAPIKey && (
+                  <PanelIconButton
+                    icon={Key}
+                    size={14}
+                    label="Link API Key"
+                    variant="outline"
+                    onClick={() => window.dispatchEvent(new CustomEvent('openSettingsModal', { detail: { section: 'ai' } }))}
+                    style={{ marginTop: '16px' }}
+                  />
+                )}
               </div>
             )}
             {/* Only emit the message-list DOM when this view is the active tab.
@@ -4150,7 +4172,7 @@ const LeftAIView = ({ compact = false,
                     key={message.id}
                     style={{
                       alignSelf: 'flex-end',
-                      maxWidth: '85%',
+                      maxWidth: '100%',
                       marginTop: isNewSection ? '24px' : '8px'
                     }}
                   >
@@ -4176,11 +4198,7 @@ const LeftAIView = ({ compact = false,
                 <div
                   key={message.id}
                   className={`ai-message ai-message-${message.sender}`}
-                  style={{
-                    alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start',
-                    maxWidth: '85%',
-                    marginTop: isNewSection ? '24px' : '8px'
-                  }}
+                  style={{ marginTop: isNewSection ? '24px' : '8px' }}
                 >
                   <div className="ai-message-avatar">
                     {message.sender === 'user' ? <User size={24} /> : message.sender === 'system' ? null : <img src={headSvg} alt="Wizard" style={{ width: 40, height: 40 }} />}
@@ -4209,7 +4227,7 @@ const LeftAIView = ({ compact = false,
                               key={`text-${i}`}
                               className="ai-message-text"
                               style={{ userSelect: 'text', cursor: 'text' }}
-                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(block.content)) }}
+                              dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(block.content), { svg: true }) }}
                             />
                           );
                         }
@@ -4282,7 +4300,7 @@ const LeftAIView = ({ compact = false,
                       <div
                         className="ai-message-text"
                         style={{ userSelect: 'text', cursor: 'text' }}
-                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(message.content)) }}
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(message.content), { svg: true }) }}
                       />
                     ) : message.isStreaming ? (
                       <span className="ai-thinking-dots">
@@ -4582,12 +4600,10 @@ const LeftAIView = ({ compact = false,
                     addContextPin(node?.id);
                     setShowAddThing(false);
                   }}
-                  title="Add a Thing"
-                  subtitle="The Wizard will know its Webs and other info."
+                  title="Pick a Thing for the Wizard"
                   leftPanelExpanded={leftPanelExpanded}
                   rightPanelExpanded={rightPanelExpanded}
                   searchOnly={true}
-                  gridTitle="All Things"
                 />
               )}
             </div>
@@ -4752,9 +4768,9 @@ const LeftAIView = ({ compact = false,
                 abort controller happens to exist — otherwise a run that lost its
                 controller left a disabled input and no way out. */}
             {isProcessing ? (
-              <button onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square /></button>
+              <button key="stop" onClick={handleStopAgent} className="ai-stop-button" title="Stop Agent"><Square fill="currentColor" /></button>
             ) : (
-              <button onClick={handleSendMessage} disabled={(!currentInput.trim() && pendingAttachments.length === 0) || isProcessing} className="ai-send-button"><Send /></button>
+              <button key="send" onClick={handleSendMessage} disabled={(!currentInput.trim() && pendingAttachments.length === 0) || isProcessing} className="ai-send-button"><Send /></button>
             )}
           </div>
         </div>

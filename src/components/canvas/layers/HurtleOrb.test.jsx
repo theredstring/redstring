@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, act } from '@testing-library/react';
-import HurtleOrb, { hurtleFrame } from './HurtleOrb.jsx';
+import HurtleOrb, { hurtleFrame, flightKeyframes } from './HurtleOrb.jsx';
 
 vi.mock('../../../services/haptics.js', () => ({
   createDetentTrack: () => ({ reset: vi.fn(), update: vi.fn() }),
@@ -37,6 +37,22 @@ describe('hurtleFrame', () => {
   it('eases in and out', () => {
     expect(hurtleFrame(f, 0.25).eased).toBeCloseTo(0.125);
     expect(hurtleFrame(f, 0.75).eased).toBeCloseTo(0.875);
+  });
+});
+
+describe('flightKeyframes', () => {
+  it('flies a peak-sized box by transform: a 1 px dot on the node, full size mid-flight, faded on the tab', () => {
+    const { peak, frames } = flightKeyframes(flightAt(0));
+    expect(peak).toBeCloseTo(57);
+    const first = frames[0];
+    const mid = frames[frames.length / 2 | 0];
+    const last = frames[frames.length - 1];
+    expect(first.offset).toBe(0);
+    expect(last.offset).toBe(1);
+    expect(first.transform).toBe(`translate(${100 - peak / 2}px, ${500 - peak / 2}px) scale(${1 / peak})`);
+    expect(mid.transform).toBe(`translate(${370 - peak / 2}px, ${263 - peak / 2}px) scale(${57 / peak})`);
+    expect(first.opacity).toBe(1);
+    expect(last.opacity).toBeCloseTo(0);
   });
 });
 

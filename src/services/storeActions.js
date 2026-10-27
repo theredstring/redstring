@@ -348,7 +348,8 @@ export function createStoreActions({
               };
               for (const op of (operations || [])) {
                 try {
-                  switch (op.type) {
+                  // removeNodeInstance is the store's own name for deleteNodeInstance.
+                  switch (op.type === 'removeNodeInstance' ? 'deleteNodeInstance' : op.type) {
                     case 'addNodePrototype': {
                       const st = useGraphStore.getState();
                       if (st.nodePrototypes.has(op.prototypeData?.id)) {
@@ -624,8 +625,9 @@ export function createStoreActions({
                       results.push({ type: op.type, ok: true, graphId: op.graphId });
                       break;
                     }
-                    case 'convertToNodeGroup':
-                      store.convertGroupToNodeGroup(
+                    case 'convertToNodeGroup': {
+                      // Opened in place over its members (`open:<node>`).
+                      const thingGroupId = store.convertGroupToThingInPlace(
                         op.graphId,
                         op.groupId,
                         op.nodePrototypeId,
@@ -633,8 +635,9 @@ export function createStoreActions({
                         op.newPrototypeName,
                         op.newPrototypeColor
                       );
-                      results.push({ type: op.type, ok: true, graphId: op.graphId, groupId: op.groupId });
+                      results.push({ type: op.type, ok: !!thingGroupId, graphId: op.graphId, groupId: thingGroupId || op.groupId });
                       break;
+                    }
                     case 'updateGroup':
                       // Membership goes through updateGroupWithMembers so it
                       // propagates through the nesting chain (up on add, down on
@@ -660,10 +663,15 @@ export function createStoreActions({
                       navigate(op.graphId);
                       results.push({ type: op.type, ok: true, graphId: op.graphId });
                       break;
-                    case 'deleteNodeInstance':
+                    case 'deleteNodeInstance': {
+                      if (!useGraphStore.getState().graphs.get(op.graphId)?.instances?.has(op.instanceId)) {
+                        results.push({ type: op.type, ok: false, id: op.instanceId, error: 'Missing instance/graph' });
+                        break;
+                      }
                       store.removeNodeInstance(op.graphId, op.instanceId);
                       results.push({ type: op.type, ok: true, id: op.instanceId });
                       break;
+                    }
                     case 'deleteGraph':
                       store.deleteGraph(op.graphId);
                       results.push({ type: op.type, ok: true, id: op.graphId });
@@ -743,7 +751,7 @@ export function createStoreActions({
 
                 // Detect structural changes and collect affected graph IDs
                 const structuralTypes = new Set([
-                  'addNodeInstance', 'deleteNodeInstance',
+                  'addNodeInstance', 'deleteNodeInstance', 'removeNodeInstance',
                   'addEdge', 'deleteEdge'
                 ]);
                 const affectedGraphIds = new Set();
@@ -766,7 +774,15 @@ export function createStoreActions({
                 }
               } catch { }
               console.groupEnd();
-              return { success: true, results };
+              // Succeeds only if every operation did; the failed ones are named.
+              const failed = results.filter(r => !r.ok);
+              if (failed.length === 0) return { success: true, results };
+              return {
+                success: false,
+                results,
+                failedCount: failed.length,
+                error: `${failed.length} of ${results.length} operations failed: ${failed.map(r => `${r.type} (${r.error || 'failed'})`).join('; ')}`
+              };
             },
 
             /**

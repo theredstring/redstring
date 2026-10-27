@@ -5,10 +5,20 @@ import { runLayout, cancelLayout } from '../services/layoutRunner.js';
 import { resolveEdgeLabelFontSize } from '../services/layoutGeometry.js';
 import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_FORCE_TUNER_SETTINGS } from '../components/canvas/canvasDefaults.js';
-import { withEmptyGroupPlaceholders } from '../services/groupLayout.js';
+import { withEmptyGroupPlaceholders, groupLabelMetrics } from '../services/groupLayout.js';
 import { getNodeDimensions } from '../utils'; // Assumed utility
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
+import { computeFormulaObjects } from '../components/canvas/formats/formula/formulaObjects.js';
+import { formulaDisplayNow } from '../components/canvas/formats/formatsStore.js';
+
+/** groupId -> { x, y, w, h } of every formula drawn in the active web, as plain data for the worker. */
+const formulaFramesNow = () => {
+    const frames = {};
+    computeFormulaObjects(useGraphStore.getState(), formulaDisplayNow()).objects
+        .forEach(o => { frames[o.groupId] = { x: o.frame.x, y: o.frame.y, w: o.frame.w, h: o.frame.h }; });
+    return frames;
+};
 
 // ── Layout time budget ──────────────────────────────────────────────────────
 // The force solver runs synchronously on the main thread, and each iteration
@@ -176,8 +186,7 @@ export const useGraphLayout = ({
     // width from character count and came out roughly half size, so every
     // group's name overhung the rect the layout had kept clear for it. Plain
     // numbers, because the solver runs in a worker.
-    const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-    const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * (textSettings?.nodeScale ?? 1.0);
+    const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, labelGrowth: groupLabelGrowth } = groupLabelMetrics(textSettings);
     // Whether bulk auto-placement should snap to the grid, given the current
     // grid mode and the user's snap preference. The standalone snap-to-grid
     // action bypasses this (it's an explicit user request).
@@ -416,10 +425,15 @@ export const useGraphLayout = ({
             edgeLabelFontSize: connectionFontSize,
             groupLabelFontSize,
             groupLabelScale,
+            groupLabelGrowth,
             // Group rects are derived from gridSize (member padding scales with
             // it). Without it the solver enforces exclusion against a rect that
             // isn't the one on screen.
             gridSize,
+            // Each formula's drawn frame, so the solver keeps loose nodes off
+            // the band and title it draws, not just off its Things. Measured
+            // here because the worker has no text to measure with.
+            formulaFrames: formulaFramesNow(),
             routingStyle,
             lombardiCurvature,
             solver: layoutSolver,

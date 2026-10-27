@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { CircleDot, ChevronDown, BookOpen, Globe, TextSearch, ArrowUpFromDot } from 'lucide-react';
+import { CircleDot, ChevronDown, BookOpen, Globe, ArrowUpFromDot } from 'lucide-react';
+import BookSearch from './shared/bookSearchIcon.js';
 import useGraphStore from '../store/graphStore.js';
 import { useTheme } from '../hooks/useTheme.js';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { showContextMenuForElement } from './GlobalContextMenu.jsx';
-import TripletPreview from './connections/TripletPreview.jsx';
+import TriplePreview from './connections/TriplePreview.jsx';
 import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
 import useSemanticConnections from '../hooks/useSemanticConnections.js';
 import { openWebOnCanvas } from './wizard/entityActions.js';
@@ -16,7 +17,7 @@ import './ConnectionBrowser.css';
 const CONNECTION_SCOPES = [
   { value: 'graph', label: 'In Graph', Icon: BookOpen },
   { value: 'universe', label: 'Universe', Icon: Globe },
-  { value: 'semantic', label: 'Semantic Web', Icon: TextSearch },
+  { value: 'semantic', label: 'Semantic Web', Icon: BookSearch },
 ];
 
 // Width a Universe row gives its open-web button: the button and the gap before it.
@@ -43,10 +44,10 @@ const graphTopologyPiece = (graphId, graph, prototypeId) => {
 };
 
 /**
- * One of this Thing's own connections, drawn with the shared triplet preview.
+ * One of this Thing's own connections, drawn with the shared triple preview.
  * Arrowheads follow the edge's own directionality.
  */
-const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth, compact = false, note }) => {
+const NativeTriple = ({ connection, subjectColor, objectColor, containerWidth, compact = false, note }) => {
   const arrowsToward = new Set();
   const dir = connection?.directionality;
   if (typeof dir === 'string') {
@@ -66,7 +67,7 @@ const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth, 
     const leads = arrowsToward.has(otherEnd);
     const points = arrowsToward.has(thisEnd);
     return (
-      <div className="connection-triplet" title={`${connection.subject} → ${connection.predicate} → ${connection.object}`}>
+      <div className="connection-triple" title={`${connection.subject} → ${connection.predicate} → ${connection.object}`}>
         <CompactConnectionRow
           predicate={connection.predicate}
           direction={leads && points ? 'both' : leads ? 'out' : points ? 'in' : 'none'}
@@ -79,8 +80,8 @@ const NativeTriplet = ({ connection, subjectColor, objectColor, containerWidth, 
   }
 
   return (
-    <div className="connection-triplet" title={`${connection.subject} → ${connection.predicate} → ${connection.object}`}>
-      <TripletPreview
+    <div className="connection-triple" title={`${connection.subject} → ${connection.predicate} → ${connection.object}`}>
+      <TriplePreview
         subject={connection.subject}
         predicate={connection.predicate}
         object={connection.object}
@@ -335,7 +336,7 @@ const ConnectionBrowser = ({ nodeData }) => {
   return (
     <div className="connection-browser">
       {/* Scope chooser: the same outlined pill and maroon menu as the
-          Universes and Semantic Discovery headers. */}
+          Universes and Semantic Web Search headers. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <PanelIconButton
           icon={activeScope.Icon}
@@ -380,24 +381,24 @@ const ConnectionBrowser = ({ nodeData }) => {
           </div>
         ) : (
           filteredConnections.map((connection) => {
-            const triplet = (
-              <NativeTriplet
+            const triple = (
+              <NativeTriple
                 connection={connection}
                 subjectColor={getNodeColor(connection.subject)}
                 objectColor={getNodeColor(connection.object)}
-                // minus the triplet's own 8px padding + 1px border per side,
+                // minus the triple's own 8px padding + 1px border per side,
                 // and in Universe the open-web button and its gap
                 containerWidth={Math.max(160, containerWidth - 18 - (connectionScope === 'universe' ? OPEN_WEB_BUTTON_ROOM : 0))}
                 compact={containerWidth > 0 && containerWidth < COMPACT_CONNECTIONS_BELOW}
                 note={connectionScope === 'universe' && !connection.inCurrentGraph ? `in ${connection.graphName || 'another web'}` : undefined}
               />
             );
-            if (connectionScope !== 'universe') return <React.Fragment key={connection.id}>{triplet}</React.Fragment>;
+            if (connectionScope !== 'universe') return <React.Fragment key={connection.id}>{triple}</React.Fragment>;
             // In Universe, each connection can open the Web it's in.
             const webOpen = connection.inCurrentGraph;
             return (
               <div key={connection.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>{triplet}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>{triple}</div>
                 <PanelIconButton
                   icon={ArrowUpFromDot}
                   onClick={webOpen ? undefined : (e) => openWebOnCanvas(connection.graphId, e)}

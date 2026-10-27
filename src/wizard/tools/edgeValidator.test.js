@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { validateEdges } from './edgeValidator.js';
+import { validateEdges, validateEdgesSmart, describeEdgeValidation, edgeScopeFromState } from './edgeValidator.js';
 
 describe('validateEdges', () => {
   it('returns all edges as valid when source and target match nodes', () => {
@@ -152,5 +152,72 @@ describe('validateEdges', () => {
 
     expect(validEdges).toHaveLength(1);
     expect(droppedEdges).toHaveLength(0);
+  });
+});
+
+describe('validateEdgesSmart (exact names only)', () => {
+  it('resolves case and spacing differences and reports them', async () => {
+    const r = await validateEdgesSmart([{ name: 'Softmax' }, { name: 'Logits' }], [
+      { source: 'logits', target: '  SOFTMAX ', type: 'Feeds' }
+    ]);
+    expect(r.validEdges).toEqual([{ source: 'Logits', target: 'Softmax', type: 'Feeds' }]);
+    expect(r.remappedEndpoints).toEqual([
+      { from: 'logits', to: 'Logits' },
+      { from: '  SOFTMAX ', to: 'Softmax' }
+    ]);
+    expect(describeEdgeValidation(r)).toContain('"logits" as "Logits"');
+  });
+
+  it('never resolves by substring, either way round', async () => {
+    const r = await validateEdgesSmart([{ name: 'max' }, { name: 'Temperature' }, { name: 'Logits' }], [
+      { source: 'Logits', target: 'Softmax Function', type: 'Feeds' },
+      { source: 'Logits', target: 'Sampling Temperature', type: 'Scaled By' }
+    ]);
+    expect(r.validEdges).toHaveLength(0);
+    expect(r.droppedEdges).toHaveLength(2);
+    expect(r.droppedEdges[0].reason).toContain('target "Softmax Function" is not a Thing');
+    expect(r.droppedEdges[1].reason).toContain('closest: "Temperature"');
+  });
+
+  it("counts layers and what a decomposed layer opens into, not a collapsed one's insides", async () => {
+    const layers = [
+      { name: 'Engine', display: 'decomposed', definition: { nodes: [{ name: 'Piston' }], layers: [{ name: 'Valve Train', definition: { nodes: [{ name: 'Cam' }] } }] } },
+      { name: 'Gearbox', display: 'collapsed', definition: { nodes: [{ name: 'Clutch' }] } }
+    ];
+    const r = await validateEdgesSmart([{ name: 'Driver' }], [
+      { source: 'Driver', target: 'Engine', type: 'a' },
+      { source: 'Driver', target: 'Cam', type: 'b' },
+      { source: 'Driver', target: 'Gearbox', type: 'c' },
+      { source: 'Driver', target: 'Clutch', type: 'd' }
+    ], { layers });
+    expect(r.validEdges.map(e => e.target)).toEqual(['Engine', 'Cam', 'Gearbox']);
+    expect(r.validEdges.every(e => e.toLayer)).toBe(true);
+    expect(r.droppedEdges.map(d => d.target)).toEqual(['Clutch']);
+  });
+
+  it('resolves in order: the call, the web, then the universe (last match)', async () => {
+    const graphState = {
+      graphs: [{ id: 'g', name: 'G', definingNodeIds: ['p-self'], instances: [{ id: 'i1', prototypeId: 'p-web' }] }],
+      nodePrototypes: [
+        { id: 'p-web', name: 'Water' },
+        { id: 'p-old', name: 'Ice' },
+        { id: 'p-new', name: 'ice' },
+        { id: 'p-self', name: 'Ocean' }
+      ]
+    };
+    const r = await validateEdgesSmart([{ name: 'Steam' }], [
+      { source: 'Steam', target: 'Water', type: 'a' },
+      { source: 'Water', target: 'ICE', type: 'b' },
+      { source: 'Water', target: 'Ocean', type: 'c' }
+    ], edgeScopeFromState(graphState, 'g'));
+    expect(r.validEdges.map(e => `${e.source}>${e.target}`)).toEqual(['Steam>Water', 'Water>ice']);
+    expect(r.placedExisting).toEqual([{ name: 'ice', prototypeId: 'p-new' }]);
+    // The web's own defining Thing is never placed inside it.
+    expect(r.droppedEdges.map(d => d.target)).toEqual(['Ocean']);
+  });
+
+  it('describes nothing when nothing changed', async () => {
+    const r = await validateEdgesSmart([{ name: 'A' }, { name: 'B' }], [{ source: 'A', target: 'B' }]);
+    expect(describeEdgeValidation(r)).toBeNull();
   });
 });

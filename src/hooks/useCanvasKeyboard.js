@@ -9,6 +9,8 @@ import { copySelection, pasteClipboard, copyEdgeDefinition, readConnectionClipbo
 import { getNodeDimensions } from '../utils';
 import { isTextEntryActive, isTextEntryTarget } from '../utils/textEntry.js';
 import { NODE_DEFAULT_COLOR } from '../constants'; // Assumed constant exists
+import { deleteSelection, selectPasted } from '../components/canvas/formats/formula/formulaSelection.js';
+import { copyFormula } from '../components/canvas/formats/formula/copyFormula.js';
 
 // Constants (moved from NodeCanvas.jsx)
 const KEYBOARD_PAN_SPEED = 14.25;
@@ -690,6 +692,15 @@ export const useCanvasKeyboard = ({
                     }
                     return;
                 }
+                // A formula selected on its own: as its pie's Copy does.
+                const selectedGroupId = useCanvasUIStore.getState().selectedGroupId;
+                const copiedFormula = selectedGroupId ? copyFormula(activeGraphId, selectedGroupId) : null;
+                if (copiedFormula) {
+                    e.preventDefault();
+                    clipboardRef.current = copiedFormula;
+                    onClipboardChange?.();
+                    return;
+                }
             }
 
             // Cut (Ctrl/Cmd+X)
@@ -702,8 +713,8 @@ export const useCanvasKeyboard = ({
                     clipboardRef.current = copied;
                     onClipboardChange?.();
 
-                    // Then remove
-                    storeActions.removeMultipleNodeInstances(activeGraphId, selectedInstanceIds);
+                    // Then remove (a formula in the selection plays its exit: formulaSelection)
+                    deleteSelection(activeGraphId, selectedInstanceIds, (ids) => storeActions.removeMultipleNodeInstances(activeGraphId, new Set(ids)));
 
                     // Clear selection
                     setSelectedInstanceIds(new Set());
@@ -771,7 +782,7 @@ export const useCanvasKeyboard = ({
                             currentGraph,
                             getNodeDimensions
                         );
-                        setSelectedInstanceIds(new Set(result.newInstanceIds));
+                        selectPasted(result);
                     }
                 }
                 return;

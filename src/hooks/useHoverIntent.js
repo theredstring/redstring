@@ -41,7 +41,7 @@ export function useHoverIntent({ setHoveredEdgeInfo, semanticOrbitActiveRef }) {
       setHoveredConnectionForVision(null);
       setEdgeInfo(null);
     } else if (candidate.kind === 'connection' || candidate.kind === 'orbitItem') {
-      // An orbit item previews as the triplet it would become — focus node,
+      // An orbit item previews as the triple it would become — focus node,
       // predicate, candidate — not as a lone box. The box on its own says
       // nothing the orbit isn't already showing; the relationship is the whole
       // reason the thing is out there. It carries no edgeInfo because there is

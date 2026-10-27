@@ -178,4 +178,32 @@ describe('orphan sweep', () => {
     expect(useGraphStore.getState().nodePrototypes.has('automaker')).toBe(true);
     expect(useGraphStore.getState().graphs.has('automaker-web')).toBe(true);
   });
+
+  it('keeps a Thing whose web holds something, though no web of it is open', () => {
+    // 2026-10-23: the formula starter's Formulas web was never open, and a
+    // wizard run swept ~300 formulas from under it. A web with something in
+    // it is somebody's work; only empty shells are orphans.
+    addProto('formulas', { definitionGraphIds: ['formulas-web'] });
+    addProto('ideal-gas-law', { definitionGraphIds: ['ideal-gas-web'] });
+    addProto('pressure');
+    addProto('shell', { definitionGraphIds: ['shell-web'] });
+    const web = (id, owner, placed) => ({
+      id, name: id, description: '', groups: new Map(), edgeIds: [], definingNodeIds: [owner],
+      instances: new Map(placed.map((p) => [`${id}-${p}`, { id: `${id}-${p}`, prototypeId: p, x: 0, y: 0, scale: 1 }])),
+    });
+    useGraphStore.setState((s) => {
+      const graphs = new Map(s.graphs);
+      graphs.set('formulas-web', web('formulas-web', 'formulas', ['ideal-gas-law']));
+      graphs.set('ideal-gas-web', web('ideal-gas-web', 'ideal-gas-law', ['pressure']));
+      graphs.set('shell-web', web('shell-web', 'shell', []));
+      return { graphs, savedNodeIds: new Set(), rightPanelTabs: [], openGraphIds: [] };
+    });
+    useGraphStore.getState().cleanupOrphanedData();
+    const st = useGraphStore.getState();
+    for (const kept of ['formulas', 'ideal-gas-law', 'pressure']) expect(st.nodePrototypes.has(kept), kept).toBe(true);
+    expect(st.graphs.has('formulas-web')).toBe(true);
+    expect(st.graphs.has('ideal-gas-web')).toBe(true);
+    expect(st.nodePrototypes.has('shell')).toBe(false);
+    expect(st.graphs.has('shell-web')).toBe(false);
+  });
 });

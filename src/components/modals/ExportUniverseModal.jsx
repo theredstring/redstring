@@ -199,6 +199,7 @@ const ExportUniverseModal = ({ isOpen, onClose, slug, source }) => {
         <div style={{
           flex: 1,
           overflowY: 'auto',
+          overflowX: 'hidden',
           padding: '14px 16px',
           display: 'flex',
           flexDirection: 'column',

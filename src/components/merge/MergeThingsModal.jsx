@@ -725,9 +725,11 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
             }}>
               <div style={{
                 height: '100%',
-                width: `${scanPercent}%`,
+                width: '100%',
+                transform: `scaleX(${scanPercent / 100})`,
+                transformOrigin: 'left center',
                 background: theme.accent.primary,
-                transition: 'width 0.15s linear'
+                transition: 'transform 0.15s linear'
               }} />
             </div>
           </div>

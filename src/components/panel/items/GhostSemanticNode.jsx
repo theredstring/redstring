@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search } from 'lucide-react';
@@ -43,7 +43,9 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
 
   // Staggered animation entrance effect
   const animationDelay = index * 100; // 100ms stagger between nodes
-  const ghostOpacity = 0.7 + Math.random() * 0.2; // Slight opacity variation
+  // Slight opacity variation, picked once: a new pick each render re-fired
+  // the transition on every re-render.
+  const [ghostOpacity] = useState(() => 0.7 + Math.random() * 0.2);
 
   return (
     <div
@@ -57,7 +59,7 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         cursor: 'grab',
         opacity: isDragging ? 0.3 : ghostOpacity,
         transform: `scale(${isDragging ? 0.95 : 1})`,
-        transition: 'all 0.2s ease',
+        transition: 'opacity 0.2s ease, transform 0.2s ease',
         position: 'relative',
         userSelect: 'none',
         minHeight: '60px',
@@ -67,8 +69,9 @@ const GhostSemanticNode = ({ concept, index, onMaterialize, onSelect }) => {
         alignItems: 'center',
         // Ghost-like effects inspired by AbstractionCarousel
         animation: `ghostFadeIn 0.3s ease ${animationDelay}ms both, ghostFloat 2s ease-in-out infinite ${animationDelay + 500}ms`,
-        boxShadow: `0 2px 8px ${theme.darkMode ? 'rgba(0,0,0,0.4)' : 'rgba(34,139,34,0.3)'}, inset 0 1px 0 rgba(255,255,255,0.1)`,
-        backdropFilter: 'blur(1px)'
+        // No backdrop blur: behind a fill this solid it barely showed, and the
+        // float redid it every frame for every ghost.
+        boxShadow: `0 2px 8px ${theme.darkMode ? 'rgba(0,0,0,0.4)' : 'rgba(34,139,34,0.3)'}, inset 0 1px 0 rgba(255,255,255,0.1)`
       }}
       title={`${concept.name} - Drag to canvas or click to add`}
     >

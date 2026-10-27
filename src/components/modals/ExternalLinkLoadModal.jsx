@@ -324,7 +324,7 @@ const ExternalLinkLoadModal = ({
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 12px' }}>
             {reposLoading && (
               <div style={{ textAlign: 'center', padding: '20px', color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
                 <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
@@ -522,6 +522,7 @@ const ExternalLinkLoadModal = ({
           <div style={{
             flex: 1,
             overflowY: 'auto',
+            overflowX: 'hidden',
             padding: '14px 16px',
             display: 'flex',
             flexDirection: 'column',
@@ -680,6 +681,7 @@ const ExternalLinkLoadModal = ({
           <div style={{
             flex: 1,
             overflowY: 'auto',
+            overflowX: 'hidden',
             padding: '10px 12px'
           }}>
             {files.length === 0 && !scanning && !error && (

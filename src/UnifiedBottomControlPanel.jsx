@@ -5,7 +5,7 @@ import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
 import useMobileDetection from './hooks/useMobileDetection';
-import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
+import { getTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, OFF_CANVAS_LABEL_RING_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING } from './utils/colorUtils.js';
 import { haptic } from './services/haptics.js';
 import './UnifiedBottomControlPanel.css';
 
@@ -91,7 +91,7 @@ const NodePill = ({ name, color = '#800000', onClick }) => {
       style={{ backgroundColor: color }}
       onClick={onClick}
     >
-      {name}
+      <VectorText text={name} />
     </div>
   );
 };
@@ -133,7 +133,7 @@ const PredicateRail = ({ color = '#4A5568', leftActive, rightActive, onToggleLef
               position: 'absolute',
               inset: 0,
               color: 'transparent',
-              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * connectionLabelRingWidth}px ${labelColors.outerStroke}`,
+              WebkitTextStroke: `${RAIL_LABEL_STROKE_PX * connectionLabelRingWidth * OFF_CANVAS_LABEL_RING_SCALE}px ${labelColors.outerStroke}`,
               pointerEvents: 'none'
             }}>
               {label || 'Connection'}
@@ -163,6 +163,7 @@ import {
   layoutNodeChips
 } from './utils/connectionPreview.js';
 import { layoutConnectionRow } from './utils/connectionRowLayout.js';
+import { VectorText } from './components/VectorText.jsx';
 
 // Every preview in this panel — the connection row, the node chips, the
 // node-group and group pills — draws its text at the fixed on-screen size for
@@ -204,6 +205,14 @@ const NODE_CHIP_MAX_WIDTH = 260;
 // Widest a desktop row of chips gets before wrapping to a second row. Mobile
 // rows are bounded by the viewport (and the CSS width cap on the content box).
 const NODE_GRID_MAX_ROW_WIDTH = 560;
+// A multi-selection is a summary of a set, not the one Thing in hand, so its
+// chips draw a step smaller, in narrower rows, than a single Thing's.
+const MULTI_SELECT_TEXT = {
+  desktop: { nodeFontPx: 14, labelFontPx: 13 },
+  mobile: { nodeFontPx: 13, labelFontPx: 12 }
+};
+const MULTI_SELECT_MAX_ROW_WIDTH = 440;
+const MULTI_SELECT_CHIP_MAX_WIDTH = 200;
 
 // Modes: 'nodes' | 'connections' | 'abstraction' | 'group' | 'nodegroup'
 const UnifiedBottomControlPanel = ({
@@ -244,6 +253,8 @@ const UnifiedBottomControlPanel = ({
   // Decompose mode props (mirrors the decomposition pie-menu state)
   onCompose, // Close the decomposition preview (compose back to a normal node)
   decompHasDefinitions = false, // When false, only Add + Compose are shown (empty state)
+  decompBlocked = null, // Why Decompose Further can't open here (greyed out), or null
+  decompDescription = null, // The expanded Thing's description for the web it shows
 
   // Pie menu button handlers
   onDelete,
@@ -284,11 +295,21 @@ const UnifiedBottomControlPanel = ({
   connectionPieMenuButtons = null,
   connectionPieMenuTargetEdgeId = null,
 
-  // Optional navigations (shown on node mode)
+  // Optional navigations (shown on node and decompose mode; on a group's modes
+  // only when given)
   onLeftNav,
   onRightNav,
   hasLeftNav = false,
   hasRightNav = false,
+  leftNavLabel = 'Previous',
+  rightNavLabel = 'Next',
+  // Format mode: how the current format is shown (e.g. raised exponents), as
+  // buttons before the group's own: [{ key, icon: (size) => element, title, onClick }].
+  formatToggles = null,
+  // A group that reads as a formula: one button, first in its row, that shows
+  // it the other way (as its Things, as its formula): { icon: (size) => element, title, onClick }.
+  formatSwap = null,
+  kindLabel: kindLabelProp = null, // what the item is, under its name (default: by mode)
 
   // Optional dismiss handler — shown as a drag handle at the top of the panel in narrow nodes mode
   onDismiss,
@@ -418,9 +439,15 @@ const UnifiedBottomControlPanel = ({
 
   const isNodes = mode === 'nodes';
   const isAbstraction = mode === 'abstraction';
-  const isGroup = mode === 'group';
+  // Format mode is a plain group that reads as a format (formats/): the group's
+  // own buttons, with ◀ ▶ to swap formats and the current one shown between them.
+  const isFormat = mode === 'format';
+  const isGroup = mode === 'group' || isFormat;
   const isNodeGroup = mode === 'nodegroup';
   const isDecompose = mode === 'decompose';
+  // ◀ ▶ around the preview: paging nodes, decompose, formats, and a Thing-group
+  // that can be shown another way (an equation, swapped to its formula).
+  const hasNavArrows = isNodes || isDecompose || ((isFormat || isNodeGroup) && !!(onLeftNav || onRightNav));
 
   const clearActionHover = useCallback(() => {
     onActionHoverChange?.(null);
@@ -505,6 +532,40 @@ const UnifiedBottomControlPanel = ({
   // UnifiedBottomControlPanel.css — the glyph has to grow with the bubble or a
   // wider button just buys more empty margin around the same small icon.
   const iconSize = mobileState.isMobile ? 18 : 22;
+  const renderFormatToggle = (toggle) => (
+    <div
+      key={toggle.key}
+      className="piemenu-button"
+      onClick={toggle.onClick}
+      title={toggle.title}
+      onMouseEnter={() => triggerActionHover(`control-format-${toggle.key}`, toggle.title)}
+      onMouseLeave={clearActionHover}
+    >
+      {toggle.icon(iconSize)}
+    </div>
+  );
+  const formatSwapButton = formatSwap ? (
+    <div
+      className="piemenu-button"
+      onClick={formatSwap.onClick}
+      title={formatSwap.title}
+      onMouseEnter={() => triggerActionHover('control-format-swap', formatSwap.title)}
+      onMouseLeave={clearActionHover}
+    >
+      {formatSwap.icon(iconSize)}
+    </div>
+  ) : null;
+  const groupUngroupButton = (
+    <div
+      className="piemenu-button"
+      onClick={onUngroup}
+      title="Ungroup"
+      onMouseEnter={() => triggerActionHover('control-ungroup', 'Ungroup')}
+      onMouseLeave={clearActionHover}
+    >
+      <Ungroup size={iconSize} />
+    </div>
+  );
 
   // Upper bound for any renderer containerWidth — keeps us from asking for more
   // space than the segment actually offers. On mobile the panel reserves 8px
@@ -553,15 +614,17 @@ const UnifiedBottomControlPanel = ({
     // Chips draw at the platform's fixed text size, packed into rows; a long
     // name is truncated, and a selection past the collapsed rows is cut and
     // counted rather than scaled.
+    const isMulti = isNodes && Array.isArray(selectedNodes) && selectedNodes.length > 1;
+    const rowCap = isMulti ? MULTI_SELECT_MAX_ROW_WIDTH : NODE_GRID_MAX_ROW_WIDTH;
     const grid = layoutNodeChips({
       nodes: selectionChips,
-      text: previewText,
-      maxRowWidth: mobileState.isMobile ? viewportLimit : Math.min(viewportLimit, NODE_GRID_MAX_ROW_WIDTH),
+      text: isMulti ? (mobileState.isMobile ? MULTI_SELECT_TEXT.mobile : MULTI_SELECT_TEXT.desktop) : previewText,
+      maxRowWidth: mobileState.isMobile ? viewportLimit : Math.min(viewportLimit, rowCap),
       maxRows: selectionExpanded ? Infinity : NODE_GRID_COLLAPSED_ROWS,
       padding,
-      columnGap: mobileState.isMobilePortrait ? 10 : 12,
-      rowGap: mobileState.isMobilePortrait ? 8 : 10,
-      maxChipWidth: NODE_CHIP_MAX_WIDTH
+      columnGap: isMulti ? 8 : (mobileState.isMobilePortrait ? 10 : 12),
+      rowGap: isMulti ? 6 : (mobileState.isMobilePortrait ? 8 : 10),
+      maxChipWidth: isMulti ? MULTI_SELECT_CHIP_MAX_WIDTH : NODE_CHIP_MAX_WIDTH
     });
     return {
       nodesForRenderer: grid.nodes,
@@ -572,7 +635,7 @@ const UnifiedBottomControlPanel = ({
       hiddenCount: grid.hiddenNodes.reduce((sum, n) => sum + (n.selectionCount || 1), 0),
       canCollapse: grid.totalRows > NODE_GRID_COLLAPSED_ROWS
     };
-  }, [isNodes, isDecompose, selectionChips, selectionExpanded, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
+  }, [isNodes, isDecompose, selectedNodes, selectionChips, selectionExpanded, previewText, viewportLimit, mobileState.isMobile, mobileState.isMobilePortrait]);
 
   // Connections are drawn one row per connection (subject —name→ object),
   // stacked. They used to share one row — every endpoint of every connection in
@@ -765,6 +828,17 @@ const UnifiedBottomControlPanel = ({
   const isNodeList = isNodes && selectionChips.length > 0;
   const hiddenInSelection = isNodeList ? nodeRendererMetrics.hiddenCount : isConnectionList ? connectionHiddenCount : 0;
   const selectionCanCollapse = isNodeList ? nodeRendererMetrics.canCollapse : isConnectionList && connectionsCanCollapse;
+  // What the item is, small under its name.
+  const nodeCount = Array.isArray(selectedNodes) ? selectedNodes.length : 0;
+  const kindLabel = kindLabelProp ?? (
+    isNodeGroup ? 'Web'
+      : isGroup ? 'Group'
+        // A Thing expanded to show its definition inside it (its pie's first open button).
+        : isDecompose ? 'Expanded Thing'
+          : isNodes ? (nodeCount > 1 ? 'Things' : 'Thing')
+            : isConnectionList ? (triples.length > 1 ? 'Connections' : 'Connection')
+              : null);
+
   let overflowToggleLabel = null;
   if (selectionExpanded && selectionCanCollapse) {
     overflowToggleLabel = 'Show fewer';
@@ -794,14 +868,14 @@ const UnifiedBottomControlPanel = ({
         />
         {/* Row 1: Interactive info */}
         <div className="info-row">
-          {(isNodes || isDecompose) ? (
+          {hasNavArrows ? (
             <div className="arrow-group" style={{ marginRight: 6 }}>
               <div
                 className="piemenu-button"
                 onClick={onLeftNav}
-                title="Previous"
+                title={leftNavLabel}
                 style={{ visibility: hasLeftNav ? 'visible' : 'hidden' }}
-                onMouseEnter={() => triggerActionHover('control-previous', 'Previous')}
+                onMouseEnter={() => triggerActionHover('control-previous', leftNavLabel)}
                 onMouseLeave={clearActionHover}
               >
                 <ChevronLeft size={iconSize} />
@@ -824,6 +898,8 @@ const UnifiedBottomControlPanel = ({
                 />
               </div>
             ) : null
+          ) : (isFormat && customContent) ? (
+            customContent
           ) : isNodeGroup ? (
             nodeGroupRendererNode ? (
               <div
@@ -891,14 +967,14 @@ const UnifiedBottomControlPanel = ({
             </div>
           )}
 
-          {(isNodes || isDecompose) ? (
+          {hasNavArrows ? (
             <div className="arrow-group" style={{ marginLeft: 6 }}>
               <div
                 className="piemenu-button"
                 onClick={onRightNav}
-                title="Next"
+                title={rightNavLabel}
                 style={{ visibility: hasRightNav ? 'visible' : 'hidden' }}
-                onMouseEnter={() => triggerActionHover('control-next', 'Next')}
+                onMouseEnter={() => triggerActionHover('control-next', rightNavLabel)}
                 onMouseLeave={clearActionHover}
               >
                 <ChevronRight size={iconSize} />
@@ -906,6 +982,12 @@ const UnifiedBottomControlPanel = ({
             </div>
           ) : null}
         </div>
+
+        {kindLabel && <div className="panel-kind-label">{kindLabel}</div>}
+
+        {isDecompose && decompDescription && (
+          <div className="panel-description" title={decompDescription}>{decompDescription}</div>
+        )}
 
         {/* The rest of a selection too big to preview: a count that expands the
             preview into a scrolling list of all of it, and collapses it again. */}
@@ -959,10 +1041,10 @@ const UnifiedBottomControlPanel = ({
                     <Trash2 size={iconSize} />
                   </div>
                   <div
-                    className="piemenu-button"
-                    onClick={onDecompose}
-                    title="Decompose Further"
-                    onMouseEnter={() => triggerActionHover('control-decomp-further', 'Decompose Further')}
+                    className={`piemenu-button${decompBlocked ? ' is-disabled' : ''}`}
+                    onClick={decompBlocked ? undefined : onDecompose}
+                    title={decompBlocked || 'Decompose Further'}
+                    onMouseEnter={() => triggerActionHover('control-decomp-further', decompBlocked || 'Decompose Further')}
                     onMouseLeave={clearActionHover}
                   >
                     <PackageOpen size={iconSize} />
@@ -1214,6 +1296,7 @@ const UnifiedBottomControlPanel = ({
             ) : isNodeGroup ? (
               // Node-group mode: Show node-group actions (dive into definition, open in panel, edit, color, ungroup)
               <>
+                {formatSwapButton}
                 <div
                   className="piemenu-button"
                   onClick={handleNodeGroupDefinitionClick}
@@ -1291,19 +1374,38 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Ungroup size={iconSize} />
                 </div>
+                {onDelete && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onDelete}
+                    title="Delete"
+                    onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Trash2 size={iconSize} />
+                  </div>
+                )}
               </>
             ) : isGroup ? (
               // Group mode: Show group actions (ungroup, edit, color, convert to node-group)
               <>
-                <div
-                  className="piemenu-button"
-                  onClick={onUngroup}
-                  title="Ungroup"
-                  onMouseEnter={() => triggerActionHover('control-ungroup', 'Ungroup')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <Ungroup size={iconSize} />
-                </div>
+                {/* Show Names / Symbols comes before the format swap, then the rest of the toggles. */}
+                {isFormat && Array.isArray(formatToggles) && formatToggles.slice(0, 1).map(renderFormatToggle)}
+                {formatSwapButton}
+                {isFormat && Array.isArray(formatToggles) && formatToggles.slice(1).map(renderFormatToggle)}
+                {/* A formula follows a Thing-group's order: Combine, Edit, Color, Ungroup, Copy, Delete. */}
+                {isFormat && onCombineNodeGroup && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onCombineNodeGroup}
+                    title="Combine Into Thing"
+                    onMouseEnter={() => triggerActionHover('control-combine', 'Combine Into Thing')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Combine size={iconSize} />
+                  </div>
+                )}
+                {!isFormat && groupUngroupButton}
                 <div
                   className="piemenu-button"
                   onClick={onGroupEdit}
@@ -1322,15 +1424,40 @@ const UnifiedBottomControlPanel = ({
                 >
                   <Palette size={iconSize} />
                 </div>
-                <div
-                  className="piemenu-button"
-                  onClick={onConvertToNodeGroup}
-                  title="Convert to Thing-Group"
-                  onMouseEnter={() => triggerActionHover('control-convert-nodegroup', 'Convert to Thing-Group')}
-                  onMouseLeave={clearActionHover}
-                >
-                  <SquarePlus size={iconSize} />
-                </div>
+                {onConvertToNodeGroup && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onConvertToNodeGroup}
+                    title="Convert to Thing-Group"
+                    onMouseEnter={() => triggerActionHover('control-convert-nodegroup', 'Convert to Thing-Group')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <SquarePlus size={iconSize} />
+                  </div>
+                )}
+                {isFormat && groupUngroupButton}
+                {isFormat && onCopy && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onCopy}
+                    title="Copy"
+                    onMouseEnter={() => triggerActionHover('control-copy', 'Copy')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <ClipboardCopy size={iconSize} />
+                  </div>
+                )}
+                {isFormat && onDelete && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onDelete}
+                    title="Delete"
+                    onMouseEnter={() => triggerActionHover('control-delete', 'Delete')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Trash2 size={iconSize} />
+                  </div>
+                )}
               </>
             ) : isAbstraction ? (
               // Abstraction mode: Show abstraction actions (add, up with dot, right, edit)

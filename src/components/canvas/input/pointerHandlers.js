@@ -17,12 +17,17 @@ import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
 import { haptic } from '../../../services/haptics.js';
 import { TOUCH_PAN_DRAG_SENSITIVITY, isMac, TOUCH_MOMENTUM_STATIONARY_GAP_MS, TOUCH_MOMENTUM_VELOCITY_WINDOW_MS, TOUCH_MOMENTUM_LAUNCH_MIN_SPEED, PAN_MOMENTUM_MIN_SPEED } from '../../../utils/canvas/input/inputTuning.js';
 import { v4 as uuidv4 } from 'uuid';
-import { findGroupDropTarget, groupDropDialogFor } from '../groups/groupDropTarget.js';
+import { groupDropAfterDrag } from '../groups/groupDropTarget.js';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setAddToGroupDialog, setSelfLoopDialog } from '../dialogs/canvasDialogs.js';
 import { queueEdgeHandoff } from '../edges/edgeTransitions.js';
 import { isJustAfterNodeDrop } from './dropCooldown.js';
+import { anchorBoxOf, isReplacedInstance } from '../formats/replaced.js';
+import { withSelectedFormula } from '../formats/formula/formulaSelection.js';
+import { useThingGroupPromptStore } from '../thingGroupPrompt/thingGroupPrompt.js';
+
+const insideBox = (b, p) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
 
 /** @param {{ current: object }} ctxRef */
 export function createPointerHandlers(ctxRef) {
@@ -114,7 +119,8 @@ export function createPointerHandlers(ctxRef) {
           // --- Execute Selection Logic ---
           const wasSelected = selectedInstanceIds.has(instanceId);
           setSelectedInstanceIds(prev => {
-            const newSelected = new Set(prev);
+            // A formula selected on its own stays, joined by this Thing (formulaSelection).
+            const newSelected = withSelectedFormula(prev);
             if (wasSelected) {
               if (instanceId !== previewingNodeId) { // previewingNodeId also needs to be an instanceId
                 newSelected.delete(instanceId);
@@ -178,17 +184,21 @@ export function createPointerHandlers(ctxRef) {
     const srcNode = nodes.find(n => n.id === armedInstanceId);
     if (!srcNode) return false;
 
+    // For anchor nodes (thing group titles), use title dimensions from
+    // anchorPositionUpdatesRef; for a group drawn as a formula, the formula.
+    const anchorInfo = srcNode.isGroupAnchor ? anchorBoxOf(srcNode.id, anchorPositionUpdatesRef.current) : null;
+
     // Allow both patterns:
     // 1) Move outside the node (original behavior)
     // 2) Quick drag while still inside the node (desktop-friendly)
-    const leftNodeArea = !isInsideNode(srcNode, clientX, clientY);
+    const leftNodeArea = isReplacedInstance(srcNode.id) && anchorInfo && containerRef.current
+      ? !insideBox(anchorInfo, clientToCanvas(clientX, clientY, containerRef.current.getBoundingClientRect(), panOffsetRef.current, zoomLevelRef.current, canvasSize))
+      : !isInsideNode(srcNode, clientX, clientY);
     if (!leftNodeArea && !startedOnNode.current) return false;
 
     clearTimeout(longPressTimeout.current);
     clearTimeout(groupLongPressTimeout.current); // Cancel group drag if connection drawing starts
     mouseInsideNode.current = false;
-    // For anchor nodes (thing group titles), use title dimensions from anchorPositionUpdatesRef
-    const anchorInfo = srcNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(srcNode.id) : null;
     const startNodeDims = anchorInfo
       ? { currentWidth: anchorInfo.width, currentHeight: anchorInfo.height }
       : getNodeDimensions(srcNode, previewingNodeId === srcNode.id, null);
@@ -197,8 +207,8 @@ export function createPointerHandlers(ctxRef) {
     // later), so pairing srcNode.x with the pill's dims started the line off
     // the tab whenever the two hadn't caught up — right after a group drag,
     // most of all. setDrawingConnectionEnd already reads it this way.
-    const startX = anchorInfo ? anchorInfo.x : srcNode.x;
-    const startY = anchorInfo ? anchorInfo.y : srcNode.y;
+    const startX = anchorInfo ? anchorInfo.x : srcNode.x + (startNodeDims.previewOffsetX || 0);
+    const startY = anchorInfo ? anchorInfo.y : srcNode.y + (startNodeDims.previewOffsetY || 0);
     const startPt = { x: startX + startNodeDims.currentWidth / 2, y: startY + startNodeDims.currentHeight / 2 };
 
     // Validate mouse coordinates before calculating canvas position
@@ -830,35 +840,12 @@ export function createPointerHandlers(ctxRef) {
         const clientY = e.clientY || (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientY : 0);
         const dragResult = nodeDrag.handleDragEnd(clientX, clientY, graphsMap);
 
-        // Group-drop detection UI (stays in NodeCanvas — controls dialog)
-        if (dragResult.checkGroupDrop && dragResult.draggedNodeIds.length > 0) {
-          const graphData = activeGraphId ? graphsMap.get(activeGraphId) : null;
-          const groups = graphData?.groups ? Array.from(graphData.groups.values()) : [];
-
-          if (groups.length > 0) {
-            const primaryNodeId = dragResult.primaryNodeId;
-            const primaryNode = nodes.find(n => n.id === primaryNodeId);
-
-            if (primaryNode) {
-              const primaryDims = getNodeDimensions(primaryNode, false, null);
-              // Use finalPositions (accurate during zoom-restore when store isn't flushed yet)
-              const fp = dragResult.finalPositions?.get(primaryNodeId);
-              const posX = fp ? fp.x : primaryNode.x;
-              const posY = fp ? fp.y : primaryNode.y;
-              const primaryCenterX = posX + primaryDims.currentWidth / 2;
-              const primaryCenterY = posY + primaryDims.currentHeight / 2;
-
-              const targetGroup = findGroupDropTarget({
-                point: { x: primaryCenterX, y: primaryCenterY }, excludeNodeId: primaryNodeId,
-                groups, nodes, groupDepths: groupStructure.groupDepths, gridSize,
-              });
-              if (targetGroup) {
-                setAddToGroupDialog(groupDropDialogFor(targetGroup, dragResult.draggedNodeIds,
-                  groupStructure.parentGroupIds, { x: e.clientX, y: e.clientY }));
-              }
-            }
-          }
-        }
+        // Group-drop detection UI: Things, or a Thing-group or formula dropped whole (groupDropTarget).
+        const dialog = groupDropAfterDrag(dragResult, {
+          graphData: activeGraphId ? graphsMap.get(activeGraphId) : null,
+          nodes, groupStructure, gridSize, position: { x: e.clientX, y: e.clientY },
+        });
+        if (dialog) setAddToGroupDialog(dialog);
       }
 
       // Finalize selection box
@@ -1109,12 +1096,11 @@ export function createPointerHandlers(ctxRef) {
     }
     if (ignoreCanvasClick.current) {
       ignoreCanvasClick.current = false;
-      // Only bail if there's nothing to dismiss — otherwise fall through so the
-      // first click after a pan/glide doesn't waste itself just clearing the flag.
-      // selectedGroup must be included here too: selecting a group clears
-      // selectedInstanceIds, so without this the very next click (meant to
-      // deselect the group) gets silently swallowed and a second click is needed.
-      if (selectedInstanceIds.size === 0 && !plusSign && !selectedGroup) return;
+      // This is the click that ends a pan: panning away from selected Things or
+      // a group keeps them selected, like a selected connection. Only a plus
+      // sign is dismissed by it. A stale flag can't swallow a real click-off
+      // here: a press on bare canvas clears it (handleMouseDown).
+      if (!plusSign) return;
     }
 
     // Close Group panel on click-off like other panels
@@ -1183,6 +1169,10 @@ export function createPointerHandlers(ctxRef) {
       // later that lands on the (now-uncovered) canvas; without this guard it
       // flips the morph to 'disappear' and the node is silently lost.
       if (plusSign && (plusSign.mode === 'morph' || plusSign.mode === 'preparing' || plusSign.mode === 'landed')) return;
+      // Its bubble's selector is open (Add Web): the click that ends the press on
+      // the bubble lands here once the bubble has gone, so hold it, as a click on
+      // the plus itself is held by the name prompt above.
+      if (plusSign && useThingGroupPromptStore.getState().prompt) return;
       setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
     }
   };

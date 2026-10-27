@@ -5,13 +5,16 @@ const { applyToolResultToStore } = require('../../src/services/toolResultApplier
 const { buildComposition } = require('../../src/wizard/tools/buildComposition.js');
 const { sketchGraph } = require('../../src/wizard/tools/sketchGraph.js');
 const { buildChildGroupIdsIndex, computeGroupDepths } = require('../../src/services/groupLayout.js');
+const { projectGraphView } = require('../../src/core/openDefinitions.js');
 
 // End-to-end pin for the definition-first composition pipeline: a nested spec
 // goes in, and real node-groups come out — prototypes, populated definition
 // graphs, anchors, and (critically) inner groups whose members are a strict
 // SUBSET of their outer group's, which is the only thing that makes the canvas
 // render nesting. Before this pipeline existed the wizard produced plain groups
-// with no linkedNodePrototypeId and no nesting at all.
+// with no linkedNodePrototypeId and no nesting at all. Each layer opens in
+// place on its node (the default), so these read the web as the canvas draws
+// it: an opened Thing is a node-group of everything its definition holds.
 describe('buildComposition applier', () => {
   const resetStore = () => {
     useGraphStore.setState({
@@ -39,7 +42,7 @@ describe('buildComposition applier', () => {
     return st().activeGraphId;
   };
 
-  const groupsOf = (graphId) => Array.from(st().graphs.get(graphId).groups.values());
+  const groupsOf = (graphId) => Array.from(projectGraphView(st(), graphId).groups.values());
   const groupNamed = (graphId, name) => groupsOf(graphId).find(g => g.name === name);
   const protoNamed = (name) => {
     let found = null;
@@ -49,7 +52,7 @@ describe('buildComposition applier', () => {
     return found;
   };
   const instanceNames = (graphId) => {
-    const graph = st().graphs.get(graphId);
+    const graph = projectGraphView(st(), graphId);
     return Array.from(graph.instances.values())
       .map(i => st().nodePrototypes.get(i.prototypeId)?.name)
       .filter(Boolean);
@@ -301,7 +304,7 @@ describe('buildComposition applier — no duplicate nodes', () => {
     return st().activeGraphId;
   };
 
-  const instanceNames = (graphId) => Array.from(st().graphs.get(graphId).instances.values())
+  const instanceNames = (graphId) => Array.from(projectGraphView(st(), graphId).instances.values())
     .map(i => st().nodePrototypes.get(i.prototypeId)?.name)
     .filter(Boolean);
 
@@ -357,7 +360,7 @@ describe('buildComposition applier — no duplicate nodes', () => {
       }]
     });
 
-    const groups = Array.from(st().graphs.get(mainId).groups.values());
+    const groups = Array.from(projectGraphView(st(), mainId).groups.values());
     const island = groups.find(g => {
       const proto = st().nodePrototypes.get(g.linkedNodePrototypeId);
       return proto?.name === 'The Island';

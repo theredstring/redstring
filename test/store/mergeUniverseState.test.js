@@ -289,6 +289,27 @@ describe('mergeUniverseState', () => {
     });
   });
 
+  it('merges into a universe whose connections were edited this session (frozen by the store)', () => {
+    resetStore({
+      nodePrototypes: new Map([proto('a', 'Alpha'), proto('b', 'Beta')]),
+      graphs: new Map([graph('g', 'Mine')]),
+    });
+    useGraphStore.getState().pasteNodesAndEdges('g', [
+      { instanceId: 'ia', prototypeId: 'a', x: 0, y: 0 },
+      { instanceId: 'ib', prototypeId: 'b', x: 300, y: 0 },
+    ], [{ id: 'e1', sourceId: 'ia', destinationId: 'ib', directionality: { arrowsToward: new Set(['ib']) } }]);
+    // Edited (renamed, retyped, its arrow turned): the store keeps it frozen.
+    useGraphStore.getState().updateEdge('e1', (draft) => { draft.name = 'likes'; });
+    expect(Object.isFrozen(useGraphStore.getState().edges.get('e1'))).toBe(true);
+
+    const report = useGraphStore.getState().mergeUniverseState(incoming({ protos: [proto('c', 'Gamma')], graphs: [graph('h', 'Theirs')] }));
+
+    expect(report).not.toBeNull();
+    const s = useGraphStore.getState();
+    expect(s.nodePrototypes.has('c')).toBe(true);
+    expect(s.edges.get('e1').directionality.arrowsToward.has('ib')).toBe(true);
+  });
+
   it('refuses a state that was never deserialized rather than corrupting the store', () => {
     resetStore({ nodePrototypes: new Map([proto('a', 'Alpha')]) });
 

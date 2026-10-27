@@ -438,7 +438,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                                     <ul className="edge-list">
                                         {result.edges.slice(0, 12).map((e, idx) => (
                                             <li key={idx} style={{ fontFamily: 'monospace', fontSize: '11px' }}>
-                                                {e.triplet || `${e.sourceName} --[${e.type}]--> ${e.targetName}`}
+                                                {e.triple || `${e.sourceName} --[${e.type}]--> ${e.targetName}`}
                                             </li>
                                         ))}
                                         {result.edges.length > 12 && (

@@ -11,6 +11,7 @@ import {
   placeholderIdForGroup,
   groupIdFromPlaceholderId,
   labelBoxFor,
+  groupTitleGrowthOf,
   GROUP_LAYOUT_CONSTANTS as C,
 } from '../groupLayout.js';
 
@@ -381,6 +382,63 @@ describe('computeGroupLayout', () => {
     expect(Math.abs(rStatic.rect.h - rDrag.rect.h)).toBeLessThanOrEqual(epsilon);
     expect(Math.abs(rStatic.label.x - rDrag.label.x)).toBeLessThanOrEqual(epsilon);
     expect(Math.abs(rStatic.label.y - rDrag.label.y)).toBeLessThanOrEqual(epsilon);
+  });
+});
+
+describe('titles that grow with their group', () => {
+  // 1x at 1000 wide, 3x at 4000: one doubling of two is t = 1/2, eased to 1/4, so 1.5x at 2000.
+  const growth = { from: 1000, to: 4000, max: 3 };
+  const wideGroup = (ctx, w) => {
+    addNode(ctx, 'a', 0, 0, 200, 150);
+    addNode(ctx, 'b', w - 200, 0, 200, 150);
+    const g = { id: 'g', name: 'Short', memberInstanceIds: ['a', 'b'], linkedNodePrototypeId: 'p' };
+    addGroup(ctx, g);
+    return g;
+  };
+
+  it('is off unless the setting is on', () => {
+    expect(groupTitleGrowthOf({})).toBeNull();
+    expect(groupTitleGrowthOf({ groupTitleGrow: true, nodeScale: 2, groupTitleGrowMax: 4 })).toEqual({ from: 3200, to: 96000, max: 4 });
+  });
+
+  it('a narrow group keeps its usual title', () => {
+    const ctx = buildContext({ labelGrowth: growth });
+    const g = wideGroup(ctx, 500);
+    const r = computeGroupLayout(g, ctx);
+    const plain = computeGroupLayout(g, { ...ctx, labelGrowth: null, _cache: new Map() });
+    expect(r.label.growth).toBe(1);
+    expect(r.label).toMatchObject({ w: plain.label.w, h: plain.label.h });
+  });
+
+  it('grows by doublings of the band, eased in, title, tab and shell together', () => {
+    const ctx = buildContext({ labelGrowth: growth });
+    const g = wideGroup(ctx, 2000 - margin * 2);
+    const base = computeGroupLayout(g, { ...ctx, labelGrowth: null, _cache: new Map() });
+    const r = computeGroupLayout(g, ctx);
+    expect(r.label.growth).toBeCloseTo(1.5);
+    expect(r.label.w).toBeCloseTo(base.label.w * 1.5);
+    expect(r.label.h).toBeCloseTo(base.label.h * 1.5);
+    expect(r.label.fontSize).toBeCloseTo(C.fontSize * 1.5);
+    expect(r.rect).toEqual(base.rect);
+    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h * 0.5);
+  });
+
+  it('stops at the ceiling', () => {
+    const ctx = buildContext({ labelGrowth: growth });
+    const r = computeGroupLayout(wideGroup(ctx, 9000), ctx);
+    expect(r.label.growth).toBe(3);
+  });
+
+  it('never grows a title past what its band holds', () => {
+    const ctx = buildContext({ labelGrowth: { from: 100, to: 200, max: 10 } });
+    addNode(ctx, 'a', 0, 0, 1200, 150);
+    const g = { id: 'g', name: 'A rather long group name', memberInstanceIds: ['a'] };
+    addGroup(ctx, g);
+    const base = computeGroupLayout(g, { ...ctx, labelGrowth: null, _cache: new Map() });
+    const r = computeGroupLayout(g, ctx);
+    expect(r.label.growth).toBeGreaterThan(1);
+    expect(r.rect.w).toBe(base.rect.w);
+    expect(r.label.w).toBeCloseTo(r.rect.w - C.titlePaddingHorizontal * 2);
   });
 });
 
@@ -866,5 +924,28 @@ describe('computeGroupLayout title wrapping', () => {
     expect(r.label.x + r.label.w).toBeLessThanOrEqual(r.rect.x + r.rect.w);
     // And the extra lines push the tab up, not down into the members.
     expect(r.label.y + r.label.h + C.titleToCanvasGap).toBeCloseTo(r.rect.y);
+  });
+});
+
+// A child drawn its own way (a formula) counts by what is drawn of it.
+describe('computeGroupLayout: a child drawn as a formula', () => {
+  it('takes the formula band as the child, and not its Things where they stand', () => {
+    const ctx = buildContext();
+    addNode(ctx, 'n', 0, 0, 200, 150);
+    addNode(ctx, 'aF', 5000, 5000, 200, 150); // the formula's anchor
+    addNode(ctx, 't1', 9000, 9000, 200, 150); // a Thing the formula draws
+    const formula = { id: 'f', name: 'F', linkedNodePrototypeId: 'pf', anchorInstanceId: 'aF', memberInstanceIds: ['t1'] };
+    const outer = { id: 'g', name: 'G', memberInstanceIds: ['n', 'aF'] };
+    addGroup(ctx, formula);
+    addGroup(ctx, outer);
+    const band = { x: 400, y: 0, w: 300, h: 120 };
+    const r = computeGroupLayout(outer, {
+      ...ctx,
+      childGroupIdsByGroupId: new Map([['g', new Set(['f'])]]),
+      drawnBoundsOf: (id) => (id === 'f' ? band : null),
+      isDrawnElsewhere: (id) => id === 't1' || id === 'aF',
+    });
+    expect(r.ok).toBe(true);
+    expect(r.bbox).toEqual({ minX: 0, minY: 0, maxX: 700, maxY: 150 });
   });
 });

@@ -61,6 +61,27 @@ export const generateConnectionColor = (name) => {
 };
 
 /**
+ * The color each connection type will be drawn in, as the store keeps it: a
+ * Thing of that name the universe has already is reused, its color with it
+ * (applyBulkGraphUpdates finds it by name and never recolors it); a new one
+ * takes the first color this call gives it. Without this each call reported
+ * its own palette's color for a type the universe has in one color.
+ * @returns {(name: string, given?: string) => string}
+ */
+export function connectionTypeColors(graphState, palette) {
+  const colors = new Map();
+  const protos = graphState?.nodePrototypes;
+  const iter = !protos ? [] : Array.isArray(protos) ? protos : (protos instanceof Map ? protos.values() : Object.values(protos));
+  // The last of a name, as the store's lookup is.
+  for (const p of iter) if (p?.name && p.color) colors.set(String(p.name).toLowerCase().trim(), p.color);
+  return (name, given) => {
+    const key = String(name || '').toLowerCase().trim();
+    if (!colors.has(key)) colors.set(key, resolvePaletteColor(palette, given || generateConnectionColor(name)));
+    return colors.get(key);
+  };
+}
+
+/**
  * Keys a model plausibly wraps a list under when it re-states the parameter name
  * inside the value (`layers: {"layers": [...]}`).
  */
@@ -146,9 +167,10 @@ export function prototypeNameSet(graphState) {
 }
 
 /** A fresh normalization context. */
-export function createSpecContext(palette, graphState) {
+export function createSpecContext(palette, graphState, connectionColor = connectionTypeColors(graphState, palette)) {
   return {
     palette,
+    connectionColor,
     knownPrototypes: prototypeNameSet(graphState),
     warnings: [],
     stats: {
@@ -250,7 +272,7 @@ export function normalizeGraphSpec(spec, ctx, depth = 0, path = 'graph') {
       type: titleCaseName || 'Connection',
       definitionNode: titleCaseName ? {
         name: titleCaseName,
-        color: resolvePaletteColor(palette, e.definitionNode?.color || generateConnectionColor(titleCaseName)),
+        color: ctx.connectionColor(titleCaseName, e.definitionNode?.color),
         description: e.definitionNode?.description || ''
       } : null
     });
@@ -403,11 +425,11 @@ export function layerCollisionWarning(dropped) {
  *
  * @returns {{layers: Array, warnings: string[], stats: Object}|null} null when no layers were given
  */
-export function normalizeLayersOnly(rawLayers, { palette, graphState }) {
+export function normalizeLayersOnly(rawLayers, { palette, graphState, connectionColor }) {
   const layers = coerceArray(rawLayers);
   if (layers.length === 0) return null;
 
-  const ctx = createSpecContext(palette, graphState);
+  const ctx = createSpecContext(palette, graphState, connectionColor);
   // Top-level nodes are validated by the host tool, so an edge from a layer out
   // to one of them is not visible here. Normalizing under an empty top level
   // keeps the layer definitions (and their internal edges) correct, which is the

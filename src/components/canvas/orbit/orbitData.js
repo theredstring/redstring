@@ -86,7 +86,7 @@ export function fetchOrbitCandidates(ctx) {
   return () => { cancelled = true; };
 }
 
-/** Preview an orbit candidate as the triplet it would become. */
+/** Preview an orbit candidate as the triple it would become. */
 export function hoverOrbitCandidate(ctx, candidate) {
   const { selectedInstanceIds, nodes, commitHoverTarget, baseDimsById } = ctx;
   const focusInstanceId = selectedInstanceIds.size > 0 ? [...selectedInstanceIds][0] : null;

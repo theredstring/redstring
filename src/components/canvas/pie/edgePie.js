@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { buildEdgePieMenuButtons } from './edgePieButtons.js';
 import { openWizardPicker } from '../wizard/canvasWizard.js';
 import { frameEdgePieOnOpen } from '../camera/framing.js';
+import useGraphStore from '../../../store/graphStore.js';
 
 /** The connection menu's buttons, rebuilt from the selection, and the copy frozen for its exit animation (moved verbatim from NodeCanvas, P5.03). */
 export function useEdgePieButtons({
@@ -45,10 +46,12 @@ export function useEdgePieButtons({
 /** Frames a connection's menu when it first opens (moved verbatim from NodeCanvas, P5.03). */
 export function useEdgePieFraming({
   abstractionCarouselVisible, connectionLabelSize, draggingNodeInfoRef, edgePieMenuButtons,
-  edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView, focusOnSelectEnabled,
+  edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView,
   nodePrototypesMap, placedLabelsRef, selectedEdgeId, selectedEdgeMidpoint, showConnectionNames,
   textSettings,
 }) {
+  // Connections have their own Zoom on Select toggle (Settings), apart from Things'.
+  const focusOnSelectEnabled = useGraphStore(s => s.focusOnSelectConnectionsEnabled !== false);
   // Focus-on-select for connections: when an edge's pie menu first appears, frame it
   // the same way selecting a node frames its menu. Only on a fresh show (new edge),
   // never on re-renders while the same menu is up — otherwise every button press or

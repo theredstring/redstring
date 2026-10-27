@@ -1,6 +1,26 @@
 import { v4 as uuidv4 } from 'uuid';
 
 /**
+ * How a placement is shown, which a copy keeps: opened in place (its box where
+ * it stood from the node, `openFromNode`), as what (formats/: a formula) and
+ * at what size (an equation's is its node's).
+ * A box's offset is where its definition lands in the view, so it is kept from
+ * the node's place in the same view (projectGraphView's openView), not as saved.
+ */
+function showStateOf(graph, instance) {
+  const out = {};
+  for (const key of ['format', 'linkedFormat', 'sizeMul']) {
+    if (instance[key]) out[key] = instance[key];
+  }
+  const open = instance.openDefinition;
+  if (open) {
+    const at = graph.openView?.boxes?.get(instance.id)?.offset || open.offset || { x: 0, y: 0 };
+    out.openFromNode = { index: open.index ?? 0, dx: at.x - (instance.x ?? 0), dy: at.y - (instance.y ?? 0) };
+  }
+  return out;
+}
+
+/**
  * Copy selected nodes and their interconnecting edges to clipboard data structure
  * @param {Set<string>} selectedInstanceIds - Set of selected instance IDs
  * @param {Object} graph - Current graph object with instances and edgeIds
@@ -27,7 +47,9 @@ export function copySelection(selectedInstanceIds, graph, nodePrototypes, edges)
       prototypeId: instance.prototypeId,
       x: instance.x,
       y: instance.y,
-      scale: instance.scale || 1
+      scale: instance.scale || 1,
+      ...(instance.labels ? { labels: instance.labels } : {}),
+      ...showStateOf(graph, instance)
     });
 
     totalX += instance.x;
@@ -49,7 +71,8 @@ export function copySelection(selectedInstanceIds, graph, nodePrototypes, edges)
   // Collect edges where both endpoints are in selection
   const copiedEdges = [];
   for (const edgeId of graph.edgeIds) {
-    const edge = edges.get(edgeId);
+    // As drawn in the view: its ends are the ids the selection holds.
+    const edge = graph.openView?.edges?.get(edgeId) || edges.get(edgeId);
     if (!edge) continue;
 
     if (selectedInstanceIds.has(edge.sourceId) && selectedInstanceIds.has(edge.destinationId)) {
@@ -270,6 +293,33 @@ function findNonOverlappingPosition(targetCenter, clipboardData, existingNodes, 
 }
 
 /**
+ * What pasting the clipboard's nodes would make, for the button that does it,
+ * or null when it holds none. The shape of what was copied (connections
+ * between selected nodes are captured on copy):
+ *   1 node                              → Paste Thing
+ *   many nodes, no connections          → Paste Things
+ *   exactly 2 nodes + 1 directed edge   → Paste Triple
+ *   many nodes + any connections        → Paste Web
+ *   a formula (copyFormula)             → Paste Formula
+ */
+export function pasteLabelFor(clip) {
+  if (!Array.isArray(clip?.nodes) || clip.nodes.length === 0) return null;
+  if (clip.kind === 'formula') return 'Paste Formula';
+  const nodeCount = clip.nodes.length;
+  const edges = Array.isArray(clip.edges) ? clip.edges : [];
+  if (edges.length === 0) return nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
+  // A triple is strictly subject → connection → object: exactly 2 nodes,
+  // exactly 1 connection between them, pointing exactly one way.
+  // Everything else with connections is a Web. Specifically NOT a triple:
+  //   - more than 2 nodes
+  //   - undirected connection (0 arrows)
+  //   - doubly-connected / bidirectional (2 arrows)
+  const arrows = edges.length === 1 ? edges[0]?.edgeData?.directionality?.arrowsToward : null;
+  const arrowCount = arrows instanceof Set ? arrows.size : (Array.isArray(arrows) ? arrows.length : 0);
+  return nodeCount === 2 && edges.length === 1 && arrowCount === 1 ? 'Paste Triple' : 'Paste Web';
+}
+
+/**
  * Paste clipboard data into target graph with collision avoidance
  * @param {Object} clipboardData - Clipboard data from copySelection
  * @param {string} targetGraphId - Target graph ID
@@ -313,12 +363,18 @@ export function pasteClipboard(
     instanceIdMap.set(node.instanceId, newInstanceId);
     newInstanceIds.push(newInstanceId);
 
+    const open = node.openFromNode;
     return {
       instanceId: newInstanceId,
       prototypeId: node.prototypeId,
       x: pos.x,
       y: pos.y,
-      scale: node.scale
+      scale: node.scale,
+      ...(node.labels ? { labels: node.labels } : {}),
+      ...(node.format ? { format: node.format } : {}),
+      ...(node.linkedFormat ? { linkedFormat: node.linkedFormat } : {}),
+      ...(node.sizeMul ? { sizeMul: node.sizeMul } : {}),
+      ...(open ? { openDefinition: { index: open.index, offset: { x: pos.x + open.dx, y: pos.y + open.dy } } } : {})
     };
   });
 
@@ -356,8 +412,29 @@ export function pasteClipboard(
     };
   });
 
-  // Batch paste operation
-  storeActions.pasteNodesAndEdges(targetGraphId, nodesToPaste, edgesToPaste);
+  // A copied formula's groups (copyFormula): its own and its parts', on the new Things.
+  const groupIdMap = new Map();
+  const newGroupIds = [];
+  const groupsToPaste = (clipboardData.groups || []).map(group => {
+    const newGroupId = uuidv4();
+    groupIdMap.set(group.id, newGroupId);
+    newGroupIds.push(newGroupId);
+    return {
+      ...group,
+      id: newGroupId,
+      memberInstanceIds: group.memberInstanceIds.map(id => instanceIdMap.get(id)).filter(Boolean),
+      ...(group.anchorInstanceId ? { anchorInstanceId: instanceIdMap.get(group.anchorInstanceId) } : {})
+    };
+  });
 
-  return { newInstanceIds, newEdgeIds };
+  // Batch paste operation
+  storeActions.pasteNodesAndEdges(targetGraphId, nodesToPaste, edgesToPaste, {}, groupsToPaste);
+
+  // What to select: a formula as itself (its anchor alone selects its group:
+  // canvasUIStore), else what was pasted.
+  const outer = clipboardData.kind === 'formula' && clipboardData.groups?.[0];
+  const selectIds = outer?.anchorInstanceId ? [instanceIdMap.get(outer.anchorInstanceId)] : newInstanceIds;
+  const selectGroupId = outer && !outer.anchorInstanceId ? groupIdMap.get(outer.id) : null;
+
+  return { newInstanceIds, newEdgeIds, newGroupIds, selectIds, selectGroupId };
 }

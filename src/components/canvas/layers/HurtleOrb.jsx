@@ -5,8 +5,14 @@
  * NodeCanvas refactor P1.06 (FINDINGS F-05). The flight used to live in
  * NodeCanvas state, rewritten on every animation frame, so a ~400 ms hurtle
  * cost the whole canvas a commit per frame. Now NodeCanvas sets `flight` once
- * at launch and clears it after `onLand`; this component runs the rAF loop and
- * writes the orb's box, z-index and opacity straight to its <div>.
+ * at launch and clears it after `onLand`; this component flies the orb.
+ *
+ * The flight is known whole at launch, so it is handed to the browser as one
+ * animation of transform and opacity (`flightKeyframes`), which runs on the
+ * compositor however busy the canvas is opening the web. The orb is drawn at
+ * its peak size and scaled. The frame loop is left only the z-index steps,
+ * the haptic detents and the landing. Without element.animate (jsdom) the
+ * loop paints the box itself, as it used to.
  *
  *   flight = {
  *     startTime, duration,          // performance.now() ms
@@ -58,6 +64,26 @@ export function hurtleFrame(flight, progress) {
   return { eased, x, y, size, zIndex, opacity };
 }
 
+// Linear between samples, so the curve is the eased path and the sin bump.
+const FLIGHT_SAMPLES = 32;
+
+/** The flight as Web Animations keyframes: its centre and diameter by
+ *  transform, on a box `peak` px square at the viewport's origin. */
+export function flightKeyframes(flight) {
+  const peak = flight.orbSize * 1.9;
+  const frames = [];
+  for (let i = 0; i <= FLIGHT_SAMPLES; i++) {
+    const progress = i / FLIGHT_SAMPLES;
+    const f = hurtleFrame(flight, progress);
+    frames.push({
+      offset: progress,
+      transform: `translate(${f.x - peak / 2}px, ${f.y - peak / 2}px) scale(${f.size / peak})`,
+      opacity: f.opacity,
+    });
+  }
+  return { peak, frames };
+}
+
 function paint(el, flight, progress) {
   const f = hurtleFrame(flight, progress);
   const s = el.style;
@@ -78,9 +104,22 @@ function HurtleOrb({ flight, onLand }) {
   const trackRef = useRef(null);
   if (!trackRef.current) trackRef.current = createDetentTrack('hurtleTravel', HURTLE_DETENT_STEP);
 
-  // First frame before paint, so the orb never shows unpositioned.
+  const animatedRef = useRef(false);
+
+  // Launched before paint, so the orb never shows unpositioned. Caught up to
+  // the flight's start, which may be a frame or two back.
   useLayoutEffect(() => {
-    if (flight && elRef.current) paint(elRef.current, flight, 0);
+    const el = elRef.current;
+    animatedRef.current = false;
+    if (!flight || !el) return undefined;
+    if (typeof el.animate !== 'function') { paint(el, flight, 0); return undefined; }
+    const { peak, frames } = flightKeyframes(flight);
+    Object.assign(el.style, { left: '0px', top: '0px', width: `${peak}px`, height: `${peak}px`, transformOrigin: '50% 50%' });
+    el.style.zIndex = String(hurtleFrame(flight, 0).zIndex);
+    const anim = el.animate(frames, { duration: flight.duration, fill: 'forwards' });
+    anim.currentTime = Math.max(0, Math.min(flight.duration, performance.now() - flight.startTime));
+    animatedRef.current = true;
+    return () => anim.cancel();
   }, [flight]);
 
   useEffect(() => {
@@ -91,7 +130,15 @@ function HurtleOrb({ flight, onLand }) {
     const step = (now) => {
       const progress = Math.min((now - flight.startTime) / flight.duration, 1);
       const el = elRef.current;
-      const f = el ? paint(el, flight, progress) : hurtleFrame(flight, progress);
+      let f;
+      if (el && animatedRef.current) {
+        f = hurtleFrame(flight, progress);
+        // Two steps a flight, so only when it changes.
+        const z = String(f.zIndex);
+        if (el.style.zIndex !== z) el.style.zIndex = z;
+      } else {
+        f = el ? paint(el, flight, progress) : hurtleFrame(flight, progress);
+      }
       // Detents follow the eased progress, so they bunch where the orb is
       // visibly fastest. The landing gets its own, heavier event (onLand), so
       // no tick is fired at 1.

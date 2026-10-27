@@ -54,12 +54,14 @@ export default function ThinkingBlock({ content, contentHtml, collapsed }) {
           color: theme.canvas.textSecondary,
           maxHeight: '200px',
           overflowY: 'auto',
+          overflowX: 'hidden',
+          overflowWrap: 'anywhere',
           marginTop: '2px',
           userSelect: 'text',
           cursor: 'text',
         }}>
           {contentHtml
-            ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(contentHtml) }} />
+            ? <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(contentHtml, { svg: true }) }} />
             : <div style={{ whiteSpace: 'pre-wrap' }}>{content}</div>}
         </div>
       )}

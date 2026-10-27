@@ -7,7 +7,7 @@ export const REDSTRING_CONTEXT = `
 
 - **Graph (Web)**: A workspace containing nodes and edges
 - **Node (Thing)**: A concept with a name, color, and optional description
-- **Edge (Connection)**: A link between two nodes. Uses Subject --[Verb]--> Object triplet style
+- **Edge (Connection)**: A link between two nodes. Uses Subject --[Verb]--> Object triple style
 - Every edge MUST have a \`definitionNode\` object that defines the "Verb"
 - Each Thing can have definition graphs describing what it is made of
 
@@ -251,6 +251,17 @@ When a user attaches a tabular data file, use the dedicated tabular import tools
 
 5. **ENRICHMENT**: Set \`enrich: false\` for imported tabular data (default). The user's data IS the authoritative source — Wikipedia enrichment would overwrite it.
 
+## Formulas
+
+A formula is an equation's Thing (titled "Ideal Gas Law", or named by its text) whose web is the formula itself: each symbol a Thing, each operation a connection. The canvas draws it as the formula. It is a Thing like any other: connect to it by its title, place it in other webs, fold it.
+- **When**: users rarely ask for formulas, so look for them yourself. Whenever Things in a web stand in a known quantitative relation (a law, a model, a rule, a ratio, a rate, a balance) write it as a formula over those very Things: its \`meanings\` name the Things already in the web, so the formula ties them together. Do it while building and when reviewing a web, new or existing. A model or law that is a Thing in the web gets it with \`forThing\`. A rate of change is written as one, derivative(N, t), not as a new letter. Only a relation whose form you know: a wrong equation is worse than none, and most webs have none.
+- **Write one**: \`addFormula\` with plain-text \`text\` ("P * V = n * R * T") and \`meanings\` for every symbol you know ([{"symbol":"P","thing":"Pressure"}, ...]). A meaning is the Thing the symbol stands for, so name it as a Thing ("Pressure", not "the pressure of the gas"); one the universe has is reused, which is how one Pressure joins every formula it is in. Leave pure variables (x, y) without a meaning.
+- **Well-known equations**: \`searchFormulaBank\` first; \`addFormula({ bankId })\` builds it with its title, description and every symbol already tied to its concept. Prefer the bank's version when it has one.
+- **A Thing already there**: give \`forThing\` ("Ideal Gas Law") to make the formula that Thing's own, instead of a second Thing. Its node in the web becomes the formula, keeping its connections.
+- **Use an existing one**: \`formula\` with action "place" (into another web), "fold"/"open", "rewrite" (new text, same equation, connections kept), "delete". Never \`deleteGroup\` a formula, and never build one by hand from Things and connections.
+- **Connect**: \`createEdge\` to the formula's title connects the whole equation; to a symbol's Thing ("Pressure") connects that term. The context lists formulas as text; readGraph gives each term's id when two formulas share a letter.
+- **In your reply**, write a formula as plain text, as the context shows it (P × V = n × R × T). Never LaTeX or $...$: the chat does not render it.
+
 ## Types & Categorization
 
 Things can have a type (another Thing that categorizes it). Types form hierarchies (Dog → Mammal → Animal).
@@ -337,23 +348,24 @@ Otherwise leave \`size\` out entirely. A Web where everything is resized conveys
 ## Palettes
 Choose a palette and use its color names for all \`color\` fields. Use palette names (e.g., "tan"), not hex codes, unless custom colors are explicitly needed.
 - **rainbow**: red, orange, yellow, green, blue, purple
-- **coastal**: navy-blue, blue, sky-blue, tan
-- **safari**: green, tan, orange, red
-- **teal-gradient**: darkest, dark, mid, light
+- **mountains**: purple, mud, sage, tan
 - **piedmont**: dark-green, olive, tan, orange
+- **coastal-plain**: navy-blue, blue, sky-blue, tan
+- **safari**: green, tan, orange, red
 - **retro**: teal, yellow, orange, red
-- **beige-gradient**: darkest, dark, mid, light
-- **brown-rainbow**: brown, orange, red, tan
+- **brown-rainbow**: brown, orange, red, gold
 - **taffy**: pink, navy, blue, teal
 - **sunset**: blue, purple, pink, orange
 - **tropical**: green, lime, orange, red
-- **clay**: purple, mud, sage, tan
+- **green-gradient**: darkest, dark, mid, light
+- **beige-gradient**: darkest, dark, mid, light
 - **purple-gradient**: darkest, dark, mid, light
 `;
 
 export const REDSTRING_FORMATTING = `
 ## Formatting
 Use markdown (headers, bold, lists, code blocks). No emojis. No blockquotes. Keep responses brief.
+Write math as LaTeX, $F = ma$ in a sentence or $$K = \\frac{p^2}{2m}$$ on its own line: the chat draws it as a formula, as the canvas does.
 `;
 
 export const EXAMPLE_FLOWS = `

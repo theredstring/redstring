@@ -38,6 +38,14 @@ import { sanitizeColor } from '../utils/safeColor.js';
 import { normalizeIdentifier } from '../wizard/tools/linkIdentifier.js';
 import { classifyForConfirmation, holdForConfirmation, takePending } from './wizardConfirmationGate.js';
 import { snapshotEntityMaps, diffCreatedEntities, hasCreatedEntities, notifyWizardEntitiesCreated } from './wizardCreatedEntities.js';
+import {
+  addFormulaForWizard, addBankFormulaForWizard, placeEquation, openFormulaForWizard,
+  foldFormulaForWizard, rewriteFormulaForWizard, deleteFormulaForWizard,
+} from '../components/canvas/formats/formula/formulaWizard.js';
+import { equationOf } from '../components/canvas/formats/formula/formulaSnapshot.js';
+import { projectGraphView, anchorIdFromOpenGroupId } from '../core/openDefinitions.js';
+
+const FORMULA_ACTIONS = new Set(['addFormula', 'placeFormula', 'openFormula', 'foldFormula', 'rewriteFormula', 'deleteFormula']);
 
 // Part B — structure-review follow-through. The most recent build's group/fold
 // suggestions (with their one-shot callIds) are held here; when the user's next
@@ -72,6 +80,24 @@ function noteStructureFollowThrough(groupName, memberNames) {
  * final spots, leaving nothing to animate. (Headless hosts have no canvas
  * listener; they run applyOffscreenLayout themselves via the runtime.)
  */
+/**
+ * A group of the web by name, as the user sees it: one of its own first (the
+ * first match, as these lookups always took), then one drawn in it: a group
+ * of a definition opened in place there, or an opened Thing itself (its
+ * `open:<node>` group, named for its Thing). Null when none has the name.
+ */
+function groupIdNamed(store, graphId, name) {
+  const key = String(name || '').toLowerCase().trim();
+  if (!key) return null;
+  for (const [gId, group] of store.graphs.get(graphId)?.groups || []) {
+    if ((group.name || '').toLowerCase().trim() === key) return gId;
+  }
+  for (const [gId, group] of projectGraphView(store, graphId)?.groups || []) {
+    if ((group.name || '').toLowerCase().trim() === key) return gId;
+  }
+  return null;
+}
+
 function layoutAfterWizardMutation(graphId) {
   try {
     if (typeof window !== 'undefined' && useGraphStore.getState().activeGraphId === graphId) {
@@ -475,12 +501,15 @@ function applyAbstractionChain(orderNames, dimension = DEFAULT_ABSTRACTION_DIMEN
 
 const COMPOSITION_MAX_DEPTH = 4;
 
+// Orbit catalog Things are the orbit's suggestions, not the universe's own:
+// a `use:` or a type never resolves to one.
 function resolvePrototypeByNameLast(name) {
   const st = useGraphStore.getState();
   const nl = String(name || '').toLowerCase().trim();
   if (!nl) return null;
   let id = null;
   for (const [pid, proto] of st.nodePrototypes) {
+    if (proto.isOrbitCatalog) continue;
     if ((proto.name || '').toLowerCase().trim() === nl) id = pid; // LAST match
   }
   return id;
@@ -541,7 +570,8 @@ function findAdoptableInstance(graphId, name) {
 
 function groupExistsForPrototypeName(graphId, name) {
   const st = useGraphStore.getState();
-  const graph = st.graphs.get(graphId);
+  // As drawn: a Thing opened in place here is its open box.
+  const graph = projectGraphView(st, graphId);
   if (!graph?.groups) return false;
   const nl = String(name || '').toLowerCase().trim();
   for (const g of graph.groups.values()) {
@@ -562,6 +592,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     layer._protoId = null;
     layer._defGraphId = null;
     layer._reused = false;
+    layer._equation = false;
     layer._skip = false;
 
     if (depth >= COMPOSITION_MAX_DEPTH) {
@@ -582,10 +613,14 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     if (typeof layer.use === 'string' && layer.use.trim()) {
       const existingProtoId = resolvePrototypeByNameLast(layer.use);
       if (existingProtoId) {
-        const proto = useGraphStore.getState().nodePrototypes.get(existingProtoId);
+        const state = useGraphStore.getState();
+        const proto = state.nodePrototypes.get(existingProtoId);
         layer._protoId = existingProtoId;
         layer._defGraphId = proto?.definitionGraphIds?.[0] || null;
         layer._reused = true;
+        // An equation goes in as its formula (placeEquation below), never as a
+        // plain node or a Thing-group that doesn't draw as one.
+        layer._equation = !!equationOf(state, proto);
         continue;
       }
       warnings.push(`use: "${layer.use}" — no Thing with that name exists; creating a fresh empty Thing instead.`);
@@ -619,7 +654,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
       }
     }
     // Empty + decomposed layers get no definition graph here on purpose:
-    // decomposeEmptyNodeToGroup creates and links one itself in Phase B.
+    // opening it makes and links one (openCompositionLayersInPlace).
   }
 
   const specNodes = Array.isArray(graphSpec?.nodes) ? graphSpec.nodes : [];
@@ -656,7 +691,21 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
         `Layer "${l.name}": a node with that name was already on the canvas — used it as the layer's `
         + 'anchor instead of adding a second one.'
       );
-      continue;
+      if (!l._equation) continue;
+    }
+    // An equation: open in place as its formula, or folded into a node that
+    // opens as one. A node of it already here is the one placed. Its node is
+    // the layer's shell, so connections named after the layer reach the whole
+    // formula; openCompositionLayersInPlace leaves it be.
+    if (l._equation) {
+      try {
+        l._shellInstanceId = placeEquation({ graphId, ref: l._protoId, folded: l.display === 'collapsed' }).instanceId;
+        continue;
+      } catch (e) {
+        l._equation = false;
+        warnings.push(`Layer "${l.name}": could not be placed as its formula (${e.message}) — placed as a node.`);
+        if (existing) continue;
+      }
     }
     l._shellInstanceId = `inst-shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     st.addNodeInstance(
@@ -702,76 +751,69 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
   }
 }
 
-function decomposeCompositionLayers(graphId, layers, warnings) {
+/**
+ * A composition's layers opened: each layer's Thing opens in place on its
+ * node, its definition drawn in it, and the layers inside open on their own
+ * nodes there. The composition is its
+ * definitions, each once, as the canvas opens one: no copy to save or refresh.
+ *
+ * @param {string} viewGraphId - The web it is seen from (the shells are in it,
+ *   or in a definition already opened in it).
+ */
+function openCompositionLayersInPlace(viewGraphId, layers, warnings) {
   for (const layer of (Array.isArray(layers) ? layers : [])) {
     if (!layer || layer._skip || !layer._protoId) continue;
-    const st = useGraphStore.getState();
+    // Placed as its formula already (materializeCompositionLevel).
+    if (layer._equation) continue;
     const protoId = layer._protoId;
 
     if (layer.display === 'collapsed') {
-      // The Thing stays closed here; its own decomposed children spread open
-      // inside its definition graph (visible when the user navigates in).
+      // The Thing stays closed here; its own children open inside its definition
+      // (seen when the user goes in).
       if (!layer._reused && layer._defGraphId && layer.definition?.layers?.length) {
-        decomposeCompositionLayers(layer._defGraphId, layer.definition.layers, warnings);
+        openCompositionLayersInPlace(layer._defGraphId, layer.definition.layers, warnings);
+        layoutAfterWizardMutation(layer._defGraphId);
       }
       continue;
     }
 
-    const graph = st.graphs.get(graphId);
-    if (!graph) continue;
+    const st = useGraphStore.getState();
+    const view = projectGraphView(st, viewGraphId);
+    if (!view?.instances) continue;
+    // Open here already (re-run safety): its children came with it.
+    if ([...(view.groups?.values() || [])].some(g => g.linkedNodePrototypeId === protoId)) continue;
 
-    // Already decomposed here (re-run safety) — children came with it, skip.
-    let alreadyGrouped = false;
-    if (graph.groups) {
-      for (const g of graph.groups.values()) {
-        if (g.linkedNodePrototypeId === protoId) alreadyGrouped = true;
-      }
-    }
-    if (alreadyGrouped) continue;
-
-    // The shell to decompose. Prefer the one materialization just created; fall
-    // back to the LAST non-anchor instance of this prototype.
-    let shellInstanceId = (layer._shellInstanceId && graph.instances.has(layer._shellInstanceId))
-      ? layer._shellInstanceId
-      : null;
+    // Its node: the one materialization just made, else the LAST of its Thing in sight.
+    let shellInstanceId = (layer._shellInstanceId && view.instances.has(layer._shellInstanceId)) ? layer._shellInstanceId : null;
     if (!shellInstanceId) {
-      for (const [instId, inst] of graph.instances) {
+      for (const [instId, inst] of view.instances) {
         if (inst.prototypeId === protoId && !inst.isGroupAnchor) shellInstanceId = instId;
       }
     }
-    // Still nothing: place one rather than skipping. A layer that silently fails
-    // to decompose leaves the concept defined but never opened — which reads to
-    // the user as the composition simply not having happened, and to the model as
-    // success, because the definition web really is there.
     if (!shellInstanceId) {
       shellInstanceId = `inst-shell-recover-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      st.addNodeInstance(graphId, protoId, { x: Math.random() * 600 + 200, y: Math.random() * 500 + 200 }, shellInstanceId);
-      warnings.push(`Layer "${layer.name}": shell instance was missing and had to be recreated before decomposing.`);
+      st.addNodeInstance(viewGraphId, protoId, { x: Math.random() * 600 + 200, y: Math.random() * 500 + 200 }, shellInstanceId);
+      warnings.push(`Layer "${layer.name}": shell instance was missing and had to be recreated before opening it.`);
     }
 
     const proto = st.nodePrototypes.get(protoId);
     const defGraphId = layer._defGraphId || proto?.definitionGraphIds?.[0] || null;
-    if (defGraphId === graphId) {
-      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself — not decomposed.`);
+    if (defGraphId === viewGraphId) {
+      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself — not opened.`);
       continue;
     }
     const defIndex = defGraphId ? Math.max(0, (proto?.definitionGraphIds || []).indexOf(defGraphId)) : 0;
-    const defGraph = defGraphId ? st.graphs.get(defGraphId) : null;
-    const populated = !!(defGraph?.instances && defGraph.instances.size > 0);
-
-    const groupId = populated
-      ? st.decomposeNodeToGroup(graphId, protoId, defIndex, shellInstanceId)
-      : st.decomposeEmptyNodeToGroup(graphId, protoId, defIndex, shellInstanceId);
-    if (!groupId) {
-      warnings.push(`Layer "${layer.name}": decompose did not produce a group.`);
+    // An empty layer gets its definition made here, as opening an empty Thing does.
+    const boxId = st.openDefinitionInPlace(viewGraphId, shellInstanceId, defIndex);
+    if (!boxId) {
+      warnings.push(`Layer "${layer.name}": could not open here (it would open inside itself).`);
       continue;
     }
 
-    // Children decompose in the SAME graph — the parent's decompose just copied
-    // their shells in, and decomposing them here triggers the enclosing-group
-    // membership propagation that derives the nesting. Parent strictly first.
     if (!layer._reused && layer.definition?.layers?.length) {
-      decomposeCompositionLayers(graphId, layer.definition.layers, warnings);
+      openCompositionLayersInPlace(viewGraphId, layer.definition.layers, warnings);
+      // Laid out again with its children open in it, each one block.
+      if (defGraphId) layoutAfterWizardMutation(defGraphId);
     }
   }
 }
@@ -810,7 +852,7 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
   materializeCompositionLevel(graphId, { layers }, options, 0, warnings);
   try { useGraphStore.getState().cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-  decomposeCompositionLayers(graphId, layers, warnings);
+  openCompositionLayersInPlace(graphId, layers, warnings);
 
   // Layout runs AFTER decomposition on purpose: the layout engine is group-aware,
   // so it can only place members sensibly once the groups exist.
@@ -821,15 +863,16 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
   // failed, the model saw a populated definition web, called the build done, and
   // the user got a handful of unopened nodes. Anything that goes wrong here has
   // to be loud, because nothing downstream will notice it.
-  const after = useGraphStore.getState().graphs.get(graphId);
+  // As drawn: a layer opened in place is its node's open box.
+  const after = projectGraphView(useGraphStore.getState(), graphId);
   const decomposedCount = layers.filter(l => {
-    if (!l?._protoId || l._skip || l.display === 'collapsed') return false;
+    if (!l?._protoId || l._skip || l._equation || l.display === 'collapsed') return false;
     for (const g of (after?.groups?.values?.() || [])) {
       if (g.linkedNodePrototypeId === l._protoId) return true;
     }
     return false;
   }).length;
-  const expected = layers.filter(l => l?._protoId && !l._skip && l.display !== 'collapsed').length;
+  const expected = layers.filter(l => l?._protoId && !l._skip && !l._equation && l.display !== 'collapsed').length;
 
   if (decomposedCount < expected) {
     const msg = `${label}: only ${decomposedCount} of ${expected} layer(s) opened into node-groups. `
@@ -900,6 +943,34 @@ export function collectApplyFailures(fn) {
     _failureCollector = prev;
   }
   return failures;
+}
+
+/**
+ * collectApplyFailures for a caller that can wait (the MCP bridge): when the
+ * apply hands back a promise (a bank formula loads the bank first), it is
+ * awaited and the failures it raises on the way are collected too.
+ * Resolves to { failures, value }, value being what the apply returned.
+ */
+export async function collectApplyFailuresSettled(fn) {
+  const prev = _failureCollector;
+  const failures = [];
+  failures.settles = true;
+  _failureCollector = failures;
+  let value;
+  try {
+    value = fn();
+  } finally {
+    _failureCollector = prev;
+  }
+  if (value && typeof value.then === 'function') {
+    try {
+      value = await value;
+    } catch (err) {
+      failures.push({ tool: null, reason: err?.message || String(err) });
+      value = undefined;
+    }
+  }
+  return { failures, value };
 }
 
 // Surface a wizard tool failure to the UI: onto the tool call's card when
@@ -1249,14 +1320,12 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       ? result.instanceId
       : null;
 
+    // Name fallback: LAST exact match, as names resolve everywhere else.
     if (!realInstanceId) {
       for (const [instId, inst] of graph.instances) {
         const proto = store.nodePrototypes.get(inst.prototypeId);
         const nodeName = (proto?.name || '').toLowerCase().trim();
-        if (nodeName === lookupName) {
-          realInstanceId = instId;
-          break;
-        }
+        if (nodeName === lookupName) realInstanceId = instId;
       }
     }
     if (!realInstanceId) {
@@ -1323,14 +1392,20 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       return;
     }
 
-    let sourceInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
-    let targetInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
+    // The tool hands back the connection it found and its ends' instance ids;
+    // names are the fallback for ids only predicted this ask.
+    const inGraph = (id) => (id && graph.instances.has(id) ? id : null);
+    let sourceInstId = inGraph(result.sourceInstanceId) || inGraph(result.sourceId);
+    let targetInstId = inGraph(result.targetInstanceId) || inGraph(result.targetId);
 
     if (!sourceInstId || !targetInstId) {
       const sourceNameLookup = (result.sourceName || '').toLowerCase().trim();
       const targetNameLookup = (result.targetName || '').toLowerCase().trim();
 
-      for (const [instId, inst] of graph.instances) {
+      // A Thing drawn as itself before its copy drawn as a formula's symbol.
+      const inFormula = new Set();
+      graph.groups?.forEach((g) => { if (g.format === 'formula') (g.memberInstanceIds || []).forEach((id) => inFormula.add(id)); });
+      for (const [instId, inst] of [...graph.instances].sort(([a], [b]) => inFormula.has(a) - inFormula.has(b))) {
         const p = store.nodePrototypes.get(inst.prototypeId);
         const n = (p?.name || '').toLowerCase().trim();
         if (!sourceInstId && n === sourceNameLookup) sourceInstId = instId;
@@ -1350,7 +1425,11 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
 
     let realEdgeId = null;
     let actualEdge = null;
-    for (const edgeId of graph.edgeIds) {
+    if (result.edgeId && graph.edgeIds?.includes(result.edgeId) && store.edges.has(result.edgeId)) {
+      realEdgeId = result.edgeId;
+      actualEdge = store.edges.get(result.edgeId);
+    }
+    for (const edgeId of (realEdgeId ? [] : graph.edgeIds)) {
       const edge = store.edges.get(edgeId);
       if (!edge) continue;
       if ((edge.sourceId === sourceInstId && edge.destinationId === targetInstId) ||
@@ -1482,35 +1561,47 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       return;
     }
 
-    let srcInstId = result.sourceId && graph.instances.has(result.sourceId) ? result.sourceId : null;
-    let tgtInstId = result.targetId && graph.instances.has(result.targetId) ? result.targetId : null;
-
-    if (!srcInstId || !tgtInstId) {
-      const srcLower = (result.sourceName || '').toLowerCase().trim();
-      const tgtLower = (result.targetName || '').toLowerCase().trim();
-      // Build name→instanceId map
-      const nameToInstId = new Map();
-      for (const [instId, inst] of graph.instances) {
+    // Every instance a name could mean, not just one: with two same-named
+    // nodes, picking either would delete a connection nobody chose. Like the
+    // tool, delete only when exactly one connection matches.
+    const idsFor = (instId, name) => {
+      if (instId && graph.instances.has(instId)) return new Set([instId]);
+      const wanted = (name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const ids = new Set();
+      if (!wanted) return ids;
+      for (const [id, inst] of graph.instances) {
         const proto = store.nodePrototypes.get(inst.prototypeId);
-        const name = (proto?.name || '').toLowerCase().trim();
-        if (name) nameToInstId.set(name, instId);
+        if ((proto?.name || '').toLowerCase().replace(/\s+/g, ' ').trim() === wanted) ids.add(id);
       }
-      if (!srcInstId) srcInstId = nameToInstId.get(srcLower);
-      if (!tgtInstId) tgtInstId = nameToInstId.get(tgtLower);
-    }
+      return ids;
+    };
+    const srcIds = idsFor(result.sourceId, result.sourceName);
+    const tgtIds = idsFor(result.targetId, result.targetName);
+    const srcInstId = srcIds.size > 0 ? Array.from(srcIds).pop() : null;
+    const tgtInstId = tgtIds.size > 0 ? Array.from(tgtIds).pop() : null;
 
     if (srcInstId && tgtInstId) {
-      for (const edgeId of (graph.edgeIds || [])) {
+      const between = (graph.edgeIds || []).filter((edgeId) => {
         const edge = store.edges.get(edgeId);
-        if (edge && (
-          (edge.sourceId === srcInstId && edge.destinationId === tgtInstId) ||
-          (edge.sourceId === tgtInstId && edge.destinationId === srcInstId)
-        )) {
-          store.removeEdge(edgeId);
-          console.log('[Wizard] Successfully deleted edge between:', srcInstId, 'and', tgtInstId);
-          scheduleGraphLayout(graphId);
-          return;
-        }
+        return edge && (
+          (srcIds.has(edge.sourceId) && tgtIds.has(edge.destinationId)) ||
+          (tgtIds.has(edge.sourceId) && srcIds.has(edge.destinationId))
+        );
+      });
+      if (between.length === 1) {
+        store.removeEdge(between[0]);
+        console.log('[Wizard] Successfully deleted edge between:', result.sourceName, 'and', result.targetName);
+        scheduleGraphLayout(graphId);
+        return;
+      }
+      if (between.length > 1) {
+        console.error('[Wizard] FAILED: deleteEdge: several connections match:', result.sourceName, '↔', result.targetName);
+        dispatchWizardToolFailed(
+          'deleteEdge',
+          `${between.length} connections match "${result.sourceName}" and "${result.targetName}", so none was deleted. Pass the edgeId of the one to remove.`,
+          result
+        );
+        return;
       }
       console.error('[Wizard] FAILED: deleteEdge: Source/target instances resolved but no edge exists between them:', result.sourceName, '↔', result.targetName);
       dispatchWizardToolFailed(
@@ -1755,19 +1846,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
@@ -1792,19 +1871,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
@@ -1829,6 +1896,11 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         return ids;
       };
 
+      // A Thing opened in place keeps what its definition holds: a Thing leaves
+      // it only by being deleted there (graphStore removeInstancesFromGroup).
+      if (anchorIdFromOpenGroupId(realGroupId) && result.updates.removeMembers?.length) {
+        dispatchWizardToolFailed('updateGroup', `"${result.groupName || 'That Thing-group'}" is a Thing opened in place: what is in it is its definition. Delete a Thing there to take it out.`, result);
+      }
       // updateGroupWithMembers, so membership changes propagate through the
       // nesting chain rather than un-nesting this group.
       store.updateGroupWithMembers(graphId, realGroupId, {
@@ -1855,25 +1927,14 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
     }
     if (realGroupId) {
-      store.convertGroupToNodeGroup(
+      // Opened in place over its members, as the canvas makes one.
+      const thingGroupId = store.convertGroupToThingInPlace(
         graphId,
         realGroupId,
         null,
@@ -1881,7 +1942,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         result.thingName || 'Thing Group',
         result.newThingColor // Let store fall back to group.color if not specified
       );
-      console.log('[Wizard] Successfully converted group to thing-group:', realGroupId);
+      console.log('[Wizard] Successfully converted group to thing-group:', thingGroupId || realGroupId);
       scheduleGraphLayout(graphId);
     } else {
       console.error('[Wizard] convertToThingGroup: Could not find group:', result.groupName);
@@ -1899,19 +1960,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     }
     // Always resolve by name from the live store first, since result.groupId
     // may be a synthetic ID from the in-memory graphState (AgentLoop)
-    let realGroupId = null;
-    if (result.groupName) {
-      const graph = store.graphs.get(graphId);
-      if (graph?.groups) {
-        const nameLower = result.groupName.toLowerCase().trim();
-        for (const [gId, group] of graph.groups) {
-          if ((group.name || '').toLowerCase().trim() === nameLower) {
-            realGroupId = gId;
-            break;
-          }
-        }
-      }
-    }
+    let realGroupId = result.groupName ? groupIdNamed(store, graphId, result.groupName) : null;
     // Fall back to result.groupId if name resolution didn't find anything
     if (!realGroupId) {
       realGroupId = result.groupId;
@@ -1943,7 +1992,16 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       }
     }
 
-    const createdGroupId = store.decomposeNodeToGroup(graphId, realProtoId, result.definitionIndex ?? 0, result.instanceId ?? null);
+    // Opened in place on its node, as the canvas opens one: its definition, not a copy of it.
+    const view = projectGraphView(store, graphId);
+    let instanceId = result.instanceId && view?.instances?.has(result.instanceId) ? result.instanceId : null;
+    if (!instanceId) {
+      for (const [id, inst] of view?.instances || []) {
+        if (inst.prototypeId === realProtoId && !inst.isGroupAnchor) instanceId = id; // LAST match
+      }
+    }
+    const createdGroupId = instanceId ? store.openDefinitionInPlace(graphId, instanceId, result.definitionIndex ?? 0) : null;
+    if (!createdGroupId) dispatchWizardToolFailed('decomposeNode', `"${result.nodeName}" could not open here.`, result);
     console.log('[Wizard] decomposeNode result: groupId=', createdGroupId);
     scheduleGraphLayout(graphId);
     return;
@@ -1969,9 +2027,9 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     materializeCompositionLevel(graphId, result.spec, options, 0, warnings);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-    decomposeCompositionLayers(graphId, result.spec.layers, warnings);
+    openCompositionLayersInPlace(graphId, result.spec.layers, warnings);
 
-    // Ladders AFTER decomposition: decomposeCompositionLayers retargets instances at
+    // Ladders AFTER decomposition: openCompositionLayersInPlace retargets instances at
     // an existing prototype, which changes what a node name resolves to.
     try {
       applyNodeLadders(result.spec, { graphId, label: 'buildComposition' });
@@ -2028,19 +2086,20 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       memberInstanceIds
     });
 
-    // Step 3: Convert group to thing-group (creates prototype + definition graph from members)
-    store.convertGroupToNodeGroup(
+    // Step 3: Convert group to thing-group (creates prototype + definition graph from
+    // members), opened in place over them as the canvas makes one.
+    const thingGroupId = store.convertGroupToThingInPlace(
       graphId,
       groupId,
       null,
       true,
       result.nodeName,
       result.nodeColor || '#8B0000'
-    );
+    ) || groupId;
 
     // Step 4: If collapse requested, combine the thing-group into a single node
     if (result.collapse) {
-      store.combineNodeGroup(graphId, groupId);
+      store.combineNodeGroup(graphId, thingGroupId);
       console.log('[Wizard] condenseToNode: Collapsed group into single node:', result.nodeName);
     } else {
       console.log('[Wizard] condenseToNode: Created thing-group:', result.nodeName);
@@ -2051,6 +2110,52 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
   }
 
   // Handle addDefinitionGraph — create a definition graph for a node WITHOUT changing activeGraphId
+  // Formulas (wizard/tools: addFormula, formula), by name against the live
+  // store through the builders New Formula and the group panel use
+  // (formats/formula/formulaWizard.js). No layout pass after: a formula goes
+  // under what the web has, and a layout that runs later keeps it whole.
+  if (FORMULA_ACTIONS.has(result.action)) {
+    const graphId = result.graphId || store.activeGraphId;
+    const ref = result.formulaName;
+    console.log('[Wizard] Applying', result.action, 'to store:', ref || result.title || result.canonicalText);
+    // A caller waiting on the build (collectApplyFailuresSettled) gets a
+    // failure that comes later too; anyone else hears it as an event.
+    const waiting = _failureCollector?.settles ? _failureCollector : null;
+    const fail = (err) => {
+      console.warn(`[Wizard] ${result.action} failed:`, err?.message || err);
+      if (waiting && _failureCollector !== waiting) waiting.push({ tool: toolName, reason: err?.message || String(err) });
+      else dispatchWizardToolFailed(toolName, err?.message || String(err), result);
+    };
+    // Each returns what it made or found, for the bridge to report back.
+    try {
+      if (!graphId || !store.graphs.has(graphId)) throw new Error('No web to work in');
+      if (result.action === 'addFormula') {
+        const built = result.bankId
+          ? addBankFormulaForWizard({ graphId, ref: result.bankId, color: result.color })
+          : addFormulaForWizard({
+            graphId, text: result.text, title: result.title, description: result.description,
+            meanings: result.meanings, forThing: result.forThing, convention: result.convention, color: result.color,
+          });
+        // Settles once the bank has loaded and the formula is built (or failed).
+        if (built && typeof built.then === 'function') return built.catch((err) => { fail(err); });
+        return built;
+      } else if (result.action === 'placeFormula') {
+        return placeEquation({ graphId, ref: result.equationProtoId && store.nodePrototypes.has(result.equationProtoId) ? result.equationProtoId : ref, folded: !!result.folded });
+      } else if (result.action === 'openFormula') {
+        return openFormulaForWizard({ graphId, ref });
+      } else if (result.action === 'foldFormula') {
+        return foldFormulaForWizard({ graphId, ref });
+      } else if (result.action === 'rewriteFormula') {
+        return rewriteFormulaForWizard({ graphId, ref, text: result.text, title: result.title, meanings: result.meanings, convention: result.convention });
+      } else if (result.action === 'deleteFormula') {
+        return deleteFormulaForWizard({ graphId, ref });
+      }
+    } catch (err) {
+      fail(err);
+    }
+    return;
+  }
+
   if (result.action === 'addDefinitionGraph') {
     const graphId = result.graphId;
     const nodeName = (result.nodeName || '').toLowerCase().trim();
@@ -2154,7 +2259,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200
       })),
-      edges: (result.spec.edges || []).map(e => ({
+      edges: (result.spec.edges || []).filter(e => !e.toLayer).map(e => ({
         source: e.source,
         target: e.target,
         type: e.type || 'relates to',
@@ -2163,6 +2268,19 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       })),
       groups: result.spec.groups || []
     };
+    // Things from elsewhere in the universe that an edge named: an instance of
+    // the existing prototype, so the edge has an end here.
+    for (const r of (result.spec.reuseNodes || [])) {
+      const protoId = r?.prototypeId && store.nodePrototypes.has(r.prototypeId) ? r.prototypeId : resolvePrototypeByNameLast(r?.name);
+      if (!protoId) continue;
+      bulkData.nodes.push({
+        name: store.nodePrototypes.get(protoId)?.name || r.name,
+        prototypeId: protoId,
+        instanceId: `inst-reuse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      });
+    }
 
     store.applyBulkGraphUpdates(graphId, bulkData);
     console.log('[Wizard] Successfully populated definition graph:', graphId);
@@ -2175,6 +2293,19 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       enrich: result.enrich !== false,
       overwriteDescription: result.overwriteDescription || false
     }, 'populateDefinitionGraph');
+    // Edges with an end in a layer, now that its shell exists.
+    const layerEdges = (result.spec.edges || []).filter(e => e.toLayer);
+    if (layerEdges.length > 0) {
+      useGraphStore.getState().applyBulkGraphUpdates(graphId, {
+        edges: layerEdges.map(e => ({
+          source: e.source,
+          target: e.target,
+          type: e.type || 'relates to',
+          directionality: e.directionality || 'unidirectional',
+          definitionNode: e.definitionNode || null
+        }))
+      });
+    }
 
     try {
       applyNodeLadders(result.spec, { graphId, label: 'populateDefinitionGraph' });
@@ -2324,7 +2455,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200
       })),
-      edges: (result.spec.edges || []).map(e => ({
+      edges: (result.spec.edges || []).filter(e => !e.toLayer).map(e => ({
         source: e.source,
         target: e.target,
         type: e.type || 'relates to',
@@ -2333,6 +2464,19 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       })),
       groups: result.spec.groups || []
     };
+    // Things from elsewhere in the universe that an edge named: an instance of
+    // the existing prototype, so the edge has an end here.
+    for (const r of (result.spec.reuseNodes || [])) {
+      const protoId = r?.prototypeId && store.nodePrototypes.has(r.prototypeId) ? r.prototypeId : resolvePrototypeByNameLast(r?.name);
+      if (!protoId) continue;
+      bulkData.nodes.push({
+        name: store.nodePrototypes.get(protoId)?.name || r.name,
+        prototypeId: protoId,
+        instanceId: `inst-reuse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      });
+    }
 
     // 3. Apply bulk updates in one transaction
     store.applyBulkGraphUpdates(graphId, bulkData);
@@ -2340,13 +2484,25 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
     console.log('[Wizard] Successfully populated graph:', graphId);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-    // Layers authored alongside the flat nodes. Applied after them so an edge
-    // from an authored node to a layer's shell resolves against a graph that
-    // already contains both endpoints.
+    // Layers authored alongside the flat nodes, after them. An edge with an end
+    // in a layer waits until here: its shell only exists once
+    // applyCompositionSpec has run.
     applyCompositionSpec(graphId, result.spec, {
       enrich: result.enrich !== false,
       overwriteDescription: result.overwriteDescription || false
     }, 'createPopulatedGraph');
+    const layerEdges = (result.spec.edges || []).filter(e => e.toLayer);
+    if (layerEdges.length > 0) {
+      useGraphStore.getState().applyBulkGraphUpdates(graphId, {
+        edges: layerEdges.map(e => ({
+          source: e.source,
+          target: e.target,
+          type: e.type || 'relates to',
+          directionality: e.directionality || 'unidirectional',
+          definitionNode: e.definitionNode || null
+        }))
+      });
+    }
 
     // Per-node ladders run BEFORE the whole-graph ladder below. addToAbstractionChain
     // inserts relatively, so this order lets the graph-level pass extend whatever the
@@ -2563,7 +2719,7 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
         x: Math.random() * 600 + 200,
         y: Math.random() * 500 + 200
       })),
-      edges: (result.spec.edges || []).map(e => ({
+      edges: (result.spec.edges || []).filter(e => !e.toLayer).map(e => ({
         source: e.source,
         target: e.target,
         type: e.type || 'relates to',
@@ -2572,18 +2728,44 @@ function applyToolResultToStoreUnrecorded(toolName, rawResult, toolCallId, conve
       })),
       groups: result.spec.groups || []
     };
+    // Things from elsewhere in the universe that an edge named: an instance of
+    // the existing prototype, so the edge has an end here.
+    for (const r of (result.spec.reuseNodes || [])) {
+      const protoId = r?.prototypeId && store.nodePrototypes.has(r.prototypeId) ? r.prototypeId : resolvePrototypeByNameLast(r?.name);
+      if (!protoId) continue;
+      bulkData.nodes.push({
+        name: store.nodePrototypes.get(protoId)?.name || r.name,
+        prototypeId: protoId,
+        instanceId: `inst-reuse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        x: Math.random() * 600 + 200,
+        y: Math.random() * 500 + 200
+      });
+    }
 
     // Apply bulk updates to the ACTIVE graph (not creating a new one)
     store.applyBulkGraphUpdates(activeGraphId, bulkData);
     try { store.cleanupOrphanedData(); } catch (e) { console.warn('[Wizard] cleanupOrphanedData failed:', e); }
 
-    // Layers, if the model authored any. Runs after the flat nodes land so edges
-    // between an authored node and a layer's shell resolve against a graph that
-    // already contains both.
+    // Layers, if the model authored any, after the flat nodes. An edge with an
+    // end in a layer waits until here: its shell (and what it opens into) only
+    // exists once applyCompositionSpec has run, and applyBulkGraphUpdates skips
+    // an edge whose end it can't find.
     applyCompositionSpec(activeGraphId, result.spec, {
       enrich: result.enrich !== false,
       overwriteDescription: result.overwriteDescription || false
     }, 'expandGraph');
+    const layerEdges = (result.spec.edges || []).filter(e => e.toLayer);
+    if (layerEdges.length > 0) {
+      useGraphStore.getState().applyBulkGraphUpdates(activeGraphId, {
+        edges: layerEdges.map(e => ({
+          source: e.source,
+          target: e.target,
+          type: e.type || 'relates to',
+          directionality: e.directionality || 'unidirectional',
+          definitionNode: e.definitionNode || null
+        }))
+      });
+    }
 
     try {
       applyNodeLadders(result.spec, { graphId: activeGraphId, label: 'expandGraph' });

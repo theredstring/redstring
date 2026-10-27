@@ -101,10 +101,10 @@ const ORBIT_SWAY_PERIOD_SEC = 26;  // one full there-and-back cycle
 const ORBIT_AIM_CONE_RAD = (20 * Math.PI) / 180;
 
 const ITEM_ALPHA = 0.85;
-// What every OTHER triplet fades to while one is hovered, so the hovered
+// What every OTHER triple fades to while one is hovered, so the hovered
 // subject-predicate-object reads on its own. The focus node is not ours to
 // dim — NodeCanvas renders it, above this layer — which is right anyway: it is
-// the subject of every triplet here, so it belongs to the hovered one too.
+// the subject of every triple here, so it belongs to the hovered one too.
 const DIMMED_ALPHA = 0.1;
 
 // One stylesheet for the overlay. The alpha rules are load-bearing for zoom
@@ -128,7 +128,7 @@ const ORBIT_STYLE_SHEET = `
   stroke-opacity: ${ITEM_ALPHA};
   transition: fill-opacity 0.2s ease, stroke-opacity 0.2s ease;
 }
-/* Everything that is not the hovered triplet. Listed before [data-hovered] so
+/* Everything that is not the hovered triple. Listed before [data-hovered] so
    that if the two ever land on one element at once — they shouldn't — being
    hovered wins. */
 .orbit-items > g[data-dimmed], .orbit-connection[data-dimmed] {
@@ -195,7 +195,7 @@ function applyEntranceAlpha(els, alpha) {
 }
 
 /**
- * Push one triplet into or out of the background while another is hovered.
+ * Push one triple into or out of the background while another is hovered.
  *
  * An attribute flip, for the same reason hover brightening is one: the
  * stylesheet's inherited fill/stroke-opacity needs no isolation surface, and
@@ -206,7 +206,7 @@ function applyEntranceAlpha(els, alpha) {
  * ignore this. They pick the dim up when their entrance hands alpha back, which
  * matters: candidates stream in, so entrances do finish mid-hover.
  */
-function setTripletDimmed(entry, dim) {
+function setTripleDimmed(entry, dim) {
   if (!entry || !entry.entranceDone) return;
   for (const el of [entry.itemG, entry.conn?.connG]) {
     if (!el) continue;
@@ -1172,7 +1172,7 @@ export default function OrbitOverlay({
   const rafRef = useRef(null);
   const runningRef = useRef(false);
   const pausedRef = useRef(false);
-  // Which triplet the pointer is on, or null. A ref, like everything else hover
+  // Which triple the pointer is on, or null. A ref, like everything else hover
   // touches: routing it through state would re-render every item and connection
   // on every mouse cross.
   const hoveredIdRef = useRef(null);
@@ -1261,8 +1261,8 @@ export default function OrbitOverlay({
             clearEntranceAlpha(els.itemG);
             if (els.itemImage) els.itemImage.style.opacity = '';
             clearEntranceAlpha(els.conn?.connG);
-            // Arriving while another triplet is hovered means arriving dimmed.
-            setTripletDimmed(els, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
+            // Arriving while another triple is hovered means arriving dimmed.
+            setTripleDimmed(els, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
           } else {
             entranceActive = true;
           }
@@ -1339,7 +1339,7 @@ export default function OrbitOverlay({
         entry.itemImage = undefined; // re-resolve against the new element
         if (entry.entranceDone) {
           clearEntranceAlpha(el);
-          setTripletDimmed(entry, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
+          setTripleDimmed(entry, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
         } else {
           el.setAttribute('data-entering', '');
           applyEntranceAlpha(entry, 0);
@@ -1361,7 +1361,7 @@ export default function OrbitOverlay({
       if (els.connG) {
         if (entry.entranceDone) {
           clearEntranceAlpha(els.connG);
-          setTripletDimmed(entry, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
+          setTripleDimmed(entry, hoveredIdRef.current !== null && hoveredIdRef.current !== id);
         } else {
           els.connG.setAttribute('data-entering', '');
           applyEntranceAlpha(entry, 0);
@@ -1405,16 +1405,16 @@ export default function OrbitOverlay({
       }
     }
 
-    // Push the rest of the orbit back so the hovered triplet stands alone, and
+    // Push the rest of the orbit back so the hovered triple stands alone, and
     // bring it all forward again on the way out.
     for (const [otherId, other] of elsRef.current) {
-      setTripletDimmed(other, hoveredId !== null && hoveredId !== otherId);
+      setTripleDimmed(other, hoveredId !== null && hoveredId !== otherId);
     }
 
     pausedRef.current = hoveredId !== null;
     if (!pausedRef.current) ensureRafRunning();
 
-    // The candidate itself, not its id: the canvas builds a triplet preview
+    // The candidate itself, not its id: the canvas builds a triple preview
     // out of its name, colour and predicate, and has no index of candidates to
     // look an id up in.
     onCandidateHoverRef.current?.(

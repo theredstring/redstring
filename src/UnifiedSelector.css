@@ -21,3 +21,256 @@
 .unified-selector-scroll * {
   box-sizing: border-box;
 }
+
+/* --- The prompt: the name field as a pill ------------------------------
+   .format-pill (formats.css), the formula composer's, so the two read as one
+   family. The line of copy heads the box of Things; only a prompt with no box
+   shows it here, in a pill of its own. */
+.unified-selector-prompt {
+  align-self: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /* Only its pills take clicks; beside them, the backdrop's, which closes. */
+  pointer-events: none;
+  touch-action: manipulation;
+}
+
+.unified-selector-prompt > * {
+  pointer-events: auto;
+}
+
+.unified-selector-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 6px 16px;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 999px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 0.86em;
+  font-weight: bold;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.unified-selector-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Doubled class so it beats .format-pill whichever sheet loads last. */
+.format-pill.unified-selector-pill {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  font-size: inherit;
+  cursor: default;
+}
+
+.unified-selector-pill input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.4em;
+  border: none;
+  background: transparent;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: inherit;
+  font-weight: bold;
+  outline: none;
+  touch-action: manipulation;
+}
+
+.unified-selector-pill input::placeholder {
+  color: maroon;
+  opacity: 0.25;
+}
+
+.unified-selector-pill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: maroon;
+}
+
+/* --- The box's header: the title, a caller's control at its right, and
+   what the caller fixes under it (New Formula's choices). */
+.unified-selector-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.unified-selector-header-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The type filter at the title's right: a node of the type it names, as wide
+   as its name. */
+.unified-selector-type-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 50%;
+  padding: 4px 10px 4px 12px;
+  border: none;
+  border-radius: 10px;
+  font-family: 'EmOne', sans-serif;
+  font-size: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: filter 0.15s ease;
+}
+
+.unified-selector-type-filter:hover {
+  filter: brightness(1.1);
+}
+
+.unified-selector-type-filter-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Motion -------------------------------------------------------------
+   In, kept short and light: the backdrop fades; the name pill fades in a
+   little narrow and opens out from the centre, its buttons and field fading
+   in as it does; the box rises with its cards in it, one layer, not one per
+   card. Transform and opacity only, so it all runs off the main thread while
+   the grid builds. Fill is `backwards` so nothing keeps a transform once it
+   lands.
+   Out (.is-closing, EXIT_MS in the component): the pill draws in a little,
+   the box sinks a little, all fade, held there until the caller closes.
+   A page turn (.is-handoff) brings in only what changed. */
+.unified-selector-backdrop {
+  animation: us-fade-in 100ms ease-out backwards;
+}
+
+.format-pill.unified-selector-pill {
+  animation: us-pill-in 160ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.unified-selector-pill > *,
+.unified-selector-pill .unified-selector-submit {
+  animation: us-fade-in 100ms ease-out 60ms backwards;
+}
+
+.unified-selector-label {
+  animation: us-fade-in 120ms ease-out backwards;
+}
+
+.unified-selector-box {
+  transform-origin: 50% 0;
+  animation: us-box-in 160ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.unified-selector-backdrop.is-closing {
+  animation: us-fade-out 120ms ease-in forwards;
+}
+
+.unified-selector-stage.is-closing .format-pill.unified-selector-pill {
+  animation: us-pill-out 120ms ease-in forwards;
+}
+
+.unified-selector-stage.is-closing .unified-selector-pill > *,
+.unified-selector-stage.is-closing .unified-selector-pill .unified-selector-submit,
+.unified-selector-stage.is-closing .unified-selector-label,
+.unified-selector-stage.is-closing .unified-selector-prompt > span > .format-pill {
+  animation: us-fade-out 70ms ease-in forwards;
+}
+
+.unified-selector-stage.is-closing .unified-selector-box {
+  animation: us-box-out 120ms ease-in forwards;
+}
+
+.unified-selector-backdrop.is-handoff,
+.unified-selector-stage.is-handoff .unified-selector-box,
+.unified-selector-stage.is-handoff .unified-selector-pill > *,
+.unified-selector-stage.is-handoff .unified-selector-pill .unified-selector-submit {
+  animation: none;
+}
+
+/* The pills come in whole; the Back pill sits in a display: contents span. */
+.unified-selector-stage.is-handoff .unified-selector-prompt > *,
+.unified-selector-stage.is-handoff .unified-selector-prompt > span > .format-pill {
+  animation: us-fade-in 120ms ease-out backwards;
+}
+
+.unified-selector-stage.is-handoff .unified-selector-scroll {
+  animation: us-page-in 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes us-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes us-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* Narrowed by scale, not width, so no frame waits on layout. Kept slight:
+   the ends squeeze with it, hidden by the fade. */
+@keyframes us-pill-in {
+  0% { transform: scaleX(0.85); opacity: 0; }
+  45% { opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+
+@keyframes us-pill-out {
+  0% { transform: none; opacity: 1; }
+  100% { transform: scaleX(0.9); opacity: 0; }
+}
+
+@keyframes us-box-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes us-box-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateY(8px) scale(0.98); opacity: 0; }
+}
+
+@keyframes us-page-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unified-selector-backdrop,
+  .format-pill.unified-selector-pill,
+  .unified-selector-pill > *,
+  .unified-selector-pill .unified-selector-submit,
+  .unified-selector-label,
+  .unified-selector-prompt > *,
+  .unified-selector-prompt > span > .format-pill,
+  .unified-selector-box,
+  .unified-selector-scroll {
+    animation: none !important;
+  }
+}

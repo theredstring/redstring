@@ -7,13 +7,13 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-import { validateEdgesSmart } from './edgeValidator.js';
+import { validateEdgesSmart, edgeScopeFromState, describeEdgeValidation } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec, connectionTypeColors } from './utils/graphSpec.js';
 import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /**
@@ -24,18 +24,6 @@ function toTitleCase(str) {
   // Split camelCase: "isPartOf" → "is Part Of"
   const spaced = str.replace(/([a-z])([A-Z])/g, '$1 $2');
   return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-}
-
-/**
- * Generate a deterministic color from a name
- */
-function generateConnectionColor(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 60%, 45%)`;
 }
 
 /**
@@ -72,6 +60,8 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
 
   // Pick a palette if none provided
   const activePalette = palette || getRandomPalette();
+  // One color per connection type: the universe's, else the first given here.
+  const connectionColor = connectionTypeColors(graphState, activePalette);
 
   // Build node specs — shape lives in normalizeNodeSpec (graphSpec.js)
   let nodeSpecs = nodes.map(n => normalizeNodeSpec(n, activePalette));
@@ -89,7 +79,7 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   // the validator has no other way to know that. Validating first would silently
   // drop every edge pointing at a layer, which is exactly the kind of "you built
   // it wrong" feedback that pushes the model back toward flat graphs.
-  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
+  const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState, connectionColor });
   const layerSpecs = layerResult ? layerResult.layers : [];
   const layerWarnings = layerResult ? layerResult.warnings : [];
 
@@ -100,10 +90,13 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   nodeSpecs = collision.nodes;
   if (collision.dropped.length > 0) layerWarnings.push(layerCollisionWarning(collision.dropped));
 
-  // Validate edges: strip any that reference nodes not in the nodes array or existing graph
-  const existingNodeNames = (graphState.nodePrototypes || []).map(p => p.name).filter(Boolean);
-  const endpointCandidates = [...nodeSpecs, ...layerSpecs.map(l => ({ name: l.name }))];
-  const { validEdges, droppedEdges } = await validateEdgesSmart(endpointCandidates, edges || [], existingNodeNames);
+  // Edge endpoints resolve by exact name (case/spacing aside): this call's own
+  // nodes and layers, then the target web, then the universe. No guessing.
+  const edgeCheck = await validateEdgesSmart(nodeSpecs, edges || [], {
+    layers: layerSpecs,
+    ...edgeScopeFromState(graphState, graphId)
+  });
+  const { validEdges, droppedEdges, remappedEndpoints, placedExisting } = edgeCheck;
 
   // Accept either definitionNode object OR a plain type string (like createPopulatedGraph allows).
   // Auto-construct definitionNode from type string so small models can use simple edge format.
@@ -134,9 +127,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
       type: titleCaseName || 'Connection',
       definitionNode: titleCaseName ? {
         name: titleCaseName,
-        color: resolvePaletteColor(activePalette, inputDefNode?.color || generateConnectionColor(titleCaseName)),
+        color: connectionColor(titleCaseName, inputDefNode?.color),
         description: inputDefNode?.description || ''
-      } : null
+      } : null,
+      // An end that is one of this call's layers only exists once the applier
+      // has built the layer, so it adds these edges after.
+      ...(e.toLayer ? { toLayer: true } : {})
     };
   });
 
@@ -220,9 +216,9 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
     duplicateNodeWarning,
     // Edge validation feedback for LLM
     droppedEdges,
-    edgeWarning: droppedEdges.length > 0
-      ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
-      : null,
+    remappedEndpoints,
+    placedExisting: placedExisting.map(p => p.name),
+    edgeWarning: describeEdgeValidation(edgeCheck),
     // Quality analysis — LLM should fix issues before responding
     qualityReport,
     // Enrichment control
@@ -233,7 +229,10 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
       nodes: nodeSpecs,
       edges: edgeSpecs,
       groups: groupSpecs,
-      layers: layerSpecs
+      layers: layerSpecs,
+      // Things from elsewhere in the universe an edge named: the applier puts
+      // an instance of each existing prototype in this web.
+      reuseNodes: placedExisting
     }
   };
 }

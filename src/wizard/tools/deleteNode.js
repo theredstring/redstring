@@ -1,117 +1,169 @@
 import { resolveGraphId } from './resolveGraphId.js';
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { readWeb } from './utils/webView.js';
 
 /**
  * deleteNode - Remove a node and its connections
+ *
+ * Deletion only ever acts on one exact instance: an instanceId in the web, or
+ * the one instance whose name matches exactly (case/spacing aside). A name
+ * that matches several instances, or matches only loosely, returns no action
+ * and the candidates, so the next call can name the one meant.
  */
 
-/**
- * Resolve a node by name from graph state via the shared smart resolver.
- * Returns the full resolution result so the caller can distinguish an exact
- * match from a fuzzy/model-resolved one (deletion is destructive).
- */
-async function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
-  const targetGraph = graphs.find(g => g.id === graphId);
-  if (!targetGraph) return { match: null, method: 'empty', exact: false };
+const listOf = (c) => (Array.isArray(c)
+  ? c
+  : c instanceof Map ? Array.from(c.values()) : Object.values(c || {}));
 
-  const instances = Array.isArray(targetGraph.instances)
-    ? targetGraph.instances
-    : targetGraph.instances instanceof Map
-      ? Array.from(targetGraph.instances.values())
-      : Object.values(targetGraph.instances || {});
+const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-  const candidates = instances.map(inst => {
-    const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-    return {
-      instanceId: inst.id,
-      prototypeId: inst.prototypeId,
-      name: inst.name || proto?.name || '',
-      description: inst.description || proto?.description || ''
-    };
-  });
-
-  return resolveNodeSmart(name, candidates, { callSite: 'deleteNode' });
+function instancesOf(graph, protoById) {
+  return listOf(graph?.instances).map(inst => ({
+    instanceId: inst.id,
+    prototypeId: inst.prototypeId,
+    name: inst.name || protoById.get(inst.prototypeId)?.name || '',
+    description: inst.description || protoById.get(inst.prototypeId)?.description || '',
+    x: inst.x,
+    y: inst.y
+  }));
 }
+
+function edgeCountOf(instanceId, edges) {
+  let n = 0;
+  for (const e of edges) {
+    if (e?.sourceId === instanceId || e?.destinationId === instanceId || e?.targetId === instanceId) n++;
+  }
+  return n;
+}
+
+const deleteSpec = (graphId, c) => ({
+  action: 'deleteNode',
+  graphId,
+  instanceId: c.instanceId,
+  prototypeId: c.prototypeId || null,
+  name: c.name,
+  deleted: true
+});
 
 /**
  * Delete a node
- * @param {Object} args - { nodeName, targetGraphId? }
+ * @param {Object} args - { nodeName?, instanceId?, targetGraphId? }
  * @param {Object} graphState - Current graph state
- * @param {string} cid - Conversation ID
- * @param {Function} ensureSchedulerStarted - Function to start scheduler
- * @returns {Promise<Object>} Delete spec for UI application
+ * @returns {Promise<Object>} Delete spec for UI application, or candidates with no action
  */
-export async function deleteNode(args, graphState, cid, ensureSchedulerStarted) {
-  const { nodeName, nodeId, name, targetGraphId } = args;
-  const lookupName = nodeName || nodeId || name;
-  if (!lookupName) {
-    throw new Error('nodeName is required');
+export async function deleteNode(args, graphState) {
+  const { nodeName, nodeId, name, instanceId, targetGraphId } = args || {};
+  const lookupName = nodeName || name || nodeId;
+  if (!lookupName && !instanceId) {
+    throw new Error('nodeName is required (or pass instanceId)');
   }
 
-  const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
-  const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
+  const { nodePrototypes = [], activeGraphId } = graphState || {};
+  const graphs = listOf(graphState?.graphs);
+  const edges = listOf(graphState?.edges);
+  const protoById = new Map(listOf(nodePrototypes).map(p => [p.id, p]));
+
+  let graphId = targetGraphId ? resolveGraphId(targetGraphId, graphs, { activeGraphId, openGraphIds: graphState?.openGraphIds }) : activeGraphId;
+  if (targetGraphId && graphs.length > 0 && !graphs.some(g => g.id === graphId)) {
+    const available = graphs.map(g => g.name).filter(Boolean).slice(0, 8).join(', ');
+    throw new Error(`No web named or with id "${targetGraphId}". Available webs: ${available || '(none)'}. Omit targetGraphId to use the active web.`);
+  }
+
+  // An instanceId names exactly one node. Without a targetGraphId it may live
+  // in any web (ids are unique), so its own web is the one to delete it from.
+  if (instanceId) {
+    let graph = graphs.find(g => g.id === graphId);
+    let hit = instancesOf(graph, protoById).find(c => c.instanceId === instanceId);
+    if (!hit && !targetGraphId) {
+      for (const g of graphs) {
+        hit = instancesOf(g, protoById).find(c => c.instanceId === instanceId);
+        if (hit) { graph = g; graphId = g.id; break; }
+      }
+    }
+    if (hit) return deleteSpec(graphId, hit);
+    if (!lookupName) {
+      const where = graphs.find(g => g.id === graphId)?.name || graphId;
+      return {
+        deleted: false,
+        notFound: true,
+        instanceId,
+        message: `No node with instanceId "${instanceId}" is in ${targetGraphId ? `web "${where}"` : 'any web'}, so nothing was deleted. Get instance ids from search (searchType: 'nodes').`
+      };
+    }
+  }
 
   if (!graphId) {
     throw new Error('No target graph specified and no active graph available.');
   }
 
-  const resolution = await resolveNodeByName(lookupName, nodePrototypes, graphs, graphId);
-  const resolved = resolution.match;
-
-  // Several candidates were equally plausible. Deleting on a coin flip is the
-  // worst possible outcome here, and delegating to the client would just move
-  // the guess downstream — ask instead.
-  if (resolution.method === 'ambiguous') {
-    const names = (resolution.candidates || []).map((c) => c.name);
-    console.error(`[deleteNode] Ambiguous name "${lookupName}" — ${names.join(', ')}`);
+  // The web's nodes under the names it was shown under (webView.js). A
+  // formula's symbol is part of the formula, which the formula tool rewrites.
+  const web = readWeb(graphState, graphId);
+  const q = norm(lookupName);
+  const symbol = web.places.find(p => p.inFormula && (norm(p.name) === q || norm(p.thing) === q));
+  const candidates = web.places.filter(p => !p.inFormula);
+  const exact = candidates.filter(c => norm(c.name) === q);
+  if (exact.length === 0 && symbol) {
     return {
-      action: 'deleteNode',
-      graphId,
-      instanceId: null,
-      prototypeId: null,
-      name: lookupName,
       deleted: false,
-      ambiguous: true,
-      requiresConfirmation: true,
-      candidates: resolution.candidates,
-      warning:
-        `"${lookupName}" matches several nodes (${names.join(', ')}) equally well. ` +
-        `Ask which one is meant, then delete it by its exact name.`
+      graphId,
+      name: lookupName,
+      message: `"${symbol.thing}" here is a symbol of the formula "${symbol.inFormula}", not a node of its own. Nothing was deleted. To change the formula, use the formula tool (rewrite or delete).`
     };
   }
 
-  if (resolved) {
-    console.error('[deleteNode] Resolved:', lookupName, '→', resolved.instanceId, `(${resolution.method})`);
-  } else {
-    // Node not in server-side graphState — still return action so client can resolve by name
-    console.warn('[deleteNode] Not found in graphState, delegating to client:', lookupName);
+  if (exact.length === 1) return deleteSpec(graphId, exact[0]);
+
+  if (exact.length > 1) {
+    return {
+      deleted: false,
+      ambiguous: true,
+      graphId,
+      name: lookupName,
+      candidates: exact.map(c => ({
+        instanceId: c.instanceId,
+        name: c.name,
+        x: c.x,
+        y: c.y,
+        edgeCount: edgeCountOf(c.instanceId, edges)
+      })),
+      message: `"${lookupName}" is ${exact.length} nodes in this web. Nothing was deleted. Call deleteNode again with the instanceId of the one to delete.`
+    };
   }
 
-  const result = {
+  // No exact name. A loose match is only ever a suggestion: deleting "Rate"
+  // must never delete "Sampling Rate".
+  if (candidates.length > 0) {
+    const loose = await resolveNodeSmart(lookupName, candidates, { callSite: 'deleteNode' });
+    const near = loose.match ? [loose.match] : (loose.method === 'ambiguous' ? (loose.candidates || []) : []);
+    if (near.length > 0) {
+      return {
+        deleted: false,
+        exactMatch: false,
+        graphId,
+        name: lookupName,
+        candidates: near.map(c => ({
+          instanceId: c.instanceId,
+          name: c.name,
+          x: c.x,
+          y: c.y,
+          edgeCount: edgeCountOf(c.instanceId, edges)
+        })),
+        message: `No node is named exactly "${lookupName}"; the closest is ${near.map(c => `"${c.name}"`).join(', ')}. Nothing was deleted. Call deleteNode again with the exact name or instanceId.`
+      };
+    }
+  }
+
+  // Not in the state this tool sees. The app may have it (state can lag a
+  // step), and it deletes only on an exact name, so hand it over.
+  return {
     action: 'deleteNode',
     graphId,
-    instanceId: resolved?.instanceId || null,
-    prototypeId: resolved?.prototypeId || null,
-    name: resolved?.name || lookupName,
-    // See updateNode: delegate to the app, but never report a delete that
-    // most likely did not happen.
-    deleted: !!resolved,
-    ...(resolved ? {} : {
-      notFound: true,
-      note: `No node named "${lookupName}" is in this workspace, so nothing was deleted. Check the name with readGraph.`
-    })
+    instanceId: null,
+    prototypeId: null,
+    name: lookupName,
+    deleted: false,
+    notFound: true,
+    note: `No node named "${lookupName}" is in this workspace, so nothing was deleted. Check the name with readGraph.`
   };
-
-  // Destructive op: never delete on a fuzzy/model-resolved guess silently.
-  // Surface exactly what was resolved so the agent/user can confirm before it lands.
-  if (resolved && !resolution.exact) {
-    result.exactMatch = false;
-    result.requiresConfirmation = true;
-    result.resolvedVia = resolution.method; // 'model' | 'substring'
-    result.warning =
-      `"${lookupName}" was not an exact match — it was resolved to "${resolved.name}" ` +
-      `via ${resolution.method}. Confirm this is the node you meant to delete before proceeding.`;
-  }
-
-  return result;
 }

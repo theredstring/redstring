@@ -1,49 +1,11 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { readWeb, resolvePlace, connectionsBetween } from './utils/webView.js';
 
 // Every tool field is sent as required (see LLMClient makeAllRequired), so
 // models fill the ones they aren't changing with "". A blank string is "not
 // given", never "set to empty": treating it as an edit blanked descriptions
 // the model only meant to leave alone.
 const given = (v) => v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '');
-
-/**
- * Resolve a node by name from graph state
- */
-function resolveNodeByName(name, nodePrototypes, graphs, graphId) {
-    const queryLower = (name || '').toLowerCase().trim();
-    if (!queryLower) return null;
-
-    const targetGraph = graphs.find(g => g.id === graphId);
-    if (!targetGraph) return null;
-
-    const instances = Array.isArray(targetGraph.instances)
-        ? targetGraph.instances
-        : targetGraph.instances instanceof Map
-            ? Array.from(targetGraph.instances.values())
-            : Object.values(targetGraph.instances || {});
-
-    // Exact match — take LAST match so newly created instances win over stale duplicates.
-    let exactMatch = null;
-    for (const inst of instances) {
-        const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-        const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-        if (nodeName === queryLower) {
-            exactMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
-        }
-    }
-    if (exactMatch) return exactMatch;
-
-    // Substring fallback — also LAST match.
-    let substringMatch = null;
-    for (const inst of instances) {
-        const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-        const nodeName = (inst.name || proto?.name || '').toLowerCase().trim();
-        if (nodeName && (nodeName.includes(queryLower) || queryLower.includes(nodeName))) {
-            substringMatch = { instanceId: inst.id, prototypeId: inst.prototypeId, name: inst.name || proto?.name };
-        }
-    }
-    return substringMatch;
-}
 
 /**
  * Update the properties of an existing edge.
@@ -60,37 +22,30 @@ export async function updateEdge(args, graphState, cid, ensureSchedulerStarted) 
         throw new Error('sourceName and targetName are required');
     }
 
-    const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
+    const { graphs = [], activeGraphId } = graphState;
     const graphId = resolveGraphId(targetGraphId, graphs, { activeGraphId }) || activeGraphId;
 
     if (!graphId) {
         throw new Error('No target graph specified and no active graph available.');
     }
 
-    // Resolve source and target by name
-    const resolvedSource = resolveNodeByName(sourceName, nodePrototypes, graphs, graphId);
-    const resolvedTarget = resolveNodeByName(targetName, nodePrototypes, graphs, graphId);
+    // The ends, and the connection, by the names the web was shown under (webView.js).
+    const web = readWeb(graphState, graphId);
+    const resolvedSource = (await resolvePlace(web, sourceName, 'updateEdge')).match;
+    const resolvedTarget = (await resolvePlace(web, targetName, 'updateEdge')).match;
+    const available = () => web.places.filter(p => !p.inFormula).map(p => p.name).filter(Boolean).slice(0, 8).join(', ');
 
     if (!resolvedSource) {
-        const graph = graphs.find(g => g.id === graphId);
-        const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
-        const available = instances
-            .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
-            .filter(Boolean)
-            .slice(0, 8)
-            .join(', ');
-        throw new Error(`Source node "${sourceName}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
+        throw new Error(`Source node "${sourceName}" not found in graph. Available nodes: ${available() || '(none)'}. Use readGraph to see all nodes.`);
     }
     if (!resolvedTarget) {
-        const graph = graphs.find(g => g.id === graphId);
-        const instances = Array.isArray(graph?.instances) ? graph.instances : Object.values(graph?.instances || {});
-        const available = instances
-            .map(i => nodePrototypes.find(p => p.id === i.prototypeId)?.name || i.name)
-            .filter(Boolean)
-            .slice(0, 8)
-            .join(', ');
-        throw new Error(`Target node "${targetName}" not found in graph. Available nodes: ${available || '(none)'}. Use readGraph to see all nodes.`);
+        throw new Error(`Target node "${targetName}" not found in graph. Available nodes: ${available() || '(none)'}. Use readGraph to see all nodes.`);
     }
+    if (web.cover.internal({ sourceId: resolvedSource.instanceId, destinationId: resolvedTarget.instanceId })) {
+        throw new Error(`"${resolvedSource.name}" and "${resolvedTarget.name}" are both inside a formula; the connection between them is one of its operations. Use the formula tool to rewrite it.`);
+    }
+    const matches = connectionsBetween(web, resolvedSource.name, resolvedTarget.name);
+    const edge = matches.length === 1 ? matches[0] : null;
 
     const updates = {};
     if (given(type)) updates.type = type;
@@ -99,10 +54,12 @@ export async function updateEdge(args, graphState, cid, ensureSchedulerStarted) 
     return {
         action: 'updateEdge',
         graphId,
-        sourceName: resolvedSource.name,
-        targetName: resolvedTarget.name,
-        sourceInstanceId: resolvedSource.instanceId,
-        targetInstanceId: resolvedTarget.instanceId,
+        // The store falls back to these names when an id made this ask is only predicted.
+        sourceName: resolvedSource.thing || resolvedSource.name,
+        targetName: resolvedTarget.thing || resolvedTarget.name,
+        sourceInstanceId: edge ? edge.sourceId : resolvedSource.instanceId,
+        targetInstanceId: edge ? (edge.destinationId || edge.targetId) : resolvedTarget.instanceId,
+        ...(edge ? { edgeId: edge.id } : {}),
         updates,
         updated: true
     };

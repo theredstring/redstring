@@ -1,0 +1,151 @@
+/* Help › What's New. Colours are the modal tokens from ModalChrome.css. */
+
+.whats-new {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.whats-new-note {
+  color: var(--rs-modal-text);
+}
+
+.whats-new-note-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 1.05rem;
+  font-weight: bold;
+  color: var(--rs-modal-brand);
+}
+
+.whats-new-latest-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-bottom: 10px;
+}
+
+.whats-new-latest-version {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: var(--rs-modal-brand);
+}
+
+.whats-new-row-date {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--rs-modal-text-muted);
+  white-space: nowrap;
+}
+
+.whats-new-row-label {
+  font-size: 0.75rem;
+  color: var(--rs-modal-text-muted);
+}
+
+.whats-new-draft {
+  padding: 1px 8px;
+  border: 1px solid var(--rs-modal-pill-border);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: normal;
+  color: var(--rs-modal-text-muted);
+  white-space: nowrap;
+}
+
+.whats-new-group-heading {
+  margin: 14px 0 4px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: var(--rs-modal-brand);
+}
+
+.whats-new-paragraph {
+  margin: 0 0 8px;
+}
+
+.whats-new-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.whats-new-list li {
+  margin-bottom: 6px;
+}
+
+.whats-new-list strong,
+.whats-new-paragraph strong {
+  color: var(--rs-modal-text);
+}
+
+.whats-new-code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--rs-modal-sunken);
+  font-size: 0.9em;
+}
+
+.whats-new-link {
+  color: var(--rs-modal-brand);
+}
+
+.whats-new-earlier-heading {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  color: var(--rs-modal-text);
+}
+
+.whats-new-minor {
+  margin-top: 14px;
+}
+
+.whats-new-minor-description {
+  margin: -2px 0 6px;
+}
+
+.whats-new-row {
+  border-bottom: 1px solid var(--rs-modal-hairline);
+}
+
+.whats-new-row-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--rs-modal-text);
+  font-family: 'EmOne', sans-serif;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.whats-new-row-button:hover {
+  background-color: var(--rs-modal-nav-hover);
+}
+
+.whats-new-row-button:focus-visible {
+  outline: 2px solid var(--rs-modal-accent);
+  outline-offset: -2px;
+}
+
+.whats-new-chevron {
+  flex-shrink: 0;
+  color: var(--rs-modal-text-muted);
+  transition: transform 0.15s ease;
+}
+
+.whats-new-chevron.open {
+  transform: rotate(90deg);
+}
+
+.whats-new-row-body {
+  padding: 4px 6px 12px 28px;
+}

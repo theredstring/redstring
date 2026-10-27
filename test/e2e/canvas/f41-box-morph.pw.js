@@ -187,16 +187,22 @@ async function decomposeFurther(page) {
   return waitForCameraSettled(page);
 }
 
-test('F41 a box that fits at the current zoom keeps the zoom and is only nudged into view', async ({ page }) => {
+/** The opened box's menu and title on screen: whether each sits wholly inside the canvas. */
+const menuOnScreen = (page) => page.evaluate((cluster) => {
+  const canvas = document.querySelector('svg.canvas').getBoundingClientRect();
+  const inside = (r) => r.width > 0 && r.left >= canvas.left && r.top >= canvas.top && r.right <= canvas.right && r.bottom <= canvas.bottom;
+  const buttons = [...document.querySelectorAll('svg.canvas g.pie-menu g.pie-bubble-hover')].map(b => b.getBoundingClientRect());
+  const title = document.querySelector(`svg.canvas g.node-group-title[data-group-id="open:${cluster}"]`)?.getBoundingClientRect();
+  return { buttons: buttons.length, allInside: buttons.length > 0 && buttons.every(inside), title: !!title && inside(title) };
+}, CLUSTER);
+
+test('F41 Decompose Further frames the box by its title, with its whole menu in view', async ({ page }) => {
   await openClusterPreview(page);
-  const before = await waitForCameraSettled(page);
-  const after = await decomposeFurther(page);
-  expect(after.zoom).toBeCloseTo(before.zoom, 5);
-  expect(Math.hypot(after.pan.x - before.pan.x, after.pan.y - before.pan.y)).toBeLessThan(120);
-  expect(await boxOnScreen(page)).toEqual({ inside: true });
+  await decomposeFurther(page);
+  await expect.poll(() => menuOnScreen(page)).toMatchObject({ allInside: true, title: true });
 });
 
-test('F41 a box too big for the view zooms out until it fits, never in', async ({ page }) => {
+test('F41 a big box frames by its title too: its menu stays in view', async ({ page }) => {
   await openFixture(page, 'small');
   await storeEval(page, (st, [w, g]) => st.collapseNodeGroupIntoDefinition(w, g), [WEB, OLD_COPY_GROUP]);
   // Spread Cluster's definition wide, so its box outgrows the view.
@@ -205,8 +211,35 @@ test('F41 a box too big for the view zooms out until it fits, never in', async (
   await openPieMenu(page, CLUSTER);
   await pieButton(page, 'package-open').click();
   await nextFrames(page, 30);
+  await waitForCameraSettled(page);
+  await pieButton(page, 'package-open').click(); // Decompose Further
+  // Settled (Zeta may be out of view: the camera frames the title, not the whole box).
+  await expect.poll(async () => { const { zeta, ...rest } = await morphState(page); return rest; }).toEqual(settled);
+  await waitForCameraSettled(page);
+  await expect.poll(() => menuOnScreen(page)).toMatchObject({ allInside: true, title: true });
+});
+
+test('F41 a box opened without being selected is brought into view whole, zooming out, never in', async ({ page }) => {
+  await openFixture(page, 'small');
+  await storeEval(page, (st, [w, g]) => st.collapseNodeGroupIntoDefinition(w, g), [WEB, OLD_COPY_GROUP]);
+  await storeEval(page, (st, [d, eta]) => st.updateNodeInstance(d, eta, (inst) => { inst.x += 4000; inst.y += 1500; }), [DEF, ETA]);
+  await waitForCameraSettled(page);
+  await openPieMenu(page, CLUSTER);
+  await pieButton(page, 'package-open').click();
+  await nextFrames(page, 30);
   const before = await waitForCameraSettled(page);
-  const after = await decomposeFurther(page);
+  // Opened with nothing selecting it after (as the plus sign and the wizard open one): no pie claims it.
+  await page.evaluate(async ([w, c]) => {
+    const { expandNodeInPlace } = await import('/src/components/canvas/actions/expandInPlace.js');
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    const st = window.useGraphStore.getState();
+    const prototypeId = st.graphs.get(w).instances.get(c).prototypeId;
+    expandNodeInPlace({ viewGraphId: w, prototypeId, definitionIndex: 0, instanceId: c });
+    ui.getState().dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });
+    ui.getState().dispatchPie({ type: 'PIE_TARGET', id: null, selection: [] });
+  }, [WEB, CLUSTER]);
+  await expect.poll(() => morphState(page)).toEqual({ ...settled, zeta: 'visible' });
+  const after = await waitForCameraSettled(page);
   expect(after.zoom).toBeLessThan(before.zoom);
   expect(await boxOnScreen(page)).toEqual({ inside: true });
 });

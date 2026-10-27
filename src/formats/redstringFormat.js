@@ -54,7 +54,11 @@ export const VERSION_HISTORY = {
       'Inline base64 imageSrc remains fully valid on read — the two forms coexist indefinitely and locally-saved files stay single-file',
       'The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block',
       'Definitions opened in place (additive, no version bump): optional instance field redstring:openDefinition { redstring:definitionIndex, redstring:xOffset, redstring:yOffset } shows that definition inside the node without copying it; optional edge fields sourceVia/destinationVia name the nodes, from the edge\'s own graph inward, through whose definitions an end is reached',
-      'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged'
+      'Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged',
+      'Formats (additive, no version bump): optional group field redstring:format ("formula") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: "P" }) is how a Thing is written in a context; the same field on an instance is how that one is written where it stands (q_1 for Electric Charge), over its Thing\'s. Builds that predate them show the Things and keep the labels in _preserved',
+      'Formats on nodes (additive, no version bump): optional instance fields redstring:format and redstring:linkedFormat carry a Thing-group\'s format onto its node while it is folded, so it opens the same way; per placement, not per Thing. Builds that predate them keep both in _preserved',
+      'Formula size (additive, no version bump): optional group field redstring:formulaSize (a multiplier, 1 when absent) is the size a group shown as its formula is drawn at; the same field on an instance carries it while its Thing-group is folded. Builds that predate it draw the formula at the default size',
+      'Formula size is its node\'s (2026-10-26, no version bump): an equation opened in place is drawn at its node\'s redstring:sizeMultiplier, and a Thing-group\'s redstring:formulaSize moves onto its node\'s size when it folds. Instances no longer write redstring:formulaSize; read, an open equation\'s becomes its node\'s size'
     ],
     // Non-breaking: the field is optional and defaults to 1.0 (Medium), so 4.0.0 files
     // (which lack it) load unchanged and render at Medium.
@@ -513,6 +517,9 @@ const ensureArray = (value) => {
   return [value];
 };
 
+/** A formula's size multiplier as read from a file: a positive number, else undefined (the default). */
+const validFormulaSize = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0 && value !== 1 ? value : undefined);
+
 const ensureObject = (value) => (value && typeof value === 'object' ? value : {});
 
 const ensureSet = (value) => {
@@ -875,6 +882,16 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
         "redstring:isGroupAnchor": instance.isGroupAnchor || false,
         "redstring:anchorForGroupId": instance.anchorForGroupId || null,
 
+        // How this one is written where it stands, over its Thing's own label
+        // (q₁ for Electric Charge in Coulomb's law). Additive, like openDefinition.
+        ...(instance.labels && Object.keys(instance.labels).length ? { "redstring:labels": instance.labels } : {}),
+
+        // How this node shows its definition when it opens ("formula"), and the
+        // format it is linked to while shown as its Things: a Thing-group's
+        // redstring:format / redstring:linkedFormat, kept on its node while folded.
+        ...(instance.format ? { "redstring:format": instance.format } : {}),
+        ...(instance.linkedFormat ? { "redstring:linkedFormat": instance.linkedFormat } : {}),
+
         // Shown open in place: which of its prototype's definitions, and where that
         // definition's origin sits relative to this graph (core/openDefinitions.js).
         // Additive and optional, at the top level so older builds keep it in
@@ -948,6 +965,13 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
             // can tell an edit made here from one made elsewhere. Optional.
             ...(group.definitionFingerprint ? { "redstring:definitionFingerprint": group.definitionFingerprint } : {}),
             ...(group.emptyPlaceholderOrigin ? { "redstring:emptyPlaceholderOrigin": group.emptyPlaceholderOrigin } : {}),
+            // How the group is shown instead of as its Things ('formula'). Optional;
+            // a build that doesn't know it shows the Things.
+            ...(group.format ? { "redstring:format": group.format } : {}),
+            // The format a group shown as its Things is still linked to. Optional.
+            ...(group.linkedFormat ? { "redstring:linkedFormat": group.linkedFormat } : {}),
+            // The size its formula is drawn at, a multiplier (1 when absent). Optional.
+            ...(group.formulaSize ? { "redstring:formulaSize": group.formulaSize } : {}),
             // RDF-style membership relationships
             "rdfs:member": (group.memberInstanceIds || []).map(memberId => ({
               "@id": toIri(memberId)
@@ -1073,7 +1097,11 @@ const exportPrototypeEntry = (prototype, id, saved, broader, nowIso) => {
     // See the note below on why this sits at the TOP LEVEL of the prototype
     // rather than inside redstring:visualProperties with its siblings.
     ...(prototype.imageRef ? { "redstring:imageRef": prototype.imageRef } : {}),
-    ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {})
+    ...(prototype.imageRefExt ? { "redstring:imageRefExt": prototype.imageRefExt } : {}),
+
+    // How this Thing is written in a context, e.g. { formula: "P" } for Pressure.
+    // Additive and optional, at the top level so older builds keep it in _preserved.
+    ...(prototype.labels && Object.keys(prototype.labels).length ? { "redstring:labels": prototype.labels } : {})
   };
 
   // WHY imageRef IS NOT INSIDE redstring:visualProperties
@@ -1654,6 +1682,17 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
     //console.log('[DEBUG] Importing edges:', edgesObj);
 
+    // A web, Thing, group or connection that can't be read fails the whole
+    // load (thrown after the loops, with every failure named). Each used to be
+    // swapped for an empty stand-in that the next save wrote over the real one:
+    // on 2026-10-23 a half-edited build threw on every placement and the
+    // stand-ins emptied all 812 webs of a universe, past every guard.
+    const unreadable = [];
+    const couldNotRead = (kind, id, error) => {
+      console.warn(`[importFromRedstring] Could not read ${kind} ${id}:`, error);
+      unreadable.push({ kind, id, message: error?.message || String(error) });
+    };
+
     // Convert spatial graphs back to Maps and import to store
     const graphsMap = new Map();
     Object.entries(graphsObj).forEach(([id, graph]) => {
@@ -1717,7 +1756,10 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 hasCustomLayout: group['redstring:hasCustomLayout'] ?? group.hasCustomLayout,
                 anchorInstanceId: group['redstring:anchorInstanceId'] || group.anchorInstanceId,
                 definitionFingerprint: group['redstring:definitionFingerprint'] || group.definitionFingerprint || undefined,
-                emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined
+                emptyPlaceholderOrigin: group['redstring:emptyPlaceholderOrigin'] || group.emptyPlaceholderOrigin || undefined,
+                format: group['redstring:format'] || group.format || undefined,
+                linkedFormat: group['redstring:linkedFormat'] || group.linkedFormat || undefined,
+                formulaSize: validFormulaSize(group['redstring:formulaSize'] ?? group.formulaSize)
               };
             } else {
               // Legacy format
@@ -1739,13 +1781,16 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 hasCustomLayout: group.hasCustomLayout,
                 anchorInstanceId: group.anchorInstanceId,
                 definitionFingerprint: group.definitionFingerprint || undefined,
-                emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined
+                emptyPlaceholderOrigin: group.emptyPlaceholderOrigin || undefined,
+                format: group.format || undefined,
+                linkedFormat: group.linkedFormat || undefined,
+                formulaSize: validFormulaSize(group.formulaSize)
               };
             }
             
             groupsMap.set(groupId, convertedGroup);
           } catch (error) {
-            console.warn(`[importFromRedstring] Error processing group ${groupId}:`, error);
+            couldNotRead('group', groupId, error);
           }
         });
 
@@ -1814,6 +1859,15 @@ export const importFromRedstring = (redstringData, storeActions) => {
               convertedInstance.anchorForGroupId = instance['redstring:anchorForGroupId'];
             }
 
+            const instanceLabels = instance['redstring:labels'];
+            if (instanceLabels && typeof instanceLabels === 'object' && !Array.isArray(instanceLabels)) {
+              convertedInstance.labels = { ...instanceLabels };
+            }
+
+            // How it shows its definition when it opens (formats/)
+            if (typeof instance['redstring:format'] === 'string') convertedInstance.format = instance['redstring:format'];
+            if (typeof instance['redstring:linkedFormat'] === 'string') convertedInstance.linkedFormat = instance['redstring:linkedFormat'];
+
             // Shown open in place (core/openDefinitions.js)
             const openDefinition = instance['redstring:openDefinition'];
             if (openDefinition && typeof openDefinition === 'object') {
@@ -1847,6 +1901,19 @@ export const importFromRedstring = (redstringData, storeActions) => {
           // Carry the quarantine bag onto the store object (opaque cargo, D1/P1.3)
           if (instance._preserved) convertedInstance._preserved = instance._preserved;
 
+          // A build that predates a node's format banked it in _preserved.
+          for (const [key, field] of [['redstring:format', 'format'], ['redstring:linkedFormat', 'linkedFormat']]) {
+            if (convertedInstance[field]) continue;
+            const banked = takeFromPreserved(convertedInstance, key);
+            if (typeof banked === 'string') convertedInstance[field] = banked;
+          }
+          // Before an equation's size was its node's, a node kept its formula's own
+          // (redstring:formulaSize). Open, that is the size it was seen at, so it
+          // becomes the node's; folded, the node's size wins.
+          const ownFormulaSize = validFormulaSize(instance['redstring:formulaSize'] ?? convertedInstance.formulaSize)
+            ?? validFormulaSize(takeFromPreserved(convertedInstance, 'redstring:formulaSize'));
+          delete convertedInstance.formulaSize;
+
           // A build that predates open definitions banked the field in _preserved.
           if (!convertedInstance.openDefinition) {
             const banked = takeFromPreserved(convertedInstance, 'redstring:openDefinition');
@@ -1856,6 +1923,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
                 offset: { x: Number(banked['redstring:xOffset']) || 0, y: Number(banked['redstring:yOffset']) || 0 },
               };
             }
+          }
+          if (ownFormulaSize && convertedInstance.openDefinition && convertedInstance.format === 'formula') {
+            convertedInstance.sizeMul = ownFormulaSize;
           }
 
           instancesMap.set(instanceId, convertedInstance);
@@ -1917,18 +1987,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
         graphsMap.set(id, graphShape);
       } catch (error) {
-        console.warn(`[importFromRedstring] Error processing graph ${id}:`, error);
-        // Create a minimal valid graph to prevent crashes
-        const fallbackGraph = {
-          id,
-          name: graph?.name || graph?.['rdfs:label'] || 'Unknown Graph',
-          description: graph?.description || graph?.['rdfs:comment'] || 'Graph with import error',
-          instances: new Map(),
-          groups: new Map(), // Include groups in fallback
-          edgeIds: [],
-          definingNodeIds: []
-        };
-        graphsMap.set(id, fallbackGraph);
+        couldNotRead('web', id, error);
       }
     });
 
@@ -2029,6 +2088,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
           const imageRefExt =
             prototype['redstring:imageRefExt'] ?? prototype.imageRefExt ?? fromPreserved('redstring:imageRefExt');
           if (imageRefExt != null) convertedPrototype.imageRefExt = imageRefExt;
+
+          const labels = prototype['redstring:labels'] ?? prototype.labels ?? fromPreserved('redstring:labels');
+          if (labels && typeof labels === 'object' && !Array.isArray(labels)) convertedPrototype.labels = { ...labels };
 
           // Semantic enrichment metadata (Wikipedia URLs, confidence, auto-enrich flag)
           if (hasOwn(prototype, 'redstring:semanticMetadata') || hasOwn(prototype, 'semanticMetadata')) {
@@ -2166,23 +2228,7 @@ export const importFromRedstring = (redstringData, storeActions) => {
         // but don't need to be imported back into abstractionChains as they are
         // generated dynamically from abstractionChains during export
       } catch (error) {
-        console.warn(`[importFromRedstring] Error processing prototype ${id}:`, error);
-        // Create a minimal valid prototype to prevent crashes
-        const fallbackPrototype = {
-          id,
-          name: prototype?.['rdfs:label'] || prototype?.name || 'Unknown Prototype',
-          description: prototype?.['rdfs:comment'] || prototype?.description || 'Prototype with import error',
-          color: prototype?.['redstring:visualProperties']?.['redstring:cognitiveColor'] || 
-                 prototype?.color || '#8B0000',
-          x: 0,
-          y: 0,
-          scale: 1.0,
-          externalLinks: [],
-          equivalentClasses: [],
-          definitionGraphIds: [],
-          abstractionChains: {}
-        };
-        nodesMap.set(id, fallbackPrototype);
+        couldNotRead('Thing', id, error);
       }
     });
 
@@ -2266,23 +2312,22 @@ export const importFromRedstring = (redstringData, storeActions) => {
 
         edgesMap.set(id, edgeData);
       } catch (error) {
-        console.warn(`[importFromRedstring] Error processing edge ${id}:`, error);
-        // Create a minimal valid edge to prevent crashes
-        const fallbackEdge = {
-          id,
-          sourceId: edge?.sourceId || `unknown-${id}`,
-          destinationId: edge?.destinationId || `unknown-${id}`,
-          name: edge?.name || 'Unknown Edge',
-          description: edge?.description || 'Edge with import error',
-          typeNodeId: edge?.typeNodeId || null,
-          definitionNodeIds: edge?.definitionNodeIds || [],
-          directionality: { arrowsToward: new Set() }
-        };
-        edgesMap.set(id, fallbackEdge);
+        couldNotRead('connection', id, error);
       }
     });
 
     //console.log('[DEBUG] Final edges map:', edgesMap);
+
+    if (unreadable.length > 0) {
+      const first = unreadable[0];
+      const error = new Error(
+        `${unreadable.length} item${unreadable.length === 1 ? '' : 's'} could not be read `
+        + `(first: ${first.kind} ${first.id}: ${first.message}). Nothing was loaded, so nothing is overwritten.`
+      );
+      error.code = 'UNREADABLE_ITEMS';
+      error.unreadable = unreadable;
+      throw error;
+    }
 
     // Note: abstractionChains are stored directly on node prototypes
 

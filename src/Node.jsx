@@ -4,8 +4,10 @@ import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS, NODE_PADDING, NODE_DEFAULT
 import './Node.css';
 import UniversalNodeRenderer from './UniversalNodeRenderer.jsx'; // Used for hover preview
 import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main inner network preview (avoids foreignObject iOS issues)
-import { getNodeDimensions, getDefinitionDescription } from './utils.js'; // Import needed for node dims
-import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
+import { previewGroupsFor } from './components/webPreview/webPreviewLayout.js';
+import { getNodeDimensions } from './utils.js'; // Import needed for node dims
+import useExpandMorph from './hooks/useExpandMorph.js';
+import useCentredResize from './hooks/useCentredResize.js';
 import { getTextColor, DEFAULT_LIFTED_THING_SHADOW, LIFTED_THING_SHADOW_FAST_LAYERS } from './utils/colorUtils.js';
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
 import { isValidColor } from './ai/palettes.js';
@@ -15,9 +17,9 @@ import useGraphStore, { getHydratedNodesForGraph, getEdgesForGraph } from "./sto
 import { useTheme } from './hooks/useTheme.js';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { projectGraphView, viewEdges } from './core/openDefinitions.js';
+import { VectorText } from './components/VectorText.jsx';
 
 const PREVIEW_SCALE_FACTOR = 0.3; // How much to shrink the network layout
-const DESCRIPTION_MAX_LINES = 1; // Matches utils.js's cap on descriptionAreaHeight
 
 // Accept dimensions and other props
 // Expect plain node data object
@@ -27,18 +29,17 @@ const Node = ({
   isDragging,
   onMouseDown,
   onContextMenu,
-  currentWidth,
-  currentHeight,
-  textAreaHeight,
+  currentWidth: restingWidth,
+  currentHeight: restingHeight,
+  textAreaHeight: restingTextAreaHeight,
   imageWidth,
   imageHeight,
   scaledPadding,
   scaledCornerRadius,
   // --- Add preview-related props ---
   isPreviewing,
-  innerNetworkWidth,
-  innerNetworkHeight,
-  descriptionAreaHeight, // Add description area height prop
+  innerNetworkWidth: restingInnerNetworkWidth,
+  innerNetworkHeight: restingInnerNetworkHeight,
   idPrefix = '', // Add optional idPrefix prop with default
   // --- Add editing props ---
   isEditingOnCanvas,
@@ -97,17 +98,22 @@ const Node = ({
   // Tune the resize speed here.
   const SIZE_TRANSITION = '0.16s ease';
 
-  // Font size for the "Define … With a New Web" placeholder shown when a decomposed
-  // node has no definition yet. The preview's inner-network area is large, so a fixed
-  // size reads as tiny — scale it to the area's width (which already folds in
-  // effNodeScale) so it stays proportional to the node. Clamped to a sane range.
-  const decompPlaceholderFont = Math.max(16, Math.min(52, innerNetworkWidth * 0.05));
+  // Resized, it grows around its middle: its corner moves with the box, on the same curve.
+  const groupRef = useRef(null);
+  useCentredResize(groupRef, node.x ?? 0, node.y ?? 0, node?.sizeMul ?? 1.0, Boolean(isDragging), SIZE_TRANSITION);
+
+  // The preview card opens out of the node and closes back into it. While it is
+  // open or closing, `showPreview` keeps its contents drawn; `morphing` is the
+  // in-between, when the drawing follows the morph instead of the props.
+  const morph = useExpandMorph(Boolean(isPreviewing));
+  const showPreview = Boolean(isPreviewing) || morph.progress > 0;
+  const morphing = showPreview && morph.progress < 1;
 
   // Destructure properties from the hydrated node object
   // Instance-specific properties
   const instanceId = node.id;
-  const nodeX = node.x ?? 0;
-  const nodeY = node.y ?? 0;
+  const anchorX = node.x ?? 0;
+  const anchorY = node.y ?? 0;
   const prototypeId = node.prototypeId;
 
   // Prototype properties
@@ -200,14 +206,8 @@ const Node = ({
   // way to know anything was supposed to be there.
   const isImageMissing = node.imageMissing === true && !hasThumbnail && !isImageLoading;
 
-  // Calculate image position based on dynamic textAreaHeight
-  const contentAreaY = nodeY + textAreaHeight;
-
   // Define consistent padding for inner canvas from colored border (matches left/right padding of 24px)
   const INNER_CANVAS_PADDING = 24;
-
-  // Calculate description area position (below InnerNetwork when previewing) with minimal spacing
-  const descriptionAreaY = contentAreaY + innerNetworkHeight + (isPreviewing ? 8 : 0);
 
   // No longer need text width calculation since arrows are in top-right corner
 
@@ -227,8 +227,8 @@ const Node = ({
   // PERF: Only subscribe to broad Maps when previewing — these are only needed for the
   // mini-graph preview rendering. Non-previewing nodes return null, avoiding re-renders
   // when the store changes (e.g. during drag position updates).
-  const graphsMap = useGraphStore((state) => isPreviewing ? state.graphs : null);
-  const nodePrototypesMap = useGraphStore((state) => isPreviewing ? state.nodePrototypes : null);
+  const graphsMap = useGraphStore((state) => showPreview ? state.graphs : null);
+  const nodePrototypesMap = useGraphStore((state) => showPreview ? state.nodePrototypes : null);
   const showHoverPreview = useGraphStore((state) => state.showHoverPreview ?? true);
   const hoverPreviewSize = useGraphStore((state) => state.hoverPreviewSize ?? 1.0);
   // Slider 1x maps to this actual scale (keep in sync with HoverVisionAid).
@@ -237,15 +237,15 @@ const Node = ({
 
   // Determine display title: prefer current graph title in preview, else node name
   const currentGraphName = useMemo(() => {
-    if (!isPreviewing || !definitionGraphIds.length) return null;
+    if (!showPreview || !definitionGraphIds.length) return null;
     const gid = definitionGraphIds[currentDefinitionIndex] || definitionGraphIds[0];
     if (!gid) return null;
     const graphData = graphsMap.get(gid);
     const title = graphData?.name;
     return (typeof title === 'string' && title.trim()) ? title.trim() : null;
-  }, [isPreviewing, definitionGraphIds, currentDefinitionIndex, graphsMap]);
+  }, [showPreview, definitionGraphIds, currentDefinitionIndex, graphsMap]);
 
-  const displayTitle = (isPreviewing && currentGraphName) ? currentGraphName : nodeName;
+  const displayTitle = (showPreview && currentGraphName) ? currentGraphName : nodeName;
 
   // Calculate dynamic text color based on node background
   const safeColor = useMemo(() => isValidColor(node.color) ? node.color : NODE_DEFAULT_COLOR, [node.color]);
@@ -263,6 +263,61 @@ const Node = ({
     // the `node` reference doesn't change when a slider moves — so without these deps
     // the memo returns stale wrapping widths until the node is dragged (new ref).
   }, [node, node.sizeMul, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
+
+  // --- The box as drawn ---
+  // At rest it is the props. With the preview showing, every frame is the expanded
+  // layout at an in-between size: the card interpolated from the resting box to the
+  // open card (which getNodeDimensions centres on the resting box), the title band
+  // on top, and the well inset by the padding below it, opening from nothing. So the
+  // card grows out of the node's middle, and at progress 1 it is exactly the open
+  // layout the props describe.
+  const openDims = showPreview ? getNodeDimensions(node, true, null) : null;
+  let nodeX = anchorX;
+  let nodeY = anchorY;
+  let currentWidth = restingWidth;
+  let currentHeight = restingHeight;
+  let textAreaHeight = restingTextAreaHeight;
+  let innerNetworkWidth = restingInnerNetworkWidth;
+  let innerNetworkHeight = restingInnerNetworkHeight;
+  if (openDims) {
+    const t = morph.t;
+    const lerp = (a, b) => a + (b - a) * t;
+    nodeX = anchorX + openDims.previewOffsetX * t;
+    nodeY = anchorY + openDims.previewOffsetY * t;
+    currentWidth = lerp(unexpandedDims.currentWidth, openDims.currentWidth);
+    currentHeight = lerp(unexpandedDims.currentHeight, openDims.currentHeight);
+    textAreaHeight = lerp(unexpandedDims.textAreaHeight, openDims.textAreaHeight);
+    const wellBottomInset = openDims.currentHeight - openDims.textAreaHeight - openDims.innerNetworkHeight;
+    innerNetworkWidth = Math.max(0, currentWidth - 2 * effPadding);
+    innerNetworkHeight = Math.max(0, Math.min(
+      currentHeight - textAreaHeight - wellBottomInset,
+      openDims.innerNetworkHeight * t,
+    ));
+  }
+
+  // Calculate image position based on dynamic textAreaHeight
+  const contentAreaY = nodeY + textAreaHeight;
+
+  // The definition is drawn once, at its open size, and carried by the morph as a
+  // whole: scaled to fit the well and centred in it, so it grows out of the middle
+  // along with the card. At rest that is the identity and no transform is written.
+  const openNetworkWidth = openDims?.innerNetworkWidth ?? 0;
+  const openNetworkHeight = openDims?.innerNetworkHeight ?? 0;
+  const openWellX = openDims ? anchorX + openDims.previewOffsetX + effPadding : 0;
+  const openWellY = openDims ? anchorY + openDims.previewOffsetY + openDims.textAreaHeight : 0;
+  let networkMorphTransform;
+  if (morphing && openNetworkWidth > 0 && openNetworkHeight > 0) {
+    const s = Math.min(innerNetworkWidth / openNetworkWidth, innerNetworkHeight / openNetworkHeight);
+    const tx = nodeX + effPadding + (innerNetworkWidth - openNetworkWidth * s) / 2;
+    const ty = contentAreaY + (innerNetworkHeight - openNetworkHeight * s) / 2;
+    networkMorphTransform = `translate(${tx - openWellX * s}, ${ty - openWellY * s}) scale(${s})`;
+  }
+
+  // Font size for the "Define … With a New Web" placeholder shown when a decomposed
+  // node has no definition yet. The preview's inner-network area is large, so a fixed
+  // size reads as tiny — scale it to the area's width (which already folds in
+  // effNodeScale) so it stays proportional to the node. Clamped to a sane range.
+  const decompPlaceholderFont = Math.max(16, Math.min(52, openNetworkWidth * 0.05));
   // Label typography + container padding — shared with every other surface that
   // draws a node (see utils/nodeLabelStyle.js). `typography` is the single source of
   // truth for BOTH the static <span> and the inline canvas editor: keeping them on one
@@ -301,12 +356,12 @@ const Node = ({
   // The definition as viewed, like the canvas: a Thing opened in place inside it
   // shows its own definition's nodes in its box, and a connection into a closed
   // box is drawn to the box.
-  const currentViewGraph = useGraphStore((state) => (isPreviewing && currentGraphId ? projectGraphView(state, currentGraphId) : null));
-  const currentViewEdges = useGraphStore((state) => (isPreviewing && currentGraphId ? viewEdges(state, currentGraphId) : null));
+  const currentViewGraph = useGraphStore((state) => (showPreview && currentGraphId ? projectGraphView(state, currentGraphId) : null));
+  const currentViewEdges = useGraphStore((state) => (showPreview && currentGraphId ? viewEdges(state, currentGraphId) : null));
 
   // Filter nodes and edges for the current graph definition
   const currentGraphNodes = useMemo(() => {
-    if (!isPreviewing || !currentGraphId) return [];
+    if (!showPreview || !currentGraphId) return [];
 
     // Manual hydration to avoid storeState dependency
     const graphData = currentViewGraph;
@@ -323,10 +378,10 @@ const Node = ({
     });
 
     return nodes;
-  }, [isPreviewing, currentGraphId, currentViewGraph, nodePrototypesMap]);
+  }, [showPreview, currentGraphId, currentViewGraph, nodePrototypesMap]);
 
   const currentGraphEdges = useMemo(() => {
-    if (!isPreviewing || !currentGraphId) return [];
+    if (!showPreview || !currentGraphId) return [];
     const graphData = currentViewGraph;
     if (!graphData || !graphData.edgeIds || !currentViewEdges) return [];
 
@@ -334,35 +389,28 @@ const Node = ({
     return graphData.edgeIds
       .map(edgeId => currentViewEdges.get(edgeId))
       .filter(edge => edge !== undefined);
-  }, [isPreviewing, currentGraphId, currentViewGraph, currentViewEdges]);
+  }, [showPreview, currentGraphId, currentViewGraph, currentViewEdges]);
 
-  // Get the current definition graph's description, truncated (by character count, on the
-  // last visible line) to fit the fixed-height description area. CSS line-clamp doesn't
-  // reliably render its ellipsis inside an SVG foreignObject, so line-fit + a manual "..."
-  // is computed here instead, using the same wrapping engine utils.js used to size the box.
-  const currentGraphDescription = useMemo(() => {
-    if (!isPreviewing || !currentGraphId) return 'No description.';
-    const graphData = graphsMap.get(currentGraphId);
-    const description = getDefinitionDescription(node, currentGraphId, graphData?.description) || 'No description.';
-    if (description === 'No description.' || !innerNetworkWidth) return description;
-
-    const augTs = { ...textSettings, fontSize: textSettings.fontSize * effNodeScale };
-    const fontString = buildNodeFontString(augTs);
-    const lines = wrapTextToLines(description, innerNetworkWidth, fontString);
-    if (lines.length <= DESCRIPTION_MAX_LINES) return description;
-
-    // Shave characters off the last visible line until "<line>..." fits the width too.
-    let lastLine = lines[DESCRIPTION_MAX_LINES - 1].trimEnd();
-    while (lastLine.length > 0 && measureTextWidth(`${lastLine}...`, fontString) > innerNetworkWidth) {
-      lastLine = lastLine.slice(0, -1).trimEnd();
-    }
-    const visibleLines = lines.slice(0, DESCRIPTION_MAX_LINES - 1);
-    visibleLines.push(`${lastLine}...`);
-    return visibleLines.join(' ');
-  }, [isPreviewing, currentGraphId, graphsMap, innerNetworkWidth, textSettings, effNodeScale, node.description, definitionGraphIds]);
-
-  // Use the passed descriptionAreaHeight which is now calculated dynamically in utils.js
-  const actualDescriptionHeight = descriptionAreaHeight;
+  // Built once at the open size, so a morph frame re-renders only the transform
+  // around it, never the definition's drawing.
+  // A node that opens as its formula shows it here, as opening it would.
+  const previewGroups = useMemo(
+    () => previewGroupsFor({ id: node.id, format: node.format, formulaSize: node.sizeMul, color: node.color }, currentViewGraph),
+    [node.id, node.format, node.sizeMul, node.color, currentViewGraph],
+  );
+  const innerNetworkElement = useMemo(() => (
+    showPreview && openNetworkWidth > 0 && openNetworkHeight > 0 ? (
+      <InnerNetwork
+        nodes={currentGraphNodes}
+        edges={currentGraphEdges}
+        groups={previewGroups}
+        width={openNetworkWidth}
+        height={openNetworkHeight}
+        padding={14 * effNodeScale}
+      />
+    ) : null
+  ), [showPreview, currentGraphNodes, currentGraphEdges, previewGroups, openNetworkWidth, openNetworkHeight, effNodeScale]);
+  const hasPreviewWell = showPreview && innerNetworkWidth > 0 && innerNetworkHeight > 0;
 
   // Effect to handle arrow fade-in after expansion
   useEffect(() => {
@@ -395,7 +443,8 @@ const Node = ({
 
   return (
     <g
-      className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isPreviewing ? 'previewing' : ''}`}
+      ref={groupRef}
+      className={`node ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${showPreview ? 'previewing' : ''}`}
       data-instance-id={instanceId}
       data-lift-shadow={liftShadow || undefined}
       data-has-context-menu="true"
@@ -481,7 +530,7 @@ const Node = ({
         </clipPath>
 
         {/* Mask for creating a true transparent cutout in the node background for the preview area */}
-        {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
+        {hasPreviewWell && (
           <mask id={`${idPrefix}node-mask-${instanceId}`}>
             <rect x={nodeX - 200} y={nodeY - 200} width={currentWidth + 400} height={currentHeight + 400} fill="white" />
             <rect
@@ -528,11 +577,12 @@ const Node = ({
         height={currentHeight - 12}
         fill={safeColor}
         stroke={isSelected ? 'black' : 'none'}
-        mask={isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 ? `url(#${idPrefix}node-mask-${instanceId})` : undefined}
+        mask={hasPreviewWell ? `url(#${idPrefix}node-mask-${instanceId})` : undefined}
         // strokeWidth MUST be an inline style, not an SVG attribute: the .node.selected
         // CSS rule would otherwise override an attribute. Inline style wins, so the
         // size-scaled width actually takes effect.
-        style={{ strokeWidth: selectionStrokeWidth, transition: `width ${SIZE_TRANSITION}, height ${SIZE_TRANSITION}, fill 0.2s ease, stroke-width ${SIZE_TRANSITION}` }}
+        // Mid-morph the frames set the size; a CSS transition would trail behind them.
+        style={{ strokeWidth: selectionStrokeWidth, transition: morphing ? 'fill 0.2s ease' : `width ${SIZE_TRANSITION}, height ${SIZE_TRANSITION}, fill 0.2s ease, stroke-width ${SIZE_TRANSITION}` }}
       />
 
       <foreignObject
@@ -542,7 +592,7 @@ const Node = ({
         width={currentWidth}
         height={textAreaHeight}
         style={{
-          transition: `width ${SIZE_TRANSITION}, height ${SIZE_TRANSITION}`,
+          transition: morphing ? 'none' : `width ${SIZE_TRANSITION}, height ${SIZE_TRANSITION}`,
           overflow: 'hidden'
         }}
       >
@@ -624,7 +674,7 @@ const Node = ({
               }}
               lang="en"
             >
-              {displayTitle}
+              <VectorText text={displayTitle} />
             </span>
           )}
         </div>
@@ -636,7 +686,7 @@ const Node = ({
         transform={`translate(${nodeX + NODE_PADDING -1}, ${contentAreaY - 1})`} 
         clipPath={`url(#${clipPathId})`}
       > */}
-      {hasThumbnail && (
+      {hasThumbnail && !showPreview && (
         // Native SVG <image> rather than a <foreignObject><img>. A foreignObject spins up a
         // full HTML layout context inside the SVG (heavy, esp. on WebKit); when a node is
         // lifted it remounts into a separate "dragging node" render slot, and re-laying-out
@@ -660,7 +710,7 @@ const Node = ({
           read/decoded. A neutral base with a translucent highlight band that
           sweeps upward (SMIL <animate>, so it runs even inside the lifted-node
           render slot without React re-renders). */}
-      {isImageLoading && imageWidth > 0 && imageHeight > 0 && (
+      {isImageLoading && !showPreview && imageWidth > 0 && imageHeight > 0 && (
         <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
           <defs>
             <linearGradient id={shimmerGradId} x1="0" y1="0" x2="0" y2="1">
@@ -698,7 +748,7 @@ const Node = ({
           neutral as the loading shimmer and NOT an error color: an image that
           didn't load is a condition, not a fault, and colouring it red would
           both misattribute blame and break the panel's maroon-only palette. */}
-      {isImageMissing && imageWidth > 0 && imageHeight > 0 && (() => {
+      {isImageMissing && !showPreview && imageWidth > 0 && imageHeight > 0 && (() => {
         // Glyph scales with the slot but is clamped so it stays legible on a
         // small node and doesn't dominate a large one.
         const g = Math.max(12, Math.min(44, Math.min(imageWidth, imageHeight) * 0.3));
@@ -744,7 +794,7 @@ const Node = ({
       {/* NOTE: no opacity/transition on this <g>. Group-opacity forces iOS WebKit to
           composite the group, which mispositions foreignObject children to the SVG
           origin (top-left) — the cause of the blank/misplaced preview on mobile. */}
-      {isPreviewing && innerNetworkWidth > 0 && innerNetworkHeight > 0 && (
+      {hasPreviewWell && (
         <g>
           {/* NOTE: do NOT wrap these foreignObjects in a <g clipPath> — iOS WebKit
               fails to render foreignObject content under a clipPath ancestor (blank).
@@ -769,15 +819,12 @@ const Node = ({
               // so it works on all platforms without any foreignObject workarounds.
               // data-preview-network: the box morph (groups/boxMorph.js) carries this
               // drawing into the thing group when the node opens in place.
-              <g data-preview-network transform={`translate(${nodeX + effPadding}, ${contentAreaY})`} pointerEvents="none">
-                <InnerNetwork
-                  nodes={currentGraphNodes}
-                  edges={currentGraphEdges}
-                  groups={currentViewGraph?.groups}
-                  width={innerNetworkWidth}
-                  height={innerNetworkHeight}
-                  padding={14 * effNodeScale}
-                />
+              // The outer group carries the morph; data-preview-network keeps the
+              // resting pose the box morph reads.
+              <g transform={networkMorphTransform}>
+                <g data-preview-network transform={`translate(${openWellX}, ${openWellY})`} pointerEvents="none">
+                  {innerNetworkElement}
+                </g>
               </g>
             ) : (
               // Show "Create Definition" interface when no definitions exist
@@ -807,7 +854,9 @@ const Node = ({
                     textAlign: 'center',
                     padding: `${decompPlaceholderFont * 1.25}px`,
                     boxSizing: 'border-box',
-                    transition: 'all 0.2s ease',
+                    transition: 'background-color 0.2s ease',
+                    // Fades in as the well opens, so the clipped text never shows.
+                    opacity: morphing ? morph.t * morph.t : 1,
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.1)';
@@ -833,39 +882,6 @@ const Node = ({
             )}
           </g>
         </g>
-      )}
-
-      {/* Description Area - Below InnerNetwork when previewing */}
-      {isPreviewing && actualDescriptionHeight > 0 && currentGraphDescription && currentGraphDescription.trim() && currentGraphDescription !== 'No description.' && (
-        <foreignObject
-          x={nodeX + effPadding}
-          y={descriptionAreaY}
-          width={innerNetworkWidth}
-          height={actualDescriptionHeight}
-          style={{
-            pointerEvents: 'none',
-            overflow: 'hidden'
-          }}
-        >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              padding: '12px 8px 4px',
-              boxSizing: 'border-box',
-              fontFamily: "'EmOne', sans-serif",
-              fontSize: `${40 * textSettings.fontSize * effNodeScale}px`,
-              color: nodeTextColor,
-              fontWeight: 'normal',
-              lineHeight: `${33 * textSettings.fontSize * textSettings.lineSpacing * effNodeScale}px`,
-              textAlign: 'center',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden'
-            }}
-          >
-            {currentGraphDescription}
-          </div>
-        </foreignObject>
       )}
 
       {/* Hover Preview - Styled like HoverVisionAid for consistency */}
@@ -944,6 +960,5 @@ export default memo(Node, (prev, next) => {
     prev.currentDefinitionIndex === next.currentDefinitionIndex &&
     prev.innerNetworkWidth === next.innerNetworkWidth &&
     prev.innerNetworkHeight === next.innerNetworkHeight &&
-    prev.descriptionAreaHeight === next.descriptionAreaHeight &&
     prev.idPrefix === next.idPrefix;
 });

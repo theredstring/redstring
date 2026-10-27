@@ -24,16 +24,17 @@ test('F14 click empty canvas, click the plus sign, name it: a new Thing is place
   const spotWorld = await clientToWorld(page, spot.x, spot.y);
   await page.mouse.click(spot.x, spot.y);
 
-  const plus = page.locator('svg.canvas g[data-plus-sign="true"]');
+  // The plus itself, not the bubbles around it.
+  const plus = page.locator('svg.canvas g[data-plus-sign="true"]:not([data-plus-bubble])');
   await expect(plus).toBeVisible();
   // Clicking the plus opens the name prompt.
   await clickCenter(page, plus);
-  await expect(page.getByText('Name Your Thing')).toBeVisible();
+  await expect(page.getByText('Choose a Thing')).toBeVisible();
   // The prompt is DOM outside the SVG, so locator actions are safe on it.
   const input = page.locator('input.unified-selector-control');
   await input.fill('Omega');
   await input.press('Enter');
-  await expect(page.getByText('Name Your Thing')).toBeHidden();
+  await expect(page.getByText('Choose a Thing')).toBeHidden();
 
   // The plus sign morphs into the node, which then lands in the store.
   await expect.poll(() => findOmega(page), { message: 'an "Omega" instance on the active graph', timeout: 10_000 }).not.toBeNull();

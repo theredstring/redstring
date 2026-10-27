@@ -27,7 +27,7 @@ function makeState() {
   };
 }
 
-const triplets = async (state) => (await readGraph({}, state)).edges.map(e => e.triplet);
+const triples = async (state) => (await readGraph({}, state)).edges.map(e => e.triple);
 
 describe('predictive edge state', () => {
   it('deleteEdge by names removes the edge from what the model reads back', async () => {
@@ -36,7 +36,7 @@ describe('predictive edge state', () => {
       action: 'deleteEdge', graphId: 'g1', edgeId: null,
       sourceName: 'Worker Turnover & Job Vacancies', targetName: 'Overall Low-Wage Employment',
     });
-    expect(await triplets(state)).toEqual([]);
+    expect(await triples(state)).toEqual([]);
   });
 
   it('updateEdge on a deleted pair recreates it, as the applier does', async () => {
@@ -51,7 +51,7 @@ describe('predictive edge state', () => {
       sourceInstanceId: 'i-turn', targetInstanceId: 'i-emp',
       updates: { type: 'Moderates Losses In' },
     });
-    expect(await triplets(state)).toEqual([
+    expect(await triples(state)).toEqual([
       'Worker Turnover & Job Vacancies --[Moderates Losses In]--> Overall Low-Wage Employment',
     ]);
   });
@@ -63,7 +63,7 @@ describe('predictive edge state', () => {
       sourceName: 'Overall Low-Wage Employment', targetName: 'Worker Turnover & Job Vacancies',
       updates: { type: 'Reduces Separation Rates & Vacancy Duration' },
     });
-    expect(await triplets(state)).toEqual([
+    expect(await triples(state)).toEqual([
       'Worker Turnover & Job Vacancies --[Reduces Separation Rates & Vacancy Duration]--> Overall Low-Wage Employment',
     ]);
   });
@@ -82,7 +82,7 @@ describe('predictive edge state', () => {
         { source: 'Statutory Minimum Wage Rate', target: 'Worker Turnover & Job Vacancies', type: 'Reduces' },
       ],
     });
-    expect((await triplets(state)).sort()).toEqual([
+    expect((await triples(state)).sort()).toEqual([
       'Statutory Minimum Wage Rate --[Raises]--> Overall Low-Wage Employment',
       'Statutory Minimum Wage Rate --[Reduces]--> Worker Turnover & Job Vacancies',
       'Worker Turnover & Job Vacancies --[Stabilizes]--> Overall Low-Wage Employment',

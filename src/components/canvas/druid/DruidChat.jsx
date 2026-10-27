@@ -86,7 +86,7 @@ function Message({ e }) {
   const note = mine && e.pending ? (e.answered ? 'it keeps this in mind when it wakes' : 'it will hear this when it wakes') : null;
   const when = timeOf(e.at);
   return (
-    <div className={`ai-message ai-message-${mine ? 'user' : 'ai'}`} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+    <div className={`ai-message ai-message-${mine ? 'user' : 'ai'}`}>
       <div className="ai-message-avatar">{mine ? <User size={24} /> : <Clover size={26} strokeWidth={1.75} aria-label="The Druid" />}</div>
       <div className="ai-message-content">
         <div className="ai-message-text" style={{ whiteSpace: 'pre-wrap' }}>{e.text}</div>

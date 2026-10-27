@@ -38,7 +38,8 @@ export function flushAnchorPositions(ctx) {
       // gate with no matching end signal, and if this was the session's last
       // mutation, autosave never fired again. `phase: 'end'` marks it as a
       // finalizing, non-gating change so the queued state actually saves.
-      storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates, { phase: 'end' });
+      // `parkedAnchors`: a parked anchor never moves the box it sits in.
+      storeActions.updateMultipleNodeInstancePositions(activeGraphId, positionUpdates, { phase: 'end', parkedAnchors: true });
     }
   });
   return () => cancelAnimationFrame(rafId);

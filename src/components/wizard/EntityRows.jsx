@@ -3,7 +3,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { NotebookText, ArrowUpFromDot } from 'lucide-react';
 import UniversalNodeRenderer from '../../UniversalNodeRenderer';
-import TripletPreview from '../connections/TripletPreview.jsx';
+import TriplePreview from '../connections/TriplePreview.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from '../connections/CompactConnectionRow.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { DefinitionCard, DefinitionDescription } from '../panel/WebDefinitionsSection.jsx';
@@ -129,7 +129,7 @@ const DraggableThingChip = ({ row, maxWidth }) => {
 };
 
 /**
- * A connection too narrow for a triplet, as the semantic list draws one but
+ * A connection too narrow for a triple, as the semantic list draws one but
  * three Things down: both ends, and the connection between them as the Thing
  * that defines it. Each picks up as itself.
  */
@@ -170,12 +170,12 @@ const DraggableCompactConnection = ({ row }) => {
 };
 
 /**
- * A connection's triplet, picked up by the part you grab: the left third is
+ * A connection's triple, picked up by the part you grab: the left third is
  * its subject, the middle the Thing that defines the connection, the right
  * third its object. One SVG draws all three, so the part is read from the
  * pointer rather than from the boxes.
  */
-const DraggableTriplet = ({ row, width }) => {
+const DraggableTriple = ({ row, width }) => {
   const sideRef = useRef('subject');
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: 'spawnable_node',
@@ -216,7 +216,7 @@ const DraggableTriplet = ({ row, width }) => {
       onDoubleClick={(e) => { pickSide(e); openSide(); }}
       style={{ cursor: 'grab', opacity: isDragging ? 0.5 : 1 }}
     >
-      <TripletPreview
+      <TriplePreview
         subject={row.subject}
         predicate={row.name}
         object={row.object}
@@ -265,11 +265,11 @@ const EntityRow = ({ row, width, expanded, onOverflowChange }) => {
       <div className={`entity-row${narrow ? ' entity-row-stacked entity-row-compact' : ''}`}>
         <div className="entity-row-rep">
           {narrow ? (
-            // Too narrow for a readable triplet: the semantic list's compact
+            // Too narrow for a readable triple: the semantic list's compact
             // row, with both ends, since a card implies neither.
             <DraggableCompactConnection row={row} />
           ) : (
-            <DraggableTriplet row={row} width={repWidth} />
+            <DraggableTriple row={row} width={repWidth} />
           )}
         </div>
         <EntityActions

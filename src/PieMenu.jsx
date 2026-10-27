@@ -685,7 +685,7 @@ const PieMenu = ({
               e.stopPropagation();
               if (e.cancelable) e.preventDefault();
 
-              if (button.hidden) return; // collapsed/animating-out button is not interactive
+              if (button.hidden || button.disabled) return; // collapsed/animating-out or greyed-out button is not interactive
 
               const isCarouselStageTransition = button.id === 'carousel-plus' || button.id === 'carousel-back' || button.id === 'carousel-back-stage2' || button.id === 'carousel-add-above' || button.id === 'carousel-add-below';
 
@@ -700,7 +700,7 @@ const PieMenu = ({
               button.action(node?.id ?? null, buttonPosition);
             }}
             onClick={(e) => {
-              if (button.hidden) { e.stopPropagation(); return; } // collapsed/animating-out button is not interactive
+              if (button.hidden || button.disabled) { e.stopPropagation(); return; } // collapsed/animating-out or greyed-out button is not interactive
               // Allow carousel stage transition buttons to work even during shrinking
               const isCarouselStageTransition = button.id === 'carousel-plus' || button.id === 'carousel-back' || button.id === 'carousel-back-stage2' || button.id === 'carousel-add-above' || button.id === 'carousel-add-below';
 
@@ -746,7 +746,9 @@ const PieMenu = ({
             <g
               style={{
                 transform: button.hidden ? 'scale(0)' : 'scale(1)',
-                opacity: button.hidden ? 0 : 1,
+                // Greyed out (button.disabled): still there, its label on hover says why.
+                opacity: button.hidden ? 0 : button.disabled ? 0.35 : 1,
+                cursor: button.disabled ? 'default' : undefined,
                 transition: 'transform 0.2s ease, opacity 0.2s ease',
                 pointerEvents: button.hidden ? 'none' : 'auto',
               }}
@@ -769,7 +771,7 @@ const PieMenu = ({
                 {/* A controller has no pointer to hover with, so the focused
                     bubble borrows the mouse's own grow via a class rather than
                     a second, divergent treatment. */}
-                <g className={`pie-bubble-hover${index === focusedButtonIndex ? ' gamepad-focused' : ''}`}>
+                <g className={`pie-bubble-hover${index === focusedButtonIndex ? ' gamepad-focused' : ''}${button.disabled ? ' is-disabled' : ''}`}>
                   <circle
                     cx="0"
                     cy="0"

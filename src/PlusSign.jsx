@@ -1,8 +1,14 @@
 import React, { useRef, useEffect } from 'react';
-import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
+import { NODE_WIDTH, NODE_HEIGHT, PLUS_SIGN_SIZE, PLUS_SIGN_STROKE, PLUS_SIGN_ANIMATION_DURATION } from './constants';
 import useGraphStore from './store/graphStore.js';
 import { haptic } from './services/haptics.js';
 import { safeImageSrc } from './utils/safeUrl.js';
+import { setActionHover, clearActionHoverIf } from './utils/canvas/actionHover.js';
+import { cssColorToHex } from './utils/colorUtils.js';
+
+// The plus's own label, in the chip the pie menus' buttons raise (its bubbles
+// raise theirs: PlusSignBubbles).
+const HOVER = { id: 'plus-sign', label: 'Add Thing' };
 
 const PlusSign = ({
   plusSign,
@@ -58,8 +64,15 @@ const PlusSign = ({
     // past the pan/zoom guards and the 300ms dedupe, so this is the one place
     // that means "the plus was actually activated".
     haptic('menuSelect');
+    clearActionHoverIf(HOVER.id);
     onClick?.();
   };
+
+  // Down once it stops being a button (named, morphing, going) or goes.
+  useEffect(() => {
+    if (plusSign.mode !== 'appear' || plusSign.prompting) clearActionHoverIf(HOVER.id);
+  }, [plusSign.mode, plusSign.prompting]);
+  useEffect(() => () => clearActionHoverIf(HOVER.id), []);
 
   useEffect(() => {
     // 'preparing': the node's image is decoding before the morph — hold the plus.
@@ -227,7 +240,9 @@ const PlusSign = ({
       endWidth = targetWidth;
       endHeight = targetHeight;
       endCorner = targetCornerRadius ?? Math.min(targetWidth, targetHeight) / 4; // match actual node corner radius
-      endColor = plusSign.selectedColor || 'maroon'; // Use selected color if available
+      // As hex, once: the blend below reads only hex and names, and a Thing the
+      // wizard or an import made is hsl(), which held the plus colours to the end.
+      endColor = cssColorToHex(plusSign.selectedColor || 'maroon');
       /*
       console.log('Morph setup:', { 
         selectedColor: plusSign.selectedColor, 
@@ -320,6 +335,8 @@ const PlusSign = ({
       onMouseDown={(e) => {
         sawMouseDownRef.current = true;
       }}
+      onMouseEnter={() => { if (plusSign.mode === 'appear' && !plusSign.prompting) setActionHover(HOVER); }}
+      onMouseLeave={() => clearActionHoverIf(HOVER.id)}
       onPointerDown={(e) => {
         if (e && e.cancelable) { e.preventDefault(); }
         e.stopPropagation();
@@ -426,7 +443,7 @@ const PlusSign = ({
         ry={cornerRadius}
         fill={color}
         stroke={strokeColor}
-        strokeWidth={Math.max(1, 10 * plusSignScale)}
+        strokeWidth={Math.max(1, PLUS_SIGN_STROKE * plusSignScale)}
       />
       <line
         x1={-halfCross}
@@ -434,7 +451,7 @@ const PlusSign = ({
         x2={halfCross}
         y2={0}
         stroke="maroon"
-        strokeWidth={Math.max(1, 10 * plusSignScale)}
+        strokeWidth={Math.max(1, PLUS_SIGN_STROKE * plusSignScale)}
         opacity={lineOpacity}
       />
       <line
@@ -443,7 +460,7 @@ const PlusSign = ({
         x2={0}
         y2={halfCross}
         stroke="maroon"
-        strokeWidth={Math.max(1, 10 * plusSignScale)}
+        strokeWidth={Math.max(1, PLUS_SIGN_STROKE * plusSignScale)}
         opacity={lineOpacity}
       />
       {/* The node's image grows into its slot with the morph, so an image node

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeGraphSpec, normalizeLayersOnly, createSpecContext, dropLayerNameCollisions } from './graphSpec.js';
+import { normalizeGraphSpec, normalizeLayersOnly, createSpecContext, dropLayerNameCollisions, connectionTypeColors } from './graphSpec.js';
 
 const state = (protoNames = []) => ({
   nodePrototypes: protoNames.map((name, i) => ({ id: `p${i}`, name }))
@@ -267,5 +267,30 @@ describe('layer collision — folding, not discarding', () => {
     }, ctx);
     expect(spec.nodes).toHaveLength(0);
     expect(spec.layers[0].description).toBe('Largest US supermarket operator');
+  });
+});
+
+describe('connection type colors', () => {
+  const nodes = [{ name: 'A' }, { name: 'B' }, { name: 'C' }];
+  const pairs = [['A', 'B'], ['B', 'C'], ['C', 'A'], ['A', 'C'], ['C', 'B'], ['B', 'A']];
+
+  it('a type the universe has is drawn in its color, on every edge', () => {
+    const graphState = { nodePrototypes: [{ id: 'p1', name: 'Has Shape', color: '#123456' }] };
+    const out = normalizeGraphSpec({ nodes, edges: pairs.map(([source, target]) => ({ source, target, type: 'has shape' })) },
+      createSpecContext('rainbow', graphState));
+    expect(out.edges.map(e => e.definitionNode.color)).toEqual(pairs.map(() => '#123456'));
+  });
+
+  it('a new type gets one color for every edge of it, its layers\' edges too', () => {
+    const colorOf = connectionTypeColors(state(), 'rainbow');
+    const out = normalizeGraphSpec({ nodes, edges: pairs.map(([source, target]) => ({ source, target, type: 'Same Shape As' })) },
+      createSpecContext('rainbow', state(), colorOf));
+    const colors = new Set(out.edges.map(e => e.definitionNode.color));
+    expect(colors.size).toBe(1);
+    const layered = normalizeLayersOnly([{
+      name: 'Shapes',
+      definition: { nodes, edges: [{ source: 'A', target: 'B', type: 'Same Shape As' }] },
+    }], { palette: 'rainbow', graphState: state(), connectionColor: colorOf });
+    expect(layered.layers[0].definition.edges[0].definitionNode.color).toBe([...colors][0]);
   });
 });

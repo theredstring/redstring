@@ -200,9 +200,10 @@ export const scenarios = {
     await clickCenter(page, pieButton(page, 'corner-up-left'));
     await expect(page.locator('input.unified-selector-control[type="text"]:visible')).toBeVisible();
     await waitForQuiet(page);
-    // Cancel with the dialog's X. (Escape would also reach the carousel's own
-    // document keydown listener and close the carousel.)
-    await page.locator('.unified-selector-overlay').getByTitle('Close', { exact: true }).click();
+    // Cancel by tapping the backdrop, the dialog's only close. (Escape would
+    // also reach the carousel's own document keydown listener and close the
+    // carousel.)
+    await page.locator('.unified-selector-overlay').first().click({ position: { x: 4, y: 4 } });
     await expect(page.locator('input.unified-selector-control[type="text"]')).toHaveCount(0);
     await waitForQuiet(page);
     for (let i = 0; i < 3 && await page.locator('[data-carousel-level]').count(); i++) {

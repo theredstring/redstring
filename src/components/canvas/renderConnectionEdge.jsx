@@ -6,7 +6,9 @@ import { getConnectionLabelColors } from '../../utils/colorUtils.js';
 import { haptic } from '../../services/haptics.js';
 import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
 import { buildShellCutoutPath } from '../../services/groupLayout.js';
-import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints } from '../../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints, straightArrowHeads } from '../../utils/canvas/nodeHitbox.js';
+import { connectionEndInfo } from './formats/replaced.js';
+import { anchorEndBox } from '../../utils/canvas/anchorEnd.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
 import { bundleFrameSign, computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, parallelLaneRank, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
@@ -128,16 +130,20 @@ export function renderConnectionEdge(edge, ctx) {
     return null;
   }
   // For anchor nodes, use current-frame ref positions (not stale store positions)
-  // and title dimensions instead of node dimensions
-  let sAnchorInfo = sourceNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(sourceNode.id) : null;
-  let eAnchorInfo = destNode.isGroupAnchor ? anchorPositionUpdatesRef.current.get(destNode.id) : null;
-  if (sAnchorInfo) sourceNode = { ...sourceNode, x: sAnchorInfo.x, y: sAnchorInfo.y };
-  if (eAnchorInfo) destNode = { ...destNode, x: eAnchorInfo.x, y: eAnchorInfo.y };
-  const sNodeDims = sAnchorInfo
-    ? { currentWidth: sAnchorInfo.width, currentHeight: sAnchorInfo.height }
+  // and title dimensions instead of node dimensions; a format's end (a formula's
+  // token or title) stops at its band, as an anchor's at its group's box.
+  let sAnchorInfo = connectionEndInfo(sourceNode, anchorPositionUpdatesRef.current);
+  let eAnchorInfo = connectionEndInfo(destNode, anchorPositionUpdatesRef.current);
+  // A Thing-group's title is ended on clear of its fill (anchorEnd.js).
+  const sEnd = anchorEndBox(sAnchorInfo);
+  const eEnd = anchorEndBox(eAnchorInfo);
+  if (sEnd) sourceNode = { ...sourceNode, x: sEnd.x, y: sEnd.y };
+  if (eEnd) destNode = { ...destNode, x: eEnd.x, y: eEnd.y };
+  const sNodeDims = sEnd
+    ? { currentWidth: sEnd.width, currentHeight: sEnd.height }
     : (baseDimsById.get(sourceNode.id) || getNodeDimensions(sourceNode, false, null));
-  const eNodeDims = eAnchorInfo
-    ? { currentWidth: eAnchorInfo.width, currentHeight: eAnchorInfo.height }
+  const eNodeDims = eEnd
+    ? { currentWidth: eEnd.width, currentHeight: eEnd.height }
     : (baseDimsById.get(destNode.id) || getNodeDimensions(destNode, false, null));
   // A member wired to its own group's Thing draws to the pill, not the box.
   sAnchorInfo = anchorInfoFacing(sAnchorInfo, destNode, eNodeDims);
@@ -1077,18 +1083,10 @@ export function renderConnectionEdge(edge, ctx) {
               sourceArrowY = startY + ((endY - startY) >= 0 ? offset : -offset);
             }
           } else {
-            // Precise intersection positioning - adjust based on slope for visual consistency
-            const angle = Math.abs(Math.atan2(dy, dx) * (180 / Math.PI));
-            const normalizedAngle = angle > 90 ? 180 - angle : angle;
-            // Shorter distance for quantized slopes (hitting node sides) vs diagonal (hitting corners)
-            const isQuantizedSlope = normalizedAngle < 15 || normalizedAngle > 75;
-            const arrowLength = isQuantizedSlope ? offset * 0.6 : offset;
-            sourceArrowAngle = Math.atan2(-dy, -dx) * (180 / Math.PI);
-            sourceArrowX = sourceIntersection.x + (dx / length) * arrowLength;
-            sourceArrowY = sourceIntersection.y + (dy / length) * arrowLength;
-            destArrowAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-            destArrowX = destIntersection.x - (dx / length) * arrowLength;
-            destArrowY = destIntersection.y - (dy / length) * arrowLength;
+            // Precise intersection positioning, shared with the drag writer (straightArrowHeads).
+            const heads = straightArrowHeads(x1, y1, x2, y2, sourceIntersection, destIntersection, offset);
+            ({ x: sourceArrowX, y: sourceArrowY, angle: sourceArrowAngle } = heads.source);
+            ({ x: destArrowX, y: destArrowY, angle: destArrowAngle } = heads.dest);
           }
         }
 

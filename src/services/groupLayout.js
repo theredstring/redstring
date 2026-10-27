@@ -527,6 +527,89 @@ export const labelHeightConst = (scale = 1, fontSize = null, lineCount = 1) => {
   return Math.max(80 * scale, inner + C.titlePaddingVertical * scale * 2);
 };
 
+// A group title reads this much larger than a node title by default, so a big
+// group's name stays legible zoomed out. The Group Title Size setting
+// (textSettings.groupTitleScale) multiplies it.
+export const GROUP_TITLE_BASE_SCALE = 1.4;
+
+/** How much larger than its base a group title (and a formula's) is drawn. */
+export const groupTitleScaleOf = (textSettings) => GROUP_TITLE_BASE_SCALE * (textSettings?.groupTitleScale ?? 1.0);
+
+/**
+ * A group title's tab scale and font size, as plain numbers (the solver runs in
+ * a worker). The whole tab, padding and corners with the font, scales with node
+ * size and the title size; the font is the on-canvas node title's
+ * (45 * fontSize * nodeScale) times the title size. Every caller that lays out
+ * or draws a group title reads it here, so the layout reserves the tab the
+ * canvas draws.
+ */
+export const groupLabelMetrics = (textSettings) => {
+  const labelScale = (textSettings?.nodeScale ?? 1.0) * groupTitleScaleOf(textSettings);
+  const labelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * labelScale;
+  return { labelScale, labelFontSize, labelGrowth: groupTitleGrowthOf(textSettings) };
+};
+
+// When titles grow with their group (textSettings.groupTitleGrow), a group up
+// to GROW_FROM wide (at node size 1) draws its title at the usual size, and the
+// title grows with each doubling of width until, at GROW_TO, it reaches
+// textSettings.groupTitleGrowMax. By doubling, because real groups range from a
+// few hundred to tens of thousands wide: grown in straight proportion, every
+// group past twice GROW_FROM sat at the ceiling and they all read alike. Slowly
+// at first and faster toward GROW_TO (GROW_EASE), so everyday groups stay near
+// their usual size and the largest stand out.
+export const GROUP_TITLE_GROW_FROM = 1600;
+export const GROUP_TITLE_GROW_TO = 48000;
+export const GROUP_TITLE_GROW_MAX_DEFAULT = 6.0;
+export const GROUP_TITLE_GROW_EASE = 2;
+
+/** `{ from, to, max }` for labelGrowthFactor, or null when titles keep one size. */
+export const groupTitleGrowthOf = (textSettings) => {
+  if (!textSettings?.groupTitleGrow) return null;
+  const nodeScale = textSettings?.nodeScale ?? 1.0;
+  return {
+    from: GROUP_TITLE_GROW_FROM * nodeScale,
+    to: GROUP_TITLE_GROW_TO * nodeScale,
+    max: textSettings?.groupTitleGrowMax ?? GROUP_TITLE_GROW_MAX_DEFAULT,
+  };
+};
+
+/**
+ * How many times its usual size a group's title is drawn: 1 unless titles grow
+ * (`growth`), else from 1 at `growth.from` wide to `growth.max` at `growth.to`,
+ * by doublings of the band's width, eased in, and never past what the band holds.
+ * `bandW` is the members' box before the title widens it, so a grown title
+ * never makes its group wider, only its tab taller.
+ */
+export const labelGrowthFactor = (growth, bandW, baseLabelW) => {
+  if (!growth || !(baseLabelW > 0) || !(bandW > growth.from)) return 1;
+  const t = Math.min(1, Math.log(bandW / growth.from) / Math.log(growth.to / growth.from)) ** GROUP_TITLE_GROW_EASE;
+  const fits = (bandW - GROUP_LAYOUT_CONSTANTS.titlePaddingHorizontal * 2) / baseLabelW;
+  return Math.max(1, Math.min(1 + (growth.max - 1) * t, fits));
+};
+
+/**
+ * A labelBoxFor box at `k` times the size. Every part of the tab is linear in
+ * the font and scale, so this is the box labelBoxFor gives at k times both,
+ * with the same wrapped lines.
+ */
+export const grownLabelBox = (box, k) => (k === 1 ? box : { ...box, w: box.w * k, h: box.h * k });
+
+/**
+ * A group title's size on the canvas, as computeGroupLayout's context takes it
+ * (labelScale, labelFontSize, measureLabelWidth): groupLabelMetrics, with the
+ * tab sized from that text. `measureWidth(text, cssFont)` is injected (see
+ * wrapLabelLines).
+ */
+export const groupLabelSizing = (textSettings, measureWidth) => {
+  const { labelScale, labelFontSize, labelGrowth } = groupLabelMetrics(textSettings);
+  return {
+    labelScale,
+    labelFontSize,
+    labelGrowth,
+    measureLabelWidth: (text) => measureWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
+  };
+};
+
 /**
  * Greedy word wrap against an injected measure function.
  *
@@ -749,7 +832,18 @@ function computeGroupLayoutInner(group, context) {
     measureLabelWidth,
     labelScale = 1,
     labelFontSize = null,
+    // Titles that grow with their group (groupTitleGrowthOf), or null.
+    labelGrowth = null,
+    // A child drawn its own way (a formula) is as large as what is drawn of it,
+    // not its Things' shell: groupId → { x, y, w, h }, or null.
+    drawnBoundsOf = null,
+    // A Thing drawn there instead (a formula's term): not where it stands. id → boolean.
+    isDrawnElsewhere = null,
+    // The box of the connections drawn among its members (connectionBounds.js), or null.
+    // Called with this context, so it can meet nested titles where this pass put them.
+    connectionBoundsOf = null,
   } = context;
+  const childBounds = (childId, nested) => drawnBoundsOf?.(childId) || (nested?.ok ? nested.visualBounds : null);
 
   const memberIds = Array.isArray(group.memberInstanceIds) ? group.memberInstanceIds : [];
   const droppedOrphanIds = [];
@@ -800,10 +894,12 @@ function computeGroupLayoutInner(group, context) {
     const memberRight = memberX + dims.currentWidth;
     const memberBottom = memberY + dims.currentHeight;
 
-    let contributingY = memberY;
-    let contributingX = memberX;
-    let contributingRight = memberRight;
-    let contributingBottom = memberBottom;
+    // Only what is drawn of it counts, folded in with its child below.
+    const elsewhere = !!isDrawnElsewhere?.(memberId);
+    let contributingY = elsewhere ? Infinity : memberY;
+    let contributingX = elsewhere ? Infinity : memberX;
+    let contributingRight = elsewhere ? -Infinity : memberRight;
+    let contributingBottom = elsewhere ? -Infinity : memberBottom;
     if (childGroupIds.size > 0) {
       const containingEntries = groupsByMemberId.get(memberId);
       if (containingEntries) {
@@ -816,7 +912,8 @@ function computeGroupLayoutInner(group, context) {
           // placeholder shells are folded in the dedicated pass below.
           if (!(otherGroup.memberInstanceIds?.length > 0)) continue;
           const nested = computeGroupLayout(otherGroup, context);
-          if (nested && nested.ok) {
+          const drawn = drawnBoundsOf?.(otherGroupId);
+          if (drawn || (nested && nested.ok)) {
             // Fold the nested group's FULL shell (colored band + title tab)
             // into this bbox, not just its member nodes. The child's rect
             // extends the same margin beyond the shared members as ours
@@ -825,7 +922,7 @@ function computeGroupLayoutInner(group, context) {
             // zero clearance. Folding visualBounds instead means our margin
             // applies around the child's shell, keeping memberPadding of
             // daylight between the rims on every side.
-            const vb = nested.visualBounds;
+            const vb = childBounds(otherGroupId, nested);
             if (vb) {
               if (vb.x < contributingX) contributingX = vb.x;
               if (vb.y < contributingY) contributingY = vb.y;
@@ -860,9 +957,8 @@ function computeGroupLayoutInner(group, context) {
       if (foldedChildIds.has(childId)) continue;
       const childGroup = groupsById.get(childId);
       if (!childGroup) continue;
-      const nested = computeGroupLayout(childGroup, context);
-      if (nested?.ok && nested.visualBounds) {
-        const vb = nested.visualBounds;
+      const vb = childBounds(childId, computeGroupLayout(childGroup, context));
+      if (vb) {
         if (vb.x < minX) minX = vb.x;
         if (vb.y < minY) minY = vb.y;
         if (vb.x + vb.w > maxX) maxX = vb.x + vb.w;
@@ -874,6 +970,16 @@ function computeGroupLayoutInner(group, context) {
         });
       }
     }
+  }
+
+  // Its connections are inside it too: a Lombardi arc, a bundle's lane or a
+  // self-loop can reach well past the Things it joins.
+  const links = isFinite(minX) ? connectionBoundsOf?.(group, context) : null;
+  if (links) {
+    if (links.minX < minX) minX = links.minX;
+    if (links.minY < minY) minY = links.minY;
+    if (links.maxX > maxX) maxX = links.maxX;
+    if (links.maxY > maxY) maxY = links.maxY;
   }
 
   if (!isFinite(minX) && group.linkedNodePrototypeId) {
@@ -912,7 +1018,9 @@ function computeGroupLayoutInner(group, context) {
   const rectH = (maxY - minY) + margin * 2;
 
   const labelText = group.name || 'Group';
-  const labelBox = labelBoxFor(labelText, measureLabelWidth, labelScale, labelFontSize);
+  const baseLabelBox = labelBoxFor(labelText, measureLabelWidth, labelScale, labelFontSize);
+  const growth = labelGrowthFactor(labelGrowth, rectW, baseLabelBox.w);
+  const labelBox = grownLabelBox(baseLabelBox, growth);
   const labelWidth = labelBox.w;
   const labelHeight = labelBox.h;
 
@@ -949,7 +1057,11 @@ function computeGroupLayoutInner(group, context) {
     isNodeGroup,
     bbox: { minX, minY, maxX, maxY },
     rect: { x: rectX, y: rectY, w: rectW, h: rectH },
-    label: { x: labelX, y: labelY, w: labelWidth, h: labelHeight, lines: labelBox.lines },
+    // fontSize/scale: what the title is drawn at, grown with its group.
+    label: {
+      x: labelX, y: labelY, w: labelWidth, h: labelHeight, lines: labelBox.lines,
+      growth, scale: labelScale * growth, fontSize: (labelFontSize ?? C.fontSize * labelScale) * growth,
+    },
     nodeGroupRect: { y: nodeGroupRectY, h: nodeGroupRectH },
     innerCanvasY,
     visualBounds: {

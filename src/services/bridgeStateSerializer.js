@@ -21,6 +21,7 @@
 
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { collectIdentifiers } from '../utils/externalIdentifiers.js';
+import { formulaSnapshotForWizard } from '../components/canvas/formats/formula/formulaSnapshot.js';
 
 export const MAX_LAYOUT_NODES = 400;
 
@@ -228,7 +229,10 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
             color: instance.color || '',
             x: instance.x || 0,
             y: instance.y || 0,
-            scale: instance.scale || 1
+            scale: instance.scale || 1,
+            // Opened in place: its definition drawn in this web (core/openDefinitions.js).
+            ...(instance.openDefinition ? { openDefinition: { ...instance.openDefinition } } : {}),
+            ...(instance.format ? { format: instance.format } : {})
           }
         ])) : undefined
     })),
@@ -265,6 +269,12 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
     },
     // File status (optional)
     fileStatus,
+    // Whether a universe has loaded. Before it has, the store is the empty
+    // initial state: readers wait rather than act on it (the wizard server
+    // keeps the last loaded payload, the MCP server says to try again).
+    isUniverseLoaded: state.isUniverseLoaded === true,
+    isUniverseLoading: state.isUniverseLoading === true,
+    universeSlug: state._universeSlug || null,
 
     // Summary stats
     summary: {
@@ -274,7 +284,12 @@ export const buildBridgeState = (state, { fileStatus = null } = {}) => {
     },
     graphLayouts: layouts,
     graphSummaries: summaries,
-    graphEdges: graphEdges
+    graphEdges: graphEdges,
+
+    // The formulas (formulaSnapshot.js): each one a web shows, and every
+    // equation's Thing, as the panel's wizard reads them. Read here, where the
+    // instances' formats are; the instances above don't carry them.
+    ...formulaSnapshotForWizard(state)
   };
 };
 

@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Pipette } from 'lucide-react';
+import { Copy, Pipette, SlidersHorizontal, SwatchBook } from 'lucide-react';
 import { useTheme } from './hooks/useTheme.js';
 import useMobileDetection from './hooks/useMobileDetection';
-import { cssColorToHex } from './utils/colorUtils';
+import { cssColorToHex, getTextColor } from './utils/colorUtils';
 import { sampleColorAt, primeRasterSources } from './utils/screenColorSample.js';
 import { engageSlider, releaseSlider } from './utils/sliderEngagement.js';
+import { copyText } from './utils/systemClipboard.js';
+import { getStorageKey } from './utils/storageUtils.js';
+import { PALETTES } from './ai/palettes.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import './ColorPicker.css';
 
@@ -24,6 +27,33 @@ const SLIDER_KEYS = new Set([
 const RETICLE_ARM = 6;
 const RETICLE_THICKNESS = 2;
 const RETICLE_OPACITY = 0.5;
+
+// The popover family's look (AnchoredPopoverBox, ContextMenu): off-white with a
+// maroon stroke and maroon text, the same in both themes.
+const PANEL_FILL = '#DEDADA';
+const PANEL_INK = 'maroon';
+
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+// Palettes or sliders, remembered per device. Palettes come first: someone who
+// would rather mix by hand switches once and the picker keeps opening there.
+const MODE_KEY = 'redstring-color-picker-mode';
+const readMode = () => {
+  try {
+    return localStorage.getItem(getStorageKey(MODE_KEY)) === 'sliders' ? 'sliders' : 'palettes';
+  } catch {
+    return 'palettes';
+  }
+};
+const saveMode = (mode) => {
+  try {
+    localStorage.setItem(getStorageKey(MODE_KEY), mode);
+  } catch {
+    // Storage blocked; the mode just won't survive a reopen.
+  }
+};
+
+const PALETTE_LIST = Object.values(PALETTES);
 
 const ColorPicker = ({
   isVisible,
@@ -46,6 +76,7 @@ const ColorPicker = ({
   const [selectedSaturation, setSelectedSaturation] = useState(100);
   const [selectedBrightness, setSelectedBrightness] = useState(55);
   const [hexInput, setHexInput] = useState('');
+  const [mode, setMode] = useState(readMode);
   const pickerRef = useRef(null);
 
   // Convert hex to HSV
@@ -333,6 +364,27 @@ const ColorPicker = ({
     };
   }, [isPicking, applySampledColor]);
 
+  // A wheel over the picker is the picker's. Stopped natively on the panel so it
+  // reaches neither the canvas (whose React onWheel would otherwise get it
+  // through the tree) nor a selector's own wheel listener, and its default is
+  // cancelled unless the palette list can still scroll that way, so nothing
+  // underneath scrolls either. While the eyedropper is armed the wheel is left
+  // alone: panning and zooming to find a colour is part of picking.
+  useEffect(() => {
+    const panel = pickerRef.current;
+    if (!isVisible || isPicking || !panel) return;
+    const onWheel = (e) => {
+      e.stopPropagation();
+      const list = e.target.closest?.('.color-picker-palettes');
+      const canScroll = list && (e.deltaY < 0
+        ? list.scrollTop > 0
+        : list.scrollTop + list.clientHeight < list.scrollHeight - 1);
+      if (!canScroll) e.preventDefault();
+    };
+    panel.addEventListener('wheel', onWheel, { passive: false });
+    return () => panel.removeEventListener('wheel', onWheel);
+  }, [isVisible, isPicking]);
+
   // A picker that goes away mid-pick leaves no listeners behind.
   useEffect(() => {
     if (!isVisible && isPicking) {
@@ -384,7 +436,7 @@ const ColorPicker = ({
     const offset = 8; // Distance from the trigger
     const pickerWidth = 240; // minWidth from the picker style
     // Update pickerHeight estimate for new sliders
-    const pickerHeight = 320;
+    const pickerHeight = mode === 'palettes' ? 380 : 320;
 
     // On mobile, center the picker on the viewport on both axes. The trigger
     // is usually at the bottom edge (control panel buttons) which puts the
@@ -457,6 +509,11 @@ const ColorPicker = ({
   };
 
   const currentPreviewColor = hsvToHex(selectedHue, selectedSaturation / 100, selectedBrightness / 100);
+  // What the chip shows and copies: the hex as typed or picked when it is
+  // whole, so a palette colour reads back exactly rather than through an HSV
+  // round trip that can land one step off.
+  const shownColor = HEX_RE.test(hexInput) ? hexInput.toLowerCase() : currentPreviewColor;
+  const hexTextColor = getTextColor(shownColor);
 
   // Generate gradient colors for saturation slider (gray to fully saturated at current hue/brightness)
   const saturationGradientStart = hsvToHex(selectedHue, 0, selectedBrightness / 100);
@@ -471,7 +528,7 @@ const ColorPicker = ({
   // what the in-use ring is drawn in. All three sliders take the same pair.
   const sliderVars = {
     '--slider-thumb': currentPreviewColor,
-    '--slider-stroke': theme.canvas.textPrimary
+    '--slider-stroke': PANEL_INK
   };
 
   // What both bars of the sight share; only their geometry differs.
@@ -503,10 +560,9 @@ const ColorPicker = ({
       onMouseUp={(e) => e.stopPropagation()}
       style={{
         ...getPositionStyle(),
-        backgroundColor: theme.canvas.bg,
-
-        border: `2px solid ${theme.canvas.textPrimary}`,
-        borderRadius: '8px',
+        backgroundColor: PANEL_FILL,
+        border: `2px solid ${PANEL_INK}`,
+        borderRadius: '16px',
         padding: '16px',
         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
         minWidth: '240px',
@@ -600,28 +656,16 @@ const ColorPicker = ({
         document.body
       )}
 
-      {/* Header: swatch, title, and the eyedropper. The palette icon that used to
-          float in the corner said nothing the title didn't already say; the
-          eyedropper earns the spot and sits on the header's own baseline
-          instead of over the padding. */}
+      {/* Header: title and the eyedropper. The swatch that used to lead it is
+          gone; the hex chip below is the colour itself, drawn as a Thing. */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
         marginBottom: '12px'
       }}>
-        <div
-          style={{
-            width: '24px',
-            height: '24px',
-            backgroundColor: currentPreviewColor,
-            border: `2px solid ${theme.canvas.textPrimary}`,
-            borderRadius: '4px',
-            flexShrink: 0
-          }}
-        />
         <span style={{
-          color: theme.canvas.textPrimary,
+          color: PANEL_INK,
           fontWeight: 'bold',
           fontSize: '14px',
           marginRight: 'auto'
@@ -632,9 +676,23 @@ const ColorPicker = ({
             grows into the pie-bubble fill and ring under the cursor. `active`
             holds that state while picking, so the button looks pressed with the
             app's own vocabulary rather than a second one invented here. */}
+        {/* Sliders or palettes. The icon names where it takes you. */}
+        <PanelIconButton
+          icon={mode === 'sliders' ? SwatchBook : SlidersHorizontal}
+          size={20}
+          color={PANEL_INK}
+          title={mode === 'sliders' ? 'Choose from a palette' : 'Back to sliders'}
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = mode === 'sliders' ? 'palettes' : 'sliders';
+            setMode(next);
+            saveMode(next);
+          }}
+        />
         <PanelIconButton
           icon={Pipette}
           size={20}
+          color={PANEL_INK}
           active={isPicking}
           title={isPicking
             ? 'Picking — click a color, or Esc to cancel'
@@ -647,103 +705,20 @@ const ColorPicker = ({
         />
       </div>
 
-      {/* Hue slider */}
-      <div style={{ marginBottom: '12px' }}>
-        <label style={{
-          display: 'block',
-          color: theme.canvas.textPrimary,
-          fontSize: '12px',
-          fontWeight: 'bold',
-          marginBottom: '4px'
-        }}>
-          Hue
-        </label>
-        <div style={{ position: 'relative' }}>
-          <input
-            {...sliderProps}
-            min="0"
-            max="360"
-            value={selectedHue}
-            onChange={handleHueChange}
-            style={{
-              ...sliderVars,
-              background: `linear-gradient(to right,
-                ${hsvToHex(0, selectedSaturation / 100, selectedBrightness / 100)},
-                ${hsvToHex(60, selectedSaturation / 100, selectedBrightness / 100)},
-                ${hsvToHex(120, selectedSaturation / 100, selectedBrightness / 100)},
-                ${hsvToHex(180, selectedSaturation / 100, selectedBrightness / 100)},
-                ${hsvToHex(240, selectedSaturation / 100, selectedBrightness / 100)},
-                ${hsvToHex(300, selectedSaturation / 100, selectedBrightness / 100)},
-                ${hsvToHex(360, selectedSaturation / 100, selectedBrightness / 100)}
-              )`
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Saturation slider */}
-      <div style={{ marginBottom: '12px' }}>
-        <label style={{
-          display: 'block',
-          color: theme.canvas.textPrimary,
-          fontSize: '12px',
-          fontWeight: 'bold',
-          marginBottom: '4px'
-        }}>
-          Saturation
-        </label>
-        <div style={{ position: 'relative' }}>
-          <input
-            {...sliderProps}
-            min="0"
-            max="100"
-            value={selectedSaturation}
-            onChange={handleSaturationChange}
-            style={{
-              ...sliderVars,
-              background: `linear-gradient(to right, ${saturationGradientStart}, ${saturationGradientEnd})`
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Brightness slider */}
-      <div style={{ marginBottom: '12px' }}>
-        <label style={{
-          display: 'block',
-          color: theme.canvas.textPrimary,
-          fontSize: '12px',
-          fontWeight: 'bold',
-          marginBottom: '4px'
-        }}>
-          Brightness
-        </label>
-        <div style={{ position: 'relative' }}>
-          <input
-            {...sliderProps}
-            min="0"
-            max="100"
-            value={selectedBrightness}
-            onChange={handleBrightnessChange}
-            style={{
-              ...sliderVars,
-              background: `linear-gradient(to right, ${brightnessGradientStart}, ${brightnessGradientEnd})`
-            }}
-          />
-        </div>
-      </div>
-
-      {/* Hex input */}
-      <div>
-        <label style={{
-          display: 'block',
-          color: theme.canvas.textPrimary,
-          fontSize: '12px',
-          fontWeight: 'bold',
-          marginBottom: '4px'
-        }}>
-          Hex Code
-        </label>
+      {/* Hex input, drawn as a Thing of the colour it names: a node's rounded
+          corners, no stroke, and the text colour a Thing of that colour carries.
+          The copy button wears that text colour too. */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        height: '40px',
+        marginBottom: '12px',
+        padding: '0 4px 0 12px',
+        borderRadius: '16px',
+        backgroundColor: shownColor,
+        boxSizing: 'border-box'
+      }}>
         <input
           type="text"
           value={hexInput}
@@ -754,21 +729,149 @@ const ColorPicker = ({
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
           placeholder="#8B0000"
+          aria-label="Hex code"
           style={{
-            width: '100%',
-            maxWidth: '100%',
+            flex: 1,
             minWidth: '0',
-            padding: '6px 8px',
-            border: `1px solid ${theme.canvas.textPrimary}`,
-            borderRadius: '4px',
-            backgroundColor: theme.darkMode ? theme.canvas.hover : '#EFE8E5',
-            color: theme.canvas.textPrimary,
-            fontSize: '14px',
+            height: '100%',
+            padding: 0,
+            border: 'none',
+            outline: 'none',
+            background: 'transparent',
+            color: hexTextColor,
+            fontSize: '16px',
+            fontWeight: 'bold',
             fontFamily: "'EmOne', sans-serif",
+            textAlign: 'left',
             boxSizing: 'border-box'
           }}
         />
+        <PanelIconButton
+          icon={Copy}
+          size={18}
+          color={hexTextColor}
+          title="Copy hex code"
+          onClick={(e) => {
+            e.stopPropagation();
+            copyText(shownColor);
+          }}
+        />
       </div>
+
+      {mode === 'sliders' ? (
+        <>
+          {/* Hue slider */}
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{
+              display: 'block',
+              color: PANEL_INK,
+              fontSize: '12px',
+              fontWeight: 'bold',
+              marginBottom: '4px'
+            }}>
+              Hue
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                {...sliderProps}
+                min="0"
+                max="360"
+                value={selectedHue}
+                onChange={handleHueChange}
+                style={{
+                  ...sliderVars,
+                  background: `linear-gradient(to right,
+                    ${hsvToHex(0, selectedSaturation / 100, selectedBrightness / 100)},
+                    ${hsvToHex(60, selectedSaturation / 100, selectedBrightness / 100)},
+                    ${hsvToHex(120, selectedSaturation / 100, selectedBrightness / 100)},
+                    ${hsvToHex(180, selectedSaturation / 100, selectedBrightness / 100)},
+                    ${hsvToHex(240, selectedSaturation / 100, selectedBrightness / 100)},
+                    ${hsvToHex(300, selectedSaturation / 100, selectedBrightness / 100)},
+                    ${hsvToHex(360, selectedSaturation / 100, selectedBrightness / 100)}
+                  )`
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Saturation slider */}
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{
+              display: 'block',
+              color: PANEL_INK,
+              fontSize: '12px',
+              fontWeight: 'bold',
+              marginBottom: '4px'
+            }}>
+              Saturation
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                {...sliderProps}
+                min="0"
+                max="100"
+                value={selectedSaturation}
+                onChange={handleSaturationChange}
+                style={{
+                  ...sliderVars,
+                  background: `linear-gradient(to right, ${saturationGradientStart}, ${saturationGradientEnd})`
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Brightness slider */}
+          <div>
+            <label style={{
+              display: 'block',
+              color: PANEL_INK,
+              fontSize: '12px',
+              fontWeight: 'bold',
+              marginBottom: '4px'
+            }}>
+              Brightness
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                {...sliderProps}
+                min="0"
+                max="100"
+                value={selectedBrightness}
+                onChange={handleBrightnessChange}
+                style={{
+                  ...sliderVars,
+                  background: `linear-gradient(to right, ${brightnessGradientStart}, ${brightnessGradientEnd})`
+                }}
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="color-picker-palettes">
+          {PALETTE_LIST.map((palette) => (
+            <div key={palette.name} className="color-picker-palette">
+              <div className="color-picker-palette-name">{palette.name}</div>
+              <div className="color-picker-palette-swatches">
+                {Object.entries(palette.colors).map(([colorKey, hex]) => (
+                  <button
+                    key={colorKey}
+                    type="button"
+                    className={`color-picker-swatch${hex.toLowerCase() === shownColor ? ' is-current' : ''}`}
+                    style={{ backgroundColor: hex }}
+                    title={`${palette.name}: ${colorKey.replace(/-/g, ' ')} ${hex}`}
+                    aria-label={`${palette.name} ${colorKey.replace(/-/g, ' ')}`}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      applySampledColor(hex.toLowerCase());
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

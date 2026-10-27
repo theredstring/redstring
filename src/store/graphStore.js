@@ -34,6 +34,7 @@ import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from '
 import { importFromRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 import { userDataCounts } from '../formats/userDataCounts.js';
 import { mergeUniverses } from '../formats/mergeUniverses.js';
+import { restoreFormulaParts } from '../components/canvas/formats/formula/formulaParts.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import {
   PLACEHOLDER_ID_PREFIX,
@@ -52,7 +53,11 @@ import {
   anchorIdFromOpenGroupId,
   openGroupId,
   initialOpenOffset,
+  openInPlaceBlock,
   projectGraphView,
+  storedIdOf,
+  storedGroupIdOf,
+  viewIdOf,
 } from '../core/openDefinitions.js';
 import { rightPanelTabKey } from '../utils/rightPanelTabs.js';
 import useHistoryStore from './historyStore.js';
@@ -197,14 +202,17 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {boolean} showMultipleNodesControlPanel - Whether the multi-node control panel is visible.
  * @property {boolean} showConnectionControlPanel - Whether the connection control panel is visible.
  * @property {boolean} showGroupControlPanel - Whether the group control panel is visible.
+ * @property {boolean} showEquationControlPanel - Whether the equation (format) control panel is visible.
  * @property {boolean} showAbstractionControlPanel - Whether the abstraction chain control panel is visible.
  * @property {Object} gridSettings - `{ mode: 'off'|'move'|'always', size: number, snapMode: 'if-enabled'|'always'|'never', appearance: 'lattice'|'dot' }`.
  * @property {Object} dragZoomSettings - `{ enabled: boolean, zoomAmount: number }`.
  * @property {boolean} focusOnSelectEnabled - Whether selecting a single Thing frames it in view.
+ * @property {boolean} focusOnSelectConnectionsEnabled - Whether selecting a connection frames its menu in view.
+ * @property {boolean} focusOnSelectGroupsEnabled - Whether selecting a Thing-group or equation frames it in view.
  * @property {number} focusOnSelectZoomAmount - Framing tightness for focus-on-select, in range [0.5, 1.5]; 1.0 is the tuned default.
  * @property {Object} autoLayoutSettings - Force-directed layout parameters.
  * @property {Object} forceTunerSettings - Advanced force tuner parameters (mirrors autoLayoutSettings structure).
- * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale }`.
+ * @property {Object} textSettings - `{ fontSize, lineSpacing, nodeScale, connectionWidth, plusSignScale, pieMenuScale, groupTitleScale, groupTitleGrow, groupTitleGrowMax }`.
  * @property {Object} keyboardSettings - `{ zoomSensitivity, panSensitivity }` in range [0, 1].
  * @property {Object} mouseSettings - Mouse interaction flags: `{ middleMouseZoomEnabled, nodeDragEdgePanEnabled, connectionDrawEdgePanEnabled, marqueeEdgePanEnabled, glideEnabled, glideStrength, nodeLiftDelay }`.
  * @property {Object} touchSettings - Touch/trackpad settings: `{ zoomSensitivity, panSensitivity, glideEnabled, glideStrength, trackpadZoomSensitivity, trackpadPanSensitivity, pinchGlideEnabled, pinchGlideStrength, trackpadZoomGlideEnabled, trackpadZoomGlideStrength, trackpadPanGlideEnabled, trackpadPanGlideStrength }`.
@@ -602,15 +610,19 @@ const normalizeEdgeDirectionality = (directionality) => {
  * @param {Object} storeState - Deserialized store state. Mutated.
  */
 const sanitizeStoreStateReferences = (storeState) => {
-  // Normalize all edge directionality to ensure arrowsToward is always a Set
+  // Normalize all edge directionality to ensure arrowsToward is always a Set.
+  // An edge already in the live store is frozen (immer), as a merge's base
+  // edges are: the entry is replaced, never written into.
   if (storeState.edges) {
     for (const [edgeId, edgeData] of storeState.edges.entries()) {
+      let directionality;
       try {
-        edgeData.directionality = normalizeEdgeDirectionality(edgeData.directionality);
+        directionality = normalizeEdgeDirectionality(edgeData.directionality);
       } catch (error) {
         console.warn(`[graphStore] Error normalizing edge ${edgeId} directionality:`, error);
-        edgeData.directionality = { arrowsToward: new Set() };
+        directionality = { arrowsToward: new Set() };
       }
+      if (directionality !== edgeData.directionality) storeState.edges.set(edgeId, { ...edgeData, directionality });
     }
   }
 
@@ -713,7 +725,9 @@ const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, 
       prototypeId: srcInst.prototypeId,
       x: (srcInst.x ?? 0) + offsetX,
       y: (srcInst.y ?? 0) + offsetY,
-      scale: srcInst.scale ?? 1
+      scale: srcInst.scale ?? 1,
+      // How this one is written (a formula's q₁ for Electric Charge): the copy is written so too.
+      ...(srcInst.labels ? { labels: { ...srcInst.labels } } : {})
     });
   }
 
@@ -770,6 +784,11 @@ const copySubgraphInto = (draft, { sourceGraph, sourceInstanceIds, targetGraph, 
 // shows live in that definition instead, drawn at an offset. These helpers let the
 // instance actions take the view's graph id and still write to the right graph,
 // in the right coordinates.
+//
+// A definition open in more than one box shows its instances, connections and
+// groups under view ids in the repeats (`box/node`). Actions take view ids and
+// write stored ones: an owner carries the stored `instanceId`, and storedIdOf /
+// storedGroupIdOf read one off any other id. Nothing saved holds a view id.
 
 // Rebuilt whenever graphs or prototypes change; one walk per view per state.
 const openMapCache = { graphs: null, nodePrototypes: null, byView: new Map() };
@@ -788,14 +807,30 @@ const openMapFor = (state, viewGraphId) => {
 };
 
 /**
- * The owner of an instance addressed through `viewGraphId` when it lives inside an
- * open definition. Null for the view graph's own instances and for unknown ids, so
- * callers fall through to their ordinary path.
+ * The owner of an instance addressed (by view id) through `viewGraphId` when it
+ * lives inside an open definition, with its stored `instanceId`. Null for the view
+ * graph's own instances and for unknown ids, so callers fall through to their
+ * ordinary path.
  */
 const openOwnerOf = (state, viewGraphId, instanceId) => {
   if (state.graphs.get(viewGraphId)?.instances?.has(instanceId)) return null;
   const owner = resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, instanceId, openMapFor(state, viewGraphId));
   return owner && owner.graphId !== viewGraphId ? owner : null;
+};
+
+/**
+ * The graph a group addressed through `viewGraphId` is stored in. The view also
+ * draws the groups inside its open definitions, so a group picked on the canvas
+ * may live in one of those. Falls back to the view graph, so an unknown group
+ * still takes its caller's ordinary not-found path.
+ */
+const groupHomeGraphId = (state, viewGraphId, groupId) => {
+  const storedId = storedGroupIdOf(groupId);
+  if (!groupId || state.graphs.get(viewGraphId)?.groups?.has(storedId)) return viewGraphId;
+  for (const box of openMapFor(state, viewGraphId).boxes.values()) {
+    if (state.graphs.get(box.defGraphId)?.groups?.has(storedId)) return box.defGraphId;
+  }
+  return viewGraphId;
 };
 
 /**
@@ -825,7 +860,7 @@ const applyInViewCoordinates = (instance, offset, recipe) => {
 const setOpenBoxOrigin = (draft, map, anchorId, viewOrigin) => {
   const box = map.boxes.get(anchorId);
   if (!box) return;
-  const anchor = draft.graphs.get(box.ownerGraphId)?.instances?.get(anchorId);
+  const anchor = draft.graphs.get(box.ownerGraphId)?.instances?.get(box.instanceId);
   if (!anchor?.openDefinition) return;
   const outer = map.owners.get(anchorId)?.offset || { x: 0, y: 0 };
   anchor.openDefinition.offset = { x: viewOrigin.x - outer.x, y: viewOrigin.y - outer.y };
@@ -838,18 +873,25 @@ const setOpenBoxOrigin = (draft, map, anchorId, viewOrigin) => {
  * A box whose every instance moved (the box was dragged, or a group around it was)
  * moves as a whole: only its placement changes, so the definition's arrangement,
  * and every other place it is shown, stays put. Anything else inside a box moves
- * within the definition.
+ * within the definition. `parkedAnchors`: the batch only parks anchors under
+ * their titles (anchorFlush.js), so no box moves as a whole: a box holding
+ * nothing but another box's anchor would otherwise read as dragged, move its
+ * title, and be parked and moved again every frame.
  */
-const applyOpenDefinitionMoves = (draft, map, updates) => {
+const applyOpenDefinitionMoves = (draft, map, updates, parkedAnchors = false) => {
   const handled = new Set();
   const byId = new Map();
   updates.forEach(update => byId.set(update.instanceId, update));
 
+  // An empty box has nothing inside to move it: the drag carries its origin
+  // (a placeholder id). Set after the boxes moved whole below, so one inside a
+  // box that moved rides with it instead of moving again on top.
+  const emptyBoxMoves = [];
   updates.forEach(({ instanceId, x, y }) => {
     if (typeof instanceId !== 'string' || !instanceId.startsWith(PLACEHOLDER_ID_PREFIX)) return;
     const anchorId = anchorIdFromOpenGroupId(instanceId.slice(PLACEHOLDER_ID_PREFIX.length));
     if (anchorId && map.boxes.has(anchorId)) {
-      setOpenBoxOrigin(draft, map, anchorId, { x, y });
+      emptyBoxMoves.push({ anchorId, x, y });
       handled.add(instanceId);
     }
   });
@@ -862,25 +904,31 @@ const applyOpenDefinitionMoves = (draft, map, updates) => {
     });
   });
   const outermostFirst = Array.from(map.boxes.values()).sort((a, b) => a.path.length - b.path.length);
-  for (const box of outermostFirst) {
+  const movedWhole = new Set();
+  for (const box of parkedAnchors ? [] : outermostFirst) {
     const inside = subtrees.get(box.anchorId) || [];
     if (inside.length === 0 || !inside.every(id => byId.has(id) && !handled.has(id))) continue;
     const first = inside[0];
     const owner = map.owners.get(first);
-    const stored = draft.graphs.get(owner.graphId)?.instances?.get(first);
+    const stored = draft.graphs.get(owner.graphId)?.instances?.get(owner.instanceId);
     if (!stored) continue;
     const dx = byId.get(first).x - ((stored.x ?? 0) + owner.offset.x);
     const dy = byId.get(first).y - ((stored.y ?? 0) + owner.offset.y);
     setOpenBoxOrigin(draft, map, box.anchorId, { x: box.offset.x + dx, y: box.offset.y + dy });
     inside.forEach(id => handled.add(id));
+    movedWhole.add(box.anchorId);
   }
+  emptyBoxMoves.forEach(({ anchorId, x, y }) => {
+    if (map.boxes.get(anchorId).path.some(step => movedWhole.has(step.anchorId))) return;
+    setOpenBoxOrigin(draft, map, anchorId, { x, y });
+  });
 
   const rest = [];
   updates.forEach(update => {
     if (handled.has(update.instanceId)) return;
     const owner = map.owners.get(update.instanceId);
     if (!owner) { rest.push(update); return; }
-    const stored = draft.graphs.get(owner.graphId)?.instances?.get(update.instanceId);
+    const stored = draft.graphs.get(owner.graphId)?.instances?.get(owner.instanceId);
     if (stored) {
       stored.x = update.x - owner.offset.x;
       stored.y = update.y - owner.offset.y;
@@ -1100,18 +1148,6 @@ const copyGroupsInto = (draft, { sourceGraph, targetGraph, instanceIdMap, offset
 };
 
 /**
- * True when every instance a group hangs on lives in `instanceIdSet` — i.e. the group
- * is nested inside whatever that set represents, rather than merely overlapping it.
- *
- * Used when a set of instances is about to disappear (combine, refresh-from-definition):
- * a nested group has nothing left to hold and must go with them, whereas a *containing*
- * group survives and only needs its membership list patched.
- *
- * @param {Object} group
- * @param {Set<string>} instanceIdSet
- * @returns {boolean}
- */
-/**
  * An instance merged away into another in the same web: the groups it was in
  * now hold the one it became (once). Leaving its id behind made the group
  * point at nothing, which a later load or a collaborator's copy then dropped.
@@ -1126,6 +1162,43 @@ const replaceGroupMember = (graph, removedId, keptId) => {
   }
 };
 
+/**
+ * Moves how a Thing-group is shown (formats/: `format`, 'formula') and the format
+ * it is still linked to while shown as its Things (`linkedFormat`) between the
+ * group and its node. The group holds them while it is open; folded, its node
+ * does, so opening it again shows it the same way. Per placement: another
+ * instance of the same Thing opens as its Things.
+ *
+ * A formula's size is its node's: folded it is that Size of Thing, open that
+ * Size of equation. A group holds it as `formulaSize`, its node as `sizeMul`.
+ */
+const FORMAT_KEYS = ['format', 'linkedFormat'];
+const isGroupRecord = (record) => Array.isArray(record?.memberInstanceIds);
+const moveFormat = (from, to) => {
+  const formatted = Boolean(from?.format || from?.linkedFormat);
+  for (const key of FORMAT_KEYS) {
+    if (from?.[key]) to[key] = from[key]; else delete to[key];
+    if (from) delete from[key];
+  }
+  if (!formatted) return;
+  const size = isGroupRecord(from) ? from.formulaSize : from.sizeMul;
+  const sizeKey = isGroupRecord(to) ? 'formulaSize' : 'sizeMul';
+  if (size > 0 && size !== 1) to[sizeKey] = size; else delete to[sizeKey];
+  if (isGroupRecord(from)) delete from.formulaSize;
+};
+
+/**
+ * True when every instance a group hangs on lives in `instanceIdSet` — i.e. the group
+ * is nested inside whatever that set represents, rather than merely overlapping it.
+ *
+ * Used when a set of instances is about to disappear (combine, refresh-from-definition):
+ * a nested group has nothing left to hold and must go with them, whereas a *containing*
+ * group survives and only needs its membership list patched.
+ *
+ * @param {Object} group
+ * @param {Set<string>} instanceIdSet
+ * @returns {boolean}
+ */
 const isGroupContainedInInstances = (group, instanceIdSet) => {
   if (!group) return false;
   // Anchor first: an empty node-group placeholder has no members to test with.
@@ -2152,9 +2225,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     showMultipleNodesControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_multi_node_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
-    // Decompose opens a Thing onto its definition itself (true) or copies the
-    // definition into a node-group saved back by hand (false). See core/openDefinitions.js.
-    openDefinitionsInPlace: (() => { try { const s = localStorage.getItem('redstring_open_definitions_in_place'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    showEquationControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_equation_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     hoverPreviewSize: (() => {
       try {
@@ -2215,6 +2286,24 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         return true;
       }
     })(),
+    // The same, for a connection (its menu) and for a Thing-group or equation
+    // (the whole group with its menu). Each has its own toggle in Settings.
+    focusOnSelectConnectionsEnabled: (() => {
+      try {
+        const raw = localStorage.getItem('redstring_focus_on_select_connections_enabled');
+        return raw ? raw === 'true' : true;
+      } catch (_) {
+        return true;
+      }
+    })(),
+    focusOnSelectGroupsEnabled: (() => {
+      try {
+        const raw = localStorage.getItem('redstring_focus_on_select_groups_enabled');
+        return raw ? raw === 'true' : true;
+      } catch (_) {
+        return true;
+      }
+    })(),
     // How tightly focus-on-select frames its target. A multiplier on the frame
     // zoom the canvas computes, not on the framing geometry: the pie-menu fit
     // that geometry encodes stays correct at every setting, and 1.0 is exactly
@@ -2241,9 +2330,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           connectionWidth: parseFloat(localStorage.getItem('redstring_connection_width')) || 1.0,
           plusSignScale: parseFloat(localStorage.getItem('redstring_plus_sign_scale')) || 1.0,
           pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.0,
+          groupTitleScale: parseFloat(localStorage.getItem('redstring_group_title_scale')) || 1.0,
+          groupTitleGrow: localStorage.getItem('redstring_group_title_grow') === 'true',
+          groupTitleGrowMax: parseFloat(localStorage.getItem('redstring_group_title_grow_max')) || 6.0,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0, groupTitleScale: 1.0, groupTitleGrow: false, groupTitleGrowMax: 6.0 };
       }
     })(),
 
@@ -2489,7 +2581,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags (isDragging, phase, etc.).
      * @returns {string|null} The new group ID, or null if the graph was not found.
      */
-    createGroup: (graphId, { name = 'Group', color = '#8B0000', memberInstanceIds = [] } = {}, contextOptions = {}) => {
+    createGroup: (graphId, { name = 'Group', color = '#8B0000', memberInstanceIds = [], format } = {}, contextOptions = {}) => {
       api.setChangeContext({ type: 'group_create', target: 'group', ...contextOptions });
       let createdGroupId = null;
       set(produce((draft) => {
@@ -2507,6 +2599,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           name,
           color,
           memberInstanceIds: Array.from(new Set(memberInstanceIds)),
+          // Shown as this format instead of as its Things (formats/; 'formula').
+          ...(format ? { format } : {}),
           semanticMetadata: {
             type: 'Group',
             relationships: memberInstanceIds.map(memberId => ({
@@ -2538,22 +2632,42 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     updateGroup: (graphId, groupId, recipe, contextOptions = {}) => {
-      // An open box's group only exists in the view; its name and color are the Thing's.
+      // An open box's group only exists in the view; its name and color are the
+      // Thing's, and how it is shown (format) is its node's.
       if (anchorIdFromOpenGroupId(groupId)) {
         const view = get().graphs.get(graphId);
         const state = get();
-        const owner = openOwnerOf(state, graphId, anchorIdFromOpenGroupId(groupId));
-        const anchor = state.graphs.get(owner?.graphId || graphId)?.instances?.get(anchorIdFromOpenGroupId(groupId));
+        const anchorOwner = openOwnerOf(state, graphId, anchorIdFromOpenGroupId(groupId));
+        const ownerGraphId = anchorOwner?.graphId || graphId;
+        const anchorId = anchorOwner?.instanceId || anchorIdFromOpenGroupId(groupId);
+        const anchor = state.graphs.get(ownerGraphId)?.instances?.get(anchorId);
         const prototype = anchor ? state.nodePrototypes.get(anchor.prototypeId) : null;
         if (!view || !prototype) return;
-        const standIn = { id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [] };
+        const standIn = {
+          id: groupId, name: prototype.name, color: prototype.color, linkedNodePrototypeId: prototype.id, memberInstanceIds: [],
+          ...(anchor.format ? { format: anchor.format } : {}),
+          ...(anchor.linkedFormat ? { linkedFormat: anchor.linkedFormat } : {}),
+          // Its formula's size is its node's (see moveFormat).
+          ...(anchor.sizeMul > 0 && anchor.sizeMul !== 1 ? { formulaSize: anchor.sizeMul } : {}),
+        };
+        const sizeBefore = standIn.formulaSize || null;
         recipe(standIn);
         const nameChanged = standIn.name !== prototype.name;
         const colorChanged = standIn.color !== prototype.color;
-        if (!nameChanged && !colorChanged) return;
+        const formatChanged = FORMAT_KEYS.some(key => (standIn[key] || null) !== (anchor[key] || null))
+          || (standIn.formulaSize || null) !== sizeBefore;
+        if (!nameChanged && !colorChanged && !formatChanged) return;
         api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
-        return set(produce((draft) => syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged)));
+        return set(produce((draft) => {
+          if (nameChanged || colorChanged) syncNodeGroupIdentity(draft, standIn, nameChanged, colorChanged);
+          const draftAnchor = draft.graphs.get(ownerGraphId)?.instances?.get(anchorId);
+          if (formatChanged && draftAnchor) {
+            moveFormat({ format: standIn.format, linkedFormat: standIn.linkedFormat, formulaSize: standIn.formulaSize, memberInstanceIds: [] }, draftAnchor);
+          }
+        }));
       }
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2615,11 +2729,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Adding to an open box puts the nodes into its definition.
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().moveInstancesIntoOpenDefinition(graphId, openAnchorId, instanceIds, contextOptions);
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph?.groups) return;
-        addMembersWithAncestors(graph, groupId, instanceIds);
+        addMembersWithAncestors(graph, groupId, (instanceIds || []).map(storedIdOf));
       }));
     },
 
@@ -2636,11 +2751,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     removeInstancesFromGroup: (graphId, groupId, instanceIds, contextOptions = {}) => {
       // Nodes leave an open box only by being deleted from its definition.
       if (anchorIdFromOpenGroupId(groupId)) return;
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph?.groups) return;
-        removeMembersWithDescendants(graph, groupId, instanceIds);
+        removeMembersWithDescendants(graph, groupId, (instanceIds || []).map(storedIdOf));
       }));
     },
 
@@ -2656,7 +2773,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Object} [contextOptions] - Save context flags.
      */
     updateGroupWithMembers: (graphId, groupId, updates = {}, contextOptions = {}) => {
-      if (anchorIdFromOpenGroupId(groupId)) return;
+      // An open box: its name and color are its Thing's, and a node joins it by
+      // moving into its definition. One leaves only by being deleted there.
+      if (anchorIdFromOpenGroupId(groupId)) {
+        const { name, color, addMemberIds = [] } = updates;
+        return api.withHistoryTransaction('Updated group', () => {
+          if (name || color) {
+            get().updateGroup(graphId, groupId, (g) => { if (name) g.name = name; if (color) g.color = color; }, contextOptions);
+          }
+          if (addMemberIds?.length) get().addInstancesToGroup(graphId, groupId, addMemberIds, contextOptions);
+        });
+      }
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2669,8 +2797,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (nameChanged) group.name = name;
         if (colorChanged) group.color = color;
 
-        if (addMemberIds?.length) addMembersWithAncestors(graph, groupId, addMemberIds);
-        if (removeMemberIds?.length) removeMembersWithDescendants(graph, groupId, removeMemberIds);
+        if (addMemberIds?.length) addMembersWithAncestors(graph, groupId, addMemberIds.map(storedIdOf));
+        if (removeMemberIds?.length) removeMembersWithDescendants(graph, groupId, removeMemberIds.map(storedIdOf));
 
         syncNodeGroupIdentity(draft, group, nameChanged, colorChanged);
       }));
@@ -2685,10 +2813,58 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} groupId - ID of the group to delete.
      * @param {Object} [contextOptions] - Save context flags.
      */
+    /**
+     * Delete a group and everything in it, as one undo step: its Things, its
+     * anchor, every group inside it (a formula's parts) with theirs, and every
+     * connection touching any of them. What deleteGroup leaves standing
+     * (ungrouping), this takes with it.
+     */
+    deleteGroupAndContents: (graphId, groupId, contextOptions = {}) => {
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
+      api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
+      return set(produce((draft) => {
+        const graph = draft.graphs.get(graphId);
+        const group = graph?.groups?.get(groupId);
+        if (!group) return;
+        const instanceIds = new Set(group.memberInstanceIds || []);
+        if (group.anchorInstanceId) instanceIds.add(group.anchorInstanceId);
+        // A group is inside when all its Things are (and so its anchor goes too).
+        const groupIds = new Set([groupId]);
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const [id, g] of graph.groups) {
+            if (groupIds.has(id) || !g.memberInstanceIds?.length) continue;
+            if (!g.memberInstanceIds.every(m => instanceIds.has(m))) continue;
+            groupIds.add(id);
+            if (g.anchorInstanceId) instanceIds.add(g.anchorInstanceId);
+            grew = true;
+          }
+        }
+        const edgeIds = new Set();
+        for (const [edgeId, edge] of draft.edges) if (edgeTouches(edge, instanceIds)) edgeIds.add(edgeId);
+        edgeIds.forEach(edgeId => draft.edges.delete(edgeId));
+        dropEdgeIdsEverywhere(draft, edgeIds);
+        instanceIds.forEach((id) => {
+          graph.instances.delete(id);
+          draft.pendingDeletions?.delete(id);
+        });
+        groupIds.forEach(id => graph.groups.delete(id));
+        // Out of any group it sat in.
+        for (const g of graph.groups.values()) {
+          if (g.memberInstanceIds?.some(m => instanceIds.has(m))) {
+            g.memberInstanceIds = g.memberInstanceIds.filter(m => !instanceIds.has(m));
+          }
+        }
+      }));
+    },
+
     deleteGroup: (graphId, groupId, contextOptions = {}) => {
       // An open box's group is the view of an open node: removing it closes the node.
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_delete', target: 'group', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -2991,82 +3167,101 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           return;
         }
 
-        memberInstances.forEach(({ instId, instance }) => {
-          const newInstId = uuidv4();
-          instanceIdMap.set(instId, newInstId);
-          defGraphData.instances.set(newInstId, {
-            id: newInstId,
-            prototypeId: instance.prototypeId,
-            x: instance.x,
-            y: instance.y,
-            scale: instance.scale || 1.0
+        // Linking to a definition the Thing already has (the same equation placed
+        // again): no second definition web, the group reads as that one.
+        const reuseIndex = contextOptions.useDefinitionIndex;
+        const reuseGraphId = Number.isInteger(reuseIndex) ? prototype.definitionGraphIds?.[reuseIndex] : null;
+        const reusing = !!reuseGraphId && draft.graphs.has(reuseGraphId);
+        if (reusing) definitionIndex = reuseIndex;
+        if (!reusing) {
+          memberInstances.forEach(({ instId, instance }) => {
+            const newInstId = uuidv4();
+            instanceIdMap.set(instId, newInstId);
+            defGraphData.instances.set(newInstId, {
+              id: newInstId,
+              prototypeId: instance.prototypeId,
+              x: instance.x,
+              y: instance.y,
+              scale: instance.scale || 1.0,
+              ...(instance.labels ? { labels: { ...instance.labels } } : {})
+            });
           });
-        });
 
-        // Copy edges between group members to the definition graph with remapped instance IDs
-        const memberInstIds = new Set(group.memberInstanceIds || []);
-        graph.edgeIds?.forEach(edgeId => {
-          const edge = draft.edges.get(edgeId);
-          if (!edge) return;
+          // Copy edges between group members to the definition graph with remapped instance IDs
+          const memberInstIds = new Set(group.memberInstanceIds || []);
+          graph.edgeIds?.forEach(edgeId => {
+            const edge = draft.edges.get(edgeId);
+            if (!edge) return;
 
-          const sourceMapped = memberInstIds.has(edge.sourceId) ? instanceIdMap.get(edge.sourceId) : null;
-          const destMapped = memberInstIds.has(edge.destinationId) ? instanceIdMap.get(edge.destinationId) : null;
+            const sourceMapped = memberInstIds.has(edge.sourceId) ? instanceIdMap.get(edge.sourceId) : null;
+            const destMapped = memberInstIds.has(edge.destinationId) ? instanceIdMap.get(edge.destinationId) : null;
 
-          if (sourceMapped && destMapped) {
-            const newEdgeId = uuidv4();
-            const normalizedDirectionality = normalizeEdgeDirectionality(edge.directionality);
-            const newArrowsToward = new Set(normalizedDirectionality.arrowsToward || []);
+            if (sourceMapped && destMapped) {
+              const newEdgeId = uuidv4();
+              const normalizedDirectionality = normalizeEdgeDirectionality(edge.directionality);
+              const newArrowsToward = new Set(normalizedDirectionality.arrowsToward || []);
 
-            if (newArrowsToward.has(edge.sourceId)) {
-              newArrowsToward.delete(edge.sourceId);
-              newArrowsToward.add(sourceMapped);
-            }
-            if (newArrowsToward.has(edge.destinationId)) {
-              newArrowsToward.delete(edge.destinationId);
-              newArrowsToward.add(destMapped);
-            }
-
-            const newEdgeData = {
-              ...edge,
-              id: newEdgeId,
-              sourceId: sourceMapped,
-              destinationId: destMapped,
-              directionality: {
-                ...normalizedDirectionality,
-                arrowsToward: newArrowsToward
+              if (newArrowsToward.has(edge.sourceId)) {
+                newArrowsToward.delete(edge.sourceId);
+                newArrowsToward.add(sourceMapped);
               }
-            };
-            newEdgeData.graphId = defGraphId;
-
-            if (Array.isArray(edge.definitionNodeIds)) {
-              newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
-            }
-            if (edge.metadata && typeof edge.metadata === 'object') {
-              try {
-                newEdgeData.metadata = JSON.parse(JSON.stringify(edge.metadata));
-              } catch {
-                newEdgeData.metadata = { ...edge.metadata };
+              if (newArrowsToward.has(edge.destinationId)) {
+                newArrowsToward.delete(edge.destinationId);
+                newArrowsToward.add(destMapped);
               }
-            }
 
-            draft.edges.set(newEdgeId, newEdgeData);
-            defGraphData.edgeIds.push(newEdgeId);
+              const newEdgeData = {
+                ...edge,
+                id: newEdgeId,
+                sourceId: sourceMapped,
+                destinationId: destMapped,
+                directionality: {
+                  ...normalizedDirectionality,
+                  arrowsToward: newArrowsToward
+                }
+              };
+              newEdgeData.graphId = defGraphId;
+
+              if (Array.isArray(edge.definitionNodeIds)) {
+                newEdgeData.definitionNodeIds = [...edge.definitionNodeIds];
+              }
+              if (edge.metadata && typeof edge.metadata === 'object') {
+                try {
+                  newEdgeData.metadata = JSON.parse(JSON.stringify(edge.metadata));
+                } catch {
+                  newEdgeData.metadata = { ...edge.metadata };
+                }
+              }
+
+              draft.edges.set(newEdgeId, newEdgeData);
+              defGraphData.edgeIds.push(newEdgeId);
+            }
+          });
+
+          // The groups inside it go too (a formula's parentheses are Thing-groups
+          // inside the equation's), or the definition holds each part's Thing
+          // beside its own parts and no longer reads as what it was.
+          copyGroupsInto(draft, {
+            sourceGraph: graph,
+            targetGraph: defGraphData,
+            instanceIdMap,
+            excludeGroupIds: [groupId],
+          });
+
+          draft.graphs.set(defGraphId, defGraphData);
+
+          // Add definition to prototype
+          if (!Array.isArray(prototype.definitionGraphIds)) {
+            prototype.definitionGraphIds = [];
           }
-        });
-
-        draft.graphs.set(defGraphId, defGraphData);
-
-        // Add definition to prototype
-        if (!Array.isArray(prototype.definitionGraphIds)) {
-          prototype.definitionGraphIds = [];
+          prototype.definitionGraphIds.push(defGraphId);
+          definitionIndex = prototype.definitionGraphIds.length - 1;
         }
-        prototype.definitionGraphIds.push(defGraphId);
-        definitionIndex = prototype.definitionGraphIds.length - 1;
 
         // Update group with node-group properties
         group.linkedNodePrototypeId = prototypeId;
         group.linkedDefinitionIndex = definitionIndex;
-        group.definitionFingerprint = contentFingerprint(draft, draft.graphs.get(defGraphId));
+        group.definitionFingerprint = contentFingerprint(draft, draft.graphs.get(reusing ? reuseGraphId : defGraphId));
         group.hasCustomLayout = false; // Start with default syncing
         // Identity now belongs to the prototype — the group mirrors it from here on.
         group.name = prototype.name;
@@ -3101,6 +3296,169 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
 
+    /**
+     * Makes a group a Thing-group opened in place: its members become the
+     * Thing's definition, the very instances, so their ids and connections
+     * stay, and the Thing is opened in place where they stood. The box is that
+     * definition: there is nothing to save or refresh.
+     *
+     * Same arguments as convertGroupToNodeGroup. `viewGraphId` may be any web the
+     * group is seen in (it can live in a definition opened there).
+     *
+     * @returns {string|null} The Thing-group's id (`open:<node>` when opened in
+     *   place), or null when it was refused (an empty group).
+     */
+    convertGroupToThingInPlace: (viewGraphId, groupId, nodePrototypeId, createNewPrototype = false, newPrototypeName = '', newPrototypeColor = '#8B0000', contextOptions = {}) => {
+      const homeGraphId = groupHomeGraphId(get(), viewGraphId, groupId);
+      groupId = storedGroupIdOf(groupId);
+      return api.withHistoryTransaction('Converted to Thing-group', () => {
+        get().convertGroupToNodeGroup(homeGraphId, groupId, nodePrototypeId, createNewPrototype, newPrototypeName, newPrototypeColor, contextOptions);
+        const group = get().graphs.get(homeGraphId)?.groups?.get(groupId);
+        if (!group?.linkedNodePrototypeId || !group.anchorInstanceId) return null;
+        // Read as a definition the Thing has already (a formula's): the group is its copy.
+        if (Number.isInteger(contextOptions.useDefinitionIndex)) return groupId;
+        const boxId = get().openThingGroupInPlace(viewGraphId, groupId, contextOptions);
+        if (!boxId) return groupId;
+        // Thing-groups it holds that are still copies open in place inside it too.
+        get().openCopiesInPlace(viewGraphId, boxId, contextOptions);
+        return boxId;
+      });
+    },
+
+    /**
+     * Every copy-style Thing-group drawn inside a box (or anywhere in the web,
+     * without one) made its Thing opened in place there, outermost first, until
+     * none is left: opening one shows the copies its own definition holds (a
+     * formula's parentheses inside parentheses). reopenThingGroupInPlace each.
+     *
+     * @param {string} viewGraphId
+     * @param {string|null} [boxId] - An open box's group id, to stay inside it.
+     */
+    openCopiesInPlace: (viewGraphId, boxId = null, contextOptions = {}) => {
+      api.withHistoryTransaction('Opened in place', () => {
+        const tried = new Set();
+        for (;;) {
+          const view = projectGraphView(get(), viewGraphId);
+          const box = boxId ? view?.groups?.get(boxId) : null;
+          if (boxId && !box) return;
+          const inBox = box ? new Set(box.memberInstanceIds || []) : null;
+          const copies = [...(view?.groups?.values() || [])].filter(g => !g.isOpenDefinition && !tried.has(g.id)
+            && g.linkedNodePrototypeId && g.anchorInstanceId && (!inBox || inBox.has(g.anchorInstanceId)));
+          if (copies.length === 0) return;
+          copies.sort((a, b) => (b.memberInstanceIds?.length || 0) - (a.memberInstanceIds?.length || 0));
+          tried.add(copies[0].id);
+          get().reopenThingGroupInPlace(viewGraphId, copies[0].id, contextOptions);
+        }
+      });
+    },
+
+    /**
+     * A Thing-group just made from its group (convertGroupToNodeGroup, in the
+     * same step), opened in place over its members. Its definition holds copies
+     * of them; the members themselves go in instead, ids, connections and the
+     * groups inside them kept, and its node opens on it where they stood. How
+     * it is shown (a formula) moves to its node, as an open box's does.
+     *
+     * Only for one just made: a definition with a life of its own would lose
+     * what it holds (reopenThingGroupInPlace is for those).
+     *
+     * @returns {string|null} `open:<node>`, or null when it isn't such a group.
+     */
+    openThingGroupInPlace: (viewGraphId, groupId, contextOptions = {}) => {
+      const state = get();
+      const homeGraphId = groupHomeGraphId(state, viewGraphId, groupId);
+      groupId = storedGroupIdOf(groupId);
+      const home = state.graphs.get(homeGraphId);
+      const group = home?.groups?.get(groupId);
+      if (!group?.linkedNodePrototypeId || !group.anchorInstanceId || !home.instances?.has(group.anchorInstanceId)) return null;
+      const anchorId = group.anchorInstanceId;
+      const index = group.linkedDefinitionIndex ?? 0;
+      const defGraphId = state.nodePrototypes.get(group.linkedNodePrototypeId)?.definitionGraphIds?.[index];
+      if (!defGraphId || !state.graphs.has(defGraphId)) return null;
+
+      const members = (group.memberInstanceIds || []).filter(id => id !== anchorId && home.instances.has(id));
+      const memberSet = new Set(members);
+      // The groups inside it go into the definition with their members, a
+      // Thing-group's title node with it.
+      const inside = [...home.groups.values()].filter(g => g.id !== groupId
+        && g.memberInstanceIds?.length > 0
+        && g.memberInstanceIds.every(id => memberSet.has(id)));
+      for (const g of inside) {
+        if (g.anchorInstanceId && g.anchorInstanceId !== anchorId && !memberSet.has(g.anchorInstanceId) && home.instances.has(g.anchorInstanceId)) {
+          memberSet.add(g.anchorInstanceId);
+          members.push(g.anchorInstanceId);
+        }
+      }
+
+      return api.withHistoryTransaction('Opened in place', () => {
+        api.setChangeContext({ type: 'group_convert', target: 'group', groupId, ...contextOptions });
+        set(produce((draft) => {
+          const def = draft.graphs.get(defGraphId);
+          const graph = draft.graphs.get(homeGraphId);
+          // Its copies out; the members themselves go in below.
+          (def.edgeIds || []).forEach(id => draft.edges.delete(id));
+          def.edgeIds = [];
+          def.instances = new Map();
+          def.groups = new Map();
+          for (const g of inside) {
+            const stored = graph.groups.get(g.id);
+            graph.groups.delete(g.id);
+            if (stored) def.groups.set(g.id, isDraft(stored) ? current(stored) : stored);
+          }
+          const anchor = graph.instances.get(anchorId);
+          moveFormat(graph.groups.get(groupId), anchor);
+          graph.groups.delete(groupId);
+          delete anchor.isGroupAnchor;
+          delete anchor.anchorForGroupId;
+          // The definition's coordinates are the web's: each member stays where it stood.
+          anchor.openDefinition = { index, offset: { x: 0, y: 0 } };
+        }));
+        get().moveInstancesIntoOpenDefinition(viewGraphId, anchorId, members, contextOptions);
+        return openGroupId(anchorId);
+      });
+    },
+
+    /**
+     * A copy-style Thing-group (from before definitions opened in place, or a
+     * copy of a definition other placements share) made its Thing opened in
+     * place: combined into its definition as its Combine does
+     * (collapseNodeGroupIntoDefinition decides what is saved), then opened
+     * where it stood. What was in it is the definition's own Things now.
+     *
+     * @returns {string|null} `open:<node>`, or null.
+     */
+    reopenThingGroupInPlace: (viewGraphId, groupId, contextOptions = {}) => {
+      const state = get();
+      const homeGraphId = groupHomeGraphId(state, viewGraphId, groupId);
+      groupId = storedGroupIdOf(groupId);
+      const home = state.graphs.get(homeGraphId);
+      const group = home?.groups?.get(groupId);
+      if (!group?.linkedNodePrototypeId || !group.anchorInstanceId) return null;
+      // Its definition holds the web it sits in: it would open inside itself, so it stays the copy.
+      if (openInPlaceBlock(state.graphs, state.nodePrototypes, viewGraphId, group.anchorInstanceId, group.linkedDefinitionIndex ?? 0)) return null;
+      const protoId = group.linkedNodePrototypeId;
+      const definitionsBefore = state.nodePrototypes.get(protoId)?.definitionGraphIds?.length || 0;
+      // Where its Things stood, so the definition opens there.
+      let minX = Infinity, minY = Infinity;
+      for (const id of group.memberInstanceIds || []) {
+        const inst = home.instances?.get(id);
+        if (!inst || id === group.anchorInstanceId) continue;
+        minX = Math.min(minX, inst.x ?? 0); minY = Math.min(minY, inst.y ?? 0);
+      }
+      return api.withHistoryTransaction('Opened in place', () => {
+        const nodeId = get().collapseNodeGroupIntoDefinition(viewGraphId, groupId, contextOptions);
+        if (!nodeId) return null;
+        const ids = get().nodePrototypes.get(protoId)?.definitionGraphIds || [];
+        // Kept both (its definition changed elsewhere): the copy is the newest one.
+        const index = ids.length > definitionsBefore ? ids.length - 1 : (group.linkedDefinitionIndex ?? 0);
+        const def = get().graphs.get(ids[index]);
+        let defX = Infinity, defY = Infinity;
+        def?.instances?.forEach((inst) => { defX = Math.min(defX, inst.x ?? 0); defY = Math.min(defY, inst.y ?? 0); });
+        const offset = Number.isFinite(minX) && Number.isFinite(defX) ? { x: minX - defX, y: minY - defY } : null;
+        return get().openDefinitionInPlace(viewGraphId, nodeId, index, contextOptions, offset);
+      });
+    },
+
     // This action is deprecated. All loading now goes through loadUniverseFromFile.
     loadGraph: (graphInstance) => { },
 
@@ -3117,6 +3475,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     combineNodeGroup: (graphId, groupId, contextOptions = {}) => {
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_combine', target: 'group', ...contextOptions });
       let createdInstanceId = null;
       set(produce((draft) => {
@@ -3190,6 +3550,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           delete anchorInstance.anchorForGroupId;
           anchorInstance.x = position.x;
           anchorInstance.y = position.y;
+          moveFormat(group, anchorInstance);
           createdInstanceId = anchorId;
         } else {
           // No anchor — create a new instance (legacy behavior)
@@ -3204,6 +3565,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             y: position.y,
             scale: 1
           });
+          moveFormat(group, graph.instances.get(newInstanceId));
         }
 
         // Transfer edges from members to the surviving instance
@@ -3319,8 +3681,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().closeDefinitionInPlace(graphId, openAnchorId, contextOptions);
 
-      // A copy-style group (from before definitions opened in place, or with that
-      // setting off). What its definition gets depends on who changed what:
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
+
+      // A copy-style group (from before definitions opened in place). What its
+      // definition gets depends on who changed what:
       //   - the box matches its definition: nothing to save.
       //   - the definition is empty, or unchanged since the box opened: overwrite it.
       //   - the definition changed somewhere else meanwhile (or we can't tell): keep
@@ -3387,28 +3752,26 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * is copied. A node with no definition at `definitionIndex` gets an empty one.
      *
      * The node may itself sit inside an open definition; `viewGraphId` is the graph
-     * being looked at. A definition opens once per view: when it is already open
-     * here, that box is returned instead. A definition can't open inside itself.
+     * being looked at, `instanceId` the node's view id there. A definition can be
+     * open in several boxes of one view, but can't open inside itself.
      *
      * @returns {string|null} The open box's group id (see `openGroupId`), or null.
      */
-    openDefinitionInPlace: (viewGraphId, instanceId, definitionIndex = 0, contextOptions = {}) => {
+    openDefinitionInPlace: (viewGraphId, instanceId, definitionIndex = 0, contextOptions = {}, offset = null) => {
       const state = get();
-      const owner = openOwnerOf(state, viewGraphId, instanceId);
+      const viewInstanceId = instanceId;
+      const owner = openOwnerOf(state, viewGraphId, viewInstanceId);
       const ownerGraphId = owner?.graphId || viewGraphId;
+      instanceId = owner?.instanceId || viewInstanceId;
       const instance = state.graphs.get(ownerGraphId)?.instances?.get(instanceId);
       const prototype = instance ? state.nodePrototypes.get(instance.prototypeId) : null;
       if (!prototype) {
-        console.warn(`[openDefinitionInPlace] Instance ${instanceId} not found in view ${viewGraphId}.`);
+        console.warn(`[openDefinitionInPlace] Instance ${viewInstanceId} not found in view ${viewGraphId}.`);
         return null;
       }
 
       const existingDefGraphId = prototype.definitionGraphIds?.[definitionIndex] || null;
       if (existingDefGraphId) {
-        const openMap = openMapFor(state, viewGraphId);
-        for (const box of openMap.boxes.values()) {
-          if (box.defGraphId === existingDefGraphId) return openGroupId(box.anchorId);
-        }
         const around = [viewGraphId, ...(owner?.path || []).map(step => step.graphId)];
         if (around.includes(existingDefGraphId)) {
           console.warn(`[openDefinitionInPlace] "${prototype.name}" can't open inside its own definition.`);
@@ -3445,10 +3808,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const draftInstance = draft.graphs.get(ownerGraphId).instances.get(instanceId);
         draftInstance.openDefinition = {
           index: definitionIndex,
-          offset: initialOpenOffset(draftInstance, draft.graphs.get(defGraphId)),
+          // `offset` is where the canvas worked out the box fits (groups/openPlacement.js).
+          offset: offset || initialOpenOffset(draftInstance, draft.graphs.get(defGraphId)),
         };
       }));
-      return openGroupId(instanceId);
+      return openGroupId(viewInstanceId);
     },
 
     /**
@@ -3461,10 +3825,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     closeDefinitionInPlace: (viewGraphId, instanceId, contextOptions = {}) => {
       const owner = openOwnerOf(get(), viewGraphId, instanceId);
       const ownerGraphId = owner?.graphId || viewGraphId;
-      if (!get().graphs.get(ownerGraphId)?.instances?.get(instanceId)?.openDefinition) return null;
+      const storedId = owner?.instanceId || instanceId;
+      if (!get().graphs.get(ownerGraphId)?.instances?.get(storedId)?.openDefinition) return null;
       api.setChangeContext({ type: 'definition_close_in_place', target: 'instance', graphId: ownerGraphId, ...contextOptions });
       set(produce((draft) => {
-        const instance = draft.graphs.get(ownerGraphId)?.instances?.get(instanceId);
+        const instance = draft.graphs.get(ownerGraphId)?.instances?.get(storedId);
         if (instance) delete instance.openDefinition;
       }));
       return instanceId;
@@ -3477,8 +3842,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * the outer graph, reaching the node through the box.
      *
      * @param {string} viewGraphId - The graph being looked at.
-     * @param {string} anchorId - The open box's node.
-     * @param {string[]} instanceIds - Instances visible in the view.
+     * @param {string} anchorId - The open box's node (its view id).
+     * @param {string[]} instanceIds - Instances visible in the view (view ids).
      */
     moveInstancesIntoOpenDefinition: (viewGraphId, anchorId, instanceIds, contextOptions = {}) => {
       const state = get();
@@ -3490,14 +3855,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       const newPath = [...box.path, { anchorId, graphId: box.defGraphId }];
 
       const moves = [];
+      const movedViewIds = new Set();
       for (const instanceId of instanceIds || []) {
         if (boxAnchors.has(instanceId)) continue; // a box can't go inside itself
         const owner = resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, instanceId, openMap);
         if (!owner || owner.graphId === box.defGraphId) continue;
-        const stored = state.graphs.get(owner.graphId)?.instances?.get(instanceId);
+        const stored = state.graphs.get(owner.graphId)?.instances?.get(owner.instanceId);
         if (!stored) continue;
+        movedViewIds.add(instanceId);
         moves.push({
-          instanceId,
+          viewId: instanceId,
+          instanceId: owner.instanceId,
           fromGraphId: owner.graphId,
           x: (stored.x ?? 0) + owner.offset.x - box.offset.x,
           y: (stored.y ?? 0) + owner.offset.y - box.offset.y,
@@ -3505,6 +3873,18 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }
       if (moves.length === 0) return;
       const movedIds = new Set(moves.map(move => move.instanceId));
+
+      // Each connection's ends as drawn here: with a definition open in more than
+      // one box, the copy drawn to a moved node says which box its other end is in.
+      const view = projectGraphView(state, viewGraphId);
+      const drawnEnds = new Map();
+      (view?.edgeIds || []).forEach(viewEdgeId => {
+        const drawn = view.openView?.edges?.get(viewEdgeId) || state.edges.get(viewEdgeId);
+        if (!drawn) return;
+        const edgeId = storedIdOf(viewEdgeId);
+        const touchesMoved = movedViewIds.has(drawn.sourceId) || movedViewIds.has(drawn.destinationId);
+        if (!drawnEnds.has(edgeId) || touchesMoved) drawnEnds.set(edgeId, drawn);
+      });
 
       api.setChangeContext({ type: 'definition_add_in_place', target: 'instance', graphId: box.defGraphId, count: moves.length, ...contextOptions });
       set(produce((draft) => {
@@ -3526,9 +3906,11 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
         // Re-home every connection touching a moved instance: the innermost graph
         // both ends now share, with the boxes each end is reached through.
-        const ownerAfter = (instanceId, homeGraphId) => {
+        const ownerAfter = (instanceId, drawnId, homeGraphId) => {
           if (movedIds.has(instanceId)) return { graphId: box.defGraphId, path: newPath };
-          const known = resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, instanceId, openMap);
+          // Drawn to itself: where that copy is. Drawn to a closed box: hidden.
+          const shownAs = drawnId === undefined ? instanceId : (storedIdOf(drawnId) === instanceId ? drawnId : null);
+          const known = shownAs ? resolveOwner(state.graphs, state.nodePrototypes, viewGraphId, shownAs, openMap) : null;
           if (known) return known;
           // An end hidden inside a closed box: it stays reached from where the connection
           // lives now (its via is relative to that graph), so the connection can't move
@@ -3543,8 +3925,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         draft.edges.forEach((edge, edgeId) => {
           if (!movedIds.has(edge.sourceId) && !movedIds.has(edge.destinationId)) return;
           const oldHome = homeOf.get(edgeId);
-          const source = ownerAfter(edge.sourceId, oldHome);
-          const destination = ownerAfter(edge.destinationId, oldHome);
+          const drawn = drawnEnds.get(edgeId);
+          const source = ownerAfter(edge.sourceId, drawn?.sourceId, oldHome);
+          const destination = ownerAfter(edge.destinationId, drawn?.destinationId, oldHome);
           if (!source || !destination) return;
           const { homeGraphId, viaA, viaB } = connectionHome(source, destination, viewGraphId);
           const keepViaA = source.hidden ? (edge.sourceVia || []) : viaA;
@@ -3563,6 +3946,20 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           }
         });
       }));
+
+      // A node moved into a box goes by that box's view id now (its stored id
+      // when the box is the first of its definition here, `box/node` in a
+      // repeat). What was selected stays selected under its new id, so nothing
+      // that follows the selection jumps to the copy in another box.
+      const renamed = new Map();
+      moves.forEach(move => {
+        const nowId = viewIdOf(box.scope, move.instanceId);
+        if (nowId !== move.viewId) renamed.set(move.viewId, nowId);
+      });
+      const ui = useCanvasUIStore.getState();
+      if (renamed.size > 0 && [...ui.selectedInstanceIds].some(id => renamed.has(id))) {
+        ui.setSelectedInstanceIds(new Set([...ui.selectedInstanceIds].map(id => renamed.get(id) || id)));
+      }
     },
 
     /**
@@ -3718,6 +4115,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             lastModified: new Date().toISOString()
           }
         });
+        moveFormat(originalInstance, graph.groups.get(groupId));
 
         // Nested decompose: if the original instance was itself inside other
         // groups, the new members belong to those groups too, or the new group's
@@ -3858,6 +4256,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             lastModified: new Date().toISOString()
           }
         });
+        moveFormat(originalInstance, graph.groups.get(groupId));
 
         createdGroupId = groupId;
         console.log(`[decomposeEmptyNodeToGroup] Opened empty node-group ${groupId} for "${prototype.name}", definition graph ${defGraphId}.`);
@@ -3882,6 +4281,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     updateDefinitionFromNodeGroup: (graphId, groupId, contextOptions = {}) => {
       // An open box already is its definition.
       if (anchorIdFromOpenGroupId(groupId)) return null;
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
       // asNewDefinition: add the group's contents as a further definition of the Thing
       // (and link the group to it) instead of overwriting the one it came from.
       const { asNewDefinition = false, ...changeOptions } = contextOptions;
@@ -4055,6 +4456,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     refreshNodeGroupFromDefinition: (graphId, groupId, contextOptions = {}) => {
       // An open box already is its definition.
       if (anchorIdFromOpenGroupId(groupId)) return null;
+      graphId = groupHomeGraphId(get(), graphId, groupId);
+      groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_refresh_from_definition', target: 'group', ...contextOptions });
       let result = null;
       set(produce((draft) => {
@@ -5127,7 +5530,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     removeNodeInstance: (graphId, instanceId) => {
       // Deleting inside an open definition deletes from the definition.
       const owner = openOwnerOf(get(), graphId, instanceId);
-      if (owner) return get().removeNodeInstance(owner.graphId, instanceId);
+      if (owner) return get().removeNodeInstance(owner.graphId, owner.instanceId);
 
       // Get prototype ID for description context BEFORE entering Immer if possible, or just pass instanceId
       // Ideally we want to know what we are deleting. We can't easily access state outside of set unless we use get().
@@ -5193,21 +5596,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     removeMultipleNodeInstances: (graphId, instanceIds) => {
       if (!instanceIds || (instanceIds instanceof Set ? instanceIds.size === 0 : instanceIds.length === 0)) return;
 
-      const instanceIdSet = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
+      const viewIdSet = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
 
       api.setChangeContext({
         type: 'node_delete_batch',
         target: 'instance',
         graphId,
-        count: instanceIdSet.size
+        count: viewIdSet.size
       });
 
       // Instances shown inside open definitions are deleted from those definitions,
       // all in the one write so it stays one undo step.
       const state = get();
       const idsByGraph = new Map();
-      instanceIdSet.forEach(instanceId => {
-        const ownerGraphId = openOwnerOf(state, graphId, instanceId)?.graphId || graphId;
+      const instanceIdSet = new Set();
+      viewIdSet.forEach(viewId => {
+        const owner = openOwnerOf(state, graphId, viewId);
+        const ownerGraphId = owner?.graphId || graphId;
+        const instanceId = owner?.instanceId || viewId;
+        instanceIdSet.add(instanceId);
         if (!idsByGraph.has(ownerGraphId)) idsByGraph.set(ownerGraphId, new Set());
         idsByGraph.get(ownerGraphId).add(instanceId);
       });
@@ -5264,7 +5671,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     forceDeleteNodeInstance: (graphId, instanceId) => {
       const owner = openOwnerOf(get(), graphId, instanceId);
-      if (owner) return get().forceDeleteNodeInstance(owner.graphId, instanceId);
+      if (owner) return get().forceDeleteNodeInstance(owner.graphId, owner.instanceId);
 
       const state = get();
       const graph = state.graphs.get(graphId);
@@ -5451,7 +5858,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       return set(produce((draft) => {
         const graph = draft.graphs.get(owner ? owner.graphId : graphId);
         if (graph && graph.instances) {
-          const instance = graph.instances.get(instanceId);
+          const instance = graph.instances.get(owner ? owner.instanceId : instanceId);
           if (instance) {
             if (owner) applyInViewCoordinates(instance, owner.offset, recipe);
             else recipe(instance);
@@ -5477,7 +5884,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         if (!graph || !graph.instances) return;
 
         // Moves inside open definitions go to the definitions (or move the box).
-        const ownUpdates = openMap.boxes.size > 0 ? applyOpenDefinitionMoves(draft, openMap, updates) : updates;
+        const ownUpdates = openMap.boxes.size > 0 ? applyOpenDefinitionMoves(draft, openMap, updates, !!contextOptions.parkedAnchors) : updates;
 
         ownUpdates.forEach(({ instanceId, x, y }) => {
           // Empty node-group placeholders are tracked via a synthetic
@@ -5546,8 +5953,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {Array<{instanceId: string, prototypeId: string, x: number, y: number, scale: number}>} nodes
      * @param {Array<EdgeData>} edges - Edges to restore; each must have valid source/destination IDs.
      * @param {Object} [contextOptions] - Save context flags.
+     * @param {Array<Object>} [groups] - Groups over the pasted nodes (a copied formula's), ids already new.
      */
-    pasteNodesAndEdges: (graphId, nodes, edges, contextOptions = {}) => {
+    pasteNodesAndEdges:(graphId, nodes, edges, contextOptions = {}, groups = []) => {
       api.setChangeContext({ type: 'paste', target: 'batch', ...contextOptions });
       return set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
@@ -5560,7 +5968,40 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             prototypeId: node.prototypeId,
             x: node.x,
             y: node.y,
-            scale: node.scale || 1
+            scale: node.scale || 1,
+            // How this one is written where it stands (q₁ for Electric Charge): see formulaLabelOf.
+            ...(node.labels ? { labels: { ...node.labels } } : {}),
+            // How it is shown (opened in place, as a formula): see moveFormat.
+            ...(node.openDefinition ? { openDefinition: { ...node.openDefinition, offset: { ...node.openDefinition.offset } } } : {}),
+            ...Object.fromEntries(FORMAT_KEYS.filter(key => node[key]).map(key => [key, node[key]])),
+            // Its size (and an equation's: see moveFormat).
+            ...(node.sizeMul > 0 && node.sizeMul !== 1 ? { sizeMul: node.sizeMul } : {})
+          });
+        }
+
+        // A copied formula's groups (utils/clipboard.js), their ids already new.
+        // Only whole ones: every Thing they hang on came along.
+        for (const group of groups) {
+          const memberIds = group.memberInstanceIds || [];
+          if (!memberIds.every(id => graph.instances.has(id))) continue;
+          if (group.anchorInstanceId && !graph.instances.has(group.anchorInstanceId)) continue;
+          if (group.anchorInstanceId) {
+            const anchor = graph.instances.get(group.anchorInstanceId);
+            anchor.isGroupAnchor = true;
+            anchor.anchorForGroupId = group.id;
+          }
+          const timestamp = new Date().toISOString();
+          if (!graph.groups) graph.groups = new Map();
+          graph.groups.set(group.id, {
+            ...group,
+            memberInstanceIds: [...memberIds],
+            hasCustomLayout: false,
+            semanticMetadata: {
+              type: 'Group',
+              relationships: memberIds.map(memberId => ({ predicate: 'memberOf', subject: memberId, object: group.id, source: 'redstring-grouping' })),
+              createdAt: timestamp,
+              lastModified: timestamp
+            }
           });
         }
 
@@ -5615,8 +6056,16 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       if (openSource || openDest) {
         const ownGraph = { graphId, path: [], offset: { x: 0, y: 0 } };
         const { homeGraphId, viaA, viaB } = connectionHome(openSource || ownGraph, openDest || ownGraph, graphId);
+        // Its ends and arrows by stored id (an end in a repeated box is drawn under a view id).
+        const sourceId = openSource?.instanceId || newEdgeData.sourceId;
+        const destinationId = openDest?.instanceId || newEdgeData.destinationId;
+        const arrows = newEdgeData.directionality?.arrowsToward;
+        const toStored = (id) => (id === newEdgeData.sourceId ? sourceId : id === newEdgeData.destinationId ? destinationId : storedIdOf(id));
         return get().addEdge(homeGraphId, {
           ...newEdgeData,
+          sourceId,
+          destinationId,
+          ...(arrows ? { directionality: { ...newEdgeData.directionality, arrowsToward: new Set(Array.from(arrows, toStored)) } } : {}),
           graphId: homeGraphId,
           ...(viaA.length > 0 ? { sourceVia: viaA } : {}),
           ...(viaB.length > 0 ? { destinationVia: viaB } : {}),
@@ -5712,13 +6161,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} edgeId - ID of the edge to update.
      * @param {function} recipe - Immer recipe: `(edge) => { edge.name = '...'; }`.
      */
-    updateEdge: (edgeId, recipe, contextOptions = {}) => ctxSet({ type: 'edge_update', target: 'edge', edgeId, ...contextOptions }, produce((draft) => {
-      const edge = draft.edges.get(edgeId);
+    updateEdge: (edgeId, recipe, contextOptions = {}) => ctxSet({ type: 'edge_update', target: 'edge', edgeId: storedIdOf(edgeId), ...contextOptions }, produce((draft) => {
+      const edge = draft.edges.get(storedIdOf(edgeId));
       if (edge) {
         recipe(edge); // Apply the Immer updates
+        // A connection in a repeated box is drawn under view ids, so an arrow toggled
+        // on the canvas may name one. Point it back at the stored end.
+        const arrows = edge.directionality?.arrowsToward;
+        if (arrows instanceof Set) {
+          Array.from(arrows).forEach(id => {
+            const stored = storedIdOf(id);
+            if (stored !== id) { arrows.delete(id); arrows.add(stored); }
+          });
+        }
         // A connection into a closed box is drawn to the box, so an arrow toggled on
         // the canvas names the box. Point it back at the end the box stands for.
-        const arrows = edge.directionality?.arrowsToward;
         if (arrows instanceof Set && (edge.sourceVia || edge.destinationVia)) {
           arrows.forEach(id => {
             if (id === edge.sourceId || id === edge.destinationId) return;
@@ -5848,7 +6305,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} edgeId - ID of the edge to retype.
      * @param {string|null} typeNodeId - ID of the edge prototype to use as type, or null.
      */
-    setEdgeType: (edgeId, typeNodeId) => ctxSet({ type: 'edge_type_change', edgeId, typeNodeId }, produce((draft) => {
+    setEdgeType: (edgeId, typeNodeId) => ctxSet({ type: 'edge_type_change', edgeId: storedIdOf(edgeId), typeNodeId }, produce((draft) => {
+      edgeId = storedIdOf(edgeId);
       const edge = draft.edges.get(edgeId);
       if (!edge) {
         console.warn(`setEdgeType: Edge ${edgeId} not found.`);
@@ -5876,7 +6334,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * @param {string} edgeId - ID of the edge to remove.
      * @param {Object} [contextOptions] - Save context flags.
      */
-    removeEdge: (edgeId, contextOptions = {}) => {
+    removeEdge: (viewEdgeId, contextOptions = {}) => {
+      // A connection in a repeated box is selected by its view id.
+      const edgeId = storedIdOf(viewEdgeId);
       api.setChangeContext({ type: 'edge_delete', target: 'edge', finalize: true, ...contextOptions });
       const result = set(produce((draft) => {
         const edge = draft.edges.get(edgeId);
@@ -5903,8 +6363,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       }));
       // Edge selection lives in canvasUIStore (P2.03c): drop the removed edge.
       const ui = useCanvasUIStore.getState();
-      if (ui.selectedEdgeId === edgeId) ui.setSelectedEdgeId(null);
-      ui.removeSelectedEdgeId(edgeId);
+      if (ui.selectedEdgeId === viewEdgeId || ui.selectedEdgeId === edgeId) ui.setSelectedEdgeId(null);
+      ui.removeSelectedEdgeId(viewEdgeId);
+      if (viewEdgeId !== edgeId) ui.removeSelectedEdgeId(edgeId);
       return result;
     },
 
@@ -6081,6 +6542,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      */
     applyBulkGraphUpdates: (graphId, { nodes = [], edges = [], groups = [] }) => {
       api.setChangeContext({ type: 'bulk_update', target: 'graph', finalize: true });
+      // An end can be inside a definition open in this web (a formula's term):
+      // the connection is routed through its box, as addEdge routes one.
+      const viewState = get();
+      const openOwner = (id) => (id ? openOwnerOf(viewState, graphId, id) : null);
       set(produce((draft) => {
         const graph = draft.graphs.get(graphId);
         if (!graph) {
@@ -6097,13 +6562,33 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Pre-populate with EXISTING nodes so edges can reference them
         // (critical for expandGraph where new edges connect to existing graph nodes)
         if (graph.instances) {
-          graph.instances.forEach((inst, instanceId) => {
-            const proto = draft.nodePrototypes.get(inst.prototypeId);
-            if (proto?.name) {
-              nodeIdMap.set(proto.name, instanceId);
-              nodeIdMapNormalized.set(normalizeName(proto.name), instanceId);
-            }
+          // A name means the Thing drawn as itself. Its copy drawn as a
+          // formula's symbol goes in first, so it is reached only when it is
+          // the one there is: an edge from a formula to "Pendulum Length" that
+          // lands on its own L is drawn inside the formula, and lost.
+          const inFormula = new Set();
+          graph.groups?.forEach((g) => {
+            if (g.format === 'formula') (g.memberInstanceIds || []).forEach((id) => inFormula.add(id));
           });
+          // Lowest of all, a Thing inside a definition open here (an opened
+          // formula's term): reached by name only when the web has none of its own.
+          projectGraphView(viewState, graphId)?.instances?.forEach((inst, instanceId) => {
+            // A repeated box's copy is reached by its stored id, through the first box.
+            if (graph.instances.has(instanceId) || storedIdOf(instanceId) !== instanceId) return;
+            const name = draft.nodePrototypes.get(inst.prototypeId)?.name;
+            if (!name) return;
+            nodeIdMap.set(name, instanceId);
+            nodeIdMapNormalized.set(normalizeName(name), instanceId);
+          });
+          [...graph.instances.entries()]
+            .sort(([a], [b]) => inFormula.has(b) - inFormula.has(a))
+            .forEach(([instanceId, inst]) => {
+              const proto = draft.nodePrototypes.get(inst.prototypeId);
+              if (proto?.name) {
+                nodeIdMap.set(proto.name, instanceId);
+                nodeIdMapNormalized.set(normalizeName(proto.name), instanceId);
+              }
+            });
           console.log(`[applyBulkGraphUpdates] Pre-populated ${nodeIdMap.size} existing nodes into lookup map`);
         }
 
@@ -6214,7 +6699,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           // predictive instance ids it tracked for nodes made earlier in the same
           // ask, and those never match the ids the store gave them — trusting one
           // skipped the name lookup and dropped the edge silently.
-          const inGraph = (id) => (id && graph.instances.has(id) ? id : null);
+          const inGraph = (id) => (id && (graph.instances.has(id) || openOwner(id)) ? id : null);
 
           // Try exact match first, then normalized match
           let sourceId = inGraph(edge.sourceId) || nodeIdMap.get(edge.source) || nodeIdMapNormalized.get(normalizeName(edge.source));
@@ -6222,7 +6707,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
           console.log(`[applyBulkGraphUpdates] Edge ${idx}: sourceId=${sourceId ? 'FOUND' : 'NOT_FOUND'}, destId=${destId ? 'FOUND' : 'NOT_FOUND'}`);
 
-          if (sourceId && destId && graph.instances.has(sourceId) && graph.instances.has(destId)) {
+          if (sourceId && destId && inGraph(sourceId) && inGraph(destId)) {
             const edgeId = edge.id || uuidv4();
 
             // DUPLICATE EDGE PREVENTION: Only block if same nodes AND same connection type
@@ -6374,9 +6859,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
                 definitionNodeIds: definitionNodeIds,
                 directionality: { arrowsToward }
               };
+              let home = graph;
+              if (openOwner(sourceId) || openOwner(destId)) {
+                const ownGraph = { graphId, path: [], offset: { x: 0, y: 0 } };
+                const { homeGraphId, viaA, viaB } = connectionHome(openOwner(sourceId) || ownGraph, openOwner(destId) || ownGraph, graphId);
+                home = draft.graphs.get(homeGraphId) || graph;
+                if (viaA.length > 0) edgeData.sourceVia = viaA;
+                if (viaB.length > 0) edgeData.destinationVia = viaB;
+                // Ends and arrows by stored id (an end in a repeated box is named by its view id).
+                edgeData.sourceId = storedIdOf(sourceId);
+                edgeData.destinationId = storedIdOf(destId);
+                edgeData.directionality = { arrowsToward: new Set(Array.from(arrowsToward, storedIdOf)) };
+              }
               draft.edges.set(edgeId, edgeData);
-              if (!graph.edgeIds) graph.edgeIds = [];
-              graph.edgeIds.push(edgeId);
+              if (!home.edgeIds) home.edgeIds = [];
+              home.edgeIds.push(edgeId);
               console.log(`[applyBulkGraphUpdates] Created edge: ${edge.source || 'unknown'} → ${edge.target || 'unknown'} (${connectionTypeName}) with definitionNodeIds:`, definitionNodeIds);
             }
           } else {
@@ -7540,10 +8037,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.showGroupControlPanel = !draft.showGroupControlPanel;
       try { localStorage.setItem('redstring_show_group_cp', draft.showGroupControlPanel); } catch (_) { }
     })),
-    /** Toggles whether Decompose opens definitions in place. Persists to localStorage. */
-    toggleOpenDefinitionsInPlace: () => set(produce((draft) => {
-      draft.openDefinitionsInPlace = draft.openDefinitionsInPlace === false;
-      try { localStorage.setItem('redstring_open_definitions_in_place', draft.openDefinitionsInPlace); } catch (_) { }
+    /** Toggles the equation (format) control panel. Persists to localStorage. */
+    toggleShowEquationControlPanel: () => set(produce((draft) => {
+      draft.showEquationControlPanel = !draft.showEquationControlPanel;
+      try { localStorage.setItem('redstring_show_equation_cp', draft.showEquationControlPanel); } catch (_) { }
     })),
     /** Toggles the abstraction chain control panel. Persists to localStorage. */
     toggleShowAbstractionControlPanel: () => set(produce((draft) => {
@@ -7739,6 +8236,22 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.focusOnSelectEnabled = !draft.focusOnSelectEnabled;
       try {
         localStorage.setItem('redstring_focus_on_select_enabled', String(draft.focusOnSelectEnabled));
+      } catch (_) { }
+    })),
+
+    /** Toggles framing a connection's menu when the connection is selected. Persists to localStorage. */
+    toggleFocusOnSelectConnectionsEnabled: () => set(produce((draft) => {
+      draft.focusOnSelectConnectionsEnabled = !draft.focusOnSelectConnectionsEnabled;
+      try {
+        localStorage.setItem('redstring_focus_on_select_connections_enabled', String(draft.focusOnSelectConnectionsEnabled));
+      } catch (_) { }
+    })),
+
+    /** Toggles framing a Thing-group or equation when it is selected. Persists to localStorage. */
+    toggleFocusOnSelectGroupsEnabled: () => set(produce((draft) => {
+      draft.focusOnSelectGroupsEnabled = !draft.focusOnSelectGroupsEnabled;
+      try {
+        localStorage.setItem('redstring_focus_on_select_groups_enabled', String(draft.focusOnSelectGroupsEnabled));
       } catch (_) { }
     })),
 
@@ -7978,6 +8491,52 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       draft.textSettings.pieMenuScale = v;
       try {
         localStorage.setItem('redstring_pie_menu_scale', String(v));
+      } catch (_) { }
+    })),
+
+    /**
+     * Sets the size multiplier for group titles (and a formula's title), on top
+     * of their default (groupLayout GROUP_TITLE_BASE_SCALE). Persists to localStorage.
+     * @param {number} value
+     */
+    setGroupTitleScale: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 0.5 || v > 3.0) {
+        console.warn(`[setGroupTitleScale] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.groupTitleScale = v;
+      try {
+        localStorage.setItem('redstring_group_title_scale', String(v));
+      } catch (_) { }
+    })),
+
+    /**
+     * Whether group titles grow with their group's width (groupLayout
+     * groupTitleGrowthOf). Persists to localStorage.
+     * @param {boolean} on
+     */
+    setGroupTitleGrow: (on) => set(produce((draft) => {
+      draft.textSettings.groupTitleGrow = !!on;
+      try {
+        localStorage.setItem('redstring_group_title_grow', String(!!on));
+      } catch (_) { }
+    })),
+
+    /**
+     * The most a growing group title grows, as a multiple of its usual size.
+     * Persists to localStorage.
+     * @param {number} value
+     */
+    setGroupTitleGrowMax: (value) => set(produce((draft) => {
+      const v = Number(value);
+      if (!Number.isFinite(v) || v < 1.0 || v > 12.0) {
+        console.warn(`[setGroupTitleGrowMax] Invalid value: ${value}`);
+        return;
+      }
+      draft.textSettings.groupTitleGrowMax = v;
+      try {
+        localStorage.setItem('redstring_group_title_grow_max', String(v));
       } catch (_) { }
     })),
 
@@ -8599,7 +9158,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
      * Removes orphaned prototypes, graphs, and edges that are no longer reachable.
      *
      * A prototype is considered "reachable" if it is saved, has an open right-panel tab,
-     * has a definition graph, is instantiated in a graph, or is protected.
+     * has a definition graph that holds anything, is instantiated in an open graph or
+     * in a reachable one's webs, or is protected. Imported Things live by their source.
      * Also prunes stale right-panel tabs, resets `activeDefinitionNodeId` if its
      * prototype was deleted, and removes edges referencing missing instances.
      * Called automatically 100ms after `toggleSavedNode` and `closeGraph`.
@@ -8764,6 +9324,21 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         // Check typeNodeId (legacy approach)
         if (edge.typeNodeId) {
           referencedPrototypeIds.add(edge.typeNodeId);
+        }
+      }
+
+      // A Thing whose web holds anything is something somebody made, open or
+      // not. Reaching only from open webs swept closed ones whole: on
+      // 2026-10-23 a wizard run took ~300 formulas the starter had built under
+      // its Formulas web, which nobody had open. Only empty shells go. An
+      // import lives by its source Thing being saved, and its Things by their
+      // source (the fixpoint below), so removing an import still takes it.
+      for (const prototype of draft.nodePrototypes.values()) {
+        if (referencedPrototypeIds.has(prototype.id)) continue;
+        if (prototype.semanticMetadata?.ontology?.source || prototype.semanticMetadata?.ontologySource) continue;
+        if (!Array.isArray(prototype.definitionGraphIds)) continue;
+        if (prototype.definitionGraphIds.some((graphId) => draft.graphs.get(graphId)?.instances?.size > 0)) {
+          referencedPrototypeIds.add(prototype.id);
         }
       }
 
@@ -9212,6 +9787,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         });
 
         sanitizeStoreStateReferences(storeState);
+
+        // Upgrade: equations whose definitions lost their parentheses get them back.
+        const upgradedFormulas = restoreFormulaParts(storeState);
+        if (upgradedFormulas > 0) console.log(`[graphStore] Restored the parentheses of ${upgradedFormulas} equation definition(s)`);
 
         // Lift the imported per-graph viewport into the graphViews slice. The
         // file format still carries pan/zoom on each graph, and the importer

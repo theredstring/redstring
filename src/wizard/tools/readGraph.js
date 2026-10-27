@@ -1,5 +1,7 @@
 import { resolveGraphId, describeGraphAmbiguity } from './resolveGraphId.js';
 import { isSeededChain } from './utils/abstractionSpec.js';
+import { formulasIn, formulaCover, meaningsText, repeatedTermsLines } from './utils/formulas.js';
+import { readWeb, placeName, webAsDrawn } from './utils/webView.js';
 
 /**
  * readGraph - Return the full active graph as a clean LLM-readable snapshot.
@@ -22,7 +24,9 @@ export async function readGraph(args, graphState) {
         return { error: 'No graph specified. Create or open a graph first.' };
     }
 
-    const activeGraph = graphs.find(g => g.id === targetGraphId);
+    // As drawn: a Thing opened in place shows its definition's Things, groups and
+    // connections in this web, and is a Thing-group of them.
+    const activeGraph = graphs.some(g => g.id === targetGraphId) ? webAsDrawn(graphState, targetGraphId) : null;
     if (!activeGraph) {
         return { error: `Graph "${targetGraphId}" not found in state.` };
     }
@@ -50,10 +54,15 @@ export async function readGraph(args, graphState) {
             ? Array.from(activeGraph.instances.values())
             : Object.values(activeGraph.instances || {});
 
+    // A formula is one entry (formulas, below), not the row of Things and
+    // operations it is drawn over.
+    const formulas = formulasIn(graphState, targetGraphId);
+    const cover = formulaCover(formulas);
+
     for (const inst of instances) {
         if (inst.id) {
             const protoName = nodeNameById.get(inst.prototypeId) || '';
-            nodeNameById.set(inst.id, inst.name || protoName || '');
+            nodeNameById.set(inst.id, placeName(inst, protoName, cover));
             // Carry description/color from prototype if instance doesn't override
             if (inst.description) nodeDescById.set(inst.id, inst.description);
             else if (inst.prototypeId) nodeDescById.set(inst.id, nodeDescById.get(inst.prototypeId) || '');
@@ -62,8 +71,13 @@ export async function readGraph(args, graphState) {
         }
     }
 
+    // A connection's end can be kept in another web (a formula or definition
+    // opened in place): named as the context names it (webView.js).
+    const web = readWeb(graphState, targetGraphId);
+    const nameOfEnd = (id) => nodeNameById.get(id) || web.nameOfEnd(id);
+
     // --- Nodes output ---------------------------------------------------------
-    const nodeList = instances.map(inst => {
+    const nodeList = instances.filter(inst => !cover.hides(inst.id)).map(inst => {
         const name = nodeNameById.get(inst.id) || inst.id;
         const description = nodeDescById.get(inst.id) || '';
         const color = nodeColorById.get(inst.id) || '';
@@ -96,7 +110,7 @@ export async function readGraph(args, graphState) {
 
     // --- Edges output ---------------------------------------------------------
     const edgeIds = new Set(activeGraph.edgeIds || []);
-    const graphEdges = edges.filter(e => edgeIds.has(e.id) || edgeIds.has(e.edgeId));
+    const graphEdges = edges.filter(e => (edgeIds.has(e.id) || edgeIds.has(e.edgeId)) && !cover.internal(e));
 
     const edgeList = graphEdges.map(e => {
         const sourceId = e.sourceId || e.source;
@@ -114,12 +128,12 @@ export async function readGraph(args, graphState) {
             type = e.connectionType;
         }
 
-        const sourceName = nodeNameById.get(sourceId) || sourceId || '?';
-        const targetName = nodeNameById.get(targetId) || targetId || '?';
+        const sourceName = nameOfEnd(sourceId);
+        const targetName = nameOfEnd(targetId);
 
         return {
             id: e.id,
-            triplet: `${sourceName} --[${type}]--> ${targetName}`,
+            triple: `${sourceName} --[${type}]--> ${targetName}`,
             sourceName,
             targetName,
             type,
@@ -129,7 +143,7 @@ export async function readGraph(args, graphState) {
     });
 
     // --- Groups output --------------------------------------------------------
-    const groupList = (activeGraph.groups || []).map(g => {
+    const groupList = (activeGraph.groups || []).filter(g => g.format !== 'formula' && !cover.hides(g.anchorInstanceId)).map(g => {
         const isThingGroup = !!g.linkedNodePrototypeId;
         const linkedThingName = isThingGroup
             ? (protoMap.get(g.linkedNodePrototypeId)?.name || 'Unknown Thing')
@@ -158,7 +172,7 @@ export async function readGraph(args, graphState) {
         : null;
 
     // Reading the active graph is almost always redundant: the context header
-    // already carries its nodes, types, descriptions and connection triplets, and
+    // already carries its nodes, types, descriptions and connection triples, and
     // it is rebuilt from live state every iteration — so it is never staler than
     // this result. The data is still returned (the model may want the IDs), but
     // saying so is what stops the loop burning an iteration per re-read.
@@ -178,9 +192,22 @@ export async function readGraph(args, graphState) {
         nodes: nodeList,
         edges: edgeList,
         groups: groupList,
+        ...(formulas.length ? {
+            formulas: formulas.map(f => ({
+                id: f.anchorId,
+                name: f.title,
+                formula: f.text,
+                shown: f.shown,
+                ...(meaningsText(f) ? { meanings: meaningsText(f) } : {}),
+                // A term's id, to connect to that one ("x" in this formula, not another's).
+                terms: (f.terms || []).map(t => ({ symbol: t.symbol, thing: t.thing, ...(t.instanceId ? { id: t.instanceId } : {}) })),
+            })),
+            // Each formula's term has its own id; whether two are one Thing is said here.
+            ...(repeatedTermsLines(formulas).length ? { repeatedTerms: repeatedTermsLines(formulas).join(' ') } : {}),
+        } : {}),
         ...(warning ? { warning } : {}),
         ...(redundancyNote ? { note: redundancyNote } : {}),
         ...(ambiguityNote ? { ambiguity: ambiguityNote } : {}),
-        summary: `Graph "${activeGraph.name}": ${nodeList.length} node(s), ${edgeList.length} connection(s), ${groupList.length} group(s).`,
+        summary: `Graph "${activeGraph.name}": ${nodeList.length} node(s), ${edgeList.length} connection(s), ${groupList.length} group(s)${formulas.length ? `, ${formulas.length} formula(s)` : ''}.`,
     };
 }

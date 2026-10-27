@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
+import { standInFor, isReplacedGroup, isReplacedInstance } from '../components/canvas/formats/replaced.js';
+import { formatAnchorPosition, formatLayoutHooks, connectionEndGeometry } from '../components/canvas/groups/groupLayouts.js';
+import { makeConnectionBoundsOf, routeFrom, passAnchors } from '../components/canvas/groups/connectionBounds.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
-import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection } from '../utils/canvas/nodeHitbox.js';
+import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
@@ -13,8 +16,10 @@ import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransfo
 import { glyphQuadAt, peekLabelSprite, peekNearbyLabelSprite, requestLabelSprite } from '../services/labelSpriteCache.js';
 import { collectDragOwnedEdges, dragNodeIdsOf } from '../components/canvas/edges/dragOwnedEdges.js';
 import { placeGroupLiftShadow } from '../components/canvas/groups/groupLiftShadow.js';
+import { anchorPillEndBox, anchorEndBox } from '../utils/canvas/anchorEnd.js';
 import {
   computeGroupLayout,
+  groupLabelMetrics,
   GROUP_LAYOUT_CONSTANTS,
   groupIdFromPlaceholderId,
   buildParentGroupIdsIndex,
@@ -26,6 +31,9 @@ import saveCoordinator from '../services/SaveCoordinator.js';
 import { haptic } from '../services/haptics.js';
 import { createFrameClock } from '../components/canvas/camera/frameClock.js';
 import { markNodeDrop } from '../components/canvas/input/dropCooldown.js';
+import { withFormulaParts } from '../components/canvas/formats/formula/formulaSelection.js';
+import { projectGraphView, dragCopiesOf, anchorIdFromOpenGroupId, openGroupId } from '../core/openDefinitions.js';
+import { PLACEHOLDER_ID_PREFIX, placeholderIdForGroup } from '../services/groupLayout.js';
 
 // Movement Zoom-Out constants
 const DRAG_ZOOM_MIN = 0.1;
@@ -45,6 +53,8 @@ const LIFT_DURATION = 100; // ms
 // Drop-on-release: the scale settles node.scale → 1 when the drag ends. Kept
 // snappier than the lift so the node "lands" rather than drifting back down.
 const DROP_DURATION = 50; // ms
+// How often a dragged node that isn't mounted yet is looked for (see lateNodeEl).
+const LATE_LOOKUP_MS = 100;
 // Lift target scale. Both the lift ramp and the drop read node.scale, so this
 // is the single knob for how far the node grows on grab. Boosted when drag-zoom
 // is on: the canvas zoom-out/in works against the node's own scale, so a bigger
@@ -482,6 +492,23 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   // DOM Element Caching (called once on drag start)
   // ---------------------------------------------------------------------------
+  // A dragged node with no element when the drag began: culled off screen then,
+  // mounted since (the zoom-out or an auto-pan brought it in; a copy in another
+  // box often starts out of view). Found here on the frame it appears, so it
+  // rides the drag instead of jumping the whole distance on release. Looked for
+  // at most every LATE_LOOKUP_MS per node while it stays unmounted.
+  const lateLookupAtRef = useRef(new Map());
+  const lateNodeEl = (id) => {
+    const now = performance.now();
+    if (now - (lateLookupAtRef.current.get(id) ?? -Infinity) < LATE_LOOKUP_MS) return null;
+    lateLookupAtRef.current.set(id, now);
+    const el = containerRef.current?.querySelector(`[data-instance-id="${CSS.escape(id)}"]`);
+    if (!el) return null;
+    el.style.transition = 'none';
+    dragNodeElsRef.current.set(id, el);
+    return el;
+  };
+
   const cacheDOMElements = useCallback((nodeIds) => {
     const container = containerRef.current;
     if (!container) return;
@@ -514,6 +541,7 @@ export const useNodeDrag = ({
     });
 
     dragNodeElsRef.current.clear();
+    lateLookupAtRef.current.clear();
     dragEdgeElsRef.current.clear();
     dragEdgeDataRef.current.clear();
     dragLombardiExtraEdgeIdsRef.current.clear();
@@ -730,6 +758,7 @@ export const useNodeDrag = ({
         const labelG = el.querySelector(':scope > .group-label');
         const labelRect = labelG?.querySelector('rect');
         const labelText = labelG?.querySelector('text');
+        const labelArrows = labelG?.querySelector(':scope > [data-vector-arrows]');
         return {
           el,
           type: isRegular ? 'regular' : isBg ? 'bg' : 'title',
@@ -740,6 +769,9 @@ export const useNodeDrag = ({
           shadowPill: el.querySelector(':scope > [data-group-shadow="pill"]'),
           labelRect,
           labelText,
+          labelArrows,
+          labelX: labelRect ? parseFloat(labelRect.getAttribute('x')) : 0,
+          labelY: labelRect ? parseFloat(labelRect.getAttribute('y')) : 0,
           labelWidth: labelRect ? parseFloat(labelRect.getAttribute('width')) : 0,
           labelHeight: labelRect ? parseFloat(labelRect.getAttribute('height')) : 0,
         };
@@ -813,7 +845,7 @@ export const useNodeDrag = ({
     // performDOMDragUpdate skips DOM work on frames where no member crossed
     // a grid line, so this stays cheap.
     if (draggingInfo.groupId && Array.isArray(draggingInfo.memberOffsets)) {
-      return draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
+      const updates = draggingInfo.memberOffsets.map(({ id, dx, dy }) => {
         const xRaw = mouseCanvasX - dx;
         const yRaw = mouseCanvasY - dy;
         // A group ANCHOR is not a node on the lattice. It is the group's title
@@ -845,6 +877,18 @@ export const useNodeDrag = ({
         const snappedCenterX = Math.round(centerX / gridSize) * gridSize;
         const snappedCenterY = Math.round(centerY / gridSize) * gridSize;
         return { instanceId: id, x: snappedCenterX - dims.currentWidth / 2, y: snappedCenterY - dims.currentHeight / 2 };
+      });
+      if (!draggingInfo.copyOf) return updates;
+      // A copy moves exactly as what it copies does, snap included.
+      const { copyOf, startAt } = draggingInfo;
+      const at = new Map(updates.map(u => [u.instanceId, u]));
+      return updates.map((u) => {
+        const originalId = copyOf.get(u.instanceId);
+        const moved = originalId && at.get(originalId);
+        const original = originalId && startAt.get(originalId);
+        const copy = startAt.get(u.instanceId);
+        if (!moved || !original || !copy) return u;
+        return { ...u, x: copy.x + moved.x - original.x, y: copy.y + moved.y - original.y };
       });
     }
 
@@ -999,12 +1043,42 @@ export const useNodeDrag = ({
       let sDims = curBaseDims.get(edge.sourceId) || getNodeDimensions(sStored, false, null);
       let dDims = curBaseDims.get(edge.destinationId) || getNodeDimensions(dStored, false, null);
 
+      // A Thing a format draws its own way (a formula's term) is drawn at its
+      // stand-in (its token), carried by the drag of the Thing the format rides
+      // on: the same end the settled render gives the connection.
+      const rideDelta = (standIn) => {
+        const rideStored = curNodeById.get(standIn.rideOn);
+        const ride = rideStored && dragPos.get(standIn.rideOn);
+        return ride ? { dx: ride.x - rideStored.x, dy: ride.y - rideStored.y } : { dx: 0, dy: 0 };
+      };
+      const standInEnd = (id) => {
+        const standIn = standInFor(id);
+        if (!standIn) return null;
+        const { dx, dy } = rideDelta(standIn);
+        return { pos: { x: standIn.x + dx, y: standIn.y + dy }, dims: { currentWidth: standIn.w, currentHeight: standIn.h } };
+      };
+      // Either end a format draws (a formula's title, or one of its tokens) is
+      // the format's, carried the same way: its band is the box the connection
+      // stops at, as the settled render's (connectionEndInfo).
+      const formatEnd = (id) => {
+        const standIn = standInFor(id);
+        if (!standIn) return null;
+        const { dx, dy } = rideDelta(standIn);
+        return formatAnchorPosition(id, null, dx, dy);
+      };
+      const sStandIn = standInEnd(edge.sourceId);
+      const dStandIn = standInEnd(edge.destinationId);
+      if (sStandIn) { sPos = sStandIn.pos; sDims = sStandIn.dims; }
+      if (dStandIn) { dPos = dStandIn.pos; dDims = dStandIn.dims; }
+
       // Thing-group anchors render as their title box (synced into anchorPositionUpdatesRef
       // each React frame), NOT the stored instance position + default node dims. Mirror that
       // here so the drag-time line and label exactly match the settled (drop) render — and so
       // the label can be pushed off the group's outer bounds the same way.
-      let sAnchor = sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
-      let eAnchor = dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
+      let sAnchor = sStandIn ? formatEnd(edge.sourceId)
+        : sStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.sourceId) : null;
+      let eAnchor = dStandIn ? formatEnd(edge.destinationId)
+        : dStored.isGroupAnchor ? anchorPositionUpdatesRef?.current?.get(edge.destinationId) : null;
       // The pill wins UNCONDITIONALLY, including when the anchor carries a drag
       // position of its own. It used to defer to `dragPos` (`if
       // (!dragPos.has(id))`), and that is the whole of "connections into a
@@ -1024,12 +1098,14 @@ export const useNodeDrag = ({
       // already does with this same map, and what the settled render does via
       // anchorGeometryFor. This was the one reader that disagreed.
       if (sAnchor) {
-        sDims = { currentWidth: sAnchor.width, currentHeight: sAnchor.height };
-        sPos = { x: sAnchor.x, y: sAnchor.y };
+        const end = anchorEndBox(sAnchor);
+        sDims = { currentWidth: end.width, currentHeight: end.height };
+        sPos = { x: end.x, y: end.y };
       }
       if (eAnchor) {
-        dDims = { currentWidth: eAnchor.width, currentHeight: eAnchor.height };
-        dPos = { x: eAnchor.x, y: eAnchor.y };
+        const end = anchorEndBox(eAnchor);
+        dDims = { currentWidth: end.width, currentHeight: end.height };
+        dPos = { x: end.x, y: end.y };
       }
       // A member wired to its own group's Thing draws to the pill, not the
       // group's box: the same call the settled render makes (anchorInfoFacing).
@@ -1567,22 +1643,29 @@ export const useNodeDrag = ({
                 arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnWidth})`);
               });
             } else {
-              // Straight: arrows near endpoints, angle from line direction
+              // Straight: set back from where the line meets each end's box (a
+              // group's or a formula's outer box where there is one), as the
+              // settled render places them (straightArrowHeads).
               const dx = endpoints.x2 - endpoints.x1;
               const dy = endpoints.y2 - endpoints.y1;
               const len = Math.sqrt(dx * dx + dy * dy);
               if (len > 0) {
-                const offset = 5;
-                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                const sBounds = boundsOf(sAnchor);
+                const eBounds = boundsOf(eAnchor);
+                const sourceAt = sBounds
+                  ? getLineNodeIntersection(centerX1, centerY1, centerX2, centerY2, sBounds)
+                  : getNodeEdgeIntersection(virtualSource.x, virtualSource.y, sDims.currentWidth, sDims.currentHeight, dx / len, dy / len);
+                const destAt = eBounds
+                  ? getLineNodeIntersection(centerX2, centerY2, centerX1, centerY1, eBounds)
+                  : getNodeEdgeIntersection(virtualDest.x, virtualDest.y, dDims.currentWidth, dDims.currentHeight, -dx / len, -dy / len);
+                // Without a crossing, the settled render's fallback: 20 in from each end.
+                const heads = straightArrowHeads(endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, sourceAt, destAt) || {
+                  source: { x: endpoints.x1 + (dx / len) * 20, y: endpoints.y1 + (dy / len) * 20, angle: Math.atan2(-dy, -dx) * (180 / Math.PI) },
+                  dest: { x: endpoints.x2 - (dx / len) * 20, y: endpoints.y2 - (dy / len) * 20, angle: Math.atan2(dy, dx) * (180 / Math.PI) },
+                };
                 arrowGs.forEach(arrowG => {
-                  const type = arrowG.getAttribute('data-arrow');
-                  if (type === 'source') {
-                    arrowG.setAttribute('transform',
-                      `translate(${endpoints.x1 + (dx / len) * offset}, ${endpoints.y1 + (dy / len) * offset}) rotate(${angle + 180 + 90}) scale(${dragConnWidth})`);
-                  } else {
-                    arrowG.setAttribute('transform',
-                      `translate(${endpoints.x2 - (dx / len) * offset}, ${endpoints.y2 - (dy / len) * offset}) rotate(${angle + 90}) scale(${dragConnWidth})`);
-                  }
+                  const p = arrowG.getAttribute('data-arrow') === 'source' ? heads.source : heads.dest;
+                  arrowG.setAttribute('transform', `translate(${p.x}, ${p.y}) rotate(${p.angle + 90}) scale(${dragConnWidth})`);
                 });
               }
             }
@@ -1670,9 +1753,65 @@ export const useNodeDrag = ({
   // ---------------------------------------------------------------------------
   // Update Group Bounds in DOM (recomputes bounding boxes for affected groups)
   // ---------------------------------------------------------------------------
-  const updateGroupBoundsInDOM = useCallback((movedNodeIds) => {
-    if (dragGroupMetaRef.current.size === 0) return null;
+  // computeGroupLayout's connectionBoundsOf for a drag frame: the connections at
+  // their live ends, with the live Lombardi fan and clean routing's frozen ports
+  // carried as far as each end has moved (as updateEdgesInDOM routes them).
+  const liveConnectionBoundsOf = useCallback((dragNodesById) => {
+    const curNodeById = nodeByIdRef.current;
+    const edges = edgesRef?.current || [];
+    const spacing = 200 * (multiConnectionCurveRef?.current ?? 1);
+    const { textSettings } = useGraphStore.getState();
+    const nodeOf = (id) => {
+      const stored = curNodeById.get(id);
+      const live = dragNodesById.get(id);
+      return stored && live && live !== stored ? { ...stored, x: live.x, y: live.y } : stored;
+    };
+    const frozenPorts = cleanLaneOffsetsRef?.current || new Map();
+    const edgeById = routingStyleRef.current === 'clean' ? new Map(edges.map(e => [e.id, e])) : null;
+    const movedBy = (id) => {
+      const stored = curNodeById.get(id);
+      const live = nodeOf(id);
+      return stored && live ? { x: live.x - stored.x, y: live.y - stored.y } : { x: 0, y: 0 };
+    };
+    const livePorts = {
+      get: (edgeId) => {
+        const frozen = frozenPorts.get?.(edgeId);
+        const edge = edgeById?.get(edgeId);
+        if (!frozen || !edge) return frozen;
+        const s = movedBy(edge.sourceId);
+        const d = movedBy(edge.destinationId);
+        return {
+          ...frozen,
+          sourcePort: { x: frozen.sourcePort.x + s.x, y: frozen.sourcePort.y + s.y },
+          destPort: { x: frozen.destPort.x + d.x, y: frozen.destPort.y + d.y },
+        };
+      },
+    };
+    return makeConnectionBoundsOf({
+      edges,
+      nodeOf,
+      dimsOf: id => baseDimsByIdRef.current.get(id),
+      geometryFor: (node, dims, context) => connectionEndGeometry(node, dims, passAnchors(anchorPositionUpdatesRef?.current, context, textSettings)),
+      skipGroup: isReplacedGroup,
+      isDrawnElsewhere: isReplacedInstance,
+      route: routeFrom({
+        enableAutoRouting: enableAutoRoutingRef.current,
+        routingStyle: routingStyleRef.current,
+        lombardiTangents: lombardiTangentsRef?.current,
+        lombardiCurvature: lombardiCurvatureRef?.current ?? 1,
+        lombardiLaneSpacing: spacing * LOMBARDI_LANE_FRACTION,
+        manhattanBends: manhattanBendsRef?.current || 'auto',
+        orthogonalLaneSpacing: spacing * ORTHOGONAL_LANE_FRACTION,
+        cleanLaneOffsets: livePorts,
+        cleanLaneSpacing: cleanLaneSpacingRef?.current ?? 24,
+        curveSpacing: spacing,
+        edgeCurveInfo: edgeCurveInfoRef.current,
+      }),
+    });
+  }, [nodeByIdRef, edgesRef, multiConnectionCurveRef, cleanLaneOffsetsRef, routingStyleRef, baseDimsByIdRef, anchorPositionUpdatesRef,
+    enableAutoRoutingRef, lombardiTangentsRef, lombardiCurvatureRef, manhattanBendsRef, cleanLaneSpacingRef, edgeCurveInfoRef]);
 
+  const updateGroupBoundsInDOM = useCallback((movedNodeIds) => {
     const groupsByNode = groupsByNodeIdRef.current;
     const groupsById = groupsByIdRef?.current || new Map();
     const affectedGroupIds = collectAffectedGroupIds(movedNodeIds);
@@ -1682,6 +1821,14 @@ export const useNodeDrag = ({
     // the caller can also refresh those groups' external connections (which attach
     // to the anchor, not the dragged member).
     const affectedAnchorIds = new Set();
+    // A formula's anchor moves with it all the same, though its group has no
+    // shell in the DOM to cache: its connections are redrawn (at the formula,
+    // updateEdgesInDOM's formatEnd), only no pill is written for it.
+    affectedGroupIds.forEach(groupId => {
+      const anchorId = groupsById.get(groupId)?.anchorInstanceId;
+      if (anchorId && isReplacedGroup(groupId)) affectedAnchorIds.add(anchorId);
+    });
+    if (dragGroupMetaRef.current.size === 0) return affectedAnchorIds;
 
     const curNodeById = nodeByIdRef.current;
     const curBaseDims = baseDimsByIdRef.current;
@@ -1702,12 +1849,10 @@ export const useNodeDrag = ({
 
     // Shared cache across all groups in this frame so multi-parent containment
     // doesn't recompute the same child layout repeatedly.
-    // Match the static render's label sizing (NodeCanvas): node-title size
-    // (45 * fontSize * nodeScale). Without this the tab re-measured at the fixed
-    // 36px base with no scale on grab and jumped size mid-drag.
-    const ts = useGraphStore.getState().textSettings;
-    const labelScale = ts?.nodeScale ?? 1;
-    const labelFontSize = 45 * (ts?.fontSize ?? 1) * labelScale;
+    // Match the static render's label sizing (groupLabelMetrics). Without this
+    // the tab re-measured at the fixed 36px base with no scale on grab and
+    // jumped size mid-drag.
+    const { labelScale, labelFontSize, labelGrowth } = groupLabelMetrics(useGraphStore.getState().textSettings);
     const layoutContext = {
       nodesById: dragNodesById,
       dimsById: curBaseDims,
@@ -1718,6 +1863,15 @@ export const useNodeDrag = ({
       measureLabelWidth: (text) => pretextMeasureTextWidth(text || 'Group', `bold ${labelFontSize}px "EmOne", sans-serif`),
       labelScale,
       labelFontSize,
+      labelGrowth,
+      // A formula inside a group, as the settled layout measures it, carried as far as its Things are.
+      ...formatLayoutHooks((memberIds) => {
+        const id = memberIds.find(m => dragPos.has(m) && curNodeById.has(m));
+        return id ? { dx: dragPos.get(id).x - curNodeById.get(id).x, dy: dragPos.get(id).y - curNodeById.get(id).y } : null;
+      }),
+      // Its connections, routed where they are drawn this frame (the settled
+      // layout's rule, groupLayouts.js), so the box doesn't jump on the drop.
+      connectionBoundsOf: liveConnectionBoundsOf(dragNodesById),
       _cache: new Map(),
     };
 
@@ -1743,7 +1897,8 @@ export const useNodeDrag = ({
       // frame has to keep its rect current or the crosshair is testing against
       // where the title WAS at the last commit. Plain groups included — they are
       // absent from the anchor map below and would otherwise never update.
-      if (groupTitleRectsRef?.current) {
+      // A group drawn as a format has no pill: the format is where it is (groupLayouts.publishGroupLayouts).
+      if (groupTitleRectsRef?.current && !isReplacedGroup(groupId)) {
         groupTitleRectsRef.current.set(groupId, {
           x: labelX, y: labelY,
           width: groupLabelWidth, height: groupLabelHeight,
@@ -1752,11 +1907,12 @@ export const useNodeDrag = ({
         });
       }
 
-      if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current) {
+      if (layout.isNodeGroup && group.anchorInstanceId && anchorPositionUpdatesRef?.current && !isReplacedGroup(groupId)) {
         const vb = layout.visualBounds;
         anchorPositionUpdatesRef.current.set(group.anchorInstanceId, {
           x: labelX, y: labelY,
           width: groupLabelWidth, height: groupLabelHeight,
+          end: anchorPillEndBox(labelX, labelY, groupLabelWidth, groupLabelHeight, useGraphStore.getState().textSettings),
           groupId,
           outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
           // The shell as drawn — the shell-cutout clip on connections reads this.
@@ -1808,13 +1964,38 @@ export const useNodeDrag = ({
         if (matrix) el.setAttribute('transform', matrix);
         else el.removeAttribute('transform');
       };
-      // A wrapped title is a <text> of <tspan> lines, and each line carries its
-      // own absolute `x` (that's what re-centres it after the previous line's
-      // advance). Moving only the parent leaves every line behind.
-      const setLabelTextX = (el, x) => {
-        el.setAttribute('x', x);
-        const spans = el.getElementsByTagName('tspan');
-        for (let i = 0; i < spans.length; i++) spans[i].setAttribute('x', x);
+      // The title as React last drew it (sub.labelX/Y/Width/Height), carried
+      // onto its live box by one transform: moved, grown or shrunk with its
+      // group (a title can grow with its group's width, groupLabelMetrics), and
+      // popped for the lift. Every part of a title, wrapped lines and vector
+      // arrows included, scales about its middle, so one matrix places it all;
+      // and its own attributes stay as React drew them, so the settled render
+      // has no leftover drag values to miss. The drop clears the matrix.
+      const placeLabel = (sub) => {
+        if (!sub.labelRect) return;
+        const lcx = labelX + groupLabelWidth / 2;
+        const lcy = labelY + groupLabelHeight / 2;
+        const ocx = sub.labelX + sub.labelWidth / 2;
+        const ocy = sub.labelY + sub.labelHeight / 2;
+        const grow = sub.labelWidth > 0 ? groupLabelWidth / sub.labelWidth : 1;
+        const matrix = `translate(${lcx} ${lcy}) scale(${grow * (isGrabbedGroup ? 1.08 : 1)}) translate(${-ocx} ${-ocy})`;
+        // Attribute, not CSS transform-box:fill-box, which (with the drop-shadow
+        // filter the drag used to carry) clipped the stroke. Clear any stale CSS
+        // transform so it can't fight the attribute.
+        sub.labelRect.setAttribute('transform', matrix);
+        sub.labelRect.style.transform = '';
+        sub.labelRect.style.transformBox = '';
+        sub.labelRect.style.transformOrigin = '';
+        if (sub.labelText) sub.labelText.setAttribute('transform', matrix);
+        if (sub.labelArrows) {
+          // Drawn from the title's middle (groupElements); the drop puts this back.
+          sub.labelArrows.dataset.at = `translate(${ocx} ${ocy})`;
+          sub.labelArrows.setAttribute('transform', `${matrix} ${sub.labelArrows.dataset.at}`);
+        }
+        if (sub.shadowPill) {
+          placeGroupLiftShadow(sub.shadowPill, { x: labelX, y: labelY, w: groupLabelWidth, h: groupLabelHeight });
+          applyLiftMatrix(sub.shadowPill, liftMatrixFor(lcx, lcy));
+        }
       };
 
       meta.elements.forEach(sub => {
@@ -1830,31 +2011,7 @@ export const useNodeDrag = ({
             sub.directRects[0].setAttribute('height', rectH);
           }
           placeGroupLiftShadow(sub.shadowOutline, { x: rectX, y: rectY, w: rectW, h: rectH });
-          if (sub.labelRect) {
-            sub.labelRect.setAttribute('x', labelX);
-            sub.labelRect.setAttribute('y', labelY);
-            // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
-            // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
-            // which — combined with the drop-shadow filter the drag used to carry — clipped the stroke. Clear any
-            // stale CSS transform so it can't fight the attribute.
-            const lcx = labelX + groupLabelWidth / 2;
-            const lcy = labelY + groupLabelHeight / 2;
-            const liftMatrix = liftMatrixFor(lcx, lcy);
-            applyLiftMatrix(sub.labelRect, liftMatrix);
-            if (sub.shadowPill) {
-              placeGroupLiftShadow(sub.shadowPill, { x: labelX, y: labelY, w: groupLabelWidth, h: groupLabelHeight });
-              applyLiftMatrix(sub.shadowPill, liftMatrix);
-            }
-            sub.labelRect.style.transform = '';
-            sub.labelRect.style.transformBox = '';
-            sub.labelRect.style.transformOrigin = '';
-            if (sub.labelText) {
-              setLabelTextX(sub.labelText, labelX + groupLabelWidth / 2);
-              sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
-              // Pop the text with the pill, pivoting off the same center.
-              applyLiftMatrix(sub.labelText, liftMatrix);
-            }
-          }
+          placeLabel(sub);
         } else if (sub.type === 'bg') {
           // Node-group background: outer rect spans the title-included box;
           // inner canvas inset starts below the label.
@@ -1879,33 +2036,13 @@ export const useNodeDrag = ({
             sub.directRects[i].setAttribute('height', innerH);
           }
         } else if (sub.type === 'title') {
-          if (sub.labelRect) {
-            sub.labelRect.setAttribute('x', labelX);
-            sub.labelRect.setAttribute('y', labelY);
-            // Re-center the 1.08 lift matrix on the pill's current bbox center. Uses the
-            // `transform` attribute (local user space) instead of CSS transform-box:fill-box,
-            // which — combined with the drop-shadow filter the drag used to carry — clipped the stroke. Clear any
-            // stale CSS transform so it can't fight the attribute.
-            const lcx = labelX + groupLabelWidth / 2;
-            const lcy = labelY + groupLabelHeight / 2;
-            const liftMatrix = liftMatrixFor(lcx, lcy);
-            applyLiftMatrix(sub.labelRect, liftMatrix);
-            sub.labelRect.style.transform = '';
-            sub.labelRect.style.transformBox = '';
-            sub.labelRect.style.transformOrigin = '';
-            if (sub.labelText) {
-              setLabelTextX(sub.labelText, labelX + groupLabelWidth / 2);
-              sub.labelText.setAttribute('y', labelY + groupLabelHeight / 2); // dominantBaseline:central centers it
-              // Pop the text with the pill, pivoting off the same center.
-              applyLiftMatrix(sub.labelText, liftMatrix);
-            }
-          }
+          placeLabel(sub);
         }
       });
     });
 
     return affectedAnchorIds;
-  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize, collectAffectedGroupIds]);
+  }, [groupsByNodeIdRef, groupsByIdRef, nodeByIdRef, baseDimsByIdRef, gridSize, collectAffectedGroupIds, liveConnectionBoundsOf]);
 
   // ---------------------------------------------------------------------------
   // Core DOM Drag Update (replaces performDragUpdate — writes to DOM, not store)
@@ -1978,7 +2115,7 @@ export const useNodeDrag = ({
     const curBaseDims = baseDimsByIdRef.current;
     positionUpdates.forEach(({ instanceId, x, y }) => {
       if (!movedNodeIds.has(instanceId)) return;
-      const nodeEl = dragNodeElsRef.current.get(instanceId);
+      const nodeEl = dragNodeElsRef.current.get(instanceId) || lateNodeEl(instanceId);
       if (!nodeEl) return;
 
       const node = curNodeById.get(instanceId);
@@ -2346,6 +2483,7 @@ export const useNodeDrag = ({
       meta.elements?.forEach(sub => {
         if (sub.labelRect) sub.labelRect.removeAttribute('transform');
         if (sub.labelText) sub.labelText.removeAttribute('transform');
+        if (sub.labelArrows?.dataset.at) sub.labelArrows.setAttribute('transform', sub.labelArrows.dataset.at);
       });
     });
     // Put every connection label back the way React last rendered it.
@@ -2615,7 +2753,14 @@ export const useNodeDrag = ({
     // Collect all node IDs that will be dragged (for DOM caching)
     const draggedIds = [];
 
-    if (selectedInstanceIds.has(instanceId)) {
+    // A Thing open in more than one box here draws its definition's nodes once
+    // per box: moving one moves them all, so its copies ride along on screen
+    // (the drop writes only the dragged ones; see copyIds in handleDragEnd).
+    const isMulti = selectedInstanceIds.has(instanceId);
+    const baseIds = isMulti ? withFormulaParts(selectedInstanceIds) : new Set([instanceId]);
+    const copyIds = new Set(dragCopiesOf(projectGraphView(useGraphStore.getState(), activeGraphId), baseIds).keys());
+
+    if (isMulti || copyIds.size > 0) {
       // Multi-node drag
       const primaryNodeData = nodeById.get(instanceId);
       if (!primaryNodeData) return false;
@@ -2623,8 +2768,10 @@ export const useNodeDrag = ({
       const initialPrimaryPos = { x: primaryNodeData.x, y: primaryNodeData.y };
       const initialPositions = {};
       draggedIds.push(instanceId);
+      // A formula in the selection is selected as its anchor; its Things move with it.
+      const movingIds = new Set([...baseIds, ...copyIds]);
       nodes.forEach(n => {
-        if (selectedInstanceIds.has(n.id) && n.id !== instanceId) {
+        if (movingIds.has(n.id) && n.id !== instanceId) {
           initialPositions[n.id] = { offsetX: n.x - initialPrimaryPos.x, offsetY: n.y - initialPrimaryPos.y };
           draggedIds.push(n.id);
         }
@@ -2647,7 +2794,8 @@ export const useNodeDrag = ({
         initialMouseCanvas: { x: initMouseCanvasX, y: initMouseCanvasY },
         initialPrimaryPos,
         relativeOffsets: initialPositions,
-        primaryId: instanceId
+        primaryId: instanceId,
+        ...(copyIds.size > 0 ? { copyIds } : {}),
       };
       setDraggingNodeInfo(multiInfo);
       // Fired here rather than at the top of the function: everything above can
@@ -2660,7 +2808,7 @@ export const useNodeDrag = ({
 
       const liftScale = dragZoomSettings.enabled ? LIFT_SCALE_ZOOM : LIFT_SCALE;
       liftTargetScaleRef.current = liftScale;
-      selectedInstanceIds.forEach(id => {
+      (isMulti ? selectedInstanceIds : [instanceId]).forEach(id => {
         storeActions.updateNodeInstance(activeGraphId, id, draft => { draft.scale = liftScale; }, { isDragging: true, phase: 'start', ignore: true });
       });
 
@@ -2712,7 +2860,39 @@ export const useNodeDrag = ({
     // touch group drag flashes to a stale coord (often {0,0}) for one frame
     // before the first pointermove corrects it. Mirrors startDragForNode.
     mousePositionRef.current = { x: clientX, y: clientY };
-    setDraggingNodeInfo({ groupId, memberOffsets });
+    // Copies of what this moves in other boxes ride along (see dragCopiesOf),
+    // an empty box's held-open spot (its placeholder) included: each starts at
+    // its own spot and moves exactly as what it copies does.
+    const view = projectGraphView(useGraphStore.getState(), activeGraphId);
+    const copyOf = dragCopiesOf(view, memberOffsets.map(m => m.id));
+    const startAt = new Map();
+    if (copyOf.size > 0) {
+      const nodesById = nodeByIdRef.current;
+      const placeOf = (id) => {
+        const anchorId = id.startsWith(PLACEHOLDER_ID_PREFIX) ? anchorIdFromOpenGroupId(id.slice(PLACEHOLDER_ID_PREFIX.length)) : null;
+        return anchorId ? view.groups?.get(openGroupId(anchorId))?.emptyPlaceholderOrigin : nodesById.get(id);
+      };
+      memberOffsets.forEach(({ id }) => {
+        const anchorId = id.startsWith(PLACEHOLDER_ID_PREFIX) ? anchorIdFromOpenGroupId(id.slice(PLACEHOLDER_ID_PREFIX.length)) : null;
+        if (!anchorId) return;
+        copyOf.forEach((originalId, copyId) => {
+          if (originalId === anchorId) copyOf.set(placeholderIdForGroup(openGroupId(copyId)), id);
+        });
+      });
+      const offsetOf = new Map(memberOffsets.map(m => [m.id, m]));
+      memberOffsets = [...memberOffsets];
+      copyOf.forEach((originalId, copyId) => {
+        const o = offsetOf.get(originalId);
+        const original = placeOf(originalId);
+        const copy = placeOf(copyId);
+        if (!o || !original || !copy) { copyOf.delete(copyId); return; }
+        startAt.set(originalId, { x: original.x, y: original.y });
+        startAt.set(copyId, { x: copy.x, y: copy.y });
+        memberOffsets.push({ id: copyId, dx: o.dx + original.x - copy.x, dy: o.dy + original.y - copy.y });
+      });
+    }
+    const copyIds = copyOf.size > 0 ? new Set(copyOf.keys()) : null;
+    setDraggingNodeInfo({ groupId, memberOffsets, ...(copyIds ? { copyIds, copyOf, startAt } : {}) });
     haptic('nodeLift');
     dragHistoryRecordedRef.current = false;
     // Group members don't get a per-node lift scale — fall back to node.scale (1)
@@ -2723,7 +2903,7 @@ export const useNodeDrag = ({
     // Cache DOM elements for all group members
     const memberIds = memberOffsets.map(m => m.id);
     cacheDOMElements(memberIds);
-  }, [triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, mousePositionRef]);
+  }, [triggerDragZoomOut, cacheDOMElements, cancelInFlightZoomRestore, mousePositionRef, activeGraphId]);
 
   // ---------------------------------------------------------------------------
   // Cancel Drag (for touch cancel, escape key, etc.)
@@ -2813,7 +2993,7 @@ export const useNodeDrag = ({
 
   // ---------------------------------------------------------------------------
   // Handle Drag End (called from handleMouseUp in NodeCanvas)
-  // Returns { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag }
+  // Returns { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, groupId, finalPositions }
   // ---------------------------------------------------------------------------
   const handleDragEnd = useCallback((clientX, clientY, graphsMap) => {
     // Atomic re-entry guard. Multiple release paths (window-capture pointerup,
@@ -2856,7 +3036,13 @@ export const useNodeDrag = ({
     }
 
     // --- Capture final positions (NOT flushed yet — deferred to performCleanup) ---
+    // Copies of the dragged nodes in other boxes only rode along on screen: the
+    // dragged ones' write moves them, so they are left out of everything below.
     const finalPositions = new Map(dragPositionsRef.current);
+    info.copyIds?.forEach(id => finalPositions.delete(id));
+    const relativeOffsets = info.relativeOffsets && info.copyIds
+      ? Object.fromEntries(Object.entries(info.relativeOffsets).filter(([id]) => !info.copyIds.has(id)))
+      : info.relativeOffsets;
     const finalUpdates = finalPositions.size > 0
       ? Array.from(finalPositions.entries()).map(
         ([instanceId, { x, y }]) => ({ instanceId, x, y })
@@ -2880,9 +3066,9 @@ export const useNodeDrag = ({
         return false;
       };
 
-      if (info.relativeOffsets) {
+      if (relativeOffsets) {
         checkAndRecord(info.primaryId, info.initialPrimaryPos.x, info.initialPrimaryPos.y);
-        Object.entries(info.relativeOffsets).forEach(([id, rel]) => {
+        Object.entries(relativeOffsets).forEach(([id, rel]) => {
           checkAndRecord(id, info.initialPrimaryPos.x + rel.offsetX, info.initialPrimaryPos.y + rel.offsetY);
         });
       } else if (info.initialPos) {
@@ -2903,9 +3089,9 @@ export const useNodeDrag = ({
 
     // --- Collect IDs for scale reset ---
     const instanceIdsToReset = new Set();
-    if (info.relativeOffsets) {
+    if (relativeOffsets) {
       instanceIdsToReset.add(info.primaryId);
-      Object.keys(info.relativeOffsets).forEach(id => instanceIdsToReset.add(id));
+      Object.keys(relativeOffsets).forEach(id => instanceIdsToReset.add(id));
     } else if (info.instanceId) {
       instanceIdsToReset.add(info.instanceId);
     }
@@ -2921,9 +3107,9 @@ export const useNodeDrag = ({
 
     if (!wasGroupDrag) {
       checkGroupDrop = true;
-      if (info.relativeOffsets) {
+      if (relativeOffsets) {
         draggedNodeIds.push(info.primaryId);
-        Object.keys(info.relativeOffsets).forEach(id => draggedNodeIds.push(id));
+        Object.keys(relativeOffsets).forEach(id => draggedNodeIds.push(id));
       } else if (info.instanceId) {
         draggedNodeIds.push(info.instanceId);
       }
@@ -2944,7 +3130,9 @@ export const useNodeDrag = ({
       // from the ones the DOM was showing a frame earlier (they did: this copy
       // never learned about placeholder ids and dropped empty node-groups
       // unsnapped).
-      const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, info);
+      // Copies only rode along on screen: the write moves them (see copyIds).
+      const positionUpdates = computePositionUpdates(mouseCanvasX, mouseCanvasY, info)
+        .filter(u => !info.copyIds?.has(u.instanceId));
 
       const graph = graphsMap?.get(activeGraphId);
       const groupName = graph?.groups?.get(info.groupId)?.name;
@@ -2959,8 +3147,11 @@ export const useNodeDrag = ({
     // --- Cleanup function: clears DOM transforms, resets scale, nulls drag state ---
     // Deferred to after zoom-restore animation if applicable, otherwise runs immediately.
     const performCleanup = () => {
-      // Flush positions to store (deferred to avoid double-offset during zoom-restore)
-      if (finalUpdates.length > 0) {
+      // Flush positions to store (deferred to avoid double-offset during zoom-restore).
+      // Not for a group drag: its finalized write below carries the same
+      // positions, and landing them here first, unrecorded, left that write with
+      // nothing to change, so a group's move never reached undo.
+      if (finalUpdates.length > 0 && !groupDragUpdates) {
         storeActions.updateMultipleNodeInstancePositions(
           activeGraphId, finalUpdates, { isDragging: true, phase: 'move' }
         );
@@ -3077,7 +3268,7 @@ export const useNodeDrag = ({
     }
 
     const primaryNodeId = info.primaryId || info.instanceId || null;
-    return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, finalPositions };
+    return { draggedNodeIds, primaryNodeId, checkGroupDrop, wasGroupDrag, groupId: wasGroupDrag ? info.groupId : null, finalPositions };
   }, [draggingNodeInfo, nodes, activeGraphId, storeActions, nodeByIdRef, gridMode, gridSize,
     preDragZoomLevel, dragZoomSettings, zoomLevelRef, panOffsetRef, containerRef, canvasSizeRef,
     animateZoomAndPanToTarget, clearDOMTransforms, computePositionUpdates]);

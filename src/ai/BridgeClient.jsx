@@ -9,6 +9,7 @@ import {
   buildGraphSummaries
 } from '../services/bridgeStateSerializer.js';
 import { createStoreActions, normalizeId, priority } from '../services/storeActions.js';
+import { applyBridgeAction } from '../services/bridgeApply.js';
 import { createDaemonCoexistence } from '../services/daemonCoexistence.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
 import { exportToRedstring } from '../formats/redstringFormat.js';
@@ -403,6 +404,10 @@ const BridgeClient = () => {
         }
         return;
       }
+      // Not while the universe loads: the store is the empty initial state
+      // then, and the wizard would read (and act on) an empty workspace. The
+      // isUniverseLoaded subscription below sends as soon as it has loaded.
+      if (!useGraphStore.getState().isUniverseLoaded) return;
       try {
         const state = useGraphStore.getState();
         // Include file status for debugging/persistence visibility
@@ -524,6 +529,14 @@ const BridgeClient = () => {
       }
     };
 
+    // Send the moment the universe has loaded, instead of on the next tick.
+    const unsubscribeUniverseLoaded = useGraphStore.subscribe((state, prev) => {
+      if (state.isUniverseLoaded && !prev?.isUniverseLoaded) {
+        sendGateRef.current.failed();
+        sendStoreToServer();
+      }
+    });
+
     // Expose a manual reconnect hook so the panel Refresh button can restart attempts
     try {
       window.rsBridgeManualReconnect = () => {
@@ -588,6 +601,13 @@ const BridgeClient = () => {
         //   const bridgeData = await bridgeResponse.json();
         //   // ... sync logic disabled for now
         // }
+
+        // Hold pending actions while the universe loads: applied now, they
+        // would be wiped by the load and still reported as done. They stay
+        // queued on the server until it has loaded.
+        if (!useGraphStore.getState().isUniverseLoaded) {
+          return;
+        }
 
         // Check for pending actions. POST: the call leases what it returns, so
         // the agent server refuses it as a GET.
@@ -823,23 +843,17 @@ const BridgeClient = () => {
                   } catch (ackErr) {
                     console.warn('⚠️ MCP Bridge: Failed to ack action completion:', ackErr);
                   }
-                } else if (window.__rs_applyToolResultToStore) {
+                } else {
                   console.log('🔄 MCP Bridge: Routing action through global UI pipeline:', pendingAction.action);
-                  let resultObj;
-
-                  // Wrap params into a result-like object for applyToolResultToStore
-                  // Most wizard tools just return the spec/params direct inside result
-                  if (Array.isArray(pendingAction.params) && pendingAction.params.length === 1) {
-                    resultObj = { action: pendingAction.action, ...pendingAction.params[0] };
-                  } else {
-                    resultObj = { action: pendingAction.action, ...pendingAction.params };
-                  }
 
                   // Attempt execution via main UI pipeline
                   try {
-                    window.__rs_applyToolResultToStore(pendingAction.action, resultObj, pendingAction.id);
+                    // The ack carries what really happened: ok false with the
+                    // failures, held while it waits on the person, and it waits
+                    // for a build that loads first (a bank formula).
+                    const report = await applyBridgeAction(pendingAction.action, pendingAction.params, pendingAction.id);
+                    if (!report.ok) console.warn('MCP Bridge: Action did not apply:', pendingAction.action, report.error || report.status);
 
-                    // Emulate successful execution to clear it from the queue
                     try {
                       if (pendingAction.id) {
                         if (pendingAction.action !== 'chat' && pendingAction.action !== 'navigateTo') {
@@ -848,10 +862,10 @@ const BridgeClient = () => {
                         await bridgeFetch('/api/bridge/action-completed', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ actionId: pendingAction.id, result: resultObj })
+                          body: JSON.stringify({ actionId: pendingAction.id, result: report })
                         });
                       }
-                      window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: 'completed', id: pendingAction.id }] }));
+                      window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: report.ok ? 'completed' : 'failed', id: pendingAction.id }] }));
                     } catch (ackErr) {
                       console.warn('⚠️ MCP Bridge: Failed to ack delegated action completion:', ackErr);
                     }
@@ -859,24 +873,20 @@ const BridgeClient = () => {
                     console.error('❌ MCP Bridge: UI Pipeline execution failed:', pipelineErr);
                     throw pipelineErr; // Let the outer catch handle the feedback
                   }
-                } else {
-                  console.error('❌ MCP Bridge: Action not found:', pendingAction.action);
-                  // Send error feedback to bridge server
-                  await bridgeFetch('/api/bridge/action-feedback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      action: pendingAction.action,
-                      status: 'error',
-                      error: 'Action not found in window.redstringStoreActions or global pipeline'
-                    })
-                  });
-                  try {
-                    window.dispatchEvent(new CustomEvent('rs-telemetry', { detail: [{ ts: Date.now(), type: 'tool_call', name: pendingAction.action, args: pendingAction.params, status: 'failed', id: pendingAction.id }] }));
-                  } catch { }
                 }
               } catch (error) {
                 console.error('❌ MCP Bridge: Failed to execute action:', pendingAction.action, error);
+                // Ack it as failed, so the tool call that queued it hears so now
+                // instead of waiting out its timeout.
+                if (pendingAction.id) {
+                  try {
+                    await bridgeFetch('/api/bridge/action-completed', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ actionId: pendingAction.id, result: { ok: false, error: error?.message || String(error) } })
+                    });
+                  } catch { }
+                }
                 // Send error feedback to bridge server
                 try {
                   await bridgeFetch('/api/bridge/action-feedback', {
@@ -1005,6 +1015,7 @@ const BridgeClient = () => {
       // the worst of them: it installs a NEW 10s interval over dataIntervalRef, so
       // a leaked listener leaks an interval on every reconnect signal after it.
       window.removeEventListener('rs-bridge-reconnect', handleReconnectEvent);
+      unsubscribeUniverseLoaded();
 
       if (eventSourceRef.current) {
         try { eventSourceRef.current.close(); } catch { }

@@ -10,8 +10,12 @@ import { clampPan } from '../../../utils/canvas/viewportMath.js';
 import { createFrameClock } from './frameClock.js';
 import { getNodeDimensions } from '../../../utils.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import useGraphStore from '../../../store/graphStore.js';
 import { getFixedOverlayOrigin } from '../../../utils/appViewport.js';
 import { getAppViewportSize } from '../../../utils/appViewport.js';
+import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
+import { computeFormulaObjects } from '../formats/formula/formulaObjects.js';
+import { formulaDisplayNow } from '../formats/formatsStore.js';
 import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
 import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
@@ -167,8 +171,140 @@ export function focusEdgePieMenuInViewWith(ctx, anchor, buttonCount, labelRect =
   });
 }
 
+// Thing-group and equation framing: the whole group (its box, title and all)
+// with its menu above the title, fitted into the usable region. Unlike the
+// connection's, this zooms in as well as out, as far as the manual zoom goes
+// (MAX_ZOOM), so a small group fills the view and a big one is pulled back to.
+const FOCUS_GROUP_FILL = 0.92;          // of the region the framed box fills
+const FOCUS_GROUP_PADDING_RATIO = 0.4;  // margin around it, in bubble diameters
+
+/**
+ * Frame a selected Thing-group or equation with its pie.
+ *
+ * @param {object} ctx - the camera context (cameraCtxRef.current)
+ * @param {{x, y, w, h}} box - what to frame, canvas units: a Thing-group's title
+ *   on selection, otherwise the group as drawn, title included
+ * @param {{x, y}} anchor - the group pie's anchor (the title's top middle)
+ * @param {number} buttonCount - how many buttons the pie has
+ * @param {number} zoomAmount - the Zoom on Select tightness setting
+ */
+export function focusGroupInViewWith(ctx, box, anchor, buttonCount, zoomAmount = 1.0) {
+  const { runFramingAfterCommit, MIN_ZOOM } = ctx;
+  if (!FOCUS_ON_SELECT_ENABLED || !box || !runFramingAfterCommit) return;
+  runFramingAfterCommit(() => {
+    const f = groupFrameWith(ctx, box, anchor, buttonCount);
+    const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, f.fit * zoomAmount));
+    panToGroupFrameWith(ctx, tz, f.centerX, f.centerY, f.vb);
+  });
+}
+
+// A box that has just opened, framed by how big it is: a small one near its
+// title's framing, pulled back by OPENED_BOX_TITLE_ZOOM; a bigger one zoomed out
+// until all of it shows; one too big for that stops at OPENED_BOX_FLOOR_ZOOM of
+// the title's framing, with its title and menu at the top of the view.
+const OPENED_BOX_TITLE_ZOOM = 0.34;
+const OPENED_BOX_FLOOR_ZOOM = 0.3;
+
+/**
+ * Frame a box that has just opened (a Thing decomposed into its thing group) with
+ * its menu, by its size (see OPENED_BOX_TITLE_ZOOM).
+ *
+ * @param {{x, y, w, h}} titleBox - its title pill, canvas units
+ * @param {{x, y, w, h}} wholeBox - the box as drawn, title included
+ */
+export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, buttonCount, zoomAmount = 1.0) {
+  const { runFramingAfterCommit, MIN_ZOOM } = ctx;
+  if (!FOCUS_ON_SELECT_ENABLED || !titleBox || !wholeBox || !runFramingAfterCommit) return;
+  runFramingAfterCommit(() => {
+    const title = groupFrameWith(ctx, titleBox, anchor, buttonCount);
+    const whole = groupFrameWith(ctx, wholeBox, anchor, buttonCount);
+    const titleZoom = title.fit * zoomAmount;
+    const floor = titleZoom * OPENED_BOX_FLOOR_ZOOM;
+    let tz = Math.min(titleZoom * OPENED_BOX_TITLE_ZOOM, whole.fit * zoomAmount);
+    let centerX = whole.centerX;
+    let centerY = whole.centerY;
+    if (tz < floor) {
+      // Too big to show whole: its top (menu, title) at the top of the view.
+      tz = floor;
+      centerX = title.centerX;
+      centerY = whole.top + (whole.vb.height / 2) / tz;
+    }
+    tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, tz));
+    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb, { withMorph: true });
+  });
+}
+
+/**
+ * A group frame's bounds (the box, its pie as PieMenu lays it out, and a margin),
+ * its centre, the zoom that fits it to the region above the group panel, and the
+ * top of it in canvas units.
+ */
+function groupFrameWith(ctx, box, anchor, buttonCount) {
+  const { getFramingRegion, textSettings } = ctx;
+  const pieScale = (textSettings?.nodeScale ?? 1.0) * (textSettings?.pieMenuScale ?? 1.0);
+  const bSize = 120 * pieScale;
+  const bPad = 32 * pieScale;
+  let minX = box.x, minY = box.y, maxX = box.x + box.w, maxY = box.y + box.h;
+  if (anchor && buttonCount > 0) {
+    // The pie as PieMenu lays it out (line mode, level), as the connection's is framed.
+    const pie = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
+      count: buttonCount, angle: 0, step: bSize + bPad, perpOffset: bSize + bPad * 2, rowGap: bSize + bPad,
+    });
+    minX = Math.min(minX, pie.minX); minY = Math.min(minY, pie.minY);
+    maxX = Math.max(maxX, pie.maxX); maxY = Math.max(maxY, pie.maxY);
+  }
+  const pad = bSize * FOCUS_GROUP_PADDING_RATIO;
+  const boundsW = Math.max(1, maxX - minX + pad * 2);
+  const boundsH = Math.max(1, maxY - minY + pad * 2);
+  // The group panel comes up with the selection: aim at the gap above it.
+  const vb = getFramingRegion({ reserveBottomPanel: true });
+  const fit = Math.min((vb.width * FOCUS_GROUP_FILL) / boundsW, (vb.height * FOCUS_GROUP_FILL) / boundsH);
+  return { fit, vb, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2, top: minY - pad };
+}
+
+/** Animate to `tz` with (centerX, centerY) in the middle of `vb`, unless already there. */
+function panToGroupFrameWith(ctx, tz, centerX, centerY, vb, animation = undefined) {
+  const { canvasSize, viewportSize, zoomLevelRef, panOffsetRef, animateCanvasView } = ctx;
+  const targetPan = {
+    x: vb.x + vb.width / 2 - (centerX - canvasSize.offsetX) * tz,
+    y: vb.y + vb.height / 2 - (centerY - canvasSize.offsetY) * tz,
+  };
+  const finalPan = clampPan(targetPan, tz, viewportSize, canvasSize);
+
+  // Already essentially framed? Leave the view where it is.
+  const curZoom = zoomLevelRef.current;
+  const curPan = panOffsetRef.current;
+  const zoomClose = Math.abs(tz - curZoom) <= curZoom * FOCUS_SKIP_ZOOM_RATIO;
+  const panClose = Math.abs(finalPan.x - curPan.x) <= FOCUS_SKIP_PAN_PX
+    && Math.abs(finalPan.y - curPan.y) <= FOCUS_SKIP_PAN_PX;
+  if (zoomClose && panClose) return;
+
+  animateCanvasView(finalPan, tz, animation);
+}
+
 // Room left around a box opened in place when it is brought into view, in screen px.
 const BOX_VIEW_PADDING = 48;
+
+// The camera move that goes with a node or box morph: the morph's curve
+// (groups/boxMorph.js, hooks/useExpandMorph.js), a little longer than its 380 ms
+// since it starts a few frames after the morph does, so neither outruns the other.
+const MORPH_CAMERA_MS = 460;
+const easeInOutCubic = t => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2);
+
+/**
+ * A box as drawn ({ x, y, w, h }, canvas units), or null. Shown as its formula,
+ * that is the formula's band: the Thing-group's shell stays in the page, hidden,
+ * laid out over its Things, which run far wider than their formula.
+ */
+function drawnBoxOf(groupId) {
+  const formula = computeFormulaObjects(useGraphStore.getState(), formulaDisplayNow()).objects.find(o => o.groupId === groupId);
+  if (formula) return { ...formula.frame };
+  const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(groupId) : groupId;
+  const band = document.querySelector(`svg.canvas .node-group-bg[data-group-id="${id}"] > rect`);
+  if (!band) return null;
+  const num = (name) => parseFloat(band.getAttribute(name)) || 0;
+  return { x: num('x'), y: num('y'), w: num('width'), h: num('height') };
+}
 
 /**
  * Bring a box that has just opened (a Thing decomposed into its thing group) into
@@ -184,12 +320,8 @@ function frameBoxInViewWith(ctx, groupId) {
     animateCanvasView,
   } = ctx;
   runFramingAfterCommit(() => {
-    const id = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(groupId) : groupId;
-    const band = document.querySelector(`svg.canvas .node-group-bg[data-group-id="${id}"] > rect`);
-    if (!band) return;
-    const num = (name) => parseFloat(band.getAttribute(name)) || 0;
-    const box = { x: num('x'), y: num('y'), w: num('width'), h: num('height') };
-    if (box.w <= 0 || box.h <= 0) return;
+    const box = drawnBoxOf(groupId);
+    if (!box || box.w <= 0 || box.h <= 0) return;
 
     const vb = getFramingRegion({ reserveBottomPanel: true });
     const room = {
@@ -220,8 +352,28 @@ function frameBoxInViewWith(ctx, groupId) {
         y: room.y + room.h / 2 - (box.y + box.h / 2 - canvasSize.offsetY) * tz,
       };
     }
-    animateCanvasView(clampPan(targetPan, tz, viewportSize, canvasSize), tz);
+    animateCanvasView(clampPan(targetPan, tz, viewportSize, canvasSize), tz, { withMorph: true });
   });
+}
+
+// Frames a just-opened box's pie has to claim it before the camera frames it whole.
+const OPENED_BOX_PIE_WAIT_FRAMES = 6;
+
+/**
+ * A box that has just opened: framed by its title and menu when its pie comes up
+ * (GroupPieMenuLayer claims the request), otherwise brought into view whole.
+ */
+function frameOpenedBoxWith(ctx, groupId) {
+  if (typeof requestAnimationFrame !== 'function') {
+    if (takeOpenedBoxFrame(groupId)) frameBoxInViewWith(ctx, groupId);
+    return;
+  }
+  let left = OPENED_BOX_PIE_WAIT_FRAMES;
+  const tick = () => {
+    if (left-- > 0) { requestAnimationFrame(tick); return; }
+    if (takeOpenedBoxFrame(groupId)) frameBoxInViewWith(ctx, groupId);
+  };
+  requestAnimationFrame(tick);
 }
 
 /**
@@ -240,7 +392,7 @@ export function focusNodeInViewWith(ctx, nodeId, { recompose = false, focusOnSel
   const node = nodes.find(n => n.id === nodeId);
   if (!node) return;
   if (recompose && node.isGroupAnchor && node.anchorForGroupId) {
-    frameBoxInViewWith(ctx, node.anchorForGroupId);
+    frameOpenedBoxWith(ctx, node.anchorForGroupId);
     return;
   }
   if (recompose && !focusOnSelectEnabled) return;
@@ -389,13 +541,16 @@ export function frameDecomposedNode(ctx) {
   if (!node) return;
 
   const dims = getNodeDimensions(node, true, null); // preview (expanded) dimensions
-  const centerX = node.x + dims.currentWidth / 2;
-  const centerY = node.y + dims.currentHeight / 2;
+  const centerX = node.x + dims.previewOffsetX + dims.currentWidth / 2;
+  const centerY = node.y + dims.previewOffsetY + dims.currentHeight / 2;
 
   // Fit against the usable canvas region (panels/header/typelist excluded), in
   // container coordinates — so the expanded node fits and centers within what's
-  // actually visible rather than the full window when panels are open.
-  const vb = getFramingRegion();
+  // actually visible rather than the full window when panels are open. Sized
+  // against the whole region, so it is the same size with or without the node
+  // control panel; centred in what the panel leaves (`vb`) when it is up.
+  const full = getFramingRegion();
+  const vb = getFramingRegion({ reserveBottomPanel: true });
   const regionCenterX = vb.x + vb.width / 2;
   const regionCenterY = vb.y + vb.height / 2;
 
@@ -408,17 +563,25 @@ export function frameDecomposedNode(ctx) {
   const biasFraction = lerp(DECOMPOSE_BIAS_WIDE, DECOMPOSE_BIAS_NARROW, narrowness);
 
   // Zoom to fit the expanded node within the usable region, then pull back per the
-  // width-scaled factor. Clamp to zoom bounds.
-  const fitX = vb.width / (dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2);
-  const fitY = vb.height / (dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2);
-  const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(fitX, fitY) * zoomFactor));
+  // width-scaled factor; smaller still if that wouldn't fit above the panel.
+  // Clamp to zoom bounds.
+  const paddedW = dims.currentWidth + DECOMPOSE_VIEW_PADDING * 2;
+  const paddedH = dims.currentHeight + DECOMPOSE_VIEW_PADDING * 2;
+  const sized = Math.min(full.width / paddedW, full.height / paddedH) * zoomFactor;
+  // Above a panel, the card and its pie (a row of buttons on top of it) are fitted
+  // and centred together. Without one, the bias below lifts them.
+  const ts = useGraphStore.getState().textSettings;
+  const pieHeight = vb.reservedBottom > 0 ? (120 + 32 * 2) * (ts?.nodeScale ?? 1) * (ts?.pieMenuScale ?? 1) : 0; // BUBBLE_SIZE + 2 · BUBBLE_PADDING
+  const fitsAbovePanel = Math.min(vb.width / paddedW, vb.height / (paddedH + pieHeight));
+  const tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, sized, fitsAbovePanel));
 
-  // Nudge the node above the region center so the control panel below has room.
-  const verticalBias = vb.height * biasFraction;
+  // Nudge the node above the region center so the pie and panel have room. A
+  // reserved panel is already out of the region, so it needs no nudge for it.
+  const verticalBias = vb.reservedBottom > 0 ? 0 : vb.height * biasFraction;
   const targetPanX = regionCenterX - (centerX - canvasSize.offsetX) * tz;
-  const targetPanY = (regionCenterY - verticalBias) - (centerY - canvasSize.offsetY) * tz;
+  const targetPanY = (regionCenterY - verticalBias) - (centerY - pieHeight / 2 - canvasSize.offsetY) * tz;
   const finalPan = clampPan({ x: targetPanX, y: targetPanY }, tz, viewportSize, canvasSize);
-  animateCanvasView(finalPan, tz);
+  animateCanvasView(finalPan, tz, { withMorph: true });
 }
 
 /** When the edge pie opens on a connection, frame it (label included). */
@@ -548,23 +711,44 @@ export function frameCarouselOnOpen(ctx) {
 }
 
 /** Ease the camera to a pan and zoom over `durationMs` (the framing animations). */
-export function animateCanvasViewWith(ctx, targetPan, targetZoom, durationMs = 320) {
+export function animateCanvasViewWith(ctx, targetPan, targetZoom, options = 320) {
   const { carouselViewAnimRef, panOffsetRef, zoomLevelRef, isAnimatingZoomRef, setPanAndZoom } = ctx;
+  // A number is a duration (the old signature); `{ withMorph: true }` paces the move
+  // with a node or box morph (MORPH_CAMERA_MS).
+  const { durationMs = options?.withMorph ? MORPH_CAMERA_MS : 320, withMorph = false } =
+    typeof options === 'number' ? { durationMs: options } : (options || {});
   if (carouselViewAnimRef.current) cancelAnimationFrame(carouselViewAnimRef.current);
   const startPan = { ...panOffsetRef.current };
   const startZoom = zoomLevelRef.current;
   // Frame time, not wall time, so a busy main thread can't skip the move.
   const clock = createFrameClock();
   isAnimatingZoomRef.current = true;
-  const ease = (t) => 1 - Math.pow(1 - t, 3);
+  const ease = withMorph ? easeInOutCubic : (t) => 1 - Math.pow(1 - t, 3);
+  // With a morph: zoom at a steady rate (geometric, so a big zoom-out doesn't spend
+  // itself in the first frames) and the view travelling in a straight line, about
+  // the middle of the window. Both ends are exact.
+  const mid = withMorph && typeof window !== 'undefined'
+    ? { x: window.innerWidth / 2, y: window.innerHeight / 2 } : null;
+  const at = (pan, zoom) => ({ x: (mid.x - pan.x) / zoom, y: (mid.y - pan.y) / zoom });
+  const from = mid ? at(startPan, startZoom) : null;
+  const to = mid ? at(targetPan, targetZoom) : null;
   const step = (now) => {
     const t = Math.min(1, clock(now) / durationMs);
     const e = ease(t);
-    const pan = {
-      x: startPan.x + (targetPan.x - startPan.x) * e,
-      y: startPan.y + (targetPan.y - startPan.y) * e,
-    };
-    const zoom = startZoom + (targetZoom - startZoom) * e;
+    let pan, zoom;
+    if (mid && startZoom > 0 && targetZoom > 0) {
+      zoom = startZoom * Math.pow(targetZoom / startZoom, e);
+      const ux = from.x + (to.x - from.x) * e;
+      const uy = from.y + (to.y - from.y) * e;
+      pan = t < 1 ? { x: mid.x - ux * zoom, y: mid.y - uy * zoom } : { ...targetPan };
+      if (t >= 1) zoom = targetZoom;
+    } else {
+      pan = {
+        x: startPan.x + (targetPan.x - startPan.x) * e,
+        y: startPan.y + (targetPan.y - startPan.y) * e,
+      };
+      zoom = startZoom + (targetZoom - startZoom) * e;
+    }
     setPanAndZoom(pan, zoom);
     if (t < 1) {
       carouselViewAnimRef.current = requestAnimationFrame(step);

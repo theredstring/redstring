@@ -88,8 +88,8 @@ export const PATTERN_LAYOUT_DEFAULTS = {
   // children) would otherwise stretch the diagram without bound.
   maxSiblingLabelGap: 1200,
 
-  // 'auto' scores vertical vs horizontal and keeps whichever fits the canvas
-  // aspect better. Long labels stretch the level axis, so this matters.
+  // 'auto' lays trees and layered DAGs out left to right; 'vertical' and
+  // 'horizontal' force an axis. See the note at the end of treeLayoutCentered.
   treeDirection: 'auto',
 
   // 'top' | 'flow' — where the root of an inward-pointing hierarchy goes.
@@ -663,23 +663,25 @@ function treeLayoutCentered(nodes, edges, cfg, meta = {}) {
   };
 
   const direction = cfg.treeDirection || 'auto';
-  if (direction === 'horizontal') return attempt(false);
+  if (direction === 'vertical') return attempt(true);
 
-  // 'auto' and 'vertical' both mean TOP-DOWN for a tree, deliberately.
+  // 'auto' means LEFT TO RIGHT for a tree, deliberately.
   //
-  // 'auto' used to lay the tree out both ways and keep whichever fitted the
-  // canvas better — but `cfg.width`/`cfg.height` come from the live viewport,
-  // so the same graph ran top-to-bottom in a tall window and right-to-left in a
-  // wide one, and resizing the window rotated the hierarchy. Depth is the one
-  // thing a tree is FOR; which way it points should be a fixed convention the
-  // reader can learn, not a function of the panel widths.
+  // It is a fixed convention, never a function of the canvas: 'auto' used to
+  // lay the tree out both ways and keep whichever fitted the viewport better,
+  // so the same graph ran top-to-bottom in a tall window and sideways in a wide
+  // one, and resizing the window rotated the hierarchy. Depth is the one thing
+  // a tree is FOR; which way it points should be learnable.
   //
-  // Down is the direction that matches `rootPlacement: 'top'` and the Tree of
-  // Porphyry note in that comment: the general term above, the specific below.
-  // `treeDirection: 'horizontal'` still forces the other axis for callers that
-  // want it, and layeredLayoutCentered keeps its own canvas-aware choice — a
-  // DAG's flow axis is genuinely a fitting question, a taxonomy's is not.
-  return attempt(true);
+  // Left to right rather than down because a connection then reads as a
+  // sentence: subject, the relation's label running along the line, object.
+  // Labels are wide and short, so a horizontal edge holds its text along its
+  // length, where a vertical one has to be stretched to fit it across. Grant
+  // found triples far easier to read this way.
+  //
+  // `rootPlacement: 'top'` still means the root at depth 0, which is now the
+  // left edge: the general term first, the specific after it.
+  return attempt(false);
 }
 
 // ============================================================================
@@ -1616,19 +1618,11 @@ function layeredLayoutCentered(nodes, edges, cfg) {
     return positions;
   };
 
+  // Left to right unless told otherwise, for the reason treeLayoutCentered
+  // gives: a flow reads along its connections, labels and all.
   const direction = cfg.treeDirection || 'auto';
   if (direction === 'vertical') return attempt(true);
-  if (direction === 'horizontal') return attempt(false);
-  return pickBetterFit(attempt(true), attempt(false), nodeById, cfg);
-}
-
-/** Keep whichever of two candidate layouts fits the target canvas better. */
-function pickBetterFit(a, b, nodeById, cfg) {
-  const score = (positions) => {
-    const box = bboxOfCenters(positions, nodeById);
-    return Math.max(box.width / Math.max(1, cfg.width), box.height / Math.max(1, cfg.height));
-  };
-  return score(a) <= score(b) ? a : b;
+  return attempt(false);
 }
 
 // ============================================================================

@@ -88,6 +88,17 @@ jobs:
         if: runner.os == 'macOS'
         run: node scripts/patch-electron-builder-keychain.mjs
 
+      # Developer ID certificates last one year now. Fail here, in seconds, on an
+      # expired, wrong-type or other-team certificate (each would ship a build no
+      # installed copy accepts as an update), and warn 60 days before expiry.
+      # Renewal steps: documentation/dev-ops/CODE_SIGNING.md.
+      - name: Check signing certificate (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/check-mac-signing-cert.mjs
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
       # Windows releases must be Authenticode-signed: electron-updater verifies
       # the publisher of every downloaded update (verifyUpdateCodeSignature),
       # and an unsigned installer is the easiest thing to substitute. Refuse to
@@ -143,12 +154,34 @@ jobs:
 
       # electron-builder directly (no third-party wrapper action). Uploads to
       # the tag's GitHub release, which electron-builder creates as a draft.
+      #
+      # Notarization prefers the team's App Store Connect API key: it belongs to
+      # the team, not to a person, so it survives Account Holder and member
+      # changes. electron-builder tries APPLE_ID first, so the Apple ID login is
+      # cleared when the key is present. Without the APPLE_API_KEY_P8 secret it
+      # notarizes with the Apple ID login, as before.
       - name: Build and publish (macOS)
         if: runner.os == 'macOS'
-        run: npx electron-builder --mac --publish always
+        shell: bash
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            KEY_FILE="$RUNNER_TEMP/notarize-api-key.p8"
+            ( umask 077; printf '%s\n' "$APPLE_API_KEY_P8" > "$KEY_FILE" )
+            export APPLE_API_KEY="$KEY_FILE"
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD
+            echo "Notarizing with the App Store Connect API key"
+          else
+            unset APPLE_API_KEY_ID APPLE_API_ISSUER
+            echo "Notarizing with the Apple ID login (no APPLE_API_KEY_P8 secret)"
+          fi
+          npx electron-builder --mac --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Apple Notarization
+          # Apple Notarization: team API key (preferred)...
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          # ...or the Apple ID login
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

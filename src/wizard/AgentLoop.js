@@ -12,7 +12,7 @@ import { isSettled, renderPlanText } from './tools/planTask.js';
 import { isGoalSettled, renderGoalText } from './tools/declareGoal.js';
 import { normalizeWizardMode, WIZARD_MODE_GOAL } from './wizardMode.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
-import { resolveToolPolicy, buildPolicyToolList, isToolAllowed, toolRefusalResult } from './toolPolicy.js';
+import { resolveToolPolicy, buildPolicyToolList, isToolAllowed, toolRefusalResult, READ_ONLY_TOOLS } from './toolPolicy.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { buildRequestMessages } from './requestMessages.js';
 import { dedupeHistory, dedupKeyFor } from './historyDedup.js';
@@ -20,6 +20,7 @@ import { WIZARD_SYSTEM_PROMPT, SMALL_MODEL_SYSTEM_PROMPT, GOAL_MODE_PROMPT_ADDEN
 import { parseTextToolCalls } from './utils/parseTextToolCalls.js';
 import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { readIsAList, findByLooseName, DEFAULT_ABSTRACTION_DIMENSION, THING_PROTOTYPE_ID, seededChainFor } from './tools/utils/abstractionSpec.js';
+import { predictFormula } from './predictFormula.js';
 
 // Load system prompt
 let SYSTEM_PROMPT = WIZARD_SYSTEM_PROMPT;
@@ -44,8 +45,13 @@ function cacheReadRatioFor(provider) {
   const ratio = CACHE_READ_RATIO_BY_PROVIDER[String(provider || '').toLowerCase()];
   return typeof ratio === 'number' ? ratio : CACHE_READ_COST_RATIO;
 }
-// Fraction of the budget at which the run warns the user it is running out.
-const BUDGET_WARN_RATIO = 0.8;
+// Past the per-ask budget a run keeps going while it is still building. It stops
+// once this many iterations in a row have gone by without a graph write, a plan
+// step settling or a goal verdict.
+const BUDGET_STALL_ITERATIONS = 2;
+// Hard backstop, as a multiple of the budget: past this the run stops even while
+// building — after the current iteration's writes land, never between them.
+const BUDGET_HARD_MULTIPLE = 2;
 
 // Ceiling on replayed conversation history, in tokens. Sized to sit alongside
 // the ~25k fixed preamble and the 6k context header without crowding out the
@@ -419,6 +425,40 @@ function addEdgeToState(graphState, graph, sourceId, destinationId, type) {
  * handler that optimistically records a mutation the store rejected makes the
  * failure invisible to the model. Exported for tests that pin that honesty.
  */
+/**
+ * Predict a Thing opened in place over these members (graphStore
+ * convertGroupToThingInPlace): they move, ids and all, into a new definition
+ * of its Thing, with the connections and groups wholly among them; the node
+ * opens on it, so the tools read the web as drawn (webView.js drawnWebs). The
+ * node is a plain one, no longer a group's title. Returns the definition.
+ */
+function predictOpenedInPlace(graphState, graph, anchor, protoId, memberIds) {
+  const proto = (graphState.nodePrototypes || []).find(p => p.id === protoId);
+  const definition = {
+    id: `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name: proto?.name || anchor.name || '', description: '', instances: [], edgeIds: [], groups: [], definingNodeIds: [protoId],
+  };
+  graphState.graphs.push(definition);
+  if (proto) proto.definitionGraphIds = [...(proto.definitionGraphIds || []), definition.id];
+  const inside = new Set(memberIds.filter(id => id !== anchor.id));
+  definition.instances = (graph.instances || []).filter(i => inside.has(i.id));
+  graph.instances = (graph.instances || []).filter(i => !inside.has(i.id));
+  const edgeById = new Map((graphState.edges || []).map(e => [e.id, e]));
+  const within = (id) => {
+    const e = edgeById.get(id);
+    return !!e && inside.has(e.sourceId) && inside.has(e.destinationId);
+  };
+  definition.edgeIds = (graph.edgeIds || []).filter(within);
+  graph.edgeIds = (graph.edgeIds || []).filter(id => !within(id));
+  const groupWithin = (g) => (g.memberInstanceIds || []).length > 0 && g.memberInstanceIds.every(id => inside.has(id));
+  definition.groups = (graph.groups || []).filter(groupWithin);
+  graph.groups = (graph.groups || []).filter(g => !groupWithin(g));
+  delete anchor.isGroupAnchor;
+  delete anchor.anchorForGroupId;
+  anchor.openDefinition = { index: Math.max(0, (proto?.definitionGraphIds || [definition.id]).indexOf(definition.id)), offset: { x: 0, y: 0 } };
+  return definition;
+}
+
 export function updateGraphState(graphState, _toolName, _args, result) {
   if (!result || result.error) return;
 
@@ -672,6 +712,10 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         group.linkedDefinitionIndex = 0;
         group.anchorInstanceId = anchorInstId;
         group.name = thingName;
+        // Opened in place over its members, as the store makes it.
+        const anchor = targetGraph.instances[targetGraph.instances.length - 1];
+        predictOpenedInPlace(graphState, targetGraph, anchor, protoId, group.memberInstanceIds || []);
+        targetGraph.groups = targetGraph.groups.filter(g => g.id !== group.id);
       }
     }
   } else if (result.action === 'combineThingGroup') {
@@ -692,6 +736,13 @@ export function updateGraphState(graphState, _toolName, _args, result) {
           prototypeId: group.linkedNodePrototypeId || 'proto-combined',
           name: group.name
         });
+      } else {
+        // A Thing opened in place (`open:<node>`, or by its Thing's name): combining closes it.
+        const anchorId = String(result.groupId || '').startsWith('open:') ? result.groupId.slice(5) : null;
+        const protoName = (id) => (graphState.nodePrototypes || []).find(p => p.id === id)?.name;
+        const opened = (targetGraph.instances || []).filter(i => i.openDefinition
+          && (i.id === anchorId || (result.groupName && (protoName(i.prototypeId) || i.name) === result.groupName))).pop();
+        if (opened) delete opened.openDefinition;
       }
     }
   } else if (result.action === 'addDefinitionGraph') {
@@ -828,84 +879,33 @@ export function updateGraphState(graphState, _toolName, _args, result) {
           linkedDefinitionIndex: 0,
           anchorInstanceId: anchorInstId
         });
+        // Opened in place over its members, as the store makes it.
+        const anchor = targetGraph.instances.find(i => i.id === anchorInstId);
+        predictOpenedInPlace(graphState, targetGraph, anchor, condensedProtoId, result.resolvedMemberIds || []);
+        targetGraph.groups = targetGraph.groups.filter(g => g.id !== groupId);
       }
     }
   } else if (result.action === 'decomposeNode') {
-    // Keep original instance as group anchor, add decomposed instances from definition graph, add group
+    // Opened in place on its node, as the store opens it: its definition, drawn here.
     const targetGraphId = result.graphId || graphState.activeGraphId;
-    const targetGraph = (graphState.graphs || []).find(g => g.id === targetGraphId);
-    const definitionIndex = result.definitionIndex ?? 0;
-    // Mirror the store's two refusals: it aborts on an empty definition graph,
-    // and reuses an existing group for the same prototype/definition instead of
-    // minting a duplicate.
-    const defInstances = result.definitionInstances || [];
-    const alreadyDecomposed = (targetGraph?.groups || []).some(g =>
-      g.linkedNodePrototypeId === result.prototypeId && (g.linkedDefinitionIndex ?? 0) === definitionIndex
-    );
-    if (targetGraph && defInstances.length > 0 && !alreadyDecomposed) {
-      // Add decomposed instances from definition graph
-      targetGraph.instances = targetGraph.instances || [];
-      const memberInstIds = [];
-      for (const defInst of defInstances) {
-        const newInstId = `inst-decomp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        memberInstIds.push(newInstId);
-        targetGraph.instances.push({
-          id: newInstId,
-          prototypeId: defInst.prototypeId,
-          name: defInst.name,
-          x: defInst.x || 0,
-          y: defInst.y || 0,
-          scale: defInst.scale || 1
-        });
+    const proto = (graphState.nodePrototypes || []).find(p => p.id === result.prototypeId);
+    const index = result.definitionIndex ?? 0;
+    const holder = (graphState.graphs || []).find(g => (g.instances || []).some(i => i.id === result.originalInstanceId))
+      || (graphState.graphs || []).find(g => g.id === targetGraphId);
+    const node = (holder?.instances || []).find(i => i.id === result.originalInstanceId)
+      || (holder?.instances || []).filter(i => i.prototypeId === result.prototypeId && !i.isGroupAnchor).pop();
+    if (node) {
+      const defId = proto?.definitionGraphIds?.[index];
+      if (proto && !(graphState.graphs || []).some(g => g.id === defId)) {
+        // Its definition isn't in the snapshot: what the tool read of it.
+        const definition = {
+          id: defId || `graph-def-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: proto.name, description: '',
+          instances: (result.definitionInstances || []).map(d => ({ ...d })), edgeIds: [], groups: [], definingNodeIds: [proto.id],
+        };
+        graphState.graphs.push(definition);
+        if (!defId) proto.definitionGraphIds = [...(proto.definitionGraphIds || []), definition.id];
       }
-
-      // Mark original instance as group anchor (do NOT remove it)
-      const groupId = `group-decomp-${Date.now()}`;
-      if (result.originalInstanceId) {
-        const originalInst = targetGraph.instances.find(i => i.id === result.originalInstanceId);
-        if (originalInst) {
-          originalInst.isGroupAnchor = true;
-          originalInst.anchorForGroupId = groupId;
-        }
-      }
-
-      // Add thing-group with anchor
-      targetGraph.groups = targetGraph.groups || [];
-      targetGraph.groups.push({
-        id: groupId,
-        name: result.nodeName,
-        color: '#8B0000',
-        memberInstanceIds: memberInstIds,
-        linkedNodePrototypeId: result.prototypeId,
-        linkedDefinitionIndex: definitionIndex,
-        anchorInstanceId: result.originalInstanceId
-      });
-
-      // Nested decompose: the new members belong to every group that already
-      // contained the original instance, or the containment hierarchy the canvas
-      // derives from subset membership never registers the nesting.
-      //
-      // TODO: this is a one-level approximation of `isGroupInsideGroup`
-      // (groupLayout.js), which the real store now shares between propagation
-      // and render-time depth. Left as-is deliberately: this mutates a plain-array
-      // predictive mirror that the real store result overwrites moments later, so
-      // adopting the shared predicate would mean a Map/array adapter for state
-      // that is about to be discarded.
-      if (result.originalInstanceId) {
-        for (const otherGroup of targetGraph.groups) {
-          if (otherGroup.id === groupId) continue;
-          if (!Array.isArray(otherGroup.memberInstanceIds)) continue;
-          if (!otherGroup.memberInstanceIds.includes(result.originalInstanceId)) continue;
-          for (const newId of memberInstIds) {
-            if (!otherGroup.memberInstanceIds.includes(newId)) otherGroup.memberInstanceIds.push(newId);
-          }
-        }
-      }
-
-      console.error('[updateGraphState] decomposeNode:', result.nodeName, '→ added', defInstances.length, 'instances, anchor=', result.originalInstanceId);
-    } else {
-      console.error('[updateGraphState] decomposeNode: no predictive group for', result.nodeName,
-        defInstances.length === 0 ? '(definition graph is empty)' : '(already decomposed)');
+      node.openDefinition = { index, offset: { x: node.x || 0, y: node.y || 0 } };
     }
   } else if (result.action === 'buildComposition' && result.spec) {
     // Mirror the deterministic executor in toolResultApplier: prototypes and
@@ -995,65 +995,33 @@ export function updateGraphState(graphState, _toolName, _args, result) {
         return createdIds;
       };
 
-      // Decompose top-down, parent strictly before child (same as the applier).
-      const decompose = (graph, layers) => {
+      // Opened in place, as the store opens them (toolResultApplier
+      // openCompositionLayersInPlace): each layer's node opens on its
+      // definition, its children on their own nodes inside it.
+      const openInPlace = (layers) => {
         for (const layer of (layers || [])) {
           if (!layer._protoId) continue;
-          if (layer.display === 'collapsed') {
-            if (layer._defGraph && layer.definition?.layers?.length) {
-              decompose(layer._defGraph, layer.definition.layers);
-            }
-            continue;
-          }
-          const defGraph = layer._defGraph;
-          const memberIds = [];
-          graph.instances = graph.instances || [];
-          for (const defInst of (defGraph?.instances || [])) {
-            const newId = uid('inst-decomp');
-            graph.instances.push({ id: newId, prototypeId: defInst.prototypeId, name: defInst.name });
-            memberIds.push(newId);
-            // Carry the nested layer's shell identity into the parent graph, so a
-            // deeper decompose can find it here.
-            for (const child of (layer.definition?.layers || [])) {
-              if (child._shellId === defInst.id) child._shellId = newId;
+          if (layer.display !== 'collapsed') {
+            const holder = graphState.graphs.find(g => (g.instances || []).some(i => i.id === layer._shellId));
+            const shell = holder?.instances.find(i => i.id === layer._shellId);
+            const proto = graphState.nodePrototypes.find(p => p.id === layer._protoId);
+            if (shell && proto) {
+              if (!layer._defGraph) {
+                // An empty layer: opening it makes its definition.
+                layer._defGraph = { id: uid('graph-def'), name: layer.name, instances: [], edgeIds: [], groups: [], definingNodeIds: [proto.id] };
+                graphState.graphs.push(layer._defGraph);
+                proto.definitionGraphIds = [...(proto.definitionGraphIds || []), layer._defGraph.id];
+              }
+              const index = Math.max(0, (proto.definitionGraphIds || []).indexOf(layer._defGraph.id));
+              shell.openDefinition = { index, offset: { x: shell.x || 0, y: shell.y || 0 } };
             }
           }
-
-          const groupId = uid('group-decomp');
-          const anchor = graph.instances.find(i => i.id === layer._shellId);
-          if (anchor) {
-            anchor.isGroupAnchor = true;
-            anchor.anchorForGroupId = groupId;
-          }
-          graph.groups = graph.groups || [];
-          graph.groups.push({
-            id: groupId,
-            name: layer.name,
-            color: layer.color,
-            memberInstanceIds: memberIds,
-            linkedNodePrototypeId: layer._protoId,
-            linkedDefinitionIndex: 0,
-            anchorInstanceId: layer._shellId
-          });
-
-          // Enclosing-group propagation — what makes the nesting derive.
-          for (const other of graph.groups) {
-            if (other.id === groupId) continue;
-            if (!Array.isArray(other.memberInstanceIds)) continue;
-            if (!other.memberInstanceIds.includes(layer._shellId)) continue;
-            for (const newId of memberIds) {
-              if (!other.memberInstanceIds.includes(newId)) other.memberInstanceIds.push(newId);
-            }
-          }
-
-          if (layer.definition?.layers?.length) {
-            decompose(graph, layer.definition.layers);
-          }
+          if (!layer.use && layer.definition?.layers?.length) openInPlace(layer.definition.layers);
         }
       };
 
       materialize(targetGraph, result.spec);
-      decompose(targetGraph, result.spec.layers);
+      openInPlace(result.spec.layers);
 
       console.error('[updateGraphState] buildComposition:', result.layerCount, 'layers, maxDepth', result.maxDepth, '→ graph', targetGraphId);
     }
@@ -1214,8 +1182,12 @@ export function updateGraphState(graphState, _toolName, _args, result) {
       graphState.graphs.splice(sourceIdx, 1);
     }
     console.error('[updateGraphState] mergeGraphs:', pairs.length, 'pairs merged, source graph removed');
+  } else if (FORMULA_ACTIONS.has(result.action)) {
+    predictFormula(graphState, result);
   }
 }
+
+const FORMULA_ACTIONS = new Set(['addFormula', 'placeFormula', 'openFormula', 'foldFormula', 'rewriteFormula', 'deleteFormula']);
 
 const DEFAULT_MAX_ITERATIONS = 77;
 
@@ -1227,7 +1199,7 @@ const DEFAULT_MAX_ITERATIONS = 77;
  */
 const NON_MUTATING_TOOLS = new Set([
   'planTask', 'declareGoal', 'sketchGraph', 'readGraph', 'search', 'selectNode', 'getNodeContext',
-  'inspectPrototype', 'inspectWorkspace', 'listTools', 'askMultipleChoice'
+  'inspectPrototype', 'inspectWorkspace', 'listTools', 'askMultipleChoice', 'searchFormulaBank'
 ]);
 
 /** Max planTask calls permitted per user turn (hard cap, all tiers). */
@@ -1635,8 +1607,31 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   let askCompletionTokens = 0;
   let askUploadedTokens = 0;
   let askChargedTokens = 0;
-  // Whether we've already warned this ask, so the 80% notice fires once.
+  // Whether we've already told the user this ask passed its budget.
   let budgetWarned = false;
+  // Progress, for the budget's stall test: the last iteration that wrote to the
+  // graph, settled a plan step or issued a goal verdict (-1 = none yet).
+  let lastProgressIteration = -1;
+  const settledStepCount = () => (Array.isArray(graphState._currentPlan) ? graphState._currentPlan.filter(isSettled).length : 0);
+  let planSettledHigh = settledStepCount();
+  // Set when the hard backstop trips on an iteration with writes in it: those
+  // run first, then the turn ends.
+  let budgetStopAfterIteration = false;
+  // Whether a call can write, for the budget: a registered tool on neither
+  // read-only list. An unregistered name throws in executeTool, so it can't.
+  const registeredToolNames = new Set(getToolDefinitions().map(t => t.name));
+  const callMayWrite = (name) => registeredToolNames.has(name)
+    && !NON_MUTATING_TOOLS.has(name) && !READ_ONLY_TOOLS.has(name);
+  const budgetDoneEvent = (iteration) => ({
+    type: 'done',
+    iterations: iteration + 1,
+    reason: 'token_budget',
+    askPromptTokens,
+    askCompletionTokens,
+    askTotalTokens: askPromptTokens + askCompletionTokens,
+    askUploadedTokens,
+    askChargedTokens
+  });
 
   // Where the input tokens actually go. The question "why did this ask cost so
   // much" was previously unanswerable — the totals said how much, never what for,
@@ -1981,33 +1976,44 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           + ` | cached ${costBreakdown.cachedFraction}% | charged ${askChargedTokens}`
         );
 
-        // Hard per-ask cost ceiling. Stop once cumulative spend crosses the budget,
-        // regardless of how many iterations remain. This fires AFTER this iteration's
-        // tool calls were yielded but BEFORE any of them execute, so every one of them
-        // has to be settled or its chip spins forever on a finished run.
+        // Per-ask budget: a runaway guard, not a pacing limit. Past it, a run that
+        // is still building keeps going; one that has stalled stops. Past twice
+        // it, the run stops either way. This fires AFTER this iteration's tool
+        // calls were yielded but BEFORE any execute — so a stop here only happens
+        // when none of them write. Cancelling a write mid-build is what used to
+        // leave formulas placed and nothing wired; those calls run, then the
+        // turn ends (budgetStopAfterIteration, below the tool loop).
         if (askChargedTokens > maxAskTokens) {
-          console.error(`[AgentLoop] Per-ask token budget reached (charged ${askChargedTokens} > ${maxAskTokens}, uploaded ${askUploadedTokens}) at iteration ${iteration + 1}. Stopping.`);
-          yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
-          yield { type: 'system_note', content: `Stopped: this ask reached its token budget (${askChargedTokens.toLocaleString()} tokens). Send "continue" to keep going — your plan is saved and will resume where it left off.` };
-          yield {
-            type: 'done',
-            iterations: iteration + 1,
-            reason: 'token_budget',
-            askPromptTokens,
-            askCompletionTokens,
-            askTotalTokens: askPromptTokens + askCompletionTokens,
-            askUploadedTokens,
-            askChargedTokens
-          };
-          return;
-        }
+          const overHardStop = askChargedTokens > maxAskTokens * BUDGET_HARD_MULTIPLE;
+          const iterationsWithoutProgress = iteration - 1 - lastProgressIteration;
+          const stalled = iterationsWithoutProgress >= BUDGET_STALL_ITERATIONS;
+          const writesPending = iterationToolCalls.some(tc => callMayWrite(tc.name));
 
-        // Warn once on approach, so the stop isn't the first sign of trouble.
-        if (!budgetWarned && maxAskTokens !== Infinity && askChargedTokens > maxAskTokens * BUDGET_WARN_RATIO) {
-          budgetWarned = true;
-          const pct = Math.round((askChargedTokens / maxAskTokens) * 100);
-          console.error(`[AgentLoop] Per-ask token budget at ${pct}% (${askChargedTokens}/${maxAskTokens}).`);
-          yield { type: 'system_note', content: `Heads up: this ask has used ${pct}% of its token budget (${askChargedTokens.toLocaleString()} of ${maxAskTokens.toLocaleString()}). Wrapping up soon; "continue" will resume the plan if it stops.` };
+          // A reply with no tool calls is left to the normal ending: it either
+          // finishes the turn or draws a nudge, and nudges are capped. Stopping
+          // it here would print "Stopped" under a finished answer.
+          const hasToolCalls = iterationToolCalls.length > 0;
+
+          if ((overHardStop || stalled) && hasToolCalls && !writesPending) {
+            console.error(`[AgentLoop] Per-ask token budget reached (charged ${askChargedTokens} > ${maxAskTokens}, uploaded ${askUploadedTokens}, ${overHardStop ? 'hard stop' : `${iterationsWithoutProgress} iterations without progress`}) at iteration ${iteration + 1}. Stopping.`);
+            yield* settleUnresolvedToolCalls(announcedToolCalls, resolvedToolCallIds, 'token budget reached');
+            yield { type: 'system_note', content: overHardStop
+              ? `Stopped: this ask reached its token limit (${askChargedTokens.toLocaleString()} tokens). Send "continue" to keep going — your plan is saved and will resume where it left off.`
+              : `Stopped: this ask passed its token budget (${askChargedTokens.toLocaleString()} tokens) and stopped making changes. Send "continue" to keep going — your plan is saved and will resume where it left off.` };
+            yield budgetDoneEvent(iteration);
+            return;
+          }
+          if (overHardStop && writesPending && !budgetStopAfterIteration) {
+            console.error(`[AgentLoop] Per-ask token limit reached at iteration ${iteration + 1} (charged ${askChargedTokens}); finishing this iteration's writes, then stopping.`);
+            budgetStopAfterIteration = true;
+          }
+
+          // Tell the user once, so a later stop isn't the first sign of it.
+          if (!budgetWarned && !budgetStopAfterIteration) {
+            budgetWarned = true;
+            console.error(`[AgentLoop] Per-ask token budget passed (${askChargedTokens}/${maxAskTokens}); continuing while the run makes progress.`);
+            yield { type: 'system_note', content: `Heads up: this ask has passed its token budget (${askChargedTokens.toLocaleString()} of ${maxAskTokens.toLocaleString()}). It keeps going while it's still building and stops if it stalls.` };
+          }
         }
       }
 
@@ -2395,6 +2401,14 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           // Track that real (mutating) work happened this turn — lets a later text-only
           // wrap-up be trusted as genuine completion rather than a stall.
           if (!NON_MUTATING_TOOLS.has(toolCall.name)) hasMutatedThisTurn = true;
+          if (callMayWrite(toolCall.name) && !result?.error) lastProgressIteration = iteration;
+          // A plan step settling, or a goal verdict, is progress too (for the
+          // budget's stall test) even when nothing was written.
+          const settledNow = settledStepCount();
+          if (settledNow > planSettledHigh || (toolCall.name === 'declareGoal' && result?.settled === true)) {
+            lastProgressIteration = iteration;
+          }
+          planSettledHigh = Math.max(planSettledHigh, settledNow);
 
           // Stream tool result event
           resolvedToolCallIds.add(toolCall.id);
@@ -2487,6 +2501,15 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
       // policy that lets the accepted change actually be applied.
       if (awaitingUserInput) {
         yield { type: 'done', iterations: iteration + 1, reason: 'awaiting_user_input' };
+        return;
+      }
+
+      // The hard budget backstop tripped on an iteration with writes in it. They
+      // have run; end the turn now, with the web in the state they left it.
+      if (budgetStopAfterIteration) {
+        console.error(`[AgentLoop] Per-ask token limit: this iteration's writes finished. Stopping at iteration ${iteration + 1}.`);
+        yield { type: 'system_note', content: `Stopped: this ask reached its token limit (${askChargedTokens.toLocaleString()} tokens), after finishing the changes in progress. Send "continue" to keep going — your plan is saved and will resume where it left off.` };
+        yield budgetDoneEvent(iteration);
         return;
       }
 

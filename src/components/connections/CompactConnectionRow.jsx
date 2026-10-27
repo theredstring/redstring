@@ -5,7 +5,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import { sanitizeColor } from '../../utils/safeColor.js';
 
 /**
- * Below this list width a connection row drops the triplet for this compact
+ * Below this list width a connection row drops the triple for this compact
  * form. Every right-panel connection list switches at the same width.
  */
 export const COMPACT_CONNECTIONS_BELOW = 340;
@@ -38,7 +38,7 @@ const Pill = forwardRef(({ name, color, style, ...handlers }, ref) => {
 Pill.displayName = 'CompactConnectionPill';
 
 /**
- * A connection too narrow for a readable triplet: the Thing the list is about
+ * A connection too narrow for a readable triple: the Thing the list is about
  * is implied, so the row is the connection — its name, and an arrow saying
  * which way it points — over the other end, whole.
  *

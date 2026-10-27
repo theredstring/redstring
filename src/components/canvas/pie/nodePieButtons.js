@@ -5,11 +5,13 @@
  * Pie and carousel lifecycle changes go through the pie machine
  * (`dispatchPie`, P5.02b step 5) rather than setters captured in `ctx`.
  */
-import { ArrowLeft, ArrowUpFromDot, Bookmark, ChevronLeft, ChevronRight, ClipboardCopy, CopyPlus, CornerDownLeft, CornerUpLeft, Edit3, ImagePlus, Layers, NotebookText, Orbit, Package, PackageOpen, Palette, Plus, Scaling, SendToBack, Sparkles, TextSearch, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowUpFromDot, Bookmark, ChevronLeft, ChevronRight, ClipboardCopy, CopyPlus, CornerDownLeft, CornerUpLeft, Edit3, ImagePlus, Layers, NotebookText, Orbit, Package, PackageOpen, Palette, Plus, Scaling, SendToBack, Sparkles, Trash2 } from 'lucide-react';
+import BookSearch from '../../shared/bookSearchIcon.js';
 import { THUMBNAIL_MAX_DIMENSION, nextNodeSizeStep, nodeSizeLabel } from '../../../constants';
 import { copySelection } from '../../../utils/clipboard.js';
 import { generateThumbnail, loadImageFileAsDataUrl } from '../../../utils.js';
 import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
+import { resizeNodeInPlace } from '../actions/resizeNode.js';
 import { getPrototypeIdFromItem } from '../../../utils/abstraction.js';
 import { resolveChain } from '../../../wizard/tools/utils/abstractionSpec.js';
 import useGraphStore from '../../../store/graphStore.js';
@@ -19,7 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
-import { expandNodeInPlace } from '../actions/expandInPlace.js';
+import { expandNodeInPlace, expandBlockLabel } from '../actions/expandInPlace.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -261,8 +263,8 @@ export function buildNodePieMenuPages(ctx) {
       }
     },
     {
-      id: 'semantic-search', label: 'Semantic Search', icon: TextSearch, action: (instanceId) => {
-        // Mirrors the right panel's Text Search: open Semantic Discovery for this
+      id: 'semantic-search', label: 'Semantic Web Search', icon: BookSearch, action: (instanceId) => {
+        // Mirrors the right panel's Text Search: open Semantic Web Search for this
         // node's name. The left panel's listener runs the search itself, so
         // calling triggerSemanticSearch here too would search twice. The Thing
         // goes along so a result can be linked back to it.
@@ -306,7 +308,8 @@ export function buildNodePieMenuPages(ctx) {
       // drop. nextNodeSizeStep snaps the current value to the nearest named step
       // and advances (M → L → XL → XS → S → M). getNodeDimensions + Node.jsx fold
       // sizeMul into an effective node scale, so both the box and its label grow
-      // together, on top of the global node-size scope.
+      // together, on top of the global node-size scope. It grows around its
+      // middle (actions/resizeNode.js), not out from its top-left corner.
       id: 'change-size',
       label: (() => {
         // Whichever menu is actually up. The control panel can outlive the pie
@@ -321,12 +324,7 @@ export function buildNodePieMenuPages(ctx) {
         const instance = nodes.find(n => n.id === instanceId);
         if (!instance || !activeGraphId) return;
         const next = nextNodeSizeStep(instance.sizeMul ?? 1.0);
-        storeActions.updateNodeInstance(
-          activeGraphId,
-          instanceId,
-          (inst) => { inst.sizeMul = next; },
-          { type: 'node_resize', finalize: true }
-        );
+        resizeNodeInPlace(activeGraphId, instance, next);
         // The hover chip snapshots its label when the pointer enters the
         // button, so it would otherwise keep showing the pre-click size.
         // Refresh it in place (same id → same chip, instant text swap) so it
@@ -818,6 +816,8 @@ export function buildTargetPieMenuButtons(ctx) {
 
     // Has definitions: Open, Delete, Decompose Further (explode into a node-group in
     // place), Compose — plus ◀ / ▶ definition-navigation arrows.
+    // Greyed out, saying why, when its definition can't open here (expandInPlace).
+    const decompBlocked = expandBlockLabel({ viewGraphId: activeGraphId, instanceId: previewingNodeId, definitionIndex: decompIndex });
     const decompButtons = [
       {
         id: 'decomp-open',
@@ -847,12 +847,13 @@ export function buildTargetPieMenuButtons(ctx) {
       },
       {
         id: 'decomp-further',
-        label: 'Decompose Further',
+        label: decompBlocked || 'Decompose Further',
         icon: PackageOpen,
+        disabled: !!decompBlocked,
         position: 'top', topIndex: 3, topCount: 5,
         action: () => {
-          // Opens the definition in place (or copies it into a node-group with the
-          // setting off; an empty definition gets a buildable empty one) — see expandInPlace.
+          // Opens the definition in place (an empty definition gets a buildable
+          // empty one) — see expandInPlace.
           const newGroup = expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId: decompPrototypeId, definitionIndex: decompIndex, instanceId: previewingNodeId });
           if (!newGroup) return;
           dispatchPie({ type: 'PREVIEW_SET', id: null, endTransition: true });
@@ -917,6 +918,7 @@ export function buildDecomposePanelInfo(ctx) {
   return {
     instanceId: previewingNodeId,
     prototypeId,
+    expandBlocked: expandBlockLabel({ viewGraphId: activeGraphId, instanceId: previewingNodeId, definitionIndex: index }),
     prototype: { id: prototypeId, name: proto.name, color: proto.color },
     defIds,
     index,

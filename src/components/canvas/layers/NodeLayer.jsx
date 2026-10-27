@@ -6,7 +6,9 @@
  *   - part="top": the active node (pie target, preview, or sole selection; with
  *     the orbit overlay while orbiting) and, last, the dragged node.
  * NodeCanvas draws node-group titles, delete ghosts and the pie menus between
- * the two.
+ * the two. While a Thing-group is lifted (groupLift.js), both skip its Things
+ * and formulas, and a third instance (part="lifted", in LiftedGroupLayer) draws
+ * them, the active and dragged ones last.
  *
  * It reads selection, preview, pie target, carousel, rename and definition
  * indices from canvasUIStore itself and is memoized, so a NodeCanvas render that
@@ -15,16 +17,25 @@
 import { memo } from 'react';
 import { createPortal } from 'react-dom';
 import Node from '../../../Node.jsx';
-import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
+import { getNodeDimensions } from '../../../utils.js';
 import { showContextMenu } from '../../GlobalContextMenu';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import FormulaObjectsLayer from '../formats/formula/FormulaObjectsLayer.jsx';
+import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
+import NodeSpawnLayer from '../spawn/NodeSpawnLayer.jsx';
+import { cullUndecided } from '../data/culling.js';
 
 function NodeLayer({
-  part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, marqueeActive,
-  activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
+  part, nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds, draggingNodeId, draggingGroupId, marqueeActive,
+  activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay, lift = null,
 }) {
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
   const previewingNodeId = useCanvasUIStore((s) => s.previewingNodeId);
+  // On screen, or new since the last culling pass (see cullUndecided).
+  const isShown = (id) => visibleNodeIds.has(id) || cullUndecided(visibleNodeIds, id);
+  // This instance's share of the Things: the lift's, or everything else.
+  const isLiftedPart = part === 'lifted';
+  const inPart = (id) => !!lift?.instanceIds.has(id) === isLiftedPart;
   const currentPieMenuNodeId = useCanvasUIStore((s) => s.currentPieMenuData?.node?.id ?? null);
   const selectedNodeIdForPieMenu = useCanvasUIStore((s) => s.selectedNodeIdForPieMenu);
   const abstractionCarouselVisible = useCanvasUIStore((s) => s.abstractionCarouselVisible);
@@ -32,23 +43,8 @@ function NodeLayer({
   const editingNodeIdOnCanvas = useCanvasUIStore((s) => s.editingNodeIdOnCanvas);
   const nodeDefinitionIndices = useCanvasUIStore((s) => s.nodeDefinitionIndices);
   const semanticOrbitActive = useCanvasUIStore((s) => s.semanticOrbitActive);
-
-  // Helper function to get description content for a node when previewing
-  const getNodeDescriptionContent = (node, isNodePreviewing) => {
-    if (!isNodePreviewing || !node.definitionGraphIds || node.definitionGraphIds.length === 0) {
-      return null;
-    }
-
-    // Create context-specific key for this node in the current graph
-    const contextKey = `${node.prototypeId}-${activeGraphId}`; // Use prototypeId for context
-    const currentIndex = nodeDefinitionIndices.get(contextKey) || 0;
-    const definitionGraphId = node.definitionGraphIds[currentIndex] || node.definitionGraphIds[0];
-    if (!definitionGraphId) return null;
-
-    const graphData = graphsMap.get(definitionGraphId);
-    return getDefinitionDescription(node, definitionGraphId, graphData?.description) || null;
-  };
-
+  // Things shown as a formula are drawn by their formula object instead.
+  const formulaHiddenIds = useFormulaObjects().hiddenIds;
 
   // Determine which node should be treated as "active" for stacking,
   // Priority order: previewing > pie menu > single selection (for orbit overlay)
@@ -67,10 +63,12 @@ function NodeLayer({
   }
 
   const allOtherNodes = nodes.filter(node =>
+    inPart(node.id) &&
     node.id !== nodeIdToKeepActiveForStacking &&
     node.id !== draggingNodeId &&
-    visibleNodeIds.has(node.id) &&
-    !node.isGroupAnchor
+    isShown(node.id) &&
+    !node.isGroupAnchor &&
+    !formulaHiddenIds.has(node.id)
   );
   // Split into normal nodes and thing-group member nodes for z-ordering
   const otherNodes = allOtherNodes.filter(n => !thingGroupMemberIds.has(n.id));
@@ -81,7 +79,7 @@ function NodeLayer({
   // panel, search, a connection) must not pop the full Thing up at the tab.
   const findDrawable = (id) => {
     const n = id ? nodes.find(node => node.id === id) : null;
-    return n && !n.isGroupAnchor ? n : null;
+    return n && !n.isGroupAnchor && !formulaHiddenIds.has(n.id) && inPart(n.id) ? n : null;
   };
   const activeNodeToRender = findDrawable(nodeIdToKeepActiveForStacking);
   const draggingNodeToRender = findDrawable(draggingNodeId);
@@ -91,9 +89,8 @@ function NodeLayer({
   const renderNodeElement = (node, isDragging = false) => {
     const isPreviewing = previewingNodeId === node.id;
     const baseDimensions = baseDimsById.get(node.id);
-    const descriptionContent = isPreviewing ? getNodeDescriptionContent(node, true) : null;
     const dimensions = isPreviewing
-      ? getNodeDimensions(node, true, descriptionContent)
+      ? getNodeDimensions(node, true, null)
       : baseDimensions || getNodeDimensions(node, false, null);
     if (abstractionCarouselVisible && abstractionCarouselNode?.id === node.id) return null;
     return (
@@ -109,7 +106,6 @@ function NodeLayer({
         scaledCornerRadius={dimensions.scaledCornerRadius}
         innerNetworkWidth={dimensions.innerNetworkWidth}
         innerNetworkHeight={dimensions.innerNetworkHeight}
-        descriptionAreaHeight={dimensions.descriptionAreaHeight}
         isSelected={selectedInstanceIds.has(node.id)}
         isDragging={isDragging}
         onMouseDown={(e) => nodeScope.current.handleNodeMouseDown(node, e)}
@@ -144,6 +140,23 @@ function NodeLayer({
 
         {/* Thing-group member nodes (above normal nodes) */}
         {thingGroupMemberNodes.map((n) => renderNodeElement(n))}
+
+        {/* Formulas shown in place, where their Things were (formats/formula) */}
+        <FormulaObjectsLayer draggingGroupId={draggingGroupId} lift={lift} />
+
+        {/* Things just added in a batch grow in (spawn/nodeSpawn.js) */}
+        <NodeSpawnLayer />
+      </>
+    );
+  }
+
+  if (isLiftedPart) {
+    return (
+      <>
+        {allOtherNodes.map((n) => renderNodeElement(n))}
+        {activeNodeToRender && isShown(activeNodeToRender.id) && renderNodeElement(activeNodeToRender)}
+        {draggingNodeToRender && isShown(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
+        <FormulaObjectsLayer draggingGroupId={draggingGroupId} lift={lift} lifted />
       </>
     );
   }
@@ -151,13 +164,12 @@ function NodeLayer({
   return (
     <>
       {/* Render the "Active" Node (if it exists and not being dragged) */}
-      {activeNodeToRender && visibleNodeIds.has(activeNodeToRender.id) && (
+      {activeNodeToRender && isShown(activeNodeToRender.id) && (
         (() => {
           const isPreviewing = previewingNodeId === activeNodeToRender.id;
           const baseDimensions = baseDimsById.get(activeNodeToRender.id);
-          const descriptionContent = isPreviewing ? getNodeDescriptionContent(activeNodeToRender, true) : null;
           const dimensions = isPreviewing
-            ? getNodeDimensions(activeNodeToRender, true, descriptionContent)
+            ? getNodeDimensions(activeNodeToRender, true, null)
             : baseDimensions || getNodeDimensions(activeNodeToRender, false, null);
 
           // Hide if its carousel is open
@@ -165,8 +177,8 @@ function NodeLayer({
             return null;
           }
 
-          const centerX = activeNodeToRender.x + dimensions.currentWidth / 2;
-          const centerY = activeNodeToRender.y + dimensions.currentHeight / 2;
+          const centerX = activeNodeToRender.x + (dimensions.previewOffsetX || 0) + dimensions.currentWidth / 2;
+          const centerY = activeNodeToRender.y + (dimensions.previewOffsetY || 0) + dimensions.currentHeight / 2;
 
           // While orbiting, the focus node and its overlay render
           // into the orbit layer instead — above the scrim, so the
@@ -190,7 +202,7 @@ function NodeLayer({
       )}
 
       {/* Render the Dragging Node last (on top) */}
-      {draggingNodeToRender && visibleNodeIds.has(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
+      {draggingNodeToRender && isShown(draggingNodeToRender.id) && renderNodeElement(draggingNodeToRender, true)}
     </>
   );
 }

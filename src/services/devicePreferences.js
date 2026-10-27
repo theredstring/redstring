@@ -30,7 +30,7 @@ export const PREFERENCE_KEYS = [
   'redstring_show_multi_node_cp',
   'redstring_show_connection_cp',
   'redstring_show_group_cp',
-  'redstring_open_definitions_in_place',
+  'redstring_show_equation_cp',
   'redstring_show_abstraction_cp',
   'redstring_landscape_shell_mode',
   // Grid
@@ -106,7 +106,7 @@ export const PREFERENCE_KEYS = [
 
 // Older names the store still reads. Reset removes them too, or they would
 // come back as the value of their newer key.
-const LEGACY_KEYS = ['redstring_show_edge_glow', 'redstring_connection_label_zoom_fade'];
+const LEGACY_KEYS = ['redstring_show_edge_glow', 'redstring_connection_label_zoom_fade', 'redstring_open_definitions_in_place'];
 
 const FILE_KIND = 'redstring-settings';
 const FILE_VERSION = 1;

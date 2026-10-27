@@ -1187,7 +1187,7 @@ const Header = ({
     // the header, opposite the hamburger. It is the one thing in this
     // column you reach for without already being in the middle of
     // something, so it does not belong behind a tap.
-    { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
+    { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create or Open Web', onClick: () => onCreateNewThing?.() },
     { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
     { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
     { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
@@ -1576,8 +1576,8 @@ const Header = ({
           {[
             { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
             { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
-            { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create New Thing', onClick: () => onCreateNewThing?.() },
             { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
+            { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create or Open Web', onClick: () => onCreateNewThing?.() },
           ].map((action) => (
             <div
               key={action.key}

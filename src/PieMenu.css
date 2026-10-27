@@ -128,6 +128,10 @@
 .pie-bubble-hover:hover {
   transform: scale(1.10);
 }
+/* Greyed out: it doesn't answer the cursor, since it won't answer a click. */
+.pie-bubble-hover.is-disabled:hover {
+  transform: scale(1);
+}
 
 /* A game controller aims with a stick, not a pointer, so there is no :hover to
    fire — the class stands in for it. It grows further than the mouse's 1.10 on

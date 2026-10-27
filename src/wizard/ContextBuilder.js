@@ -6,7 +6,7 @@
  * rebuilt and re-uploaded on every iteration of every ask, which makes its size
  * the single largest recurring cost in an agentic run — and previously it had no
  * ceiling at all: it listed every node with its description, every edge as a
- * triplet, and every group of the active graph, then appended a roster of the
+ * triple, and every group of the active graph, then appended a roster of the
  * rest. On a large universe that alone could crowd out the conversation.
  *
  * Two ideas keep it bounded:
@@ -23,6 +23,9 @@
  */
 
 import { estimateTokens } from './tokenEstimate.js';
+import { formulaCover, formulaLine, repeatedTermsLines } from './tools/utils/formulas.js';
+// The names the context shows are the names the tools resolve (webView.js).
+import { placeName, instanceNames, drawnWebs } from './tools/utils/webView.js';
 
 /**
  * Total token budget for the graph portion of the context header.
@@ -73,8 +76,8 @@ const trimText = (text, limit) => {
 
 // Detail levels, richest first. Demotion walks down this list.
 const DETAIL = {
-  FULL: 'full',       // names + types + descriptions, edge triplets, groups
-  NO_DESC: 'no_desc', // names + types, edge triplets, groups
+  FULL: 'full',       // names + types + descriptions, edge triples, groups
+  NO_DESC: 'no_desc', // names + types, edge triples, groups
   MEDIUM: 'medium',   // names + types, edge count only
   LIGHT: 'light',     // name + counts
   NAME: 'name'        // name only
@@ -117,29 +120,40 @@ function resolveEdgeType(edge, protoMap) {
  * Returns a string with no trailing newline. `isActive` switches the framing —
  * the active graph is introduced as the current screen, the rest as context.
  */
-function renderGraph(graph, level, { protoMap, edgesByGraph, isActive = false }) {
+function renderGraph(graph, level, { protoMap, edgesByGraph, formulasByGraph, instanceNameById, isActive = false }) {
   const name = graph.name || 'Unnamed';
 
   if (level === DETAIL.NAME) return `  - "${name}"`;
 
-  const instances = getInstances(graph);
-  const graphEdges = edgesByGraph.get(graph.id) || [];
-  const groups = getGroups(graph);
+  // A formula is one thing here, its text: not the row of Things and
+  // operations it is drawn over (wizard/tools/utils/formulas.js).
+  const formulas = formulasByGraph?.get(graph.id) || [];
+  const cover = formulaCover(formulas);
+  const instances = getInstances(graph).filter(inst => !cover.hides(inst.id));
+  const graphEdges = (edgesByGraph.get(graph.id) || []).filter(e => !cover.internal(e));
+  const groups = getGroups(graph).filter(g => g.format !== 'formula' && !cover.hides(g.anchorInstanceId));
   const nodeCount = instances.length;
   const edgeCount = graphEdges.length;
+  const formulaCount = formulas.length;
 
   if (level === DETAIL.LIGHT) {
     const parts = [`${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}`, `${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`];
     if (groups.length > 0) parts.push(`${groups.length} Group${groups.length !== 1 ? 's' : ''}`);
+    if (formulaCount > 0) parts.push(`${formulaCount} Formula${formulaCount !== 1 ? 's' : ''}`);
     return `  - "${name}" (${parts.join(', ')})`;
   }
 
   // Instance id → display name, needed to render edges and group members.
   const nodeNameById = new Map();
-  for (const inst of instances) {
+  for (const inst of getInstances(graph)) {
     const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
-    nodeNameById.set(inst.id, inst.name || proto?.name || '');
+    nodeNameById.set(inst.id, placeName(inst, proto?.name, cover));
   }
+  // A connection can end on a Thing kept in another web: a term of a formula
+  // opened in place, or a Thing of any definition opened in place.
+  for (const [id, nm] of cover.names()) if (!nodeNameById.has(id)) nodeNameById.set(id, nm);
+  const nameOfEnd = (id) => nodeNameById.get(id) || instanceNameById?.get(id) || id || '?';
+  const formulaLines = formulas.map(f => `  - ${formulaLine(f)}`);
 
   const nodeLine = (inst) => {
     const proto = inst.prototypeId ? protoMap.get(inst.prototypeId) : null;
@@ -163,36 +177,40 @@ function renderGraph(graph, level, { protoMap, edgesByGraph, isActive = false })
   };
 
   // MEDIUM: names and types, but connections collapse to a count. This is the
-  // tier that makes neighbouring tabs affordable — edge triplets are usually
+  // tier that makes neighbouring tabs affordable — edge triples are usually
   // the bulk of a graph's rendered size.
   if (level === DETAIL.MEDIUM) {
-    let out = `  - "${name}" (${nodeCount} Things, ${edgeCount} Connections)`;
+    let out = `  - "${name}" (${nodeCount} Things, ${edgeCount} Connections${formulaCount ? `, ${formulaCount} Formulas` : ''})`;
     if (nodeCount > 0) {
       out += `\n${instances.map(inst => `  ${nodeLine(inst)}`).join('\n')}`;
     }
+    if (formulaCount > 0) out += `\n${formulaLines.map(l => `  ${l}`).join('\n')}`;
     return out;
   }
 
   // FULL / NO_DESC: the active graph's own section.
   let out = isActive ? '' : `  - "${name}"`;
-  if (nodeCount === 0) {
+  if (nodeCount === 0 && formulaCount === 0) {
     return isActive ? 'Status: Empty (perfect for populating!)' : `${out} (empty)`;
   }
 
-  const header = `Status: ${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}, ${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`;
+  const header = `Status: ${nodeCount} Thing${nodeCount !== 1 ? 's' : ''}, ${edgeCount} Connection${edgeCount !== 1 ? 's' : ''}`
+    + (formulaCount ? `, ${formulaCount} Formula${formulaCount !== 1 ? 's' : ''}` : '');
   const sections = [isActive ? header : `${out}\n${header}`];
 
-  sections.push(`Things:\n${instances.map(nodeLine).join('\n')}`);
+  if (nodeCount > 0) sections.push(`Things:\n${instances.map(nodeLine).join('\n')}`);
+  // Each its equation's Thing: connect to it by its title, to a symbol by what it stands for.
+  if (formulaCount > 0) {
+    sections.push(`Formulas (use the formula tool to place, fold, rewrite or delete one):\n${[...formulaLines, ...repeatedTermsLines(formulas).map(l => `  ${l}`)].join('\n')}`);
+  }
 
   if (edgeCount > 0) {
-    const triplets = graphEdges.map(e => {
+    const triples = graphEdges.map(e => {
       const sourceId = e.sourceId || e.source;
       const targetId = e.destinationId || e.targetId || e.target;
-      const sourceName = nodeNameById.get(sourceId) || sourceId || '?';
-      const targetName = nodeNameById.get(targetId) || targetId || '?';
-      return `  - ${sourceName} --[${resolveEdgeType(e, protoMap)}]--> ${targetName}`;
+      return `  - ${nameOfEnd(sourceId)} --[${resolveEdgeType(e, protoMap)}]--> ${nameOfEnd(targetId)}`;
     });
-    sections.push(`Connections:\n${triplets.join('\n')}`);
+    sections.push(`Connections:\n${triples.join('\n')}`);
   }
 
   if (groups.length > 0) {
@@ -255,12 +273,16 @@ export function buildContext(graphState) {
   }
 
   const {
-    graphs = [],
+    graphs: storedGraphs = [],
     nodePrototypes = [],
     edges = [],
     activeGraphId,
     openGraphIds = []
   } = graphState;
+  // Each web as drawn: a Thing opened in place shows its definition's Things,
+  // groups and connections in it, and is a Thing-group of them (webView.js).
+  const drawn = drawnWebs(graphState);
+  const graphs = storedGraphs.map(g => (g?.id ? drawn(g.id) || g : g));
 
   // Build the prototype map ONCE. The definition-graph branch below used to run
   // nodePrototypes.find() inside a loop over every instance of every graph —
@@ -287,7 +309,16 @@ export function buildContext(graphState) {
     edgesByGraph.set(g.id, list);
   }
 
-  const renderCtx = { protoMap, edgesByGraph };
+  const formulasByGraph = new Map();
+  for (const f of graphState.formulas || []) {
+    if (!formulasByGraph.has(f.graphId)) formulasByGraph.set(f.graphId, []);
+    formulasByGraph.get(f.graphId).push(f);
+  }
+
+  // Every instance's name, for a connection whose end is kept in another web.
+  const instanceNameById = instanceNames(graphState, protoMap);
+
+  const renderCtx = { protoMap, edgesByGraph, formulasByGraph, instanceNameById };
   const tiers = assignGraphTiers(graphs, activeGraphId, openGraphIds);
 
   let context = '';
@@ -657,7 +688,9 @@ export function buildPinnedContext(graphState, pins = [], { activeShown = true, 
     if (!g?.id) continue;
     edgesByGraph.set(g.id, (Array.isArray(g.edgeIds) ? g.edgeIds : []).map(id => edgesById.get(id)).filter(Boolean));
   }
-  const renderCtx = { protoMap, edgesByGraph };
+  const instanceNameById = new Map();
+  for (const [id, info] of instanceInfo) if (info.name) instanceNameById.set(id, info.name);
+  const renderCtx = { protoMap, edgesByGraph, instanceNameById };
 
   const connectionsOf = (protoId) => {
     const lines = [];

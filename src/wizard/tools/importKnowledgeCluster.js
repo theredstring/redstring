@@ -1,7 +1,7 @@
 /**
  * importKnowledgeCluster - BFS-based knowledge import from the semantic web
  *
- * Agent version of the Semantic Discovery panel's "Load Wikidata slice".
+ * Agent version of the Semantic Web Search panel's "Load Wikidata slice".
  * Uses KnowledgeFederation to traverse related entities from a seed,
  * then delegates to expandGraph for store mutation.
  *

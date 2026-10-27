@@ -127,7 +127,6 @@ const SpawningNodeDragLayer = () => {
                             imageHeight={dimensions.calculatedImageHeight}
                             scaledPadding={dimensions.scaledPadding}
                             scaledCornerRadius={dimensions.scaledCornerRadius}
-                            descriptionAreaHeight={dimensions.descriptionAreaHeight}
                             isPreviewing={false}
                         />
                     </g>

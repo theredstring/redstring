@@ -1,4 +1,4 @@
-import { useId, useMemo } from 'react';
+import { Fragment, useId, useMemo } from 'react';
 import {
     NODE_WIDTH,
     NODE_HEIGHT,
@@ -11,12 +11,16 @@ import { getTextColor, blendColors } from './utils/colorUtils.js';
 import { buildNodeFontString, wrapTextToLines, measureTextWidth } from './services/textMeasurement.js';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from "./store/graphStore.js";
+import useFormatsStore, { selectStandard } from './components/canvas/formats/formatsStore.js';
 import { GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { connectionColor, connectionRoutingSettings, CONNECTION_STROKE_BASE } from './utils/canvas/settledConnection.js';
 import { layoutWebPreview, layoutPreviewConnections } from './components/webPreview/webPreviewLayout.js';
 import PreviewConnection from './components/webPreview/PreviewConnection.jsx';
+import PreviewFormula from './components/webPreview/PreviewFormula.jsx';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_GROUP_INTERIOR_TINT } from './components/canvas/groups/groupElements.jsx';
+import { VectorArrows, vectorArrowsOver } from './components/VectorText.jsx';
+import { unmarked } from './utils/vectorArrow.js';
 
 // --- Canvas parity constants ---
 // The decomposition preview is a *scaled-down canvas*, not its own visual language:
@@ -69,12 +73,19 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
   const gridSize = useGraphStore(state => state.gridSettings?.size || 200);
   const autoLayoutSettings = useGraphStore(state => state.autoLayoutSettings);
   const nodeScaleGlobal = textSettings?.nodeScale ?? 1.0;
+  // Formulas written as the canvas writes them now.
+  const standard = useFormatsStore(selectStandard);
+  const namesShown = useFormatsStore(s => s.namesShown);
+  const flipped = useFormatsStore(s => s.flipped);
 
   const layout = useMemo(() => {
     if (!nodes || nodes.length === 0 || !edges || width <= 0 || height <= 0) return null;
 
     // Nodes, groups and anchors as the canvas lays them out.
-    const web = layoutWebPreview({ nodes, groups, nodePrototypes: nodePrototypesMap, textSettings, gridSize });
+    const web = layoutWebPreview({
+      nodes, edges, groups, nodePrototypes: nodePrototypesMap, edgePrototypes: edgePrototypesMap, textSettings, gridSize,
+      display: { standard, namesShown, flipped },
+    });
     if (!web) return null;
     const { minX, minY, maxX, maxY } = web.bounds;
 
@@ -99,13 +110,13 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     };
 
     return { ...web, connections, clipRegion, connectionWidth: settings.connectionWidth, scale, translateX, translateY };
-  }, [nodes, edges, groups, width, height, padding, nodePrototypesMap, textSettings, autoLayoutSettings, gridSize, nodeScaleGlobal]);
+  }, [nodes, edges, groups, width, height, padding, nodePrototypesMap, edgePrototypesMap, textSettings, autoLayoutSettings, gridSize, nodeScaleGlobal, standard, namesShown, flipped]);
 
   if (!layout) {
     return null;
   }
 
-  const { dimsById, hiddenIds, groupShapes, groupFontSize, groupLabelScale, connections, clipRegion, connectionWidth, topSlot, scale, translateX, translateY } = layout;
+  const { dimsById, hiddenIds, groupShapes, groupFontSize, formulas, connections, clipRegion, connectionWidth, topSlot, scale, translateX, translateY } = layout;
   const nodesById = new Map(nodes.map(n => [n.id, n]));
 
   // Edges keep their true canvas weight (27 * connectionWidth in graph coordinates), so
@@ -129,17 +140,21 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
   // its tab, like groupElements.jsx. Dropped below the same legibility cutoff as
   // node labels.
   const renderGroupTitle = (shape, fill) => {
-    if (groupFontSize * scale < MIN_LABEL_PX) return null;
     const { label } = shape;
+    // Its own size: a title can grow with its group (groupLabelMetrics).
+    const fontSize = label.fontSize ?? groupFontSize;
+    if (fontSize * scale < MIN_LABEL_PX) return null;
     const lines = label.lines?.length ? label.lines : [shape.name];
-    const lineHeight = groupFontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
+    const lineHeight = fontSize * GROUP_LAYOUT_CONSTANTS.titleLineSpacingFactor;
     const cx = label.x + label.w / 2;
+    const arrows = vectorArrowsOver(lines, fontSize, lineHeight);
     return (
+      <>
       <text
         x={cx}
         y={label.y + label.h / 2}
         fontFamily="EmOne, sans-serif"
-        fontSize={groupFontSize}
+        fontSize={fontSize}
         fontWeight="bold"
         fill={fill}
         textAnchor="middle"
@@ -147,9 +162,17 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
         style={{ pointerEvents: 'none', userSelect: 'none' }}
       >
         {lines.map((line, i) => (
-          <tspan key={i} x={cx} dy={i === 0 ? -((lines.length - 1) / 2) * lineHeight : lineHeight}>{line}</tspan>
+          <tspan key={i} x={cx} dy={i === 0 ? -((lines.length - 1) / 2) * lineHeight : lineHeight}>{unmarked(line)}</tspan>
         ))}
       </text>
+      {arrows && (
+        <g transform={`translate(${cx} ${label.y + label.h / 2})`} fill="none" stroke={fill} strokeLinecap="round" strokeLinejoin="round"
+          style={{ pointerEvents: 'none' }}
+        >
+          {arrows}
+        </g>
+      )}
+      </>
     );
   };
 
@@ -178,8 +201,8 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
           rx={C.nodeGroupCornerRadius} ry={C.nodeGroupCornerRadius}
           fill="none" stroke={shape.color} strokeWidth={PLAIN_GROUP_STROKE} strokeDasharray={PLAIN_GROUP_DASH} />
         <rect x={label.x} y={label.y} width={label.w} height={label.h}
-          rx={GROUP_PILL_RADIUS * groupLabelScale} ry={GROUP_PILL_RADIUS * groupLabelScale}
-          fill={theme.canvas.bg} stroke={shape.color} strokeWidth={GROUP_PILL_STROKE * groupLabelScale} />
+          rx={GROUP_PILL_RADIUS * shape.labelScale} ry={GROUP_PILL_RADIUS * shape.labelScale}
+          fill={theme.canvas.bg} stroke={shape.color} strokeWidth={GROUP_PILL_STROKE * shape.labelScale} />
         {renderGroupTitle(shape, getTextColor(theme.canvas.bg, theme.darkMode))}
       </g>
     );
@@ -275,20 +298,22 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
           const fill = getTextColor(node.color || NODE_DEFAULT_COLOR || 'maroon', theme.darkMode);
 
           return lines.map((line, i) => (
-            <text
-              key={`inner-node-label-${node.id}-${i}`}
-              x={node.x + dimensions.currentWidth / 2}
-              y={centerY + (i - (lines.length - 1) / 2) * lineHeight}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fontSize={fontSize}
-              fill={fill}
-              fontWeight="bold"
-              fontFamily="'EmOne', sans-serif"
-              style={{ pointerEvents: 'none', userSelect: 'none' }}
-            >
-              {line}
-            </text>
+            <Fragment key={`inner-node-label-${node.id}-${i}`}>
+              <text
+                x={node.x + dimensions.currentWidth / 2}
+                y={centerY + (i - (lines.length - 1) / 2) * lineHeight}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={fontSize}
+                fill={fill}
+                fontWeight="bold"
+                fontFamily="'EmOne', sans-serif"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}
+              >
+                {unmarked(line)}
+              </text>
+              <VectorArrows line={line} x={node.x + dimensions.currentWidth / 2} y={centerY + (i - (lines.length - 1) / 2) * lineHeight} fontSize={fontSize} color={fill} />
+            </Fragment>
           ));
         })()}
       </g>
@@ -297,8 +322,9 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
 
   // Paint order follows the canvas: top-level plain groups at the bottom, then per
   // nesting depth the connections that belong at that depth followed by that
-  // depth's shells, then the connections above every shell, then the nodes, and
-  // Thing-group titles last (the canvas draws them above their members).
+  // depth's shells, then the connections above every shell, then the nodes and
+  // formulas (drawn with the nodes, as NodeLayer draws them), and Thing-group
+  // titles last (the canvas draws them above their members).
   const layers = [];
   groupShapes.filter(g => !g.isNodeGroup && g.depth === 0).forEach(g => layers.push(renderGroupShell(g)));
   for (let depth = 0; depth < topSlot; depth++) {
@@ -312,6 +338,9 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     <g transform={`translate(${translateX}, ${translateY}) scale(${scale})`} pointerEvents="none">
       {layers}
       {nodes.filter(node => !hiddenIds.has(node.id)).map(renderNode)}
+      {formulas.objects.map(o => (
+        <PreviewFormula key={`inner-formula-${o.groupId}`} obj={o} scale={scale} minPx={MIN_LABEL_PX} theme={theme} />
+      ))}
       {groupShapes.filter(g => g.isNodeGroup).map(g => (
         <g key={`inner-group-title-${g.id}`}>
           {renderGroupTitle(g, getTextColor(g.color, theme.darkMode))}

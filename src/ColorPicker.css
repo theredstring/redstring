@@ -119,3 +119,73 @@
     transition: none;
   }
 }
+
+/* --- Palette mode -------------------------------------------------------
+   The Wizard's palettes (src/ai/palettes.js), one row each. A swatch is a Thing
+   in miniature: node-rounded, no stroke. The current colour gets the app's
+   maroon ring, and hover is the pie bubble's grow. Padding on the list keeps
+   that ring from being clipped by the scroll box. */
+.color-picker-palettes {
+  max-height: 232px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 -6px;
+  padding: 3px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.color-picker-palettes::-webkit-scrollbar {
+  width: 8px;
+}
+
+.color-picker-palettes::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.color-picker-palettes::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: none;
+}
+
+.color-picker-palette-name {
+  color: maroon;
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.color-picker-palette-swatches {
+  display: flex;
+  gap: 6px;
+}
+
+.color-picker-swatch {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  outline: none;
+  touch-action: manipulation;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.color-picker-swatch:hover {
+  transform: scale(1.08);
+}
+
+.color-picker-swatch.is-current,
+.color-picker-swatch:focus-visible,
+.color-picker-swatch.gamepad-menu-focus {
+  box-shadow: 0 0 0 2px #DEDADA, 0 0 0 4px maroon;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .color-picker-swatch {
+    transition: none;
+  }
+}

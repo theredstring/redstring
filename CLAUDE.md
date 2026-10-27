@@ -90,7 +90,7 @@ The node pie, the edge pie and the abstraction carousel share one lifecycle, `re
 - **Federated Knowledge Import**: Mass knowledge cluster import system that discovers semantic relationships and builds comprehensive knowledge graphs
 - **Cognitive Augmentation**: Semantic web infrastructure acts as invisible substrate, reducing free recall burden while increasing discovery opportunities
 - **Connection Browser**: Interface for browsing and selectively materializing semantic web relationships as native Redstring nodes and connections
-- **Semantic-to-Native Translation**: RDF triplets automatically converted to Redstring-native visual elements using appropriate colors and styling
+- **Semantic-to-Native Translation**: RDF triples automatically converted to Redstring-native visual elements using appropriate colors and styling
 
 ### Save System & Performance Optimization
 - **SaveCoordinator**: Centralized save management that coordinates local file saves and Git commits

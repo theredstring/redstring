@@ -38,6 +38,15 @@ export function rebuildPieMenuDataWith(ctx) {
       // Keep the original node for PieMenu, but store focused node info for button actions
       let nodeForPieMenu = node;
 
+      // An expanded preview card is centred on the node, not hung off its (x, y).
+      if (dimensions.previewOffsetX || dimensions.previewOffsetY) {
+        nodeForPieMenu = {
+          ...node,
+          x: node.x + (dimensions.previewOffsetX || 0),
+          y: node.y + (dimensions.previewOffsetY || 0),
+        };
+      }
+
       if (isInCarouselMode && abstractionCarouselNode) {
         // Calculate carousel center position in canvas coordinates
         const originalNodeDimensions = getNodeDimensions(abstractionCarouselNode, false, null);

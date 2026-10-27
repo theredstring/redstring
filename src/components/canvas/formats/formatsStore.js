@@ -1,0 +1,136 @@
+/**
+ * The formats feature: the session's own state, and showing a format.
+ *
+ * Which groups are shown as a format is saved, on the group (`group.format`,
+ * e.g. 'formula'), so it survives a reload, syncs, and undoes like any group
+ * edit. Shown as its Things again, a group keeps its link
+ * (`group.linkedFormat`): it is still that formula, so it isn't offered as
+ * one. A dismissed offer is not saved: it comes back next session.
+ */
+import { create } from 'zustand';
+import useGraphStore from '../../../store/graphStore.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { NODE_DEFAULT_COLOR } from '../../../constants.js';
+import { computeFormulaObjects } from './formula/formulaObjects.js';
+import { withToFormulaMorph, withToThingsMorph } from './formula/formulaSwapMorph.js';
+
+const NOTATION_KEY = 'redstring_formula_notation';
+const CONVENTION_KEY = 'redstring_formula_convention';
+const readPref = (key, allowed, fallback) => {
+  try {
+    const v = localStorage.getItem(key);
+    return allowed.includes(v) ? v : fallback;
+  } catch { return fallback; }
+};
+const writePref = (key, value) => {
+  try { localStorage.setItem(key, value); } catch { /* the choice still holds for this session */ }
+};
+
+const useFormatsStore = create(() => ({
+  /**
+   * How formulas are shown: 'standard' math (mc², 4ac: multiplication side by
+   * side and exponents raised, the default) or 'explicit' (m × c ^ 2, every
+   * operation a token). A display preference of this browser's, not part of
+   * the universe.
+   */
+  notation: readPref(NOTATION_KEY, ['standard', 'explicit'], 'standard'),
+  /**
+   * Formulas written by name (Pressure × Volume = ...) instead of by symbol
+   * (P V = n R T, the default), by group id. Each formula on its own; for the
+   * session.
+   */
+  namesShown: new Set(),
+  /**
+   * Tokens switched on their own, by group id: a click writes one token by its
+   * Thing's name (or, while the formula's names are shown, back by its symbol).
+   * Keys are tokens' `flip` (formulaChain.tokensOf). For the session.
+   */
+  flipped: new Map(),
+  /** How New Formula reads what is typed: 'math' (the default) or 'programming'. */
+  convention: readPref(CONVENTION_KEY, ['math', 'programming'], 'math'),
+  /** Offer keys the user waved off this session (see formatCandidates). */
+  dismissed: new Set(),
+  /** The "New Formula" composer: { graphId, at: {x, y} } in canvas coordinates, or null. */
+  composing: null,
+}));
+
+export const dismissFormatOffer = (key) => useFormatsStore.setState((s) => {
+  if (s.dismissed.has(key)) return s;
+  const dismissed = new Set(s.dismissed);
+  dismissed.add(key);
+  return { dismissed };
+});
+
+/**
+ * Show a candidate as its format, in place. A group is marked; a selection or
+ * a whole web first becomes a group (named after its formula), since the
+ * format lives on a group. The Things it was made from are no longer there to
+ * be selected (the formula is, by its tap), so the selection is let go.
+ */
+export function showFormatInPlace(candidate) {
+  const store = useGraphStore.getState();
+  useCanvasUIStore.getState().setSelectedInstanceIds(new Set());
+  if (candidate.source === 'group') {
+    // A Thing-group shown as its formula: its box shrinks into the formula's band.
+    const write = () => store.updateGroup(candidate.graphId, candidate.sourceId, (g) => { g.format = candidate.format; delete g.linkedFormat; });
+    if (candidate.format === 'formula') withToFormulaMorph(candidate.graphId, candidate.sourceId, write);
+    else write();
+    return candidate.sourceId;
+  }
+  return store.createGroup(candidate.graphId, {
+    name: candidate.text,
+    color: NODE_DEFAULT_COLOR,
+    memberInstanceIds: candidate.instanceIds,
+    format: candidate.format,
+  });
+}
+
+/** Show a group as its Things again, still linked to its format; the formula's band grows back into its box. */
+export function showAsThings(graphId, groupId) {
+  const drawn = computeFormulaObjects(useGraphStore.getState(), formulaDisplayNow()).objects.find(o => o.groupId === groupId);
+  withToThingsMorph(graphId, groupId, drawn, () => useGraphStore.getState().updateGroup(graphId, groupId, (g) => {
+    if (g.format) g.linkedFormat = g.format;
+    delete g.format;
+  }));
+}
+
+export const setNotation = (notation) => {
+  writePref(NOTATION_KEY, notation);
+  useFormatsStore.setState({ notation });
+};
+
+export const setConvention = (convention) => {
+  writePref(CONVENTION_KEY, convention);
+  useFormatsStore.setState({ convention });
+};
+
+/** Write a formula by name, or by symbol again; either way its tokens switched on their own go back. */
+export const setFormulaNames = (groupId, on) => useFormatsStore.setState((s) => {
+  const namesShown = new Set(s.namesShown);
+  if (on) namesShown.add(groupId); else namesShown.delete(groupId);
+  const flipped = new Map(s.flipped);
+  flipped.delete(groupId);
+  return { namesShown, flipped };
+});
+
+/** Switch one token of a formula between its symbol and its Thing's name. */
+export const flipFormulaToken = (groupId, flip) => useFormatsStore.setState((s) => {
+  const own = new Set(s.flipped.get(groupId) || []);
+  if (own.has(flip)) own.delete(flip); else own.add(flip);
+  const flipped = new Map(s.flipped);
+  if (own.size) flipped.set(groupId, own); else flipped.delete(groupId);
+  return { flipped };
+});
+
+/** Whether formulas show in standard notation (a selector). */
+export const selectStandard = (s) => s.notation !== 'explicit';
+/** How formulas are shown now, for code outside React: computeFormulaObjects' options. */
+export const formulaDisplayNow = () => {
+  const s = useFormatsStore.getState();
+  return { standard: selectStandard(s), namesShown: s.namesShown, flipped: s.flipped };
+};
+
+export const openFormulaComposer = (graphId, at) => useFormatsStore.setState({ composing: { graphId, at } });
+export const closeFormulaComposer = () => useFormatsStore.setState({ composing: null });
+
+export default useFormatsStore;

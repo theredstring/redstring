@@ -236,25 +236,121 @@ describe('AgentLoop', () => {
       expect(usageEvents[usageEvents.length - 1].askTotalTokens).toBe(590);
     });
 
-    it('stops with reason token_budget when the per-ask budget is exceeded', async () => {
+    // Drives runAgent with one scripted step per LLM call. Each step is the tool
+    // call to make (or null for a text reply) and the usage that call reports.
+    const runScripted = async (steps, maxAskTokens) => {
+      let call = 0;
       streamLLM.mockImplementation(async function* () {
-        // A large single-call usage that blows past the budget.
-        yield { type: 'tool_call', name: 'createNode', args: { name: 'Big' }, id: 'c1' };
-        yield { type: 'usage', usage: { promptTokens: 600000, completionTokens: 0, totalTokens: 600000 } };
+        const step = steps[Math.min(call, steps.length - 1)];
+        const n = call++;
+        if (step.tool) {
+          yield { type: 'tool_call_start', id: `c${n}`, name: step.tool };
+          yield { type: 'tool_call', name: step.tool, args: step.args || { name: `N${n}` }, id: `c${n}` };
+        } else {
+          yield { type: 'text', content: 'Finished.' };
+        }
+        yield { type: 'usage', usage: { promptTokens: step.tokens, completionTokens: 0, totalTokens: step.tokens } };
       });
-      executeTool.mockResolvedValue({ nodeId: 'node-1', name: 'Big' });
-
       const events = [];
-      for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, maxAskTokens: 500000 }, mockEnsureSchedulerStarted)) {
+      for await (const event of runAgent('Go', { ...mockGraphState }, { ...mockConfig, maxAskTokens }, mockEnsureSchedulerStarted)) {
         events.push(event);
       }
+      return events;
+    };
+    const notes = (events) => events.filter(e => e.type === 'system_note').map(e => e.content);
 
-      const doneEvent = events[events.length - 1];
-      expect(doneEvent.type).toBe('done');
-      expect(doneEvent.reason).toBe('token_budget');
-      expect(doneEvent.askTotalTokens).toBe(600000);
-      // The breaker fires before the tool call is executed for this iteration.
+    it('keeps building past the budget while the run is still writing', async () => {
+      // The black hole run: a long build over budget that is making progress
+      // every iteration. 30k x 5 writes = 150k on a 100k budget, under the 2x stop.
+      executeTool.mockResolvedValue({ action: 'createNode', nodeId: 'node-1', name: 'N' });
+      const write = { tool: 'createNode', tokens: 30000 };
+      const events = await runScripted([write, write, write, write, write, { tokens: 1000 }], 100000);
+
+      expect(events.some(e => e.reason === 'token_budget')).toBe(false);
+      expect(events.at(-1)).toMatchObject({ type: 'done', reason: 'model_done' });
+      expect(executeTool).toHaveBeenCalledTimes(5);
+    });
+
+    it('stops once the run is over budget and has stopped making changes', async () => {
+      // One write, then reads only. 400k per call on a 1M budget: over budget at
+      // the third call (1.2M) with one quiet iteration behind it — keeps going;
+      // the fourth call (1.6M) has two behind it — stops before running its read.
+      executeTool.mockImplementation(async (name) => (
+        name === 'createNode' ? { action: 'createNode', nodeId: 'node-1', name: 'N' } : { nodes: [] }
+      ));
+      const read = { tool: 'readGraph', tokens: 400000 };
+      const events = await runScripted([{ tool: 'createNode', tokens: 400000 }, read, read, read, read], 1000000);
+
+      const done = events.at(-1);
+      expect(done).toMatchObject({ type: 'done', reason: 'token_budget', iterations: 4 });
+      expect(done.askChargedTokens).toBe(1600000);
+      expect(executeTool).toHaveBeenCalledTimes(3);
+      expect(notes(events).some(n => /stopped making changes/.test(n))).toBe(true);
+      // The cancelled read's chip is settled, not left spinning.
+      const cancelled = events.find(e => e.type === 'tool_result' && e.id === 'c3');
+      expect(cancelled.result.cancelled).toBe(true);
+    });
+
+    it('counts a plan step settling as progress', async () => {
+      // A write, then a planTask that settles steps without writing, then reads.
+      // At the fourth call (120k on a 100k budget) the last progress was the
+      // plan update one iteration back — not stalled. Counting writes alone, the
+      // last progress would be two back and the run would stop here.
+      executeTool.mockImplementation(async (name) => {
+        if (name === 'createNode') return { action: 'createNode', nodeId: 'node-1', name: 'N' };
+        if (name === 'planTask') {
+          const steps = [{ title: 'Build', status: 'done' }, { title: 'Verify', status: 'done' }];
+          return { action: 'planTask', steps, planText: 'plan' };
+        }
+        return { nodes: [] };
+      });
+      const events = await runScripted([
+        { tool: 'createNode', tokens: 30000 },
+        { tool: 'planTask', args: { steps: [] }, tokens: 30000 },
+        { tool: 'readGraph', tokens: 30000 },
+        { tool: 'readGraph', tokens: 30000 },
+        { tokens: 1000 }
+      ], 100000);
+
+      expect(events.some(e => e.reason === 'token_budget')).toBe(false);
+      expect(executeTool).toHaveBeenCalledTimes(4);
+    });
+
+    it('lets a final text reply end the turn normally, over budget or not', async () => {
+      // Two quiet reads behind it and over budget, but the reply has no tool
+      // calls: it is the wrap-up, and must not get a "Stopped" note under it.
+      executeTool.mockResolvedValue({ nodes: [] });
+      const read = { tool: 'readGraph', tokens: 40000 };
+      const events = await runScripted([read, read, { tokens: 40000 }], 100000);
+
+      expect(events.at(-1)).toMatchObject({ type: 'done', reason: 'model_done' });
+      expect(notes(events).some(n => n.startsWith('Stopped:'))).toBe(false);
+    });
+
+    it('at the hard limit, finishes the writes in progress before stopping', async () => {
+      // Past 2x the budget, a call that writes still runs — cancelling it is what
+      // left formulas placed and nothing wired — and then the turn ends.
+      executeTool.mockResolvedValue({ action: 'createNode', nodeId: 'node-1', name: 'Big' });
+      const events = await runScripted([{ tool: 'createNode', tokens: 250000 }, { tokens: 1000 }], 100000);
+
+      expect(executeTool).toHaveBeenCalledTimes(1);
+      expect(streamLLM).toHaveBeenCalledTimes(1);
+      const result = events.find(e => e.type === 'tool_result' && e.id === 'c0');
+      expect(result.result.cancelled).toBeUndefined();
+      const done = events.at(-1);
+      expect(done).toMatchObject({ type: 'done', reason: 'token_budget', iterations: 1, askTotalTokens: 250000 });
+      expect(notes(events).some(n => /after finishing the changes in progress/.test(n))).toBe(true);
+      // No "keeps going" notice for a run that is about to stop.
+      expect(notes(events).some(n => n.startsWith('Heads up:'))).toBe(false);
+    });
+
+    it('at the hard limit, stops before running calls that do not write', async () => {
+      executeTool.mockResolvedValue({ nodes: [] });
+      const events = await runScripted([{ tool: 'readGraph', tokens: 250000 }], 100000);
+
       expect(executeTool).not.toHaveBeenCalled();
+      expect(events.at(-1)).toMatchObject({ type: 'done', reason: 'token_budget', iterations: 1 });
+      expect(notes(events).some(n => /reached its token limit/.test(n))).toBe(true);
     });
 
     it('charges cache reads at a fraction of an uncached token', async () => {
@@ -332,10 +428,10 @@ describe('AgentLoop', () => {
       expect(events.find(e => e.type === 'usage').askChargedTokens).toBe(8500);
     });
 
-    it('warns once when the ask crosses 80% of its budget', async () => {
+    it('tells the user once when the ask passes its budget', async () => {
       let call = 0;
       streamLLM.mockImplementation(async function* () {
-        if (call < 2) {
+        if (call < 3) {
           yield { type: 'tool_call', name: 'createNode', args: { name: `N${call}` }, id: `c${call}` };
         } else {
           yield { type: 'text', content: 'Finished.' };
@@ -343,19 +439,18 @@ describe('AgentLoop', () => {
         call++;
         yield { type: 'usage', usage: { promptTokens: 4500, completionTokens: 0, totalTokens: 4500 } };
       });
-      executeTool.mockResolvedValue({ nodeId: 'node-1', name: 'N' });
+      executeTool.mockResolvedValue({ action: 'createNode', nodeId: 'node-1', name: 'N' });
 
       const events = [];
-      // Budget 10k: iteration 1 = 4.5k (45%), iteration 2 = 9k (90% → warn).
+      // Budget 10k: 4.5k, 9k (under), 13.5k (over → notice), 18k (over, no repeat).
       for await (const event of runAgent('Go', mockGraphState, { ...mockConfig, maxAskTokens: 10000 }, mockEnsureSchedulerStarted)) {
         events.push(event);
       }
 
-      // "Heads up" is the approach warning; the hard stop emits its own note, so
-      // match the warning specifically rather than any mention of the budget.
       const warnings = events.filter(e => e.type === 'system_note' && e.content.startsWith('Heads up:'));
       expect(warnings.length).toBe(1);
-      expect(warnings[0].content).toMatch(/90%/);
+      expect(warnings[0].content).toMatch(/13,500 of 10,000/);
+      expect(events.some(e => e.reason === 'token_budget')).toBe(false);
     });
   });
 

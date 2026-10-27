@@ -83,13 +83,13 @@ describe('tool call settlement', () => {
   });
 
   it('settles a call announced right before the per-ask token budget stops the run', async () => {
-    // Exactly the observed shape: the model emits a tool call, then the usage
-    // chunk for that iteration puts the ask over budget. The loop returns before
-    // the execution block, so nothing else can ever answer this call.
+    // The model emits a tool call, then the usage chunk for that iteration puts
+    // the ask past the hard limit (2x the budget). A call that doesn't write is
+    // stopped before the execution block, so nothing else can answer it.
     streamLLM.mockImplementation(async function* () {
-      yield { type: 'tool_call_start', id: 'call-1', name: 'expandGraph' };
-      yield { type: 'tool_call', id: 'call-1', name: 'expandGraph', args: { nodes: [] } };
-      yield { type: 'usage', usage: { promptTokens: 600000, completionTokens: 1000, totalTokens: 601000 } };
+      yield { type: 'tool_call_start', id: 'call-1', name: 'readGraph' };
+      yield { type: 'tool_call', id: 'call-1', name: 'readGraph', args: {} };
+      yield { type: 'usage', usage: { promptTokens: 1200000, completionTokens: 1000, totalTokens: 1201000 } };
     });
 
     const events = await collect(
@@ -100,7 +100,7 @@ describe('tool call settlement', () => {
     const result = events.find(e => e.type === 'tool_result' && e.id === 'call-1');
     expect(result.result.cancelled).toBe(true);
     expect(result.result.reason).toBe('token budget reached');
-    expect(result.name).toBe('expandGraph');
+    expect(result.name).toBe('readGraph');
     // The chip has to settle before the run reports done, or the UI paints the
     // terminal state and then never revisits it.
     expect(events.indexOf(result)).toBeLessThan(events.findIndex(e => e.type === 'done'));

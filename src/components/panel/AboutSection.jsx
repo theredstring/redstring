@@ -250,7 +250,7 @@ const IdentifierPicker = ({ anchor, kind, authority, initialTerm, currentUrl, on
       {/* The 6px of horizontal padding is room for a hovered option's ring and
           shadow. A scroll box clips on both axes once either one scrolls, so
           without it the hover would be sliced off flush at the sides. */}
-      <div className="anchored-popover-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 6px' }}>
+      <div className="anchored-popover-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '0 6px' }}>
         {status === 'loading' && <div style={{ opacity: 0.8 }}>Searching {authority}…</div>}
         {status === 'error' && <div style={{ opacity: 0.8 }}>Could not reach {authority}.</div>}
         {status === 'done' && results.length === 0 && (

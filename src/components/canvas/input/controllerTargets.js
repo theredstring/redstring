@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { PLUS_SIGN_SIZE } from '../../../constants';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
+import { formatAnchorAt, anchorBoxOf } from '../formats/replaced.js';
 
 /** What the game controller can aim at and do, as refs it reads each frame: connection orbs, the plus sign, group title pills, the marquee, the canvas context menu (filled in later by NodeCanvas) and connection drawing (moved verbatim from NodeCanvas, wave 6). */
 export function useControllerTargets({
@@ -93,6 +94,12 @@ export function useControllerTargets({
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return null;
       const { x: canvasX, y: canvasY } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
+      // A group drawn as a formula is the whole formula, drawn over anything it sits in.
+      const format = formatAnchorAt(canvasX, canvasY);
+      if (format) {
+        const b = anchorBoxOf(format.anchorInstanceId, null);
+        return { ...format, center: { x: b.x + b.width / 2, y: b.y + b.height / 2 } };
+      }
       const depths = groupDepthByGroupIdRef.current;
       let best = null;
       let bestDepth = -Infinity;

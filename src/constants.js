@@ -20,7 +20,9 @@ export const ZOOM_BAR_POSITIONS = ['bottom', 'left', 'right'];
 export const DEFAULT_ZOOM_BAR_POSITION = 'right';
 export const MOVEMENT_THRESHOLD = 3;
 export const SCROLL_SENSITIVITY = 0.5;
-export const PLUS_SIGN_SIZE = 160;
+export const PLUS_SIGN_SIZE = 200;
+// Its outline and cross, in proportion to its size (10 at the original 160).
+export const PLUS_SIGN_STROKE = PLUS_SIGN_SIZE / 16;
 export const PLUS_LINE_SIZE = PLUS_SIGN_SIZE / 2;
 export const PLUS_SIGN_ANIMATION_DURATION = 150;
 

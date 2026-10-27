@@ -5,6 +5,7 @@
  */
 
 import { getNodeHitbox } from './nodeHitbox.js';
+import { isReplacedInstance, formatBoxes } from '../../components/canvas/formats/replaced.js';
 import { arcPointAt } from './edgeRouting.js';
 
 // Inflate a rectangle by padding
@@ -108,6 +109,8 @@ export const getVisibleObstacleRects = (nodes, visibleNodeIds, baseDimsById, pad
 
     for (const node of nodes) {
         if (visibleNodeIds && !visibleNodeIds.has(node.id)) continue;
+        // Drawn as a formula: the formula is the obstacle (below), not where its Things were.
+        if (isReplacedInstance(node.id)) continue;
 
         // For baseDimsById, it might be a Map or object depending on implementation
         const dims = baseDimsById.get ? baseDimsById.get(node.id) : baseDimsById[node.id];
@@ -118,6 +121,9 @@ export const getVisibleObstacleRects = (nodes, visibleNodeIds, baseDimsById, pad
         const hitbox = getNodeHitbox(node, dims, isSelected);
 
         rects.push(inflateRect(hitbox, pad));
+    }
+    for (const b of formatBoxes()) {
+        rects.push(inflateRect({ minX: b.x, minY: b.y, maxX: b.x + b.w, maxY: b.y + b.h }, pad));
     }
     return rects;
 };

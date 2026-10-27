@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, Loader2, X, RotateCcw, ChevronDown, Circle, Compass, BookOpen, Clock, Waypoints, Trash2 } from 'lucide-react';
+import { Search, Loader2, X, RotateCcw, ChevronDown, Compass, BookOpen, Clock, Trash2 } from 'lucide-react';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { usePanelCardTokens } from '../../shared/PanelCard.jsx';
@@ -26,7 +26,7 @@ import { formatPredicate } from '../../../utils/predicateFormatter.js';
 import titleCaseName from '../../../utils/titleCaseName.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
 
-// Left Semantic Discovery View - Concept Discovery Engine
+// Left Semantic Web Search View - Concept Discovery Engine
 
 // The Catalog view is sealed off pending a rewrite of how it seeds.
 //
@@ -217,8 +217,8 @@ const QuickSearchChip = ({ color, label, onClick, busy, title }) => {
  *
  * The card itself never animates. Nothing else in the panel lights a whole
  * container under the cursor — the hover always belongs to a control. So the
- * query is drawn as an outline pill, the same one the Concepts and Related
- * toggles use, and hovering anywhere on the card lights THAT. `active` is how
+ * query is drawn as an outline pill, the same one
+ * the panel's other pill buttons use, and hovering anywhere on the card lights THAT. `active` is how
  * PanelIconButton is told to paint its hover from the outside, so the pill gets
  * the real thing rather than a copy of it, and the moving part stays the size
  * of a button.
@@ -318,7 +318,7 @@ const HistoryItem = ({ item, onOpen, onDelete }) => {
   );
 };
 
-// Left Semantic Discovery View - Concept Discovery Engine
+// Left Semantic Web Search View - Concept Discovery Engine
 const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightPanelNodeTab, rightPanelTabs, activeDefinitionNodeId, onLoadWikidataCatalog }) => {
   const theme = useTheme();
   // Bottom clearance for the results lists.
@@ -345,11 +345,6 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [focusedConcept, setFocusedConcept] = useState(null);
   const [navigationStack, setNavigationStack] = useState([]);
   const [viewMode, setViewMode] = useState('discover'); // 'discover', 'history', 'catalog'
-  // What a search means. 'concepts' asks each authority's own search index what
-  // this word could refer to and answers in one round trip. 'related' is the
-  // federation crawl, which walks relationships out from the term and is the
-  // right tool when you want a Thing's neighbourhood rather than the Thing.
-  const [searchMode, setSearchMode] = useState('concepts');
   // Whether Load More has anything left to give. Cleared when a load returns
   // nothing new, so the button stops offering work it can't do.
   const [canLoadMore, setCanLoadMore] = useState(true);
@@ -363,7 +358,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   const [isHeaderWide, setIsHeaderWide] = useState(false);
   const [manualQuery, setManualQuery] = useState('');
   // The Thing a search started from, when it started from one: a node's
-  // Semantic Search, a quick-search chip, a card from On This Web. Its results
+  // Semantic Web Search, a quick-search chip, a card from On This Web. Its results
   // can be linked back to it. Retyping the query keeps it, since a node's name
   // is often the wrong search term for the thing it is.
   const [searchOriginId, setSearchOriginId] = useState(null);
@@ -645,12 +640,12 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   }, [discoveredConcepts]);
 
   // Watch the header's own width so the title/dropdown row reflows as the user
-  // drags the panel. 300px is where "Semantic Discovery" plus the Discover pill
+  // drags the panel. 340px is where "Semantic Web Search" plus the Discover pill
   // stop crowding each other.
   useEffect(() => {
     const el = headerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setIsHeaderWide(el.clientWidth >= 300);
+    const measure = () => setIsHeaderWide(el.clientWidth >= 340);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
@@ -770,16 +765,22 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   ));
   const selectedNode = selectedPrototypeId ? { prototypeId: selectedPrototypeId } : null;
 
-  // The Things on the active web, once each, in the order they were placed.
-  // Before a search has anything to show, Discover lists these as its starting
-  // points. The instances Map is read as-is and the list built here, so the
-  // selector hands back a stable reference and only a change to the web
-  // recomputes it.
+  // The Things on the active web, once each, in the order they were placed,
+  // led by the Thing the web defines. Before a search has anything to show,
+  // Discover lists these as its starting points. The instances Map is read
+  // as-is and the list built here, so the selector hands back a stable
+  // reference and only a change to the web recomputes it.
   const activeWebInstances = useGraphStore(s => s.graphs.get(s.activeGraphId)?.instances);
+  const activeWebDefiningId = useGraphStore(s => s.graphs.get(s.activeGraphId)?.definingNodeIds?.[0] ?? null);
   const activeWebPrototypes = useMemo(() => {
-    if (!activeWebInstances) return [];
     const seen = new Set();
     const list = [];
+    const definingProto = activeWebDefiningId ? nodePrototypesMap?.get(activeWebDefiningId) : null;
+    if (definingProto?.name) {
+      seen.add(definingProto.id);
+      list.push(definingProto);
+    }
+    if (!activeWebInstances) return list;
     for (const instance of activeWebInstances.values()) {
       const proto = nodePrototypesMap?.get(instance.prototypeId);
       if (!proto?.name || seen.has(proto.id)) continue;
@@ -787,7 +788,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
       list.push(proto);
     }
     return list;
-  }, [activeWebInstances, nodePrototypesMap]);
+  }, [activeWebInstances, activeWebDefiningId, nodePrototypesMap]);
 
   // The Thing this search is for, and the results that are already it. Those
   // lead the list: they answer the question the search was asked as.
@@ -806,7 +807,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   // Back to the empty Discover list. Dropping the token orphans any search
   // still in flight, so its results never land after the clear.
   const clearSearch = () => {
-    latestSearchTokenRef.current = null;
+    cancelSearch();
     setDiscoveredConcepts([]);
     setSelectedConcept(null);
     setManualQuery('');
@@ -908,11 +909,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
   };
 
 
-  // --- Search utilities: normalization, variants, caching, ranking ---
-  const searchCacheRef = React.useRef(new Map());
   const latestSearchTokenRef = React.useRef(null);
+  const searchAbortRef = React.useRef(null);
 
-  const CACHE_TTL_MS = 5 * 60 * 1000;
+  // Stop the search in flight: abort its requests and drop its token, so
+  // nothing it was waiting on lands afterwards. The query stays in the box.
+  const cancelSearch = () => {
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+    latestSearchTokenRef.current = null;
+    setIsSearching(false);
+    setSearchProgress('');
+  };
 
   const normalizeQuery = (q) => {
     if (!q) return '';
@@ -924,290 +932,85 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
     return s;
   };
 
-  const stripParentheses = (q) => q.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
-
-  const generateQueryVariants = (q) => {
-    const base = normalizeQuery(q);
-    const noParens = stripParentheses(base);
-    const variants = new Set([base]);
-    if (noParens && noParens.toLowerCase() !== base.toLowerCase()) variants.add(noParens);
-    return Array.from(variants);
-  };
-
-  const isJunkName = (name) => {
-    if (!name) return true;
-    const n = name.toLowerCase();
-    return n.startsWith('category:') || n.startsWith('template:') || n.startsWith('list of ') ||
-      n.includes('disambiguation') || n.startsWith('wikipedia:') || n.startsWith('wikimedia');
-  };
-
-  const isJunkType = (t) => {
-    if (!t) return false;
-    const n = String(t).toLowerCase();
-    return n.includes('disambiguation page') || n === 'human name' || n === 'given name' || n === 'family name' || n.includes('wikimedia');
-  };
-
-  const canonicalKey = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-  const scoreConcept = (concept, qNorm) => {
-    let score = 0;
-    const conf = concept?.semanticMetadata?.confidence ?? 0.5;
-    score += Math.round(conf * 50);
-    const name = concept?.name || '';
-    const desc = concept?.description || '';
-    if (qNorm && name.toLowerCase().includes(qNorm.toLowerCase())) score += 40;
-    if (qNorm && desc.toLowerCase().includes(qNorm.toLowerCase())) score += 20;
-    if (Array.isArray(concept.relationships) && concept.relationships.length > 0) score += 10;
-    if (isJunkName(name)) score -= 60;
-    if (isJunkType(concept?.category)) score -= 40;
-    if ((name || '').length <= 2) score -= 20;
-    return score;
-  };
-
-  const convertFederationResultToConcepts = (results, queryForConn, sliceRelationshipsTo = 5) => {
-    if (!results || !results.entities) return [];
-    return Array.from(results.entities.entries()).map(([entityName, entityData]) => {
-      const entityRelationships = (results.relationships || [])
-        .filter(rel => rel.source === entityName || rel.target === entityName)
-        .slice(0, sliceRelationshipsTo);
-      const bestDescription = entityData.descriptions && entityData.descriptions.length > 0
-        ? entityData.descriptions[0].text
-        : `A concept related to ${queryForConn}`;
-      const bestType = entityData.types && entityData.types.length > 0 ? entityData.types[0] : 'Thing';
-      const connectionToQuery = (results.relationships || []).find(rel =>
-        (rel.source === entityName && rel.target === queryForConn) ||
-        (rel.target === entityName && rel.source === queryForConn)
-      );
-      const connectionPredicate = connectionToQuery ? formatPredicate(connectionToQuery.type || connectionToQuery.predicate) : null;
-
-      return {
-        id: `federation-${entityName.replace(/\s+/g, '_')}`,
-        name: cleanTitle(entityName),
-        predicate: connectionPredicate,
-        description: bestDescription,
-        category: bestType,
-        source: entityData.sources?.join(', ') || 'federated',
-        relationships: entityRelationships,
-        semanticMetadata: {
-          originalUri: entityData.externalLinks?.[0],
-          equivalentClasses: entityData.types || [],
-          externalLinks: entityData.externalLinks || [],
-          confidence: entityData.confidence || 0.8,
-          connectionInfo: {
-            type: 'federated',
-            value: entityName === queryForConn ? 'seed_entity' : 'related_entity',
-            originalEntity: queryForConn,
-            predicate: connectionPredicate
-          }
-        },
-        color: generateConceptColor(entityName),
-        discoveredAt: new Date().toISOString(),
-        searchQuery: queryForConn
-      };
-    });
-  };
-
-  // A federation result in the concept shape the cards, the drag and the
-  // detail page share. The federation keeps its URIs under semanticMetadata,
-  // and normalizeToCandidate reads them from the top level — without lifting
-  // them, every Related result took its `federation-X` id as its only "link"
-  // and was added to the universe linked to nothing.
-  const federationResultToConcept = (r) => {
-    const concept = candidateToConcept(normalizeToCandidate({
-      ...r,
-      uri: r.semanticMetadata?.originalUri,
-      externalLinks: r.semanticMetadata?.externalLinks || []
-    }));
-    return {
-      ...concept,
-      relationships: r.relationships || [],
-      semanticMetadata: { ...concept.semanticMetadata, connectionInfo: r.semanticMetadata?.connectionInfo }
-    };
-  };
-
-  const fetchFederatedConcepts = async (query, options) => {
-    const { maxDepth, maxEntitiesPerLevel } = options || {};
-    const cacheKey = `${query}::d${maxDepth || 1}::p${maxEntitiesPerLevel || 15}`;
-    const now = Date.now();
-    const cached = searchCacheRef.current.get(cacheKey);
-    if (cached && now - cached.ts < CACHE_TTL_MS) {
-      return cached.data;
-    }
-    const results = await knowledgeFederation.importKnowledgeCluster(query, {
-      maxDepth: maxDepth ?? 1,
-      maxEntitiesPerLevel: maxEntitiesPerLevel ?? 15,
-      includeRelationships: true,
-      includeSources: ['wikidata', 'dbpedia'],
-      onProgress: (progress) => {
-        // Throttle logs implicitly by federation impl; keep lightweight here
-      }
-    });
-    const concepts = convertFederationResultToConcepts(results, query);
-    searchCacheRef.current.set(cacheKey, { ts: now, data: concepts });
-    return concepts;
-  };
-
-  const filterRankDedup = (concepts, q) => {
-    const qNorm = normalizeQuery(q);
-    const seen = new Set();
-    const filtered = [];
-    for (const c of concepts) {
-      const key = canonicalKey(c.name);
-      if (!key || seen.has(key)) continue;
-      if (isJunkName(c.name) || isJunkType(c.category)) continue;
-      const conf = c?.semanticMetadata?.confidence ?? 0.5;
-      if (conf < 0.35) continue;
-      seen.add(key);
-      filtered.push({ c, s: scoreConcept(c, qNorm) });
-    }
-    filtered.sort((a, b) => b.s - a.s);
-    return filtered.map(x => x.c);
-  };
-
-  // Common search logic with normalization, variants, shallow-first, caching, ranking
+  // One round trip per authority against its own search index, no variants
+  // and no ranking pass of ours. The authorities already rank their own hits
+  // better than a name-similarity score can. searchConcepts does its own
+  // consolidation, on subject identity rather than on the name, so what
+  // arrives here is already one row per subject.
   const performSearch = async (rawQuery) => {
-    const variants = generateQueryVariants(rawQuery);
     const token = `search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     latestSearchTokenRef.current = token;
+    searchAbortRef.current?.abort();
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     setIsSearching(true);
     setDiscoveredConcepts([]);
     setSelectedConcept(null);
-    setSearchProgress('Initializing search...');
+    setSearchProgress('Asking Wikidata, Wikipedia and DBpedia...');
     setCanLoadMore(true);
     conceptLimitRef.current = 8;
 
     try {
-      console.log(`[SemanticDiscovery] Starting ${searchMode} search for "${rawQuery}" (token: ${token})`);
+      console.log(`[SemanticDiscovery] Starting search for "${rawQuery}" (token: ${token})`);
+      const hits = await searchConcepts(rawQuery, { limit: 8, signal: controller.signal });
+      if (latestSearchTokenRef.current !== token) return;
 
-      // Concept search: one round trip per authority against its own search
-      // index, no variants and no ranking pass of ours. The authorities already
-      // rank their own hits better than a name-similarity score can, and
-      // filterRankDedup would collapse same-NAMED concepts into one — which is
-      // the distinction this mode exists to show. searchConcepts does its own
-      // consolidation, on subject identity rather than on the name, so what
-      // arrives here is already one row per subject.
-      if (searchMode === 'concepts') {
-        setSearchProgress('Asking Wikidata, Wikipedia and DBpedia...');
-        const hits = await searchConcepts(rawQuery, { limit: 8 });
-        if (latestSearchTokenRef.current !== token) return;
-
-        const normalized = hits.map(hit => {
-          const concept = candidateToConcept(normalizeToCandidate(hit));
-          return {
-            ...concept,
-            sources: hit.authorities,
-            category: hit.authorities.join(' · '),
-            searchQuery: rawQuery
-          };
-        });
-        console.log(`[SemanticDiscovery] ${normalized.length} concepts from direct lookup`);
-        setDiscoveredConcepts(normalized);
-        setSearchHistory(prev => [{
-          id: token,
-          query: normalizeQuery(rawQuery),
-          timestamp: new Date(),
-          resultCount: normalized.length,
-          concepts: normalized.slice(0, 10)
-        }, ...prev].slice(0, 40));
-        return;
-      }
-
-      setSearchProgress('Pulling strings...');
-
-      // Shallow, fast searches for all variants in parallel
-      const variantPromises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 1, maxEntitiesPerLevel: 15 }));
-      const variantResults = await Promise.allSettled(variantPromises);
-
-      setSearchProgress('Processing and ranking results...');
-
-      let combined = [];
-      variantResults.forEach((res, idx) => {
-        if (res.status === 'fulfilled' && Array.isArray(res.value)) {
-          combined = combined.concat(res.value);
-        } else {
-          console.warn('[SemanticDiscovery] Variant search failed:', variants[idx], res.reason);
-        }
+      const normalized = hits.map(hit => {
+        const concept = candidateToConcept(normalizeToCandidate(hit));
+        return {
+          ...concept,
+          sources: hit.authorities,
+          category: hit.authorities.join(' · '),
+          searchQuery: rawQuery
+        };
       });
-      const ranked = filterRankDedup(combined, rawQuery).slice(0, 30); // Cap initial set
-      if (latestSearchTokenRef.current !== token) return; // stale
-      console.log(`[SemanticDiscovery] Showing ${ranked.length} ranked concepts (from ${combined.length} raw)`);
-      const normalized = ranked.map(federationResultToConcept);
+      console.log(`[SemanticDiscovery] ${normalized.length} concepts from direct lookup`);
       setDiscoveredConcepts(normalized);
-      const historyItem = {
+      setSearchHistory(prev => [{
         id: token,
         query: normalizeQuery(rawQuery),
         timestamp: new Date(),
         resultCount: normalized.length,
         concepts: normalized.slice(0, 10)
-      };
-      setSearchHistory(prev => [historyItem, ...prev].slice(0, 40));
+      }, ...prev].slice(0, 40));
     } catch (error) {
-      console.error('[SemanticDiscovery] Search failed:', error);
       if (latestSearchTokenRef.current !== token) return;
+      console.error('[SemanticDiscovery] Search failed:', error);
       setDiscoveredConcepts([]);
       setSearchProgress('Search failed');
     } finally {
       if (latestSearchTokenRef.current === token) {
+        searchAbortRef.current = null;
         setIsSearching(false);
         setSearchProgress('');
       }
     }
   };
 
-  /**
-   * Load more, in whichever mode the results came from.
-   *
-   * This used to always run the federation crawl, so pressing it after a
-   * concept search stalled on DBpedia's SPARQL endpoint (503) and a ConceptNet
-   * proxy route that isn't mounted (404) — nothing to do with the results on
-   * screen, which came from the lookup APIs.
-   */
   const handleLoadMore = async () => {
     const lastSearch = searchHistory.find((h) => h.kind !== 'concept');
     if (!lastSearch) return;
 
     setIsSearching(true);
     try {
-      if (searchMode === 'concepts') {
-        // The lookup APIs page by asking for more, not by offset, so widen the
-        // limit and take the whole answer rather than appending the tail of it.
-        // A wider search is a superset that also RE-GROUPS: a subject shown as
-        // a Wikipedia-only card can pick up its Wikidata and DBpedia entries at
-        // the deeper limit, which changes that row rather than adding one.
-        // Appending only what looked new used to leave both versions on screen.
-        const next = Math.min(conceptLimitRef.current * 2, 50);
-        conceptLimitRef.current = next;
-        const hits = await searchConcepts(lastSearch.query, { limit: next });
-        const all = hits.map(hit => ({
-          ...candidateToConcept(normalizeToCandidate(hit)),
-          sources: hit.authorities,
-          category: hit.authorities.join(' · '),
-          searchQuery: lastSearch.query
-        }));
-        console.log(`[SemanticDiscovery] ${all.length} concepts at limit ${next} (was ${discoveredConcepts.length})`);
-        if (all.length <= discoveredConcepts.length) setCanLoadMore(false);
-        if (all.length > 0) setDiscoveredConcepts(all);
-        return;
-      }
-
-      console.log(`[SemanticDiscovery] Loading more results for "${lastSearch.query}" with staged deeper search`);
-      const variants = generateQueryVariants(lastSearch.query);
-      const promises = variants.map(v => fetchFederatedConcepts(v, { maxDepth: 2, maxEntitiesPerLevel: 35 }));
-      const settled = await Promise.allSettled(promises);
-      let combined = [];
-      settled.forEach((res) => { if (res.status === 'fulfilled') combined = combined.concat(res.value || []); });
-      const ranked = filterRankDedup(combined, lastSearch.query);
-      const existingKeys = new Set(discoveredConcepts.map(c => canonicalKey(c.name)));
-      const normalizedAdditions = ranked
-        .filter(c => !existingKeys.has(canonicalKey(c.name)))
-        .slice(0, 40)
-        .map(federationResultToConcept);
-      console.log(`[SemanticDiscovery] Loaded ${normalizedAdditions.length} additional concepts (from ${combined.length} raw)`);
-      // Every source can fail independently behind allSettled, so "nothing came
-      // back" is the common failure and it used to look identical to a click
-      // that did nothing at all.
-      if (normalizedAdditions.length === 0) setCanLoadMore(false);
-      else setDiscoveredConcepts(prev => [...prev, ...normalizedAdditions]);
+      // The lookup APIs page by asking for more, not by offset, so widen the
+      // limit and take the whole answer rather than appending the tail of it.
+      // A wider search is a superset that also RE-GROUPS: a subject shown as
+      // a Wikipedia-only card can pick up its Wikidata and DBpedia entries at
+      // the deeper limit, which changes that row rather than adding one.
+      // Appending only what looked new used to leave both versions on screen.
+      const next = Math.min(conceptLimitRef.current * 2, 50);
+      conceptLimitRef.current = next;
+      const hits = await searchConcepts(lastSearch.query, { limit: next });
+      const all = hits.map(hit => ({
+        ...candidateToConcept(normalizeToCandidate(hit)),
+        sources: hit.authorities,
+        category: hit.authorities.join(' · '),
+        searchQuery: lastSearch.query
+      }));
+      console.log(`[SemanticDiscovery] ${all.length} concepts at limit ${next} (was ${discoveredConcepts.length})`);
+      if (all.length <= discoveredConcepts.length) setCanLoadMore(false);
+      if (all.length > 0) setDiscoveredConcepts(all);
     } catch (error) {
       console.error('[SemanticDiscovery] Load more failed:', error);
       setCanLoadMore(false);
@@ -1298,7 +1101,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
             }
           }
           
-          @keyframes pulse {
+          @keyframes discovery-pulse {
             0%, 100% {
               opacity: 1;
               transform: scale(1);
@@ -1351,7 +1154,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
           }}
         >
           <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif", marginBottom: isHeaderWide ? 0 : '12px' }}>
-            Semantic Discovery
+            Semantic Web Search
           </h2>
           <div style={{ flexShrink: 0 }}>
             <PanelIconButton
@@ -1616,9 +1419,11 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     <div
                       style={{
                         height: '100%',
-                        width: `${Math.round((catalogProgress ?? 0.1) * 100)}%`,
+                        width: '100%',
+                        transform: `scaleX(${Math.round((catalogProgress ?? 0.1) * 100) / 100})`,
+                        transformOrigin: 'left center',
                         background: theme.accent.primary,
-                        transition: 'width 0.4s ease',
+                        transition: 'transform 0.4s ease',
                       }}
                     />
                   </div>
@@ -1633,7 +1438,8 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                     padding: '8px 10px',
                     background: theme.canvas.hover,
                     maxHeight: 150,
-                    overflow: 'auto'
+                    overflowY: 'auto',
+                    overflowX: 'hidden'
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1672,7 +1478,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                           style={{ fontSize: 11, color: theme.canvas.textPrimary, background: theme.canvas.bg, borderRadius: 8, padding: '6px 8px', boxShadow: '0 1px 2px rgba(0,0,0,0.06)' }}
                         >
                           <div style={{ fontSize: 10, color: theme.canvas.textSecondary }}>{entry.ts.toLocaleTimeString()}</div>
-                          <div>{entry.msg}</div>
+                          <div style={{ overflowWrap: 'anywhere' }}>{entry.msg}</div>
                         </li>
                       ))}
                     </ul>
@@ -1738,46 +1544,13 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
               {/* Manual Search Bar - Always visible */}
               <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '11px', color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif", marginBottom: '8px', fontWeight: 'bold' }}>
-                  Search Semantic Web
-                </div>
-
-                {/* What the search is FOR. Concepts is the default because it
-                    answers the question people actually arrive with — what could
-                    this word mean — and answers it in one round trip.
-                    `active` on the chosen one borrows the pie-menu lit state, so
-                    selected and hovered read as the same visual language. */}
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '10px' }}>
-                  <PanelIconButton
-                    icon={Circle}
-                    size={15}
-                    label="Concepts"
-                    labelFontSize={11}
-                    variant="outline"
-                    active={searchMode === 'concepts'}
-                    onClick={() => setSearchMode('concepts')}
-                    title="What this could refer to"
-                  />
-                  <PanelIconButton
-                    icon={Waypoints}
-                    size={15}
-                    label="Related"
-                    labelFontSize={11}
-                    variant="outline"
-                    active={searchMode === 'related'}
-                    onClick={() => setSearchMode('related')}
-                    title="Things connected to it"
-                  />
-                </div>
-
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                   <input
                     type="text"
                     value={manualQuery}
                     onChange={(e) => setManualQuery(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleManualSearch()}
-                    // Says what the current mode will actually do with it.
-                    placeholder={searchMode === 'concepts' ? 'Search Anything' : 'Search Related'}
+                    placeholder="Search Semantic Web"
                     style={{
                       flex: 1,
                       minWidth: 0,
@@ -1914,6 +1687,18 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   }}>
                     {searchProgress || 'Please wait while we find related concepts'}
                   </div>
+                  <div style={{ marginTop: '12px' }}>
+                    <PanelIconButton
+                      icon={X}
+                      size={14}
+                      label="Cancel"
+                      labelPosition="left"
+                      labelFontSize={11}
+                      variant="outline"
+                      onClick={cancelSearch}
+                      title="Stop this search"
+                    />
+                  </div>
                 </div>
               )}
 
@@ -1923,7 +1708,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
                   <div style={{
                     fontSize: '24px',
                     marginBottom: '8px',
-                    animation: 'pulse 1.5s ease-in-out infinite'
+                    animation: 'discovery-pulse 1.5s ease-in-out infinite'
                   }}>
                     ⚡
                   </div>

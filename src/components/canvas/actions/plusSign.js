@@ -3,6 +3,8 @@ import useImageCache from '../../../services/imageCache.js';
 import { getNodeDimensions } from '../../../utils.js';
 import { useLayoutEffect } from 'react';
 import { finishPlusSignMorph, finishVideoAnimation } from './plusSignMorph.js';
+import { expandNodeInPlace } from './expandInPlace.js';
+import useGraphStore from '../../../store/graphStore.js';
 
 // Resolves true once `src` is decoded and ready to paint without a stall, false on
 // error or if it takes longer than `timeoutMs` (the caller proceeds either way).
@@ -32,6 +34,15 @@ const waitForCachedImage = (protoId, timeoutMs) => new Promise((resolve) => {
   timer = setTimeout(() => { unsubscribe(); resolve(null); }, timeoutMs);
 });
 
+// Opens Web `definitionIndex` of a Thing the plus sign just became, in place,
+// the frame after it is first drawn (the box morph starts from the drawn node).
+const openLandedThing = (instanceId, definitionIndex) => requestAnimationFrame(() => {
+  const { activeGraphId, graphs } = useGraphStore.getState();
+  const instance = graphs.get(activeGraphId)?.instances?.get(instanceId);
+  if (!instance) return;
+  expandNodeInPlace({ viewGraphId: activeGraphId, prototypeId: instance.prototypeId, definitionIndex, instanceId });
+});
+
 /** The plus sign's actions: click, choosing a Thing for it, the morph into a node and its landing, and the Y-key video variant (moved verbatim from NodeCanvas, wave 6). */
 export function usePlusSignActions({
   activeGraphId, gridMode, keysPressed, nodePrototypesMap, plusSign,
@@ -50,6 +61,8 @@ export function usePlusSignActions({
       return;
     }
 
+    // Naming it: the bubbles around it go back in (PlusSignBubbles).
+    setPlusSign(ps => ps && { ...ps, prompting: true });
     setNodeNamePrompt({ visible: true, name: '' });
   };
 
@@ -98,16 +111,20 @@ export function usePlusSignActions({
   // in the same commit as the add left that gap empty — a one-frame flash.
   // Layout effect so the swap lands in a single paint.
   const landedInstanceId = plusSign?.mode === 'landed' ? plusSign.landedInstanceId : null;
+  const landedOpenDefinition = plusSign?.mode === 'landed' ? plusSign.openDefinition : null;
   useLayoutEffect(() => {
     if (!landedInstanceId) return;
     if (visibleNodeIds.has(landedInstanceId)) {
       setPlusSign(null);
+      // Made as a Thing Group (thingGroupPrompt/): now it's drawn, it opens
+      // into its box, so the plus becomes the Thing and the Thing the group.
+      if (landedOpenDefinition != null) openLandedThing(landedInstanceId, landedOpenDefinition);
       return;
     }
     // Safety net: never leave the placeholder stranded if the node doesn't show up.
     const t = setTimeout(() => setPlusSign(ps => (ps?.landedInstanceId === landedInstanceId ? null : ps)), 500);
     return () => clearTimeout(t);
-  }, [landedInstanceId, visibleNodeIds]);
+  }, [landedInstanceId, landedOpenDefinition, visibleNodeIds]);
 
   const handleMorphDone = (...args) => finishPlusSignMorph({
     plusSign, activeGraphId, getPlusSignMorphTarget, storeActions, setPlusSign, nodes, groupStructure, gridSize,

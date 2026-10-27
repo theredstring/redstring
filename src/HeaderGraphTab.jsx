@@ -4,6 +4,7 @@ import { haptic } from './services/haptics.js';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import useGraphStore from './store/graphStore.js';
 import { getTextColor } from './utils/colorUtils.js';
+import { VectorText } from './components/VectorText.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
@@ -170,7 +171,7 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
         textOverflow: 'ellipsis',
         fontFamily: "'EmOne', sans-serif"
       }}>
-        {graph.name}
+        <VectorText text={graph.name} />
       </span>
     </div>
   );

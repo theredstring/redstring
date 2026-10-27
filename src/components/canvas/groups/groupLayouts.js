@@ -6,9 +6,82 @@
  *
  * The code below is that pass's computation, moved verbatim.
  */
-import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
+import { computeGroupLayout, groupLabelSizing, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
+import { anchorPillEndBox, anchorEndBox } from '../../../utils/canvas/anchorEnd.js';
+import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
+import { makeConnectionBoundsOf, routeFrom, passAnchors } from './connectionBounds.js';
 
 /**
+ * Publish a layout to the refs the rest of the canvas reads (drag, gamepad,
+ * edges, the anchor flush). Rebuilt, not accumulated: a group that is gone (or
+ * has become undrawable — emptied, or its layout bailed) must leave no rect
+ * behind, or the controller keeps aiming at a pill nobody draws.
+ *
+ * A group drawn as a format (formats/replaced.js) has no pill to aim at, and
+ * its anchor is where the format draws it: a formula's own anchor is its
+ * title, with the formula's band as the box a connection stops at, the way a
+ * node group's shell is; a part's anchor inside it is its token. So drawing,
+ * hit testing and dragging all put a connection into it in the same place.
+ */
+export function publishGroupLayouts(layouts, titleRectsRef, anchorPositionsRef) {
+  titleRectsRef.current.clear();
+  for (const [id, r] of layouts.titleRects) if (!isReplacedGroup(id)) titleRectsRef.current.set(id, r);
+  for (const [id, a] of layouts.anchorPositions) {
+    anchorPositionsRef.current.set(id, isReplacedGroup(a.groupId) ? formatAnchorPosition(id, a) : a);
+  }
+}
+
+/**
+ * Where a format draws a group's anchor, as an anchorPositions record (the
+ * pill: its title or token; outerBounds and shellRect: the formula's band), or
+ * `pill` when no format draws it. `dx`/`dy`: how far a drag has carried it.
+ */
+export function formatAnchorPosition(anchorId, pill, dx = 0, dy = 0) {
+  const end = formatEndOf(anchorId, dx, dy);
+  if (!end) return pill;
+  return { ...end, groupId: pill?.groupId ?? anchorBoxOf(anchorId, null)?.groupId ?? null };
+}
+
+/**
+ * Where a connection's end is drawn, as the routers take it ({ node, dims }):
+ * a Thing-group's anchor at its title pill, a format's end at its stand-in
+ * (connectionEndInfo), else the node as stored. Mirrors renderConnectionEdge
+ * exactly: the pill's box and nothing else. Carrying the node's own
+ * scaledCornerRadius over would round the pill by a radius taken from a
+ * different shape.
+ */
+export function connectionEndGeometry(node, dims, anchors) {
+  const info = anchorEndBox(connectionEndInfo(node, anchors));
+  if (!info) return { node, dims };
+  return { node: { ...node, x: info.x, y: info.y }, dims: { currentWidth: info.width, currentHeight: info.height } };
+}
+
+/**
+ * How a group around a format measures it (computeGroupLayout's
+ * `drawnBoundsOf` and `isDrawnElsewhere`): a group inside it drawn as a
+ * formula is the formula's band; the Things drawn in it aren't where they
+ * stand. One rule for the settled layout and the drag's live one, so a group's
+ * box is the same while it moves and once it lands. `dragDelta(memberIds)`:
+ * how far the drag has carried a formula, by its Things ({ dx, dy }), or null.
+ */
+export function formatLayoutHooks(dragDelta = null) {
+  return {
+    drawnBoundsOf: (groupId) => {
+      const drawn = formatOfAnchor(formatAnchorOfGroup(groupId));
+      if (!drawn) return null;
+      const d = dragDelta?.(drawn.memberIds || []);
+      return d ? { x: drawn.x + d.dx, y: drawn.y + d.dy, w: drawn.w, h: drawn.h } : drawn;
+    },
+    isDrawnElsewhere: isReplacedInstance,
+  };
+}
+
+/**
+ * `connections`: the connections drawn and how they are routed, so each group's
+ * box holds the ones among its Things (connectionBounds.js): { edges, anchors,
+ * ...routeFrom's inputs } (anchors: the anchor title boxes connections meet).
+ * Without it a box holds only its Things.
+ *
  * @returns {{
  *   entries: Array<{ group, members, layout, effectiveGroupName, effectiveGroupColor }>,
  *   groupCount: number,
@@ -22,7 +95,7 @@ import { computeGroupLayout, GROUP_LAYOUT_CONSTANTS } from '../../../services/gr
  */
 export function computeGroupLayouts({
   graphData, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName,
-  nodePrototypesMap, baseDimsById, gridSize, getTextWidth,
+  nodePrototypesMap, baseDimsById, gridSize, getTextWidth, connections = null,
 }) {
   // Shallowest-first so nested shells/titles emit after (above) their
   // parents within each z-layer; stable sort keeps insertion order
@@ -37,14 +110,8 @@ export function computeGroupLayouts({
   const anchorPositions = new Map();
   const tgMemberIds = new Set();
   const anchorIds = new Set();
-  // Group labels scale with node size (not the text-size setting),
-  // so the whole tab — box and font — grows proportionally when nodes
-  // are enlarged instead of staying a fixed 36px.
-  const groupLabelScale = textSettings?.nodeScale ?? 1.0;
-  // Match the on-canvas node title size (45 * fontSize * nodeScale) so the
-  // group tab reads at the same size as an average node and its box is sized
-  // from that text.
-  const groupLabelFontSize = 45 * (textSettings?.fontSize ?? 1.0) * groupLabelScale;
+  // Group labels scale with node size and read at a node title's size.
+  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, labelGrowth, measureLabelWidth } = groupLabelSizing(textSettings, getTextWidth);
   const result = {
     entries, groupCount: groups.length, titleRects, anchorPositions,
     thingGroupMemberIds: tgMemberIds, anchorIds, groupLabelScale, groupLabelFontSize,
@@ -91,9 +158,12 @@ export function computeGroupLayouts({
     groupsByMemberId: groupStructure.groupsByNodeId,
     childGroupIdsByGroupId: groupStructure.childGroupIds,
     gridSize,
-    measureLabelWidth: (text) => getTextWidth(text || 'Group', `bold ${groupLabelFontSize}px "EmOne", sans-serif`),
+    measureLabelWidth,
     labelScale: groupLabelScale,
     labelFontSize: groupLabelFontSize,
+    labelGrowth,
+    ...formatLayoutHooks(),
+    connectionBoundsOf: connections ? connectionBoundsHook(connections, hydratedNodes, baseDimsById, textSettings) : null,
     _cache: new Map(),
   };
 
@@ -146,6 +216,8 @@ export function computeGroupLayouts({
       anchorPositions.set(group.anchorInstanceId, {
         x: labelX, y: labelY,
         width: labelWidth, height: labelHeight,
+        // Where its connections end (anchorEnd.js).
+        end: anchorPillEndBox(labelX, labelY, labelWidth, labelHeight, textSettings),
         groupId: group.id,
         outerBounds: vb ? { x: vb.x, y: vb.y, width: vb.w, height: vb.h } : null,
         // The shell exactly as drawn (rounded rect, not the AABB above), so a
@@ -167,4 +239,19 @@ export function computeGroupLayouts({
     entries.push({ group, members, layout, effectiveGroupName, effectiveGroupColor });
   });
   return result;
+}
+
+/** The settled layout's connectionBoundsOf, from the nodes as hydrated (see computeGroupLayouts' `connections`).
+ * Framing a web (camera/backToCivilization.js) reads it too. */
+export function connectionBoundsHook({ edges, anchors, ...routing }, hydratedNodes, baseDimsById, textSettings = null) {
+  const nodeById = new Map(hydratedNodes.map(n => [n.id, n]));
+  return makeConnectionBoundsOf({
+    edges,
+    nodeOf: id => nodeById.get(id),
+    dimsOf: id => baseDimsById.get(id),
+    geometryFor: (node, dims, context) => connectionEndGeometry(node, dims, passAnchors(anchors, context, textSettings)),
+    skipGroup: isReplacedGroup,
+    isDrawnElsewhere: isReplacedInstance,
+    route: routeFrom(routing),
+  });
 }

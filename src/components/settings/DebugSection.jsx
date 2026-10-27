@@ -9,6 +9,7 @@ import DialogGallery from './DialogGallery.jsx';
 import ModalGallery from './ModalGallery.jsx';
 import PaletteEditor from './PaletteEditor.jsx';
 import DruidWarningDialog from './DruidWarningDialog.jsx';
+import WhatsNewRehearsal from './WhatsNewRehearsal.jsx';
 
 /**
  * Debug settings, moved here from the Debug submenu in RedstringMenu.
@@ -253,6 +254,11 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
         actionLabel="Reset"
         onClick={() => debugConfig.reset()}
       />
+
+      <hr className="settings-section-divider" />
+
+      <div className="settings-section-subtitle">{"What's New"}</div>
+      <WhatsNewRehearsal />
 
       <hr className="settings-section-divider" />
 

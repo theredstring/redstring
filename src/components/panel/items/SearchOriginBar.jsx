@@ -5,6 +5,7 @@ import { useTheme } from '../../../hooks/useTheme.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { identifiedSources, listWords } from '../../../services/conceptLinking.js';
+import { VectorText } from '../../VectorText.jsx';
 
 /**
  * Which Thing a Discover search started from, and where it stands.
@@ -59,7 +60,7 @@ const SearchOriginBar = ({ origin, linkedConcepts = [], onClear, style }) => {
             whiteSpace: 'nowrap'
           }}
         >
-          {origin.name}
+          <VectorText text={origin.name} />
         </span>
         {onClear && (
           <PanelIconButton

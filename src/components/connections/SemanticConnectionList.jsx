@@ -4,6 +4,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2, ListPlus } from 'lucide-react';
 import useGraphStore from '../../store/graphStore.js';
+import { projectGraphView } from '../../core/openDefinitions.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import useElementWidth from '../../hooks/useElementWidth.js';
@@ -11,7 +12,7 @@ import useSemanticConnections from '../../hooks/useSemanticConnections.js';
 import useActiveGraphStructureKey from '../../hooks/useActiveGraphStructureKey.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ConfirmDialog from '../shared/ConfirmDialog.jsx';
-import TripletPreview from './TripletPreview.jsx';
+import TriplePreview from './TriplePreview.jsx';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './CompactConnectionRow.jsx';
 import TypeStatementDialog, { isTypeStatement } from './TypeStatementDialog.jsx';
 import {
@@ -94,7 +95,6 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const activeGraphId = useGraphStore((s) => s.activeGraphId);
   // What's in the Web, not where it sits: a drag must not redraw every row.
   const structureKey = useActiveGraphStructureKey();
-  const graphs = useGraphStore.getState().graphs;
   const edges = useGraphStore((s) => s.edges);
   const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
   const selectedInstanceIds = useCanvasUIStore((s) => s.selectedInstanceIds);
@@ -104,9 +104,10 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   const seedName = seed?.name || '';
   const seedProtoId = seedPrototypeId || findPrototypeForConcept(seed, nodePrototypes)?.id || null;
   const color = seedColor || seed?.color || theme.accent.primary;
-  const graph = activeGraphId ? graphs.get(activeGraphId) : null;
+  // The Web as it's shown: Things inside its open boxes are here too.
+  const graph = activeGraphId ? projectGraphView(useGraphStore.getState(), activeGraphId) : null;
   const anchor = useMemo(() => (graph && seedProtoId
-    ? anchorInstanceFor(activeGraphId, seedProtoId, selectedInstanceIds, { graphs })
+    ? anchorInstanceFor(activeGraphId, seedProtoId, selectedInstanceIds, useGraphStore.getState())
     : null
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ), [structureKey, seedProtoId, selectedInstanceIds]);
@@ -151,11 +152,27 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
     return hit ? hit.otherId : null;
   };
 
+  // Rows whose other end is already in the Web but not yet joined to the seed:
+  // the link rows, which lead the list.
+  const linkable = useMemo(() => {
+    const ids = new Set();
+    if (!graph || !anchor) return ids;
+    const state = useGraphStore.getState();
+    connections.forEach((c) => {
+      if (!presentAs(c) && existingInstanceFor(activeGraphId, c.other, anchor.id, state)) ids.add(c.id);
+    });
+    return ids;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections, structureKey, anchor, atAnchor, nodePrototypes]);
+
   const visible = useMemo(() => {
     const q = lower(filter);
-    if (!q) return connections;
-    return connections.filter((c) => lower(c.predicate).includes(q) || lower(c.other.name).includes(q));
-  }, [connections, filter]);
+    const matching = q
+      ? connections.filter((c) => lower(c.predicate).includes(q) || lower(c.other.name).includes(q))
+      : connections;
+    if (linkable.size === 0) return matching;
+    return [...matching.filter((c) => linkable.has(c.id)), ...matching.filter((c) => !linkable.has(c.id))];
+  }, [connections, filter, linkable]);
 
   const provenanceOf = (c) => ({
     source: c.provider,
@@ -241,7 +258,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
   // Things and links to ones already here, for the dialog to state.
   const askAddAll = () => {
     if (!activeGraphId || !anchor) return;
-    const state = { graphs, nodePrototypes };
+    const state = useGraphStore.getState();
     const pending = visible.filter((c) => !presentAs(c));
     if (pending.length === 0) return;
     // A Thing reached by two connections is made once; the second one links to it.
@@ -297,10 +314,10 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
 
   const small = { fontSize: '12px', fontFamily: "'EmOne', sans-serif", color: theme.canvas.textSecondary, lineHeight: 1.4 };
   const sources = [...new Set(connections.map((c) => SOURCE_NAMES[c.provider] || c.provider))].join(' · ');
-  const tripletWidth = Math.max(160, width - ACTION_COLUMN - 8);
+  const tripleWidth = Math.max(160, width - ACTION_COLUMN - 8);
   // Whether the seed is here for rows to hang off; without it, a row brings it in too.
   const canAdd = !!anchor;
-  // Below this a triplet's names truncate to a few letters; rows go compact.
+  // Below this a triple's names truncate to a few letters; rows go compact.
   const compact = width > 0 && width < COMPACT_CONNECTIONS_BELOW;
   // Offered once the list has settled, so "all" means all of it.
   const remaining = canAdd && status === 'ready' ? visible.filter((c) => !presentAs(c)).length : 0;
@@ -415,14 +432,14 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     otherColor={otherColor}
                   />
                 ) : (
-                  <TripletPreview
+                  <TriplePreview
                     subject={c.subject}
                     predicate={c.predicate}
                     object={c.object}
                     subjectColor={isOut ? color : otherColor}
                     objectColor={isOut ? otherColor : color}
                     connectionColor={color}
-                    containerWidth={tripletWidth}
+                    containerWidth={tripleWidth}
                   />
                 )}
               </DraggableStatement>
@@ -434,7 +451,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     onClick={() => revealInstances(activeGraphId, [anchor.id, presentId], { force: true })}
                     title="Already in this web. Show it"
                   />
-                ) : canAdd && existingInstanceFor(activeGraphId, c.other, anchor.id, { graphs, nodePrototypes }) ? (
+                ) : linkable.has(c.id) ? (
                   <PanelIconButton
                     icon={Link2}
                     size={17}

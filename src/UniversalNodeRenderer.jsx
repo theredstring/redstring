@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useRef } from 'react';
 import useGraphStore from './store/graphStore.js';
 import { getNodeDimensions } from './utils.js';
-import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
+import { getTextColor, getInvertedTextColor, getConnectionLabelColors, DEFAULT_CONNECTION_LABEL_RING_WIDTH, OFF_CANVAS_LABEL_RING_SCALE, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, hexToHsl, hslToHex } from './utils/colorUtils.js';
 import { isValidColor } from './ai/palettes.js';
 import { safeImageSrc } from './utils/safeUrl.js';
 import { NODE_DEFAULT_COLOR, CONNECTION_WIDTH_BASE_SCALE } from './constants.js';
@@ -125,7 +125,7 @@ const ConnectionText = ({
           {...lineGeomProps(i)}
           fill="none"
           stroke={labelColors.outerStroke}
-          strokeWidth={strokeWidth * connectionLabelRingWidth}
+          strokeWidth={strokeWidth * connectionLabelRingWidth * OFF_CANVAS_LABEL_RING_SCALE}
           strokeLinecap="round"
           strokeLinejoin="round"
         >
@@ -831,7 +831,7 @@ const UniversalNodeRenderer = ({
         {/* Render connections first (behind nodes) */}
         {connectionRenderList.map(({ conn, isStableHovered, adjustedPath, adjustedSourcePoint, adjustedTargetPoint }) => {
           return (
-            <g key={`connection-${conn.id}`} filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}>
+            <g key={`connection-${conn.id}`} filter={isStableHovered ? `drop-shadow(0 0 1px ${conn.color || '#000000'})` : 'none'}>
 
               {/* Invisible hover area that matches the visual connection line exactly */}
               {interactive && adjustedPath && (
@@ -1116,7 +1116,7 @@ const UniversalNodeRenderer = ({
         {connectionRenderList.map(({ conn, isStableHovered, adjustedSourcePoint, adjustedTargetPoint }) => (
           <g
             key={`connection-label-${conn.id}`}
-            filter={isStableHovered ? `drop-shadow(0 0 8px ${conn.color || '#000000'})` : 'none'}
+            filter={isStableHovered ? `drop-shadow(0 0 1px ${conn.color || '#000000'})` : 'none'}
           >
             <ConnectionText
               connection={conn}

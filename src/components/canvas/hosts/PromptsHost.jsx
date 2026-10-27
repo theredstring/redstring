@@ -10,12 +10,14 @@ import UnifiedSelector from '../../../UnifiedSelector';
 import { v4 as uuidv4 } from 'uuid';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
 import useGraphStore from '../../../store/graphStore.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { setDialogColorPickerVisible } from '../colorPickers/colorPickers.js';
 import { attachOneShotOutcome } from '../../../services/oneShot.js';
 import { submitAbstraction } from '../actions/abstractionSubmit.js';
 import { suggestConnectionName, fillAbstractionNameSuggestion, suggestEdgeArrowDirectionWith } from '../actions/oneShotSuggestions.js';
 import { performInstanceSwapWith } from '../actions/instanceSwap.js';
+import ThingGroupPrompt from '../thingGroupPrompt/ThingGroupPrompt.jsx';
 
 export default function PromptsHost({ ctx }) {
   const {
@@ -146,8 +148,7 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={swapPrompt.name}
               initialColor={swapPrompt.color}
-              title="Swap Thing"
-              subtitle="Choose a Thing to swap to, or make a new one.<br />Connections are kept."
+              title="Swap to another Thing"
               searchTerm={swapPrompt.name}
             />
           );
@@ -172,8 +173,7 @@ export default function PromptsHost({ ctx }) {
               onNodeSelect={handleNodeSelection}
               initialName={nodeNamePrompt.name}
               initialColor={nodeNamePrompt.color}
-              title="Name Your Thing"
-              subtitle="Add a new Thing to this Web."
+              title="Choose a Thing"
               searchTerm={nodeNamePrompt.name}
             />
           );
@@ -218,8 +218,8 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={connectionNamePrompt.name}
               initialColor={connectionNamePrompt.color}
-              title="Name Your Connection"
-              subtitle="The Thing that will define your Connection,<br />in verb form if available."
+              title="Choose a Connection"
+              placeholder="e.g. Supports, Friendship, Causes"
               searchTerm={connectionNamePrompt.name}
             />
           );
@@ -235,7 +235,8 @@ export default function PromptsHost({ ctx }) {
               onClose={() => setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null })}
               onSubmit={({ name, color }) => {
                 if (name.trim() && activeGraphId && nodeGroupPrompt.groupId) {
-                  storeActions.convertGroupToNodeGroup(
+                  // Opened in place over its members.
+                  const thingGroupId = storeActions.convertGroupToThingInPlace(
                     activeGraphId,
                     nodeGroupPrompt.groupId,
                     null, // nodePrototypeId (not used when creating new)
@@ -244,9 +245,7 @@ export default function PromptsHost({ ctx }) {
                     color
                   );
                   setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null });
-                  const currentState = useGraphStore.getState();
-                  const graph = currentState.graphs?.get(activeGraphId);
-                  const updatedGroup = graph?.groups?.get(nodeGroupPrompt.groupId);
+                  const updatedGroup = thingGroupId ? projectGraphView(useGraphStore.getState(), activeGraphId)?.groups?.get(thingGroupId) : null;
                   if (updatedGroup) {
                     setSelectedGroup(updatedGroup);
                     setGroupControlPanelShouldShow(true);
@@ -257,16 +256,14 @@ export default function PromptsHost({ ctx }) {
               }}
               onNodeSelect={(prototype) => {
                 if (activeGraphId && nodeGroupPrompt.groupId) {
-                  storeActions.convertGroupToNodeGroup(
+                  const thingGroupId = storeActions.convertGroupToThingInPlace(
                     activeGraphId,
                     nodeGroupPrompt.groupId,
                     prototype.id, // Link to existing prototype
                     false // Don't create new
                   );
                   setNodeGroupPrompt({ visible: false, name: '', color: null, groupId: null });
-                  const currentState = useGraphStore.getState();
-                  const graph = currentState.graphs?.get(activeGraphId);
-                  const updatedGroup = graph?.groups?.get(nodeGroupPrompt.groupId);
+                  const updatedGroup = thingGroupId ? projectGraphView(useGraphStore.getState(), activeGraphId)?.groups?.get(thingGroupId) : null;
                   if (updatedGroup) {
                     setSelectedGroup(updatedGroup);
                     setGroupControlPanelShouldShow(true);
@@ -277,8 +274,7 @@ export default function PromptsHost({ ctx }) {
               }}
               initialName={nodeGroupPrompt.name}
               initialColor={nodeGroupPrompt.color}
-              title="Name Your Thing"
-              subtitle="Add a new Thing that will be defined by this Group."
+              title="Choose the Thing this Group defines"
               searchTerm={nodeGroupPrompt.name}
             />
           );
@@ -307,13 +303,20 @@ export default function PromptsHost({ ctx }) {
             }}
             initialName={abstractionPrompt.name}
             initialColor={abstractionPrompt.color}
-            title={`Add ${abstractionPrompt.direction === 'above' ? 'Above' : 'Below'}`}
-            subtitle={`Create a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} node in the abstraction chain`}
+            title={`Choose a ${abstractionPrompt.direction === 'above' ? 'more specific' : 'more generic'} Thing`}
             abstractionDirection={abstractionPrompt.direction}
           />
         );
       })()}
 
+      {/* New Thing Group, from the plus sign's bubble (thingGroupPrompt/). */}
+      <ThingGroupPrompt
+        plusSign={plusSign}
+        setPlusSign={setPlusSign}
+        handleNodeSelection={handleNodeSelection}
+        leftPanelExpanded={leftPanelExpanded}
+        rightPanelExpanded={rightPanelExpanded}
+      />
     </Profiler>
   );
 }

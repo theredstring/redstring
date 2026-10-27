@@ -3,13 +3,15 @@
  * edge glows, Back to Civilization, the desktop-app pill, the zoom bar and the
  * panel resizers.
  */
-import { Profiler } from 'react';
+import { Profiler, useMemo } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import EdgeGlowIndicator from '../../EdgeGlowIndicator.jsx';
 import BackToCivilization from '../../../BackToCivilization.jsx';
 import DownloadAppPill from '../../../DownloadAppPill.jsx';
 import PanelResizers from '../PanelResizers.jsx';
 import ZoomBar from './ZoomBar.jsx';
+import FormatsHost from '../formats/FormatsHost.jsx';
+import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
 
 export default function CanvasChrome({ ctx }) {
@@ -21,6 +23,13 @@ export default function CanvasChrome({ ctx }) {
     nodeControlPanelVisible, connectionControlPanelShouldShow, connectionControlPanelVisible,
     abstractionControlPanelShouldShow, abstractionControlPanelVisible, panelResizeControlRef, isViewReady,
   } = ctx;
+
+  // Things shown as a formula aren't on the canvas, so nothing glows for them.
+  const formulaHiddenIds = useFormulaObjects().hiddenIds;
+  const glowNodes = useMemo(
+    () => (formulaHiddenIds.size ? hydratedNodes.filter(n => !formulaHiddenIds.has(n.id)) : hydratedNodes),
+    [hydratedNodes, formulaHiddenIds]
+  );
 
   // Chrome that is placed against the web (the off-screen glows, the zoom bar)
   // waits for one: a universe loaded, a web open, and its view restored, which
@@ -42,7 +51,7 @@ export default function CanvasChrome({ ctx }) {
       {/* Edge glow indicators for off-screen nodes */}
       {edgeGlowMode !== 'off' && webReady && (
         <EdgeGlowIndicator
-          nodes={hydratedNodes}
+          nodes={glowNodes}
           baseDimensionsById={baseDimsById}
           panOffset={panOffset}
           zoomLevel={zoomLevel}
@@ -69,6 +78,12 @@ export default function CanvasChrome({ ctx }) {
         viewportSize={viewportSize}
         clusteringEnabled={enableClustering}
         clusterInfo={clusterAnalysis.statistics}
+      />
+
+      {/* Formats: the offer to see a formula (and later others) as itself,
+          in Back to Civilization's spot, so it stands down while that shows. */}
+      <FormatsHost
+        suppressed={showStorageSetupModal || (shouldShowBackToCivilization && backToCivilizationDelayComplete)}
       />
 
       {/* One-time desktop-app nudge (web only). Held back while first-run

@@ -8,7 +8,7 @@ vi.hoisted(() => {
   };
 });
 
-import { findGroupDropTarget, groupDropDialogFor } from '../../src/components/canvas/groups/groupDropTarget.js';
+import { findGroupDropTarget, groupDropDialogFor, groupDropAfterDrag } from '../../src/components/canvas/groups/groupDropTarget.js';
 import { createPointerHandlers } from '../../src/components/canvas/input/pointerHandlers.js';
 
 const node = (id, x, y) => ({ id, x, y, name: id });
@@ -92,5 +92,27 @@ describe('handleCanvasClick on a node-group interior', () => {
       mode: 'appear', groupInteriorId: 'g1', clientX: 120, clientY: 80,
     });
     svg.remove();
+  });
+});
+
+// A Thing-group dropped whole joins the group it lands in as its Thing (its anchor).
+describe('groupDropAfterDrag', () => {
+  const nodes = [node('a', 0, 0), node('b', 400, 0), node('t', 2000, 2000), { ...node('anc', 1900, 1900), isGroupAnchor: true }];
+  const target = { id: 'target', name: 'Target', memberInstanceIds: ['a', 'b'] };
+  const dragged = { id: 'tg', name: 'TG', memberInstanceIds: ['t'], linkedNodePrototypeId: 'p', anchorInstanceId: 'anc' };
+  const graphData = { groups: new Map([['target', target], ['tg', dragged]]) };
+  const groupStructure = { groupDepths: new Map(), childGroupIds: new Map(), parentGroupIds: new Map() };
+  const drop = (to) => groupDropAfterDrag(
+    { wasGroupDrag: true, groupId: 'tg', finalPositions: new Map([['t', to], ['anc', to]]) },
+    { graphData, nodes, groupStructure, gridSize: 200, position: { x: 0, y: 0 } },
+  );
+
+  it('offers the group it was dropped in, adding its anchor', () => {
+    const dialog = drop({ x: 150, y: 10 });
+    expect(dialog).toMatchObject({ groupId: 'target', nodeIds: ['anc'], what: 'this Thing-group' });
+  });
+
+  it('offers nothing dropped outside every group, or into itself', () => {
+    expect(drop({ x: 2000, y: 2000 })).toBe(null);
   });
 });

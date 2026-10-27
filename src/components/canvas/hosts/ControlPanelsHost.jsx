@@ -19,16 +19,27 @@ import { useEffect } from 'react';
 import { CONNECTION_DEFAULT_COLOR } from '../../../constants';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { connectionFacts } from '../../../wizard/prompts/facts.js';
-import { NODE_DEFAULT_COLOR } from '../../../constants';
+import { NODE_DEFAULT_COLOR, nextNodeSizeStep, nodeSizeLabel } from '../../../constants';
+import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
 import { useControlPanelActions } from '../../../hooks/useControlPanelActions.js';
 import { copySelection, pasteClipboard } from '../../../utils/clipboard.js';
-import { getNodeDimensions } from '../../../utils.js';
+import { getNodeDimensions, getDefinitionDescription } from '../../../utils.js';
 import { diveIntoNodeGroupDefinition } from '../actions/nodeGroupDive.js';
 import { openGroupColorPicker, togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { expandNodeInPlace } from '../actions/expandInPlace.js';
+import { resizeNodeInPlace } from '../actions/resizeNode.js';
 import { withBoxCloseMorph } from '../groups/boxMorph.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
+import FormatPanelPreview from '../formats/FormatPanelPreview.jsx';
+import { deleteFormula } from '../formats/formula/deleteFormula.js';
+import { condenseFormula } from '../formats/formula/condenseFormula.js';
+import { copyFormula } from '../formats/formula/copyFormula.js';
+import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
+import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
+import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
+import { Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
+import { buildGroupPieButtons, setGroupPieButtons, reframeGroup } from '../pie/groupPieButtons.js';
 import {
   onCarouselClose,
   changeAbstractionDimension as handleAbstractionDimensionChange, addAbstractionDimension as handleAddAbstractionDimension,
@@ -63,6 +74,7 @@ export default function ControlPanelsHost({ ctx }) {
   const showMultipleNodesControlPanel = useGraphStore((state) => state.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore((state) => state.showConnectionControlPanel ?? true);
   const showGroupControlPanel = useGraphStore((state) => state.showGroupControlPanel ?? true);
+  const showEquationControlPanel = useGraphStore((state) => state.showEquationControlPanel ?? true);
   const showAbstractionControlPanel = useGraphStore((state) => state.showAbstractionControlPanel ?? true);
   // The group the panel is about, read through to the active web so a rename or
   // recolour elsewhere shows up (P2.03b). Read as viewed: an open box's group
@@ -133,20 +145,77 @@ export default function ControlPanelsHost({ ctx }) {
   if (selectedNodePrototypes.length > 0) lastSelectedNodePrototypesRef.current = selectedNodePrototypes;
   const lastSelectedNodePrototypes = lastSelectedNodePrototypesRef.current;
 
-  // Use last selected prototypes if current ones are empty but panel is still visible
-  const nodePrototypesForPanel = useMemo(() => {
-    if (selectedNodePrototypes.length > 0) {
-      return selectedNodePrototypes;
-    }
-    // If no current selection but panel is still visible (during exit animation), use last known selection
-    if (nodeControlPanelVisible && lastSelectedNodePrototypes.length > 0) {
-      return lastSelectedNodePrototypes;
-    }
-    return [];
-  }, [selectedNodePrototypes, nodeControlPanelVisible, lastSelectedNodePrototypes]);
+  // With nothing selected the panel is only mounted to fly out, so it keeps
+  // showing the last selection rather than leaving empty.
+  const nodePrototypesForPanel = selectedNodePrototypes.length > 0 ? selectedNodePrototypes : lastSelectedNodePrototypes;
+
+  // The selected connections that still exist. A selection can outlive what it
+  // names (a Thing deleted with its connections, an undo, a web switch); the
+  // panels go by what is there, so one with nothing left in it leaves.
+  const liveSelectedEdge = selectedEdgeId ? edgesMap.get(selectedEdgeId) : undefined;
+  const liveSelectedEdges = useMemo(
+    () => Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean),
+    [selectedEdgeIds, edgesMap]
+  );
+  const liveNodeCount = selectedNodePrototypes.length;
+  const liveEdgeSelected = Boolean(liveSelectedEdge) || liveSelectedEdges.length > 0;
 
   const groupPanelTarget = selectedGroup || lastSelectedGroup;
-  const groupPanelMode = groupPanelTarget?.linkedNodePrototypeId ? "nodegroup" : "group";
+  // A group or Thing-group that reads as a formula of its own (an equation, not
+  // a part in its parentheses) gets ◀ ▶ to swap how it is shown (formats/).
+  // Shown as its formula, the panel is the format mode; shown as Things, an
+  // equation is the Thing-group it is, with that panel (and the arrows).
+  const groupFormulaText = useGroupFormulaText(groupPanelTarget?.id);
+  const formatOrder = groupFormats(groupFormulaText);
+  const currentFormat = groupPanelTarget?.format && formatOrder.includes(groupPanelTarget.format) ? groupPanelTarget.format : 'things';
+  const isThingGroup = !!groupPanelTarget?.linkedNodePrototypeId;
+  const groupPanelMode = groupFormulaText && !(currentFormat === 'things' && isThingGroup)
+    ? "format"
+    : (isThingGroup ? "nodegroup" : "group");
+  const swapFormat = (step) => {
+    if (!groupPanelTarget || !activeGraphId) return;
+    const next = formatOrder[(formatOrder.indexOf(currentFormat) + step + formatOrder.length) % formatOrder.length];
+    if (next === currentFormat) return;
+    reframeGroup(groupPanelTarget.id);
+    if (next === 'things') showAsThings(activeGraphId, groupPanelTarget.id);
+    else showFormatInPlace({ source: 'group', sourceId: groupPanelTarget.id, graphId: activeGraphId, format: next });
+  };
+  // Standard math (mc²) or every operation written (m × c ^ 2): only offered
+  // when the formula has an operation the two write differently.
+  const standardNotation = useFormatsStore(selectStandard);
+  const formulaNames = useFormatsStore((s) => !!groupPanelTarget && s.namesShown.has(groupPanelTarget.id));
+  // By name or by symbol: the formula's width changes, so it is framed again.
+  const showFormulaNames = (groupId, shown) => {
+    reframeGroup(groupId);
+    setFormulaNames(groupId, shown);
+  };
+  const formatToggles = currentFormat === 'formula'
+    ? [
+      // This formula's Things by their names (Pressure × Volume), or by their symbols (P V).
+      {
+        key: 'reading',
+        icon: (size) => <WholeWord size={size} />,
+        title: formulaNames ? 'Show Symbols' : 'Show Names',
+        onClick: () => showFormulaNames(groupPanelTarget.id, !formulaNames),
+      },
+      ...(/[×^]/.test(groupFormulaText || '') ? [{
+        key: 'notation',
+        icon: (size) => <Superscript size={size} />,
+        title: standardNotation ? 'Write Every Operation' : 'Standard Notation',
+        onClick: () => setNotation(standardNotation ? 'explicit' : 'standard'),
+      }] : []),
+    ]
+    : null;
+  // Formula or Things: one button, first in the panel's row as in the group pie
+  // (after Show Names / Symbols when shown as a formula).
+  const nextFormat = formatOrder[(formatOrder.indexOf(currentFormat) + 1) % formatOrder.length];
+  const formatSwap = groupFormulaText && nextFormat !== currentFormat
+    ? {
+      icon: (size) => (nextFormat === 'things' ? <Shapes size={size} /> : <Sigma size={size} />),
+      title: `Show as ${FORMAT_LABELS[nextFormat]}`,
+      onClick: () => swapFormat(1),
+    }
+    : null;
 
   // Group control panel action handlers
   const handleGroupPanelUngroup = useCallback(() => {
@@ -159,6 +228,42 @@ export default function ControlPanelsHost({ ctx }) {
 
     }
   }, [activeGraphId, selectedGroup, storeActions.deleteGroup, setGroupControlPanelVisible]);
+
+  // A formula's Delete: the equation, its Things and its parts, playing its exit.
+  const handleFormulaDelete = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    deleteFormula(activeGraphId, selectedGroup.id);
+    setSelectedGroup(null);
+    setGroupControlPanelVisible(false);
+  }, [activeGraphId, selectedGroup, setGroupControlPanelVisible]);
+
+  // A formula's Copy: its text for other apps, the formula itself for Paste (copyFormula).
+  const handleFormulaCopy = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    const copied = copyFormula(activeGraphId, selectedGroup.id);
+    if (copied) {
+      clipboardRef.current = copied;
+      markClipboardChanged();
+    }
+  }, [activeGraphId, selectedGroup, clipboardRef, markClipboardChanged]);
+
+  // A formula's Combine Into Thing: saved into its Thing's definition, its band
+  // folding into the node, which is left selected (as a Thing-group's Combine).
+  const handleFormulaCondense = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    const nodeId = condenseFormula(activeGraphId, selectedGroup.id);
+    setGroupControlPanelVisible(false);
+    setSelectedGroup(null);
+    if (nodeId) setSelectedInstanceIds(new Set([nodeId]));
+  }, [activeGraphId, selectedGroup, setSelectedInstanceIds, setGroupControlPanelVisible, setSelectedGroup]);
+
+  // A Thing-group's Delete: the group and its Things, shrinking away.
+  const handleNodeGroupDelete = useCallback(() => {
+    if (!activeGraphId || !selectedGroup) return;
+    deleteNodeGroup(activeGraphId, selectedGroup.id, captureDeletionGhosts);
+    setSelectedGroup(null);
+    setGroupControlPanelVisible(false);
+  }, [activeGraphId, selectedGroup, captureDeletionGhosts, setGroupControlPanelVisible]);
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
@@ -350,6 +455,66 @@ export default function ControlPanelsHost({ ctx }) {
     }
   }, [activeGraphId, selectedGroup, storeActions, setSelectedGroup]);
 
+  // The group pie (pie/groupPieButtons.js): this panel's actions, drawn above a
+  // selected Thing-group's or equation's title by GroupPieMenuLayer. Its buttons
+  // call through a ref, so the list is rebuilt only when the set changes.
+  const groupPieHandlersRef = useRef(null);
+  groupPieHandlersRef.current = {
+    swapFormat,
+    onDiveIntoDefinition: handleNodeGroupDiveIntoDefinition,
+    onOpenInPanel: () => {
+      handleNodeGroupOpenInPanel();
+      if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+    },
+    onCombine: groupPanelMode === 'format' ? handleFormulaCondense : handleNodeGroupCombine,
+    onUpdateDefinition: handleNodeGroupUpdateDefinition,
+    onRefreshFromDefinition: handleNodeGroupRefreshFromDefinition,
+    onEdit: handleGroupPanelEdit,
+    onColor: handleGroupPanelColor,
+    onUngroup: handleGroupPanelUngroup,
+    onDelete: groupPanelMode === 'format' ? handleFormulaDelete : handleNodeGroupDelete,
+    onCopy: handleFormulaCopy,
+    onConvertToNodeGroup: handleGroupPanelConvertToNodeGroup,
+    setFormulaNames: (shown) => { if (selectedGroup) showFormulaNames(selectedGroup.id, shown); },
+    setStandardNotation: (standard) => setNotation(standard ? 'standard' : 'explicit'),
+    cycleFormulaSize: () => {
+      if (!selectedGroup || !activeGraphId) return;
+      const next = nextNodeSizeStep(selectedGroup.formulaSize ?? 1);
+      // Opened in place, the equation's size is its node's: that node grows
+      // around its middle, so it folds back that size where it stood.
+      const state = useGraphStore.getState();
+      const anchor = selectedGroup.isOpenDefinition
+        ? projectGraphView(state, activeGraphId)?.instances?.get(selectedGroup.anchorInstanceId)
+        : null;
+      const prototype = anchor ? state.nodePrototypes.get(anchor.prototypeId) : null;
+      if (anchor && prototype) {
+        resizeNodeInPlace(activeGraphId, { ...prototype, ...anchor }, next);
+      } else {
+        state.updateGroup(activeGraphId, selectedGroup.id, (g) => {
+          if (next === 1) delete g.formulaSize; else g.formulaSize = next;
+        }, { finalize: true });
+      }
+      // The hover chip keeps the label it had when the pointer came in (as the node pie's Size does).
+      if (getActionHoverItem()?.id === 'group-size') {
+        useCanvasUIStore.getState().setActivePieMenuItemForVision({ id: 'group-size', label: `Size: ${nodeSizeLabel(next)}` });
+      }
+    },
+  };
+  const groupPieButtons = useMemo(() => {
+    const handlers = Object.fromEntries(Object.keys(groupPieHandlersRef.current)
+      .map(key => [key, (...args) => groupPieHandlersRef.current[key]?.(...args)]));
+    return buildGroupPieButtons({
+      mode: groupPanelMode, group: selectedGroup, formulaText: groupFormulaText, currentFormat,
+      formulaNames, standardNotation, handlers,
+    });
+  // The group is read for its kind only; a rename or move is no new set of buttons.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupPanelMode, selectedGroup?.id, selectedGroup?.isOpenDefinition, selectedGroup?.linkedNodePrototypeId, selectedGroup?.formulaSize, groupFormulaText, currentFormat, formulaNames, standardNotation]);
+  useEffect(() => {
+    setGroupPieButtons(selectedGroup?.id ?? null, groupPieButtons);
+  }, [selectedGroup?.id, groupPieButtons]);
+  useEffect(() => () => setGroupPieButtons(null, null), []);
+
   // --- Abstraction Control Panel Management ---
   useEffect(() => {
     const shouldShow = Boolean(abstractionCarouselVisible && abstractionCarouselNode && showAbstractionControlPanel);
@@ -373,12 +538,12 @@ export default function ControlPanelsHost({ ctx }) {
 
   // --- Node Control Panel Management ---
   useEffect(() => {
-    const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
+    const nodesSelected = liveNodeCount > 0;
+    const edgeSelected = liveEdgeSelected;
     const isBoxSelecting = marqueeActive;
     // Also show while previewing/decomposing a node, even if it isn't in selectedInstanceIds —
     // the panel switches to 'decompose' mode in that case (see NodeControlPanel render).
-    const multipleSelected = selectedInstanceIds.size > 1;
+    const multipleSelected = liveNodeCount > 1;
     const panelAllowed = nodesSelected
       ? (multipleSelected ? showMultipleNodesControlPanel : showNodeControlPanel)
       : (previewingNodeId ? showNodeControlPanel : false);
@@ -396,12 +561,12 @@ export default function ControlPanelsHost({ ctx }) {
     } else if (!shouldShow && nodeControlPanelVisible) {
       setNodeControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, marqueeActive, previewingNodeId, showNodeControlPanel, showMultipleNodesControlPanel]);
+  }, [liveNodeCount, liveEdgeSelected, abstractionCarouselVisible, connectionNamePrompt.visible, nodeControlPanelVisible, semanticOrbitActive, marqueeActive, previewingNodeId, showNodeControlPanel, showMultipleNodesControlPanel]);
 
   // --- Connection Control Panel Management (multi-edge selection only) ---
   useEffect(() => {
-    const nodesSelected = selectedInstanceIds.size > 0;
-    const edgeSelected = selectedEdgeId !== null || selectedEdgeIds.size > 0;
+    const nodesSelected = liveNodeCount > 0;
+    const edgeSelected = liveEdgeSelected;
     const shouldShow = Boolean(showConnectionControlPanel && edgeSelected && !nodesSelected && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setConnectionControlPanelShouldShow(true);
@@ -416,12 +581,14 @@ export default function ControlPanelsHost({ ctx }) {
     } else if (!shouldShow && connectionControlPanelVisible) {
       setConnectionControlPanelVisible(false);
     }
-  }, [selectedInstanceIds, selectedEdgeId, selectedEdgeIds, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible, showConnectionControlPanel]);
+  }, [liveNodeCount, liveEdgeSelected, abstractionCarouselVisible, connectionNamePrompt.visible, connectionControlPanelVisible, showConnectionControlPanel]);
 
 
   // --- Group Control Panel Management ---
   useEffect(() => {
-    const shouldShow = Boolean(showGroupControlPanel && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    // An equation (the format mode) has its own setting; every other group reads the group one.
+    const panelEnabled = groupPanelMode === 'format' ? showEquationControlPanel : showGroupControlPanel;
+    const shouldShow = Boolean(panelEnabled && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setGroupControlPanelShouldShow(true);
       setGroupControlPanelVisible(true);
@@ -435,7 +602,17 @@ export default function ControlPanelsHost({ ctx }) {
     } else if (!shouldShow && groupControlPanelVisible) {
       setGroupControlPanelVisible(false);
     }
-  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel]);
+  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel, showEquationControlPanel, groupPanelMode]);
+
+  // The expanded Thing's description for the web it's showing, under it in the
+  // panel (the node itself shows only the web).
+  const decomposeDescription = useMemo(() => {
+    const graphId = decomposePanelInfo?.currentGraphId;
+    if (!graphId) return null;
+    const proto = nodePrototypesMap.get(decomposePanelInfo.prototypeId);
+    const text = getDefinitionDescription(proto, graphId, graphsMap.get(graphId)?.description);
+    return text && text.trim() ? text.trim() : null;
+  }, [decomposePanelInfo, nodePrototypesMap, graphsMap]);
 
   return (
     <Profiler id="ControlPanelsHost" onRender={onRenderProbe}>
@@ -449,6 +626,8 @@ export default function ControlPanelsHost({ ctx }) {
             typeListOpen={typeListVisible}
             onAnimationComplete={handleNodeControlPanelAnimationComplete}
             decompHasDefinitions={decomposePanelInfo ? decomposePanelInfo.hasDefs : false}
+            decompBlocked={decomposePanelInfo?.expandBlocked || null}
+            decompDescription={decomposeDescription}
             onCompose={() => useCanvasUIStore.getState().dispatchPie({ type: 'PREVIEW_SET', id: null })}
             onDelete={decomposePanelInfo
               ? () => requestDeleteDefinition(decomposePanelInfo.prototypeId, decomposePanelInfo.currentGraphId)
@@ -504,6 +683,7 @@ export default function ControlPanelsHost({ ctx }) {
             onAnimationComplete={handleGroupControlPanelAnimationComplete}
             selectedGroup={groupPanelTarget}
             onUngroup={handleGroupPanelUngroup}
+            {...(groupPanelMode === 'nodegroup' ? { onDelete: handleNodeGroupDelete } : {})}
             onGroupEdit={handleGroupPanelEdit}
             onGroupColor={handleGroupPanelColor}
             onConvertToNodeGroup={handleGroupPanelConvertToNodeGroup}
@@ -514,6 +694,19 @@ export default function ControlPanelsHost({ ctx }) {
             onRefreshGroupFromDefinition={handleNodeGroupRefreshFromDefinition}
             onActionHoverChange={handlePieMenuHoverChange}
             onDismiss={() => setSelectedGroup(null)}
+            {...(groupFormulaText ? {
+              formatSwap,
+              formatToggles,
+              ...(currentFormat === 'formula' ? { onDelete: handleFormulaDelete, onCopy: handleFormulaCopy } : {}),
+              // Combined into its Thing, an equation folds as a Thing-group does; a plain group has no Thing to fold into.
+              ...(currentFormat === 'formula' ? { onCombineNodeGroup: isThingGroup ? handleFormulaCondense : undefined } : {}),
+              // An equation is a Thing-group already.
+              ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined } : {}),
+              customContent: currentFormat === 'formula'
+                ? <FormatPanelPreview groupId={groupPanelTarget.id} />
+                : undefined,
+              ...(currentFormat === 'formula' ? { kindLabel: 'Equation' } : {}),
+            } : {})}
           />
         )
       }
@@ -522,8 +715,8 @@ export default function ControlPanelsHost({ ctx }) {
       {
         (connectionControlPanelShouldShow || connectionControlPanelVisible) && (
           <ConnectionControlPanel
-            selectedEdge={edgesMap.get(selectedEdgeId)}
-            selectedEdges={Array.from(selectedEdgeIds).map(id => edgesMap.get(id)).filter(Boolean)}
+            selectedEdge={liveSelectedEdge}
+            selectedEdges={liveSelectedEdges}
             isVisible={connectionControlPanelVisible}
             typeListOpen={typeListVisible}
             onAnimationComplete={handleConnectionControlPanelAnimationComplete}

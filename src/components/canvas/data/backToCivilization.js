@@ -96,6 +96,7 @@ export function useBackToCivilization({
   // NodeCanvas state that hides the button while the user is busy.
   canvasState, // { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign }
   baseDimsById, canvasSize, containerRef, nodes, viewportSize,
+  connections, // the connections drawn and their routing, so the framing holds their arcs
 }) {
   const { settledPan: panOffset, settledZoom: zoomLevel } = transform;
   const { draggingNodeInfo, draggingNodeInfoRef, isAnimatingZoomRef } = nodeDrag;
@@ -187,9 +188,9 @@ export function useBackToCivilization({
 
   // Handler for BackToCivilization click - center view on relevant nodes
   const handleBackToCivilizationClick = useCallback(() => backToCivilization({
-    baseDimsById, canvasSize, clusterAnalysis, containerRef, draggingNodeInfoRef, enableClustering,
+    baseDimsById, canvasSize, clusterAnalysis, connections, containerRef, draggingNodeInfoRef, enableClustering,
     isAnimatingZoomRef, nodes, transform, viewportSize,
-  }), [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM]);
+  }), [enableClustering, clusterAnalysis, nodes, baseDimsById, viewportSize, canvasSize, MAX_ZOOM, connections]);
 
   return { backToCivilizationDelayComplete, enableClustering, clusterAnalysis, shouldShowBackToCivilization, handleBackToCivilizationClick };
 }

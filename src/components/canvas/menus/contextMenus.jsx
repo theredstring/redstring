@@ -4,23 +4,25 @@
  * over as `ctx`, with the same callback dependencies, so every action sees what
  * it saw before.
  */
-import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, LayoutGrid, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, LayoutGrid, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sigma, Sparkles, Trash2 } from 'lucide-react';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { getNodeDimensions } from '../../../utils.js';
-import { pasteClipboard } from '../../../utils/clipboard.js';
+import { pasteClipboard, pasteLabelFor } from '../../../utils/clipboard.js';
 import useGraphStore from '../../../store/graphStore.js';
 import { webFacts } from '../../../wizard/prompts/facts.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestRefresh } from '../dialogs/refresh.js';
+import { openFormulaComposer } from '../formats/formatsStore.js';
+import { selectPasted } from '../formats/formula/formulaSelection.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
 export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
   const {
     activeGraphId, canvasSize, clipboardRef, condenseGraphNodes, containerRef, graphsMap,
-    openWizardPicker, panOffsetRef, setForceSimModalVisible, setSelectedInstanceIds, snapToGrid, storeActions,
+    openWizardPicker, panOffsetRef, setForceSimModalVisible, snapToGrid, storeActions,
     triggerAutoLayout, wizardEnabled, zoomLevelRef,
   } = ctx;
   const options = [
@@ -54,6 +56,19 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
         });
       }
     }] : []),
+    // Types a formula and builds it here as Things (formats/formula).
+    {
+      label: 'New Formula',
+      icon: <Sigma size={14} />,
+      action: () => {
+        if (!activeGraphId) return;
+        const rect = containerRef.current?.getBoundingClientRect();
+        const at = rect && typeof clientX === 'number' && typeof clientY === 'number'
+          ? clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize)
+          : { x: 0, y: 0 };
+        openFormulaComposer(activeGraphId, at);
+      }
+    },
     // The merge modal is mounted here in NodeCanvas, but go through the same
     // event the other entry points use so there is one opener.
     {
@@ -96,41 +111,11 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
   ];
 
   // Paste — only when the clipboard holds Redstring-ready node content and
-  // there's an active graph to drop it into. The label reflects the shape of
-  // what was copied (connections between selected nodes are captured on copy):
-  //   1 node                              → Paste Thing
-  //   many nodes, no connections          → Paste Things
-  //   exactly 2 nodes + 1 directed edge   → Paste Triplet
-  //   many nodes + any connections        → Paste Web
+  // there's an active graph to drop it into, named for what was copied
+  // (pasteLabelFor).
   const clip = clipboardRef.current;
-  if (activeGraphId && Array.isArray(clip?.nodes) && clip.nodes.length > 0) {
-    const nodeCount = clip.nodes.length;
-    const edges = Array.isArray(clip.edges) ? clip.edges : [];
-    const edgeCount = edges.length;
-
-    // A triplet is strictly subject → connection → object: exactly 2 nodes,
-    // exactly 1 connection between them, pointing exactly one way.
-    // Everything else with connections is a Web. Specifically NOT a triplet:
-    //   - more than 2 nodes
-    //   - undirected connection (0 arrows)
-    //   - doubly-connected / bidirectional (2 arrows)
-    const soleEdgeArrows = edgeCount === 1
-      ? edges[0]?.edgeData?.directionality?.arrowsToward
-      : null;
-    const arrowCount = soleEdgeArrows instanceof Set
-      ? soleEdgeArrows.size
-      : (Array.isArray(soleEdgeArrows) ? soleEdgeArrows.length : 0);
-    const isTriplet = nodeCount === 2 && edgeCount === 1 && arrowCount === 1;
-
-    let pasteLabel;
-    if (edgeCount === 0) {
-      pasteLabel = nodeCount === 1 ? 'Paste Thing' : 'Paste Things';
-    } else if (isTriplet) {
-      pasteLabel = 'Paste Triplet';
-    } else {
-      pasteLabel = 'Paste Web';
-    }
-
+  const pasteLabel = pasteLabelFor(clip);
+  if (activeGraphId && pasteLabel) {
     options.push({
       label: pasteLabel,
       icon: <ClipboardPaste size={14} />,
@@ -163,9 +148,7 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
           currentGraph,
           getNodeDimensions
         );
-        if (result?.newInstanceIds) {
-          setSelectedInstanceIds(new Set(result.newInstanceIds));
-        }
+        selectPasted(result);
       }
     });
   }
@@ -306,8 +289,8 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
             // Calculate screen coordinates like the PieMenu does
             const dimensions = getNodeDimensions(node, previewingNodeId === node.id, null);
             const nodeCenter = {
-              x: node.x + dimensions.currentWidth / 2,
-              y: node.y + dimensions.currentHeight / 2
+              x: node.x + (dimensions.previewOffsetX || 0) + dimensions.currentWidth / 2,
+              y: node.y + (dimensions.previewOffsetY || 0) + dimensions.currentHeight / 2
             };
             // Canvas→client is the container rect plus the live pan/zoom, the
             // exact inverse of the client→canvas math the input handlers use.

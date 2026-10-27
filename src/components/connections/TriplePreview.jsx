@@ -24,7 +24,7 @@ const ARROW_TO_OBJECT = new Set(['object']);
  * @param {Set<'subject'|'object'>} [props.arrowsToward] - which ends carry an arrowhead
  * @param {number} props.containerWidth
  */
-const TripletPreview = ({
+const TriplePreview = ({
   subject,
   predicate,
   object,
@@ -85,4 +85,4 @@ const TripletPreview = ({
 
 // Rows re-render with their list; a row whose statement hasn't changed doesn't
 // need its SVG rebuilt.
-export default React.memo(TripletPreview);
+export default React.memo(TriplePreview);

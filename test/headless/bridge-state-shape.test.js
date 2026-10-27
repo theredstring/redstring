@@ -69,14 +69,20 @@ describe('buildBridgeState shape (MCP contract)', () => {
       'activeGraphId',
       'activeGraphName',
       'autoLayoutSettings',
+      'equations',
       'fileStatus',
+      'formulas',
       'graphEdges',
       'graphLayouts',
       'graphSummaries',
       'graphs',
+      'isUniverseLoaded',
+      'isUniverseLoading',
       'nodePrototypes',
       'openGraphIds',
-      'summary'
+      'summary',
+      'universeEquations',
+      'universeSlug'
     ].sort());
   });
 
@@ -167,6 +173,19 @@ describe('buildBridgeState shape (MCP contract)', () => {
     });
     expect(typeof summary.text).toBe('string');
     expect(summary.text).toContain('Social');
+  });
+
+  it('says whether a universe has loaded', () => {
+    const before = useGraphStore.getState();
+    const loaded = before.isUniverseLoaded;
+    try {
+      useGraphStore.setState({ isUniverseLoaded: false, isUniverseLoading: true });
+      expect(buildBridgeState(useGraphStore.getState(), { fileStatus: null })).toMatchObject({ isUniverseLoaded: false, isUniverseLoading: true });
+      useGraphStore.getState().setUniverseLoaded(true);
+      expect(buildBridgeState(useGraphStore.getState(), { fileStatus: null })).toMatchObject({ isUniverseLoaded: true, isUniverseLoading: false });
+    } finally {
+      useGraphStore.setState({ isUniverseLoaded: loaded });
+    }
   });
 
   it('reports summary totals', () => {

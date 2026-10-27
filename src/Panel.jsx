@@ -3,7 +3,9 @@ import { useDrag, useDrop, useDragLayer } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend'; // Import for hiding default preview
 import { HEADER_HEIGHT, NODE_CORNER_RADIUS, THUMBNAIL_MAX_DIMENSION, NODE_DEFAULT_COLOR, PANEL_CLOSE_ICON_SIZE, EXCLUSIVE_PANEL_MODE_THRESHOLD } from './constants';
 import { PANEL_OVERLAY_MIN_WIDTH } from './utils/canvas/panelWidth.js';
-import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, Network, ImagePlus, XCircle, BookOpen, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, TextSearch, Sparkles, History, MoreHorizontal } from 'lucide-react';
+import { ArrowLeftFromLine, ArrowRightFromLine, ArrowRightToLine, Info, Network, ImagePlus, XCircle, LayoutGrid, Plus, Bookmark, ArrowUpFromDot, Palette, ArrowBigRightDash, X, Globe, Settings, RotateCcw, Send, Bot, User, Key, Square, Search, Merge, Copy, Loader2, Sparkles, History, MoreHorizontal } from 'lucide-react';
+import BookSearch from './components/shared/bookSearchIcon.js';
+import GraphStar from './components/canvas/layers/graphStarIcon.js';
 import ToggleSlider from './components/ToggleSlider.jsx';
 import { v4 as uuidv4 } from 'uuid';
 import './Panel.css'
@@ -108,13 +110,6 @@ const getSemanticNodeColor = (nodeData) => {
   }
   // Otherwise use the node's current color or generate one
   return nodeData.color || generateConceptColor(nodeData.name || 'Unknown');
-};
-
-// Helper function to determine the correct article ("a" or "an")
-const getArticleFor = (word) => {
-  if (!word) return 'a';
-  const firstLetter = word.trim()[0].toLowerCase();
-  return ['a', 'e', 'i', 'o', 'u'].includes(firstLetter) ? 'an' : 'a';
 };
 
 // Define Item Type for react-dnd
@@ -443,7 +438,7 @@ let panelRenderCount = 0; // Add counter outside component
  * Rendered on the left (graph/type list) and right (node detail, AI assistant, settings)
  * sides of the canvas by PanelHost, which supplies stable props from the stores
  * (P2.09), so a plain memo keeps canvas renders out. Views that need live graph
- * data (Open Webs, the wizard, Semantic Discovery) subscribe for themselves.
+ * data (Open Webs, the wizard, Semantic Web Search) subscribe for themselves.
  *
  * @type {React.MemoExoticComponent<(props: PanelProps) => JSX.Element>}
  */
@@ -973,7 +968,7 @@ const Panel = memo(
     // move the user somewhere they never saw go by. (DuplicateManager needed this
     // because each view mounted its own copy.)
 
-    // Event listener: open Semantic Discovery (triggered by text-search icon)
+    // Event listener: open Semantic Web Search (triggered by text-search icon)
     useEffect(() => {
       // Only the left panel owns this view. The right panel used to re-dispatch
       // the very event it was handling, which re-entered both listeners and
@@ -1458,12 +1453,12 @@ const Panel = memo(
       // Strip order, left to right; the overflow menu lists them in the same order.
       const defs = [];
       defs.push({ key: 'federation', title: 'Universes', Icon: Globe });
+      defs.push({ key: 'grid', title: 'Open Webs', Icon: GraphStar });
       // One tab for Things; its icon says which Things it is showing.
       defs.push(thingsScope === 'all'
         ? { key: 'library', title: 'All Things', Icon: LayoutGrid }
         : { key: 'library', title: 'Saved Things', Icon: Bookmark });
-      defs.push({ key: 'grid', title: 'Open Webs', Icon: BookOpen });
-      defs.push({ key: 'semantic', title: 'Semantic Discovery', Icon: TextSearch });
+      defs.push({ key: 'semantic', title: 'Semantic Web Search', Icon: BookSearch });
       defs.push({ key: 'history', title: 'Action History', Icon: History });
       if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       return defs;
@@ -1789,7 +1784,7 @@ const Panel = memo(
           </div>
         );
       } else if (leftViewActive === 'semantic') {
-        // Semantic Discovery view - concept discovery engine
+        // Semantic Web Search view - concept discovery engine
         panelContent = (
           <LeftSemanticDiscoveryView
             storeActions={storeActions}
@@ -2328,8 +2323,7 @@ const Panel = memo(
             }}
             initialName={typeNamePrompt.name}
             initialColor={typeNamePrompt.color}
-            title="Name Your Thing"
-            subtitle={`a more generic way to refer to ${typeNamePrompt.targetNodeName},<br/>also known as a superclass or a type.`}
+            title={`Choose a type for ${typeNamePrompt.targetNodeName}`}
             searchTerm={typeNamePrompt.name}
             showCreateNewOption={true}
           />
@@ -2350,13 +2344,11 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setLibrarySearchVisible(false);
           }}
-          title="Search Saved Things"
-          subtitle="Search through your bookmarked things"
+          title="Search saved Things"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           allowedPrototypeIds={Array.from(savedNodesByType.values()).flatMap(group => group.nodes.map(n => n.id))}
           searchOnly={true}
-          gridTitle="Saved Things"
         />
 
         {/* Global Search Selector for All Things */}
@@ -2374,12 +2366,10 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setAllThingsSearchVisible(false);
           }}
-          title="Search All Things"
-          subtitle="Search through everything in your universe"
+          title="Search Everything"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchOnly={true}
-          gridTitle="All Things"
         />
 
         {/* Global Search Selector for Open Webs */}
@@ -2416,13 +2406,11 @@ const Panel = memo(
             openRightPanelNodeTab?.(node.id);
             setGridSearchVisible(false);
           }}
-          title="Search Open Webs"
-          subtitle="Search through open webs or open a new one"
+          title="Find a Web to open"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchTerm=""
           searchOnly={true}
-          gridTitle="Open Webs"
         />
 
       </>

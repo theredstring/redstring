@@ -4,6 +4,7 @@ import { getTextColor, getLightHueText, getDarkHueText } from '../../../utils/co
 import { useTheme } from '../../../hooks/useTheme.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { VectorText } from '../../VectorText.jsx';
 
 // Same round hit area as the result cards' actions.
 const HIT = 36;
@@ -56,7 +57,7 @@ const WebSeedCard = ({ prototype, index = 0, onSearch }) => {
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical'
         }}>
-          {prototype.name}
+          <VectorText text={prototype.name} />
         </div>
 
         {prototype.description && (

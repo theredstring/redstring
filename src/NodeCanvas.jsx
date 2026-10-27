@@ -4,7 +4,7 @@ import './NodeCanvas.css';
 import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import { setActionHover } from './utils/canvas/actionHover.js';
-import { getNodeDimensions, getDefinitionDescription } from './utils.js';
+import { getNodeDimensions } from './utils.js';
 import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
 import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom } from './services/labelSpriteCache.js';
 import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from './utils/colorUtils.js';
@@ -22,7 +22,6 @@ import {
 import { clearLabelStabilization } from './utils/canvas/labelStabilization.js';
 import debugConfig from './utils/debugConfig.js';
 
-
 // Import Zustand store and selectors/actions
 import useGraphStore from "./store/graphStore.js";
 import useCanvasUIStore, { setPieCommandHandler } from './store/canvasUIStore.js';
@@ -30,8 +29,9 @@ import { useCanvasCommands } from './utils/canvas/canvasCommands.js';
 import { useHoverIntent } from './hooks/useHoverIntent.js';
 import { useTrackedState } from './hooks/useTrackedState.js';
 import { GridLayer, ClusterHullsLayer } from './components/canvas/layers/GridLayer.jsx';
-import { computeGroupLayouts } from './components/canvas/groups/groupLayouts.js';
+import { computeGroupLayouts, publishGroupLayouts, connectionEndGeometry } from './components/canvas/groups/groupLayouts.js';
 import { buildGroupElements } from './components/canvas/groups/groupElements.jsx';
+import { withSelectedFormula, deleteSelection } from './components/canvas/formats/formula/formulaSelection.js';
 import { createGroupInputHandlers } from './components/canvas/groups/groupInput.js';
 import { computeCanvasNodes, computeBaseDims } from './components/canvas/data/canvasNodes.js';
 import { storeFieldRef } from './utils/storeFieldRef.js';
@@ -83,6 +83,8 @@ import { computeLombardiTangents, connectionCurveMinBow, labelCurveMinBow, curve
 import * as GeometryUtils from './utils/canvas/geometryUtils.js';
 import EdgeLayer from './components/canvas/layers/EdgeLayer.jsx';
 import NodeLayer from './components/canvas/layers/NodeLayer.jsx';
+import LiftedGroupLayer from './components/canvas/layers/LiftedGroupLayer.jsx';
+import { useGroupLift } from './components/canvas/groups/groupLift.js';
 import ControlPanelsHost from './components/canvas/hosts/ControlPanelsHost.jsx';
 import HurtleOrb from './components/canvas/layers/HurtleOrb.jsx';
 import { nearestConnectionOrb, ORB_HIT_PADDING_TOUCH } from './utils/canvas/connectionOrbs.js';
@@ -94,7 +96,7 @@ import { focusEdgePieMenuInViewWith, focusNodeInViewWith, getFramingRegionWith, 
 import { computeSelectedEdgeMidpoint, computeLabelCrossingIndex, computeEdgeCurveInfo, computeLabelObstacleOptions } from './components/canvas/edges/edgeGeometry.js';
 import { preventPageZoom } from './components/canvas/actions/pageZoomGuard.js';
 import { restoreUniverseOnMount } from './components/canvas/actions/universeRestore.js';
-import { restoreViewForGraph, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
+import { useViewRestore, saveViewWhenSettled } from './components/canvas/camera/viewPersistence.js';
 import { writeDrawingConnectionEnd } from './components/canvas/input/connectionDraw.js';
 import { runConnectionEdgePan, runMarqueeEdgePan } from './components/canvas/input/edgePan.js';
 import { fitOrbitInView } from './components/canvas/orbit/orbitData.js';
@@ -128,7 +130,6 @@ import { useSemanticOrbit } from './components/canvas/orbit/semanticOrbit.jsx';
 
 const SPAWNABLE_NODE = 'spawnable_node';
 
-
 // A multi-node delete fires its ghosts in shuffled order, one step apart, rather
 // than all at once. Shuffling keeps it from reading as a mechanical sweep in
 // whatever order the selection happened to be stored, and a fixed step reads as a
@@ -153,8 +154,6 @@ const openLeftPanelView = (view) => useCanvasUIStore.getState().openLeftPanelVie
 // rate limit imposes. Larger = sparser clicks; smaller = denser.
 const CONNECTION_DETENT_PX = 44;
 
-
-
 /**
  * The canvas orchestrator: owns the graph-wide derived data (nodes, edges,
  * dimensions, group layouts), the input and camera controllers, and the
@@ -162,7 +161,6 @@ const CONNECTION_DETENT_PX = 44;
  * Mounted once by CanvasShell; takes no props. See
  * documentation/dev-ops/nodecanvas-refactor/ for where each part lives now.
  */
-
 
 function NodeCanvas() {
   // Get theme colors
@@ -261,7 +259,6 @@ function NodeCanvas() {
   // Use a defensive approach to avoid initialization errors
   const storeActions = useMemo(() => resolveStoreActions({}), []);
 
-
   // Filled by PanelResizers (P2.12): the gamepad resizes through it, and a canvas
   // press checks it so a resize drag never starts a pan.
   const panelResizeControlRef = useRef(null);
@@ -320,8 +317,6 @@ function NodeCanvas() {
     };
   }, []);
 
-
-
   // Track active input modality via PointerEvent.pointerType so we never
   // mistake touch-synthesized mousedown for a real mouse click. We bind to
   // pointerdown only (not mousedown) — synthesized mouse events from touch
@@ -359,7 +354,6 @@ function NodeCanvas() {
 
     return unsubscribe;
   }, []);
-
 
   // storeActions is now defined above with defensive initialization
 
@@ -1265,11 +1259,12 @@ function NodeCanvas() {
   // can react to pan/zoom transform changes in lockstep with culling (one
   // RAF-coalesced tick per frame), without running its own free-running RAF loop.
   const glowUpdateRef = useRef(null);
+  const connectionSceneRef = useRef(null); // the connection hit-test scene, so culling tests drawn geometry
   const runCulling = useCallback((...args) => runCullingPass({
     cullingRafIdRef, zoomPerfRef, glowUpdateRef, ENABLE_CULLING, nodesRef, edgesRef, visibleNodeIdsRef,
     setVisibleNodeIds, visibleEdgesRef, setVisibleEdges, viewportSizeRef, canvasSizeRef, draggingNodeInfoRef,
     isAnimatingZoomRef, panOffsetRef, zoomLevelRef, cullPruneRef, isViewMovingRef, cullGuardRectRef,
-    baseDimsByIdRef, nodeByIdRef,
+    baseDimsByIdRef, nodeByIdRef, connectionSceneRef,
   }, ...args), [isViewMovingRef]); // Refs only — the one dep is a ref OBJECT, so identity stays stable forever.
 
   useTransformWiring({
@@ -1351,17 +1346,7 @@ function NodeCanvas() {
   // phase, so a memo body sees the PREVIOUS commit's boxes — one render behind,
   // exactly as occluderFor below has always been, and still far closer than the
   // stored instance box, which is never right at all.
-  const anchorGeometryFor = useCallback((node, dims) => {
-    const info = node?.isGroupAnchor ? anchorPositionUpdatesRef.current.get(node.id) : null;
-    if (!info) return { node, dims };
-    return {
-      node: { ...node, x: info.x, y: info.y },
-      // Mirrors renderConnectionEdge exactly: the pill's box and nothing else.
-      // Carrying the node's own scaledCornerRadius over would round the pill by
-      // a radius taken from a different shape.
-      dims: { currentWidth: info.width, currentHeight: info.height },
-    };
-  }, []);
+  const anchorGeometryFor = useCallback((node, dims) => connectionEndGeometry(node, dims, anchorPositionUpdatesRef.current), []);
 
   // Port-based routing with intelligent edge distribution - inspired by circuit board routing
   const prevCleanLaneOffsetsRef = useRef(new Map());
@@ -1749,7 +1734,7 @@ function NodeCanvas() {
   const setNodeGroupPrompt = useCanvasUIStore(s => s.setNodeGroupPrompt);
 
   /**
-   * "Create New Thing" — the selector that opens a new Web by settling what
+   * "Create or Open Web" — the selector that opens a new Web by settling what
    * defines it.
    *
    * A Web is never anonymous: `createNewGraph` always mints a prototype to
@@ -1964,11 +1949,10 @@ function NodeCanvas() {
     storeActions.removeNodeInstance(activeGraphId, instanceId);
   };
 
-  const deleteMultipleNodesWithAnimation = (instanceIds) => {
-    const ids = instanceIds instanceof Set ? instanceIds : new Set(instanceIds);
+  const deleteMultipleNodesWithAnimation = (instanceIds) => deleteSelection(activeGraphId, instanceIds, (ids) => { // formulas play their exit
     captureDeletionGhosts(ids);
-    storeActions.removeMultipleNodeInstances(activeGraphId, ids);
-  };
+    storeActions.removeMultipleNodeInstances(activeGraphId, new Set(ids));
+  });
 
   // Abstraction Carousel states
   const abstractionCarouselVisible = useCanvasUIStore(s => s.abstractionCarouselVisible), setAbstractionCarouselVisible = useCanvasUIStore(s => s.setAbstractionCarouselVisible);
@@ -2136,7 +2120,7 @@ function NodeCanvas() {
   // The framing scales with viewport width: on narrow/mobile screens the
   // width-constrained fit lands too small and too centered, so zoom in harder and
   // lift the node higher; on wide screens pull back and keep it near center.
-  const DECOMPOSE_ZOOM_FACTOR_WIDE = 0.7;   // pullback on desktop
+  const DECOMPOSE_ZOOM_FACTOR_WIDE = 0.68;  // pullback on desktop
   const DECOMPOSE_ZOOM_FACTOR_NARROW = 0.75; // leave margin on mobile so neighbouring nodes
                                              // stay visible/draggable and there's empty canvas to pan from
   const DECOMPOSE_BIAS_WIDE = 0.08;          // fraction of viewport height above center on desktop
@@ -2298,9 +2282,9 @@ function NodeCanvas() {
 
   // Handler to convert a node instance to a node group
   const handleNodeConvertToNodeGroup = useCallback((instanceId, prototypeId, definitionGraphId) => convertNodeToNodeGroup(instanceId, prototypeId, definitionGraphId, {
-    activeGraphId, edgesMap, graphsMap, nodePrototypesMap, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
-    setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds, storeActions,
-  }), [activeGraphId, graphsMap, edgesMap, nodePrototypesMap, storeActions, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
+    activeGraphId, nodePrototypesMap, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow,
+    setNodeControlPanelVisible, setPreviewingNodeId, setSelectedGroup, setSelectedInstanceIds,
+  }), [activeGraphId, nodePrototypesMap, setSelectedGroup, setSelectedInstanceIds, setPreviewingNodeId, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible]);
 
   // --- Refs (Keep these) ---
 
@@ -2320,11 +2304,8 @@ function NodeCanvas() {
   const isMouseDown = useRef(false);
   const ignoreCanvasClick = useRef(false);
   // Set when a marquee release just committed a selection, and consumed by the
-  // synthetic click the browser fires right after that mouseup. ignoreCanvasClick
-  // can't cover this: it deliberately falls through when something is selected, so
-  // the first click after a pan isn't wasted just clearing the flag — but that
-  // fall-through is exactly what reaches the click handler's deselect branch and
-  // wipes the selection the marquee just made.
+  // synthetic click the browser fires right after that mouseup, so it can't reach
+  // the click handler's deselect branch and wipe what the marquee just selected.
   const justCompletedBoxSelectRef = useRef(false);
   const mouseDownPosition = useRef({ x: 0, y: 0 });
   const mouseMoved = useRef(false);
@@ -2410,7 +2391,7 @@ function NodeCanvas() {
    * step: PieMenu pages through it with its chevrons, the bottom control panel
    * pages through it with its own, and neither has to be edited to add a page.
    * The panel used to hand-transcribe a subset of page 0, which is how it ended
-   * up offering Orbit but not Duplicate, Copy, Swap, Add Image, Semantic Search,
+   * up offering Orbit but not Duplicate, Copy, Swap, Add Image, Semantic Web Search,
    * Ask The Wizard, or Open in Panel — those were reachable only from the canvas.
    *
    * An entry is a page: an array of the {id, label, icon, action} buttons PieMenu
@@ -2452,13 +2433,13 @@ function NodeCanvas() {
     setPieMenuPage(0);
   }, [selectedNodeIdForPieMenu]);
 
-  // Effect to restore view state on graph change or center if no stored state.
-  // IMPORTANT: Does NOT depend on graphsMap — we read it imperatively to avoid
-  // snapping the view back whenever any graph mutation changes the graphsMap ref.
-  useLayoutEffect(() => restoreViewForGraph({
+  // The connections drawn and how they're routed, for the boxes that hold them (group boxes, framing a web).
+  const connections = useMemo(() => ({ edges, anchors: anchorPositionUpdatesRef.current, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo }), [edges, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo]);
+  // Restore the view on graph change; a web just added to the header is framed like Back to Civilization.
+  useViewRestore({
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform,
-  }), [activeGraphId, viewportSize, canvasSize]);
+    canvasSize, transform, nodes, baseDimsById, connections,
+  });
 
   // Track when panning/zooming operations are active
   const isPanningOrZooming = useRef(false);
@@ -2484,22 +2465,6 @@ function NodeCanvas() {
   };
 
 
-  // Helper function to get description content for a node when previewing
-  const getNodeDescriptionContent = (node, isNodePreviewing) => {
-    if (!isNodePreviewing || !node.definitionGraphIds || node.definitionGraphIds.length === 0) {
-      return null;
-    }
-
-    // Create context-specific key for this node in the current graph
-    const contextKey = `${node.prototypeId}-${activeGraphId}`; // Use prototypeId for context
-    const currentIndex = nodeDefinitionIndices.get(contextKey) || 0;
-    const definitionGraphId = node.definitionGraphIds[currentIndex] || node.definitionGraphIds[0];
-    if (!definitionGraphId) return null;
-
-    const graphData = graphsMap.get(definitionGraphId);
-    return getDefinitionDescription(node, definitionGraphId, graphData?.description) || null;
-  };
-
   const isInsideNode = (nodeData, clientX, clientY) => {
     if (!containerRef.current || !nodeData) return false;
     const rect = containerRef.current.getBoundingClientRect();
@@ -2517,7 +2482,7 @@ function NodeCanvas() {
     setSelectionStart({ x, y });
     marqueeBoxRef.current = { x, y, width: 0, height: 0 };
     // Extend whatever was already selected (see selectionFromRect).
-    selectionBaseRef.current = new Set([...selectedInstanceIds]);
+    selectionBaseRef.current = withSelectedFormula(selectedInstanceIds); // a formula selected alone too
     marqueeSelectionRef.current = selectionBaseRef.current;
   };
   // Assigned every render so a queued frame uses the current nodes.
@@ -2617,18 +2582,18 @@ function NodeCanvas() {
     lastEdgeTapRef, EDGE_DOUBLE_TAP_MS,
   }, ...args), []);
 
-  // --- Connection hit-testing (shared by hover, click and touch) -------------
-  //
+  // --- Connection geometry (hover, click, touch; culling reads it from connectionSceneRef) ---
   // The nearest connection to a canvas point: utils/canvas/edgeHitTest.js.
-  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options) => findNearestEdge(cx, cy, threshold, {
+  const connectionScene = useMemo(() => (connectionSceneRef.current = {
     visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
     lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
     lombardiMinBow, anchorGeometryFor, labelTruncationRef,
-  }, options), [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
+  }), [visibleEdges, nodeById, baseDimsById, previewingNodeId, edgeCurveInfo, nodePrototypesMap,
     enableAutoRouting, routingStyle, cleanLaneOffsets, cleanLaneSpacing, manhattanBends,
     lombardiTangents, lombardiCurvature, lombardiLaneSpacing, orthogonalLaneSpacing, curveSpacing,
     lombardiMinBow, anchorGeometryFor]);
+  const findNearestEdgeAtCanvasPoint = useCallback((cx, cy, threshold, options) => findNearestEdge(cx, cy, threshold, connectionScene, options), [connectionScene]);
 
   // Grab radius for the hit-test above, in canvas units: see edgeHitThreshold.
   const getEdgeHitThreshold = useCallback((pointerKind = 'mouse') => (
@@ -3064,7 +3029,7 @@ function NodeCanvas() {
 
   // Simple Particle Transfer Animation - always use fresh coordinates
   const startHurtleAnimation = useCallback((a0, a1, a2, a3) => startHurtle(a0, a1, a2, a3, {
-    canvasSize, containerRef, getHeaderTabTarget, getNodeDescriptionContent, panOffsetRef, previewingNodeId,
+    canvasSize, containerRef, getHeaderTabTarget, panOffsetRef, previewingNodeId,
     setHurtleFlight, zoomLevelRef,
   }), [containerRef, previewingNodeId, getHeaderTabTarget, canvasSize]);
 
@@ -3096,7 +3061,7 @@ function NodeCanvas() {
 
   useEdgePieFraming({
     abstractionCarouselVisible, connectionLabelSize, draggingNodeInfoRef, edgePieMenuButtons,
-    edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView, focusOnSelectEnabled,
+    edgePieMenuVisible, edgePrototypesMap, edgesMap, focusEdgePieMenuInView,
     nodePrototypesMap, placedLabelsRef, selectedEdgeId, selectedEdgeMidpoint, showConnectionNames,
     textSettings,
   });
@@ -3190,10 +3155,8 @@ function NodeCanvas() {
     backToCivilizationDelayComplete, enableClustering, clusterAnalysis,
     shouldShowBackToCivilization, handleBackToCivilizationClick,
   } = useBackToCivilization({
-    transform,
-    nodeDrag,
-    canvasState: { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign },
-    baseDimsById, canvasSize, containerRef, nodes, viewportSize,
+    transform, nodeDrag, canvasState: { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign },
+    baseDimsById, canvasSize, containerRef, nodes, viewportSize, connections,
   });
 
   useAutoLayoutListener({
@@ -3263,9 +3226,9 @@ function NodeCanvas() {
   // rename draft or the label font change, not on every render.
   const groupLayouts = useMemo(() => computeGroupLayouts({
     graphData: activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName,
-    nodePrototypesMap, baseDimsById, gridSize, getTextWidth,
+    nodePrototypesMap, baseDimsById, gridSize, getTextWidth, connections,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getTextWidth is a stateless wrapper; labelFontVersion re-measures once the font arrives
-  }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion]);
+  }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion, edges, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo]);
 
   // Everything renderConnectionEdge reads except hover, gathered in one place;
   // EdgeLayer adds hover from canvasUIStore (P3.06a).
@@ -3333,10 +3296,13 @@ function NodeCanvas() {
     visibleNodeIds,
   };
 
+  // A dragged Thing-group and everything in it draw above the rest (groupLift.js).
+  const draggingGroupId = draggingNodeInfo?.groupId ?? null;
+  const lift = useGroupLift(draggingGroupId, groupStructure);
   const nodeLayerProps = {
     nodes, visibleNodeIds, baseDimsById, thingGroupMemberIds: groupLayouts.thingGroupMemberIds,
-    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart,
-    activeGraphId, graphsMap, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay,
+    draggingNodeId: draggingNodeInfo?.primaryId || draggingNodeInfo?.instanceId, marqueeActive: !!selectionStart, draggingGroupId,
+    activeGraphId, nodeScope, nodeCallbacks, storeActions, overlayGroupEl, renderOrbitOverlay, lift,
   };
 
   // The control panels' handlers and derived data (P5.05a).
@@ -3398,7 +3364,7 @@ function NodeCanvas() {
   const svgOverlaysCtx = {
     selectionStart, setMarqueeRectEl, plusSign, handlePlusSignClick, handleMorphDone, setPlusSign,
     gestureBlockRef, isPanningOrZooming, getPlusSignMorphTarget, textSettings, videoAnimation,
-    handleVideoAnimationComplete,
+    handleVideoAnimationComplete, clipboardRef, handleNodeSelection, edgePieMenuVisible,
   };
 
   // OrbitDimRect's inputs (moved JSX, wave 6).
@@ -3430,7 +3396,7 @@ function NodeCanvas() {
     gamepadPieFocusedIndex, currentPieMenuNodeId, semanticOrbitActive, isTransitioningPieMenu,
     abstractionPrompt, carouselAnimationState, draggingNodeInfo, handlePieMenuHoverChange,
     handlePieExitComplete, selectedEdgeMidpoint, edgePieMenuAnchorRef, edgePieMenuButtons,
-    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef,
+    edgePieMenuButtonsRef, edgePieMenuRendered, edgePieMenuVisible, setEdgePieMenuRendered, placedLabelsRef, groupLayouts, editingGroupId, cameraCtxRef,
   };
 
   // The pointer handlers' context (P4.04a), assigned during render for the same
@@ -3486,7 +3452,7 @@ function NodeCanvas() {
     isPanningOrZooming, isTouchDeviceRef, lastMousePosRef, panOffsetRef, panSourceRef, panVelocityHistoryRef,
     pinchRef, scheduleGestureBlockClear, setPanAndZoom, setPanOffset, trackpadPanSensitivityRef,
     trackpadZoomEnabled, trackpadZoomSensitivityRef, viewportSize, viewportSizeRef, visibleEdgesRef,
-    visibleNodeIdsRef, zoomLevelRef, zoomOpIdRef,
+    visibleNodeIdsRef, zoomLevelRef, zoomOpIdRef, getFramingRegion, runFramingAfterCommit, animateCanvasView, textSettings,
   };
 
   // Group input (P3.04): one stable handler set reading the latest values here.
@@ -3506,19 +3472,13 @@ function NodeCanvas() {
     selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, selectedEdgeId, selectedEdgeIds,
   });
   const groupInputHandlers = useMemo(() => createGroupInputHandlers(groupInputCtxRef), [groupInputCtxRef]);
-  const draggingGroupId = draggingNodeInfo?.groupId ?? null;
   const groupElements = useMemo(() => buildGroupElements({
-    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, editingGroupId, tempGroupName,
+    groupLayouts, groupDepths: groupStructure.groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName, lift,
     theme, gridActive, gridPatternId, groupEditInputRef, handlers: groupInputHandlers, liftedThingShadow: useGraphStore.getState().liftedThingShadow,
-  }), [groupLayouts, groupStructure, draggingGroupId, editingGroupId, tempGroupName, theme, gridActive, gridPatternId, groupInputHandlers]);
+  }), [groupLayouts, groupStructure, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName, lift, theme, gridActive, gridPatternId, groupInputHandlers]);
 
-  // Publish the layout to the refs the rest of the canvas reads (drag, gamepad,
-  // edges, the anchor flush). Rebuilt, not accumulated: a group that is gone (or
-  // has become undrawable — emptied, or its layout bailed) must leave no rect
-  // behind, or the controller keeps aiming at a pill nobody draws.
-  groupTitleRectsRef.current.clear();
-  for (const [id, r] of groupLayouts.titleRects) groupTitleRectsRef.current.set(id, r);
-  for (const [id, a] of groupLayouts.anchorPositions) anchorPositionUpdatesRef.current.set(id, a);
+  // Publish the layout to the refs the rest of the canvas reads (groupLayouts.js).
+  publishGroupLayouts(groupLayouts, groupTitleRectsRef, anchorPositionUpdatesRef);
   nodeGroupBackgroundsByDepthRef.current = groupElements.backgroundsByDepth;
   nodeGroupTitlesRef.current = groupElements.titles;
   thingGroupMemberIdsRef.current = groupLayouts.thingGroupMemberIds;
@@ -3594,7 +3554,7 @@ function NodeCanvas() {
                     <EdgeLayer
                       ctx={edgeRenderCtx} visibleEdges={visibleEdges} edgeZSlots={groupStructure.edgeZSlots}
                       nodeGroupShellsByDepth={groupElements.backgroundsByDepth}
-                      nestedRegularGroupsByDepth={groupElements.nestedRegularByDepth} edgePerfRef={edgePerfRef}
+                      nestedRegularGroupsByDepth={groupElements.nestedRegularByDepth} edgePerfRef={edgePerfRef} lift={lift}
                     />
                   )}
 
@@ -3610,8 +3570,10 @@ function NodeCanvas() {
 
                   <PieMenusLayer ctx={pieMenusCtx} />
                   <OrbitDimRect ctx={orbitDimCtx} />
-                  {/* The active node (with the orbit overlay while orbiting), then the dragged node, on top. */}
+                  {/* The active node (with the orbit overlay while orbiting), then the dragged node, then a lifted Thing-group, on top. */}
                   <NodeLayer part="top" {...nodeLayerProps} />
+                  <LiftedGroupLayer lift={lift} groups={groupElements.lifted} nodeLayerProps={nodeLayerProps}
+                    edgeProps={{ ctx: edgeRenderCtx, visibleEdges, edgeZSlots: groupStructure.edgeZSlots, edgePerfRef }} />
 
                   <SvgOverlays ctx={svgOverlaysCtx} />
                 </g>
@@ -3624,7 +3586,6 @@ function NodeCanvas() {
 
           <CanvasChrome ctx={canvasChromeCtx} />
           <PromptsHost ctx={promptsCtx} />
-          {/* Debug overlay disabled */}
         </div>
 
         <HurtleOrb flight={hurtleFlight} onLand={handleHurtleLand} />

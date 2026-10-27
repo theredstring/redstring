@@ -53,7 +53,7 @@ export const RENDERER_PRESETS = {
     connectionStrokeScale: 0.85 // Slightly thinner connection line for panel/preview representations
   },
 
-  // For connection browser list items (compact triplets in right panel).
+  // For connection browser list items (compact triples in right panel).
   // Deliberately mirrors CONNECTION_PANEL — the two representations must match,
   // so they differ only in padding and interactivity (the panel list is a
   // read-only preview) plus the smaller node floor its consumer passes.

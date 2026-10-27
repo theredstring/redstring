@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { saveCoordinator } from '../../src/services/SaveCoordinator.js';
 import { __resetCameraActivity } from '../../src/services/cameraActivity.js';
 import {
-  setAutoSaveMode, getAutoSaveMode, autoSaves, AUTO_SAVE_MAX_ITEMS, AUTO_SAVE_MAX_BYTES, DEFAULT_AUTO_SAVE_MODE
+  setAutoSaveMode, getAutoSaveMode, autoSaves, AUTO_SAVE_MAX_BYTES, DEFAULT_AUTO_SAVE_MODE
 } from '../../src/services/autoSaveMode.js';
 import { resolveSaveStatus } from '../../src/utils/saveStatus.js';
 import {
@@ -37,13 +37,12 @@ const universe = ({ size = 10, name = 'Thing', activeGraphId = 'g1' } = {}) => (
 const EDIT = { type: 'prototype_update', navigationOnly: false };
 
 describe('autoSaves', () => {
-  it('Automatic saves on its own below both limits only; Always and Never ignore size', () => {
+  it('Automatic saves on its own below the file size limit only; Always and Never ignore size', () => {
     expect(DEFAULT_AUTO_SAVE_MODE).toBe('auto');
-    expect(autoSaves('auto', { items: AUTO_SAVE_MAX_ITEMS - 1, bytes: AUTO_SAVE_MAX_BYTES - 1 })).toBe(true);
-    expect(autoSaves('auto', { items: AUTO_SAVE_MAX_ITEMS, bytes: 0 })).toBe(false);
-    expect(autoSaves('auto', { items: 10, bytes: AUTO_SAVE_MAX_BYTES })).toBe(false);
-    expect(autoSaves('always', { items: 1e6, bytes: 1e10 })).toBe(true);
-    expect(autoSaves('off', { items: 1, bytes: 1 })).toBe(false);
+    expect(autoSaves('auto', { bytes: AUTO_SAVE_MAX_BYTES - 1 })).toBe(true);
+    expect(autoSaves('auto', { bytes: AUTO_SAVE_MAX_BYTES })).toBe(false);
+    expect(autoSaves('always', { bytes: 1e10 })).toBe(true);
+    expect(autoSaves('off', { bytes: 1 })).toBe(false);
   });
 });
 
@@ -193,21 +192,23 @@ describe('SaveCoordinator with autosave off', () => {
     expect(fileStorage.saveToFile.mock.calls[0][0]).toBe(edited);
   });
 
-  it('Automatic autosaves a small universe and not one past the limits', async () => {
+  it('Automatic autosaves a small file and not one past the limit', async () => {
     setAutoSaveMode('auto');
     saveCoordinator.onStateChange(universe({ name: 'Edited' }), EDIT);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
 
-    saveCoordinator.onStateChange(universe({ size: AUTO_SAVE_MAX_ITEMS, name: 'Big' }), EDIT);
+    // However many Things it holds, only the file's size turns autosave off.
+    saveCoordinator.onStateChange(universe({ size: 20000, name: 'Many' }), EDIT);
+    await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
+    expect(fileStorage.saveToFile).toHaveBeenCalledTimes(2);
+
+    saveCoordinator.lastFileBytes = AUTO_SAVE_MAX_BYTES;
+    saveCoordinator.onStateChange(universe({ name: 'Big' }), EDIT);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS * 3);
-    expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
+    expect(fileStorage.saveToFile).toHaveBeenCalledTimes(2);
     expect(saveCoordinator.hasUnsavedChanges()).toBe(true);
     expect(saveCoordinator.autoSaveActive()).toBe(false);
-
-    // A small universe whose file is past 100 MB (images) waits too.
-    saveCoordinator.lastFileBytes = AUTO_SAVE_MAX_BYTES;
-    expect(saveCoordinator.autoSaveActive(universe())).toBe(false);
   });
 });
 

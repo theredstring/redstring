@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { readWeb } from './utils/webView.js';
 
 /**
  * searchConnections - Find connections/edges by type, node names, or general query
@@ -11,39 +12,34 @@ import { resolveGraphId } from './resolveGraphId.js';
 export async function searchConnections(args, graphState, cid, ensureSchedulerStarted) {
     const { query } = args;
 
-    const { edges = [], nodePrototypes = [], graphs = [], activeGraphId } = graphState;
+    const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-    const targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
+    const explicitWeb = args.targetGraphId != null && String(args.targetGraphId).trim() !== '';
+    const targetGraphId = explicitWeb
+        ? resolveGraphId(args.targetGraphId, graphs, { activeGraphId, openGraphIds: graphState.openGraphIds })
+        : activeGraphId;
+    if (explicitWeb && !graphs.some(g => g.id === targetGraphId)) {
+        const available = graphs.map(g => g.name).filter(Boolean).slice(0, 8).join(', ');
+        return {
+            results: [],
+            total: 0,
+            message: `No web named or with id "${args.targetGraphId}". Webs: ${available || '(none)'}. Omit targetGraphId for the active web.`
+        };
+    }
 
-    // Build a node name lookup (by ID) for resolving edge endpoints
-    const nodeNameById = new Map();
     // protoMap used to resolve connection type from definitionNodeIds
     const protoMap = new Map();
-
     for (const proto of nodePrototypes) {
-        if (proto.id) {
-            nodeNameById.set(proto.id, proto.name || '');
-            protoMap.set(proto.id, proto);
-        }
+        if (proto.id) protoMap.set(proto.id, proto);
     }
 
-    // Also pull instance names from the target graph
-    const activeGraph = graphs.find(g => g.id === targetGraphId);
-    if (activeGraph) {
-        const instances = Array.isArray(activeGraph.instances)
-            ? activeGraph.instances
-            : activeGraph.instances instanceof Map
-                ? Array.from(activeGraph.instances.values())
-                : Object.values(activeGraph.instances || {});
-
-        for (const inst of instances) {
-            if (inst.id) nodeNameById.set(inst.id, inst.name || nodeNameById.get(inst.prototypeId) || '');
-        }
-    }
-
-    // Filter edges to only the target graph's edges
-    const activeEdgeIds = new Set(activeGraph?.edgeIds || []);
-    const activeEdges = edges.filter(e => activeEdgeIds.has(e.id) || activeEdgeIds.has(e.edgeId));
+    // The web's own connections, named as the context names them (webView.js):
+    // an end kept in another web (a definition or formula opened in place) by
+    // its name there, a formula's symbol as "Thing (in Formula)", and a
+    // formula's operations not among them.
+    const web = readWeb(graphState, targetGraphId);
+    const activeEdges = web.connections;
+    const endName = (id) => web.nameOfEnd(id);
 
     const totalEdges = activeEdges.length;
     const limit = typeof args.limit === 'number' ? args.limit : 100;
@@ -66,8 +62,8 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
                 type,
                 sourceId: edge.sourceId,
                 targetId: edge.destinationId || edge.targetId,
-                sourceName: nodeNameById.get(edge.sourceId) || edge.sourceId,
-                targetName: nodeNameById.get(edge.destinationId || edge.targetId) || edge.destinationId || edge.targetId,
+                sourceName: endName(edge.sourceId),
+                targetName: endName(edge.destinationId || edge.targetId),
             };
         });
         const page = allFormatted.slice(offset, offset + limit);
@@ -102,8 +98,8 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
             }
             return (edge.type || edge.connectionType || '').toLowerCase();
         })();
-        const sourceName = (nodeNameById.get(edge.sourceId) || '').toLowerCase();
-        const targetName = (nodeNameById.get(edge.destinationId || edge.targetId) || '').toLowerCase();
+        const sourceName = endName(edge.sourceId).toLowerCase();
+        const targetName = endName(edge.destinationId || edge.targetId).toLowerCase();
         const combined = `${edgeType} ${sourceName} ${targetName}`;
         let score = 0;
 
@@ -137,8 +133,8 @@ export async function searchConnections(args, graphState, cid, ensureSchedulerSt
             })(),
             sourceId: edge.sourceId,
             targetId: edge.destinationId || edge.targetId,
-            sourceName: nodeNameById.get(edge.sourceId) || edge.sourceId,
-            targetName: nodeNameById.get(edge.destinationId || edge.targetId) || edge.destinationId || edge.targetId,
+            sourceName: endName(edge.sourceId),
+            targetName: endName(edge.destinationId || edge.targetId),
             score
         };
     });

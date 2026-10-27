@@ -1,4 +1,5 @@
 import { PALETTES } from '../../ai/palettes.js';
+import { webAsDrawn } from './utils/webView.js';
 import { NODE_SIZE_NAMES, NODE_SIZE_FIELD_DESC } from './utils/nodeSize.js';
 
 // Build a compact palette listing for tool descriptions
@@ -157,14 +158,15 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'deleteNode',
-            description: 'Remove a node and its connections by name.',
+            description: 'Remove a node and its connections, by exact name or instanceId. When a name matches several nodes, or matches only loosely, nothing is deleted and the candidates come back with their instanceIds: call again with the one meant.',
             parameters: {
                 type: 'object',
                 properties: {
-                    nodeName: { type: 'string', description: 'Name of the node to delete' },
+                    nodeName: { type: 'string', description: 'Exact name of the node to delete. Optional when instanceId is given.' },
+                    instanceId: { type: 'string', description: 'Optional. The instance to delete (from search or a previous deleteNode candidate list). Deletes exactly that node.' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
-                required: ['nodeName']
+                required: []
             }
         },
         {
@@ -198,11 +200,11 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'deleteEdge',
-            description: 'Remove a connection between nodes. ALWAYS provide sourceName and targetName — edgeId is only used if it matches a real edge in the active graph, otherwise it is ignored and the name fallback runs.',
+            description: 'Remove a connection between nodes, by sourceName + targetName or by edgeId. An edgeId that is a real connection is used as given. Names must match exactly one connection; when they match several or none, nothing is deleted and the candidate connections come back with their edgeIds.',
             parameters: {
                 type: 'object',
                 properties: {
-                    edgeId: { type: 'string', description: 'Optional. Only used if it matches a real edge in the active graph; otherwise ignored. Prefer sourceName + targetName.' },
+                    edgeId: { type: 'string', description: "Optional. The connection's id, from search (searchType: 'connections') or a candidate list. Used when it is a real connection." },
                     sourceName: { type: 'string', description: 'Name of the source node (recommended primary identifier).' },
                     targetName: { type: 'string', description: 'Name of the target node (recommended primary identifier).' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
@@ -212,13 +214,14 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'search',
-            description: 'Search for nodes or connections by keyword. Omit query to list all.',
+            description: 'Search for nodes or connections by keyword in one web (default: the active web). Node results there are instances (ids are instanceIds). Pass scope "universe" to search every Thing. Omit query to list all.',
             parameters: {
                 type: 'object',
                 properties: {
                     query: { type: 'string', description: 'Optional. Search keyword or name. Omit to return all.' },
                     searchType: { type: 'string', enum: ['nodes', 'connections'], description: '"nodes" (default) or "connections".' },
-                    targetGraphId: { type: 'string', description: 'Graph to target (default: active).' },
+                    targetGraphId: { type: 'string', description: 'Web to search, by name or id (default: active).' },
+                    scope: { type: 'string', enum: ['web', 'universe'], description: 'Nodes only. "web" (default) searches the target web; "universe" searches every Thing.' },
                     limit: { type: 'number', description: 'Max results to return. Defaults to 100.' },
                     offset: { type: 'number', description: 'Skips this many results for pagination.' }
                 },
@@ -676,6 +679,80 @@ export function getToolDefinitions(options = {}) {
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['groupName']
+            }
+        },
+        {
+            name: 'addFormula',
+            description: 'Write a formula (an equation, a law, an expression) into a web, shown as its formula: E = m * c^2, P * V = n * R * T. It becomes an equation Thing whose web is the formula itself, each symbol a Thing, so it can be connected to, placed in other webs and folded like any Thing. Give `meanings` for every symbol you know the meaning of, so P is Pressure (an existing Thing of that name is used). Or give a `bankId` from searchFormulaBank to add a well-known equation fully formed.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    text: { type: 'string', description: 'The formula as plain text: = + - * / ^ and parentheses, functions like sqrt(x), sin(x), ln(x); a rate of change is derivative(N, t) (dN/dt), not a new letter. Letters side by side multiply (mc^2); a word that names a Thing stays whole.' },
+                    title: { type: 'string', description: 'What the equation is called ("Ideal Gas Law"). Omit for an untitled formula, named by its text.' },
+                    description: { type: 'string', description: 'What the equation says, one sentence.' },
+                    meanings: {
+                        type: 'array',
+                        description: 'What each symbol stands for: [{"symbol":"P","thing":"Pressure"},{"symbol":"V","thing":"Volume"}]. A thing the universe has by that name is used, otherwise a new Thing is made. Omit symbols that are just variables (x, y).',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                symbol: { type: 'string', description: 'The symbol as written in the text' },
+                                thing: { type: 'string', description: 'The Thing it stands for' },
+                                description: { type: 'string', description: 'What that Thing is, when it is new' },
+                                color: { type: 'string', description: 'That Thing\'s color, when it is new: a color name from `palette`. Omit to take the web\'s colors.' }
+                            },
+                            required: ['symbol', 'thing']
+                        }
+                    },
+                    forThing: { type: 'string', description: 'An existing Thing whose formula this is (the "Ideal Gas Law" already in the web), so it becomes that Thing\'s formula instead of a new equation Thing.' },
+                    bankId: { type: 'string', description: 'A bankId from searchFormulaBank (e.g. "Q191785"), instead of text: the equation is built with its title, description and every symbol tied to what it means.' },
+                    convention: { type: 'string', enum: ['math', 'programming'], description: '"math" (default): letters side by side multiply. "programming": names are whole words, * multiplies.' },
+                    palette: { type: 'string', description: `Palette for \`color\`. Available: ${PALETTE_LIST}.` },
+                    color: { type: 'string', description: 'The equation\'s color, a color name from `palette`. Omit to match the web: what the formula makes new takes the colors the web already uses.' },
+                    targetGraphId: { type: 'string', description: 'Web to add it to (default: active).' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'searchFormulaBank',
+            description: 'Search for an equation, in this universe (marked inUniverse: place one with the formula tool by its title) and in the formula bank, well-known equations by discipline (Physics, Chemistry, Economics, Epidemiology...) from Wikidata. Find by title ("ideal gas"), topic ("thermodynamics") or what it is about ("pressure"). Returns each one\'s formula, what its symbols mean, and for the bank\'s its bankId. Read-only.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: { type: 'string', description: 'A title, topic, or concept' },
+                    discipline: { type: 'string', description: 'Only this discipline or section (e.g. "Physics", "Thermodynamics")' },
+                    limit: { type: 'number', description: 'At most this many (default 8)' }
+                },
+                required: []
+            }
+        },
+        {
+            name: 'formula',
+            description: 'Work with a formula that exists, found by its title or text. "place": put an existing formula in this web like a Thing, shown as its formula (folded: as a node that opens as its formula). "open": show a folded formula as its formula. "fold": fold it into its Thing. "rewrite": change its text in place, keeping its connections. "delete": remove it from this web. To connect a formula, use createEdge with its title (or a term like "Pressure").',
+            parameters: {
+                type: 'object',
+                properties: {
+                    formulaName: { type: 'string', description: 'The formula\'s title, or its text' },
+                    action: { type: 'string', enum: ['place', 'open', 'fold', 'rewrite', 'delete'], description: 'What to do (default "place")' },
+                    text: { type: 'string', description: 'For rewrite: the new formula as text' },
+                    title: { type: 'string', description: 'For rewrite: a new title' },
+                    meanings: {
+                        type: 'array',
+                        description: 'For rewrite: what new symbols stand for, as in addFormula',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                symbol: { type: 'string' },
+                                thing: { type: 'string' }
+                            },
+                            required: ['symbol', 'thing']
+                        }
+                    },
+                    folded: { type: 'boolean', description: 'For place: a folded node that opens as its formula, instead of the formula shown open' },
+                    targetGraphId: { type: 'string', description: 'Web to work in (default: active). For place, the web it goes into.' }
+                },
+                required: ['formulaName']
             }
         },
         {
@@ -1286,6 +1363,13 @@ export function getToolDefinitions(options = {}) {
     return allTools;
 }
 
+// An ask about equations, in the words people use for them. Substrings of the
+// message, as every keyword tier is matched.
+const FORMULA_WORDS = [
+    'formula', 'equation', 'theorem', ' law', 'physics', 'mathemat', 'algebra',
+    'calculus', 'derivative', 'integral', '='
+];
+
 /**
  * Tool selection tiers for dynamic per-turn filtering.
  * - 1: Always included (core tools every LLM needs)
@@ -1343,6 +1427,15 @@ const TOOL_TIERS = {
     findDuplicates: 'has5PlusNodes', mergeNodes: 'has5PlusNodes',
     mergeGraphs: 'multipleGraphs',
 
+    // Writing a formula is always reachable: a web of models, rates or laws
+    // rarely says "equation", and gated on the word the wizard never wrote one
+    // unasked (a jewel wasp web left Hamilton's sex ratio model as a plain
+    // node). About 1.1K tokens a turn for the two. The formula tool works on
+    // formulas that exist, so it waits for one, or for the ask to name them.
+    addFormula: 1,
+    searchFormulaBank: 1,
+    formula: ['hasFormulas', ...FORMULA_WORDS],
+
     // Tier 3: Keyword-triggered (semantic web, tabular data)
     discoverOrbit: ['semantic', 'wikidata', 'dbpedia', 'discover', 'orbit'],
     semanticSearch: ['semantic', 'wikidata', 'dbpedia', 'linked data'],
@@ -1381,7 +1474,10 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
         return allTools;
     }
 
-    const activeGraph = (graphState?.graphs || []).find(g => g.id === graphState?.activeGraphId);
+    // As drawn: a Thing opened in place is a Thing-group of what is inside it.
+    const activeGraph = (graphState?.graphs || []).some(g => g.id === graphState?.activeGraphId)
+        ? webAsDrawn(graphState, graphState.activeGraphId)
+        : null;
     const nodeCount = activeGraph?.instances?.length || 0;
     const edgeCount = activeGraph?.edgeIds?.length || 0;
     const groupCount = (activeGraph?.groups || []).length;
@@ -1399,6 +1495,7 @@ export function selectToolsForTurn({ graphState, userMessage, hasTabularData = f
         multipleGraphs: graphCount > 1,
         hasDefinitions,
         hasTabularData,
+        hasFormulas: (graphState?.formulas || []).length > 0 || (graphState?.equations || []).length > 0,
         // Set by AgentLoop from config.wizardMode before selection is frozen.
         goalMode: graphState?._wizardMode === 'goal',
     };

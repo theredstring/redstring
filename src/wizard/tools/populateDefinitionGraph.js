@@ -7,10 +7,10 @@
  */
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
-import { validateEdgesSmart } from './edgeValidator.js';
+import { validateEdgesSmart, edgeScopeFromState, describeEdgeValidation } from './edgeValidator.js';
 import { analyzeGraphQuality } from './graphQuality.js';
 import { nodeSizeMul } from './utils/nodeSize.js';
-import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec } from './utils/graphSpec.js';
+import { normalizeLayersOnly, dropLayerNameCollisions, layerCollisionWarning, normalizeNodeSpec, connectionTypeColors } from './utils/graphSpec.js';
 import { applyLadderCap, summarizeLadders } from './utils/abstractionSpec.js';
 
 /**
@@ -21,18 +21,6 @@ function toTitleCase(str) {
     // Split camelCase: "isPartOf" → "is Part Of"
     const spaced = str.replace(/([a-z])([A-Z])/g, '$1 $2');
     return spaced.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
-}
-
-/**
- * Generate a deterministic color from a name
- */
-function generateConnectionColor(name) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const hue = Math.abs(hash) % 360;
-    return `hsl(${hue}, 60%, 45%)`;
 }
 
 /**
@@ -130,6 +118,8 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
 
     // Pick a palette if none provided
     const activePalette = palette || getRandomPalette();
+    // One color per connection type: the universe's, else the first given here.
+    const connectionColor = connectionTypeColors(graphState, activePalette);
 
     // Build node specs — shape lives in normalizeNodeSpec (graphSpec.js)
     let nodeSpecs = nodes.map(n => normalizeNodeSpec(n, activePalette));
@@ -142,8 +132,29 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
         if (capped.warning) ladderWarnings.push(capped.warning);
     }
 
-    // Validate edges: strip any that reference nodes not in the nodes array
-    const { validEdges, droppedEdges } = await validateEdgesSmart(nodeSpecs, edges || []);
+    // Composition. Going inside a node is the moment depth matters most — a
+    // definition that is itself composed is what makes a universe navigable
+    // rather than a stack of flat lists. Normalized before the edges are
+    // checked, since a layer is a Thing in this web and a legal endpoint.
+    const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState, connectionColor });
+    const layerSpecs = layerResult ? layerResult.layers : [];
+    const layerWarnings = layerResult ? layerResult.warnings : [];
+
+    // A layer already lands as a Thing here; the same name in `nodes` would beat
+    // its shell into the graph and stop the layer decomposing. Keep the layer.
+    const layerCollision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
+    if (layerCollision.dropped.length > 0) {
+        nodeSpecs = layerCollision.nodes;
+        layerWarnings.push(layerCollisionWarning(layerCollision.dropped));
+    }
+
+    // Edge endpoints resolve by exact name (case/spacing aside): this call's own
+    // nodes and layers, then the definition web, then the universe. No guessing.
+    const edgeCheck = await validateEdgesSmart(nodeSpecs, edges || [], {
+        layers: layerSpecs,
+        ...edgeScopeFromState(graphState, newGraphId, { exclude: [prototype.id] })
+    });
+    const { validEdges, droppedEdges, remappedEndpoints, placedExisting } = edgeCheck;
 
     // Validation: each edge needs SOMETHING describing its connection type.
     // Accepted shapes (in order of preference):
@@ -176,9 +187,12 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
             type: titleCaseName || 'Connection',
             definitionNode: titleCaseName ? {
                 name: titleCaseName,
-                color: resolvePaletteColor(activePalette, inputDefNode?.color || generateConnectionColor(titleCaseName)),
+                color: connectionColor(titleCaseName, inputDefNode?.color),
                 description: inputDefNode?.description || ''
-            } : null
+            } : null,
+            // An end that is one of this call's layers only exists once the
+            // applier has built the layer, so it adds these edges after.
+            ...(e.toLayer ? { toLayer: true } : {})
         };
     });
 
@@ -189,21 +203,6 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     }));
 
     // Analyze graph quality for LLM feedback
-    // Composition. Going inside a node is the moment depth matters most — a
-    // definition that is itself composed is what makes a universe navigable
-    // rather than a stack of flat lists.
-    const layerResult = normalizeLayersOnly(layers, { palette: activePalette, graphState });
-    const layerSpecs = layerResult ? layerResult.layers : [];
-    const layerWarnings = layerResult ? layerResult.warnings : [];
-
-    // A layer already lands as a Thing here; the same name in `nodes` would beat
-    // its shell into the graph and stop the layer decomposing. Keep the layer.
-    const layerCollision = dropLayerNameCollisions(nodeSpecs, layerSpecs);
-    if (layerCollision.dropped.length > 0) {
-        nodeSpecs = layerCollision.nodes;
-        layerWarnings.push(layerCollisionWarning(layerCollision.dropped));
-    }
-
     const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
 
     // Warn when the definition graph is sparse — a good definition should have 5-8 nodes
@@ -234,9 +233,9 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
             : null,
         // Edge validation feedback for LLM
         droppedEdges,
-        edgeWarning: droppedEdges.length > 0
-            ? `${droppedEdges.length} edge(s) were dropped because they referenced nodes not in the nodes array: ${droppedEdges.map(d => `${d.source} → ${d.target} (${d.reason})`).join('; ')}`
-            : null,
+        remappedEndpoints,
+        placedExisting: placedExisting.map(p => p.name),
+        edgeWarning: describeEdgeValidation(edgeCheck),
         // Quality analysis — LLM should fix issues before responding
         qualityReport,
         // Hint: defining node bio check
@@ -255,7 +254,10 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
             nodes: nodeSpecs,
             edges: edgeSpecs,
             groups: groupSpecs,
-            layers: layerSpecs
+            layers: layerSpecs,
+            // Things from elsewhere in the universe an edge named: the applier
+            // puts an instance of each existing prototype in this web.
+            reuseNodes: placedExisting
         }
     };
 }

@@ -205,7 +205,7 @@
 .tool-call-details {
   padding: 8px 10px;
   border-top: 1px solid var(--canvas-border);
-  animation: slideDown 0.2s ease;
+  animation: tool-call-details-in 0.2s ease;
   font-family: 'EmOne', sans-serif;
   overflow: hidden;
   word-break: break-word;
@@ -219,15 +219,18 @@
   margin-bottom: 8px;
 }
 
-@keyframes slideDown {
+/* Its own name: keyframes are global, and a `slideDown` here once animated
+   the header menu's and the AI panel's too. A fade down rather than a height
+   grow, which would lay the chat out again every frame. */
+@keyframes tool-call-details-in {
   from {
     opacity: 0;
-    max-height: 0;
+    transform: translateY(-4px);
   }
 
   to {
     opacity: 1;
-    max-height: 500px;
+    transform: none;
   }
 }
 

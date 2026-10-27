@@ -1,5 +1,8 @@
-import React, { Profiler, memo, useMemo } from 'react';
+import React, { Profiler, memo, useCallback, useMemo, useState } from 'react';
 import UnifiedSelector from '../../../UnifiedSelector.jsx';
+import { WebGrid } from '../thingGroupPrompt/ThingGroupPrompt.jsx';
+import { websOf } from '../thingGroupPrompt/thingGroupPrompt.js';
+import { haptic } from '../../../services/haptics.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { runCanvasCommand } from '../../../utils/canvas/canvasCommands.js';
@@ -54,20 +57,61 @@ const submitNewWeb = ({ name, color }) => {
   closeNewWeb();
 };
 
-// The grid half: an existing Thing takes the job. This is a second (or third)
-// definition for it where it already had one — legitimate, and what the
-// abstraction carousel browses.
-const pickNewWebDefiner = (prototype) => {
-  if (prototype?.id) graph().createAndAssignGraphDefinition(prototype.id);
+// The grid half: an existing Thing, then which of its Webs opens, or a new one
+// for it (a second or third definition: what the abstraction carousel browses).
+// Index `index` among its definitions; one past the end is the New Web card.
+const openWebOf = (prototype, index) => {
+  const graphId = prototype.definitionGraphIds?.[index];
+  if (graphId && graph().graphs.has(graphId)) graph().openGraphTab(graphId, prototype.id);
+  else graph().createAndAssignGraphDefinition(prototype.id);
   closeNewWeb();
 };
+
+// The plus sign's Add Web pages (thingGroupPrompt/), opening the Web as a tab
+// rather than in place. Mounted only while open, so it starts on the Thing.
+function NewWebPrompt({ leftPanelExpanded, rightPanelExpanded }) {
+  const [prototypeId, setPrototypeId] = useState(null);
+  const prototype = useGraphStore(s => (prototypeId ? s.nodePrototypes.get(prototypeId) : null));
+  const graphs = useGraphStore(s => s.graphs);
+  const webCount = useCallback((thing) => websOf(thing, graphs).length, [graphs]);
+
+  if (prototype) {
+    return (
+      <UnifiedSelector
+        key="web"
+        mode="web-creation"
+        isVisible={true}
+        leftPanelExpanded={leftPanelExpanded}
+        rightPanelExpanded={rightPanelExpanded}
+        onClose={closeNewWeb}
+        onBack={() => setPrototypeId(null)}
+        title="Choose a Web to open"
+        gridContent={<WebGrid prototype={prototype} onChoose={(index) => { haptic('menuSelect'); openWebOf(prototype, index); }} />}
+      />
+    );
+  }
+
+  return (
+    <UnifiedSelector
+      key="thing"
+      mode="web-creation"
+      isVisible={true}
+      leftPanelExpanded={leftPanelExpanded}
+      rightPanelExpanded={rightPanelExpanded}
+      onClose={closeNewWeb}
+      onSubmit={submitNewWeb}
+      onNodeSelect={(picked) => { if (picked?.id) setPrototypeId(picked.id); }}
+      cardBadge={webCount}
+      title="Choose the Thing this Web defines"
+    />
+  );
+}
 
 const selectActiveInstances = (s) => s.graphs.get(s.activeGraphId)?.instances;
 
 // Mounted only while open: it follows the active web's instances, which change
 // on every node move.
 function ComponentSearch({ leftPanelExpanded, rightPanelExpanded }) {
-  const activeGraphName = useGraphStore(s => s.graphs.get(s.activeGraphId)?.name ?? 'Loading...');
   const instances = useGraphStore(selectActiveInstances);
   const allowedPrototypeIds = useMemo(() => {
     const ids = new Set();
@@ -85,9 +129,7 @@ function ComponentSearch({ leftPanelExpanded, rightPanelExpanded }) {
       rightPanelExpanded={rightPanelExpanded}
       onClose={closeComponentSearch}
       onNodeSelect={selectComponent}
-      title={`Search ${activeGraphName || 'Components'}`}
-      subtitle={null}
-      gridTitle="Browse Components in This Thing"
+      title="Search this Web"
       searchOnly={true}
       allowedPrototypeIds={allowedPrototypeIds}
     />
@@ -112,27 +154,14 @@ function SearchHosts() {
           isVisible={true}
           onClose={closeAllThingsSearch}
           onNodeSelect={selectAnyThing}
-          title="Search All Things"
-          subtitle="Search through everything in your universe"
+          title="Search Everything"
           leftPanelExpanded={leftPanelExpanded}
           rightPanelExpanded={rightPanelExpanded}
           searchOnly={true}
-          gridTitle="All Things"
         />
       )}
       {newWebPromptVisible && (
-        <UnifiedSelector
-          mode="web-creation"
-          isVisible={true}
-          leftPanelExpanded={leftPanelExpanded}
-          rightPanelExpanded={rightPanelExpanded}
-          onClose={closeNewWeb}
-          onSubmit={submitNewWeb}
-          onNodeSelect={pickNewWebDefiner}
-          title="New Thing"
-          subtitle="Name the Thing this Web defines,<br />or pick one that already exists."
-          gridTitle="Define With an Existing Thing"
-        />
+        <NewWebPrompt leftPanelExpanded={leftPanelExpanded} rightPanelExpanded={rightPanelExpanded} />
       )}
     </Profiler>
   );

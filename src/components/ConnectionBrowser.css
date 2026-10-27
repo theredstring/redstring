@@ -84,8 +84,8 @@
   color: #aaa;
 }
 
-/* Connection Triplet (UniversalNodeRenderer wrapper) */
-.connection-triplet {
+/* Connection Triple (UniversalNodeRenderer wrapper) */
+.connection-triple {
   transition: all 0.2s ease;
   border-radius: 8px;
   padding: 8px;
@@ -93,7 +93,7 @@
 }
 
 /* Only semantic web connections get hover effects */
-.connection-triplet[style*="pointer"]:hover {
+.connection-triple[style*="pointer"]:hover {
   background-color: rgba(255, 255, 255, 0.05);
   border-color: rgba(139, 0, 0, 0.3);
 }

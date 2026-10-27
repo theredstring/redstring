@@ -2,7 +2,7 @@ import React from 'react';
 import { render, cleanup } from '@testing-library/react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 
-// The panel's own rendering isn't under test: capture the triplets it builds.
+// The panel's own rendering isn't under test: capture the triples it builds.
 const captured = { triples: null };
 vi.mock('../../src/UnifiedBottomControlPanel', () => ({
   default: (props) => { captured.triples = props.triples; return null; },
@@ -39,7 +39,7 @@ const seed = () => {
 afterEach(() => { cleanup(); captured.triples = null; });
 
 describe('ConnectionControlPanel inside an open Thing group', () => {
-  it('builds the triplet from the Things projected into the view', () => {
+  it('builds the triple from the Things projected into the view', () => {
     const edge = seed();
     render(<ConnectionControlPanel selectedEdge={edge} />);
     expect(captured.triples).toHaveLength(1);

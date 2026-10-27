@@ -2,7 +2,7 @@
  * The semantic search engine: what the shared web says about any Thing.
  *
  * One seed in — a prototype, a discovered concept, or just a name — and its
- * statements out, as triplets whose other end is a concept every "add" path
+ * statements out, as triples whose other end is a concept every "add" path
  * already understands. The orbit, the discovery page and the right panel's
  * Semantic Web connections all read from here.
  *

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useState } from 'react';
+import { Fragment, useLayoutEffect, useMemo, useState } from 'react';
 import { NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getNodeDimensions } from '../../utils.js';
 import { getTextColor } from '../../utils/colorUtils';
@@ -7,6 +7,8 @@ import { LABEL_FONT_SIZE_BASE, LABEL_LINE_HEIGHT_BASE } from '../../utils/nodeLa
 import { useTheme } from '../../hooks/useTheme.js';
 import useGraphStore from '../../store/graphStore.js';
 import InnerNetwork from '../../InnerNetwork.jsx';
+import { VectorArrows } from '../VectorText.jsx';
+import { unmarked } from '../../utils/vectorArrow.js';
 
 // Node.jsx: the label container's vertical padding and the background rect's inset.
 const LABEL_PADDING_V = 34;
@@ -50,9 +52,11 @@ export const useWebCardCornerRadius = (ref, sizingName, { border = 0, fallbackWi
  *
  * `sizingName` sizes the frame (the defining Thing's name, as the canvas sizes
  * it); `title` is what the band says. `drawWeb={false}` leaves the well
- * empty (a card scrolled far out of view), at the same size.
+ * empty (a card scrolled far out of view), at the same size. `newWeb` draws
+ * the well as an empty definition's on the canvas (Node.jsx), a + over
+ * "New Web", for a card that makes one.
  */
-const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = true }) => {
+const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = true, newWeb = false, titleDrop = 0 }) => {
   const theme = useTheme();
   const textSettings = useGraphStore((s) => s.textSettings);
   const nodeScale = textSettings?.nodeScale ?? 1;
@@ -88,7 +92,8 @@ const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = tru
   };
   const fill = color || NODE_DEFAULT_COLOR;
   const textColor = getTextColor(fill, theme.darkMode);
-  const titleCenterY = dims.textAreaHeight / 2;
+  // `titleDrop` (in ems of the title) lowers the title in its band.
+  const titleCenterY = dims.textAreaHeight / 2 + titleDrop * fontSize;
 
   return (
     <svg
@@ -108,22 +113,29 @@ const WebCard = ({ nodes, edges, groups, title, sizingName, color, drawWeb = tru
         fill={fill}
       />
       {lines.map((line, i) => (
-        <text
-          key={i}
-          x={width / 2}
-          y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight}
-          textAnchor="middle"
-          dominantBaseline="central"
-          fontFamily="'EmOne', sans-serif"
-          fontWeight="bold"
-          fontSize={fontSize}
-          fill={textColor}
-        >
-          {line}
-        </text>
+        <Fragment key={i}>
+          <text
+            x={width / 2}
+            y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontFamily="'EmOne', sans-serif"
+            fontWeight="bold"
+            fontSize={fontSize}
+            fill={textColor}
+          >
+            {unmarked(line)}
+          </text>
+          <VectorArrows line={line} x={width / 2} y={titleCenterY + (i - (lines.length - 1) / 2) * lineHeight} fontSize={fontSize} color={textColor} />
+        </Fragment>
       ))}
       <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} rx={inner.r} ry={inner.r} fill={theme.canvas.bg} />
-      {!drawWeb ? null : nodes?.length > 0 ? (
+      {newWeb ? (
+        <g fill={theme.canvas.textSecondary} fontFamily="'EmOne', sans-serif" fontWeight="bold" textAnchor="middle">
+          <text x={inner.x + inner.w / 2} y={inner.y + inner.h / 2 - 22 * nodeScale} dominantBaseline="central" fontSize={108 * nodeScale}>+</text>
+          <text x={inner.x + inner.w / 2} y={inner.y + inner.h / 2 + 62 * nodeScale} dominantBaseline="central" fontSize={36 * nodeScale}>New Web</text>
+        </g>
+      ) : !drawWeb ? null : nodes?.length > 0 ? (
         <g transform={`translate(${inner.x}, ${inner.y})`}>
           <InnerNetwork
             nodes={nodes}

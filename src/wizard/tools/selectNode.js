@@ -6,6 +6,7 @@
  */
 
 import { resolveNodeSmart } from './utils/resolveNodeSmart.js';
+import { readWeb } from './utils/webView.js';
 
 export async function selectNode(args, graphState, cid, ensureSchedulerStarted) {
     const { name } = args;
@@ -13,32 +14,13 @@ export async function selectNode(args, graphState, cid, ensureSchedulerStarted) 
         throw new Error('name is required');
     }
 
-    const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
+    const { nodePrototypes = [], activeGraphId } = graphState;
 
     // Build combined node list from prototypes + active graph instances
     const allNodes = [];
 
-    const activeGraph = graphs.find(g => g.id === activeGraphId);
-    if (activeGraph) {
-        const instances = Array.isArray(activeGraph.instances)
-            ? activeGraph.instances
-            : activeGraph.instances instanceof Map
-                ? Array.from(activeGraph.instances.values())
-                : Object.values(activeGraph.instances || {});
-
-        for (const inst of instances) {
-            const proto = nodePrototypes.find(p => p.id === inst.prototypeId);
-            allNodes.push({
-                instanceId: inst.id,
-                prototypeId: inst.prototypeId,
-                name: inst.name || proto?.name || '',
-                color: inst.color || proto?.color || '',
-                description: inst.description || proto?.description || '',
-                x: inst.x,
-                y: inst.y
-            });
-        }
-    }
+    // The active web's nodes under the names it was shown under (webView.js).
+    allNodes.push(...readWeb(graphState, activeGraphId).places);
 
     // Also check prototypes if no instances found
     if (allNodes.length === 0) {

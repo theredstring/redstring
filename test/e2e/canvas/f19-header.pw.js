@@ -34,7 +34,7 @@ test('F19 header buttons: bookmark, new web, both searches, and renaming the web
   await expect.poll(bookmarked).toBe(!before);
   await expect(headerButton(page, before ? 'Add Bookmark' : 'Remove Bookmark')).toBeVisible();
 
-  await headerButton(page, 'Create New Thing').click();
+  await headerButton(page, 'Create or Open Web').click();
   await expect.poll(() => ui(page, 'newWebPrompt')).toBe(true);
   await setUI(page, 'setNewWebPrompt', { visible: false });
 

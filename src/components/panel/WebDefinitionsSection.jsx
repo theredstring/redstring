@@ -16,7 +16,7 @@ const DESCRIPTION_CLAMP_LINES = 3;
  * One definition drawn as the canvas draws a Thing in the decompose preview
  * (WebCard). The description is left out here; the section shows it underneath.
  */
-export const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
+export const DefinitionCard = ({ graphId, nodeName, nodeColor, titleDrop = 0 }) => {
   // Narrow selectors: the graph object itself changes on every pan and zoom of
   // that graph, its instances and edge list only when its contents do. Read as
   // viewed, like the canvas: a Thing opened in place inside this Web shows its
@@ -60,6 +60,7 @@ export const DefinitionCard = ({ graphId, nodeName, nodeColor }) => {
       title={title}
       sizingName={nodeName}
       color={nodeColor}
+      titleDrop={titleDrop}
     />
   );
 };
@@ -192,7 +193,7 @@ export const DefinitionDescription = ({
           })
         }}
       >
-        {description || 'Double-click to describe this definition...'}
+        {description || 'Double-click to enter a definition...'}
       </div>
       {!controlled && (overflows || expanded) && (
         <div style={{ display: 'flex', justifyContent: compact ? 'flex-start' : 'center', marginTop: '10px' }}>

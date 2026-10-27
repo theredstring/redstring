@@ -819,7 +819,7 @@ const FederatedSearchInterface = ({ seedEntity, onMaterializeConnection, nodeId 
                   <h4>Knowledge Relationships</h4>
                   {searchResults.relationships.slice(0, 20).map((rel, index) => (
                     <div key={index} className="relationship-item">
-                      <div className="relationship-triplet">
+                      <div className="relationship-triple">
                         <span className="subject">{rel.source}</span>
                         <span className="predicate">{rel.relation}</span>
                         <span className="object">{rel.target}</span>

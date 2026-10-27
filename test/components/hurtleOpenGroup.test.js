@@ -21,7 +21,6 @@ const makeCtx = () => ({
   canvasSize: { offsetX: 0, offsetY: 0 },
   containerRef: ref({ getBoundingClientRect: () => ({ left: 0, top: 0, width: 1000, height: 800 }) }),
   getHeaderTabTarget: () => ({ x: 500, y: 20 }),
-  getNodeDescriptionContent: () => null,
   panOffsetRef: ref({ x: 0, y: 0 }),
   previewingNodeId: null,
   setHurtleFlight: vi.fn(),

@@ -4,7 +4,8 @@ import { resolveEdgeLabelFontSize } from './layoutGeometry.js';
 import { getNodeDimensions } from '../utils.js';
 import useImageCache from './imageCache.js';
 import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
-import { withEmptyGroupPlaceholders } from './groupLayout.js';
+import { withEmptyGroupPlaceholders, groupLabelMetrics } from './groupLayout.js';
+import { projectGraphViewOf } from '../core/openDefinitions.js';
 
 /**
  * Compute and persist a force-directed layout for any graph, active or not.
@@ -83,8 +84,12 @@ export async function layOutStateWebs(state, graphIds, { onProgress = null, yiel
  * @param {string} [options.algorithm] - in place of the user's layout setting
  */
 export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverride = null } = {}) {
-  const graph = st.graphs.get(graphId);
+  // The web as the canvas draws it: a Thing opened in place shows its
+  // definition's Things here, laid out as one block (graphLayoutService
+  // rigidBlocks) that the store moves as a whole.
+  const graph = projectGraphViewOf(st, graphId);
   if (!graph) return null;
+  const edgeOf = (id) => graph.openView?.edges?.get(id) || st.edges.get(id);
 
   const instances = Array.from(graph.instances?.values() || []);
   if (instances.length === 0) return null;
@@ -131,7 +136,7 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
   });
 
   const layoutEdges = (graph.edgeIds || [])
-    .map(eId => st.edges.get(eId))
+    .map(edgeOf)
     .filter(e => e && e.sourceId && e.destinationId)
     .map(e => {
       let connName = e.connectionName || '';
@@ -172,10 +177,8 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
   // Resolve the real rendered label font so labeled edges reserve the space
   // the canvas actually draws (NodeCanvas base × user text settings)
   const edgeLabelFontSize = resolveEdgeLabelFontSize(st.textSettings, st.connectionLabelSize);
-  // Same for a group's title tab, which NodeCanvas draws at
-  // 45 × fontSize × nodeScale (see groupLabelFontSize in its group render).
-  const groupLabelScale = st.textSettings?.nodeScale ?? 1.0;
-  const groupLabelFontSize = 45 * (st.textSettings?.fontSize ?? 1.0) * groupLabelScale;
+  // Same for a group's title tab, at the size the canvas draws it.
+  const { labelScale: groupLabelScale, labelFontSize: groupLabelFontSize, labelGrowth: groupLabelGrowth } = groupLabelMetrics(st.textSettings);
   // Member padding inside a group rect is derived from the grid, so the solver
   // needs the real value or it enforces against a rect narrower than the drawn
   // one. Only the snapping below used to read this.
@@ -195,6 +198,7 @@ export function computeOffscreenLayout(graphId, st, { algorithm: algorithmOverri
     edgeLabelFontSize,
     groupLabelFontSize,
     groupLabelScale,
+    groupLabelGrowth,
     gridSize,
     // Lombardi draws arcs, which changes both which layout fits a shape and how
     // much room each edge needs. The conditional dispatcher reads these.

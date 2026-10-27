@@ -125,7 +125,7 @@ const SELECTORS = {
   // drives the focused slider or steps along a row of buttons.
   colorPicker: {
     root: '.color-picker-panel',
-    rows: 'input[type="range"], input[type="text"], .panel-icon-button',
+    rows: 'input[type="range"], input[type="text"], .panel-icon-button, .color-picker-swatch',
     parent: null,
     opener: null,
     grid: true,

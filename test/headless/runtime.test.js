@@ -69,5 +69,7 @@ describe('daemonRuntime persistence + payload', () => {
     expect(payload).toHaveProperty('nodePrototypes');
     expect(payload).toHaveProperty('graphLayouts');
     expect(payload).toHaveProperty('graphEdges');
+    // Loaded by construction, so the MCP server acts on it.
+    expect(payload.isUniverseLoaded).toBe(true);
   });
 });

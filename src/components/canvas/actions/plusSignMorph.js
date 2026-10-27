@@ -24,6 +24,10 @@ export function finishPlusSignMorph(ctx) {
   if (plusSign.selectedPrototype) {
     // A prototype was selected from the grid - create instance of existing prototype
     storeActions.addNodeInstance(activeGraphId, plusSign.selectedPrototype.id, position, newInstanceId);
+    // Pasted through the plus sign (PlusSignBubbles): the copy keeps its labels.
+    if (plusSign.pastedLabels) {
+      storeActions.updateNodeInstance(activeGraphId, newInstanceId, (instance) => { instance.labels = plusSign.pastedLabels; });
+    }
     added = true;
   } else if (plusSign.tempName) {
     // A custom name was entered - create new prototype

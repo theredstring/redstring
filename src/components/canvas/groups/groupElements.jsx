@@ -7,7 +7,8 @@
  * Regular groups draw at the bottom of the stack (`regular`). Node-group shells
  * (`backgroundsByDepth`) and nested regular groups (`nestedRegularByDepth`)
  * interleave with connections by depth, and node-group titles (`titles`) draw
- * above member nodes; NodeCanvas places those.
+ * above member nodes; NodeCanvas places those. A lifted group's own (groupLift.js)
+ * go to `lifted` in the same shape, for LiftedGroupLayer.
  *
  * Input goes through the stable `handlers` from createGroupInputHandlers.
  * The markup is the groups pass, moved verbatim.
@@ -15,18 +16,24 @@
 import { GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { getTextColor, blendColors } from '../../../utils/colorUtils.js';
 import { GROUP_LIFT_SHADOW_LAYERS, groupLiftShadowOn, groupLiftShadowRect } from './groupLiftShadow.js';
+import { vectorArrowsOver } from '../../VectorText.jsx';
+import { NODE_CORNER_RADIUS } from '../../../constants.js';
+import { unmarked } from '../../../utils/vectorArrow.js';
 
 // Node-group interiors take this much of the group colour over the canvas.
 export const NODE_GROUP_INTERIOR_TINT = 0.07;
+// A selected Thing-group's band (and a formula's) wears a selected Thing's black stroke, this wide.
+export const GROUP_SELECTION_STROKE = 12;
 
 /**
  * A lifted group's shadow, fast form only — see groupLiftShadow.js. Plain
  * fills and strokes in their own <g>, so the drag's `:scope > rect` lookups of
  * the box's own rects never see them, and it moves them via
- * placeGroupLiftShadow.
+ * placeGroupLiftShadow. A format drawn in a group's place (formats/formula)
+ * wears the same one.
  * @param {'box'|'outline'|'pill'} kind
  */
-function groupLiftShadow(kind, box, cornerR, transform) {
+export function groupLiftShadow(kind, box, cornerR, transform) {
   return (
     <g data-group-shadow={kind} pointerEvents="none" transform={transform}>
       {GROUP_LIFT_SHADOW_LAYERS.map((layer, i) => {
@@ -47,18 +54,18 @@ function groupLiftShadow(kind, box, cornerR, transform) {
 }
 
 export function buildGroupElements({
-  groupLayouts, groupDepths, draggingGroupId, editingGroupId, tempGroupName,
-  theme, gridActive, gridPatternId, groupEditInputRef, handlers, liftedThingShadow,
+  groupLayouts, groupDepths, draggingGroupId, selectedGroupId, editingGroupId, tempGroupName,
+  theme, gridActive, gridPatternId, groupEditInputRef, handlers, liftedThingShadow, lift = null,
 }) {
-  const { entries: groupEntries, groupCount, groupLabelScale, groupLabelFontSize } = groupLayouts;
+  const { entries: groupEntries, groupCount } = groupLayouts;
   const ngBackgroundsByDepth = new Map();
   const ngTitles = [];
+  const lifted = { backgroundsByDepth: new Map(), titles: [], nestedRegularByDepth: new Map() };
   const pushAtDepth = (map, depth, element) => {
     let bucket = map.get(depth);
     if (!bucket) { bucket = []; map.set(depth, bucket); }
     bucket.push(element);
   };
-  const pushBackgroundAtDepth = (depth, element) => pushAtDepth(ngBackgroundsByDepth, depth, element);
   // Nested plain groups (depth > 0). They live inside an opaque
   // node-group shell, so emitting them with the depth-0 ones at the
   // bottom of the stack would bury them. Bucketed by depth and
@@ -66,7 +73,7 @@ export function buildGroupElements({
   const nestedRegularByDepth = new Map();
   const result = {
     regular: null, backgroundsByDepth: ngBackgroundsByDepth, titles: ngTitles,
-    nestedRegularByDepth,
+    nestedRegularByDepth, lifted,
   };
   if (!groupCount) return result;
 
@@ -86,7 +93,9 @@ export function buildGroupElements({
 
     const nodeGroupCornerR = GROUP_LAYOUT_CONSTANTS.nodeGroupCornerRadius;
     const strokeColor = effectiveGroupColor;
-    const fontSize = groupLabelFontSize;
+    // Each title's own size: it can grow with its group (groupLabelMetrics).
+    const fontSize = label.fontSize;
+    const groupLabelScale = label.scale;
 
     const labelText = effectiveGroupName;
     // Wrapped lines from the same box the layout measured, so the
@@ -97,6 +106,9 @@ export function buildGroupElements({
     const showLiftShadow = isGroupDragging && groupLiftShadowOn(liftedThingShadow);
 
     const nodeGroupColor = effectiveGroupColor;
+    const labelFill = isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.surface.bg, theme.darkMode);
+    // A vector's arrow (r⃗) is drawn over the title, as the equations draw theirs.
+    const labelArrows = vectorArrowsOver(labelLines.length === 1 ? [labelText] : labelLines, fontSize, labelLineHeight);
 
     if (typeof window !== 'undefined' && window.__groupBoundsDebug) {
       console.log('[GROUP-STATIC]', {
@@ -136,6 +148,7 @@ export function buildGroupElements({
     };
 
     const groupDepth = groupDepths.get(group.id) ?? 0;
+    const isLifted = !!lift?.groupIds.has(group.id);
 
     // Lift-scale for the title pill + text while dragging: an explicit
     // centered matrix on the `transform` ATTRIBUTE (local user space), NOT
@@ -159,8 +172,12 @@ export function buildGroupElements({
         onTouchEnd={(e) => handlers.titleTouchEnd(e, entry)}
         onTouchCancel={() => handlers.titleTouchCancel(entry)}
       >
-        <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight} rx={20 * groupLabelScale} ry={20 * groupLabelScale}
-          fill={isNodeGroup ? "none" : theme.surface.bg}
+        {/* A Thing-group's title sits on a node-like fill in its colour, drawn
+            with the titles (above connections), so a connection through the
+            header passes behind the title as it would behind a node. */}
+        <rect x={labelX} y={labelY} width={labelWidth} height={labelHeight}
+          rx={(isNodeGroup ? NODE_CORNER_RADIUS : 20) * groupLabelScale} ry={(isNodeGroup ? NODE_CORNER_RADIUS : 20) * groupLabelScale}
+          fill={isNodeGroup ? nodeGroupColor : theme.surface.bg}
           stroke={isNodeGroup ? "none" : strokeColor}
           strokeWidth={isNodeGroup ? 0 : 6 * groupLabelScale}
           pointerEvents="all"
@@ -207,26 +224,37 @@ export function buildGroupElements({
               />
             </div>
           </foreignObject>
-        ) : (
+        ) : (<>
           <text x={labelX + labelWidth / 2} y={labelY + labelHeight / 2} fontFamily="EmOne, sans-serif" fontSize={fontSize}
-            fill={isNodeGroup ? getTextColor(nodeGroupColor, theme.darkMode) : getTextColor(theme.surface.bg, theme.darkMode)}
+            fill={labelFill}
             fontWeight="bold" stroke="none" strokeWidth={0}
             paintOrder="stroke fill" textAnchor="middle" dominantBaseline="central"
             transform={groupLiftTransform}
+            // The name as written, vector marks and all (the arrows are drawn over the text).
+            data-label={labelText}
           >
-            {labelLines.length === 1 ? labelText : labelLines.map((line, i) => (
+            {labelLines.length === 1 ? unmarked(labelText) : labelLines.map((line, i) => (
               <tspan
                 key={i}
                 x={labelX + labelWidth / 2}
                 // Centre the whole block on the tab: first line sits
                 // (n-1)/2 line boxes above the middle.
                 dy={i === 0 ? -((labelLines.length - 1) / 2) * labelLineHeight : labelLineHeight}
+                data-label={line}
               >
-                {line}
+                {unmarked(line)}
               </tspan>
             ))}
           </text>
-        )}
+          {labelArrows && (
+            // Placed from the title's middle, so the drag (useNodeDrag) moves them with it.
+            <g data-vector-arrows="" pointerEvents="none" fill="none" stroke={labelFill} strokeLinecap="round" strokeLinejoin="round"
+              transform={`${groupLiftTransform ? `${groupLiftTransform} ` : ''}translate(${labelX + labelWidth / 2} ${labelY + labelHeight / 2})`}
+            >
+              {labelArrows}
+            </g>
+          )}
+        </>)}
       </g>
     );
 
@@ -242,7 +270,7 @@ export function buildGroupElements({
       // The whole shell — band and interior together — sits at this group's
       // nesting depth in the z-interleave, so it occludes exactly the
       // connections that don't have an endpoint inside it. See edgeZSlotFor.
-      pushBackgroundAtDepth(groupDepth,
+      pushAtDepth(isLifted ? lifted.backgroundsByDepth : ngBackgroundsByDepth, groupDepth,
         <g key={`bg-${group.id}`} className="node-group-bg" data-group-id={group.id} style={groupStyle}>
           {showLiftShadow && groupLiftShadow('box', { x: rectX, y: nodeGroupRectY, w: rectW, h: nodeGroupRectH }, nodeGroupCornerR)}
           {/* Colored band is purely decorative — pointer-events:none lets
@@ -250,7 +278,8 @@ export function buildGroupElements({
               via the title label. The interior is canvas: handleCanvasClick
               treats a click on .node-group-interior like one on bare canvas. */}
           <rect x={rectX} y={nodeGroupRectY} width={rectW} height={nodeGroupRectH}
-            rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor} stroke="none"
+            rx={nodeGroupCornerR} ry={nodeGroupCornerR} fill={nodeGroupColor}
+            stroke={selectedGroupId === group.id ? 'black' : 'none'} strokeWidth={GROUP_SELECTION_STROKE}
             pointerEvents="none" />
           <rect
             className="node-group-interior"
@@ -281,7 +310,7 @@ export function buildGroupElements({
         </g>
       );
       // Thing-group titles → Phase 3 (rendered after member nodes)
-      ngTitles.push(
+      (isLifted ? lifted.titles : ngTitles).push(
         <g key={`title-${group.id}`} className="node-group-title" data-group-id={group.id} style={groupStyle}>
           {titleLabel}
         </g>
@@ -303,8 +332,8 @@ export function buildGroupElements({
           {titleLabel}
         </g>
       );
-      if (groupDepth > 0) {
-        pushAtDepth(nestedRegularByDepth, groupDepth, regularElement);
+      if (groupDepth > 0 || isLifted) {
+        pushAtDepth(isLifted ? lifted.nestedRegularByDepth : nestedRegularByDepth, groupDepth, regularElement);
       } else {
         regularGroupElements.push(regularElement);
       }

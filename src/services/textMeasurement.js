@@ -7,6 +7,7 @@
  */
 import { prepare, prepareWithSegments, layout, layoutWithLines, measureNaturalWidth, clearCache } from '@chenglou/pretext';
 import { edgeLabelGlyphAdvancesEm } from './layoutGeometry.js';
+import { unmarked } from '../utils/vectorArrow.js';
 
 // --- Prepared-text cache (keyed by text + fontString) ---
 const preparedCache = new Map();
@@ -83,7 +84,8 @@ export function measureTextBlockHeight(text, maxWidth, textSettings, lineHeightB
   if (!text) return (lineHeightBase || 28) * (textSettings?.lineSpacing || 1);
   const fontString = buildNodeFontString(textSettings);
   const lineHeight = (lineHeightBase || 28) * (textSettings?.lineSpacing || 1);
-  const prepared = getPrepared(text, fontString);
+  // A vector's arrow (r⃗) is drawn over its letter and takes no room of its own.
+  const prepared = getPrepared(unmarked(text), fontString);
   const result = layout(prepared, maxWidth, lineHeight);
   return result.height;
 }
@@ -98,7 +100,7 @@ export function measureTextBlockHeight(text, maxWidth, textSettings, lineHeightB
  */
 export function measureTextWidth(text, fontString) {
   if (!text) return 0;
-  const prepared = getPreparedWithSegments(text, fontString);
+  const prepared = getPreparedWithSegments(unmarked(text), fontString);
   return measureNaturalWidth(prepared);
 }
 

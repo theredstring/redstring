@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, Trash2, Bookmark, TextSearch, Sparkles, NotebookText } from 'lucide-react';
+import { Palette, ArrowUpFromDot, ImagePlus, BookOpen, Trash2, Bookmark, Sparkles, NotebookText } from 'lucide-react';
+import BookSearch from '../shared/bookSearchIcon.js';
 import { NODE_CORNER_RADIUS, NODE_DEFAULT_COLOR } from '../../constants.js';
 import { getTextColor } from '../../utils/colorUtils';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -16,6 +17,7 @@ import InfoPopover from '../shared/InfoPopover.jsx';
 import PanelImage, { PanelImageShimmer } from '../shared/PanelImage.jsx';
 import AboutSection from './AboutSection.jsx';
 import WebDefinitionsSection from './WebDefinitionsSection.jsx';
+import EquationsSection from '../canvas/formats/formula/EquationsSection.jsx';
 import { ABOUT_INTRO } from './aboutCopy.js';
 import { WIZARD_DEFINE_INTRO } from './panelCopy.js';
 import useAutoEnrichIdentifiers from '../../hooks/useAutoEnrichIdentifiers.js';
@@ -26,13 +28,8 @@ import { linkedWikipediaTitle } from '../../services/conceptEnrichment.js';
 import { resolveImageRef, canResolveRefs } from '../../services/imageBlobStore.js';
 import { safeImageSrc } from '../../utils/safeUrl.js';
 import { setWikipediaImage } from '../../services/wikipediaImage.js';
-
-// Helper function to determine the correct article ("a" or "an")
-const getArticleFor = (word) => {
-  if (!word) return 'a';
-  const firstLetter = word.trim()[0].toLowerCase();
-  return ['a', 'e', 'i', 'o', 'u'].includes(firstLetter) ? 'an' : 'a';
-};
+import { getArticleFor } from '../../utils/articleFor.js';
+import { VectorText } from '../VectorText.jsx';
 
 // Wikipedia enrichment functions
 const searchWikipedia = async (query) => {
@@ -762,6 +759,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
           <div style={{
             maxHeight: '300px',
             overflowY: 'auto',
+            overflowX: 'hidden',
             padding: '3px',
             margin: '-3px -3px 7px'
           }}>
@@ -841,7 +839,7 @@ const DraggableNodeComponent = ({ node, onOpenNode }) => {
       data-nav="item"
       onClick={() => onOpenNode(node.prototypeId || node.id)}
     >
-      {node.name}
+      <VectorText text={node.name} />
     </div>
   );
 };
@@ -973,7 +971,7 @@ const DraggableTitleComponent = ({
       onDoubleClick={onTitleDoubleClick}
       onTouchEnd={handleTouchEnd}
     >
-      {nodeData.name || 'Untitled'}
+      <VectorText text={nodeData.name || 'Untitled'} />
     </div>
   );
 };
@@ -1250,14 +1248,14 @@ const SharedPanelContent = ({
     </div>
   );
 
-  // Secondary row: Save toggle + Text Search to open Semantic Discovery
+  // Secondary row: Save toggle + Text Search to open Semantic Web Search
   const isSaved = !!(savedNodeIds && nodeData?.id && savedNodeIds.has(nodeData.id));
 
   const handleSemanticDiscoverySearch = () => {
     const query = nodeData?.name || '';
     if (!query.trim()) return;
     try {
-      // Ask left panel to switch to Semantic Discovery; its listener runs the
+      // Ask left panel to switch to Semantic Web Search; its listener runs the
       // search. The Thing goes along so a result can be linked back to it.
       window.dispatchEvent(new CustomEvent('openSemanticDiscovery', { detail: { query, prototypeId: nodeData.id } }));
     } catch { }
@@ -1289,9 +1287,9 @@ const SharedPanelContent = ({
         title={isSaved ? 'Remove from Saved Things' : 'Save to Saved Things'}
       />
       <PanelIconButton
-        icon={TextSearch}
+        icon={BookSearch}
         onClick={handleSemanticDiscoverySearch}
-        title="Search this in Semantic Discovery"
+        title="Open in Semantic Web Search"
       />
       {wizardEnabled && nodeData?.id && (
         <PanelIconButton
@@ -1416,7 +1414,7 @@ const SharedPanelContent = ({
                       outline: 'none'
                     }}
                   >
-                    {typeName}
+                    <VectorText text={typeName} />
                   </button>
                   {typeButtons && <div style={{ marginTop: '10px' }}>{typeButtons}</div>}
                 </div>
@@ -1463,7 +1461,7 @@ const SharedPanelContent = ({
                       marginLeft: '6px'
                     }}
                   >
-                    {typeName}
+                    <VectorText text={typeName} />
                   </button>
                 </div>
                 {typeButtons}
@@ -1732,10 +1730,11 @@ const SharedPanelContent = ({
           <div style={{
             marginRight: '15px',
             display: 'grid',
-            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+            gridTemplateColumns: isUltraSlim ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
             gap: '8px',
             maxHeight: '300px',
-            overflowY: 'auto'
+            overflowY: 'auto',
+            overflowX: 'hidden'
           }}>
             {componentOfNodes.map((node) => (
               <DraggableNodeComponent
@@ -1800,10 +1799,11 @@ const SharedPanelContent = ({
           <div style={{
             marginRight: '15px',
             display: 'grid',
-            gridTemplateColumns: isUltraSlim ? '1fr' : '1fr 1fr',
+            gridTemplateColumns: isUltraSlim ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
             gap: '8px',
             maxHeight: '300px',
-            overflowY: 'auto'
+            overflowY: 'auto',
+            overflowX: 'hidden'
           }}>
             {activeGraphNodes.map((node) => (
               <DraggableNodeComponent
@@ -1893,6 +1893,9 @@ const SharedPanelContent = ({
           isUltraSlim={isUltraSlim}
         />
       </CollapsibleSection>
+
+      {/* Equations: how this Thing is written in formulas, and the equations it is part of. */}
+      {!isHomeTab && <EquationsSection protoId={nodeData?.id} onOpenNode={onOpenNode} />}
 
       {/* Removed Semantic Profile section per requirements */}
     </div>

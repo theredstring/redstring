@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { webAsDrawn } from './utils/webView.js';
 
 /**
  * deleteGroup - Delete a group (keeps member nodes)
@@ -11,7 +12,7 @@ function findGroupByName(name, graphState, graphId) {
   const { graphs = [] } = graphState;
   if (!graphId) return null;
 
-  const graph = graphs.find(g => g.id === graphId);
+  const graph = graphs.some(g => g.id === graphId) ? webAsDrawn(graphState, graphId) : null; // as drawn: opened Things are Thing-groups
   if (!graph || !graph.groups) return null;
 
   const groupsIterable = graph.groups instanceof Map
@@ -55,6 +56,14 @@ export async function deleteGroup(args, graphState, cid, ensureSchedulerStarted)
 
   if (!resolvedGroupId && !groupName) {
     throw new Error('Either groupId or groupName is required.');
+  }
+
+  // Ungrouping a formula leaves its Things and operations strewn about the web.
+  const graph = graphs.some(g => g.id === graphId) ? webAsDrawn(graphState, graphId) : null; // as drawn: opened Things are Thing-groups
+  const groups = Array.isArray(graph?.groups) ? graph.groups : graph?.groups instanceof Map ? [...graph.groups.values()] : Object.values(graph?.groups || {});
+  const target = groups.find(g => g.id === resolvedGroupId);
+  if (target?.format === 'formula') {
+    throw new Error(`"${target.name}" is a formula. Use the formula tool: action "delete" to remove it with its Things, or "fold" to fold it into its Thing.`);
   }
 
   console.error('[deleteGroup] Deleting group:', groupName || groupId, '| resolved:', resolvedGroupId || 'will resolve on client');

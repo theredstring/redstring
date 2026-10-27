@@ -123,7 +123,8 @@ export const specialize = {
  * its members as Things, and whether the Thing has its title tab there.
  */
 export function gatheredIn(world, webId) {
-  const g = world.graph(webId);
+  // As drawn: a gathering is its Thing opened in place over them.
+  const g = world.drawnGraph?.(webId) || world.graph(webId);
   if (!g) return [];
   const all = (c) => (c instanceof Map ? [...c.values()] : Array.isArray(c) ? c : Object.values(c || {}));
   const protoOf = new Map(all(g.instances).map(i => [i.id, i.prototypeId]));

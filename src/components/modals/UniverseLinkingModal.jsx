@@ -59,6 +59,7 @@ const UniverseLinkingModal = ({
           color: theme.canvas.textPrimary,
           fontSize: '0.78rem',
           lineHeight: 1.4,
+          overflowWrap: 'anywhere',
           flexShrink: 0
         }}>
           Link <strong>{repositoryName}</strong> to an existing universe or create a new one.
@@ -94,14 +95,15 @@ const UniverseLinkingModal = ({
         {/* Content area */}
         <div style={{
           flex: 1,
-          overflow: 'auto',
+          overflowY: 'auto',
+          overflowX: 'hidden',
           padding: '12px'
         }}>
           {mode === 'select' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {existingUniverses.length === 0 ? (
                 <div style={{
-                  padding: '40px',
+                  padding: '40px 16px',
                   textAlign: 'center',
                   color: theme.canvas.textSecondary,
                   fontSize: '0.85rem'
@@ -137,7 +139,7 @@ const UniverseLinkingModal = ({
                       }
                     }}
                   >
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                       <div style={{
                         fontWeight: 600,
                         fontSize: '0.85rem',

@@ -2,9 +2,13 @@
  * The overlays at the top of the canvas content group (moved verbatim from
  * NodeCanvas): the marquee rect, the plus sign and the video effect.
  */
-import { Profiler } from 'react';
+import { Profiler, useEffect } from 'react';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { useGroupPieStore } from '../pie/groupPieButtons.js';
+import { useThingGroupPromptStore } from '../thingGroupPrompt/thingGroupPrompt.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import PlusSign from '../../../PlusSign.jsx';
+import PlusSignBubbles from './PlusSignBubbles.jsx';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_CORNER_RADIUS } from '../../../constants';
 import VideoNodeAnimation from '../../../VideoNodeAnimation.jsx';
 
@@ -12,8 +16,20 @@ export default function SvgOverlays({ ctx }) {
   const {
     selectionStart, setMarqueeRectEl, plusSign, handlePlusSignClick, handleMorphDone, setPlusSign,
     gestureBlockRef, isPanningOrZooming, getPlusSignMorphTarget, textSettings, videoAnimation,
-    handleVideoAnimationComplete,
+    handleVideoAnimationComplete, clipboardRef, handleNodeSelection, edgePieMenuVisible,
   } = ctx;
+
+  // Any pie (node, carousel, connection, group) opening sends the plus sign
+  // back in. Its own bubbles aren't a pie; a plus that is being named, waiting
+  // on its Add Web selector, or already becoming a Thing is committed and stays.
+  const nodePieTarget = useCanvasUIStore(s => s.selectedNodeIdForPieMenu);
+  const groupPieShown = useGroupPieStore(s => Boolean(s.groupId && s.buttons.length));
+  const pieShown = Boolean(nodePieTarget || edgePieMenuVisible || groupPieShown);
+  useEffect(() => {
+    if (!pieShown || plusSign?.mode !== 'appear' || plusSign.prompting) return;
+    if (useThingGroupPromptStore.getState().prompt) return;
+    setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
+  }, [pieShown, nodePieTarget]);
 
   return (
     <Profiler id="SvgOverlays" onRender={onRenderProbe}>
@@ -24,6 +40,18 @@ export default function SvgOverlays({ ctx }) {
           fill="rgba(255, 0, 0, 0.1)"
           stroke="red"
           strokeWidth={1}
+        />
+      )}
+
+      {/* Under the plus sign, so the bubbles come out from beneath it. */}
+      {plusSign && (
+        <PlusSignBubbles
+          plusSign={plusSign}
+          setPlusSign={setPlusSign}
+          clipboardRef={clipboardRef}
+          handleNodeSelection={handleNodeSelection}
+          gestureBlockRef={gestureBlockRef}
+          isPanningOrZoomingRef={isPanningOrZooming}
         />
       )}
 

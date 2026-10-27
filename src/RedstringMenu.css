@@ -57,14 +57,14 @@
 }
 
 .menu-container.entering {
-    animation: slideDown 150ms ease-out forwards;
+    animation: redstring-menu-in 150ms ease-out forwards;
 }
 
 .menu-container.exiting {
-    animation: slideUp 150ms ease-out forwards;
+    animation: redstring-menu-out 150ms ease-out forwards;
 }
 
-@keyframes slideDown {
+@keyframes redstring-menu-in {
     from {
         transform: translateY(-10px);
         opacity: 0;
@@ -76,7 +76,7 @@
     }
 }
 
-@keyframes slideUp {
+@keyframes redstring-menu-out {
     from {
         transform: translateY(0);
         opacity: 1;

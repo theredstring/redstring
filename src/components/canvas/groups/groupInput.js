@@ -9,10 +9,63 @@
  * The bodies are the inline handlers, moved verbatim.
  */
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
-import { placeholderIdForGroup } from '../../../services/groupLayout.js';
+import { groupDragOffsets } from '../../../utils/canvas/canvasHitTest.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
+
+// The mounted canvas's group input (there is one canvas), for things that are
+// groups underneath but drawn their own way: a formula is a Thing-group, and
+// its press starts the same group drag a title's does (formats/formula).
+let canvasGroupInput = null;
+
+/**
+ * The live group input: { handlers, isDragging() }, or null before the canvas
+ * mounts. Reusing it is how something drawn its own way gets the canvas's own
+ * hold-to-drag (edge panning, zoom and keyboard panning mid-drag, grid snap,
+ * the drop's single undo step) instead of a copy of it.
+ */
+export const getCanvasGroupInput = () => canvasGroupInput;
 
 /** @param {{ current: object }} ctxRef */
 export function createGroupInputHandlers(ctxRef) {
+  const handlers = createHandlers(ctxRef);
+  canvasGroupInput = {
+    handlers,
+    isDragging: () => !!ctxRef.current?.nodeDrag?.draggingNodeInfoRef?.current,
+    /**
+     * A touch on the group that was a tap, handled by its owner: what the
+     * title's own tap does first (stop the long press, drop the touch's
+     * document listeners, keep the canvas from reading it as a tap of its
+     * own), without the title's selection or rename.
+     */
+    claimTouchTap(entry) {
+      handlers.titleTouchCancel(entry);
+      ctxRef.current?.groupTouchCleanupRef?.current?.();
+      if (ctxRef.current?.ignoreCanvasClick) ctxRef.current.ignoreCanvasClick.current = true;
+    },
+  };
+  return handlers;
+}
+
+/**
+ * A group selected among Things is held like a Thing of the selection: the
+ * whole selection lifts. A formula is in it as its anchor (formats/formula/
+ * formulaSelection); any other group as its Things, its anchor left out
+ * (canvasUIStore.withoutGroupAnchors), so it is in it when all of them are and
+ * something else is too. False when it isn't, and its own group drag goes ahead.
+ */
+function dragSelectionFrom(group, clientX, clientY, ctx) {
+  const selected = useCanvasUIStore.getState().selectedInstanceIds;
+  if (selected.size < 2) return false;
+  const nodeById = new Map((ctx.nodes || []).map(n => [n.id, n]));
+  const things = (group.memberInstanceIds || []).filter(id => !nodeById.get(id)?.isGroupAnchor);
+  const heldId = selected.has(group.anchorInstanceId)
+    ? group.anchorInstanceId
+    : (things.length > 0 && things.every(id => selected.has(id)) && selected.size > things.length ? things[0] : null);
+  const heldNode = heldId ? nodeById.get(heldId) : null;
+  return !!heldNode && ctx.nodeDrag?.startDragForNode(heldNode, clientX, clientY) !== false;
+}
+
+function createHandlers(ctxRef) {
   return {
     titleClick(e, entry) {
       const { group, effectiveGroupName } = entry;
@@ -64,6 +117,7 @@ export function createGroupInputHandlers(ctxRef) {
       groupLongPressTimeout.current = setTimeout(() => {
         if (drawingConnectionFrom) return;
         setLongPressingInstanceId(null);
+        if (dragSelectionFrom(group, downX, downY, ctxRef.current)) return;
         startGroupDragAtPointRef.current?.(group.id, downX, downY);
       }, nodeLiftDelay);
     },
@@ -195,43 +249,13 @@ export function createGroupInputHandlers(ctxRef) {
       groupLongPressTimeout.current = setTimeout(() => {
         if (drawingConnectionFrom) return;
         setLongPressingInstanceId(null);
+        if (dragSelectionFrom(group, downX, downY, ctxRef.current)) return;
         const rect = containerRef.current.getBoundingClientRect();
         const { x: mouseCanvasX, y: mouseCanvasY } = clientToCanvas(downX, downY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
-        const offsets = members.map(m => ({ id: m.id, dx: mouseCanvasX - m.x, dy: mouseCanvasY - m.y }));
-        if (group.anchorInstanceId) {
-          const anchorNode = nodes.find(n => n.id === group.anchorInstanceId);
-          if (anchorNode) {
-            offsets.push({ id: anchorNode.id, dx: mouseCanvasX - anchorNode.x, dy: mouseCanvasY - anchorNode.y });
-          }
-        }
-        // Empty node-group placeholder: track its own independent position
-        // (never the anchor's) so it drags live using the exact same
-        // offset-preserving math as a real member — see groupLayout.js for
-        // why deriving it from the anchor's position doesn't work.
-        if (isNodeGroup && !(group.memberInstanceIds?.length > 0) && group.emptyPlaceholderOrigin) {
-          offsets.push({
-            id: placeholderIdForGroup(group.id),
-            dx: mouseCanvasX - group.emptyPlaceholderOrigin.x,
-            dy: mouseCanvasY - group.emptyPlaceholderOrigin.y
-          });
-        }
-        // Nested EMPTY child groups ride along too: their box position
-        // lives in emptyPlaceholderOrigin (no member instance to move),
-        // so without an explicit placeholder offset a parent drag would
-        // leave their shells behind. Non-empty children need nothing —
-        // their members are already in the parent's offset list.
-        const nestedChildIds = childGroupIdsByGroupIdRef.current.get(group.id);
-        if (nestedChildIds) {
-          nestedChildIds.forEach(childId => {
-            const childGroup = groupsByIdRef.current.get(childId);
-            if (!childGroup || childGroup.memberInstanceIds?.length > 0 || !childGroup.emptyPlaceholderOrigin) return;
-            offsets.push({
-              id: placeholderIdForGroup(childId),
-              dx: mouseCanvasX - childGroup.emptyPlaceholderOrigin.x,
-              dy: mouseCanvasY - childGroup.emptyPlaceholderOrigin.y
-            });
-          });
-        }
+        // The one list a group drag needs (canvasHitTest.groupDragOffsets), as the mouse's long press uses.
+        const offsets = groupDragOffsets(group, members, isNodeGroup, mouseCanvasX, mouseCanvasY, {
+          nodes, childGroupIdsByGroupId: childGroupIdsByGroupIdRef.current, groupsById: groupsByIdRef.current,
+        });
         // startGroupDrag fires the lift haptic itself.
         nodeDrag.startGroupDrag(group.id, offsets, downX, downY);
       }, nodeLiftDelay);

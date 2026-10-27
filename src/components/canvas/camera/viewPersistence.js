@@ -3,14 +3,25 @@
  * pan and zoom when the active web changes, and saving them once the view
  * settles.
  */
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import useGraphStore from '../../../store/graphStore.js';
 import { MAX_ZOOM } from '../../../constants';
+import { computeRelevantNodesVisible } from '../data/backToCivilization.js';
+import { civilizationView } from './backToCivilization.js';
 
-/** Restore the web's saved view, or centre it, when the active web changes (skipped mid-drag or mid-zoom). */
+// Zoom ceiling when framing a web as it opens, so a web of one or two Things
+// doesn't open at the deepest zoom.
+const OPEN_FRAMING_MAX_ZOOM = 1;
+
+/** Restore the web's saved view, or centre it, when the active web changes (skipped mid-drag or mid-zoom).
+ * Opening a web whose view would show none of its nodes (the view Back to
+ * Civilization would appear over) lands on that button's framing instead,
+ * before the first paint, so the empty view is never seen. A web just added
+ * to the header (`newlyOpenedRef`) always gets that framing. */
 export function restoreViewForGraph(ctx) {
   const {
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform,
+    canvasSize, transform, nodes, baseDimsById, openedGraphRef, newlyOpenedRef, connections,
   } = ctx;
   // If we're dragging a node or animating zoom, DO NOT restore view from store
   // This prevents the "teleportation" where store state overrides our local interaction state
@@ -30,9 +41,9 @@ export function restoreViewForGraph(ctx) {
     // the fallback for a graph loaded from file whose camera hasn't moved yet.
     // See graphViews in graphStore for why the two are separate.
     const storedView = liveState.graphViews?.get(activeGraphId) || graphData;
+    let view;
 
     if (storedView && storedView.panOffset && typeof storedView.zoomLevel === 'number') {
-      // Restore the stored view state immediately (jumpTo flushes settled state synchronously).
       // A view saved deeper than today's zoom ceiling comes back at the ceiling,
       // scaled about the viewport's centre so the same place stays in view.
       const { panOffset: savedPan, zoomLevel: savedZoom } = storedView;
@@ -40,9 +51,9 @@ export function restoreViewForGraph(ctx) {
         const ratio = MAX_ZOOM / savedZoom;
         const cx = viewportSize.width / 2;
         const cy = viewportSize.height / 2;
-        transform.jumpTo({ x: cx - (cx - savedPan.x) * ratio, y: cy - (cy - savedPan.y) * ratio }, MAX_ZOOM);
+        view = { pan: { x: cx - (cx - savedPan.x) * ratio, y: cy - (cy - savedPan.y) * ratio }, zoom: MAX_ZOOM };
       } else {
-        transform.jumpTo(savedPan, savedZoom);
+        view = { pan: savedPan, zoom: savedZoom };
       }
     } else {
       // No stored state, center the view as before
@@ -66,9 +77,28 @@ export function restoreViewForGraph(ctx) {
       const clampedX = Math.min(Math.max(initialPanX, minX), maxX);
       const clampedY = Math.min(Math.max(initialPanY, minY), maxY);
 
-      // Apply the calculated view state immediately (jumpTo flushes settled state synchronously)
-      transform.jumpTo({ x: clampedX, y: clampedY }, defaultZoom);
+      view = { pan: { x: clampedX, y: clampedY }, zoom: defaultZoom };
     }
+
+    // Orient once per opening, so a resize later doesn't pull the camera off
+    // empty space the user panned to on purpose.
+    const justOpened = openedGraphRef.current !== activeGraphId;
+    openedGraphRef.current = activeGraphId;
+    const newlyOpened = justOpened && newlyOpenedRef?.current === activeGraphId;
+    if (newlyOpened) newlyOpenedRef.current = null;
+    if (justOpened && nodes.length > 0) {
+      if (newlyOpened) {
+        view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: OPEN_FRAMING_MAX_ZOOM });
+      } else {
+        const anyNodeVisible = computeRelevantNodesVisible({
+          enableClustering: false, nodes, panOffset: view.pan, zoomLevel: view.zoom, viewportSize, canvasSize, baseDimsById,
+        });
+        if (!anyNodeVisible) view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections });
+      }
+    }
+
+    // Apply the view immediately (jumpTo flushes settled state synchronously).
+    transform.jumpTo(view.pan, view.zoom);
 
     // Set view to ready immediately - no delay
     setIsViewReady(true);
@@ -76,6 +106,26 @@ export function restoreViewForGraph(ctx) {
   } else if (!activeGraphId) {
     setIsViewReady(true); // No graph, so "ready" to show nothing
   }
+}
+
+/** The web that just became active by being added to the header (the plus
+ * sign, opening a web from a panel), as opposed to switching to a tab already
+ * there or loading a universe. Read once by restoreViewForGraph. */
+export function watchNewlyOpenedWeb(newlyOpenedRef) {
+  return useGraphStore.subscribe((state, prev) => {
+    if (state.activeGraphId === prev.activeGraphId || !state.activeGraphId) return;
+    if (prev._isLoadingUniverse || prev.openGraphIds?.includes(state.activeGraphId)) return;
+    newlyOpenedRef.current = state.activeGraphId;
+  });
+}
+
+/** Restore (or orient) the view on graph change. Does NOT depend on graphsMap or nodes, so graph mutations never snap the view back. */
+export function useViewRestore(ctx) {
+  const openedGraphRef = useRef(null); // the web the last restore opened, so orienting happens once per opening
+  const newlyOpenedRef = useRef(null);
+  useEffect(() => watchNewlyOpenedWeb(newlyOpenedRef), []);
+  useLayoutEffect(() => restoreViewForGraph({ ...ctx, openedGraphRef, newlyOpenedRef }),
+    [ctx.activeGraphId, ctx.viewportSize, ctx.canvasSize]);
 }
 
 /** Save the view once panning and zooming stop. */

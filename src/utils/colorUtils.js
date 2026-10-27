@@ -501,6 +501,9 @@ export const getConnectionLabelColors = (
 export const DEFAULT_CONNECTION_LABEL_RING_WIDTH = 3.0;
 export const CONNECTION_LABEL_RING_WIDTH_MIN = 1.1;
 export const CONNECTION_LABEL_RING_WIDTH_MAX = 5.0;
+// Off-canvas labels (panels, previews, the bottom rail) sit smaller, so the
+// same ring multiple reads heavy there; they draw it a touch thinner.
+export const OFF_CANVAS_LABEL_RING_SCALE = 0.85;
 
 // Generate consistent color based on node name
 export const generateConceptColor = (name) => {

@@ -1,4 +1,5 @@
 import { resolveGraphId } from './resolveGraphId.js';
+import { instancesSeenIn } from './utils/openedInPlace.js';
 
 /**
  * searchNodes - Find nodes by general search query
@@ -13,52 +14,61 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
 
   const { nodePrototypes = [], graphs = [], activeGraphId } = graphState;
 
-  const targetGraphId = resolveGraphId(args.targetGraphId, graphs, { activeGraphId }) || activeGraphId;
+  // Scope. A web's search lists that web's Things: its instances, by instance
+  // id. The universe is asked for by name (scope: 'universe'), or used when
+  // there is no web to search.
+  const explicitWeb = args.targetGraphId != null && String(args.targetGraphId).trim() !== '';
+  const targetGraphId = explicitWeb
+    ? resolveGraphId(args.targetGraphId, graphs, { activeGraphId, openGraphIds: graphState.openGraphIds })
+    : activeGraphId;
+  const web = args.scope === 'universe' ? null : graphs.find(g => g.id === targetGraphId) || null;
 
-  // Build a combined node list from prototypes + active graph instances
-  // This ensures we find nodes even if prototypes list is incomplete
-  const nodeMap = new Map(); // id -> { id, name, color, description }
-
-  // Add prototypes
-  for (const proto of nodePrototypes) {
-    if (proto.id) {
-      nodeMap.set(proto.id, {
-        id: proto.id,
-        name: proto.name || '',
-        color: proto.color || '',
-        description: proto.description || ''
-      });
-    }
+  if (args.scope !== 'universe' && explicitWeb && !web) {
+    const available = graphs.map(g => g.name).filter(Boolean).slice(0, 8).join(', ');
+    return {
+      results: [],
+      total: 0,
+      scope: 'none',
+      message: `No web named or with id "${args.targetGraphId}". Webs: ${available || '(none)'}. Omit targetGraphId for the active web, or pass scope: 'universe' to search every Thing.`
+    };
   }
 
-  // Add instances from active target graph (may have names not in prototypes)
-  const activeGraph = graphs.find(g => g.id === targetGraphId);
-  if (activeGraph) {
-    const instances = Array.isArray(activeGraph.instances)
-      ? activeGraph.instances
-      : activeGraph.instances instanceof Map
-        ? Array.from(activeGraph.instances.values())
-        : Object.values(activeGraph.instances || {});
+  const protoById = new Map();
+  for (const proto of nodePrototypes) if (proto?.id) protoById.set(proto.id, proto);
 
-    for (const inst of instances) {
-      // Use instance name, fall back to prototype data
-      const protoData = nodeMap.get(inst.prototypeId) || {};
-      const name = inst.name || protoData.name || '';
-      const desc = inst.description || protoData.description || '';
-      const color = inst.color || protoData.color || '';
-
-      // Store by instance ID (preferred for operations) and prototype ID
-      if (inst.id) {
-        nodeMap.set(inst.id, {
-          id: inst.id,
-          prototypeId: inst.prototypeId,
-          name,
-          color,
-          description: desc
+  const nodeMap = new Map(); // id -> { id, prototypeId?, name, color, description }
+  if (web) {
+    // Its Things as the user sees them, those of a definition or formula
+    // opened in place included: they are kept in that definition's own web.
+    for (const { inst, openedIn } of instancesSeenIn(graphState, web)) {
+      if (!inst?.id || nodeMap.has(inst.id)) continue;
+      const proto = protoById.get(inst.prototypeId) || {};
+      nodeMap.set(inst.id, {
+        id: inst.id,
+        prototypeId: inst.prototypeId,
+        name: inst.name || proto.name || '',
+        color: inst.color || proto.color || '',
+        description: inst.description || proto.description || '',
+        ...(openedIn ? { openedIn } : {})
+      });
+    }
+  } else {
+    for (const proto of nodePrototypes) {
+      if (proto?.id) {
+        nodeMap.set(proto.id, {
+          id: proto.id,
+          name: proto.name || '',
+          color: proto.color || '',
+          description: proto.description || ''
         });
       }
     }
   }
+  const scope = web ? 'web' : 'universe';
+  const where = web ? `web "${web.name || web.id}"` : 'the universe';
+  const scopeNote = web
+    ? ` Searched ${where} (ids are instance ids; "openedIn" marks a Thing of a definition or formula opened in place there). Instances sharing a prototypeId are one Thing. Pass scope: 'universe' to search every Thing.`
+    : ' Searched every Thing in the universe (ids are prototype ids).';
 
   const allNodes = Array.from(nodeMap.values());
   const totalNodeCount = allNodes.length;
@@ -74,14 +84,15 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
       returned: page.length,
       offset,
       hasMore,
-      message: hasMore
+      scope,
+      message: (hasMore
         ? `Showing nodes ${offset + 1}–${offset + page.length} of ${totalNodeCount}. Use offset=${offset + limit} to see more.`
-        : `Showing all ${page.length} node(s) in the graph.`
+        : `Showing all ${page.length} node(s).`) + scopeNote
     };
   }
 
   if (allNodes.length === 0) {
-    return { results: [], total: 0, message: 'No nodes found in the current graph.' };
+    return { results: [], total: 0, scope, message: `No nodes in ${where}.${scopeNote}` };
   }
 
 
@@ -141,10 +152,10 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
       .map(({ similarity, ...node }) => node);
 
     if (fuzzyResults.length > 0) {
-      return { results: fuzzyResults, total: fuzzyResults.length, message: `Found ${fuzzyResults.length} similar node(s) (fuzzy match). Total nodes in graph: ${totalNodeCount}.` };
+      return { results: fuzzyResults, total: fuzzyResults.length, scope, message: `Found ${fuzzyResults.length} similar node(s) (fuzzy match). ${totalNodeCount} node(s) in ${where}.${scopeNote}` };
     }
 
-    return { results: [], total: 0, message: `No nodes matched "${query}". The active graph has ${totalNodeCount} node(s) total. Try omitting query to browse all nodes.` };
+    return { results: [], total: 0, scope, message: `No nodes matched "${query}". ${where.charAt(0).toUpperCase() + where.slice(1)} has ${totalNodeCount} node(s). Try omitting query to browse all nodes.${scopeNote}` };
   }
 
   const hasMore = totalMatched > results.length;
@@ -154,9 +165,10 @@ export async function searchNodes(args, graphState, cid, ensureSchedulerStarted)
     matched: totalMatched,
     returned: results.length,
     hasMore,
-    message: hasMore
-      ? `Showing top ${results.length} of ${totalMatched} matching node(s) for "${query}". Graph has ${totalNodeCount} nodes total.`
-      : `Found ${results.length} node(s) matching "${query}". Graph has ${totalNodeCount} nodes total.`
+    scope,
+    message: (hasMore
+      ? `Showing top ${results.length} of ${totalMatched} matching node(s) for "${query}". ${totalNodeCount} node(s) in ${where}.`
+      : `Found ${results.length} node(s) matching "${query}". ${totalNodeCount} node(s) in ${where}.`) + scopeNote
   };
 }
 

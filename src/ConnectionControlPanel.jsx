@@ -30,7 +30,7 @@ const ConnectionControlPanel = ({
   const nodePrototypesMap = useGraphStore((state) => state.nodePrototypes);
   // The active web as viewed: a connection inside an open Thing group has ends
   // that live in the definition web, projected in at view positions, so the raw
-  // graph's instances would miss them and the triplet would come up empty.
+  // graph's instances would miss them and the triple would come up empty.
   const instances = useGraphStore((state) => (
     state.activeGraphId ? projectGraphView(state, state.activeGraphId)?.instances ?? null : null
   ));
@@ -301,6 +301,11 @@ const ConnectionControlPanel = ({
   const heldPieMenu = (singleEdgeSelected && pieMenuButtons?.length)
     ? { buttons: pieMenuButtons, edgeId: pieMenuTargetEdgeId }
     : (nothingSelected ? lastPieMenuButtonsRef.current : null);
+  // The same for the connections themselves: with nothing selected the panel is
+  // only here to fly out, so it leaves showing what it last held.
+  const lastTriplesRef = useRef([]);
+  if (triples.length > 0) lastTriplesRef.current = triples;
+  const shownTriples = nothingSelected ? lastTriplesRef.current : triples;
 
   return (
     <UnifiedBottomControlPanel
@@ -311,7 +316,7 @@ const ConnectionControlPanel = ({
       onAnimationComplete={onAnimationComplete}
 
       // Connection mode props
-      triples={triples}
+      triples={shownTriples}
       onToggleLeftArrow={handleToggleLeftArrow}
       onToggleRightArrow={handleToggleRightArrow}
       onPredicateClick={handlePredicateClick}

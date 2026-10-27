@@ -19,11 +19,11 @@
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 import { createSaveMirrorSender } from './saveMirror.js';
 import { msSinceCameraMoved } from './cameraActivity.js';
-import { userDataCounts } from '../formats/userDataCounts.js';
+import { userDataCounts, countPlacements } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 import { vlog } from '../utils/verboseLog.js';
-import { getAutoSaveMode, autoSaves, universeItemCount, subscribeAutoSaveMode } from './autoSaveMode.js';
+import { getAutoSaveMode, autoSaves, subscribeAutoSaveMode } from './autoSaveMode.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce.
 // With the 500ms worker debounce, an edit reaches the file about 1.5s later. It
@@ -259,9 +259,11 @@ class SaveCoordinator {
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return false;
       if (parsed.dataBaseline && typeof parsed.dataBaseline === 'object') {
+        const placements = Math.max(this.dataBaseline?.placements || 0, parsed.dataBaseline.placements || 0);
         this.dataBaseline = {
           nodes: Math.max(this.dataBaseline?.nodes || 0, parsed.dataBaseline.nodes || 0),
-          graphs: Math.max(this.dataBaseline?.graphs || 0, parsed.dataBaseline.graphs || 0)
+          graphs: Math.max(this.dataBaseline?.graphs || 0, parsed.dataBaseline.graphs || 0),
+          ...(placements ? { placements } : {})
         };
       }
       if (parsed.lastSaveHash) this.lastSaveHash = parsed.lastSaveHash;
@@ -1323,7 +1325,7 @@ class SaveCoordinator {
     }
     // Autosave is off for this universe (autoSaveMode.js): the change stays
     // unsaved, and the indicator offers Save, until saveNow() asks.
-    if (!this.manualSaveRequested && !this.autoSaveActive(this.lastState)) {
+    if (!this.manualSaveRequested && !this.autoSaveActive()) {
       return;
     }
     if (this.isSaving) {
@@ -1553,7 +1555,8 @@ class SaveCoordinator {
       // protection threshold over time.
       this.dataBaseline = {
         nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
-        graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs)
+        graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs),
+        placements: Math.max(this.dataBaseline?.placements || 0, counts.placements || 0)
       };
 
       // Persist the baseline so the shrinkage guard survives page refresh.
@@ -1644,9 +1647,12 @@ class SaveCoordinator {
       const baseline = this.dataBaseline || { nodes: 0, graphs: 0 };
       const baselineNodes = baseline.nodes || 0;
       const baselineGraphs = baseline.graphs || 0;
+      const baselinePlacements = baseline.placements || 0;
       const collapsed = (
         (baselineNodes >= 5 && current.nodes <= Math.max(2, Math.floor(baselineNodes * 0.1))) ||
-        (baselineGraphs >= 1 && current.graphs === 0)
+        (baselineGraphs >= 1 && current.graphs === 0) ||
+        // Every Thing and web still here, the webs emptied (2026-10-23).
+        (baselinePlacements >= 50 && (current.placements || 0) <= Math.floor(baselinePlacements * 0.1))
       );
       if (collapsed) {
         console.warn('[SaveCoordinator] Refusing to save: data appears catastrophically reduced', {
@@ -1694,7 +1700,7 @@ class SaveCoordinator {
     }
 
     // Checked before any timer is cleared: the pipeline carries on as it was.
-    if (!this.autoSaveActive(this.nextStateToProcess || this.lastState)) {
+    if (!this.autoSaveActive()) {
       vlog(`[SaveCoordinator] flush(${reason}) skipped: autosave is off for this universe`);
       return false;
     }
@@ -2108,12 +2114,12 @@ class SaveCoordinator {
    *
    * @private
    * @param {Object} state - Zustand store snapshot.
-   * @returns {{ nodes: number, graphs: number }} Counts of user prototypes and graphs.
+   * @returns {{ nodes: number, graphs: number, placements: number }} Counts of user prototypes, graphs and placements.
    */
   _countDataItems(state) {
-    if (!state) return { nodes: 0, graphs: 0 };
+    if (!state) return { nodes: 0, graphs: 0, placements: 0 };
     const { nodes, graphs } = userDataCounts(state);
-    return { nodes, graphs };
+    return { nodes, graphs, placements: countPlacements(state) };
   }
 
   /**
@@ -2150,8 +2156,26 @@ class SaveCoordinator {
       );
       return {
         nodes: Math.max(prior.nodes || 0, counts.nodes),
-        graphs: Math.max(prior.graphs || 0, counts.graphs)
+        graphs: Math.max(prior.graphs || 0, counts.graphs),
+        placements: Math.max(prior.placements || 0, counts.placements || 0)
       };
+    }
+    // Webs read back hollow: most of the Things are here, but almost nothing
+    // is placed in any web. On 2026-10-23 a half-edited build read every web
+    // of a universe back empty; it arrived as a load, so adopting it lowered
+    // the floor and the empty webs were saved. Keep the placement floor for
+    // that shape only; an ordinary shrink still adopts its own counts.
+    const priorPlacements = prior.placements || 0;
+    if (
+      sameUniverse
+      && priorPlacements >= 50
+      && (counts.placements || 0) <= Math.floor(priorPlacements * 0.1)
+      && counts.nodes >= Math.floor((prior.nodes || 0) * 0.5)
+    ) {
+      console.warn(
+        `[SaveCoordinator] ${reason}: the webs came back nearly empty (${counts.placements || 0} placements, ${priorPlacements} before) with their Things still here — keeping the placement floor so autosave won't write them.`
+      );
+      return { ...counts, placements: priorPlacements };
     }
     return counts;
   }
@@ -2192,14 +2216,12 @@ class SaveCoordinator {
 
   /**
    * Whether this universe saves on its own (autoSaveMode.js): the setting,
-   * and for Automatic, the universe's size (Things plus webs, and the bytes
-   * of the file the worker last built).
+   * and for Automatic, the bytes of the file the worker last built.
    *
-   * @param {Object} [state] - defaults to the newest state the coordinator has
    * @returns {boolean}
    */
-  autoSaveActive(state = this.nextStateToProcess || this.lastState) {
-    return autoSaves(getAutoSaveMode(), { items: universeItemCount(state), bytes: this.lastFileBytes });
+  autoSaveActive() {
+    return autoSaves(getAutoSaveMode(), { bytes: this.lastFileBytes });
   }
 
   /**

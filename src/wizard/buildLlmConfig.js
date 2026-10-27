@@ -36,12 +36,17 @@ export function resolveMaxIterations(apiConfig = {}) {
 }
 
 /**
- * Hard per-ask token budget — a cost ceiling independent of iteration count.
- * The loop aborts once cumulative usage crosses this.
+ * Per-ask token budget — a runaway guard, not a pacing limit.
+ *
+ * Past it, the loop keeps going while the run is still building and stops once
+ * it stalls; at twice it, the loop stops regardless (see AgentLoop). It used to
+ * default to 500k and stop flat, which on a long conversation (history replayed
+ * every iteration) or a cache miss ended healthy builds around iteration 8 —
+ * long before the iteration cap — and left half-wired webs behind.
  */
 export function resolveMaxAskTokens(apiConfig = {}) {
   const HARD_CEILING = 2000000;
-  const DEFAULT = 500000;
+  const DEFAULT = 2000000;
   const configured = apiConfig.settings?.maxAskTokens;
 
   let n = DEFAULT;

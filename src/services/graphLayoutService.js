@@ -5,7 +5,7 @@
  * Focuses on predictability, spaciousness, and preventing node overlap.
  */
 
-import { GROUP_LAYOUT_CONSTANTS, labelBoxFor } from './groupLayout.js';
+import { GROUP_LAYOUT_CONSTANTS, labelBoxFor, labelGrowthFactor, grownLabelBox } from './groupLayout.js';
 // Shared box/segment geometry. This module imports nothing from services/, so
 // it is safe to pull in ahead of the patternLayouts cycle below.
 import {
@@ -333,7 +333,7 @@ function buildGroupContainmentHierarchy(groups) {
  * @param {object} group
  * @param {{minX, minY, maxX, maxY}} bbox - member bounding box
  * @param {object} [config] - reads gridSize, measureLabelWidth,
- *        groupLabelFontSize, groupLabelScale. Omit for the constant defaults.
+ *        groupLabelFontSize, groupLabelScale, groupLabelGrowth. Omit for the constant defaults.
  */
 export function deriveGroupVisualBounds(group, bbox, config = {}) {
   const C = GROUP_LAYOUT_CONSTANTS;
@@ -348,7 +348,8 @@ export function deriveGroupVisualBounds(group, bbox, config = {}) {
 
   const measure = config.measureLabelWidth
     || ((text) => estimateEdgeLabelWidth(text, labelFontSize));
-  const labelBox = labelBoxFor(group.name || 'Group', measure, labelScale, labelFontSize);
+  const baseLabelBox = labelBoxFor(group.name || 'Group', measure, labelScale, labelFontSize);
+  const labelBox = grownLabelBox(baseLabelBox, labelGrowthFactor(config.groupLabelGrowth, rectW, baseLabelBox.w));
   const labelWidth = labelBox.w;
   const labelHeight = labelBox.h;
 
@@ -817,7 +818,7 @@ export const FORCE_LAYOUT_DEFAULTS = {
   clearancePadding: 24,
 
   // Advanced forces
-  enableEdgeRepulsion: true, // Triplet repulsion
+  enableEdgeRepulsion: true, // Triple repulsion
   stiffness: 0.6,            // Rigid body stiffness (0.0 - 1.0)
 
   // Group clustering
@@ -2839,7 +2840,7 @@ export function forceDirectedLayout(nodes, edges, options = {}) {
     // ------------------------------------------------------------------------
     // Edges repel nodes (and thus other edges via their endpoints).
     // This prevents nodes from crossing edges or sitting on top of them.
-    // It naturally handles "triplet repulsion" (edge-edge) by repelling 
+    // It naturally handles "triple repulsion" (edge-edge) by repelling 
     // each edge's endpoints from the other edge's segment.
 
     if (config.enableEdgeRepulsion) {
@@ -5341,6 +5342,8 @@ export function circularLayout(nodes, edges, options = {}) {
  * Apply layout algorithm and return position updates
  */
 export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
+  const rigid = rigidBlocks(nodes, edges, options);
+  if (rigid) return rigid.expand(applyLayout(rigid.nodes, rigid.edges, algorithm, rigid.options));
   if (algorithm === 'best') return bestLayout(nodes, edges, options);
   if (algorithm === 'community') {
     const blocks = communityGroups(nodes, edges, options);
@@ -5370,6 +5373,110 @@ export function applyLayout(nodes, edges, algorithm = 'force', options = {}) {
   const positions = new Map(updates.map(u => [u.instanceId, { x: u.x, y: u.y }]));
   const repaired = repairLayout(positions, nodes, edges, repairOptions(options));
   return toUpdates(repaired.positions);
+}
+
+/**
+ * Some groups are laid out as one rigid block, their Things kept where they
+ * stand relative to each other:
+ *
+ * - A formula (a group shown as one, format 'formula'): its Things are a
+ *   finished row whose order its reading depends on
+ *   (formats/formula/formulaChain.js), and laying them out one by one
+ *   scatters them.
+ * - An open definition (`isOpenDefinition`, core/openDefinitions.js): its
+ *   Things live in the definition, not in this web. When every one of them
+ *   moves, the store moves the box as a whole and keeps the definition's
+ *   arrangement (graphStore applyOpenDefinitionMoves), so an arrangement the
+ *   solver made up for its interior is thrown away, and the box lands at its
+ *   own size, over whatever the solver packed around the one it planned.
+ *
+ * Each becomes a single block for the solve, and its Things go back around
+ * wherever the block lands, as they were. Groups inside it go with it; a group
+ * it sits in holds the block in its place. Null when there is no such group.
+ *
+ * The block is the size the group is DRAWN: a formula's band, title and all
+ * (`options.formulaFrames`, groupId -> the frame formulaObjects draws, passed
+ * by the canvas, which can measure text); otherwise the group's box. Never the
+ * Things' bare bounds: the solver only keeps other nodes off the block, so
+ * whatever of the drawn box lies outside it is room a loose node is free to be
+ * put in.
+ */
+function rigidBlocks(nodes, edges, options) {
+  const groups = options.groups || [];
+  const isRigid = (g) => g.format === 'formula' || g.isOpenDefinition === true;
+  if (!groups.some(isRigid)) return null;
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const blockOf = new Map(); // instance id -> block id
+  const blocks = [];
+  // Outermost first: a block takes everything inside it, groups and all.
+  const rigid = groups.filter(isRigid)
+    .sort((a, b) => (b.memberInstanceIds?.length || 0) - (a.memberInstanceIds?.length || 0));
+  for (const g of rigid) {
+    const ids = new Set((g.memberInstanceIds || []).filter(id => byId.has(id)));
+    if (ids.size === 0 || [...ids].some(id => blockOf.has(id))) continue;
+    // Its anchor is its title, drawn from the members: moved with them, not sized by them.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    ids.forEach((id) => {
+      const n = byId.get(id);
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + (n.width || 150)); maxY = Math.max(maxY, n.y + (n.height || 100));
+    });
+    if (g.anchorInstanceId && byId.has(g.anchorInstanceId)) ids.add(g.anchorInstanceId);
+    const drawn = options.formulaFrames?.[g.id];
+    const vb = drawn?.w > 0 && drawn?.h > 0
+      ? drawn
+      : deriveGroupVisualBounds(g, { minX, minY, maxX, maxY }, options);
+    minX = vb.x; minY = vb.y;
+    const id = `__rigid__${g.id}`;
+    const w = vb.w;
+    const h = vb.h;
+    blocks.push({ id, ids, minX, minY });
+    ids.forEach(m => blockOf.set(m, id));
+    byId.set(id, { id, prototypeId: null, x: minX, y: minY, width: w, height: h, labelWidth: w, labelHeight: h, imageHeight: 0, nodeSize: Math.max(w, h) });
+  }
+  if (blocks.length === 0) return null;
+
+  const inBlock = (id) => blockOf.get(id) || id;
+  const insideOne = (g) => (g.memberInstanceIds || []).length > 0 && g.memberInstanceIds.every(m => blockOf.has(m));
+  const reducedGroups = [];
+  for (const g of groups) {
+    if (isRigid(g) || insideOne(g)) continue;
+    const members = [...new Set((g.memberInstanceIds || []).map(inBlock))];
+    reducedGroups.push({ ...g, memberInstanceIds: members, ...(g.anchorInstanceId ? { anchorInstanceId: inBlock(g.anchorInstanceId) } : {}) });
+  }
+  const reducedEdges = [];
+  for (const e of edges) {
+    const sourceId = inBlock(e.sourceId);
+    const destinationId = inBlock(e.destinationId);
+    if (sourceId === destinationId) continue; // inside one formula
+    const arrows = e.directionality?.arrowsToward;
+    reducedEdges.push({
+      ...e, sourceId, destinationId,
+      ...(arrows ? { directionality: { ...e.directionality, arrowsToward: [...arrows].map(inBlock) } } : {}),
+    });
+  }
+  const reducedNodes = [...nodes.filter(n => !blockOf.has(n.id)), ...blocks.map(b => byId.get(b.id))];
+
+  return {
+    nodes: reducedNodes,
+    edges: reducedEdges,
+    options: { ...options, groups: reducedGroups },
+    expand(updates) {
+      const out = [];
+      const placed = new Map((updates || []).map(u => [u.instanceId, u]));
+      for (const u of updates || []) if (!u.instanceId.startsWith('__rigid__')) out.push(u);
+      for (const b of blocks) {
+        const at = placed.get(b.id);
+        const dx = at ? at.x - b.minX : 0;
+        const dy = at ? at.y - b.minY : 0;
+        b.ids.forEach((id) => {
+          const n = nodes.find(x => x.id === id);
+          if (n) out.push({ instanceId: id, x: Math.round(n.x + dx), y: Math.round(n.y + dy) });
+        });
+      }
+      return out;
+    },
+  };
 }
 
 /** The repair fences only what is DRAWN — community blocks are not. */

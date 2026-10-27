@@ -436,7 +436,7 @@ describe('OrbitOverlay', () => {
     expect(item.getAttribute('transform')).not.toBe(frozen); // resumed
   });
 
-  it('fades every other triplet back while one is hovered, and restores them after', () => {
+  it('fades every other triple back while one is hovered, and restores them after', () => {
     const { container } = renderOverlay({
       ring1Candidates: [candidate('a', 'instanceOf'), candidate('b', 'partOf')],
       ring2Candidates: [candidate('c', 'hasPart')],
@@ -462,7 +462,7 @@ describe('OrbitOverlay', () => {
     expect(dimmed()).toEqual([]);
   });
 
-  it('keeps the orbit dimmed when the pointer crosses straight to another triplet', () => {
+  it('keeps the orbit dimmed when the pointer crosses straight to another triple', () => {
     // Leave and enter arrive in browser-chosen order. A leave that fired after
     // the next item's enter used to clear the new hover, un-dimming everything
     // and restarting rotation under the pointer.
@@ -478,14 +478,14 @@ describe('OrbitOverlay', () => {
     expect(items[1].hasAttribute('data-dimmed')).toBe(false);
     expect(items[0].hasAttribute('data-dimmed')).toBe(true);
 
-    // ...and rotation is still held for the triplet actually under the pointer.
+    // ...and rotation is still held for the triple actually under the pointer.
     flushFrames(2); // the already-scheduled frame only stands down when it runs
     const frozen = items[1].getAttribute('transform');
     flushFrames(6);
     expect(items[1].getAttribute('transform')).toBe(frozen);
   });
 
-  it('brings a late arrival in already dimmed when a triplet is hovered', () => {
+  it('brings a late arrival in already dimmed when a triple is hovered', () => {
     // Candidates stream in, so entrances finish mid-hover. Their alpha is
     // written inline until they land, which outranks the stylesheet — the dim
     // has to be re-applied at the moment the entrance hands alpha back.

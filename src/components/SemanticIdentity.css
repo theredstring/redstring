@@ -502,7 +502,7 @@
   border-color: #555;
 }
 
-.relationship-triplet {
+.relationship-triple {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -510,15 +510,15 @@
   min-width: 0;
 }
 
-.relationship-triplet .subject,
-.relationship-triplet .object {
+.relationship-triple .subject,
+.relationship-triple .object {
   font-family: 'EmOne', sans-serif;
   font-size: 10px;
   color: #260000;
   font-weight: 500;
 }
 
-.relationship-triplet .predicate {
+.relationship-triple .predicate {
   font-family: 'EmOne', sans-serif;
   font-size: 9px;
   color: #666;

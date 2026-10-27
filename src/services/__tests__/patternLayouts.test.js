@@ -1343,13 +1343,21 @@ describe('tree orientation is a convention, not a function of the window', () =>
     shapes.forEach(s => expect(s).toBe(shapes[0]));
   });
 
-  it('runs depth downward', () => {
+  it('runs depth left to right', () => {
     const nodes = ['root', 'a', 'b'].map(id => node(id));
     const edges = [edge('root', 'a', 'has'), edge('root', 'b', 'has')];
-    const p = treeLayout(nodes, edges, { rootId: 'root', width: 3000, height: 600 });
-    // Even on a canvas whose shape argues loudly for a sideways tree.
-    expect(p.get('a').y).toBeGreaterThan(p.get('root').y);
-    expect(p.get('b').y).toBeGreaterThan(p.get('root').y);
+    const p = treeLayout(nodes, edges, { rootId: 'root', width: 600, height: 3000 });
+    // Even on a canvas whose shape argues loudly for a downward tree.
+    expect(p.get('a').x).toBeGreaterThan(p.get('root').x);
+    expect(p.get('b').x).toBeGreaterThan(p.get('root').x);
+  });
+
+  it('runs a layered flow left to right', () => {
+    const nodes = ['a', 'b', 'c', 'd'].map(id => node(id));
+    const edges = [edge('a', 'b', 'feeds'), edge('a', 'c', 'feeds'), edge('b', 'd', 'feeds'), edge('c', 'd', 'feeds')];
+    const p = layeredLayout(nodes, edges, { width: 600, height: 3000 });
+    expect(p.get('b').x).toBeGreaterThan(p.get('a').x);
+    expect(p.get('d').x).toBeGreaterThan(p.get('b').x);
   });
 });
 

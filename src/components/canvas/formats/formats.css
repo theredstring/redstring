@@ -1,0 +1,873 @@
+/* Formats: the offer pill and the formula view. The pill is Back to
+   Civilization's (BackToCivilization.css) so the two read as one family. */
+
+.format-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 20px;
+  padding: 8px 16px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button.format-pill:hover:not(:disabled) {
+  border-color: maroon;
+  background-color: #D0CACA;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+button.format-pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- Offer ------------------------------------------------------------- */
+
+.format-offer {
+  position: fixed;
+  z-index: 1000;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.format-offer.is-in {
+  animation: format-offer-pop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.format-offer.is-steady {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.format-offer.is-out {
+  animation: format-offer-shrink 150ms cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+}
+
+@keyframes format-offer-pop {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  70% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+@keyframes format-offer-shrink {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+}
+
+.format-offer-pill {
+  padding: 0;
+  gap: 0;
+  cursor: default;
+  overflow: hidden;
+}
+
+.format-offer-pill:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.format-offer-main,
+.format-offer-dismiss {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.format-offer-main {
+  gap: 8px;
+  padding: 8px 12px 8px 14px;
+}
+
+.format-offer-dismiss {
+  padding: 8px 12px 8px 10px;
+}
+
+.format-offer-main:hover,
+.format-offer-dismiss:hover {
+  background-color: #D0CACA;
+}
+
+.format-offer-divider {
+  width: 2px;
+  align-self: stretch;
+  background-color: maroon;
+  opacity: 0.25;
+}
+
+.format-offer-preview {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: bold;
+  line-height: 1;
+}
+
+/* --- New Formula (formula/FormulaComposer), in the unified selector ----
+   index.css gives every button a blue border on hover (the Vite starter's);
+   each button here names its own, so none of them shows it. */
+
+/* The slider pill at the right of the box's title, a size down. */
+.formula-selector .format-slider {
+  flex-shrink: 0;
+  box-shadow: none;
+}
+
+.formula-selector .format-slider-option {
+  min-width: 60px;
+  padding: 3px 12px;
+  font-size: 11px;
+}
+
+/* A formula typed: the box shows it, large, in its middle. */
+.formula-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 120px;
+  padding: 16px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 34px;
+  font-weight: bold;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* What can't be read yet, over the bank. */
+.formula-preview-error {
+  padding: 2px 4px 10px;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  opacity: 0.75;
+}
+
+/* A choice of a few, as a pill with a thumb that slides to the one chosen. */
+.format-slider {
+  position: relative;
+  display: inline-flex;
+  padding: 3px;
+  border: 2px solid maroon;
+  border-radius: 18px;
+  background-color: #DEDADA;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  user-select: none;
+}
+
+.format-slider-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  border-radius: 14px;
+  background-color: maroon;
+  transition: transform 0.25s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+.format-slider-option {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 96px;
+  padding: 5px 14px;
+  border: none;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.format-slider-option.is-active {
+  color: #DEDADA;
+  cursor: default;
+}
+
+/* --- Formula object on the canvas (formula/FormulaObjectsLayer) -------- */
+
+.formula-object-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  font-family: 'EmOne', sans-serif;
+  color: var(--fo-text);
+}
+
+.formula-object-chip {
+  padding: 8px 22px;
+  border-radius: 18px;
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.formula-object-role {
+  font-size: 16px;
+  color: var(--fo-muted);
+}
+
+.formula-object-description {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+/* --- Token previews (formula/FormulaTokens) ---------------------------- */
+
+.formula-tokens {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.formula-token {
+  position: relative;
+  display: inline-block;
+  padding: 0 0.13em;
+}
+
+.formula-token.kind-operator {
+  padding: 0 0.34em;
+}
+
+/* Multiplied side by side (mc, 4ac): right against what it multiplies. */
+.formula-token.is-joined {
+  padding-left: 0.05em;
+}
+
+/* A function's name keeps a little room from what it multiplies (B log₂, 2 sin). */
+.formula-token.kind-function.is-joined {
+  padding-left: 0.2em;
+}
+
+/* A logarithm's base, lowered against its "log". */
+.formula-token.is-before-lowered {
+  padding-right: 0.02em;
+}
+
+.formula-token.is-lowered {
+  padding: 0 0.07em 0 0.03em;
+}
+
+/* A division stacked as a fraction: numerator over denominator, the bar
+   level with the minus sign and a little wider than both. */
+.formula-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  margin: 0 0.12em;
+  line-height: 1.05;
+}
+
+.formula-frac-num,
+.formula-frac-den {
+  display: block;
+  white-space: nowrap;
+}
+
+/* A square root over what it holds: the sign stretched to its height, its
+   bar the body's top edge. */
+.formula-root {
+  display: inline-flex;
+  align-items: baseline;
+  margin: 0 0.06em 0 0.1em;
+}
+
+.formula-root-sign {
+  align-self: stretch;
+  flex: none;
+  width: 0.55em;
+  height: auto;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.formula-root-body {
+  border-top: 0.075em solid currentColor;
+  padding: 0.12em 0.08em 0 0.08em;
+  white-space: nowrap;
+}
+
+.formula-frac-bar {
+  align-self: stretch;
+  height: 0.07em;
+  min-height: 1px;
+  margin: 0.1em 0;
+  border-radius: 1em;
+  background: currentColor;
+}
+
+/* A sum's ∑ and a limit's lim over what they run over; an integral's ∫ with
+   its limits at its side. The limits size themselves (FormulaTokens). */
+.formula-big {
+  display: inline-flex;
+  vertical-align: middle;
+  align-items: center;
+  margin: 0 0.1em;
+  line-height: 1;
+}
+
+.formula-big.is-limits {
+  flex-direction: column;
+}
+
+.formula-big-sign {
+  font-size: 1.45em;
+  line-height: 1;
+}
+
+.formula-big.is-scripts .formula-big-sign {
+  font-size: 1.6em;
+}
+
+.formula-big.is-word .formula-big-sign {
+  font-size: 1em;
+  padding: 0 0.13em;
+}
+
+.formula-big-over,
+.formula-big-under {
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.formula-big-scripts {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-self: stretch;
+  margin-left: -0.08em;
+}
+
+.formula-big-scripts .formula-big-under {
+  margin-left: -0.3em;
+}
+
+/* A vector's arrow over its letter (F⃗), drawn rather than left to the font. */
+.formula-vec {
+  position: relative;
+  display: inline-block;
+}
+
+.formula-vec::after {
+  content: '';
+  position: absolute;
+  left: 0.08em;
+  right: 0.02em;
+  top: -0.14em;
+  height: 0.06em;
+  min-height: 1px;
+  background: currentColor;
+  border-radius: 1em;
+}
+
+.formula-vec::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: calc(-0.14em - 0.09em);
+  border-left: 0.16em solid currentColor;
+  border-top: 0.12em solid transparent;
+  border-bottom: 0.12em solid transparent;
+}
+
+/* A sign or root sits against what it applies to. */
+.formula-token.kind-operator.is-prefix {
+  padding: 0 0.06em 0 0.13em;
+}
+
+.formula-token.kind-comma {
+  padding: 0 0.38em 0 0;
+}
+
+.formula-token.kind-paren {
+  padding: 0 0.05em;
+  opacity: 0.75;
+}
+
+
+/* --- Group control panel, format mode (FormatPanelPreview) ------------- */
+
+/* Written as the canvas writes a formula: its font and the canvas's text
+   color, no chip. Too long, it ends at a whole token and "…" (FormatPanelPreview). */
+.format-panel-formula {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  max-width: min(520px, 70vw);
+  min-width: 0;
+  font-family: 'EmOne', sans-serif;
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 1.2;
+  color: var(--canvas-text, #260000);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.format-panel-more {
+  padding-left: 0.05em;
+}
+
+/* A symbol's subscript (v_0, T_c): lowered, smaller, against its letter
+   (SUBSCRIPT_SCALE in formula/formulaScale.js). */
+.formula-token-sub {
+  font-size: 0.72em;
+  vertical-align: -0.28em;
+  line-height: 0;
+}
+
+/* --- Equations section in the panel (formula/EquationsSection) --------- */
+
+.equations-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-right: 15px;
+  padding: 4px 0 8px;
+  font-family: 'EmOne', sans-serif;
+}
+
+.equations-written-as {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: bold;
+}
+
+.equations-written-as input {
+  flex: 0 1 140px;
+  min-width: 60px;
+  padding: 4px 10px;
+  border: 2px solid;
+  border-radius: 10px;
+  background: transparent;
+  font-family: 'EmOne', sans-serif;
+  font-size: 1rem;
+  font-weight: bold;
+  outline: none;
+}
+
+.equations-written-as input::placeholder {
+  opacity: 0.4;
+}
+
+.equations-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid;
+  border-radius: 14px;
+  background: transparent;
+  font-family: 'EmOne', sans-serif;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.92;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.equations-row:hover:not(:disabled) {
+  opacity: 1;
+  transform: scale(1.01);
+}
+
+.equations-row:disabled {
+  cursor: default;
+}
+
+.equations-row-title {
+  font-size: 0.95rem;
+  font-weight: bold;
+}
+
+.equations-row-symbol {
+  display: inline-block;
+  padding: 0 0.35em;
+  border-radius: 0.3em;
+}
+
+.equations-row-formula {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: bold;
+}
+
+/* --- The bank in New Formula's box (formula/FormulaBankPicker) --------
+   Its choices in the box's header, its list in the box's panel, each row a
+   tile of the pill's colour. */
+
+/* Every choice, fixed at the top: the disciplines, then the chosen one's
+   sections. The list scrolls under it. */
+.format-bank-top {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-top: 10px;
+}
+
+.format-bank-choices {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* Faded at the right: more choices scroll in from there. */
+  padding-right: 20px;
+  mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+}
+
+.format-bank-choices::-webkit-scrollbar {
+  display: none;
+}
+
+.format-bank-choice {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border: 1.5px solid maroon;
+  border-radius: 12px;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+}
+
+.format-bank-choices:first-child .format-bank-choice {
+  font-size: 12px;
+}
+
+.format-bank-choice:hover,
+.format-bank-choice.gamepad-menu-focus {
+  border-color: maroon;
+  background-color: #D0CACA;
+}
+
+.format-bank-choice:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.format-bank-choice.is-on {
+  background-color: maroon;
+  color: #DEDADA;
+}
+
+/* Nothing written in it yet: it only knows of results. */
+.format-bank-choice.is-dim:not(.is-on) {
+  opacity: 0.5;
+}
+
+.format-bank-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Rows side by side where the box is wide enough for them. */
+.format-bank-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 8px;
+}
+
+/* A section's equations under its name; the name opens the section. */
+.format-bank-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.format-bank-group {
+  gap: 10px;
+}
+
+.format-bank-group + .format-bank-group {
+  margin-top: 22px;
+}
+
+/* A section's name over a plain dividing line; hovered, the name underlines. */
+.format-bank-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 6px;
+  border: none;
+  border-bottom: 2px solid maroon;
+  border-radius: 0;
+  background: none;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.format-bank-group-head:hover:not(.is-static) {
+  border-bottom-color: maroon;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.format-bank-group-head.is-static {
+  cursor: default;
+}
+
+.format-bank-group-count {
+  font-size: 12px;
+  opacity: 0.6;
+  text-decoration: none;
+}
+
+/* What a section knows of and the bank doesn't write yet: each opens its article. */
+.format-bank-known {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.format-bank-known-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 12px;
+  background-color: #DEDADA;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.format-bank-known-row:hover,
+.format-bank-known-row.gamepad-menu-focus {
+  background-color: #D0CACA;
+}
+
+.format-bank-known-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.format-bank-known-title {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.format-bank-known-why {
+  flex-shrink: 0;
+  max-width: 50%;
+  overflow: hidden;
+  font-size: 10px;
+  opacity: 0.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Its title and what it is, then its formula on a line of its own, at the
+   card's foot so formulas side by side line up. */
+.format-bank-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: none;
+  border-radius: 12px;
+  background-color: #DEDADA;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s ease;
+}
+
+.format-bank-row:hover:not(:disabled),
+.format-bank-row.gamepad-menu-focus {
+  background-color: #D0CACA;
+}
+
+.format-bank-row:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.format-bank-row-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.format-bank-row-where {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+/* What it is, in a line or two; the whole of it on hover. */
+.format-bank-row-about,
+.format-bank-known-about {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.35;
+  opacity: 0.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.format-bank-known-about {
+  font-size: 10.5px;
+}
+
+/* What a chosen section is, over its list. */
+.format-bank-about {
+  padding: 0 2px 6px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11.5px;
+  font-weight: normal;
+  line-height: 1.4;
+  color: maroon;
+  opacity: 0.85;
+}
+
+.format-bank-row-formula {
+  display: block;
+  margin-top: auto;
+  /* Room above for exponents, which sit higher than the line. */
+  padding-top: 0.35em;
+  overflow: hidden;
+  font-weight: bold;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.format-bank-loading,
+.format-bank-source {
+  padding: 4px 2px;
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  color: maroon;
+  opacity: 0.65;
+}
+
+.format-bank-source {
+  padding: 18px 2px 0;
+  text-align: right;
+}
+
+.format-bank-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+/* The formula starter offered in the box (formula/StarterOffer): the bank's
+   disciplines to add, a line saying what that adds, Add, and its progress. */
+.format-starter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.format-starter-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.format-starter-choices .format-bank-choice:disabled {
+  cursor: default;
+}
+
+.format-starter-count {
+  margin-left: 3px;
+  opacity: 0.6;
+}
+
+.format-starter-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.format-starter-note {
+  font-family: 'EmOne', sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  color: maroon;
+  opacity: 0.75;
+}
+
+.format-starter-bar {
+  height: 3px;
+  border-radius: 2px;
+  background-color: rgba(128, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.format-starter-bar > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-color: maroon;
+  /* Its share is a scaleX (StarterOffer.jsx): eased on the compositor. */
+  transform-origin: left center;
+  transition: transform 0.2s ease;
+}
+
+.format-bank-choice-icon {
+  margin-right: 3px;
+  vertical-align: -1px;
+}

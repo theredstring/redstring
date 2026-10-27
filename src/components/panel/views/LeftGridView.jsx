@@ -441,7 +441,7 @@ const LeftGridView = ({
           justifyContent: isHeaderWide ? 'space-between' : undefined,
           alignItems: isHeaderWide ? 'center' : 'flex-start',
           gap: isHeaderWide ? '12px' : '8px',
-          position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 16px', backgroundColor: theme.canvas.bg
+          position: 'sticky', top: 0, zIndex: 20, margin: '-15px -15px 0', padding: '15px 15px 0', backgroundColor: theme.canvas.bg
         }}
       >
         <h2 style={{ margin: 0, color: theme.canvas.textPrimary, userSelect: 'none', fontSize: '1.1rem', fontWeight: 'bold', fontFamily: "'EmOne', sans-serif" }}>
@@ -464,7 +464,7 @@ const LeftGridView = ({
             // selector is mounted by NodeCanvas, the same route Merge
             // Duplicates takes out of this panel (see above).
             onClick={() => window.dispatchEvent(new Event('redstring:new-web'))}
-            title="Create New Thing with Graph Definition"
+            title="Create or Open Web"
           />
           <PanelIconButton
             icon={SlidersHorizontal}

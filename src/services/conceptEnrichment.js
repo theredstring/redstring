@@ -4,7 +4,7 @@
  *
  * `buildEnrichmentUpdates` lived inside LeftAIView, which meant the only way to
  * enrich anything was to go through the wizard's name-search path. A concept
- * dragged in from Semantic Discovery already carries the exact URL the user
+ * dragged in from Semantic Web Search already carries the exact URL the user
  * chose off a described list, so it needs the second half without the first.
  */
 import useGraphStore from '../store/graphStore.js';

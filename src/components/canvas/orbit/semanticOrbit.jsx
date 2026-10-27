@@ -83,7 +83,7 @@ export function useSemanticOrbit({
    * from the stick aiming at it. Goes through the same dwell timer every other
    * hover does, so the preview behaves identically whichever raised it.
    *
-   * What gets previewed is the TRIPLET the candidate would become if it were
+   * What gets previewed is the TRIPLE the candidate would become if it were
    * placed: focus node —predicate→ candidate, in the same payload shape the
    * edge hit test produces, so the aid draws it with the connection recipe and
    * knows nothing about orbit. A lone node box would only repeat what the orbit
