@@ -276,8 +276,18 @@ async function unreachable(p, what) {
   return `(${what}: nothing reachable: ${info.inWeb} in the web, ${info.dom} drawn, ${info.onScreen} on screen)`;
 }
 
-/** A person working with the mouse is looking at a web with Things in it: open one if needed. */
+/** Help opens over the canvas on a first launch (What's New); a person closes it first. */
+async function closeHelp(p) {
+  const close = p.page.locator('.help-modal-sidebar').locator('xpath=ancestor::*[.//*[@title="Close"]][1]').locator('[title="Close"]').first();
+  if (!(await close.isVisible().catch(() => false))) return false;
+  await close.click();
+  await sleep(400);
+  return true;
+}
+
+/** A person working with the mouse is looking at a web with Things in it: open one if needed. Returns what they did, or null. */
 async function lookAtThings(p, rng) {
+  if (await closeHelp(p)) return "close What's New";
   const opened = await inPage(p, (pickIndex) => {
     const s = window.useGraphStore.getState();
     if ((s.graphs.get(s.activeGraphId)?.instances?.size || 0) > 0) return null;
@@ -288,12 +298,12 @@ async function lookAtThings(p, rng) {
     return id;
   }, rng.int(1000));
   if (opened) await sleep(800);
-  return opened;
+  return opened ? `open web ${opened}` : null;
 }
 
 async function dragThing(p, rng) {
   const opened = await lookAtThings(p, rng);
-  if (opened) return `open web ${opened}`;
+  if (opened) return opened;
   const things = await reachableThings(p);
   const thing = rng.pick(things);
   if (!thing) return unreachable(p, 'drag');
@@ -312,6 +322,7 @@ async function dragThing(p, rng) {
 }
 
 async function autoLayout(p, rng) {
+  if (await closeHelp(p)) return "close What's New";
   const spot = await emptySpot(p, rng);
   if (!spot) return null;
   await p.page.mouse.click(spot.x, spot.y, { button: 'right' });
@@ -328,7 +339,7 @@ async function autoLayout(p, rng) {
 
 async function deleteThing(p, rng) {
   const opened = await lookAtThings(p, rng);
-  if (opened) return `open web ${opened}`;
+  if (opened) return opened;
   const thing = rng.pick(await reachableThings(p));
   if (!thing) return unreachable(p, 'delete');
   await p.page.mouse.click(thing.x, thing.y);
@@ -340,6 +351,7 @@ async function deleteThing(p, rng) {
 }
 
 async function undo(p) {
+  if (await closeHelp(p)) return "close What's New";
   const spot = await emptySpot(p, seededRandom(1));
   if (spot) await p.page.mouse.click(spot.x, spot.y);
   await p.page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
