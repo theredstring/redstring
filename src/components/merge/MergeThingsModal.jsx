@@ -4,7 +4,9 @@ import CanvasModal from '../CanvasModal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
 import { useTheme } from '../../hooks/useTheme.js';
-import { scanForDuplicatesSteps, computeCarryOver } from '../../services/duplicateScan.js';
+import {
+  scanForDuplicatesSteps, computeCarryOver, proposeMergeSet, computeSetCarryOver, compareThings
+} from '../../services/duplicateScan.js';
 import { performUndo } from '../../store/historyActions.js';
 import '../ModalChrome.css';
 
@@ -44,6 +46,51 @@ const describeFactors = (factors) => (factors || [])
   .map((f) => FACTOR_LABEL[f.factor] || f.factor)
   .join(' · ');
 
+// A thing can be used two ways — placed on a web, and as a connection's type.
+// Both are shown, because a thing that types many connections but sits on no
+// canvas is heavily used and used to read as "0 uses".
+const describeUses = (uses) => {
+  const parts = [];
+  if (uses.instances > 0) parts.push(`${uses.instances} ${uses.instances === 1 ? 'use' : 'uses'}`);
+  if (uses.connections > 0) parts.push(`${uses.connections} as connection`);
+  return parts.length > 0 ? parts.join(' · ') : 'unused';
+};
+
+/** One thing to pick as the one kept. `children` goes under its uses line. */
+const ThingButton = ({ proto, label, uses, isSurvivor, onPick, children }) => {
+  const theme = useTheme();
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(proto.id)}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        textAlign: 'left',
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: `2px solid ${isSurvivor ? theme.accent.primary : theme.canvas.border}`,
+        background: 'transparent',
+        color: theme.canvas.textPrimary,
+        cursor: 'pointer',
+        fontFamily: "'EmOne', sans-serif",
+        transition: 'border-color 0.15s ease'
+      }}
+    >
+      <div style={{
+        fontWeight: 700, fontSize: '0.85rem',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+      }}>
+        {label || proto.name || 'Untitled'}
+      </div>
+      <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2 }}>
+        {isSurvivor ? 'keeps its name' : 'merged in'} · {describeUses(uses)}
+      </div>
+      {children}
+    </button>
+  );
+};
+
 /** One candidate pair. */
 const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
   const theme = useTheme();
@@ -79,16 +126,6 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
     });
   };
 
-  // A thing can be used two ways — placed on a web, and as a connection's type.
-  // Both are shown, because a thing that types many connections but sits on no
-  // canvas is heavily used and used to read as "0 uses".
-  const describeUses = (uses) => {
-    const parts = [];
-    if (uses.instances > 0) parts.push(`${uses.instances} ${uses.instances === 1 ? 'use' : 'uses'}`);
-    if (uses.connections > 0) parts.push(`${uses.connections} as connection`);
-    return parts.length > 0 ? parts.join(' · ') : 'unused';
-  };
-
   // Reasons this pair is not straightforward, in brand colour on their own row.
   // Digits on both sides of "1 of 3" so the two numbers read as one count.
   const caveats = [
@@ -97,33 +134,7 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
   ].filter(Boolean);
 
   const sideButton = (proto, isSurvivor, uses) => (
-    <button
-      type="button"
-      onClick={() => setSurvivorId(proto.id)}
-      style={{
-        flex: 1,
-        minWidth: 0,
-        textAlign: 'left',
-        padding: '8px 10px',
-        borderRadius: 8,
-        border: `2px solid ${isSurvivor ? theme.accent.primary : theme.canvas.border}`,
-        background: 'transparent',
-        color: theme.canvas.textPrimary,
-        cursor: 'pointer',
-        fontFamily: "'EmOne', sans-serif",
-        transition: 'border-color 0.15s ease'
-      }}
-    >
-      <div style={{
-        fontWeight: 700, fontSize: '0.85rem',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-      }}>
-        {proto.name || 'Untitled'}
-      </div>
-      <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2 }}>
-        {isSurvivor ? 'keeps its name' : 'merged in'} · {describeUses(uses)}
-      </div>
-    </button>
+    <ThingButton proto={proto} uses={uses} isSurvivor={isSurvivor} onPick={setSurvivorId} />
   );
 
   return (
@@ -232,7 +243,196 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
   );
 };
 
-const MergeThingsModal = ({ isVisible, onClose }) => {
+// Factors that argue against a merge rather than for it.
+const CONTRADICTIONS = new Set(['wikidata_id_mismatch']);
+
+/**
+ * The merge asked for on a selection (the multi-select panel's Merge).
+ *
+ * Pressing Merge on the panel only proposes it; this page is the second press,
+ * and it says what that press will do before it happens: every selected thing,
+ * which one stays, how each of the others compares with it, what they bring,
+ * and how many uses move. Nothing here gates the merge on the scan agreeing:
+ * the selection is the claim, and the comparison is there to inform it.
+ */
+const SelectionMerge = ({ proposal, onMerge }) => {
+  const theme = useTheme();
+  const [survivorId, setSurvivorId] = useState(proposal.survivorId);
+  // Per field, the thing it is taken from, or null for not taken. Unset fields
+  // take the first thing able to fill them.
+  const [picks, setPicks] = useState({});
+  const [definitionsFrom, setDefinitionsFrom] = useState(null);
+
+  // A pick that has since gone (merged or deleted elsewhere) falls back to the suggestion.
+  const survivor = (proposal.things.find((t) => t.prototype.id === survivorId)
+    || proposal.things.find((t) => t.prototype.id === proposal.survivorId)).prototype;
+  const others = useMemo(
+    () => proposal.things.filter((t) => t.prototype.id !== survivor.id),
+    [proposal.things, survivor.id]
+  );
+
+  // Selecting two copies of one name is the usual case here, so when names
+  // repeat, a label carries the thing's place in the list.
+  const labelOf = useMemo(() => {
+    const counts = new Map();
+    for (const { prototype } of proposal.things) counts.set(prototype.name, (counts.get(prototype.name) || 0) + 1);
+    const position = new Map(proposal.things.map((t, i) => [t.prototype.id, i + 1]));
+    return (proto) => {
+      const name = proto.name || 'Untitled';
+      return counts.get(proto.name) > 1 ? `${name} (${position.get(proto.id)})` : name;
+    };
+  }, [proposal.things]);
+
+  const factorsById = useMemo(
+    () => new Map(others.map((t) => [t.prototype.id, compareThings(survivor, t.prototype)])),
+    [survivor, others]
+  );
+
+  const gaps = useMemo(
+    () => computeSetCarryOver(survivor, others.map((t) => t.prototype)).map((gap) => ({
+      ...gap,
+      donorId: gap.field in picks ? picks[gap.field] : gap.donors[0].id
+    })),
+    [survivor, others, picks]
+  );
+
+  const withWebs = proposal.things.filter((t) => (t.prototype.definitionGraphIds?.length || 0) > 0);
+  const keptWebs = withWebs.some((t) => t.prototype.id === definitionsFrom) ? definitionsFrom : null;
+
+  const pickSurvivor = (id) => {
+    setSurvivorId(id);
+    // The gaps are measured against the one kept, so they change with it.
+    setPicks({});
+  };
+
+  const moved = others.reduce(
+    (sum, t) => ({ instances: sum.instances + t.uses.instances, connections: sum.connections + t.uses.connections }),
+    { instances: 0, connections: 0 }
+  );
+  const anyMoved = moved.instances > 0 || moved.connections > 0;
+  const removed = others.length === 1 ? 'the other one' : `the other ${others.length}`;
+  const summary = `Keeps ${labelOf(survivor)}. Removes ${removed}`
+    + (anyMoved ? ` and moves ${others.length === 1 ? 'its' : 'their'} uses to it (${describeUses(moved)}).` : '.');
+
+  const rowStyle = { display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' };
+  const optionStyle = {
+    display: 'flex', alignItems: 'center', gap: 4,
+    fontSize: '0.75rem', color: theme.canvas.textPrimary, cursor: 'pointer'
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {proposal.things.map(({ prototype, uses }) => {
+          const isSurvivor = prototype.id === survivor.id;
+          const factors = isSurvivor ? null : factorsById.get(prototype.id);
+          return (
+            <ThingButton
+              key={prototype.id}
+              proto={prototype}
+              label={labelOf(prototype)}
+              uses={uses}
+              isSurvivor={isSurvivor}
+              onPick={pickSurvivor}
+            >
+              {factors && (
+                <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2, letterSpacing: '0.03em' }}>
+                  {factors.length === 0 ? (
+                    <span style={{ color: theme.canvas.brandText }}>nothing in common</span>
+                  ) : factors.map((f, i) => (
+                    <span key={f.factor} style={CONTRADICTIONS.has(f.factor) ? { color: theme.canvas.brandText } : undefined}>
+                      {i > 0 ? ' · ' : ''}{FACTOR_LABEL[f.factor] || f.factor}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </ThingButton>
+          );
+        })}
+      </div>
+
+      {gaps.length > 0 && (
+        <div style={rowStyle}>
+          <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Also take:</span>
+          {gaps.map((gap) => (
+            <span key={gap.field} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <label style={optionStyle}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(gap.donorId)}
+                  onChange={() => setPicks((prev) => ({ ...prev, [gap.field]: gap.donorId ? null : gap.donors[0].id }))}
+                  style={{ accentColor: theme.accent.primary }}
+                />
+                {gap.label}
+              </label>
+              {/* Outside the label: a select inside one hands its clicks to the checkbox. */}
+              {gap.donorId && gap.donors.length > 1 && (
+                <select
+                  aria-label={`Take ${gap.label} from`}
+                  value={gap.donorId}
+                  onChange={(e) => setPicks((prev) => ({ ...prev, [gap.field]: e.target.value }))}
+                  style={{
+                    fontSize: '0.75rem',
+                    fontFamily: 'inherit',
+                    color: theme.canvas.textPrimary,
+                    background: 'transparent',
+                    border: `1px solid ${theme.canvas.border}`,
+                    borderRadius: 6,
+                    padding: '2px 4px'
+                  }}
+                >
+                  {gap.donors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      from {labelOf(others.find((t) => t.prototype.id === d.id).prototype)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {withWebs.length > 1 && (
+        <div style={rowStyle}>
+          <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Definitions:</span>
+          {[[null, 'combine all'], ...withWebs.map((t) => [t.prototype.id, `only ${labelOf(t.prototype)}’s`])].map(([value, text]) => (
+            <label key={value ?? 'combine'} style={optionStyle}>
+              <input
+                type="radio"
+                name="defs-selection"
+                checked={keptWebs === value}
+                onChange={() => setDefinitionsFrom(value)}
+                style={{ accentColor: theme.accent.primary }}
+              />
+              {text}
+            </label>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ flex: '1 1 220px', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>{summary}</span>
+        <PanelIconButton
+          icon={Merge}
+          label={`Merge ${proposal.things.length}`}
+          variant="solid"
+          labelFontSize={12}
+          onClick={() => onMerge({
+            survivorId: survivor.id,
+            loserIds: others.map((t) => t.prototype.id),
+            carryOver: gaps
+              .filter((gap) => gap.donorId)
+              .map((gap) => ({ field: gap.field, value: gap.donors.find((d) => d.id === gap.donorId).value })),
+            definitionsFrom: keptWebs
+          })}
+        />
+      </div>
+    </div>
+  );
+};
+
+const MergeThingsModal = ({ isVisible, proposalIds = null, onClose }) => {
   const theme = useTheme();
   const [activeBand, setActiveBand] = useState('certain');
   // One query across all three bands, so switching band keeps what you typed
@@ -253,6 +453,26 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   // — Cmd+Z, the menu, the history panel — restores a prototype, and without
   // this the modal would keep showing a list that no longer matches the store.
   const nodePrototypes = useGraphStore((s) => s.nodePrototypes);
+
+  // The merge asked for on a selection, rebuilt from the store so an undo
+  // brings its page back. null when the modal opened to scan everything, and
+  // once the selection has been merged.
+  const proposal = useMemo(() => {
+    if (!isVisible || !proposalIds) return null;
+    const { graphs, edges } = useGraphStore.getState();
+    return proposeMergeSet(proposalIds, nodePrototypes, graphs, edges);
+  }, [isVisible, proposalIds, nodePrototypes]);
+  const isSelectedPage = activeBand === 'selected' && Boolean(proposalIds);
+  const [lastMerge, setLastMerge] = useState(null);
+  // Opened on a selection, the universe-wide scan waits until a band is
+  // visited: the page in front of you doesn't need it, and on a big universe
+  // it is the slow part.
+  const [bandVisited, setBandVisited] = useState(false);
+  const scanWanted = !proposalIds || bandVisited;
+  const showPage = useCallback((key) => {
+    setActiveBand(key);
+    if (key !== 'selected') setBandVisited(true);
+  }, []);
 
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
@@ -412,22 +632,31 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
   // undo from outside this modal refreshes the list. Our own merges are folded
   // in directly and skipped here.
   useEffect(() => {
-    if (!isVisible) return;
+    if (!isVisible || !scanWanted) return;
     if (selfChangeRef.current === nodePrototypes) return;
     rescan();
-  }, [nodePrototypes, isVisible, rescan]);
+  }, [nodePrototypes, isVisible, rescan, scanWanted]);
 
   useEffect(() => {
-    if (!isVisible) return;
+    if (!isVisible) {
+      setBandVisited(false);
+      return;
+    }
     setMergedCount(0);
     setActions([]);
     setResult(null);
     setQuery('');
-    pickBandRef.current = true;
+    setLastMerge(null);
+    if (proposalIds) {
+      setActiveBand('selected');
+    } else {
+      setActiveBand('certain');
+      pickBandRef.current = true;
+    }
     // Dismissals naming a thing that has since been merged away are dead
     // weight; clearing them here keeps the list from growing forever.
     useGraphStore.getState().pruneDuplicateDismissals();
-  }, [isVisible]);
+  }, [isVisible, proposalIds]);
 
   const handleMerge = useCallback((candidate, decision) => {
     const ok = useGraphStore.getState().mergeThings(decision.survivorId, decision.loserId, {
@@ -444,6 +673,22 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
       applyMergeLocally([]);
     }
   }, [applyMergeLocally]);
+
+  const handleMergeSet = useCallback(({ survivorId, loserIds, carryOver, definitionsFrom }) => {
+    const store = useGraphStore.getState();
+    const name = store.nodePrototypes.get(survivorId)?.name;
+    const merged = store.mergeThingSet(survivorId, loserIds, { carryOver, definitionsFrom });
+    if (merged.length === 0) return;
+    setMergedCount((n) => n + merged.length);
+    // One entry for the set: it went in as one transaction, so one undo puts
+    // every thing back.
+    setActions((prev) => [...prev, { type: 'merge', count: merged.length }]);
+    setLastMerge({ name });
+    // Only into a list that exists. Before any band has been visited there is
+    // none, and marking this change as our own would stop the first scan from
+    // seeing it.
+    if (result) applyMergeLocally(merged);
+  }, [result, applyMergeLocally]);
 
   const handleSkip = useCallback((key) => {
     useGraphStore.getState().dismissDuplicatePair(key);
@@ -462,7 +707,7 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
       // never held — so this one does need the full scan. The store
       // subscription starts it; calling it here too would just run two.
       performUndo();
-      setMergedCount((n) => Math.max(0, n - 1));
+      setMergedCount((n) => Math.max(0, n - (last.count || 1)));
     }
     return true;
   }, [actions]);
@@ -597,19 +842,34 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           }}
         >
           <h3 className="modal-nav-heading">Duplicates</h3>
+          {proposalIds && (
+            <button
+              type="button"
+              className={`modal-nav-item ${isSelectedPage ? 'active' : ''}`}
+              aria-current={isSelectedPage ? 'true' : undefined}
+              onClick={() => showPage('selected')}
+            >
+              <Merge size={16} />
+              Selected
+              <span style={{ marginLeft: 'auto', opacity: 0.7 }}>
+                {proposal ? proposal.things.length : ''}
+              </span>
+            </button>
+          )}
           {BANDS.map((band) => (
             <button
               key={band.key}
               type="button"
               className={`modal-nav-item ${activeBand === band.key ? 'active' : ''}`}
               aria-current={activeBand === band.key ? 'true' : undefined}
-              onClick={() => setActiveBand(band.key)}
+              onClick={() => showPage(band.key)}
             >
               {band.icon}
               {band.title}
-              {/* A count of 0 mid-scan reads as an answer. It isn't one yet. */}
+              {/* A count of 0 mid-scan, or before any scan, reads as an answer.
+                  It isn't one yet. */}
               <span style={{ marginLeft: 'auto', opacity: 0.7 }}>
-                {isFirstScan ? '' : bands[band.key].length}
+                {result ? bands[band.key].length : ''}
               </span>
             </button>
           ))}
@@ -632,11 +892,16 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
               className="modal-input"
               aria-label="Confidence band"
               value={activeBand}
-              onChange={(e) => setActiveBand(e.target.value)}
+              onChange={(e) => showPage(e.target.value)}
             >
+              {proposalIds && (
+                <option value="selected">
+                  {proposal ? `Selected (${proposal.things.length})` : 'Selected'}
+                </option>
+              )}
               {BANDS.map((band) => (
                 <option key={band.key} value={band.key}>
-                  {isFirstScan ? band.title : `${band.title} (${bands[band.key].length})`}
+                  {result ? `${band.title} (${bands[band.key].length})` : band.title}
                 </option>
               ))}
             </select>
@@ -648,115 +913,127 @@ const MergeThingsModal = ({ isVisible, onClose }) => {
           color: theme.canvas.textPrimary,
           fontSize: isCompactLayout ? '1.3rem' : '1.5rem'
         }}>
-          {BANDS.find((b) => b.key === activeBand)?.title}
+          {isSelectedPage ? 'Selected' : BANDS.find((b) => b.key === activeBand)?.title}
         </h2>
 
-        <div style={{ position: 'relative', marginBottom: 14 }}>
-          <Search
-            size={14}
-            style={{
-              position: 'absolute',
-              left: 12,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              opacity: 0.6,
-              color: theme.canvas.textPrimary,
-              pointerEvents: 'none'
-            }}
-          />
-          <input
-            type="text"
-            className="modal-input"
-            aria-label="Search duplicates"
-            placeholder="Search by name…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
-            style={{ paddingLeft: 32 }}
-          />
-        </div>
-
-        {mergedCount > 0 && !isFirstScan && (
-          <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-            {mergedCount} merged.
-          </p>
-        )}
-
-        {/* A rescan after a merge keeps the current list up rather than
-            flashing the loading state — the pairs on screen are still the
-            right ones bar the merged pair, and a spinner between every merge
-            would be worse than a card lingering for a frame. */}
-        {scanning && !isFirstScan && (
-          <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-            Rescanning…
-          </p>
-        )}
-
-        {activeBand === 'certain' && visible.length > 0 && !isFirstScan && (
-          <div style={{ marginBottom: 14 }}>
-            <PanelIconButton
-              icon={Merge}
-              label={`Merge all ${visible.length}`}
-              variant="solid"
-              labelFontSize={12}
-              onClick={handleMergeAllCertain}
-            />
-          </div>
-        )}
-
-        {isFirstScan ? (
-          <div style={{
-            padding: '30px 20px',
-            background: theme.canvas.inactive,
-            borderRadius: 8,
-            border: `1px dashed ${theme.canvas.border}`,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 12
-          }}>
-            <div style={{ color: theme.canvas.brandText, fontSize: '0.85rem', fontStyle: 'italic' }}>
-              Looking for duplicates…
-            </div>
-            <div style={{
-              height: 4,
-              borderRadius: 2,
-              background: theme.canvas.border,
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                height: '100%',
-                width: '100%',
-                transform: `scaleX(${scanPercent / 100})`,
-                transformOrigin: 'left center',
-                background: theme.accent.primary,
-                transition: 'transform 0.15s linear'
-              }} />
-            </div>
-          </div>
-        ) : visible.length === 0 ? (
-          <div style={{
-            padding: '30px 20px',
-            textAlign: 'left',
-            color: theme.canvas.brandText,
-            fontSize: '0.85rem',
-            background: theme.canvas.inactive,
-            borderRadius: 8,
-            border: `1px dashed ${theme.canvas.border}`,
-            fontStyle: 'italic'
-          }}>
-            {query.trim() ? `Nothing here matches “${query.trim()}”.` : 'Nothing here.'}
-          </div>
+        {isSelectedPage ? (
+          proposal ? (
+            <SelectionMerge key={proposalIds.join('|')} proposal={proposal} onMerge={handleMergeSet} />
+          ) : (
+            <p style={{ margin: 0, fontSize: '0.85rem', color: theme.canvas.textPrimary }}>
+              {lastMerge ? `Merged into ${lastMerge.name || 'Untitled'}. Undo puts them back.` : 'Nothing left to merge.'}
+            </p>
+          )
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {visible.map((candidate) => (
-              <PairCard
-                key={candidate.key}
-                candidate={candidate}
-                onMerge={handleMerge}
-                onSkip={handleSkip}
+          <>
+            <div style={{ position: 'relative', marginBottom: 14 }}>
+              <Search
+                size={14}
+                style={{
+                  position: 'absolute',
+                  left: 12,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  opacity: 0.6,
+                  color: theme.canvas.textPrimary,
+                  pointerEvents: 'none'
+                }}
               />
-            ))}
-          </div>
+              <input
+                type="text"
+                className="modal-input"
+                aria-label="Search duplicates"
+                placeholder="Search by name…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
+                style={{ paddingLeft: 32 }}
+              />
+            </div>
+
+            {mergedCount > 0 && !isFirstScan && (
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+                {mergedCount} merged.
+              </p>
+            )}
+
+            {/* A rescan after a merge keeps the current list up rather than
+                flashing the loading state — the pairs on screen are still the
+                right ones bar the merged pair, and a spinner between every merge
+                would be worse than a card lingering for a frame. */}
+            {scanning && !isFirstScan && (
+              <p style={{ margin: '0 0 12px 0', fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+                Rescanning…
+              </p>
+            )}
+
+            {activeBand === 'certain' && visible.length > 0 && !isFirstScan && (
+              <div style={{ marginBottom: 14 }}>
+                <PanelIconButton
+                  icon={Merge}
+                  label={`Merge all ${visible.length}`}
+                  variant="solid"
+                  labelFontSize={12}
+                  onClick={handleMergeAllCertain}
+                />
+              </div>
+            )}
+
+            {isFirstScan ? (
+              <div style={{
+                padding: '30px 20px',
+                background: theme.canvas.inactive,
+                borderRadius: 8,
+                border: `1px dashed ${theme.canvas.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12
+              }}>
+                <div style={{ color: theme.canvas.brandText, fontSize: '0.85rem', fontStyle: 'italic' }}>
+                  Looking for duplicates…
+                </div>
+                <div style={{
+                  height: 4,
+                  borderRadius: 2,
+                  background: theme.canvas.border,
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: '100%',
+                    transform: `scaleX(${scanPercent / 100})`,
+                    transformOrigin: 'left center',
+                    background: theme.accent.primary,
+                    transition: 'transform 0.15s linear'
+                  }} />
+                </div>
+              </div>
+            ) : visible.length === 0 ? (
+              <div style={{
+                padding: '30px 20px',
+                textAlign: 'left',
+                color: theme.canvas.brandText,
+                fontSize: '0.85rem',
+                background: theme.canvas.inactive,
+                borderRadius: 8,
+                border: `1px dashed ${theme.canvas.border}`,
+                fontStyle: 'italic'
+              }}>
+                {query.trim() ? `Nothing here matches “${query.trim()}”.` : 'Nothing here.'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {visible.map((candidate) => (
+                  <PairCard
+                    key={candidate.key}
+                    candidate={candidate}
+                    onMerge={handleMerge}
+                    onSkip={handleSkip}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

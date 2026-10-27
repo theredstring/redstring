@@ -219,3 +219,67 @@ describe('mergeThings', () => {
     expect(useGraphStore.getState().nodePrototypes.has('keep')).toBe(true);
   });
 });
+
+describe('mergeThingSet — several things into one', () => {
+  beforeEach(() => resetStore());
+
+  const threeThings = (extras = {}) => new Map([
+    proto('keep', 'Dog', extras.keep),
+    proto('b', 'dog', extras.b),
+    proto('c', 'Doggo', extras.c),
+  ]);
+
+  it('folds every other thing into the one kept', () => {
+    resetStore({ nodePrototypes: threeThings() });
+    expect(useGraphStore.getState().mergeThingSet('keep', ['b', 'c'])).toEqual(['b', 'c']);
+    expect([...useGraphStore.getState().nodePrototypes.keys()]).toEqual(['keep']);
+  });
+
+  it('lands as a single undo step, and that undo puts every thing back', async () => {
+    const { performUndo } = await import('../../src/store/historyActions.js');
+    resetStore({ nodePrototypes: threeThings() });
+    useHistoryStore.getState().clearHistory();
+
+    useGraphStore.getState().mergeThingSet('keep', ['b', 'c']);
+    expect(useHistoryStore.getState().history).toHaveLength(1);
+
+    performUndo();
+    expect([...useGraphStore.getState().nodePrototypes.keys()].sort()).toEqual(['b', 'c', 'keep']);
+  });
+
+  // The gap could be filled by either; the one chosen is the one taken, not
+  // whichever happened to be merged first.
+  it('takes a carried field from the thing chosen for it', () => {
+    resetStore({ nodePrototypes: threeThings({ b: { description: 'from b' }, c: { description: 'from c' } }) });
+    useGraphStore.getState().mergeThingSet('keep', ['b', 'c'], {
+      carryOver: [{ field: 'description', value: 'from c' }]
+    });
+    expect(useGraphStore.getState().nodePrototypes.get('keep').description).toBe('from c');
+  });
+
+  it('combines everyone’s definition webs by default', () => {
+    resetStore({ nodePrototypes: threeThings({ keep: { definitionGraphIds: ['g1'] }, b: { definitionGraphIds: ['g2'] }, c: { definitionGraphIds: ['g3'] } }) });
+    useGraphStore.getState().mergeThingSet('keep', ['b', 'c']);
+    expect([...useGraphStore.getState().nodePrototypes.get('keep').definitionGraphIds].sort()).toEqual(['g1', 'g2', 'g3']);
+  });
+
+  it('can keep only the kept thing’s webs', () => {
+    resetStore({ nodePrototypes: threeThings({ keep: { definitionGraphIds: ['g1'] }, b: { definitionGraphIds: ['g2'] }, c: { definitionGraphIds: ['g3'] } }) });
+    useGraphStore.getState().mergeThingSet('keep', ['b', 'c'], { definitionsFrom: 'keep' });
+    expect(useGraphStore.getState().nodePrototypes.get('keep').definitionGraphIds).toEqual(['g1']);
+  });
+
+  it('can keep only one merged-in thing’s webs, even when it is not merged first', () => {
+    resetStore({ nodePrototypes: threeThings({ keep: { definitionGraphIds: ['g1'] }, b: { definitionGraphIds: ['g2'] }, c: { definitionGraphIds: ['g3'] } }) });
+    useGraphStore.getState().mergeThingSet('keep', ['b', 'c'], { definitionsFrom: 'c' });
+    expect(useGraphStore.getState().nodePrototypes.get('keep').definitionGraphIds).toEqual(['g3']);
+  });
+
+  it('skips the kept thing and things already gone', () => {
+    resetStore({ nodePrototypes: threeThings() });
+    expect(useGraphStore.getState().mergeThingSet('keep', ['keep', 'gone', 'b'])).toEqual(['b']);
+    expect(useGraphStore.getState().mergeThingSet('keep', ['gone'])).toEqual([]);
+    expect(useGraphStore.getState().mergeThingSet('gone', ['c'])).toEqual([]);
+    expect(useGraphStore.getState().nodePrototypes.has('c')).toBe(true);
+  });
+});

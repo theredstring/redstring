@@ -5450,6 +5450,53 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     },
 
     /**
+     * Fold several things into one, as a single undo step.
+     *
+     * The set form of mergeThings, for a merge asked for by selecting things
+     * rather than found by the scan. It is pairwise merges into the survivor
+     * inside one transaction, so Cmd+Z puts every one of them back at once.
+     *
+     * @param {string} survivorId - The thing that remains.
+     * @param {string[]} loserIds - The things folded into it and removed.
+     * @param {Object} [options]
+     * @param {Array<{field: string, value: *}>} [options.carryOver=[]] - Gap-fill patches, each already
+     *   taken from whichever thing was chosen for it.
+     * @param {string|null} [options.definitionsFrom=null] - Keep only this thing's definition webs;
+     *   null combines everyone's.
+     * @returns {string[]} The ids merged away; empty when nothing ran.
+     */
+    mergeThingSet: (survivorId, loserIds, options = {}) => {
+      const { carryOver = [], definitionsFrom = null } = options;
+      const state = api.getState();
+      if (!state.nodePrototypes.has(survivorId)) return [];
+      const losers = [...new Set(loserIds || [])]
+        .filter((id) => id !== survivorId && state.nodePrototypes.has(id));
+      if (losers.length === 0) return [];
+
+      // Keeping one merged-in thing's webs means taking them on its merge and
+      // then holding them against every later one, so that thing goes first.
+      const keepLoserWebs = definitionsFrom && losers.includes(definitionsFrom);
+      const ordered = keepLoserWebs
+        ? [definitionsFrom, ...losers.filter((id) => id !== definitionsFrom)]
+        : losers;
+
+      return api.withHistoryTransaction(`Merge into "${state.nodePrototypes.get(survivorId)?.name || 'thing'}"`, () => {
+        const merged = [];
+        ordered.forEach((loserId, i) => {
+          const definitionStrategy = !definitionsFrom
+            ? 'combine'
+            : (keepLoserWebs && i === 0 ? 'overwrite_with_secondary' : 'overwrite_with_primary');
+          const ok = api.getState().mergeThings(survivorId, loserId, {
+            carryOver: i === 0 ? carryOver : [],
+            definitionStrategy
+          });
+          if (ok) merged.push(loserId);
+        });
+        return merged;
+      });
+    },
+
+    /**
      * Record that two things are NOT the same, so the duplicate scan stops
      * asking about them.
      *

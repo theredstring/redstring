@@ -29,14 +29,22 @@ const OPENERS = [
   ['openSettingsModal', () => ui().setShowSettingsModal(true)],
   // One listener and one mount: it used to be rendered from three panel views,
   // each with its own copy of the overlay and its own open state.
-  ['openMergeModal', () => ui().setShowMergeThingsModal(true)],
+  // `detail.prototypeIds` opens it on those Things (the multi-select panel's
+  // Merge); without them it scans the whole universe.
+  ['openMergeModal', (e) => {
+    ui().setMergeProposalIds(e?.detail?.prototypeIds || null);
+    ui().setShowMergeThingsModal(true);
+  }],
   // From the Debug settings page.
   ['redstring:open-auto-graph-modal', () => ui().setAutoGraphModalVisible(true)],
 ];
 
 const closeHelp = () => ui().setShowHelpModal(false);
 const closeSettings = () => ui().setShowSettingsModal(false);
-const closeMerge = () => ui().setShowMergeThingsModal(false);
+const closeMerge = () => {
+  ui().setShowMergeThingsModal(false);
+  ui().setMergeProposalIds(null);
+};
 const closeAutoGraph = () => ui().setAutoGraphModalVisible(false);
 
 const generateAutoGraph = (inputData, inputFormat, options) => {
@@ -81,6 +89,7 @@ function ModalHosts() {
   const showHelpModal = useCanvasUIStore(s => s.showHelpModal);
   const showSettingsModal = useCanvasUIStore(s => s.showSettingsModal);
   const showMergeThingsModal = useCanvasUIStore(s => s.showMergeThingsModal);
+  const mergeProposalIds = useCanvasUIStore(s => s.mergeProposalIds);
   const autoGraphModalVisible = useCanvasUIStore(s => s.autoGraphModalVisible);
   const activeGraphId = useGraphStore(s => s.activeGraphId);
 
@@ -104,7 +113,7 @@ function ModalHosts() {
       />
       <HelpModal isVisible={showHelpModal} onClose={closeHelp} />
       <SettingsModal isVisible={showSettingsModal} onClose={closeSettings} />
-      <MergeThingsModal isVisible={showMergeThingsModal} onClose={closeMerge} />
+      <MergeThingsModal isVisible={showMergeThingsModal} proposalIds={mergeProposalIds} onClose={closeMerge} />
       {/* Owns its own open state: it listens for `openOntologyImport` itself. */}
       <OntologyImportHost />
     </Profiler>

@@ -54,6 +54,7 @@ const SETTERS = [
   ['setShowHelpModal', 'showHelpModal', true, (prev) => !prev],
   ['setShowSettingsModal', 'showSettingsModal', true, (prev) => !prev],
   ['setShowMergeThingsModal', 'showMergeThingsModal', true, (prev) => !prev],
+  ['setMergeProposalIds', 'mergeProposalIds', ['a', 'b'], (prev) => [...(prev || []), 'c']],
   ['setShowStorageSetupModal', 'showStorageSetupModal', true, (prev) => !prev],
   ['setUniverseReconnect', 'universeReconnect', { mode: 'load', slug: 's', name: 'U', repoLabel: 'o/r' }, (prev) => prev || { mode: 'sync' }],
   ['setUniverseReconnectTarget', 'universeReconnectTarget', { slug: 's', name: 'U', repoLabel: null }, (prev) => prev || { slug: 't', name: 'T', repoLabel: null }],

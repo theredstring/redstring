@@ -5,7 +5,10 @@ import {
   countUsesByPrototype,
   computeCarryOver,
   scanForDuplicates,
-  scanForDuplicatesSteps
+  scanForDuplicatesSteps,
+  proposeMergeSet,
+  computeSetCarryOver,
+  compareThings
 } from '../../src/services/duplicateScan.js';
 import { NODE_DEFAULT_COLOR } from '../../src/constants.js';
 
@@ -411,5 +414,56 @@ describe('scanForDuplicates', () => {
       expect(steps.return(undefined).done).toBe(true);
       expect(steps.next().done).toBe(true);
     });
+  });
+});
+
+describe('proposeMergeSet — a merge asked for on a selection', () => {
+  const protos = (...list) => new Map(list.map(p => [p.id, p]));
+
+  it('keeps one entry per thing, in selection order', () => {
+    const proposal = proposeMergeSet(['b', 'a', 'b'], protos(proto('a', 'Dog'), proto('b', 'dog')), new Map(), new Map());
+    expect(proposal.things.map(t => t.prototype.id)).toEqual(['b', 'a']);
+  });
+
+  // Several copies of one thing, or a thing that has gone, leave nothing to merge.
+  it('is null with fewer than two things left', () => {
+    expect(proposeMergeSet(['a', 'a'], protos(proto('a', 'Dog')), new Map(), new Map())).toBeNull();
+    expect(proposeMergeSet(['a', 'gone'], protos(proto('a', 'Dog')), new Map(), new Map())).toBeNull();
+  });
+
+  it('suggests keeping the most-used thing, whatever the scan would make of the names', () => {
+    const graphs = new Map([graphWith('g1', [inst('i1', 'c'), inst('i2', 'c'), inst('i3', 'a')])]);
+    const proposal = proposeMergeSet(['a', 'b', 'c'],
+      protos(proto('a', 'Dog'), proto('b', 'Cat'), proto('c', 'Wolf')), graphs, new Map());
+    expect(proposal.survivorId).toBe('c');
+    expect(proposal.things.find(t => t.prototype.id === 'c').uses.instances).toBe(2);
+  });
+});
+
+describe('computeSetCarryOver', () => {
+  it('lists every thing able to fill a gap', () => {
+    const gaps = computeSetCarryOver(proto('s', 'S'), [
+      proto('a', 'A', { description: 'from a' }),
+      proto('b', 'B', { description: 'from b', typeNodeId: 'animal' }),
+    ]);
+    const description = gaps.find(g => g.field === 'description');
+    expect(description.donors.map(d => [d.id, d.value])).toEqual([['a', 'from a'], ['b', 'from b']]);
+    expect(gaps.find(g => g.field === 'typeNodeId').donors.map(d => d.id)).toEqual(['b']);
+  });
+
+  it('lists nothing the kept thing already has', () => {
+    const gaps = computeSetCarryOver(proto('s', 'S', { description: 'mine' }), [proto('a', 'A', { description: 'theirs' })]);
+    expect(gaps).toEqual([]);
+  });
+});
+
+describe('compareThings', () => {
+  it('names what two things share and what they contradict', () => {
+    expect(compareThings(proto('a', 'Dog'), proto('b', 'Dog')).map(f => f.factor)).toContain('label_exact_match');
+    const contradicted = compareThings(
+      proto('a', 'Dog', { externalLinks: [WIKI('Q144')] }),
+      proto('b', 'Dog', { externalLinks: [WIKI('Q1')] })
+    );
+    expect(contradicted.map(f => f.factor)).toContain('wikidata_id_mismatch');
   });
 });

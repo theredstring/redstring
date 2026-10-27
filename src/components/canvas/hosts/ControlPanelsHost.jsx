@@ -378,6 +378,15 @@ export default function ControlPanelsHost({ ctx }) {
     }
   }, [activeGraphId, selectedInstanceIds, graphsMap, nodePrototypesMap, edgesMap, storeActions, setSelectedInstanceIds]);
 
+  // Propose merging the selected Things. This only opens the merge page on
+  // them; the merge itself is the second press, made there with what it will
+  // do in front of you.
+  const handleNodePanelMerge = useCallback(() => {
+    const prototypeIds = [...new Set(selectedNodePrototypes.map(p => p.id))];
+    if (prototypeIds.length < 2) return;
+    window.dispatchEvent(new CustomEvent('openMergeModal', { detail: { prototypeIds } }));
+  }, [selectedNodePrototypes]);
+
   // Node-group control panel action handlers
   const handleNodeGroupDiveIntoDefinition = useCallback((a0) => diveIntoNodeGroupDefinition(a0, {
     activeGraphId, nodePrototypesMap, selectedGroup, setGroupControlPanelVisible, setSelectedGroup, startHurtleAnimationFromPanel,
@@ -658,6 +667,7 @@ export default function ControlPanelsHost({ ctx }) {
             onGroup={handleNodePanelGroup}
             onCopy={handleNodePanelCopy}
             onDuplicate={handleNodePanelDuplicate}
+            onMerge={decomposePanelInfo ? undefined : handleNodePanelMerge}
             pieMenuPages={/* Decomposition builds its own single-page button set, so it
                               opts out and keeps the hand-written decompose buttons. */
               decomposePanelInfo ? null : nodePieMenuPages}

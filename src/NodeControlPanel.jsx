@@ -21,6 +21,7 @@ const NodeControlPanel = ({
   onGroup,
   onCopy,
   onDuplicate,
+  onMerge,
   onCompose,
   decompHasDefinitions = false,
   decompBlocked = null,
@@ -62,6 +63,7 @@ const NodeControlPanel = ({
       onGroup={onGroup}
       onCopy={onCopy}
       onDuplicate={onDuplicate}
+      onMerge={onMerge}
       onLeftNav={onLeftNav}
       onRightNav={onRightNav}
       hasLeftNav={hasLeftNav}

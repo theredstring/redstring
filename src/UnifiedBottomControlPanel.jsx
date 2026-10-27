@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw, ClipboardCopy, CopyPlus } from 'lucide-react';
+import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw, ClipboardCopy, CopyPlus, Merge } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
 import { RENDERER_PRESETS } from './UniversalNodeRenderer.presets';
 import { useTheme } from './hooks/useTheme.js';
@@ -276,6 +276,7 @@ const UnifiedBottomControlPanel = ({
   onGroup,
   onCopy,
   onDuplicate,
+  onMerge,
 
   // The canvas pie menu's own pages for a single Thing, handed over verbatim so
   // this panel renders the same buttons rather than a transcription of them.
@@ -812,6 +813,8 @@ const UnifiedBottomControlPanel = ({
   if (!shouldRender) return null;
 
   const multipleSelected = isNodes && Array.isArray(selectedNodes) && selectedNodes.length > 1;
+  // Several copies of one Thing are one Thing: Merge needs two different ones.
+  const canMergeSelection = multipleSelected && new Set(selectedNodes.map(n => n.id)).size > 1;
 
   // The Bookmark fills only once the *whole* selection is saved — with one Thing
   // selected that's just its own saved state. A partially saved selection reads as
@@ -1159,6 +1162,17 @@ const UnifiedBottomControlPanel = ({
                 >
                   <CopyPlus size={iconSize} />
                 </div>
+                {onMerge && canMergeSelection && (
+                  <div
+                    className="piemenu-button"
+                    onClick={onMerge}
+                    title="Merge"
+                    onMouseEnter={() => triggerActionHover('control-merge', 'Merge')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <Merge size={iconSize} />
+                  </div>
+                )}
                 <div
                   className="piemenu-button"
                   onClick={(e) => {

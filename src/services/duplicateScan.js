@@ -239,6 +239,62 @@ function chooseSurvivor(a, b, useCounts) {
   return String(a.id) <= String(b.id) ? [a, b] : [b, a];
 }
 
+/**
+ * A merge someone asked for by selecting Things, rather than one the scan found.
+ *
+ * No scoring decides whether it happens: the selection is the claim. The scan's
+ * survivor rule still picks which one to keep to start with, and each Thing's
+ * uses come along so the page can say what the merge will move.
+ *
+ * @param {string[]} prototypeIds - In selection order; repeats and missing ids are dropped.
+ * @returns {{things: Array<{prototype: Object, uses: Object}>, survivorId: string}|null}
+ *   null when fewer than two distinct Things are left.
+ */
+export function proposeMergeSet(prototypeIds, nodePrototypes, graphs, edges) {
+  const things = [];
+  const seen = new Set();
+  for (const id of prototypeIds || []) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const prototype = nodePrototypes?.get(id);
+    if (prototype) things.push(prototype);
+  }
+  if (things.length < 2) return null;
+
+  const useCounts = countUsesByPrototype(graphs, edges);
+  let survivor = things[0];
+  for (const other of things.slice(1)) [survivor] = chooseSurvivor(survivor, other, useCounts);
+
+  return {
+    things: things.map((prototype) => ({ prototype, uses: usesOf(useCounts, prototype.id) })),
+    survivorId: survivor.id
+  };
+}
+
+/**
+ * The gaps several merged-in Things could fill on the one kept, field by field,
+ * with every Thing able to fill each. Two of them holding a description is a
+ * choice the pair view never had to offer.
+ *
+ * @returns {Array<{field: string, label: string, donors: Array<{id: string, name: string, value: *}>}>}
+ */
+export function computeSetCarryOver(survivor, others) {
+  const byField = new Map();
+  for (const other of others) {
+    for (const gap of computeCarryOver(survivor, other)) {
+      if (!byField.has(gap.field)) byField.set(gap.field, { field: gap.field, label: gap.label, donors: [] });
+      byField.get(gap.field).donors.push({ id: other.id, name: other.name, value: gap.value });
+    }
+  }
+  return [...byField.values()];
+}
+
+/** How two Things compare, in the scan's terms: what they share and what they contradict. */
+export function compareThings(a, b) {
+  const match = calculateEntityMatchConfidence(prototypeToEntity(a), prototypeToEntity(b));
+  return match?.factors || [];
+}
+
 const pairKey = duplicatePairKey;
 
 /** Pairs scored between yields. Small enough to keep a frame responsive. */

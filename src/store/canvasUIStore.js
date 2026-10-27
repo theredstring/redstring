@@ -223,6 +223,9 @@ export function createCanvasUIDefaults() {
     showHelpModal: false,
     showSettingsModal: false,
     showMergeThingsModal: false,
+    // The Things a merge was asked for on (the multi-select panel's Merge), or
+    // null when the modal opened to scan the whole universe.
+    mergeProposalIds: null,
     showStorageSetupModal: false,
     // GitHub reconnect (P2.06c; shared by UniverseHost's modal and the canvas
     // error card). `universeReconnect` is the open modal:
@@ -633,6 +636,7 @@ const useCanvasUIStore = create((set, get) => ({
   setShowHelpModal: fieldSetter(set, 'showHelpModal'),
   setShowSettingsModal: fieldSetter(set, 'showSettingsModal'),
   setShowMergeThingsModal: fieldSetter(set, 'showMergeThingsModal'),
+  setMergeProposalIds: fieldSetter(set, 'mergeProposalIds'),
   setShowStorageSetupModal: fieldSetter(set, 'showStorageSetupModal'),
   setUniverseReconnect: fieldSetter(set, 'universeReconnect'),
   setUniverseReconnectTarget: fieldSetter(set, 'universeReconnectTarget'),
