@@ -241,8 +241,9 @@ export function computeGroupLayouts({
   return result;
 }
 
-/** The settled layout's connectionBoundsOf, from the nodes as hydrated (see computeGroupLayouts' `connections`). */
-function connectionBoundsHook({ edges, anchors, ...routing }, hydratedNodes, baseDimsById) {
+/** The settled layout's connectionBoundsOf, from the nodes as hydrated (see computeGroupLayouts' `connections`).
+ * Framing a web (camera/backToCivilization.js) reads it too. */
+export function connectionBoundsHook({ edges, anchors, ...routing }, hydratedNodes, baseDimsById) {
   const nodeById = new Map(hydratedNodes.map(n => [n.id, n]));
   return makeConnectionBoundsOf({
     edges,

@@ -2,6 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
 import { largestCluster, civilizationView } from '../../src/components/canvas/camera/backToCivilization.js';
 import { watchNewlyOpenedWeb } from '../../src/components/canvas/camera/viewPersistence.js';
+import { computeLombardiTangents, lombardiArcFor } from '../../src/utils/canvas/edgeRouting.js';
+import { arcBounds } from '../../src/components/canvas/groups/connectionBounds.js';
 
 /**
  * Framing a web (Back to Civilization, opening a web): the largest cluster
@@ -50,6 +52,28 @@ describe('civilizationView', () => {
     const centreY = (viewportSize.height / 2 - pan.y) / zoom + canvasSize.offsetY;
     expect(centreX).toBeCloseTo(275, 0);
     expect(centreY).toBeCloseTo(90, 0);
+  });
+
+  it('keeps the arcs of Lombardi connections in view', () => {
+    const nodes = [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 600, y: 0 }, { id: 'c', x: 300, y: 500 }];
+    const edges = ['ab', 'bc', 'ca'].map(([s, d]) => ({ id: s + d, sourceId: s, destinationId: d, directionality: { arrowsToward: new Set() } }));
+    const baseDimsById = dimsById(nodes);
+    const lombardiTangents = computeLombardiTangents(nodes, edges, baseDimsById);
+    const connections = { edges, anchors: new Map(), enableAutoRouting: true, routingStyle: 'lombardi', lombardiTangents, lombardiCurvature: 1, edgeCurveInfo: new Map() };
+    const { pan, zoom } = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections });
+    const seen = {
+      minX: -pan.x / zoom + canvasSize.offsetX, minY: -pan.y / zoom + canvasSize.offsetY,
+      maxX: (viewportSize.width - pan.x) / zoom + canvasSize.offsetX, maxY: (viewportSize.height - pan.y) / zoom + canvasSize.offsetY,
+    };
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    edges.forEach((e) => {
+      const { arc } = lombardiArcFor(e, byId.get(e.sourceId), byId.get(e.destinationId), dims(), dims(), lombardiTangents, 1, {});
+      const b = arcBounds(arc);
+      expect(b.minX).toBeGreaterThan(seen.minX + 100);
+      expect(b.minY).toBeGreaterThan(seen.minY + 100);
+      expect(b.maxX).toBeLessThan(seen.maxX - 100);
+      expect(b.maxY).toBeLessThan(seen.maxY - 100);
+    });
   });
 
   it('caps the zoom at maxZoom', () => {

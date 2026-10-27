@@ -2438,10 +2438,12 @@ function NodeCanvas() {
     setPieMenuPage(0);
   }, [selectedNodeIdForPieMenu]);
 
+  // The connections drawn and how they're routed, for the boxes that hold them (group boxes, framing a web).
+  const connections = useMemo(() => ({ edges, anchors: anchorPositionUpdatesRef.current, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo }), [edges, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo]);
   // Restore the view on graph change; a web just added to the header is framed like Back to Civilization.
   useViewRestore({
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform, nodes, baseDimsById,
+    canvasSize, transform, nodes, baseDimsById, connections,
   });
 
   // Track when panning/zooming operations are active
@@ -3158,10 +3160,8 @@ function NodeCanvas() {
     backToCivilizationDelayComplete, enableClustering, clusterAnalysis,
     shouldShowBackToCivilization, handleBackToCivilizationClick,
   } = useBackToCivilization({
-    transform,
-    nodeDrag,
-    canvasState: { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign },
-    baseDimsById, canvasSize, containerRef, nodes, viewportSize,
+    transform, nodeDrag, canvasState: { isViewReady, isPanning, selectionStart, drawingConnectionFrom, plusSign },
+    baseDimsById, canvasSize, containerRef, nodes, viewportSize, connections,
   });
 
   useAutoLayoutListener({
@@ -3231,7 +3231,7 @@ function NodeCanvas() {
   // rename draft or the label font change, not on every render.
   const groupLayouts = useMemo(() => computeGroupLayouts({
     graphData: activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName,
-    nodePrototypesMap, baseDimsById, gridSize, getTextWidth, connections: { edges, anchors: anchorPositionUpdatesRef.current, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo },
+    nodePrototypesMap, baseDimsById, gridSize, getTextWidth, connections,
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getTextWidth is a stateless wrapper; labelFontVersion re-measures once the font arrives
   }), [activeGraph, groupStructure, hydratedNodes, textSettings, editingGroupId, tempGroupName, nodePrototypesMap, baseDimsById, gridSize, labelFontVersion, edges, enableAutoRouting, routingStyle, lombardiTangents, lombardiCurvature, lombardiLaneSpacing, manhattanBends, orthogonalLaneSpacing, cleanLaneOffsets, cleanLaneSpacing, curveSpacing, edgeCurveInfo]);
 

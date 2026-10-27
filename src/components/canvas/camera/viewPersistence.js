@@ -21,7 +21,7 @@ const OPEN_FRAMING_MAX_ZOOM = 1;
 export function restoreViewForGraph(ctx) {
   const {
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
-    canvasSize, transform, nodes, baseDimsById, openedGraphRef, newlyOpenedRef,
+    canvasSize, transform, nodes, baseDimsById, openedGraphRef, newlyOpenedRef, connections,
   } = ctx;
   // If we're dragging a node or animating zoom, DO NOT restore view from store
   // This prevents the "teleportation" where store state overrides our local interaction state
@@ -88,12 +88,12 @@ export function restoreViewForGraph(ctx) {
     if (newlyOpened) newlyOpenedRef.current = null;
     if (justOpened && nodes.length > 0) {
       if (newlyOpened) {
-        view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, maxZoom: OPEN_FRAMING_MAX_ZOOM });
+        view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: OPEN_FRAMING_MAX_ZOOM });
       } else {
         const anyNodeVisible = computeRelevantNodesVisible({
           enableClustering: false, nodes, panOffset: view.pan, zoomLevel: view.zoom, viewportSize, canvasSize, baseDimsById,
         });
-        if (!anyNodeVisible) view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize });
+        if (!anyNodeVisible) view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections });
       }
     }
 

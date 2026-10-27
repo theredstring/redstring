@@ -5,10 +5,11 @@
  */
 import { MAX_ZOOM } from '../../../constants';
 import { getNodeDimensions } from '../../../utils.js';
+import { connectionBoundsHook } from '../groups/groupLayouts.js';
 
 export function backToCivilization(ctx) {
   const {
-    baseDimsById, canvasSize, clusterAnalysis, containerRef, draggingNodeInfoRef, enableClustering,
+    baseDimsById, canvasSize, clusterAnalysis, connections, containerRef, draggingNodeInfoRef, enableClustering,
     isAnimatingZoomRef, nodes, transform, viewportSize,
   } = ctx;
   // Skip navigation during drag to prevent interference with drag zoom animation
@@ -32,7 +33,7 @@ export function backToCivilization(ctx) {
     outlierCount: clusterAnalysis.statistics?.outlierCount || 0
   });
 
-  const view = civilizationView({ nodes: nodesToNavigateTo, baseDimsById, viewportSize, canvasSize });
+  const view = civilizationView({ nodes: nodesToNavigateTo, baseDimsById, viewportSize, canvasSize, connections });
 
   console.log('[BackToCivilization] Applying navigation:', {
     targetZoom: Math.round(view.zoom * 1000) / 1000,
@@ -109,20 +110,31 @@ export function largestCluster(nodes, dimsFor) {
 }
 
 /** The pan and zoom that frame `nodes` in the viewport (the view Back to Civilization lands on).
- * Frames the web's largest cluster when a wide gap separates it from the rest. */
-export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, maxZoom = MAX_ZOOM }) {
+ * Frames the web's largest cluster when a wide gap separates it from the rest,
+ * and the connections drawn among it (a Lombardi arc bows past its ends), given
+ * `connections` (NodeCanvas's routing inputs; see computeGroupLayouts). */
+export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, maxZoom = MAX_ZOOM, connections = null }) {
   const dimsFor = (node) => baseDimsById.get(node.id) || getNodeDimensions(node, false, null);
   // Calculate bounding box of relevant nodes
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
 
-  largestCluster(nodes, dimsFor).forEach(node => {
+  const framed = largestCluster(nodes, dimsFor);
+  framed.forEach(node => {
     const dims = dimsFor(node);
     minX = Math.min(minX, node.x);
     minY = Math.min(minY, node.y);
     maxX = Math.max(maxX, node.x + dims.currentWidth);
     maxY = Math.max(maxY, node.y + dims.currentHeight);
   });
+  const reach = connections
+    && connectionBoundsHook(connections, nodes, baseDimsById)?.({ id: null, memberInstanceIds: framed.map(n => n.id) });
+  if (reach) {
+    minX = Math.min(minX, reach.minX);
+    minY = Math.min(minY, reach.minY);
+    maxX = Math.max(maxX, reach.maxX);
+    maxY = Math.max(maxY, reach.maxY);
+  }
 
   // Calculate the center of relevant nodes
   const nodesCenterX = (minX + maxX) / 2;
