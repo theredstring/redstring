@@ -9,7 +9,23 @@
 //
 // A failure names its seed and the steps that led to it. Rerun one seed with
 // REDSTRING_SYNC_SEED=<seed>; more seeds with REDSTRING_SYNC_SEEDS=<count>.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Thing sizes come from real text layout, which needs a browser canvas. Width
+// by length, so a longer name or a bigger size still measures bigger.
+vi.mock('../../src/services/textMeasurement.js', async (orig) => ({
+  ...(await orig()),
+  measureTextWidth: (text) => String(text || '').length * 20,
+  measureTextBlockHeight: (text, maxWidth) => 28 * Math.max(1, Math.ceil((String(text || '').length * 20) / Math.max(1, maxWidth || 1))),
+  wrapTextToLines: (text) => (text ? [String(text)] : []),
+}));
+// New ids follow the run (one counter for everyone, reset per seed), so a
+// failing seed replays exactly; store actions and formulas draw on uuid.
+const uuidCounter = vi.hoisted(() => ({ n: 0 }));
+vi.mock('uuid', async (orig) => ({
+  ...(await orig()),
+  v4: () => `u-${String(++uuidCounter.n).padStart(8, '0')}`,
+}));
 import { runRandomAction, seededRandom, idSource } from './actionCatalog.js';
 import { makeHost, makeDevice, PATH, fromFile, sameDocument, describeDifference, brokenReferences } from './storeDevices.js';
 
@@ -19,6 +35,7 @@ const seeds = (offset) => ONE || Array.from({ length: COUNT }, (_, i) => offset 
 
 beforeEach(() => {
   if (typeof window !== 'undefined' && window.localStorage) window.localStorage.clear();
+  uuidCounter.n = 0;
 });
 
 const PEOPLE = ['ana', 'ben', 'cy'];

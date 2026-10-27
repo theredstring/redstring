@@ -81,8 +81,16 @@ export function brokenReferences(state) {
     for (const [iid, inst] of g.instances || []) if (!f.nodePrototypes.has(inst.prototypeId)) problems.push(`${gid}/${iid} -> missing Thing ${inst.prototypeId}`);
     for (const eid of g.edgeIds || []) if (!f.edges.has(eid)) problems.push(`${gid} lists missing connection ${eid}`);
   }
+  const has = (iid) => [...f.graphs.values()].some((g) => g.instances?.has(iid));
+  for (const [gid, g] of f.graphs) {
+    for (const [groupId, group] of g.groups || []) {
+      // A Thing-group's title node and Thing; every member.
+      if (group.anchorInstanceId && !has(group.anchorInstanceId)) problems.push(`${gid} group ${groupId} -> missing title node ${group.anchorInstanceId}`);
+      if (group.linkedNodePrototypeId && !f.nodePrototypes.has(group.linkedNodePrototypeId)) problems.push(`${gid} group ${groupId} -> missing Thing ${group.linkedNodePrototypeId}`);
+      for (const iid of group.memberInstanceIds || []) if (!has(iid)) problems.push(`${gid} group ${groupId} -> missing member ${iid}`);
+    }
+  }
   for (const [eid, e] of f.edges) {
-    const has = (iid) => [...f.graphs.values()].some((g) => g.instances?.has(iid));
     if (!has(e.sourceId) || !has(e.destinationId)) problems.push(`connection ${eid} has a missing end`);
   }
   return problems;

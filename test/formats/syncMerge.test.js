@@ -240,6 +240,23 @@ describe('syncMerge: both sides changed', () => {
 });
 
 describe('syncMerge: deletions', () => {
+  // The file leaves a web's groups out once it has none, so the other side
+  // reads them as a missing field. That used to make the side that added a
+  // group "change" the field and win: the deleted group came back.
+  it('deleting a web\'s last group stands against a group made on the other side', () => {
+    const base = forest();
+    base.graphs.get('forest').groups = new Map([['gOld', { id: 'gOld', name: 'Old', memberInstanceIds: ['iTree', 'iBird'] }]]);
+    const theirs = clone(base);
+    delete theirs.graphs.get('forest').groups;
+    const ours = clone(base);
+    ours.graphs.get('forest').groups.set('gNew', { id: 'gNew', name: 'New', memberInstanceIds: ['iSoil'] });
+    const { merged } = syncMerge(base, ours, theirs);
+    expect([...merged.graphs.get('forest').groups.keys()]).toEqual(['gNew']);
+    // And the other way round.
+    const back = syncMerge(base, theirs, ours).merged;
+    expect([...back.graphs.get('forest').groups.keys()]).toEqual(['gNew']);
+  });
+
   it('a deletion on one side wins over an untouched copy', () => {
     const base = forest();
     const ours = clone(base);

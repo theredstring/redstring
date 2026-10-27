@@ -362,6 +362,19 @@ function mergeValue(bv, ov, tv, ctx, path, { entityRoot = false } = {}) {
 
   const field = path[path.length - 1];
 
+  // A web's groups and the id lists are left out of the file when empty: one
+  // side without them emptied them, and is merged entry by entry like any
+  // other. (Taken as a removed field, deleting a web's last group lost to an
+  // unrelated group made on the other side, and kept a group whose title node
+  // was gone.)
+  if (ov === ABSENT || tv === ABSENT) {
+    const empty = emptyCollectionLike(ov === ABSENT ? tv : ov, field, ctx, path, entityRoot);
+    if (empty) {
+      const orEmpty = (v) => (v === ABSENT ? empty : v);
+      return mergeValue(orEmpty(bv), orEmpty(ov), orEmpty(tv), ctx, path, { entityRoot });
+    }
+  }
+
   // One side removed the field, the other changed it: the change wins.
   if (ov === ABSENT) return tv;
   if (tv === ABSENT) return ov;
@@ -382,6 +395,13 @@ function mergeValue(bv, ov, tv, ctx, path, { entityRoot = false } = {}) {
 
   // A real conflict: the same field changed to two different values.
   return conflict(bv, ov, tv, ctx, path);
+}
+
+/** An empty one of `value`'s kind, when `field` is a collection an absent field means is empty; else null. */
+function emptyCollectionLike(value, field, ctx, path, entityRoot) {
+  if (value instanceof Map && !entityRoot && ctx.isInsideGraph(path) && NESTED_ENTITY_MAPS[field]) return new Map();
+  if (Array.isArray(value) && SET_LIKE_ARRAY_FIELDS.has(field)) return [];
+  return null;
 }
 
 function conflict(bv, ov, tv, ctx, path) {

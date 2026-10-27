@@ -7,7 +7,16 @@
 //   6. go out as-is when this person saves onto a repository that has.
 // Moving Things and auto layout failed 2; a Thing made on the canvas, deleted
 // by someone else, failed 4 (both found by hand, 2026-10-18).
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// Thing sizes come from real text layout, which needs a browser canvas. Width
+// by length, so a longer name or a bigger size still measures bigger.
+vi.mock('../../src/services/textMeasurement.js', async (orig) => ({
+  ...(await orig()),
+  measureTextWidth: (text) => String(text || '').length * 20,
+  measureTextBlockHeight: (text, maxWidth) => 28 * Math.max(1, Math.ceil((String(text || '').length * 20) / Math.max(1, maxWidth || 1))),
+  wrapTextToLines: (text) => (text ? [String(text)] : []),
+}));
 import useGraphStore from '../../src/store/graphStore.js';
 import { GitSyncEngine } from '../../src/services/gitSyncEngine.js';
 import { generateStateHash as saveHash } from '../../src/services/saveHash.js';

@@ -626,6 +626,21 @@ const sanitizeStoreStateReferences = (storeState) => {
     }
   }
 
+  // A web with no connections reads back from the file with no edgeIds at all,
+  // and store actions push onto it (a formula written into an empty web of a
+  // reopened universe threw). Copy-on-write, as above: the Map and its webs
+  // can be the live store's own.
+  if (storeState.graphs instanceof Map) {
+    let graphs = null;
+    for (const [graphId, graph] of storeState.graphs) {
+      if (graph && !Array.isArray(graph.edgeIds)) {
+        graphs = graphs || new Map(storeState.graphs);
+        graphs.set(graphId, { ...graph, edgeIds: [] });
+      }
+    }
+    if (graphs) storeState.graphs = graphs;
+  }
+
   // Sanitize UI references: drop node tabs pointing to non-existent prototypes
   if (Array.isArray(storeState.rightPanelTabs)) {
     try {
@@ -1159,6 +1174,16 @@ const replaceGroupMember = (graph, removedId, keptId) => {
     group.memberInstanceIds = members.includes(keptId)
       ? members.filter((id) => id !== removedId)
       : members.map((id) => (id === removedId ? keptId : id));
+  }
+};
+
+/** An instance deleted from a web: the groups it was a member of let it go. */
+const dropGroupMember = (graph, removedId) => {
+  for (const group of graph.groups?.values?.() || []) {
+    const members = group.memberInstanceIds;
+    if (Array.isArray(members) && members.includes(removedId)) {
+      group.memberInstanceIds = members.filter((id) => id !== removedId);
+    }
   }
 };
 
@@ -2890,6 +2915,8 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
             }
           });
           graph.instances.delete(anchorId);
+          // Left in a group it was in, it pointed at nothing.
+          dropGroupMember(graph, anchorId);
         }
 
         graph.groups.delete(groupId);
@@ -2964,6 +2991,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           });
           const anchorGroupId = graph.instances.get(instId)?.anchorForGroupId;
           graph.instances.delete(instId);
+          dropGroupMember(graph, instId);
           console.log(`[cleanupOrphanedGroupAnchors] Removed orphaned anchor instance ${instId} (group ${anchorGroupId} no longer exists)`);
         });
       }));
@@ -4894,11 +4922,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       for (const graph of draft.graphs.values()) {
         if (!graph.instances) continue;
 
+        // A Thing-group's title node, or a Thing opened in place, belongs to
+        // its group or box: it takes the primary's Thing where it stands and is
+        // never merged away (that left its group pointing at nothing, which a
+        // collaborator's copy then kept and this one didn't).
+        const anchorIds = new Set();
+        for (const group of graph.groups?.values?.() || []) {
+          if (group.anchorInstanceId) anchorIds.add(group.anchorInstanceId);
+        }
+        const standsAlone = (instId, inst) => anchorIds.has(instId) || inst.isGroupAnchor || !!inst.openDefinition;
+
         // Find instances of primary and secondary in this graph
         let primaryInstId = null;
         const secondaryInstIds = [];
         for (const [instId, inst] of graph.instances.entries()) {
-          if (inst.prototypeId === primaryId && !primaryInstId) {
+          if (inst.prototypeId === secondaryId && standsAlone(instId, inst)) {
+            inst.prototypeId = primaryId;
+            continue;
+          }
+          if (inst.prototypeId === primaryId && !primaryInstId && !standsAlone(instId, inst)) {
             primaryInstId = instId;
           }
           if (inst.prototypeId === secondaryId) {

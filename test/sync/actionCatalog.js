@@ -14,6 +14,8 @@
  */
 import useGraphStore from '../../src/store/graphStore.js';
 import { duplicatePairKey } from '../../src/formats/duplicatePairKey.js';
+import { buildFormulaInWeb } from '../../src/components/canvas/formats/formula/buildFormula.js';
+import { resizeNodeInPlace } from '../../src/components/canvas/actions/resizeNode.js';
 
 export { seededRandom, idSource } from './random.js';
 
@@ -31,6 +33,9 @@ const edgesIn = (graphId) => sorted(store().graphs.get(graphId)?.edgeIds || []).
 const groupsIn = (graphId) => sorted(store().graphs.get(graphId)?.groups?.keys() || []);
 const nameOf = (protoId) => store().nodePrototypes.get(protoId)?.name ?? protoId;
 const instName = (graphId, iid) => nameOf(store().graphs.get(graphId)?.instances?.get(iid)?.prototypeId);
+
+const FORMULAS = ['a + b', 'x * (y + z)', 'E = m * c ^ 2', 'p * V = n * R * T', 'y = sqrt(x + 1)'];
+const SIZES = [0.75, 1.5, 2];
 
 const WORDS = ['Oak', 'Fern', 'Moss', 'Lichen', 'Owl', 'Vole', 'Stream', 'Stone', 'Root', 'Seed', 'Wind', 'Frost', 'Hawk', 'Bee', 'Clover', 'Ash'];
 const COLORS = ['#8B0000', '#2F4F2F', '#4B0082', '#8B4513', '#1F3A5F', '#556B2F'];
@@ -331,6 +336,69 @@ export const ACTIONS = [
       if (store().mergeDismissals?.[key]) return null;
       store().dismissDuplicatePair(key);
       return `"${nameOf(a)}" and "${nameOf(b)}" are not the same`;
+    }
+  },
+  {
+    name: 'write a formula',
+    weight: 1,
+    run(rng) {
+      const web = rng.pick(webIds());
+      if (!web) return null;
+      const text = rng.pick(FORMULAS);
+      // The composer's read options (FormulaComposer.jsx): math convention, no names known.
+      const built = buildFormulaInWeb(text, web, { x: rng.int(1200) - 600, y: rng.int(800) - 400 }, { convention: 'math', isKnownName: () => false });
+      return built ? `formula "${text}" in ${web}` : null;
+    }
+  },
+  {
+    name: 'resize a Thing',
+    weight: 1,
+    run(rng) {
+      const web = webWith(rng, 1);
+      if (!web) return null;
+      const iid = rng.pick(instancesOf(web));
+      const inst = store().graphs.get(web).instances.get(iid);
+      const size = rng.pick(SIZES.filter((n) => n !== (inst.sizeMul ?? 1)));
+      const proto = store().nodePrototypes.get(inst.prototypeId);
+      resizeNodeInPlace(web, { ...proto, ...inst, id: iid, name: proto?.name || '' }, size);
+      return `resize "${instName(web, iid)}" to ${size}`;
+    }
+  },
+  {
+    name: 'open a Thing\'s definition in place',
+    weight: 1,
+    run(rng, ids) {
+      const closed = (web) => instancesOf(web).filter((iid) => !store().graphs.get(web).instances.get(iid).openDefinition);
+      const web = rng.pick(webIds().filter((id) => closed(id).length));
+      if (!web) return null;
+      const iid = rng.pick(closed(web));
+      const protoId = store().graphs.get(web).instances.get(iid).prototypeId;
+      // A Thing with no definition yet gets one, with something in it, as on the canvas.
+      if (!store().nodePrototypes.get(protoId)?.definitionGraphIds?.length) {
+        const graphId = store().createAndAssignGraphDefinitionWithoutActivation(protoId);
+        const inner = rng.pick(userPrototypeIds().filter((p) => p !== protoId));
+        if (graphId && inner) store().addNodeInstance(graphId, inner, { x: 0, y: 0 }, ids.next('inst'));
+      }
+      const box = store().openDefinitionInPlace(web, iid, 0);
+      return box ? `open "${instName(web, iid)}"'s definition in place in ${web}` : null;
+    }
+  },
+  {
+    name: 'make a group a Thing opened in place',
+    weight: 1,
+    run(rng) {
+      const web = rng.pick(webIds().filter((id) => groupsIn(id).some((g) => {
+        const group = store().graphs.get(id).groups.get(g);
+        return !group.linkedNodePrototypeId && group.memberInstanceIds?.length;
+      })));
+      if (!web) return null;
+      const groupId = rng.pick(groupsIn(web).filter((g) => {
+        const group = store().graphs.get(web).groups.get(g);
+        return !group.linkedNodePrototypeId && group.memberInstanceIds?.length;
+      }));
+      const name = `${rng.pick(WORDS)} whole`;
+      const box = store().convertGroupToThingInPlace(web, groupId, null, true, name, rng.pick(COLORS));
+      return box ? `group ${groupId} becomes "${name}", opened in place` : null;
     }
   },
   {
