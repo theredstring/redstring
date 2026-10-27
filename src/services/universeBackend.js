@@ -5315,7 +5315,7 @@ class UniverseBackend {
     const say = (who) => {
       const message = `${who} updated ${parts.join(' and ')}.${clashNote}`;
       this.notifyStatus('info', message);
-      // Shown briefly where the save status sits (SaveStatusDisplay).
+      // The save status in the corner reads "Syncing..." briefly (SaveStatusDisplay).
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('redstring:remote-changes', { detail: { universeSlug, message } }));
       }

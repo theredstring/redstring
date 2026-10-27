@@ -19,8 +19,9 @@ import { usesDevForge } from './services/universeBackend.js';
 // (see below), so a long drag never trips it.
 const STALLED_DIRTY_MS = 6000;
 
-// How long "Ana updated 4 Things" stays up after someone else's changes land.
-const REMOTE_NOTICE_MS = 6000;
+// How long "Syncing..." stays up after someone else's changes land. The
+// indicator only says that; what changed is for the canvas to show.
+const REMOTE_NOTICE_MS = 1500;
 
 const SaveStatusDisplay = ({ hidden = false }) => {
   // `null` means "nothing worth saying" (mid-drag, before anything is written).
@@ -33,16 +34,14 @@ const SaveStatusDisplay = ({ hidden = false }) => {
   const [ctaAction, setCtaAction] = useState(null);
   const [isVisible, setIsVisible] = useState(true);
   // Someone else's saved changes just arrived (universeBackend._announceRemoteChanges).
-  const [remoteNotice, setRemoteNotice] = useState(null);
+  const [remoteNotice, setRemoteNotice] = useState(false);
 
   useEffect(() => {
     let timer = null;
-    const onRemoteChanges = (event) => {
-      const message = event?.detail?.message;
-      if (!message) return;
-      setRemoteNotice(message);
+    const onRemoteChanges = () => {
+      setRemoteNotice(true);
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => setRemoteNotice(null), REMOTE_NOTICE_MS);
+      timer = setTimeout(() => setRemoteNotice(false), REMOTE_NOTICE_MS);
     };
     window.addEventListener('redstring:remote-changes', onRemoteChanges);
     return () => {
@@ -51,7 +50,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
     };
   }, []);
   // The notice gives way to anything the person has to act on.
-  const showNotice = !!remoteNotice && !isCTA && statusText !== 'Not saved';
+  const showNotice = remoteNotice && !isCTA && statusText !== 'Not saved';
 
   // Timestamp the coordinator first went dirty with no write in flight.
   const dirtySinceRef = useRef(0);
@@ -379,7 +378,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           }}
         />
       )}
-      {showNotice ? remoteNotice : statusText}
+      {showNotice ? 'Syncing...' : statusText}
     </div>
   );
 };
