@@ -3,15 +3,20 @@ import CanvasModal from './CanvasModal';
 import { X } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
 import PanelIconButton from './shared/PanelIconButton.jsx';
+import WhatsNew from './help/WhatsNew.jsx';
 import './ModalChrome.css';
 
 /**
  * Help Modal
- * Comprehensive guide for using Redstring
+ * Comprehensive guide for using Redstring. Opens on What's New every time.
  */
 const HelpModal = ({ isVisible, onClose }) => {
   const theme = useTheme();
-  const [activeSection, setActiveSection] = useState('basics');
+  const [activeSection, setActiveSection] = useState('whatsNew');
+
+  React.useEffect(() => {
+    if (isVisible) setActiveSection('whatsNew');
+  }, [isVisible]);
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 900
@@ -42,6 +47,10 @@ const HelpModal = ({ isVisible, onClose }) => {
   const headingColor = theme.canvas.brandText;
 
   const sections = {
+    whatsNew: {
+      title: "What's New",
+      content: <WhatsNew />
+    },
     basics: {
       title: 'Basic Controls',
       content: (

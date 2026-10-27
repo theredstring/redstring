@@ -76,7 +76,6 @@ docs/
 docs
 docs
 WIZARD_KEY.txt
-CHANGELOG.md
 
 # Cloudflare Pages local dev secrets
 .dev.vars

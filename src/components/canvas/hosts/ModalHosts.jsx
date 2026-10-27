@@ -8,6 +8,7 @@ import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { parseInputData, generateGraph } from '../../../services/autoGraphGenerator';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
+import useWhatsNewOnUpdate from '../../help/useWhatsNewOnUpdate.js';
 
 /**
  * Help, Settings, Merge, Auto Graph and Import Ontology, outside NodeCanvas (P2.06b).
@@ -82,6 +83,9 @@ function ModalHosts() {
   const showMergeThingsModal = useCanvasUIStore(s => s.showMergeThingsModal);
   const autoGraphModalVisible = useCanvasUIStore(s => s.autoGraphModalVisible);
   const activeGraphId = useGraphStore(s => s.activeGraphId);
+
+  // The first launch after an update opens Help on What's New.
+  useWhatsNewOnUpdate();
 
   useEffect(() => {
     for (const [type, open] of OPENERS) window.addEventListener(type, open);
