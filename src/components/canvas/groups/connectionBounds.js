@@ -22,6 +22,7 @@
 import { computeManhattanRouting, computeCleanRouting, lombardiArcFor } from '../../../utils/canvas/edgeRouting.js';
 import { calculateParallelEdgePath } from '../../../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../../../utils/canvas/selfLoopUtils.js';
+import { anchorPillEndBox } from '../../../utils/canvas/anchorEnd.js';
 
 const ROUTED = new Set(['manhattan', 'clean', 'lombardi']);
 
@@ -125,16 +126,56 @@ const bySourceOf = (edges) => {
   return byNode;
 };
 
+// groupsById → Map(anchor id → its Thing-group's id), built once per groups Map.
+const anchorGroupsCache = new WeakMap();
+const anchorGroupsOf = (groupsById) => {
+  let byAnchor = anchorGroupsCache.get(groupsById);
+  if (!byAnchor) {
+    byAnchor = new Map();
+    for (const [id, g] of groupsById) if (g?.linkedNodePrototypeId && g.anchorInstanceId) byAnchor.set(g.anchorInstanceId, id);
+    anchorGroupsCache.set(groupsById, byAnchor);
+  }
+  return byAnchor;
+};
+
 /**
- * The `connectionBoundsOf(group)` hook computeGroupLayout reads: the box of the
+ * `anchors` (the anchorPositions records connections meet) with each Thing-group
+ * this layout pass has already laid out read from that layout instead. A group
+ * lays out its nested groups before it measures its connections, so a
+ * connection to a nested group's title meets the title where it is this pass.
+ * The shared records can be a frame behind it mid-drag, or hold the pre-drag
+ * layout after a render mid-drag (publishGroupLayouts), and the box measured
+ * against them flickered wide for a frame.
+ *
+ * @param {Map|{ get: Function }|null} anchors
+ * @param {Object} [context] computeGroupLayout's context (its `_cache` and `groupsById`)
+ * @param {Object} [textSettings] for the title's end box (anchorPillEndBox)
+ */
+export function passAnchors(anchors, context, textSettings) {
+  const laidOut = context?._cache;
+  if (!laidOut?.size || !context.groupsById) return anchors;
+  const byAnchor = anchorGroupsOf(context.groupsById);
+  return {
+    get(id) {
+      const layout = laidOut.get(byAnchor.get(id));
+      if (!layout?.ok || !layout.isNodeGroup) return anchors?.get(id);
+      const { x, y, w, h } = layout.label;
+      return { ...anchors?.get(id), x, y, width: w, height: h, end: anchorPillEndBox(x, y, w, h, textSettings) };
+    },
+  };
+}
+
+/**
+ * The `connectionBoundsOf(group, context)` hook computeGroupLayout reads: the box of the
  * connections with both ends among the group's members, or null.
  *
  * @param {Object} opts
  * @param {Iterable<Object>} opts.edges - The connections drawn (view ids).
  * @param {(id: string) => Object|undefined} opts.nodeOf - A node at its drawn position.
  * @param {(id: string) => Object|undefined} opts.dimsOf - Its dims.
- * @param {(node, dims) => { node, dims }} [opts.geometryFor] - Where a connection meets
- *   it (a Thing-group's anchor meets at its title; connectionEndGeometry).
+ * @param {(node, dims, context) => { node, dims }} [opts.geometryFor] - Where a connection meets
+ *   it (a Thing-group's anchor meets at its title; connectionEndGeometry, with passAnchors).
+ *   `context`: the layout pass asking.
  * @param {(groupId: string) => boolean} [opts.skipGroup] - A group drawn another way (a formula).
  * @param {(id: string) => boolean} [opts.isDrawnElsewhere] - A Thing drawn in a format instead.
  * @param {Object} opts.route - connectionRouteBounds' `route`.
@@ -143,7 +184,7 @@ export function makeConnectionBoundsOf({ edges, nodeOf, dimsOf, geometryFor, ski
   const byNode = bySourceOf(edges);
   if (byNode.size === 0) return null;
   const cache = new Map();
-  const boundsOfEdge = (edge) => {
+  const boundsOfEdge = (edge, context) => {
     if (cache.has(edge.id)) return cache.get(edge.id);
     const destId = edge.destinationId || edge.targetId;
     let result = null;
@@ -152,14 +193,14 @@ export function makeConnectionBoundsOf({ edges, nodeOf, dimsOf, geometryFor, ski
     const sd0 = dimsOf(edge.sourceId);
     const dd0 = dimsOf(destId);
     if (s0 && d0 && sd0 && dd0) {
-      const s = geometryFor ? geometryFor(s0, sd0) : { node: s0, dims: sd0 };
-      const d = geometryFor ? geometryFor(d0, dd0) : { node: d0, dims: dd0 };
+      const s = geometryFor ? geometryFor(s0, sd0, context) : { node: s0, dims: sd0 };
+      const d = geometryFor ? geometryFor(d0, dd0, context) : { node: d0, dims: dd0 };
       result = connectionRouteBounds(edge, s.node, d.node, s.dims, d.dims, route);
     }
     cache.set(edge.id, result);
     return result;
   };
-  return (group) => {
+  return (group, context) => {
     if (skipGroup?.(group.id)) return null;
     const members = new Set(group.memberInstanceIds || []);
     if (members.size === 0) return null;
@@ -169,7 +210,7 @@ export function makeConnectionBoundsOf({ edges, nodeOf, dimsOf, geometryFor, ski
       (byNode.get(id) || []).forEach((edge) => {
         const destId = edge.destinationId || edge.targetId;
         if (!members.has(destId) || isDrawnElsewhere?.(destId)) return;
-        const eb = boundsOfEdge(edge);
+        const eb = boundsOfEdge(edge, context);
         if (!eb) return;
         grow(b, eb.minX, eb.minY);
         grow(b, eb.maxX, eb.maxY);

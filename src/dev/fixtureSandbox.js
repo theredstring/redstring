@@ -166,6 +166,10 @@ function installFixtureSandbox(name) {
     // The "Download App" pill floats over the bottom of the canvas after a
     // delay and would intercept clicks there.
     'redstring_desktop_download_dismissed': 'true',
+    // A returning user with no What's New record counts as just updated, and
+    // its modal would cover the canvas. Seen up to any version.
+    'redstring-whats-new-seen': '9999.0.0',
+    'test_redstring-whats-new-seen': '9999.0.0',
     ...(window.__fixtureStorageSeed || {}),
   };
   const memory = createMemoryStorage(seed);

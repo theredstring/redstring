@@ -9,7 +9,7 @@
 import { computeGroupLayout, groupLabelSizing, GROUP_LAYOUT_CONSTANTS } from '../../../services/groupLayout.js';
 import { anchorPillEndBox, anchorEndBox } from '../../../utils/canvas/anchorEnd.js';
 import { isReplacedGroup, isReplacedInstance, formatEndOf, connectionEndInfo, anchorBoxOf, formatAnchorOfGroup, formatOfAnchor } from '../formats/replaced.js';
-import { makeConnectionBoundsOf, routeFrom } from './connectionBounds.js';
+import { makeConnectionBoundsOf, routeFrom, passAnchors } from './connectionBounds.js';
 
 /**
  * Publish a layout to the refs the rest of the canvas reads (drag, gamepad,
@@ -163,7 +163,7 @@ export function computeGroupLayouts({
     labelFontSize: groupLabelFontSize,
     labelGrowth,
     ...formatLayoutHooks(),
-    connectionBoundsOf: connections ? connectionBoundsHook(connections, hydratedNodes, baseDimsById) : null,
+    connectionBoundsOf: connections ? connectionBoundsHook(connections, hydratedNodes, baseDimsById, textSettings) : null,
     _cache: new Map(),
   };
 
@@ -243,13 +243,13 @@ export function computeGroupLayouts({
 
 /** The settled layout's connectionBoundsOf, from the nodes as hydrated (see computeGroupLayouts' `connections`).
  * Framing a web (camera/backToCivilization.js) reads it too. */
-export function connectionBoundsHook({ edges, anchors, ...routing }, hydratedNodes, baseDimsById) {
+export function connectionBoundsHook({ edges, anchors, ...routing }, hydratedNodes, baseDimsById, textSettings = null) {
   const nodeById = new Map(hydratedNodes.map(n => [n.id, n]));
   return makeConnectionBoundsOf({
     edges,
     nodeOf: id => nodeById.get(id),
     dimsOf: id => baseDimsById.get(id),
-    geometryFor: (node, dims) => connectionEndGeometry(node, dims, anchors),
+    geometryFor: (node, dims, context) => connectionEndGeometry(node, dims, passAnchors(anchors, context, textSettings)),
     skipGroup: isReplacedGroup,
     isDrawnElsewhere: isReplacedInstance,
     route: routeFrom(routing),

@@ -3,7 +3,7 @@ import * as GeometryUtils from '../utils/canvas/geometryUtils.js';
 import { getNodeDimensions } from '../utils.js';
 import { standInFor, isReplacedGroup, isReplacedInstance } from '../components/canvas/formats/replaced.js';
 import { formatAnchorPosition, formatLayoutHooks, connectionEndGeometry } from '../components/canvas/groups/groupLayouts.js';
-import { makeConnectionBoundsOf, routeFrom } from '../components/canvas/groups/connectionBounds.js';
+import { makeConnectionBoundsOf, routeFrom, passAnchors } from '../components/canvas/groups/connectionBounds.js';
 import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
@@ -1760,6 +1760,7 @@ export const useNodeDrag = ({
     const curNodeById = nodeByIdRef.current;
     const edges = edgesRef?.current || [];
     const spacing = 200 * (multiConnectionCurveRef?.current ?? 1);
+    const { textSettings } = useGraphStore.getState();
     const nodeOf = (id) => {
       const stored = curNodeById.get(id);
       const live = dragNodesById.get(id);
@@ -1790,7 +1791,7 @@ export const useNodeDrag = ({
       edges,
       nodeOf,
       dimsOf: id => baseDimsByIdRef.current.get(id),
-      geometryFor: (node, dims) => connectionEndGeometry(node, dims, anchorPositionUpdatesRef?.current),
+      geometryFor: (node, dims, context) => connectionEndGeometry(node, dims, passAnchors(anchorPositionUpdatesRef?.current, context, textSettings)),
       skipGroup: isReplacedGroup,
       isDrawnElsewhere: isReplacedInstance,
       route: routeFrom({
