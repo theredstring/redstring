@@ -8,6 +8,10 @@ import {
   scanForDuplicatesSteps, computeCarryOver, proposeMergeSet, computeSetCarryOver, compareThings
 } from '../../services/duplicateScan.js';
 import { performUndo } from '../../store/historyActions.js';
+import useImageCache from '../../services/imageCache.js';
+import { getTextColor } from '../../utils/colorUtils.js';
+import { safeImageSrc } from '../../utils/safeUrl.js';
+import { NODE_DEFAULT_COLOR } from '../../constants.js';
 import '../ModalChrome.css';
 
 /**
@@ -56,37 +60,82 @@ const describeUses = (uses) => {
   return parts.length > 0 ? parts.join(' · ') : 'unused';
 };
 
-/** One thing to pick as the one kept. `children` goes under its uses line. */
+// A small card wants the smallest image a Thing has. Each candidate goes
+// through safeImageSrc, so one the browser shouldn't load falls to the next.
+const thingImageSrc = (proto, cached) => [
+  cached?.thumbnailSrc,
+  proto.thumbnailSrc,
+  proto.semanticMetadata?.wikipediaThumbnail,
+  proto.imageSrc
+].map(safeImageSrc).find(Boolean) || null;
+
+/**
+ * One thing to pick as the one kept, drawn the way the canvas draws it: its
+ * colour as the fill, the canvas's text colour for that fill, and its image
+ * along the right edge. Two lookalikes are usually one styled and one left default,
+ * and that is visible at a glance where two names and a use count are not.
+ * `children` goes under its uses line, in the same text colour.
+ */
 const ThingButton = ({ proto, label, uses, isSurvivor, onPick, children }) => {
   const theme = useTheme();
+  const cachedImage = useImageCache((state) => state.images[proto.id]);
+  const fill = proto.color || NODE_DEFAULT_COLOR;
+  const text = getTextColor(fill, theme.darkMode);
+  const image = thingImageSrc(proto, cachedImage);
   return (
     <button
       type="button"
       onClick={() => onPick(proto.id)}
       style={{
+        display: 'flex',
+        overflow: 'hidden',
         flex: 1,
         minWidth: 0,
         textAlign: 'left',
-        padding: '8px 10px',
+        padding: 0,
         borderRadius: 8,
-        border: `2px solid ${isSurvivor ? theme.accent.primary : theme.canvas.border}`,
-        background: 'transparent',
-        color: theme.canvas.textPrimary,
+        border: 'none',
+        background: fill,
+        color: text,
         cursor: 'pointer',
         fontFamily: "'EmOne', sans-serif",
-        transition: 'border-color 0.15s ease'
+        // A ring outside the fill, since a border in the accent colour would
+        // vanish into any Thing filled with it (every default one). Drawn as
+        // shadows, a gap in the modal's colour then the ring, and switched
+        // instantly: an outline fading in lagged behind the click.
+        boxShadow: isSurvivor ? `0 0 0 2px ${theme.canvas.bg}, 0 0 0 4px ${theme.canvas.textPrimary}` : 'none'
       }}
     >
-      <div style={{
-        fontWeight: 700, fontSize: '0.85rem',
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-      }}>
-        {label || proto.name || 'Untitled'}
+      <div style={{ flex: 1, minWidth: 0, padding: '8px 10px' }}>
+        <div style={{
+          fontWeight: 700, fontSize: '0.85rem',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+        }}>
+          {label || proto.name || 'Untitled'}
+        </div>
+        <div style={{ fontSize: '0.7rem', opacity: 0.8, marginTop: 2 }}>
+          {isSurvivor ? 'keeps its name' : 'merged in'} · {describeUses(uses)}
+        </div>
+        {children}
       </div>
-      <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2 }}>
-        {isSurvivor ? 'keeps its name' : 'merged in'} · {describeUses(uses)}
-      </div>
-      {children}
+      {image && (
+        // A third of the card, cropped to fill it, so the text never runs under it.
+        <div style={{ position: 'relative', width: '33%', flexShrink: 0 }}>
+          <img
+            src={image}
+            alt=""
+            loading="lazy"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              pointerEvents: 'none'
+            }}
+          />
+        </div>
+      )}
     </button>
   );
 };
@@ -172,7 +221,7 @@ const PairCard = ({ candidate, onMerge, onSkip, disabled }) => {
 
       {gaps.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-          <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Also take:</span>
+          <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>Keep from {flipped ? 'left' : 'right'}:</span>
           {gaps.map((gap) => (
             <label key={gap.field} style={{
               display: 'flex', alignItems: 'center', gap: 4,
@@ -336,11 +385,13 @@ const SelectionMerge = ({ proposal, onMerge }) => {
               onPick={pickSurvivor}
             >
               {factors && (
-                <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, marginTop: 2, letterSpacing: '0.03em' }}>
+                // On the Thing's own fill, so warnings stand out by weight, not
+                // by a brand colour that a red Thing would swallow.
+                <div style={{ fontSize: '0.7rem', marginTop: 2, letterSpacing: '0.03em' }}>
                   {factors.length === 0 ? (
-                    <span style={{ color: theme.canvas.brandText }}>nothing in common</span>
+                    <span style={{ fontWeight: 800 }}>nothing in common</span>
                   ) : factors.map((f, i) => (
-                    <span key={f.factor} style={CONTRADICTIONS.has(f.factor) ? { color: theme.canvas.brandText } : undefined}>
+                    <span key={f.factor} style={CONTRADICTIONS.has(f.factor) ? { fontWeight: 800 } : { opacity: 0.8 }}>
                       {i > 0 ? ' · ' : ''}{FACTOR_LABEL[f.factor] || f.factor}
                     </span>
                   ))}

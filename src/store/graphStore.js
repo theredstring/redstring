@@ -849,6 +849,21 @@ const groupHomeGraphId = (state, viewGraphId, groupId) => {
 };
 
 /**
+ * The open box a group addressed through `viewGraphId` is drawn inside, or null
+ * for the view graph's own groups. A group in a repeated box goes by that box's
+ * view id, so the box whose scope it carries is the one.
+ */
+const groupBoxOf = (state, viewGraphId, groupId) => {
+  if (!groupId || anchorIdFromOpenGroupId(groupId)) return null;
+  const storedId = storedGroupIdOf(groupId);
+  if (state.graphs.get(viewGraphId)?.groups?.has(storedId)) return null;
+  for (const box of openMapFor(state, viewGraphId).boxes.values()) {
+    if (viewIdOf(box.scope, storedId) === groupId && state.graphs.get(box.defGraphId)?.groups?.has(storedId)) return box;
+  }
+  return null;
+};
+
+/**
  * Runs an instance recipe written for view coordinates against an instance stored
  * in its definition's coordinates. Positions the recipe leaves alone come back
  * exactly as they were, so no rounding creeps into the definition.
@@ -2754,6 +2769,17 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
       // Adding to an open box puts the nodes into its definition.
       const openAnchorId = anchorIdFromOpenGroupId(groupId);
       if (openAnchorId) return get().moveInstancesIntoOpenDefinition(graphId, openAnchorId, instanceIds, contextOptions);
+      // A group inside an open box lives in that box's definition: what joins it
+      // moves in there first, then joins it there.
+      const box = groupBoxOf(get(), graphId, groupId);
+      if (box) {
+        return api.withHistoryTransaction('Added to group', () => {
+          get().moveInstancesIntoOpenDefinition(graphId, box.anchorId, instanceIds, contextOptions);
+          const defInstances = get().graphs.get(box.defGraphId)?.instances;
+          const inside = (instanceIds || []).map(storedIdOf).filter(id => defInstances?.has(id));
+          if (inside.length) get().addInstancesToGroup(box.defGraphId, storedGroupIdOf(groupId), inside, contextOptions);
+        });
+      }
       groupId = storedGroupIdOf(groupId);
       api.setChangeContext({ type: 'group_update', target: 'group', groupId, ...contextOptions });
       return set(produce((draft) => {

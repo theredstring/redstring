@@ -26,7 +26,7 @@ const reset = () => {
   useHistoryStore.setState({ history: [], currentIndex: -1 });
   useGraphStore.setState({
     graphs: new Map([['main', makeGraph('main')]]),
-    nodePrototypes: new Map(['p-box', 'p-a', 'p-b', 'p-inner'].map(id => [id, makePrototype(id)])),
+    nodePrototypes: new Map(['p-box', 'p-a', 'p-b', 'p-c', 'p-inner'].map(id => [id, makePrototype(id)])),
     edges: new Map(),
     openGraphIds: ['main'],
     activeGraphId: 'main',
@@ -102,6 +102,24 @@ describe('groups inside an open definition', () => {
     expect(st().updateDefinitionFromNodeGroup('main', groupId)).toBeTruthy();
     expect(st().refreshNodeGroupFromDefinition('main', groupId)).toBeTruthy();
     expect(defGraph().groups.get(groupId).memberInstanceIds).toHaveLength(2);
+  });
+
+  it('takes a Thing dropped from outside the box, moving it into the definition', () => {
+    const groupId = buildNestedGroup();
+    st().addNodeInstance('main', 'p-c', { x: 3000, y: 3000 }, 'c');
+    st().addInstancesToGroup('main', groupId, ['c']);
+    expect(st().graphs.get('main').instances.has('c')).toBe(false);
+    expect(defGraph().instances.has('c')).toBe(true);
+    expect(defGraph().groups.get(groupId).memberInstanceIds).toContain('c');
+    expect(view().groups.get(groupId).memberInstanceIds).toContain('c');
+  });
+
+  it('takes a Thing already inside the box where it is', () => {
+    const groupId = buildNestedGroup();
+    st().addNodeInstance('main', 'p-c', { x: 1500, y: 1100 }, 'c');
+    st().addInstancesToGroup('main', `open:box`, ['c']);
+    st().addInstancesToGroup('main', groupId, ['c']);
+    expect(defGraph().groups.get(groupId).memberInstanceIds).toContain('c');
   });
 
   it('renames through the view graph', () => {
