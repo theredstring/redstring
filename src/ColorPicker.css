@@ -189,3 +189,24 @@
     transition: none;
   }
 }
+
+/* The picker grows out of the button that opened it. ColorPicker sets the
+   transform-origin to that button's point, so the corner it scales from is
+   whichever one faces it. `scale` rather than `transform`, which on a phone
+   already holds the centring translate. */
+.color-picker-grow-in {
+  animation: color-picker-grow-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes color-picker-grow-in {
+  from {
+    scale: 0.15;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .color-picker-grow-in {
+    animation: none;
+  }
+}

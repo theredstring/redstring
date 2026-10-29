@@ -28,6 +28,12 @@ const RETICLE_ARM = 6;
 const RETICLE_THICKNESS = 2;
 const RETICLE_OPACITY = 0.5;
 
+// Tap-outside dismissal (see the effect below). How far a press may travel and
+// still count as a tap, and how long a touch release waits for the click a tap
+// on a button makes, so that button's own handler gets to run first.
+const DISMISS_TAP_SLOP = 10;
+const TOUCH_CLICK_WAIT_MS = 200;
+
 // The popover family's look (AnchoredPopoverBox, ContextMenu): off-white with a
 // maroon stroke and maroon text, the same in both themes.
 const PANEL_FILL = '#DEDADA';
@@ -393,25 +399,66 @@ const ColorPicker = ({
     }
   }, [isVisible, isPicking]);
 
-  // Handle click away
+  // Read through refs so the tap watcher below survives callers that pass an
+  // inline onClose: re-registering on every render would drop a tap mid-flight.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const positionRef = useRef(position);
+  positionRef.current = position;
+
+  // Close on a tap outside the picker. Watched as pointers in the capture phase
+  // rather than as a document click: the canvas preventDefaults its touches, so
+  // a tap there never becomes a click, and the picker stayed open until you
+  // tapped something that did make one (the panel). A tap that does make a
+  // click still waits for it, so the trigger's own toggle runs first; closing
+  // on release would let tapping Palette again close the picker here and
+  // reopen it there. If that click reopened the picker somewhere else (another
+  // Thing's Palette), the anchor has moved and it stays open.
+  //
+  // Only a press that began while the picker was open counts, so the tap that
+  // opened it, or the eyedropper sample that just finished, can't close it.
   useEffect(() => {
-    const handleClickAway = (e) => {
-      // Check if click is outside the color picker
-      const isOutsidePicker = pickerRef.current && !pickerRef.current.contains(e.target);
-
-      // Close whenever clicking outside the picker itself, regardless of parent container
-      if (isOutsidePicker) {
-        onClose();
-      }
+    // While picking, every press outside the picker is a sample, not a dismissal.
+    if (!isVisible || isPicking) return;
+    let press = null;
+    let timer = null;
+    const isOutside = (e) => pickerRef.current && !pickerRef.current.contains(e.target);
+    const closeSoon = (delay) => {
+      const anchor = press.anchor;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        press = null;
+        if (positionRef.current === anchor) onCloseRef.current?.();
+      }, delay);
     };
-
-    // While picking, every click outside the picker is a sample, not a dismissal.
-    if (isVisible && !isPicking) {
-      // Use 'click' instead of 'mousedown' to avoid conflicts with palette button handlers
-      document.addEventListener('click', handleClickAway);
-      return () => document.removeEventListener('click', handleClickAway);
-    }
-  }, [isVisible, isPicking, onClose]);
+    const onDown = (e) => {
+      clearTimeout(timer);
+      press = isOutside(e) ? { x: e.clientX, y: e.clientY, anchor: positionRef.current } : null;
+    };
+    const onUp = (e) => {
+      if (!press) return;
+      // Moved: a pan or a drag on the canvas, not a tap. The picker stays.
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > DISMISS_TAP_SLOP) {
+        press = null;
+        return;
+      }
+      // A mouse's click lands in this same task, ahead of a zero timeout.
+      closeSoon(e.pointerType === 'mouse' ? 0 : TOUCH_CLICK_WAIT_MS);
+    };
+    const onClick = (e) => {
+      if (!press || !isOutside(e)) return;
+      closeSoon(0);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('click', onClick, true);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('click', onClick, true);
+    };
+  }, [isVisible, isPicking]);
 
   // Handle escape key
   useEffect(() => {
@@ -447,6 +494,8 @@ const ColorPicker = ({
         left: '50%',
         top: '50%',
         transform: 'translate(-50%, -50%)',
+        // Still grows from the button, wherever that is relative to the middle.
+        transformOrigin: `calc(50% + ${position.x - window.innerWidth / 2}px) calc(50% + ${position.y - window.innerHeight / 2}px)`,
         zIndex: 1000000
       };
     }
@@ -499,11 +548,17 @@ const ColorPicker = ({
       zIndex: 1000000
     };
 
+    // The grow-in starts at the button the picker came from, so it unfolds
+    // diagonally away from it on whichever side it ended up.
+    let originX;
     if (left !== undefined) {
       style.left = Math.max(0, left);
+      originX = `${position.x - style.left}px`;
     } else {
       style.right = Math.max(0, right);
+      originX = `calc(100% - ${window.innerWidth - style.right - position.x}px)`;
     }
+    style.transformOrigin = `${originX} ${position.y - style.top}px`;
 
     return style;
   };
@@ -547,7 +602,7 @@ const ColorPicker = ({
       // Presence of this class is how the controller knows a picker is open, so
       // B can close it before whatever surface is underneath. See
       // utils/gamepadMenuNav.js.
-      className="color-picker-panel"
+      className="color-picker-panel color-picker-grow-in"
       // And this is how it knows the eyedropper is armed, which is a mode of
       // its own for a pad: the whole screen becomes the control, so the rows
       // below stop being what the stick drives and B backs out of the pick
