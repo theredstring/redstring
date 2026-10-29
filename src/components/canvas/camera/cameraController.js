@@ -70,7 +70,7 @@ export function createCameraController(ctxRef) {
 
   // Live view-motion sample, fed by every transform write (see the
   // onTransformChangeRef effect). Speed is screen px/ms of pan travel.
-  const viewMotionRef = { current: { x: 0, y: 0, t: 0, movingSamples: 0 } };
+  const viewMotionRef = { current: { x: 0, y: 0, t: 0, movingSamples: 0, speed: 0 } };
   const sampleViewMotion = () => {
     const { panOffsetRef } = ctxRef.current;
     const p = panOffsetRef.current;
@@ -84,6 +84,7 @@ export function createCameraController(ctxRef) {
       ? Math.hypot(p.x - m.x, p.y - m.y) / dt
       : 0;
     m.movingSamples = speed > VIEW_MOTION_MIN_SPEED ? m.movingSamples + 1 : 0;
+    m.speed = speed;
     m.x = p.x;
     m.y = p.y;
     m.t = now;
@@ -93,10 +94,12 @@ export function createCameraController(ctxRef) {
   // during it to the canvas pan pipeline even when they land on a node, so a
   // traversal isn't killed by whatever large node the finger comes down on.
   // Stale-checked, so a parked view (no transform writes) always reads false.
-  const isViewMoving = () => {
+  // `minSpeed` asks for more than motion: a speed someone can see (a tap on
+  // bare canvas is only taken as a catch above VIEW_MOTION_VISIBLE_SPEED).
+  const isViewMoving = (minSpeed = 0) => {
     const m = viewMotionRef.current;
     if (performance.now() - m.t > VIEW_MOTION_STALE_MS) return false;
-    return m.movingSamples >= VIEW_MOTION_MIN_SAMPLES;
+    return m.movingSamples >= VIEW_MOTION_MIN_SAMPLES && m.speed >= minSpeed;
   };
   const stopZoomMomentum = () => {
     if (zoomMomentumRef.current.animationId) {

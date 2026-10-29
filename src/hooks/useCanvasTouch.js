@@ -9,6 +9,7 @@ import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withSelectedFormula } from '../components/canvas/formats/formula/formulaSelection.js';
 import { useThingGroupPromptStore } from '../components/canvas/thingGroupPrompt/thingGroupPrompt.js';
+import { VIEW_MOTION_VISIBLE_SPEED } from '../utils/canvas/input/inputTuning.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -176,6 +177,8 @@ export const useCanvasTouch = ({
     // handleTouchEndCanvas runs twice per release (React + the document listener)
     // and the second run must see the same value as the first.
     const panCatchRef = useRef(false);
+    // Whether that catch moved visibly (VIEW_MOTION_VISIBLE_SPEED), set beside it.
+    const panCatchVisibleRef = useRef(false);
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
@@ -421,6 +424,9 @@ export const useCanvasTouch = ({
         // stops the momentum.
         if (e.touches && e.touches.length === 1) {
             panCatchRef.current = isViewMoving?.() === true;
+            // A tap on bare canvas is only taken as a catch when the motion can
+            // be seen; one that a node handed over (claimed) stays a catch.
+            panCatchVisibleRef.current = claimed || isViewMoving?.(VIEW_MOTION_VISIBLE_SPEED) === true;
         }
 
         // Connection endpoint orbs take priority over a bare-canvas tap: if this
@@ -929,7 +935,7 @@ export const useCanvasTouch = ({
         // nodes yield their touches while the glide is catchable. Catching is
         // navigation; leave the graph as it was. handleMouseUp above already
         // finalized the pan (and relaunched momentum if the finger flicked).
-        if (isTap && panCatchRef.current) {
+        if (isTap && panCatchRef.current && panCatchVisibleRef.current) {
             perfNote('tap-skipped', { why: 'caught-a-glide' });
             if (ignoreCanvasClick) ignoreCanvasClick.current = true;
             touchMultiPanRef.current = false;
