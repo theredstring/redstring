@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SlotConflictDialog from './shared/SlotConflictDialog.jsx';
 import RestoreVersionDialog from './shared/RestoreVersionDialog.jsx';
+import GitTooLargeDialog from './shared/GitTooLargeDialog.jsx';
 import { vlog } from '../utils/verboseLog.js';
 
 /**
@@ -22,6 +23,7 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
   const [fallbackConflict, setFallbackConflict] = useState(null);
   const [restoreOffer, setRestoreOffer] = useState(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [gitTooLarge, setGitTooLarge] = useState(null);
   const backendRef = useRef(null);
   const commandListenerRef = useRef(null);
   const backendInitPromiseRef = useRef(null);
@@ -354,6 +356,17 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
     return () => window.removeEventListener('redstring:restore-available', handleRestoreOffer);
   }, []);
 
+  // A universe past what Git can carry: sync paused, or the repository's copy
+  // refused on open (universeBackend._announceGitTooLarge).
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleTooLarge = (event) => {
+      if (event.detail) setGitTooLarge(event.detail);
+    };
+    window.addEventListener('redstring:git-too-large', handleTooLarge);
+    return () => window.removeEventListener('redstring:git-too-large', handleTooLarge);
+  }, []);
+
   const dismissRestoreOffer = async () => {
     const offer = restoreOffer;
     setRestoreOffer(null);
@@ -438,6 +451,20 @@ export default function UniverseManagerBootstrap({ enableEagerInit = false }) {
         onChooseLocal={() => resolveFallbackConflict('local')}
         onChooseGit={() => resolveFallbackConflict('git')}
         onCancel={() => resolveFallbackConflict(null)}
+      />
+    );
+  }
+
+  if (gitTooLarge) {
+    return (
+      <GitTooLargeDialog
+        isOpen={true}
+        universeName={gitTooLarge.universeName}
+        phase={gitTooLarge.phase}
+        bytes={gitTooLarge.bytes}
+        limit={gitTooLarge.limit}
+        hasLocalFile={gitTooLarge.hasLocalFile}
+        onDismiss={() => setGitTooLarge(null)}
       />
     );
   }

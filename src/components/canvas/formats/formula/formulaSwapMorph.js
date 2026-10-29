@@ -25,6 +25,7 @@ import { projectGraphView } from '../../../../core/openDefinitions.js';
 import { markFormulaSpawn, markFormulaLeaving } from './formulaSpawn.js';
 import { detachedCopy } from '../../groups/boxMorph.js';
 import { storeNodeRect } from '../../groups/boxMorphConnections.js';
+import { perfMark } from '../../../../utils/perfSession.js';
 
 // Frames to wait for the box to be drawn after the write.
 const MAX_WAIT_FRAMES = 12;
@@ -156,6 +157,7 @@ function revealSelectorOf(graphId, groupId) {
  * `write` makes the store change.
  */
 export function withToFormulaMorph(graphId, groupId, write) {
+  perfMark('to-equation');
   const from = reducedMotion() ? null : groupBoxOf(groupId);
   // Taken before the write, which stops drawing them.
   const ghosts = from ? captureThings(graphId, groupId) : null;
@@ -170,6 +172,7 @@ export function withToFormulaMorph(graphId, groupId, write) {
  * store change.
  */
 export function withToThingsMorph(graphId, groupId, drawn, write) {
+  perfMark('to-things');
   if (!drawn || reducedMotion() || typeof requestAnimationFrame !== 'function') return write();
   const reveal = revealSelectorOf(graphId, groupId);
   // Kept from before the write, so the drawing never misses a frame; aimed once the box is drawn.

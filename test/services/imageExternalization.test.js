@@ -203,4 +203,39 @@ describe('GitSyncEngine image externalization', () => {
     const paths = provider.writeFileRaw.mock.calls.map((c) => c[0]);
     expect(paths).toEqual(['universes/myslug/universe.redstring']);
   });
+
+  it('memoises only the address, and forgets images the universe no longer has', async () => {
+    const provider = makeProvider();
+    const engine = new GitSyncEngine(provider, 'local', 'myslug');
+    const state = buildState({ imageSrc: PNG_1PX });
+
+    await engine.forceCommit(state);
+    const entry = engine._refByDataUrl.get(PNG_1PX);
+    // No decoded bytes pinned for the session: just the address and extension.
+    expect(Object.keys(entry).sort()).toEqual(['ext', 'ref']);
+
+    engine.lastCommitTime = 0;
+    state.nodePrototypes.get('p1').imageSrc = PNG_1PX_ALT;
+    await engine.forceCommit(state);
+    expect(engine._refByDataUrl.has(PNG_1PX)).toBe(false);
+    expect(engine._refByDataUrl.has(PNG_1PX_ALT)).toBe(true);
+  });
+
+  it('still uploads from a memo hit when the blob is missing remotely', async () => {
+    const provider = makeProvider();
+    const engine = new GitSyncEngine(provider, 'local', 'myslug');
+    const state = buildState({ imageSrc: PNG_1PX });
+    await engine.forceCommit(state);
+
+    // The blob vanished and this session forgot it uploaded it.
+    provider.written.clear();
+    engine._uploadedRefs.clear();
+    engine.lastCommitTime = 0;
+    state.nodePrototypes.get('p1').name = 'Again';
+    await engine.forceCommit(state);
+
+    const { ref, ext } = await computeImageRef(PNG_1PX);
+    const blob = provider.written.get(`universes/myslug/images/${ref.slice('sha256:'.length)}.${ext}`);
+    expect(blob).toBeInstanceOf(Uint8Array);
+  });
 });

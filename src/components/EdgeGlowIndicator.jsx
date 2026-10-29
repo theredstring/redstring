@@ -260,7 +260,10 @@ const EdgeGlowIndicator = ({
       observer?.disconnect();
     };
     // Panel/type-list toggles resize the container without firing `resize`.
-  }, [containerRef, leftPanelExpanded, rightPanelExpanded, typeListVisible, viewportBounds]);
+    // Not on viewportBounds: it follows a resize drag live, and measuring here
+    // on every frame of one forced a layout of the canvas per frame. The
+    // observer above catches any size the container actually takes.
+  }, [containerRef, leftPanelExpanded, rightPanelExpanded, typeListVisible]);
 
   // Per-node geometry that a moving view cannot change: the node's centre in
   // canvas coordinates, and its colour.

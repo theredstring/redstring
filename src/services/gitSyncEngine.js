@@ -457,8 +457,11 @@ class GitSyncEngine {
     // the exported copy, never the store), so without a memo every autosave
     // would re-hash every image — megabytes of SHA-256 every few seconds just
     // to rediscover an address we already know. Keys are strings the store
-    // already retains; values are 71 characters.
+    // already retains; values are only { ref, ext }. Keeping computeImageRef's
+    // decoded bytes here as well pinned every photo twice more (about 2.3x its
+    // file size) for the rest of the session.
     if (!this._refByDataUrl) this._refByDataUrl = new Map();
+    const current = new Set();
 
     let externalized = 0;
     let failed = 0;
@@ -476,6 +479,7 @@ class GitSyncEngine {
       // Deciding it here rather than trusting every upload site to clear the
       // ref keeps the invariant in one place.
       if (!isDataUrl(inline)) continue;
+      current.add(inline);
 
       try {
         const memo = this._refByDataUrl.get(inline);
@@ -485,7 +489,7 @@ class GitSyncEngine {
         // only acceptable outcome.
         if (!computed) continue;
         if (!memo) {
-          this._refByDataUrl.set(inline, computed);
+          this._refByDataUrl.set(inline, { ref: computed.ref, ext: computed.ext });
           // Bound the memo. Insertion-ordered, so the oldest entry goes first —
           // a user who replaces one node's image repeatedly can't grow this
           // without limit.
@@ -494,7 +498,7 @@ class GitSyncEngine {
           }
         }
 
-        const { ref, bytes, ext } = computed;
+        const { ref, ext } = computed;
         const path = refToBlobPath(ref, this.universeFolder, ext);
 
         if (!this._uploadedRefs.has(ref)) {
@@ -507,6 +511,9 @@ class GitSyncEngine {
             exists = false;
           }
           if (!exists) {
+            // A memo hit carries no bytes; decode them again only to upload.
+            const bytes = computed.bytes || (await computeImageRef(inline))?.bytes;
+            if (!bytes) throw new Error('image bytes unavailable');
             await this.provider.writeFileRaw(path, bytes);
           }
           this._uploadedRefs.add(ref);
@@ -527,6 +534,12 @@ class GitSyncEngine {
         failed++;
         console.warn('[GitSyncEngine] Image externalization failed, keeping inline:', err?.message || err);
       }
+    }
+
+    // A replaced or deleted image's data URL would otherwise stay pinned as a
+    // memo key until 64 newer images pushed it out.
+    for (const key of this._refByDataUrl.keys()) {
+      if (!current.has(key)) this._refByDataUrl.delete(key);
     }
 
     if (externalized > 0) {
@@ -551,7 +564,7 @@ class GitSyncEngine {
     const bytes = serializeRedstring(redstringData);
     if (bytes.length > GIT_WRITE_CAP_BYTES) {
       this.tooLargeToSync = { bytes: bytes.length, items: this._itemsOf(storeState) };
-      this._report(this.onSyncHeld, { bytes: bytes.length });
+      this._report(this.onSyncHeld, { bytes: bytes.length, limit: GIT_WRITE_CAP_BYTES });
       throw this._tooLargeError(bytes.length);
     }
     this.tooLargeToSync = null;
@@ -981,7 +994,13 @@ class GitSyncEngine {
       clearTimeout(this.debounceTimeout);
     }
 
-    // Add to pending commits
+    // Add to pending commits. Only the newest is ever committed
+    // (processPendingCommits), so older ones are dropped here rather than
+    // queued: each held its own copy of the store's top-level Maps, and the
+    // queue grew through every slow upload, backoff and circuit-breaker pause.
+    // _clearCommitted falls back to timestamps when the entry a commit started
+    // from is no longer in the queue.
+    if (this.pendingCommits.length > 1) this.pendingCommits = this.pendingCommits.slice(-1);
     this.pendingCommits.push({
       type: 'state_update',
       timestamp: now,

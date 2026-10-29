@@ -29,6 +29,13 @@ const EXIT_MS = 120;
 // the one that opened it (a plus sign can sit under a card) isn't a pick.
 // Typing ends it early; whoever typed meant to be here.
 const INPUT_GRACE_MS = 250;
+// Cards drawn with the entrance: about a screenful. The rest come after it
+// has played (ENTRANCE_MS, us-box-in), CARD_BATCH at a time. Drawing every
+// Thing's card in the frame the entrance starts took 200-330 ms on an iPad
+// with 5,600 Things, longer than the whole entrance, so it never showed.
+const FIRST_CARDS = 60;
+const CARD_BATCH = 300;
+const ENTRANCE_MS = 200;
 // Selectors on screen. One that opens while another is still up is the same
 // prompt turning a page (the Thing group prompt's steps): only its contents
 // come in.
@@ -214,6 +221,16 @@ const UnifiedSelector = ({
     return [...prototypes].sort((a, b) => counts.get(b.id) - counts.get(a.id));
   }, [allowedPrototypes, activeType, name, searchTerm, cardBadge]);
 
+  const [cardLimit, setCardLimit] = useState(FIRST_CARDS);
+  const cardCount = filteredPrototypes.length;
+  useEffect(() => {
+    if (!isVisible) { setCardLimit(FIRST_CARDS); return undefined; }
+    if (cardLimit >= cardCount) return undefined;
+    const t = setTimeout(() => setCardLimit((n) => n + CARD_BATCH), cardLimit === FIRST_CARDS ? ENTRANCE_MS : 0);
+    return () => clearTimeout(t);
+  }, [isVisible, cardLimit, cardCount]);
+  const shownPrototypes = cardLimit >= cardCount ? filteredPrototypes : filteredPrototypes.slice(0, cardLimit);
+
   // Dismissing (backdrop, Escape, the controller's closer) plays the exit,
   // then closes. Picking or creating closes at once: the caller has
   // somewhere to be.
@@ -374,8 +391,6 @@ const UnifiedSelector = ({
     }
   }, [isVisible, handleWheel]);
 
-  if (!isVisible) return null;
-
   // Mobile detection with enhanced portrait mode support
   const isSmallScreen = mobileState.isMobile || mobileState.isTablet;
   const isMobilePortrait = mobileState.isMobilePortrait;
@@ -411,6 +426,134 @@ const UnifiedSelector = ({
   const cardHeight = isMobilePortrait ? (isExtraSmall ? '100px' : '105px') : (isSmallScreen ? '110px' : '75px');
 
   const motion = closing ? ' is-closing' : handoff ? ' is-handoff' : '';
+
+  // The cards, built once per list: the exit, the colour picker and the type
+  // menu re-render the selector, and with every Thing's card in it that was a
+  // 150 ms frame on an iPad in the middle of the exit.
+  const handleNodeSelectRef = useRef(handleNodeSelect);
+  handleNodeSelectRef.current = handleNodeSelect;
+  // Nothing while hidden: a closed selector still renders with its host.
+  const cardGrid = React.useMemo(() => (gridContent || !isVisible ? null : (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
+        gap: isSmallScreen ? '10px' : '8px',
+        alignContent: 'start'
+      }}
+    >
+      {shownPrototypes.map((prototype) => {
+        return (
+        <div
+          key={prototype.id}
+          // Handle for the game controller's grid walker — the
+          // cards are otherwise styled entirely inline, with no
+          // selector to navigate by. See utils/gamepadMenuNav.js.
+          className="unified-selector-card"
+          style={{
+            background: sanitizeColor(prototype.color, '#8B0000'),
+            borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
+            padding: isMobilePortrait ? '10px' : (isSmallScreen ? '12px' : '10px'),
+            cursor: 'pointer',
+            // What hover changes, and only that: `all` also eased
+            // the corners and size on every relayout, repainting each frame.
+            transition: 'transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease',
+            height: cardHeight,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            touchAction: 'manipulation',
+            WebkitTapHighlightColor: 'transparent'
+          }}
+          onMouseEnter={(e) => {
+            if (!mobileState.isTouchDevice) {
+              e.currentTarget.style.transform = 'scale(1.03)';
+              e.currentTarget.style.filter = 'brightness(1.1)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (!mobileState.isTouchDevice) {
+              e.currentTarget.style.transform = 'scale(1)';
+              e.currentTarget.style.filter = 'brightness(1)';
+              e.currentTarget.style.boxShadow = 'none';
+            }
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => {
+            const t = e.touches[0];
+            cardTouchRef.current = { x: t.clientX, y: t.clientY, moved: false };
+          }}
+          onTouchMove={(e) => {
+            const t = e.touches[0];
+            const dx = t.clientX - cardTouchRef.current.x;
+            const dy = t.clientY - cardTouchRef.current.y;
+            if (dx * dx + dy * dy > 100) {
+              cardTouchRef.current.moved = true;
+            }
+          }}
+          onTouchEnd={(e) => {
+            e.stopPropagation();
+            if (cardTouchRef.current.moved) return;
+            // Suppress the delayed synthesized click that would
+            // otherwise land on the canvas after this dialog closes
+            // (a scroll gesture already bailed above, so taps only).
+            if (e.cancelable) e.preventDefault();
+            touchHandledRef.current = true;
+            handleNodeSelectRef.current(prototype);
+            setTimeout(() => { touchHandledRef.current = false; }, 400);
+          }}
+          onClick={(e) => {
+            if (touchHandledRef.current) return;
+            e.stopPropagation();
+            handleNodeSelectRef.current(prototype);
+          }}
+        >
+          {/* Thumbnail background if available */}
+          {cssImageUrl(prototype.thumbnailSrc) && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                backgroundImage: cssImageUrl(prototype.thumbnailSrc),
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                borderRadius: '16px', // Match container rounding
+                opacity: 0.3
+              }}
+            />
+          )}
+          <span
+            style={{
+              color: getTextColor(sanitizeColor(prototype.color, '#8B0000'), theme.darkMode),
+              fontWeight: 'bold',
+              fontFamily: "'EmOne', sans-serif",
+              textAlign: 'center',
+              fontSize: isMobilePortrait ? (isExtraSmall ? '11px' : '12px') : (isSmallScreen ? '13px' : '12px'),
+              lineHeight: '1.2',
+              wordWrap: 'break-word',
+              position: 'relative',
+              zIndex: 1,
+              textShadow: 'none',
+              maxWidth: '100%',
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical'
+            }}
+          >
+            <VectorText text={prototype.name} />
+          </span>
+          {cardBadge && <CardBadge count={cardBadge(prototype)} />}
+        </div>
+        );
+      })}
+    </div>
+  )), [gridContent, isVisible, shownPrototypes, cardMinWidth, cardHeight, isSmallScreen, isMobilePortrait, isExtraSmall, mobileState.isTouchDevice, theme.darkMode, cardBadge]);
+
+  // After every hook above (the card grid's memo among them).
+  if (!isVisible) return null;
 
   const content = (
     <>
@@ -690,120 +833,7 @@ const UnifiedSelector = ({
                   }}
                   className="unified-selector-scroll"
                 >
-                  {gridContent || <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: `repeat(auto-fill, minmax(${cardMinWidth}px, 1fr))`,
-                      gap: isSmallScreen ? '10px' : '8px',
-                      alignContent: 'start'
-                    }}
-                  >
-                    {filteredPrototypes.map((prototype) => {
-                      return (
-                      <div
-                        key={prototype.id}
-                        // Handle for the game controller's grid walker — the
-                        // cards are otherwise styled entirely inline, with no
-                        // selector to navigate by. See utils/gamepadMenuNav.js.
-                        className="unified-selector-card"
-                        style={{
-                          background: sanitizeColor(prototype.color, '#8B0000'),
-                          borderRadius: isMobilePortrait ? '14px' : (isSmallScreen ? '16px' : '14px'),
-                          padding: isMobilePortrait ? '10px' : (isSmallScreen ? '12px' : '10px'),
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          height: cardHeight,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          position: 'relative',
-                          touchAction: 'manipulation',
-                          WebkitTapHighlightColor: 'transparent'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!mobileState.isTouchDevice) {
-                            e.currentTarget.style.transform = 'scale(1.03)';
-                            e.currentTarget.style.filter = 'brightness(1.1)';
-                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!mobileState.isTouchDevice) {
-                            e.currentTarget.style.transform = 'scale(1)';
-                            e.currentTarget.style.filter = 'brightness(1)';
-                            e.currentTarget.style.boxShadow = 'none';
-                          }
-                        }}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => {
-                          const t = e.touches[0];
-                          cardTouchRef.current = { x: t.clientX, y: t.clientY, moved: false };
-                        }}
-                        onTouchMove={(e) => {
-                          const t = e.touches[0];
-                          const dx = t.clientX - cardTouchRef.current.x;
-                          const dy = t.clientY - cardTouchRef.current.y;
-                          if (dx * dx + dy * dy > 100) {
-                            cardTouchRef.current.moved = true;
-                          }
-                        }}
-                        onTouchEnd={(e) => {
-                          e.stopPropagation();
-                          if (cardTouchRef.current.moved) return;
-                          // Suppress the delayed synthesized click that would
-                          // otherwise land on the canvas after this dialog closes
-                          // (a scroll gesture already bailed above, so taps only).
-                          if (e.cancelable) e.preventDefault();
-                          touchHandledRef.current = true;
-                          handleNodeSelect(prototype);
-                          setTimeout(() => { touchHandledRef.current = false; }, 400);
-                        }}
-                        onClick={(e) => {
-                          if (touchHandledRef.current) return;
-                          e.stopPropagation();
-                          handleNodeSelect(prototype);
-                        }}
-                      >
-                        {/* Thumbnail background if available */}
-                        {cssImageUrl(prototype.thumbnailSrc) && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: 0, left: 0, right: 0, bottom: 0,
-                              backgroundImage: cssImageUrl(prototype.thumbnailSrc),
-                              backgroundSize: 'cover',
-                              backgroundPosition: 'center',
-                              borderRadius: '16px', // Match container rounding
-                              opacity: 0.3
-                            }}
-                          />
-                        )}
-                        <span
-                          style={{
-                            color: getTextColor(sanitizeColor(prototype.color, '#8B0000'), theme.darkMode),
-                            fontWeight: 'bold',
-                            fontFamily: "'EmOne', sans-serif",
-                            textAlign: 'center',
-                            fontSize: isMobilePortrait ? (isExtraSmall ? '11px' : '12px') : (isSmallScreen ? '13px' : '12px'),
-                            lineHeight: '1.2',
-                            wordWrap: 'break-word',
-                            position: 'relative',
-                            zIndex: 1,
-                            textShadow: 'none',
-                            maxWidth: '100%',
-                            overflow: 'hidden',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical'
-                          }}
-                        >
-                          <VectorText text={prototype.name} />
-                        </span>
-                        {cardBadge && <CardBadge count={cardBadge(prototype)} />}
-                      </div>
-                      );
-                    })}
-                  </div>}
+                  {gridContent || cardGrid}
                 </div>
               </div>
             </div>

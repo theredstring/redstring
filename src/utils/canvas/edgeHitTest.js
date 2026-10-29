@@ -348,9 +348,16 @@ export function makeConnectionProbe(canvasScene) {
 // real target to a handful of pixels. A finger is roughly 44px wide (Apple's
 // HIG minimum) and can't aim anywhere near as precisely as a cursor, so touch
 // gets both a bigger floor and a multiplier on the base.
+//
+// Touch also takes a CEILING: its radius never covers more of the screen than
+// it does at 1x. In canvas units it grew on screen with every step of zoom-in
+// (112px either side of a line at 2x), and zoomed in on a busy web almost every
+// tap on empty canvas selected some connection instead of making a plus sign.
 export function edgeHitThreshold(pointerKind = 'mouse', isRoutedStyle, connectionWidth, zoom) {
   const base = (isRoutedStyle ? 50 : 40) * Math.max(1, connectionWidth);
   const isTouch = pointerKind === 'touch';
   const floorPx = isTouch ? EDGE_HIT_FLOOR_PX_TOUCH : EDGE_HIT_FLOOR_PX_MOUSE;
-  return Math.max(base * (isTouch ? EDGE_HIT_TOUCH_BOOST : 1), floorPx / (zoom || 1));
+  const z = zoom || 1;
+  const radius = isTouch ? (base * EDGE_HIT_TOUCH_BOOST) / Math.max(1, z) : base;
+  return Math.max(radius, floorPx / z);
 }

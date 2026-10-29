@@ -30,6 +30,11 @@ export const VIEW_MOTION_MIN_SPEED = 0.001;        // px/ms — a standstill is 
 export const VIEW_MOTION_STALE_MS = 120;           // no transform write in this long = the view is parked
 export const VIEW_MOTION_SAMPLE_MAX_GAP_MS = 120;  // a longer gap between writes restarts the measurement rather than averaging across the pause
 export const VIEW_MOTION_MIN_SAMPLES = 2;          // consecutive moving frames before the view counts as moving, so a one-off jump (a viewport clamp, a graph-switch restore) doesn't swallow the next tap
+// A tap on bare canvas is only swallowed as a catch above this speed (about
+// half a pixel a frame). The tail of a pinch's zoom coast keeps the view moving
+// below anything visible for a while, and at VIEW_MOTION_MIN_SPEED the first
+// tap after a pinch made no plus sign. A node still yields at any motion.
+export const VIEW_MOTION_VISIBLE_SPEED = 0.03;     // px/ms
 export const TOUCH_PAN_FRICTION = 0.92;                // per-frame retention for touch glide (higher = longer glide)
 export const TOUCH_PAN_FRICTION_HIGH_VELOCITY = 0.955; // higher retention for fast flicks — extends glide for "throws" without affecting low/mid precision
 export const TOUCH_HIGH_VELOCITY_THRESHOLD = 1.2;      // px/ms — speed above which the high-velocity friction starts ramping in

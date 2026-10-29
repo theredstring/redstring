@@ -104,4 +104,15 @@ describe('edgeHitThreshold', () => {
     expect(edgeHitThreshold('mouse', false, 1, 0.1)).toBeCloseTo(EDGE_HIT_FLOOR_PX_MOUSE / 0.1);
     expect(edgeHitThreshold('touch', false, 1, 0.1)).toBeCloseTo(EDGE_HIT_FLOOR_PX_TOUCH / 0.1);
   });
+  it('never covers more of the screen on touch than it does at 1x when zoomed in', () => {
+    const atOne = edgeHitThreshold('touch', false, 1, 1);
+    for (const zoom of [1.5, 2, 4]) {
+      expect(edgeHitThreshold('touch', false, 1, zoom) * zoom).toBeCloseTo(atOne);
+    }
+    // Still never under the touch floor on screen.
+    expect(edgeHitThreshold('touch', false, 1, 4) * 4).toBeGreaterThanOrEqual(EDGE_HIT_FLOOR_PX_TOUCH);
+  });
+  it('leaves the mouse radius in canvas units', () => {
+    expect(edgeHitThreshold('mouse', false, 1, 2)).toBe(40);
+  });
 });

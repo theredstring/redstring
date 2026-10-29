@@ -173,7 +173,7 @@ export function OntologyImportDialog({ onClose, save, currentUniverse = null, in
     return () => { live = false; clearTimeout(t); };
   }, [options, phase]);
 
-  // GitHub carries files up to 50 MB: whether this import fits the universe
+  // Git sync carries files up to 95 MB: whether this import fits the universe
   // it's going into (services/ontologyImport.js githubFit).
   const fit = useMemo(() => {
     if (destination !== 'current' || !currentUniverse || !preview || preview.error || !preview.things) return null;

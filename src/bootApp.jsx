@@ -1,6 +1,9 @@
 // The app itself, loaded by src/main.jsx once the desktop app's one-time
 // storage migration (if any) has finished — so no module here can read
 // localStorage or IndexedDB before it is in place.
+// The iPad measuring build (VITE_PERF_SESSION=1) times every frame from here
+// on; it has to wrap the frame loop before any app module starts one.
+import './utils/perfSession.js'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
@@ -8,6 +11,7 @@ import './index.css'
 import { DndProvider } from 'react-dnd'
 import { TouchBackend } from 'react-dnd-touch-backend'
 import DragSessionGuards from './components/DragSessionGuards.jsx'
+import { AppBoundary } from './components/shared/RegionBoundary.jsx'
 import { installScrollbarActivity } from './utils/scrollbarActivity.js'
 
 // Initialize debug configuration early
@@ -79,10 +83,12 @@ installScrollbarActivity()
 const mountApp = () => {
   ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>
-      <DndProvider backend={PointerDragBackend} options={dragOptions}>
-        <DragSessionGuards />
-        <App />
-      </DndProvider>
+      <AppBoundary>
+        <DndProvider backend={PointerDragBackend} options={dragOptions}>
+          <DragSessionGuards />
+          <App />
+        </DndProvider>
+      </AppBoundary>
     </React.StrictMode>,
   )
 }

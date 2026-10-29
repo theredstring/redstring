@@ -404,7 +404,7 @@ describe('remoteConflictPending blocks every push except the resolution save', (
 
 describe('size cap: never write what no device can read back', () => {
   let engine, provider;
-  // About 3 KB a Thing: 18,000 of them is well over the 50 MB cap.
+  // About 3 KB a Thing: 36,000 of them is well over the 95 MB cap.
   const bigStore = (n) => {
     const nodePrototypes = new Map();
     const description = 'x'.repeat(3000);
@@ -421,14 +421,14 @@ describe('size cap: never write what no device can read back', () => {
   it('refuses a universe over the cap, writes nothing, and says why', async () => {
     const statuses = [];
     engine.notifyStatus = (type, message) => statuses.push([type, message]);
-    await expect(engine.forceCommit(bigStore(18000))).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+    await expect(engine.forceCommit(bigStore(36000))).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
     expect(provider.writes).toHaveLength(0);
-    expect(statuses.some(([type, message]) => type === 'warning' && /over the 50 MB Git sync can carry/.test(message))).toBe(true);
+    expect(statuses.some(([type, message]) => type === 'warning' && /over the 95 MB Git sync can carry/.test(message))).toBe(true);
   });
 
   it('after a refusal, stops fingerprinting and building it until it shrinks', async () => {
     engine.notifyStatus = () => {};
-    const big = bigStore(18000);
+    const big = bigStore(36000);
     await expect(engine.forceCommit(big)).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
 
     let hashes = 0;
@@ -455,7 +455,7 @@ describe('size cap: never write what no device can read back', () => {
 
   it('the background loop drops an oversized commit instead of retrying it', async () => {
     engine.notifyStatus = () => {};
-    const big = bigStore(18000);
+    const big = bigStore(36000);
     engine.pendingCommits = [{ type: 'state_update', data: big, hash: 'h', timestamp: Date.now() - 60000, isDragging: false }];
     engine.hasChanges = true;
     engine.lastCommitTime = 0;

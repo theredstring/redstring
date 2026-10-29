@@ -65,7 +65,7 @@ const selectAvailableComponents = (state) => {
       };
     })
     .filter(Boolean)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 };
 const sameComponents = arrayOfRecordsEqual(['instanceId', 'prototypeId', 'name', 'color']);
 

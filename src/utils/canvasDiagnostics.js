@@ -16,6 +16,8 @@
  * Import for side effect only. Costs nothing until a command is run.
  */
 
+import { startSession, sessionReport, stopSession } from './perfSession.js';
+
 const TAG = '[diag]';
 const log = (...a) => console.log(TAG, ...a);
 
@@ -415,6 +417,8 @@ function help() {
   log('  __diag.writes(ms, label) count canvas DOM writes/sec, by element+attr');
   log('  __diag.probe()           live transform / zoom / flag state');
   log('  __diag.suspect("list")   bisect: disable one suspect at a time  <-- START HERE');
+  log('  __diag.session()         whole-app session: frames by activity, loops, animations');
+  log('  __diag.sessionReport()   print the session so far; __diag.stopSession() ends it');
   log('');
   log('suggested run (paste the whole terminal output back):');
   log('  --- orbit OFF ---');
@@ -432,7 +436,7 @@ function help() {
 }
 
 if (typeof window !== 'undefined') {
-  window.__diag = { help, scan, record, writes, probe, suspect, currentZoom, els };
+  window.__diag = { help, scan, record, writes, probe, suspect, currentZoom, els, session: startSession, sessionReport, stopSession };
 }
 
 export default null;

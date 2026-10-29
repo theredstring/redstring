@@ -188,3 +188,31 @@ describe('touch on a node while the view is still', () => {
     expect(props.startedOnNode.current).toBe(true);
   });
 });
+
+// The tail of a pinch's zoom coast keeps the view moving below anything a
+// person can see; a tap on bare canvas then is a tap, not a catch.
+describe('a tap on bare canvas while the view drifts', () => {
+  const tapCanvas = () => {
+    const canvas = screen.getByTestId('canvas-area').querySelector('svg.canvas');
+    fireEvent.touchStart(canvas, { touches: touchAt(300, 300), targetTouches: touchAt(300, 300), changedTouches: touchAt(300, 300) });
+    fireEvent.touchEnd(canvas, { touches: [], targetTouches: [], changedTouches: touchAt(300, 300) });
+  };
+
+  it('makes a plus sign when the motion is too slow to see', () => {
+    const props = makeProps({ isViewMoving: vi.fn((minSpeed = 0) => minSpeed === 0) });
+    hookProps = props;
+    seedTouchStores(props);
+    render(<Harness />);
+    tapCanvas();
+    expect(props.setPlusSign).toHaveBeenCalledWith(expect.objectContaining({ mode: 'appear' }));
+  });
+
+  it('is a catch, with no plus sign, when the view visibly moves', () => {
+    const props = makeProps({ isViewMoving: vi.fn(() => true) });
+    hookProps = props;
+    seedTouchStores(props);
+    render(<Harness />);
+    tapCanvas();
+    expect(props.setPlusSign).not.toHaveBeenCalled();
+  });
+});

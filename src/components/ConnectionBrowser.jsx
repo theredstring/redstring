@@ -7,6 +7,7 @@ import PanelIconButton from './shared/PanelIconButton.jsx';
 import { showContextMenuForElement } from './GlobalContextMenu.jsx';
 import TriplePreview from './connections/TriplePreview.jsx';
 import SemanticConnectionList from './connections/SemanticConnectionList.jsx';
+import useElementWidth from '../hooks/useElementWidth.js';
 import useSemanticConnections from '../hooks/useSemanticConnections.js';
 import { openWebOnCanvas } from './wizard/entityActions.js';
 import CompactConnectionRow, { COMPACT_CONNECTIONS_BELOW } from './connections/CompactConnectionRow.jsx';
@@ -106,7 +107,6 @@ const ConnectionBrowser = ({ nodeData }) => {
   const [nativeConnections, setNativeConnections] = useState([]);
   // Which Thing nativeConnections were loaded for, so a stale list never picks the scope.
   const [nativeForId, setNativeForId] = useState(null);
-  const [containerWidth, setContainerWidth] = useState(400); // Default width
   const connectionListRef = useRef(null);
 
   // Per field, not the whole store (F-78).
@@ -115,35 +115,9 @@ const ConnectionBrowser = ({ nodeData }) => {
   const graphs = useGraphStore(s => s.graphs);
   const edges = useGraphStore(s => s.edges);
 
-  // Measure container width for responsive text hiding
-  useEffect(() => {
-    const updateContainerWidth = () => {
-      if (connectionListRef.current) {
-        const width = connectionListRef.current.offsetWidth;
-        setContainerWidth(width);
-      }
-    };
-
-    // Initial measurement
-    updateContainerWidth();
-
-    // Update on window resize
-    window.addEventListener('resize', updateContainerWidth);
-
-    // Use ResizeObserver for more accurate measurements
-    let resizeObserver;
-    if (connectionListRef.current && window.ResizeObserver) {
-      resizeObserver = new ResizeObserver(updateContainerWidth);
-      resizeObserver.observe(connectionListRef.current);
-    }
-
-    return () => {
-      window.removeEventListener('resize', updateContainerWidth);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, []);
+  // The list's width, for laying out each row. Held through a panel drag and
+  // measured on release (useElementWidth): every row lays itself out in script.
+  const [, containerWidth] = useElementWidth(400, connectionListRef);
 
   // Create a stable structural hash of the connection topology
   // This only changes when edges or instances are added/removed, not when positions change

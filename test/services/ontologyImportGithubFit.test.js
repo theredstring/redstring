@@ -1,6 +1,6 @@
 /**
  * Whether an ontology import fits a universe synced to GitHub, which carries
- * files up to 50 MB.
+ * files up to 95 MB.
  */
 import { describe, it, expect } from 'vitest';
 import { githubFit, estimateUniverseBytes, estimateImportBytes } from '../../src/services/ontologyImport.js';
@@ -17,16 +17,16 @@ describe('githubFit', () => {
   });
 
   it('refuses an import that alone is over the limit, whatever the universe', () => {
-    expect(githubFit(repoOnly, 0, 60 * MB).verdict).toBe('refuse');
-    expect(githubFit(fileAndRepo, 0, 60 * MB).verdict).toBe('refuse');
+    expect(githubFit(repoOnly, 0, 110 * MB).verdict).toBe('refuse');
+    expect(githubFit(fileAndRepo, 0, 110 * MB).verdict).toBe('refuse');
   });
 
   it('blocks a universe kept only in the repository from going over', () => {
-    expect(githubFit(repoOnly, 30 * MB, 25 * MB).verdict).toBe('block');
+    expect(githubFit(repoOnly, 60 * MB, 45 * MB).verdict).toBe('block');
   });
 
   it('warns a universe with a file, which keeps everything', () => {
-    expect(githubFit(fileAndRepo, 30 * MB, 25 * MB).verdict).toBe('warn');
+    expect(githubFit(fileAndRepo, 60 * MB, 45 * MB).verdict).toBe('warn');
   });
 
   it('lets a universe under the limit, or not on GitHub, through', () => {
@@ -35,10 +35,10 @@ describe('githubFit', () => {
   });
 
   it('counts a universe Git already refused as at least that size', () => {
-    const held = { ...repoOnly, heldBytes: 52 * MB };
+    const held = { ...repoOnly, heldBytes: 97 * MB };
     const fit = githubFit(held, 1 * MB, 1 * MB);
     expect(fit.verdict).toBe('block');
-    expect(fit.totalBytes).toBe(53 * MB);
+    expect(fit.totalBytes).toBe(98 * MB);
   });
 });
 

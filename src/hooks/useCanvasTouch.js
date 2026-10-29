@@ -2,12 +2,14 @@
 import { useRef, useEffect } from 'react';
 import { useWindowGestureEnd } from './useWindowGestureEnd';
 import { haptic } from '../services/haptics.js';
+import { perfNote } from '../utils/perfSession.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withSelectedFormula } from '../components/canvas/formats/formula/formulaSelection.js';
 import { useThingGroupPromptStore } from '../components/canvas/thingGroupPrompt/thingGroupPrompt.js';
+import { VIEW_MOTION_VISIBLE_SPEED } from '../utils/canvas/input/inputTuning.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -175,6 +177,8 @@ export const useCanvasTouch = ({
     // handleTouchEndCanvas runs twice per release (React + the document listener)
     // and the second run must see the same value as the first.
     const panCatchRef = useRef(false);
+    // Whether that catch moved visibly (VIEW_MOTION_VISIBLE_SPEED), set beside it.
+    const panCatchVisibleRef = useRef(false);
 
     // Mirror selectedInstanceIds in a ref so the deferred single-tap selection
     // (fires 300ms after touchend) reads the latest value, not a stale closure.
@@ -420,6 +424,9 @@ export const useCanvasTouch = ({
         // stops the momentum.
         if (e.touches && e.touches.length === 1) {
             panCatchRef.current = isViewMoving?.() === true;
+            // A tap on bare canvas is only taken as a catch when the motion can
+            // be seen; one that a node handed over (claimed) stays a catch.
+            panCatchVisibleRef.current = claimed || isViewMoving?.(VIEW_MOTION_VISIBLE_SPEED) === true;
         }
 
         // Connection endpoint orbs take priority over a bare-canvas tap: if this
@@ -773,7 +780,10 @@ export const useCanvasTouch = ({
         // before the carousel opened still tears down through the canvas — the
         // carousel's touchstart guard means its own gestures never set these flags,
         // so this only ever catches a genuinely in-flight canvas gesture.
-        if (!hasActiveGesture && yieldsToCarousel(e)) return;
+        if (!hasActiveGesture && yieldsToCarousel(e)) {
+            if (!mouseMoved.current) perfNote('tap-skipped', { why: 'carousel-claims-touch' });
+            return;
+        }
 
         if (!hasActiveGesture && !isCanvasSurfaceTarget(e.target)) return;
 
@@ -913,6 +923,7 @@ export const useCanvasTouch = ({
         // handleCanvasClick too (handleTouchStartCanvas clears it on the next
         // bare-canvas touch).
         if (multiTouchGestureRef.current) {
+            if (isTap) perfNote('tap-skipped', { why: 'ends-a-pinch' });
             if (ignoreCanvasClick) ignoreCanvasClick.current = true;
             touchMultiPanRef.current = false;
             return;
@@ -924,7 +935,8 @@ export const useCanvasTouch = ({
         // nodes yield their touches while the glide is catchable. Catching is
         // navigation; leave the graph as it was. handleMouseUp above already
         // finalized the pan (and relaunched momentum if the finger flicked).
-        if (isTap && panCatchRef.current) {
+        if (isTap && panCatchRef.current && panCatchVisibleRef.current) {
+            perfNote('tap-skipped', { why: 'caught-a-glide' });
             if (ignoreCanvasClick) ignoreCanvasClick.current = true;
             touchMultiPanRef.current = false;
             return;
@@ -941,6 +953,7 @@ export const useCanvasTouch = ({
         // here when touchend bubbled to the canvas). Leave the flag set so
         // the synthesized click that follows also bails in handleCanvasClick.
         if (isTap && ignoreCanvasClick && ignoreCanvasClick.current) {
+            perfNote('tap-skipped', { why: 'claimed-by-an-element' });
             // Always clear the flag — without this, touch's e.preventDefault() suppresses
             // the synthesized click that would normally clear it via handleCanvasClick, so
             // it stays true forever and every subsequent tap is blocked until refresh.
@@ -964,6 +977,7 @@ export const useCanvasTouch = ({
         if (isTap && !draggingNodeInfo && !drawingConnectionFrom && !isJustAfterNodeDrop()
             && !nodeNamePrompt.visible && activeGraphId && trySelectConnectionAtPoint) {
             if (trySelectConnectionAtPoint(clientX, clientY)) {
+                perfNote('tap-skipped', { why: 'selected-a-connection' });
                 // Suppress the synthesized click, which would otherwise reach
                 // handleCanvasClick and immediately clear what we just selected.
                 if (ignoreCanvasClick) ignoreCanvasClick.current = true;
@@ -1012,6 +1026,17 @@ export const useCanvasTouch = ({
             // Mirror click-to-plus-sign behavior, but skip the spawn if a
             // control panel was just dismissed (group / connection) — the
             // user tapped to close the panel, not to create a new node.
+            perfNote(!plusSign && !dismissedControlPanel && !draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId && selectedInstanceIds.size === 0
+                ? 'tap-spawns-plus' : 'tap-skipped', {
+                why: 'spawn-check',
+                plusSign: plusSign ? plusSign.mode : null,
+                dismissedControlPanel,
+                dragging: !!draggingNodeInfo,
+                drawingConnection: !!drawingConnectionFrom,
+                namePrompt: !!nodeNamePrompt.visible,
+                activeGraph: !!activeGraphId,
+                selected: selectedInstanceIds.size,
+            });
             if (!draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
                 if (selectedInstanceIds.size > 0) {
                     // Mimic click-off behavior: clear selection on tap

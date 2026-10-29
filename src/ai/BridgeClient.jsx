@@ -472,6 +472,20 @@ const BridgeClient = () => {
           console.warn('MCP Bridge: this universe is too large to share with the wizard. It will try again if the universe gets smaller.');
           return;
         }
+        // No bridge address configured: the same as a deployment with no
+        // bridge. Its message names no "fetch", so it never counted as a
+        // connection error, and the whole universe was rebuilt and serialised
+        // every 10 s for the rest of the session.
+        if (error?.name === 'NoRemoteOriginError') {
+          bridgeUnavailableRef.current = true;
+          connectionStateRef.current.isConnected = false;
+          if (dataIntervalRef.current) {
+            clearInterval(dataIntervalRef.current);
+            dataIntervalRef.current = null;
+          }
+          console.log('ℹ️ MCP Bridge: No bridge address configured — bridge sync disabled for this session');
+          return;
+        }
         sendGateRef.current.failed();
         // Provide more user-friendly error messages
         if (error.message.includes('bridge_unavailable_cooldown')) {

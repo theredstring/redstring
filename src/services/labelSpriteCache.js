@@ -854,13 +854,22 @@ export function hydrateLabelSprites() {
   if (hydrated || typeof window === 'undefined') return;
   hydrated = true;
   loadPersistedSprites().then((rows) => {
+    // The cache evicts from the front (least recently used), and rows arrive
+    // newest first. Inserted in that order, the newest persisted sprites were
+    // the first evicted, and so were the ones already baked this session. So:
+    // persisted rows oldest to newest, then this session's, which are newer
+    // than anything on disk.
+    const session = [...cache];
+    const sessionKeys = new Set(cache.keys());
+    cache.clear();
     let added = 0;
-    for (const [key, sprite] of rows) {
-      if (cache.has(key)) continue;
+    for (const [key, sprite] of rows.slice(0, MAX_SPRITES).reverse()) {
+      if (sessionKeys.has(key)) continue;
       cache.set(key, sprite);
       added++;
-      if (cache.size > MAX_SPRITES) evictOldest();
     }
+    for (const [key, sprite] of session) cache.set(key, sprite);
+    while (cache.size > MAX_SPRITES) evictOldest();
     if (added > 0) {
       // Same signal a finished bake sends, so the canvas re-renders into the
       // cache it just gained without needing to know where the sprites came

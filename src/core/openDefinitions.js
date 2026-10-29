@@ -365,6 +365,7 @@ const viewCache = new Map();
  */
 export const projectGraphView = (state, viewGraphId) => {
   const { graphs, nodePrototypes, edges } = state || {};
+  pruneStaleViews(graphs, nodePrototypes, edges);
   // Called from store selectors on every write, so an unchanged state answers
   // without walking anything.
   const last = lastProjection.get(viewGraphId);
@@ -378,6 +379,23 @@ export const projectGraphView = (state, viewGraphId) => {
 
 // viewGraphId → the inputs and result of the last projection.
 const lastProjection = new Map();
+
+// Both caches answer only for the exact Maps they were built from, so an entry
+// built from an older store can never be used again, yet it kept that store's
+// graphs, Things and connections alive: every web ever drawn this session,
+// including whole universes since switched away from. When the store moves
+// on, drop what can no longer match.
+let seen = { graphs: null, nodePrototypes: null, edges: null };
+const pruneStaleViews = (graphs, nodePrototypes, edges) => {
+  if (seen.graphs === graphs && seen.nodePrototypes === nodePrototypes && seen.edges === edges) return;
+  seen = { graphs, nodePrototypes, edges };
+  for (const [id, last] of lastProjection) {
+    if (last.graphs !== graphs || last.nodePrototypes !== nodePrototypes || last.edges !== edges) lastProjection.delete(id);
+  }
+  for (const [id, entry] of viewCache) {
+    if (entry.deps[1] !== nodePrototypes || entry.deps[2] !== edges || !graphs?.has(id)) viewCache.delete(id);
+  }
+};
 
 /**
  * projectGraphView for a state that isn't the store's (the wizard's snapshot,

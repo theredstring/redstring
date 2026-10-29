@@ -51,7 +51,7 @@ Redstring is local-first: there is no Redstring database and no Redstring user a
 
 All migrations are verify-then-delete: read the old value, write the new one, read it back, and only then remove the old copy. A failure leaves the old data in place so the next launch retries. The Android universe move keeps a marker, retries, and empties the old folder only after a byte-for-byte comparison.
 
-Repository reads during sync are capped (50 MB web/desktop, 25 MB native) using the listing size before download; a too-large file is "unreadable", never "absent". The empty-write guard decides "absent" only from structured fields (`code`, `name`, and `status` when present), never from message text (`isConfirmedNotFound` in `src/services/emptyWriteGuard.js`).
+Repository reads during sync are capped (95 MB on every platform, just under GitHub's 100 MB per-file limit) using the listing size before download; a too-large file is "unreadable", never "absent". The empty-write guard decides "absent" only from structured fields (`code`, `name`, and `status` when present), never from message text (`isConfirmedNotFound` in `src/services/emptyWriteGuard.js`).
 
 AI consent: before the first request that sends graph content to a provider, `src/services/aiConsent.js` (logic, UI-free) and `src/ai/aiConsentPrompt.js` (dialog) ask once per provider and host; `localhost` providers never ask. Declining throws `AI_CONSENT_DECLINED` before any network request. The gate is installed with `setLLMRequestGate` in `src/wizard/LLMClient.js`.
 

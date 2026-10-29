@@ -58,8 +58,16 @@ const readTruncated = (message) => {
  * code, so every guard treats the remote as unreadable and refuses to write
  * over it.
  */
-export const GIT_READ_CAP_DESKTOP_BYTES = 50 * 1024 * 1024;
-export const GIT_READ_CAP_NATIVE_BYTES = 25 * 1024 * 1024;
+// 95 MB: just under GitHub's 100 MB per-file wall (it refuses anything
+// bigger). It was 50 MB, GitHub's push WARNING line, which a large hand-built
+// universe (5,000+ Things, no images) reached at about half its size.
+export const GIT_READ_CAP_DESKTOP_BYTES = 95 * 1024 * 1024;
+// The native shell used to stop at 25 MB, while every device could WRITE up
+// to the desktop cap (GIT_WRITE_CAP_BYTES). A universe edited past 25 MB on an
+// iPad saved, and that iPad then refused to open it again. A device must be
+// able to read back anything it may write, so the two caps are one. Reads no
+// longer hold several whole copies at once.
+export const GIT_READ_CAP_NATIVE_BYTES = GIT_READ_CAP_DESKTOP_BYTES;
 
 const isNativeShell = () => {
   try {
