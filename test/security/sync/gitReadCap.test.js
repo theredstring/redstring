@@ -28,12 +28,21 @@ const listing = (size) => ({
 });
 
 describe('maxGitReadBytes', () => {
-  it('is 50 MB on web/desktop and 25 MB in the native shell', () => {
+  it('is 50 MB on web/desktop and in the native shell', () => {
     expect(GIT_READ_CAP_DESKTOP_BYTES).toBe(50 * MB);
-    expect(GIT_READ_CAP_NATIVE_BYTES).toBe(25 * MB);
+    expect(GIT_READ_CAP_NATIVE_BYTES).toBe(50 * MB);
     expect(maxGitReadBytes()).toBe(50 * MB);
     window.Capacitor = { isNativePlatform: () => true };
-    expect(maxGitReadBytes()).toBe(25 * MB);
+    expect(maxGitReadBytes()).toBe(50 * MB);
+  });
+
+  it('never lets a device write more than it can read back', async () => {
+    // A 25 MB native read cap under a 50 MB write cap let an iPad save a
+    // universe it then refused to open.
+    const { GIT_WRITE_CAP_BYTES } = await import('../../../src/services/gitSyncEngine.js');
+    expect(GIT_WRITE_CAP_BYTES).toBeLessThanOrEqual(maxGitReadBytes());
+    window.Capacitor = { isNativePlatform: () => true };
+    expect(GIT_WRITE_CAP_BYTES).toBeLessThanOrEqual(maxGitReadBytes());
   });
 });
 
@@ -50,9 +59,9 @@ describe('GitHub readFileRawWithMeta size cap', () => {
     expect(isConfirmedNotFound(error)).toBe(false);
   });
 
-  it('refuses a 30 MB file in the native shell', async () => {
+  it('refuses a 60 MB file in the native shell', async () => {
     window.Capacitor = { isNativePlatform: () => true };
-    globalThis.fetch = vi.fn(async () => listing(30 * MB));
+    globalThis.fetch = vi.fn(async () => listing(60 * MB));
     const error = await provider().readFileRawWithMeta('x.redstring').catch((e) => e);
     expect(error.code).toBe('FILE_TOO_LARGE');
   });

@@ -59,7 +59,13 @@ const readTruncated = (message) => {
  * over it.
  */
 export const GIT_READ_CAP_DESKTOP_BYTES = 50 * 1024 * 1024;
-export const GIT_READ_CAP_NATIVE_BYTES = 25 * 1024 * 1024;
+// The native shell used to stop at 25 MB, while every device could WRITE up
+// to 50 MB (GIT_WRITE_CAP_BYTES). A universe edited past 25 MB on an iPad
+// saved, and that iPad then refused to open it again. A device must be able
+// to read back anything it may write, so the two caps are now one. Reads no
+// longer hold several whole copies at once, and a 50 MB universe peaks well
+// within what a phone or tablet WebView carries.
+export const GIT_READ_CAP_NATIVE_BYTES = 50 * 1024 * 1024;
 
 const isNativeShell = () => {
   try {

@@ -166,7 +166,7 @@ export const readFile = async (fileHandleOrPath) => {
  * where the platform allows: a universe file can be too big for a string
  * (formats/universeBytes.js parses the bytes). Capacitor reads text through
  * its bridge either way, so there the text is encoded; mobile files stay
- * small (its other read paths cap them at 25 MB).
+ * within the git read cap (50 MB, gitNativeProvider.js).
  *
  * @param {FileHandle|string} fileHandleOrPath
  * @returns {Promise<Uint8Array>}
