@@ -6,10 +6,11 @@
  * measures the whole app while it is used normally, on a device with no
  * console: every frame's length, what the person was doing at the time
  * (idle, a gesture on the canvas, on a panel, scrolling, typing), which
- * frame loops and timers are running, and which CSS animations are playing
- * and whether they're on screen. Every 10 s it logs one `[perf]` line (the
- * Capacitor bridge forwards console.log to the device log) and keeps a
- * running total in `__diag.sessionReport()`.
+ * frame loops and timers are running, which CSS animations are playing and
+ * whether they're on screen, and for each animation as it starts, how long
+ * after the tap it began and how its frames went (`[perf] anim`). Every 10 s
+ * it logs one `[perf]` line (the Capacitor bridge forwards console.log to the
+ * device log) and keeps a running total in `__diag.sessionReport()`.
  *
  * Inert unless started: nothing is wrapped and nothing runs.
  */
@@ -86,6 +87,8 @@ export function startSession({ log = true } = {}) {
     lastScroll: -1e9,
     lastKey: -1e9,
     lastInput: -1e9,
+    lastTap: -1e9,
+    playsByAnimation: new Map(), // "name on element" -> times started
     stopped: false,
   };
   session = s;
@@ -93,10 +96,10 @@ export function startSession({ log = true } = {}) {
   // --- what the person is doing ---------------------------------------
   const opts = { capture: true, passive: true };
   const onDown = (e) => { s.pointerDown = true; s.region = regionOf(e.target); s.lastInput = performance.now(); };
-  const onUp = () => { s.pointerDown = false; s.lastInput = performance.now(); };
+  const onUp = () => { s.pointerDown = false; s.lastInput = s.lastTap = performance.now(); };
   const onMove = () => { if (s.pointerDown) s.lastInput = performance.now(); };
   const onScroll = (e) => { s.lastScroll = performance.now(); s.scrollRegion = regionOf(e.target); };
-  const onKey = () => { s.lastKey = performance.now(); };
+  const onKey = () => { s.lastKey = s.lastTap = performance.now(); };
   const onWheel = (e) => { s.lastScroll = performance.now(); s.scrollRegion = regionOf(e.target); };
   window.addEventListener('pointerdown', onDown, opts);
   window.addEventListener('pointerup', onUp, opts);
@@ -141,12 +144,68 @@ export function startSession({ log = true } = {}) {
     return nativeClearInterval(id);
   };
 
+  // --- animation moments ------------------------------------------------
+  // One `[perf] anim` line per animation or transition the app starts (or
+  // per batch of them starting together): how long after the tap or key it
+  // started, and the frames for MOMENT_MS after. `play` counts how many times
+  // that animation has started this session, so a first play that stalls and
+  // a later one that doesn't show up side by side.
+  const MOMENT_MS = 400;
+  let moment = null;
+  const finishMoment = () => {
+    const m = moment;
+    moment = null;
+    if (!m || !log) return;
+    console.log(TAG, 'anim', JSON.stringify({
+      what: m.names,
+      play: m.play,
+      fromInput: m.fromInput,
+      frames: m.frames.length,
+      worst: Math.round(Math.max(0, ...m.frames)),
+      // The slowest frame's style, layout and paint, apart from the script
+      // that ran between frames (see the message channel below).
+      worstRender: Math.round(m.worstRender),
+      dropped: m.frames.reduce((n, dt) => n + (dt > DROP_MS ? Math.max(1, Math.round(dt / FRAME_MS) - 1) : 0), 0),
+    }));
+  };
+  const onAnimStart = (e) => {
+    const t = performance.now();
+    const name = e.animationName || (e.propertyName ? `${e.propertyName} transition` : e.type);
+    const what = `${name} on ${describe(e.target)}`;
+    // Started in the same frame as the one being watched: part of it.
+    if (moment && t - moment.at < 50) {
+      if (moment.names.length < 4 && !moment.names.includes(what)) moment.names.push(what);
+      return;
+    }
+    finishMoment();
+    const play = (s.playsByAnimation.get(what) || 0) + 1;
+    s.playsByAnimation.set(what, play);
+    moment = { at: t, names: [what], play, fromInput: t - s.lastTap < 1500 ? Math.round(t - s.lastTap) : null, frames: [], worstRender: 0 };
+  };
+  // A message posted from a frame callback arrives once that frame's
+  // rendering (style, layout, paint) is done, so the time between them is
+  // what drawing the frame cost; the rest of a long frame is script.
+  const channel = typeof MessageChannel === 'function' ? new MessageChannel() : null;
+  let renderFrom = 0;
+  if (channel) {
+    channel.port1.onmessage = () => {
+      if (moment) moment.worstRender = Math.max(moment.worstRender, performance.now() - renderFrom);
+    };
+  }
+  document.addEventListener('animationstart', onAnimStart, opts);
+  document.addEventListener('transitionstart', onAnimStart, opts);
+
   // --- frames -------------------------------------------------------------
   let last = performance.now();
   const tick = (now) => {
     if (s.stopped) return;
     const dt = now - last;
     last = now;
+    if (moment) {
+      moment.frames.push(dt);
+      if (now - moment.at > MOMENT_MS) finishMoment();
+      else if (channel) { renderFrom = performance.now(); channel.port2.postMessage(0); }
+    }
     const act = activity(now);
     for (const map of [s.byActivity, s.windowByActivity]) {
       const b = map[act] || (map[act] = newBucket());
@@ -224,6 +283,10 @@ export function startSession({ log = true } = {}) {
       ['touchstart', onDown], ['touchend', onUp], ['scroll', onScroll], ['wheel', onWheel], ['keydown', onKey]]) {
       window.removeEventListener(t, f, opts);
     }
+    finishMoment();
+    if (channel) channel.port1.onmessage = null;
+    document.removeEventListener('animationstart', onAnimStart, opts);
+    document.removeEventListener('transitionstart', onAnimStart, opts);
     session = null;
   };
 

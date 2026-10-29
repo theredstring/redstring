@@ -27,3 +27,34 @@ describe('perfSession', () => {
     expect(Object.keys(s.report().intervals).some((k) => k.endsWith('every 250ms'))).toBe(false);
   });
 });
+
+describe('animation moments', () => {
+  it('logs each animation with how long after the tap it started and which play it is', async () => {
+    const lines = [];
+    const log = console.log;
+    console.log = (...a) => lines.push(a);
+    try {
+      startSession();
+      const el = document.createElement('div');
+      el.className = 'unified-selector-box';
+      document.body.appendChild(el);
+      const fire = () => {
+        window.dispatchEvent(new Event('pointerup'));
+        const e = new Event('animationstart', { bubbles: true });
+        e.animationName = 'us-box-in';
+        el.dispatchEvent(e);
+      };
+      fire();
+      await new Promise((r) => setTimeout(r, 80));
+      fire();
+      stopSession();
+      el.remove();
+    } finally {
+      console.log = log;
+    }
+    const anims = lines.filter((a) => a[1] === 'anim').map((a) => JSON.parse(a[2]));
+    expect(anims.map((m) => m.play)).toEqual([1, 2]);
+    expect(anims[0].what).toEqual(['us-box-in on div.unified-selector-box']);
+    expect(anims[0].fromInput).toBeLessThan(50);
+  });
+});
