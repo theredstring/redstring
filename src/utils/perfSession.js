@@ -28,7 +28,8 @@ function origin() {
   const stack = new Error().stack || '';
   const lines = stack.split('\n').slice(1);
   for (const line of lines) {
-    if (line.includes('perfSession')) continue;
+    // This file's own frames, by file in development and by name in a bundle.
+    if (line.includes('perfSession') || /\b(origin|rsWrapped\w*)\b/.test(line)) continue;
     const at = line.trim().replace(/^at /, '');
     // "fn@url:line:col" (WebKit) or "fn (url:line:col)" (V8)
     const m = at.match(/^(.*?)[@ (]+(?:.*\/)?([^/]+?):(\d+):\d+\)?$/);
@@ -118,7 +119,7 @@ export function startSession({ log = true } = {}) {
   // --- who keeps the frame loop busy ------------------------------------
   const sampled = new Map(); // function -> origin, so each loop is traced once
   let rafThisFrame = 0;
-  window.requestAnimationFrame = (cb) => {
+  window.requestAnimationFrame = function rsWrappedRaf(cb) {
     rafThisFrame++;
     let site = sampled.get(cb);
     if (!site) {
@@ -130,7 +131,7 @@ export function startSession({ log = true } = {}) {
     if (site) s.rafSites.set(site, (s.rafSites.get(site) || 0) + 1);
     return nativeRaf(cb);
   };
-  window.setInterval = (fn, ms, ...args) => {
+  window.setInterval = function rsWrappedSetInterval(fn, ms, ...args) {
     const id = nativeSetInterval(fn, ms, ...args);
     s.intervals.set(id, { site: origin(), ms: Number(ms) || 0 });
     return id;

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { parseChangelog, parseNote } from './whatsNewMarkdown.js';
 import { APP_VERSION, compareVersions, getPreviewVersion } from './whatsNewVersion.js';
+import { safeExternalHref } from '../../utils/safeUrl.js';
 import './whatsNew.css';
 
 /**
@@ -66,7 +67,6 @@ const formatDate = (iso) => {
   });
 };
 
-const SAFE_LINK = /^(https?:|mailto:)/i;
 const INLINE = /\*\*(.+?)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\*([^*\s][^*]*)\*/g;
 
 /** Bold, code, links and italic, as elements (never as HTML). */
@@ -79,8 +79,9 @@ function renderInline(text) {
     if (m[1] !== undefined) out.push(<strong key={key++}>{renderInline(m[1])}</strong>);
     else if (m[2] !== undefined) out.push(<code key={key++} className="whats-new-code">{m[2]}</code>);
     else if (m[3] !== undefined) {
-      out.push(SAFE_LINK.test(m[4])
-        ? <a key={key++} href={m[4]} target="_blank" rel="noopener noreferrer" className="whats-new-link">{renderInline(m[3])}</a>
+      const href = safeExternalHref(m[4]);
+      out.push(href
+        ? <a key={key++} href={href} target="_blank" rel="noopener noreferrer" className="whats-new-link">{renderInline(m[3])}</a>
         : renderInline(m[3]));
     } else out.push(<em key={key++}>{renderInline(m[5])}</em>);
     last = m.index + m[0].length;

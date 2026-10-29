@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import useImageCache, { cancelThumbnailFetch, queueThumbnailFetch } from '../../../services/imageCache.js';
+import useImageCache, { cancelThumbnailFetch, evictImages, queueThumbnailFetch, touchImages } from '../../../services/imageCache.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants';
 
 /** The active graph's hydrated nodes and the effects that keep its data whole: group anchors repaired and orphans swept, the image cache reconciled with the prototypes, and a missing graph re-created (moved verbatim from NodeCanvas, wave 6). */
@@ -121,6 +121,10 @@ export function useActiveGraphData({
         cancelThumbnailFetch(protoId);
       }
     }
+    // Keep the cache bounded: the active web's images stay, images of Things
+    // that no longer exist go, and the rest are capped (imageCache.js).
+    touchImages(activeProtoIds);
+    evictImages(activeProtoIds, (protoId) => nodePrototypesMap.has(protoId));
   }, [nodePrototypesMap, activeGraphInstances]);
 
   useEffect(() => {

@@ -2391,6 +2391,8 @@ class UniverseBackend {
     }
     if (priorObservation) {
       engine.markRemoteObserved(priorObservation);
+      // Handed over: the engine keeps the state, this record keeps first contact.
+      if (priorObservation.state) this.remoteObservations.set(universeSlug, { ...priorObservation, state: null });
       umLog(`[UniverseBackend] Seeded engine with prior remote observation for ${universeSlug}`, {
         sha: priorObservation.sha ? String(priorObservation.sha).substring(0, 8) : priorObservation.sha,
         nodeCount: priorObservation.nodeCount
@@ -3169,6 +3171,19 @@ class UniverseBackend {
     } catch (e) {
       umWarn('[UniverseBackend] Could not clear git autosave batch before switch:', e);
     }
+    // Release the outgoing universe's images: the Wikipedia thumbnails and the
+    // uploaded originals cached for viewing. Nothing else frees them, so every
+    // universe opened in a session stayed resident.
+    try {
+      const [{ default: useImageCache }, { clearImageBlobCache }] = await Promise.all([
+        import('./imageCache.js'),
+        import('./imageBlobStore.js'),
+      ]);
+      useImageCache.getState().clearAll();
+      clearImageBlobCache();
+    } catch (e) {
+      umWarn('[UniverseBackend] Could not release image caches before switch:', e);
+    }
 
     // CRITICAL: Cancel any pending background loads to prevent overwriting
     this.pendingBackgroundLoadId = null;
@@ -3782,9 +3797,11 @@ class UniverseBackend {
     try {
       const tx = db.transaction(['universes'], 'readwrite');
       const store = tx.objectStore('universes');
-      const request = store.getAll();
+      // Keys only: getAll() read every stored universe into memory just to
+      // look at its id, at exactly the moment storage was short.
+      const request = store.getAllKeys();
 
-      const allData = await new Promise((resolve, reject) => {
+      const allKeys = await new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
@@ -3799,12 +3816,12 @@ class UniverseBackend {
       // Delete only records that no live universe references (orphans from
       // deleted/renamed universes). A registered universe's data is never
       // evicted — losing it is the exact data-loss we're preventing.
-      const toDelete = allData.filter(item => !liveKeys.has(item.id));
+      const toDelete = allKeys.filter(id => !liveKeys.has(id));
 
       if (toDelete.length > 0) {
         const deleteTx = db.transaction(['universes'], 'readwrite');
         const deleteStore = deleteTx.objectStore('universes');
-        toDelete.forEach(item => deleteStore.delete(item.id));
+        toDelete.forEach(id => deleteStore.delete(id));
         await new Promise((resolve, reject) => {
           deleteTx.oncomplete = () => resolve();
           deleteTx.onerror = () => reject(deleteTx.error);
@@ -5823,10 +5840,15 @@ class UniverseBackend {
         state,
         ts: Date.now()
       };
-      this.remoteObservations.set(universeSlug, observation);
       const engine = this.gitSyncEngines.get(universeSlug);
       if (engine) {
         engine.markRemoteObserved(observation);
+        // The engine now holds the state it measures commits from. Keeping it
+        // here too pinned a whole store per universe loaded from Git, for the
+        // rest of the session. The SHA and node count (first contact) stay.
+        this.remoteObservations.set(universeSlug, { ...observation, state: null });
+      } else {
+        this.remoteObservations.set(universeSlug, observation);
       }
     } catch (error) {
       umWarn('[UniverseBackend] Failed to record remote observation:', error);

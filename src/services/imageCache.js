@@ -126,17 +126,35 @@ const useImageCache = create((set, get) => ({
     return { loading: next };
   }),
 
-  /** Clear all cached images */
-  clearAll: () => set({ images: {}, loading: {}, failed: {} })
+  /** Clear all cached images, releasing their blobs */
+  clearAll: () => set(state => {
+    const urls = Object.values(state.images).map((e) => e?.thumbnailSrc).filter((u) => u?.startsWith('blob:'));
+    if (urls.length) setTimeout(() => urls.forEach((u) => URL.revokeObjectURL(u)), 0);
+    _lastUsed.clear();
+    return { images: {}, loading: {}, failed: {} };
+  })
 }));
 
 /**
  * Resize a Wikipedia thumbnail URL to a specific width.
  * Wikipedia thumb URLs follow: .../thumb/.../Filename.ext/NNNpx-Filename.ext
+ *
+ * A link to the original file (.../wikipedia/commons/a/ab/Filename.ext, no
+ * /thumb/) is turned into its thumbnail link too. Leaving it alone meant some
+ * "thumbnails" were the full photo: 2-4 MB downloads that decode to tens of
+ * megabytes each and held the iPad's web process at gigabytes.
  */
-function resizeWikipediaThumbUrl(thumbUrl, targetWidth) {
+export function resizeWikipediaThumbUrl(thumbUrl, targetWidth) {
   if (!thumbUrl) return thumbUrl;
-  return thumbUrl.replace(/\/(\d+)px-/, `/${targetWidth}px-`);
+  if (/\/(\d+)px-/.test(thumbUrl)) return thumbUrl.replace(/\/(\d+)px-/, `/${targetWidth}px-`);
+  const m = thumbUrl.match(/^(https?:\/\/upload\.wikimedia\.org\/wikipedia\/[^/]+)\/(?!thumb\/)([0-9a-f])\/([0-9a-f]{2})\/([^/?#]+)$/i);
+  if (!m) return thumbUrl;
+  const [, base, a, ab, file] = m;
+  const ext = file.split('.').pop().toLowerCase();
+  // Vector and multi-page files are rasterised to PNG/JPEG under a suffixed name.
+  const suffix = ext === 'svg' ? '.png' : (ext === 'tif' || ext === 'tiff') ? '.jpg' : '';
+  if (['pdf', 'djvu', 'webm', 'ogv', 'ogg', 'mp4'].includes(ext)) return thumbUrl;
+  return `${base}/thumb/${a}/${ab}/${file}/${targetWidth}px-${file}${suffix}`;
 }
 
 // ── Background fetch queue ──────────────────────────────────────────────
@@ -145,6 +163,51 @@ function resizeWikipediaThumbUrl(thumbUrl, targetWidth) {
 
 let _queue = [];
 let _activeCount = 0;
+
+// ── Keeping the cache bounded ───────────────────────────────────────────
+// Every cached image is a blob plus, once painted, a decoded bitmap (about
+// 1 MB at 500 px). Nothing used to leave the cache: every web opened in a
+// session, in every universe, stayed resident. Now images in the active web
+// always stay, the most recently used others stay up to MAX_IDLE_IMAGES, and
+// images for Things that no longer exist (deleted, or another universe) go
+// straight away. Panels, the carousel and nested webs read the same cache,
+// which is why recent images outside the active web are kept rather than
+// dropped the moment the web changes.
+const MAX_IDLE_IMAGES = 120;
+const _lastUsed = new Map(); // protoId -> tick
+let _tick = 0;
+
+/** Mark images as in use (the active web's, every time it is reconciled). */
+export function touchImages(protoIds) {
+  _tick++;
+  for (const id of protoIds) _lastUsed.set(id, _tick);
+}
+
+/**
+ * Free cached images that are no longer wanted.
+ * @param {Set<string>} keep - protoIds that must stay (the active web)
+ * @param {(protoId: string) => boolean} exists - whether the Thing still exists
+ */
+export function evictImages(keep, exists) {
+  const { images } = useImageCache.getState();
+  const idle = [];
+  for (const protoId of Object.keys(images)) {
+    if (keep.has(protoId)) continue;
+    if (!exists(protoId)) {
+      // Gone from the universe: cancel too, so a fetch in flight can't land.
+      cancelThumbnailFetch(protoId);
+      _lastUsed.delete(protoId);
+      continue;
+    }
+    idle.push(protoId);
+  }
+  if (idle.length <= MAX_IDLE_IMAGES) return;
+  idle.sort((a, b) => (_lastUsed.get(a) || 0) - (_lastUsed.get(b) || 0));
+  for (const protoId of idle.slice(0, idle.length - MAX_IDLE_IMAGES)) {
+    useImageCache.getState().clearImage(protoId);
+    _lastUsed.delete(protoId);
+  }
+}
 const MAX_CONCURRENT = 6; // Parallel fetches
 
 /**
@@ -199,7 +262,11 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
   // Skip if already cached
   if (useImageCache.getState().getImage(protoId)) return false;
 
-  const url = resizeWikipediaThumbUrl(thumbUrl, 500);
+  let url = resizeWikipediaThumbUrl(thumbUrl, 500);
+  // A thumbnail link we built ourselves can fail where the original won't:
+  // Wikimedia refuses to scale an image up past its own width. One try at the
+  // original before giving up.
+  let fallbackUrl = url !== thumbUrl && !/\/thumb\//.test(thumbUrl) ? thumbUrl : null;
   let lastStatus = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -210,6 +277,12 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
       const resp = await fetch(url);
       if (!resp.ok) {
         lastStatus = resp.status;
+        if (fallbackUrl) {
+          url = fallbackUrl;
+          fallbackUrl = null;
+          attempt--;
+          continue;
+        }
         if (!_isRetryable(resp.status)) {
           console.warn(`[ImageCache] "${nodeName}": HTTP ${resp.status} from ${url} (permanent)`);
           break;
@@ -235,6 +308,7 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
         return false;
       }
       useImageCache.getState().setImage(protoId, { thumbnailSrc: blobUrl, imageAspectRatio });
+      _lastUsed.set(protoId, ++_tick);
       console.log(`[ImageCache] Cached "${nodeName}" (blob ${(blob.size / 1024).toFixed(0)}KB)`);
       return true;
     } catch (err) {
