@@ -157,4 +157,6 @@ const DraggableTab = ({ tab, index, displayTitle, dragItemTitle, moveTabAction, 
   );
 };
 
-export default DraggableTab;
+// A switch changes two tabs' isActive (the store edits in place, so the rest
+// keep their objects); only those two re-render, not every open tab.
+export default React.memo(DraggableTab);

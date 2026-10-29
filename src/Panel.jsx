@@ -1960,10 +1960,13 @@ const Panel = memo(
 
     // Right-click menu options for a node tab, disabled when nothing to act on.
     // Index 0 is the locked home tab, so only tabs after it participate.
+    // Reads the tabs when the menu opens, so it stays the same function as tabs
+    // change: every tab holds it, and a new one each switch re-rendered them all.
     const getTabContextMenuOptions = useCallback((nodeId) => {
-      const idx = rightPanelTabs.findIndex(tab => rightPanelTabKey(tab) === nodeId);
-      const hasOthers = rightPanelTabs.length > 2;
-      const hasRight = idx > 0 && idx < rightPanelTabs.length - 1;
+      const tabs = useGraphStore.getState().rightPanelTabs || [];
+      const idx = tabs.findIndex(tab => rightPanelTabKey(tab) === nodeId);
+      const hasOthers = tabs.length > 2;
+      const hasRight = idx > 0 && idx < tabs.length - 1;
       return [
         {
           label: 'Close Tab',
@@ -1983,7 +1986,7 @@ const Panel = memo(
           action: () => closeRightPanelTabsToRight?.(nodeId)
         }
       ];
-    }, [rightPanelTabs, closeRightPanelTab, closeOtherRightPanelTabs, closeRightPanelTabsToRight]);
+    }, [closeRightPanelTab, closeOtherRightPanelTabs, closeRightPanelTabsToRight]);
 
     // The Thing and Web tabs (index > 0), built only when the tabs, their names
     // or the Things change. A universe can carry hundreds of open tabs (one had
