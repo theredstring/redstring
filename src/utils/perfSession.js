@@ -112,6 +112,23 @@ export function startSession({ log = true } = {}) {
   window.addEventListener('scroll', onScroll, opts);
   window.addEventListener('wheel', onWheel, opts);
   window.addEventListener('keydown', onKey, opts);
+  // Every tap's target, so a tap that never reaches the canvas (an invisible
+  // layer left over it) shows up as hitting that layer.
+  let tapStart = null;
+  const onTapStart = (e) => {
+    const t = e.touches?.[0];
+    tapStart = e.touches?.length === 1 && t ? { x: t.clientX, y: t.clientY, at: performance.now() } : null;
+  };
+  const onTapEnd = (e) => {
+    const t = e.changedTouches?.[0];
+    const st = tapStart;
+    tapStart = null;
+    if (!st || !t || Math.hypot(t.clientX - st.x, t.clientY - st.y) > 16 || performance.now() - st.at > 600) return;
+    const stack = (document.elementsFromPoint?.(t.clientX, t.clientY) || []).slice(0, 4).map(describe);
+    if (log) console.log(TAG, 'tap', JSON.stringify({ target: describe(e.target), under: stack }));
+  };
+  window.addEventListener('touchstart', onTapStart, opts);
+  window.addEventListener('touchend', onTapEnd, opts);
 
   function activity(now) {
     if (s.pointerDown) return `gesture:${s.region}`;
@@ -298,7 +315,8 @@ export function startSession({ log = true } = {}) {
     nativeClearInterval(animTimer);
     nativeClearInterval(windowTimer);
     for (const [t, f] of [['pointerdown', onDown], ['pointerup', onUp], ['pointercancel', onUp], ['pointermove', onMove],
-      ['touchstart', onDown], ['touchend', onUp], ['scroll', onScroll], ['wheel', onWheel], ['keydown', onKey]]) {
+      ['touchstart', onDown], ['touchend', onUp], ['scroll', onScroll], ['wheel', onWheel], ['keydown', onKey],
+      ['touchstart', onTapStart], ['touchend', onTapEnd]]) {
       window.removeEventListener(t, f, opts);
     }
     finishMoment();
@@ -310,6 +328,15 @@ export function startSession({ log = true } = {}) {
 
   if (log) console.log(TAG, 'session started');
   return s;
+}
+
+/**
+ * Log a one-off fact about what the app decided (why a tap made no plus sign)
+ * to the device log, while a session runs. A no-op otherwise.
+ */
+export function perfNote(tag, detail) {
+  if (!session) return;
+  try { console.log(TAG, tag, JSON.stringify(detail)); } catch { /* unserializable */ }
 }
 
 /**

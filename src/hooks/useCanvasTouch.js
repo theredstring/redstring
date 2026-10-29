@@ -2,6 +2,7 @@
 import { useRef, useEffect } from 'react';
 import { useWindowGestureEnd } from './useWindowGestureEnd';
 import { haptic } from '../services/haptics.js';
+import { perfNote } from '../utils/perfSession.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import useGraphStore from '../store/graphStore.js';
 import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
@@ -773,7 +774,10 @@ export const useCanvasTouch = ({
         // before the carousel opened still tears down through the canvas — the
         // carousel's touchstart guard means its own gestures never set these flags,
         // so this only ever catches a genuinely in-flight canvas gesture.
-        if (!hasActiveGesture && yieldsToCarousel(e)) return;
+        if (!hasActiveGesture && yieldsToCarousel(e)) {
+            if (!mouseMoved.current) perfNote('tap-skipped', { why: 'carousel-claims-touch' });
+            return;
+        }
 
         if (!hasActiveGesture && !isCanvasSurfaceTarget(e.target)) return;
 
@@ -913,6 +917,7 @@ export const useCanvasTouch = ({
         // handleCanvasClick too (handleTouchStartCanvas clears it on the next
         // bare-canvas touch).
         if (multiTouchGestureRef.current) {
+            if (isTap) perfNote('tap-skipped', { why: 'ends-a-pinch' });
             if (ignoreCanvasClick) ignoreCanvasClick.current = true;
             touchMultiPanRef.current = false;
             return;
@@ -925,6 +930,7 @@ export const useCanvasTouch = ({
         // navigation; leave the graph as it was. handleMouseUp above already
         // finalized the pan (and relaunched momentum if the finger flicked).
         if (isTap && panCatchRef.current) {
+            perfNote('tap-skipped', { why: 'caught-a-glide' });
             if (ignoreCanvasClick) ignoreCanvasClick.current = true;
             touchMultiPanRef.current = false;
             return;
@@ -941,6 +947,7 @@ export const useCanvasTouch = ({
         // here when touchend bubbled to the canvas). Leave the flag set so
         // the synthesized click that follows also bails in handleCanvasClick.
         if (isTap && ignoreCanvasClick && ignoreCanvasClick.current) {
+            perfNote('tap-skipped', { why: 'claimed-by-an-element' });
             // Always clear the flag — without this, touch's e.preventDefault() suppresses
             // the synthesized click that would normally clear it via handleCanvasClick, so
             // it stays true forever and every subsequent tap is blocked until refresh.
@@ -964,6 +971,7 @@ export const useCanvasTouch = ({
         if (isTap && !draggingNodeInfo && !drawingConnectionFrom && !isJustAfterNodeDrop()
             && !nodeNamePrompt.visible && activeGraphId && trySelectConnectionAtPoint) {
             if (trySelectConnectionAtPoint(clientX, clientY)) {
+                perfNote('tap-skipped', { why: 'selected-a-connection' });
                 // Suppress the synthesized click, which would otherwise reach
                 // handleCanvasClick and immediately clear what we just selected.
                 if (ignoreCanvasClick) ignoreCanvasClick.current = true;
@@ -1012,6 +1020,17 @@ export const useCanvasTouch = ({
             // Mirror click-to-plus-sign behavior, but skip the spawn if a
             // control panel was just dismissed (group / connection) — the
             // user tapped to close the panel, not to create a new node.
+            perfNote(!plusSign && !dismissedControlPanel && !draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId && selectedInstanceIds.size === 0
+                ? 'tap-spawns-plus' : 'tap-skipped', {
+                why: 'spawn-check',
+                plusSign: plusSign ? plusSign.mode : null,
+                dismissedControlPanel,
+                dragging: !!draggingNodeInfo,
+                drawingConnection: !!drawingConnectionFrom,
+                namePrompt: !!nodeNamePrompt.visible,
+                activeGraph: !!activeGraphId,
+                selected: selectedInstanceIds.size,
+            });
             if (!draggingNodeInfo && !drawingConnectionFrom && !nodeNamePrompt.visible && activeGraphId) {
                 if (selectedInstanceIds.size > 0) {
                     // Mimic click-off behavior: clear selection on tap
