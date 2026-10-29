@@ -9,6 +9,7 @@ import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../f
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { registerBlobSource, primeImageRef } from './imageBlobStore.js';
 import { vlog } from '../utils/verboseLog.js';
+import { msSinceActive, msSinceCameraMoved } from './cameraActivity.js';
 import { generateDocumentHash, generateHash } from './saveHash.js';
 import { serializeRedstring } from '../formats/universeBytes.js';
 import { describeChanges, rebaseSummary } from '../formats/changeSummary.js';
@@ -20,6 +21,16 @@ const STALE_READ_WINDOW_MS = 2 * 60 * 1000;
 // How long to wait between reads when the host refused a save but a read still
 // shows the old version (7.5 s in all, then the save is retried later).
 const STALE_READ_RETRY_MS = [500, 1000, 2000, 4000];
+
+// An autosave commit waits until the person has been idle this long (no
+// change, the camera still): building and sending the file runs on the main
+// thread, and on a big universe it ran under the next pan or edit. The local
+// file is written first, on its own shorter wait (SaveCoordinator QUIET_MS).
+const GIT_IDLE_MS = 3000;
+// However busy they stay, a change waits no longer than this; then only a
+// moving camera holds the commit, for GIT_CAMERA_STILL_MS.
+const GIT_MAX_IDLE_WAIT_MS = 30000;
+const GIT_CAMERA_STILL_MS = 300;
 
 /**
  * The largest universe file Git sync writes: the most any device will read
@@ -99,6 +110,7 @@ class GitSyncEngine {
     this.minCommitInterval = this.isGitHubApp ? 2000 : 3000; // Min 2-3s between commits
     this.debounceTimeout = null; // For debouncing rapid updates
     this.debounceDelay = 1000; // 1 second debounce for continuous operations (faster response)
+    this.changesSince = 0; // When the oldest change not yet committed arrived; see GIT_MAX_IDLE_WAIT_MS
     this.isDragging = false; // Track if we're in a dragging operation
     this.dragStartTime = 0; // Track when dragging started
 
@@ -1009,6 +1021,7 @@ class GitSyncEngine {
       isDragging: this.isDragging
     });
 
+    if (!this.hasChanges || !this.changesSince) this.changesSince = now;
     this.hasChanges = true;
 
     // If we're dragging, use debounced commit
@@ -1598,6 +1611,21 @@ class GitSyncEngine {
   }
 
   /**
+   * Whether an autosave commit may run now: the person has been idle for
+   * GIT_IDLE_MS, or a change has waited GIT_MAX_IDLE_WAIT_MS and the camera
+   * is still, or the app is hidden (it may be suspended next, so commit while
+   * it can). Saves the person asks for (forceCommit) don't ask.
+   *
+   * @param {number} [since] - when the oldest change waiting arrived
+   * @returns {boolean}
+   */
+  isIdleEnoughToCommit(since = this.changesSince) {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return true;
+    if (since && Date.now() - since >= GIT_MAX_IDLE_WAIT_MS) return msSinceCameraMoved() >= GIT_CAMERA_STILL_MS;
+    return msSinceActive() >= GIT_IDLE_MS;
+  }
+
+  /**
    * Process pending commits in batches
    * Now with rate limiting and intelligent batching
    */
@@ -1662,6 +1690,12 @@ class GitSyncEngine {
     // If we're currently dragging, don't commit yet (let debounce handle it)
     if (this.isDragging) {
       vlog('[GitSyncEngine] Currently dragging, waiting for drag to finish');
+      return;
+    }
+
+    // Not while the person is working (GIT_IDLE_MS). The loop comes back.
+    if (!this.isIdleEnoughToCommit()) {
+      vlog('[GitSyncEngine] Waiting for the person to be idle before committing');
       return;
     }
 

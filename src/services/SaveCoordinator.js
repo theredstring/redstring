@@ -18,7 +18,7 @@
 
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 import { createSaveMirrorSender } from './saveMirror.js';
-import { msSinceCameraMoved } from './cameraActivity.js';
+import { msSinceCameraMoved, msSinceActive, markEdited } from './cameraActivity.js';
 import { userDataCounts, countPlacements } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
@@ -26,9 +26,10 @@ import { vlog } from '../utils/verboseLog.js';
 import { getAutoSaveMode, autoSaves, subscribeAutoSaveMode } from './autoSaveMode.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce.
-// With the 500ms worker debounce, an edit reaches the file about 1.5s later. It
-// was 3000ms, which left local saves feeling slow; the interaction gate and the
-// post-interaction cooldown (not this debounce) are what keep a write off a drag.
+// A change goes to the worker once the person has been idle for QUIET_MS, and
+// this long after the worker's pass the write is due (it too waits for idle).
+// It was 3000ms, which left local saves feeling slow; the interaction gate and
+// the quiet window (not this debounce) are what keep a write off a drag or pan.
 const DEBOUNCE_MS = 1000;
 
 /**
@@ -65,6 +66,17 @@ const SETTLE_SAVE_DELAY_MS = 10000;
 // How long the camera must be still before a due save is handed over.
 const CAMERA_QUIET_MS = 300;
 
+// How long the person must be idle (no change, the camera still) before a
+// change goes to the worker and before its write starts. A save started the
+// moment something changed, and on a big universe that ran under the next
+// pan or edit. Closing or hiding the app doesn't wait: flush() writes now.
+const QUIET_MS = 1500;
+const LARGE_QUIET_MS = 2500;
+
+// Someone who never stops is still saved: this long after a save first had
+// to wait, only a moving camera holds it, for CAMERA_QUIET_MS.
+const MAX_QUIET_WAIT_MS = 8000;
+
 // Things plus webs at which a universe counts as big for SETTLE_SAVE_DELAY_MS.
 export const LARGE_UNIVERSE_SIZE = 5000;
 
@@ -98,6 +110,9 @@ class SaveCoordinator {
     this.lastChangeContext = {};
     this.saveTimer = null; // Single timer for all changes
     this.navigationTimer = null; // A waiting web switch; see NAVIGATION_SAVE_DELAY_MS, SETTLE_SAVE_DELAY_MS
+    this._quietWaitTimer = null; // A due write waiting for the person to be idle; see QUIET_MS
+    this._quietWaitSince = 0; // When the save on its way first waited for idle; see MAX_QUIET_WAIT_MS
+    this._saveDueAt = 0; // When saveTimer fires
 
     // CRITICAL data-loss guard: do NOT save anything until we have observed at
     // least one explicit `load` change context. Otherwise, when the universe
@@ -501,13 +516,81 @@ class SaveCoordinator {
       if (this.workerProcessing) {
         this.workerDirty = true;
       } else {
-        if (this.workerTimer) clearTimeout(this.workerTimer);
-        this.workerTimer = setTimeout(() => {
-          this.workerTimer = null;
-          this.sendToWorker();
-        }, 300);
+        this._scheduleWorkerPass(300);
       }
     }
+  }
+
+  /**
+   * Hands the newest state to the worker no sooner than `delay`, and not
+   * until the person has been idle for the quiet window (_quietWaitRemaining).
+   * The handle stays in `workerTimer` for the whole wait, so everything that
+   * asks whether a change is on its way (_pipelineIdle, flush, saveNow) sees
+   * it, and saveNow and flush cut it short.
+   *
+   * @private
+   * @param {number} delay - the least time to wait, in ms
+   */
+  _scheduleWorkerPass(delay) {
+    // The save on its way starts waiting with its first change. Past the cap
+    // a new change doesn't push back a pass already coming: changes closer
+    // together than `delay` would otherwise hold it off for as long as they
+    // keep coming.
+    if (!this._quietWaitSince) this._quietWaitSince = Date.now();
+    if (this.workerTimer && this._pastQuietCap()) return;
+    if (this.workerTimer) clearTimeout(this.workerTimer);
+    this.workerTimer = setTimeout(() => {
+      this.workerTimer = null;
+      const wait = this._quietWaitRemaining();
+      if (wait > 0) {
+        this._scheduleWorkerPass(wait);
+        return;
+      }
+      this.sendToWorker();
+    }, delay);
+  }
+
+  /**
+   * How much longer the save on its way should wait for the person to be
+   * idle: QUIET_MS (LARGE_QUIET_MS on a big universe) since the last change
+   * or camera move. Past MAX_QUIET_WAIT_MS of waiting, only a moving camera
+   * holds it, for CAMERA_QUIET_MS, as before.
+   *
+   * @private
+   * @returns {number} ms still to wait; 0 when the save may go now
+   */
+  _quietWaitRemaining() {
+    if (!this._quietWaitSince) this._quietWaitSince = Date.now();
+    let wait;
+    if (this._pastQuietCap()) {
+      wait = CAMERA_QUIET_MS - msSinceCameraMoved();
+    } else {
+      const quietMs = this._isLargeUniverse(this.nextStateToProcess || this.lastState) ? LARGE_QUIET_MS : QUIET_MS;
+      wait = quietMs - msSinceActive();
+    }
+    return wait > 0 ? wait : 0;
+  }
+
+  /**
+   * Whether the save on its way has waited MAX_QUIET_WAIT_MS for idle. A
+   * clock set back counts as past it: a save then goes rather than waits.
+   * @private
+   */
+  _pastQuietCap() {
+    if (!this._quietWaitSince) return false;
+    const waited = Date.now() - this._quietWaitSince;
+    return waited < 0 || waited >= MAX_QUIET_WAIT_MS;
+  }
+
+  /**
+   * Whether a save is held back on purpose until the person is idle
+   * (QUIET_MS). The indicator doesn't count that time toward "Not saved":
+   * the wait is bounded by MAX_QUIET_WAIT_MS.
+   *
+   * @returns {boolean}
+   */
+  isWaitingForQuiet() {
+    return this._quietWaitSince > 0 && !!(this.workerTimer || this._quietWaitTimer);
   }
 
   /**
@@ -698,13 +781,22 @@ class SaveCoordinator {
       }
     }
 
-    // Process any queued updates
+    // Process any queued updates: a change made during this pass goes next,
+    // once the person is idle again (straight away for a save they asked for).
     if (this.workerDirty) {
       this.workerDirty = false;
-      this.sendToWorker();
+      if (this.manualSaveRequested) this.sendToWorker();
+      else this._scheduleWorkerPass(0);
     } else if (this.awaitingWorker && type === 'save_processed') {
       this.awaitingWorker = false;
       if (!this.hasUnsavedChanges()) this.notifyStatus('info', 'No changes to save');
+    }
+
+    // Nothing is on its way to the file after all (the change undid itself,
+    // or matched what was saved): the next change waits afresh.
+    if (!this.workerTimer && !this.workerProcessing && !this.saveTimer && !this._quietWaitTimer
+        && !this.isDirty && this.pendingHash === null) {
+      this._quietWaitSince = 0;
     }
 
     // A save the user asked for was waiting on this pass.
@@ -950,6 +1042,13 @@ class SaveCoordinator {
 
     this._syncGuardUniverse(newState._universeSlug);
 
+    // The person is active: saves wait for them to be idle (QUIET_MS). A
+    // camera move is marked where it happens (cameraActivity.js); a load and
+    // a held web switch coming back in are not the person.
+    if (changeContext.type !== 'viewport' && changeContext.type !== 'load' && changeContext.type !== 'navigation_settled') {
+      markEdited();
+    }
+
     // Any change that is not just navigation carries a waiting web switch
     // with it: it saves the whole state, the switch included. A camera move
     // saves nothing, so it must not cancel the wait either.
@@ -995,6 +1094,11 @@ class SaveCoordinator {
           clearTimeout(this.workerTimer);
           this.workerTimer = null;
         }
+        if (this._quietWaitTimer) {
+          clearTimeout(this._quietWaitTimer);
+          this._quietWaitTimer = null;
+        }
+        this._quietWaitSince = 0;
         // Now we have a real loaded baseline — saves are safe from this point.
         this.hasLoadedFromFile = true;
         // The worker's copy, while the load is still settling (see _primeWorker).
@@ -1205,15 +1309,10 @@ class SaveCoordinator {
       if (this.workerProcessing) {
         this.workerDirty = true;
       } else {
-        // Clear existing debounce timer
-        if (this.workerTimer) clearTimeout(this.workerTimer);
-        
-        this.workerTimer = setTimeout(() => {
-          this.workerTimer = null;
-          this.sendToWorker();
-        }, 500); // 500ms debounce — keeps structured-clone postMessage off the
-                  // tail of the 250ms drag zoom-restore animation, and batches
-                  // typing/keystroke flurries a little more aggressively.
+        // At least 500ms — keeps structured-clone postMessage off the tail of
+        // the 250ms drag zoom-restore animation — and then until the person
+        // has been idle for the quiet window.
+        this._scheduleWorkerPass(500);
       }
 
     } catch (error) {
@@ -1247,7 +1346,7 @@ class SaveCoordinator {
    */
   _pipelineIdle() {
     return !(this.workerTimer || this.workerProcessing || this.awaitingWorker
-      || this.saveTimer || this._cameraWaitTimer || this.isSaving || this.isDirty || this.pendingHash !== null);
+      || this.saveTimer || this._quietWaitTimer || this.isSaving || this.isDirty || this.pendingHash !== null);
   }
 
   /**
@@ -1285,15 +1384,22 @@ class SaveCoordinator {
    * Always cancels any previously pending timer before setting a new one.
    */
   scheduleSave() {
+    // Past the idle cap, a write due within the debounce isn't pushed back:
+    // passes closer together than DEBOUNCE_MS would otherwise hold it off for
+    // as long as they keep coming. (A retry's longer backoff is replaced, as
+    // ever.)
+    if (this.saveTimer && this._pastQuietCap() && this._saveDueAt - Date.now() <= DEBOUNCE_MS) return;
+
     // Clear existing timer
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
     }
-    
+
     // console.log(`[SaveCoordinator] Scheduling write in ${DEBOUNCE_MS}ms`);
-    
+
     // Schedule new save. The handle is cleared when it fires: a stale handle
     // reads as "a save is pending" to getStatus() and _navigationMayWait().
+    this._saveDueAt = Date.now() + DEBOUNCE_MS;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       this.executeSave();
@@ -1359,18 +1465,22 @@ class SaveCoordinator {
       return;
     }
     
-    // Nor while the camera is moving (panning, zooming, WASD): hand the write
-    // over once it has been still for a moment. Closing the app doesn't wait
-    // on this; flush() writes directly.
-    const sinceCameraMoved = msSinceCameraMoved();
-    if (sinceCameraMoved < CAMERA_QUIET_MS) {
-      if (this._cameraWaitTimer) clearTimeout(this._cameraWaitTimer);
-      this._cameraWaitTimer = setTimeout(() => {
-        this._cameraWaitTimer = null;
+    // Nor while the person is working (editing, panning, zooming, WASD):
+    // hand the write over once they have been idle for the quiet window
+    // (_quietWaitRemaining). A save they asked for only waits out a moving
+    // camera. Closing the app doesn't wait on this; flush() writes directly.
+    const quietWait = this.manualSaveRequested
+      ? Math.max(0, CAMERA_QUIET_MS - msSinceCameraMoved())
+      : this._quietWaitRemaining();
+    if (quietWait > 0) {
+      if (this._quietWaitTimer) clearTimeout(this._quietWaitTimer);
+      this._quietWaitTimer = setTimeout(() => {
+        this._quietWaitTimer = null;
         this.executeSave();
-      }, CAMERA_QUIET_MS - sinceCameraMoved);
+      }, quietWait);
       return;
     }
+    this._quietWaitSince = 0;
 
     // We need either a pending string (from worker) or a lastState (fallback)
     if (!this.pendingString && !this.lastState) {
@@ -1626,6 +1736,7 @@ class SaveCoordinator {
     const delay = Math.min(60000, DEBOUNCE_MS * Math.pow(2, this.retryAttempt));
     this.retryAttempt++;
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    this._saveDueAt = Date.now() + delay;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
       this.executeSave();
@@ -1706,7 +1817,8 @@ class SaveCoordinator {
     }
 
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
-    if (this._cameraWaitTimer) { clearTimeout(this._cameraWaitTimer); this._cameraWaitTimer = null; }
+    if (this._quietWaitTimer) { clearTimeout(this._quietWaitTimer); this._quietWaitTimer = null; }
+    this._quietWaitSince = 0;
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
     // A waiting web switch is written now, with everything else.
     if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
@@ -2189,7 +2301,8 @@ class SaveCoordinator {
    */
   cancelPendingSaves() {
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; }
-    if (this._cameraWaitTimer) { clearTimeout(this._cameraWaitTimer); this._cameraWaitTimer = null; }
+    if (this._quietWaitTimer) { clearTimeout(this._quietWaitTimer); this._quietWaitTimer = null; }
+    this._quietWaitSince = 0;
     if (this.navigationTimer) { clearTimeout(this.navigationTimer); this.navigationTimer = null; }
     if (this.workerTimer) { clearTimeout(this.workerTimer); this.workerTimer = null; }
     if (this.workerWatchdogTimer) { clearTimeout(this.workerWatchdogTimer); this.workerWatchdogTimer = null; }

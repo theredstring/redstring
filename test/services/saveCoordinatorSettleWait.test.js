@@ -16,8 +16,8 @@ import { markCameraMoved, __resetCameraActivity } from '../../src/services/camer
 import { setAutoSaveMode } from '../../src/services/autoSaveMode.js';
 
 const SETTLE_MS = 10000;
-// Worker debounce (500) + write debounce (1000) + dispatch, with room to spare.
-const NORMAL_SAVE_MS = 2000;
+// Idle window on a big universe (2500) + write debounce (1000) + dispatch, with room to spare.
+const NORMAL_SAVE_MS = 4000;
 
 const universe = ({ size = LARGE_UNIVERSE_SIZE, x = 0, activeGraphId = 'g1', extraName = null } = {}) => {
   const nodePrototypes = new Map(Array.from({ length: size }, (_, i) => [`p${i}`, { id: `p${i}`, name: `Thing ${i}` }]));
@@ -139,7 +139,7 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
   });
 
-  it('a save that comes due while the camera moves waits until it stops', async () => {
+  it('a save that comes due while the camera moves waits until it has been still for the idle window', async () => {
     const edited = universe({ extraName: 'Edit' });
     saveCoordinator.onStateChange(edited, EDIT);
     // Panning: the camera moves every frame from just before the save is due.
@@ -149,10 +149,15 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
       await vi.advanceTimersByTimeAsync(50);
     }
     expect(fileStorage.saveToFile).not.toHaveBeenCalled();
-    // The camera stops; the save goes once it has been still for a moment.
-    await vi.advanceTimersByTimeAsync(400);
+    expect(saveCoordinator.isWaitingForQuiet()).toBe(true);
+    // The camera stops. A moment of stillness isn't idle yet.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fileStorage.saveToFile).not.toHaveBeenCalled();
+    // Idle for the window (a big universe's), then the save goes.
+    await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
     expect(fileStorage.saveToFile.mock.calls[0][0]).toBe(edited);
+    expect(saveCoordinator.isWaitingForQuiet()).toBe(false);
   });
 
   it('closing the app mid-pan still writes straight away', async () => {

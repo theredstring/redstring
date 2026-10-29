@@ -225,6 +225,15 @@ class GitAutosavePolicy {
       return;
     }
 
+    // Not while the person is working: the engine's idle wait, counted from
+    // this batch's first edit. Look again in a second.
+    const engine = this.gitSyncEngine;
+    if (typeof engine.isIdleEnoughToCommit === 'function' && !engine.isIdleEnoughToCommit(this.currentBatch[0]?.timestamp)) {
+      if (this.pendingTimeout) clearTimeout(this.pendingTimeout);
+      this.pendingTimeout = setTimeout(() => this.executeBatchCommit(reason), 1000);
+      return;
+    }
+
     // Clear timeouts
     if (this.pendingTimeout) {
       clearTimeout(this.pendingTimeout);

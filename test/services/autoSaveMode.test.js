@@ -17,8 +17,8 @@ import {
 } from '../../src/components/canvas/dialogs/unsavedChanges.js';
 import { useCanvasDialogStore } from '../../src/components/canvas/dialogs/canvasDialogs.js';
 
-// Worker debounce (500) + write debounce (1000) + dispatch, with room to spare.
-const NORMAL_SAVE_MS = 2000;
+// Idle window (1500) + write debounce (1000) + dispatch, with room to spare.
+const NORMAL_SAVE_MS = 3000;
 
 const universe = ({ size = 10, name = 'Thing', activeGraphId = 'g1' } = {}) => ({
   graphs: new Map([
@@ -200,7 +200,8 @@ describe('SaveCoordinator with autosave off', () => {
 
     // However many Things it holds, only the file's size turns autosave off.
     saveCoordinator.onStateChange(universe({ size: 20000, name: 'Many' }), EDIT);
-    await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
+    // A big universe waits a longer idle window.
+    await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS + 1000);
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(2);
 
     saveCoordinator.lastFileBytes = AUTO_SAVE_MAX_BYTES;

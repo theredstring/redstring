@@ -184,10 +184,12 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           || saveCoordinator.loadInFlight > 0;
 
         // Track how long changes have been dirty with no write in flight. The
-        // clock is held at zero while the user is interacting, because the
-        // coordinator deliberately defers serialization until the drag/pan
-        // ends — that deferral is correct, not a stall.
-        if (!coordinatorHasUnsaved || coordinatorIsSaving || saveCoordinator.isGlobalDragging) {
+        // clock is held at zero while the user is interacting, and while the
+        // save waits for them to be idle, because the coordinator deliberately
+        // defers it until the drag ends and they pause — that deferral is
+        // correct, not a stall (and bounded: MAX_QUIET_WAIT_MS).
+        if (!coordinatorHasUnsaved || coordinatorIsSaving || saveCoordinator.isGlobalDragging
+            || saveCoordinator.isWaitingForQuiet?.()) {
           dirtySinceRef.current = 0;
         } else if (dirtySinceRef.current === 0) {
           dirtySinceRef.current = Date.now();

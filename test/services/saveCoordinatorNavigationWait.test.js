@@ -11,8 +11,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { saveCoordinator } from '../../src/services/SaveCoordinator.js';
 
 const WAIT_MS = 3000;
-// Worker debounce (500) + write debounce (1000) + dispatch, with room to spare.
-const NORMAL_SAVE_MS = 2000;
+// Idle window (1500) + write debounce (1000) + dispatch, with room to spare.
+const NORMAL_SAVE_MS = 3000;
 
 const stateWith = ({ activeGraphId = 'g1', names = ['dog'] } = {}) => ({
   graphs: new Map([

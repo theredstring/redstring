@@ -11,7 +11,8 @@ The SaveCoordinator is a centralized system that intelligently manages saving ac
 - **Drag-Aware Deferral**: Detects drag operations and defers saves until interaction completes
 - **Viewport Exclusion**: Pan/zoom changes excluded from hash to prevent unnecessary saves
 - **Fast Hashing**: FNV-1a hash algorithm for efficient change detection on large state objects
-- **Single Debounce**: 500ms debounce timer for all changes (simpler than tiered approach)
+- **Idle Window**: a change goes to the save worker, and its write starts, only once the person has been idle (no change, camera still) for 1.5 s (2.5 s at 5,000+ Things and webs); then a single 1 s write debounce. Continuous activity is still saved every ~8 s. Saves the person asks for, and closing or hiding the app, never wait
+- **Git Idle Window**: autosave commits wait for 3 s of idle (at most 30 s after a change), and go straight away when the app is hidden
 
 ### 🚫 **GitHub Free Tier Optimized**
 - Minimum 5-second intervals between Git commits
@@ -197,7 +198,14 @@ this.scheduleSave();
 
 ```javascript
 // SaveCoordinator.js
-const DEBOUNCE_MS = 500; // Wait 500ms after last change before saving
+const QUIET_MS = 1500;          // Idle (no change, camera still) before the worker pass and the write
+const LARGE_QUIET_MS = 2500;    // The same at LARGE_UNIVERSE_SIZE (5,000 Things + webs)
+const MAX_QUIET_WAIT_MS = 8000; // Past this, only a moving camera holds a save (300 ms)
+const DEBOUNCE_MS = 1000;       // After the worker pass, before the write
+
+// gitSyncEngine.js - autosave commits (forceCommit does not wait)
+const GIT_IDLE_MS = 3000;
+const GIT_MAX_IDLE_WAIT_MS = 30000;
 
 // graphStore.js - viewport updates
 const saveDelay = 300; // Debounce viewport saves by 300ms
