@@ -136,3 +136,35 @@ describe('the engine reports the hold', () => {
     expect(engine.onSyncHeld).toHaveBeenCalledWith(null);
   });
 });
+
+describe('saying so in a dialog', () => {
+  const listen = () => {
+    const events = [];
+    const handler = (e) => events.push(e.detail);
+    window.addEventListener('redstring:git-too-large', handler);
+    return { events, stop: () => window.removeEventListener('redstring:git-too-large', handler) };
+  };
+
+  it('announces once, as the hold starts', async () => {
+    const universes = new Map([['repo-only', gitOnly()]]);
+    const backend = makeBackend({ git: () => null });
+    backend.getUniverse = (slug) => universes.get(slug);
+    backend.updateUniverse = vi.fn(async (slug, patch) => { universes.set(slug, { ...universes.get(slug), ...patch }); });
+    const { events, stop } = listen();
+    await backend._setGitSyncHeld('repo-only', { bytes: 97 * 1024 * 1024, limit: 95 * 1024 * 1024 });
+    await backend._setGitSyncHeld('repo-only', { bytes: 98 * 1024 * 1024, limit: 95 * 1024 * 1024 });
+    stop();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ universeSlug: 'repo-only', phase: 'save', bytes: 97 * 1024 * 1024, hasLocalFile: false });
+  });
+
+  it('announces a repository copy refused on open', async () => {
+    const tooLarge = Object.assign(new Error('too large'), { code: 'FILE_TOO_LARGE', size: 120 * 1024 * 1024, limit: 95 * 1024 * 1024 });
+    const backend = makeBackend({ git: () => { throw tooLarge; } });
+    backend.loadFromGitDirect = vi.fn(async () => { throw tooLarge; });
+    const { events, stop } = listen();
+    await backend._loadUniverseDataInner(gitOnly(), { allowPermissionPrompt: false }).catch(() => null);
+    stop();
+    expect(events).toEqual([expect.objectContaining({ phase: 'open', bytes: 120 * 1024 * 1024, limit: 95 * 1024 * 1024 })]);
+  });
+});

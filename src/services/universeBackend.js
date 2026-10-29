@@ -3689,6 +3689,34 @@ class UniverseBackend {
         gitSyncHeld: held ? { reason: 'too-large', bytes: held.bytes, at: new Date().toISOString() } : null,
       },
     }, { silent: true });
+    // Once, as the hold starts: the status line alone was easy to miss, and
+    // the next thing the person would see is another device opening the old copy.
+    if (held) this._announceGitTooLarge(universe, { phase: 'save', bytes: held.bytes, limit: held.limit });
+  }
+
+  /**
+   * Say, in a dialog, that a universe is too large for Git
+   * (GitTooLargeDialog, mounted by UniverseManagerBootstrap). `phase` is
+   * 'save' when sync paused, 'open' when the repository's copy was refused.
+   *
+   * @private
+   */
+  _announceGitTooLarge(universe, { phase, bytes, limit }) {
+    if (typeof window === 'undefined') return;
+    try {
+      window.dispatchEvent(new CustomEvent('redstring:git-too-large', {
+        detail: {
+          universeSlug: universe?.slug,
+          universeName: universe?.name || universe?.slug,
+          phase,
+          bytes,
+          limit,
+          hasLocalFile: !!universe?.localFile?.enabled,
+        },
+      }));
+    } catch (error) {
+      umWarn('[UniverseBackend] Could not announce the Git size limit:', error);
+    }
   }
 
   /**
@@ -4533,7 +4561,12 @@ class UniverseBackend {
           throw engineError;
         })
         .then(data => ({ source: SOURCE_OF_TRUTH.GIT, data, error: null }))
-        .catch(error => ({ source: SOURCE_OF_TRUTH.GIT, data: null, error }));
+        .catch(error => {
+          if (error?.code === 'FILE_TOO_LARGE') {
+            this._announceGitTooLarge(universe, { phase: 'open', bytes: error.size, limit: error.limit });
+          }
+          return { source: SOURCE_OF_TRUTH.GIT, data: null, error };
+        });
       loadPromies.push(gitPromise);
     }
 

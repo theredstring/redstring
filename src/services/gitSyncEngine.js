@@ -564,7 +564,7 @@ class GitSyncEngine {
     const bytes = serializeRedstring(redstringData);
     if (bytes.length > GIT_WRITE_CAP_BYTES) {
       this.tooLargeToSync = { bytes: bytes.length, items: this._itemsOf(storeState) };
-      this._report(this.onSyncHeld, { bytes: bytes.length });
+      this._report(this.onSyncHeld, { bytes: bytes.length, limit: GIT_WRITE_CAP_BYTES });
       throw this._tooLargeError(bytes.length);
     }
     this.tooLargeToSync = null;

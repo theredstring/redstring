@@ -9,7 +9,7 @@
  * readable by @capacitor/filesystem.
  *
  * Only `file:` URLs ending in `.redstring` are handled; anything else (custom
- * schemes, web links) is ignored. The size is checked before reading (50 MB,
+ * schemes, web links) is ignored. The size is checked before reading (95 MB,
  * the native git-read cap), and the text goes through the ordinary import,
  * which sanitizes it and always creates a NEW universe.
  *

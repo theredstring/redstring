@@ -5,6 +5,7 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { DialogButton, DIALOG_Z_INDEX } from '../shared/Dialog.jsx';
 import SlotConflictDialog from '../shared/SlotConflictDialog.jsx';
 import RestoreVersionDialog from '../shared/RestoreVersionDialog.jsx';
+import GitTooLargeDialog from '../shared/GitTooLargeDialog.jsx';
 import UniverseTargetConflictDialog from '../shared/UniverseTargetConflictDialog.jsx';
 import LocalFileConflictDialog from '../shared/LocalFileConflictDialog.jsx';
 import MergeUniverseDialog from '../shared/MergeUniverseDialog.jsx';
@@ -153,6 +154,37 @@ const DIALOGS = [
         ]}
         onKeep={(slug) => fire(`onKeep("${slug}")`)}
         onCancel={() => fire('onCancel')}
+      />
+    )
+  },
+  {
+    key: 'git-too-large',
+    name: 'Too Large for Git',
+    note: 'A universe grew past what Git sync carries in one file; sync pauses and this device keeps every change.',
+    render: (fire) => (
+      <GitTooLargeDialog
+        isOpen
+        universeName="Claude's Chambers"
+        phase="save"
+        bytes={97.4 * 1024 * 1024}
+        limit={95 * 1024 * 1024}
+        hasLocalFile
+        onDismiss={() => fire('onDismiss')}
+      />
+    )
+  },
+  {
+    key: 'git-too-large-open',
+    name: 'Too Large for Git (Opening)',
+    note: "The repository's copy is over the limit, so this device refused to download it.",
+    render: (fire) => (
+      <GitTooLargeDialog
+        isOpen
+        universeName="Claude's Chambers"
+        phase="open"
+        bytes={112 * 1024 * 1024}
+        limit={95 * 1024 * 1024}
+        onDismiss={() => fire('onDismiss')}
       />
     )
   },
