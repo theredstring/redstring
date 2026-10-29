@@ -1985,6 +1985,51 @@ const Panel = memo(
       ];
     }, [rightPanelTabs, closeRightPanelTab, closeOtherRightPanelTabs, closeRightPanelTabsToRight]);
 
+    // The Thing and Web tabs (index > 0), built only when the tabs, their names
+    // or the Things change. A universe can carry hundreds of open tabs (one had
+    // 653), and rebuilding every one on each panel render (a resize ending, a
+    // width crossing a layout threshold, the panel opening) was most of what
+    // those renders cost. Deduplicated by key, against corrupted state.
+    const rightTabStrip = useMemo(() => {
+      if (side !== 'right') return null;
+      const seen = new Set();
+      return rightPanelTabs.slice(1).filter((tab) => {
+        const key = rightPanelTabKey(tab);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map((tab, i) => {
+        const nodeProto = nodePrototypesMap.get(tab.nodeId);
+        let nodeCurrentName = nodeProto?.name || tab.title;
+        if (tab.type === 'graph') {
+          // A Web goes by its own name; one still named after its
+          // Thing gets its definition number, so two definitions
+          // of the same Thing can be told apart.
+          const webName = (graphTabNames.get(tab.graphId) || '').trim() || tab.title || 'Web';
+          const defIds = nodeProto?.definitionGraphIds || [];
+          const number = defIds.indexOf(tab.graphId) + 1;
+          nodeCurrentName = (webName === nodeProto?.name && defIds.length > 1 && number > 0)
+            ? `${webName} (${number})`
+            : webName;
+        }
+        return (
+          <DraggableTab
+            key={rightPanelTabKey(tab)}
+            tab={tab}
+            index={i + 1}
+            icon={tab.type === 'graph' ? Network : null}
+            displayTitle={nodeCurrentName}
+            dragItemTitle={nodeCurrentName}
+            moveTabAction={moveRightPanelTab}
+            activateTabAction={activateRightPanelTab}
+            closeTabAction={closeRightPanelTab}
+            getContextMenuOptions={getTabContextMenuOptions}
+            nodeColor={nodeProto?.color}
+          />
+        );
+      });
+    }, [side, rightPanelTabs, nodePrototypesMap, graphTabNames, moveRightPanelTab, activateRightPanelTab, closeRightPanelTab, getTabContextMenuOptions]);
+
     // Show loading state if store is not ready
     return (
       <>
@@ -2163,8 +2208,9 @@ const Panel = memo(
                 })()}
 
 
-                {/* Scrollable Tab Area (uses store state) */}
-                {isExpanded && (
+                {/* Scrollable Tab Area (uses store state). Mounted while the
+                    panel is closed too: it slides off-screen rather than
+                    unmounting, so opening doesn't build every tab again. */}
                   <div style={{ flex: '1 1 0', position: 'relative', height: '100%', minWidth: 0 }}>
                     <div
                       ref={(el) => {
@@ -2190,39 +2236,7 @@ const Panel = memo(
                         transition: 'background-color 0.2s ease'
                       }}
                     >
-                      {/* Map the Thing and Web tabs (index > 0) - deduplicate by key to handle corrupted state */}
-                      {rightPanelTabs.slice(1).filter((tab, i, arr) =>
-                        arr.findIndex(t => rightPanelTabKey(t) === rightPanelTabKey(tab)) === i
-                      ).map((tab, i) => {
-                        const nodeProto = nodePrototypesMap.get(tab.nodeId);
-                        let nodeCurrentName = nodeProto?.name || tab.title;
-                        if (tab.type === 'graph') {
-                          // A Web goes by its own name; one still named after its
-                          // Thing gets its definition number, so two definitions
-                          // of the same Thing can be told apart.
-                          const webName = (graphTabNames.get(tab.graphId) || '').trim() || tab.title || 'Web';
-                          const defIds = nodeProto?.definitionGraphIds || [];
-                          const number = defIds.indexOf(tab.graphId) + 1;
-                          nodeCurrentName = (webName === nodeProto?.name && defIds.length > 1 && number > 0)
-                            ? `${webName} (${number})`
-                            : webName;
-                        }
-                        return (
-                          <DraggableTab
-                            key={rightPanelTabKey(tab)}
-                            tab={tab}
-                            index={i + 1}
-                            icon={tab.type === 'graph' ? Network : null}
-                            displayTitle={nodeCurrentName}
-                            dragItemTitle={nodeCurrentName}
-                            moveTabAction={moveRightPanelTab}
-                            activateTabAction={activateRightPanelTab}
-                            closeTabAction={closeRightPanelTab}
-                            getContextMenuOptions={getTabContextMenuOptions}
-                            nodeColor={nodeProto?.color}
-                          />
-                        );
-                      })}
+                      {rightTabStrip}
                       {/* Plus icon indicator when hovering */}
                       {isNodeHoveringTabBar && (
                         <div style={{
@@ -2248,7 +2262,6 @@ const Panel = memo(
                       )}
                     </div>
                   </div>
-                )}
               </>
             )}
             {/* === End Conditional Header Content === */}

@@ -432,7 +432,8 @@ const UnifiedSelector = ({
   // 150 ms frame on an iPad in the middle of the exit.
   const handleNodeSelectRef = useRef(handleNodeSelect);
   handleNodeSelectRef.current = handleNodeSelect;
-  const cardGrid = React.useMemo(() => (gridContent ? null : (
+  // Nothing while hidden: a closed selector still renders with its host.
+  const cardGrid = React.useMemo(() => (gridContent || !isVisible ? null : (
     <div
       style={{
         display: 'grid',
@@ -549,7 +550,7 @@ const UnifiedSelector = ({
         );
       })}
     </div>
-  )), [gridContent, shownPrototypes, cardMinWidth, cardHeight, isSmallScreen, isMobilePortrait, isExtraSmall, mobileState.isTouchDevice, theme.darkMode, cardBadge]);
+  )), [gridContent, isVisible, shownPrototypes, cardMinWidth, cardHeight, isSmallScreen, isMobilePortrait, isExtraSmall, mobileState.isTouchDevice, theme.darkMode, cardBadge]);
 
   // After every hook above (the card grid's memo among them).
   if (!isVisible) return null;

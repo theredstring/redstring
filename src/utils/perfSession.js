@@ -42,6 +42,8 @@ function origin() {
 function regionOf(target) {
   const el = target && target.nodeType === 1 ? target : target?.parentElement;
   if (!el?.closest) return 'other';
+  // The panel resizers are bare divs; the cursor is what marks them.
+  try { if (getComputedStyle(el).cursor === 'col-resize') return 'resize'; } catch { /* detached */ }
   if (el.closest('.canvas-modal, [role="dialog"]')) return 'modal';
   if (el.closest('.panel-container')) return 'panel';
   if (el.closest('header')) return 'header';
@@ -63,7 +65,7 @@ function onScreen(el) {
 }
 
 function newBucket() {
-  return { frames: 0, dropped: 0, long: 0, worst: 0, total: 0 };
+  return { frames: 0, dropped: 0, long: 0, worst: 0, total: 0, worstRender: 0 };
 }
 
 export function startSession({ log = true } = {}) {
@@ -187,9 +189,18 @@ export function startSession({ log = true } = {}) {
   // what drawing the frame cost; the rest of a long frame is script.
   const channel = typeof MessageChannel === 'function' ? new MessageChannel() : null;
   let renderFrom = 0;
+  let renderAct = null;
   if (channel) {
     channel.port1.onmessage = () => {
-      if (moment) moment.worstRender = Math.max(moment.worstRender, performance.now() - renderFrom);
+      const ms = performance.now() - renderFrom;
+      if (moment) moment.worstRender = Math.max(moment.worstRender, ms);
+      // And for a gesture, against what it was (a resize drag, a pan).
+      if (renderAct) {
+        for (const map of [s.byActivity, s.windowByActivity]) {
+          const b = map[renderAct];
+          if (b) b.worstRender = Math.max(b.worstRender, ms);
+        }
+      }
     };
   }
   document.addEventListener('animationstart', onAnimStart, opts);
@@ -204,9 +215,10 @@ export function startSession({ log = true } = {}) {
     if (moment) {
       moment.frames.push(dt);
       if (now - moment.at > MOMENT_MS) finishMoment();
-      else if (channel) { renderFrom = performance.now(); channel.port2.postMessage(0); }
     }
     const act = activity(now);
+    renderAct = s.pointerDown ? act : null;
+    if (channel && (moment || renderAct)) { renderFrom = performance.now(); channel.port2.postMessage(0); }
     for (const map of [s.byActivity, s.windowByActivity]) {
       const b = map[act] || (map[act] = newBucket());
       b.frames++;
@@ -247,6 +259,7 @@ export function startSession({ log = true } = {}) {
     dropped: b.dropped,
     long: b.long,
     worst: Math.round(b.worst),
+    ...(b.worstRender ? { worstRender: Math.round(b.worstRender) } : {}),
   }]));
 
   const windowTimer = nativeSetInterval(() => {

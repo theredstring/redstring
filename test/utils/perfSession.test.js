@@ -58,3 +58,17 @@ describe('animation moments', () => {
     expect(anims[0].fromInput).toBeLessThan(50);
   });
 });
+
+describe('gestures', () => {
+  it('names a press on a resize bar as its own activity and survives frames during it', async () => {
+    const s = startSession({ log: false });
+    const bar = document.createElement('div');
+    bar.style.cursor = 'col-resize';
+    document.body.appendChild(bar);
+    bar.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    window.dispatchEvent(new Event('pointerup'));
+    bar.remove();
+    expect(Object.keys(s.report().byActivity)).toContain('gesture:resize');
+  });
+});
