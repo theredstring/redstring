@@ -11,6 +11,7 @@ import ForceSimHost from './ForceSimHost.jsx';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { CanvasOverlaySlot } from './canvasOverlaySlot.js';
+import { RegionBoundary } from '../../shared/RegionBoundary.jsx';
 
 
 const containerStyle = {
@@ -30,7 +31,8 @@ const slotStyle = { display: 'contents' };
 
 /**
  * The app shell (P2.11): Header / [left Panel | canvas | right Panel] / TypeList,
- * then NodeCanvas's overlays. NodeCanvas rendered all of it until now; each host
+ * then NodeCanvas's overlays. Each region has its own error boundary, so a
+ * crash in one shows "Try again" there instead of blanking the app. NodeCanvas rendered all of it until now; each host
  * subscribes to the stores itself, so none of them renders with the canvas.
  */
 function CanvasShell() {
@@ -41,27 +43,29 @@ function CanvasShell() {
     <div className="node-canvas-container" style={containerStyle} tabIndex="0">
       {/* Header (and with it the Redstring button and its menu) is dropped in
           the fullscreen landscape shell — see useMobileLandscapeShell.js. */}
-      <HeaderHost hidden={mobileLandscapeShell} />
+      <RegionBoundary region="header" variant="bar"><HeaderHost hidden={mobileLandscapeShell} /></RegionBoundary>
       <div style={rowStyle}>
-        <PanelHost key="left-panel" side="left" />
+        <RegionBoundary region="left-panel" variant="panel"><PanelHost key="left-panel" side="left" /></RegionBoundary>
         <CanvasOverlaySlot.Provider value={overlayRoot}>
           {/* Render probe (window.__renderProbe). Inert unless ?probe=1 or
               enable(); onRender only fires in dev and in `npm run build:profile`. */}
-          <Profiler id="NodeCanvas" onRender={onRenderProbe}>
-            <NodeCanvas />
-          </Profiler>
+          <RegionBoundary region="canvas">
+            <Profiler id="NodeCanvas" onRender={onRenderProbe}>
+              <NodeCanvas />
+            </Profiler>
+          </RegionBoundary>
         </CanvasOverlaySlot.Provider>
-        <PanelHost key="right-panel" side="right" />
+        <RegionBoundary region="right-panel" variant="panel"><PanelHost key="right-panel" side="right" /></RegionBoundary>
       </div>
       {/* TypeList and its bottom-left toggle are dropped in the landscape shell too. */}
-      {!mobileLandscapeShell && <TypeListHost />}
+      {!mobileLandscapeShell && <RegionBoundary region="type-list" variant="bar"><TypeListHost /></RegionBoundary>}
       {/* Before the slot: the save pill was the first overlay after TypeList. */}
-      <UniverseHost />
+      <RegionBoundary region="universe" variant="overlay"><UniverseHost /></RegionBoundary>
       <div ref={setOverlayRoot} style={slotStyle} />
-      <ModalHosts />
-      <SyncDebugHost />
-      <SearchHosts />
-      <ForceSimHost />
+      <RegionBoundary region="modals" variant="overlay"><ModalHosts /></RegionBoundary>
+      <RegionBoundary region="sync-debug" variant="overlay"><SyncDebugHost /></RegionBoundary>
+      <RegionBoundary region="search" variant="overlay"><SearchHosts /></RegionBoundary>
+      <RegionBoundary region="force-sim" variant="overlay"><ForceSimHost /></RegionBoundary>
     </div>
   );
 }
