@@ -24,6 +24,8 @@ const PIE_HOVER_SCALE = 1.1;
  */
 const PIE_HOVER_SCALE_PILL = 1.04;
 const PIE_HOVER_TRANSITION = '0.15s ease';
+// How far a touch may travel and still be a tap (as useDoubleTap).
+const TAP_SLOP_PX = 10;
 
 /**
  * PanelIconButton - Reusable icon button matching right panel style
@@ -114,7 +116,27 @@ const PanelIconButton = forwardRef(({
   // Cannot use e.preventDefault() in onTouchEnd since React registers it as passive.
   const touchHandledRef = useRef(false);
 
+  // A touch that travelled is a scroll passing over the button, not a tap: in
+  // a scrolling panel, firing on every touchend pressed whatever the finger
+  // happened to start on. The browser sends no click after a scroll either.
+  const touchStartRef = useRef(null);
+  const handleTouchStart = (e) => {
+    const t = e.touches[0];
+    touchStartRef.current = e.touches.length === 1 && t ? { x: t.clientX, y: t.clientY } : null;
+  };
+  const handleTouchMove = (e) => {
+    const start = touchStartRef.current;
+    const t = e.touches[0];
+    if (start && t && (Math.abs(t.clientX - start.x) > TAP_SLOP_PX || Math.abs(t.clientY - start.y) > TAP_SLOP_PX)) {
+      touchStartRef.current = null;
+    }
+  };
+
   const handleTouchEnd = (e) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    const t = e.changedTouches?.[0];
+    if (!start || (t && (Math.abs(t.clientX - start.x) > TAP_SLOP_PX || Math.abs(t.clientY - start.y) > TAP_SLOP_PX))) return;
     if (!disabled && onClick) {
       e.stopPropagation();
       touchHandledRef.current = true;
@@ -190,6 +212,8 @@ const PanelIconButton = forwardRef(({
       style={{ ...buttonStyle, ...hoverStyles }}
       type="button"
       onClick={handleClick}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
