@@ -105,4 +105,17 @@ describe('conceptLinking', () => {
     expect(proto().semanticMetadata.wikidataUrl).toBeUndefined();
     expect(proto().semanticMetadata.linkConfirmations).toEqual({});
   });
+
+  it('stops saying a Thing was enriched from Wikipedia once the article is unlinked', () => {
+    setup({
+      externalLinks: [WP('Mitochondrion')],
+      semanticMetadata: {
+        wikipediaUrl: WP('Mitochondrion'), wikipediaThumbnail: page.thumbnail,
+        autoEnriched: true, autoEnrichConfidence: 0.9
+      }
+    });
+    unlinkConceptFromPrototype('p-mito', mito);
+    expect(proto().semanticMetadata.autoEnriched).toBeFalsy();
+    expect(proto().semanticMetadata.autoEnrichConfidence).toBeUndefined();
+  });
 });

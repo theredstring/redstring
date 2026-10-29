@@ -53,6 +53,10 @@ export function detachLink(semanticMetadata, url) {
     sm.wikipediaThumbnail = undefined;
     sm.wikipediaOriginalImage = undefined;
     sm.wikipediaAdditionalImages = undefined;
+    // About's "Enriched from Wikipedia" reads this, so it has to go with the
+    // article. Every picture gate also needs wikipediaThumbnail, cleared above.
+    sm.autoEnriched = undefined;
+    sm.autoEnrichConfidence = undefined;
   }
   if (matches(sm.originMetadata?.originalUri)) {
     sm.originMetadata = { ...sm.originMetadata, originalUri: undefined };
