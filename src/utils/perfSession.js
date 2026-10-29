@@ -171,9 +171,14 @@ export function startSession({ log = true } = {}) {
     }));
   };
   const onAnimStart = (e) => {
-    const t = performance.now();
     const name = e.animationName || (e.propertyName ? `${e.propertyName} transition` : e.type);
-    const what = `${name} on ${describe(e.target)}`;
+    startMoment(`${name} on ${describe(e.target)}`);
+  };
+  // Also the motion script drives frame by frame (a morph, a glide), which
+  // fires no animation event: its code calls perfMark (below) as it starts.
+  s.mark = (name) => startMoment(`${name} (script)`);
+  function startMoment(what) {
+    const t = performance.now();
     // Started in the same frame as the one being watched: part of it.
     if (moment && t - moment.at < 50) {
       if (moment.names.length < 4 && !moment.names.includes(what)) moment.names.push(what);
@@ -183,7 +188,7 @@ export function startSession({ log = true } = {}) {
     const play = (s.playsByAnimation.get(what) || 0) + 1;
     s.playsByAnimation.set(what, play);
     moment = { at: t, names: [what], play, fromInput: t - s.lastTap < 1500 ? Math.round(t - s.lastTap) : null, frames: [], worstRender: 0 };
-  };
+  }
   // A message posted from a frame callback arrives once that frame's
   // rendering (style, layout, paint) is done, so the time between them is
   // what drawing the frame cost; the rest of a long frame is script.
@@ -307,6 +312,15 @@ export function startSession({ log = true } = {}) {
   return s;
 }
 
+/**
+ * Mark the start of an animation script drives (no CSS animation event
+ * announces it), so the session times it like any other. A no-op unless a
+ * session is running.
+ */
+export function perfMark(name) {
+  session?.mark?.(name);
+}
+
 export function sessionReport() {
   if (!session) return null;
   const r = session.report();
@@ -322,7 +336,8 @@ export function stopSession() {
 
 // The measuring build runs a session from launch, and prints the full report
 // every minute so it reaches the device log without a console.
-if (import.meta.env.VITE_PERF_SESSION === '1') {
+// Optional chaining: the CLI and the daemon load this outside Vite, with no env.
+if (import.meta.env?.VITE_PERF_SESSION === '1' && typeof window !== 'undefined') {
   startSession();
   setInterval(sessionReport, 60000);
 }

@@ -6,8 +6,10 @@ import { NODE_DEFAULT_COLOR } from '../../../constants';
 import useGraphStore from '../../../store/graphStore.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import { getNodeDimensions } from '../../../utils.js';
+import { perfMark } from '../../../utils/perfSession.js';
 
 export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraphId = null, ctx) {
+  perfMark('hurtle');
   const {
     canvasSize, containerRef, getHeaderTabTarget, panOffsetRef, previewingNodeId,
     setHurtleFlight, zoomLevelRef,
@@ -89,6 +91,7 @@ export function startHurtle(nodeId, targetGraphId, definitionNodeId, sourceGraph
  * already-open web that should become active without moving in the strip.
  */
 export function startHurtleFromPanelWith(ctx, nodeId, targetGraphId, definitionNodeId, startRect, opts = {}) {
+  perfMark('hurtle-from-panel');
   const { containerRef, zoomLevelRef, getHeaderTabTarget, setHurtleFlight } = ctx;
   const currentState = useGraphStore.getState();
   const nodeData = nodeId ? currentState.nodePrototypes.get(nodeId) : null;

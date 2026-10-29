@@ -39,6 +39,7 @@ import { prefersReducedMotion } from '../edges/edgeTransitions.js';
 import {
   copyLabels, drawConnections, measureLabelAnchors, prepareConnections, readInnerRects, splitBoxConnections, storeNodeRect,
 } from './boxMorphConnections.js';
+import { perfMark } from '../../../utils/perfSession.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const OPEN_MS = 380;
@@ -650,6 +651,7 @@ export function flushBoxMorphs() {
  * was drawn just before.
  */
 export function withBoxOpenMorph({ viewGraphId, instanceId }, write) {
+  perfMark('group-open');
   let start = null;
   if (canMorph()) {
     const viewed = projectGraphView(useGraphStore.getState(), viewGraphId)?.instances?.get(instanceId);
@@ -700,6 +702,7 @@ function queueOpen(start, viewGraphId, instanceId, groupId) {
  * and returns the node's instance id (or null).
  */
 export function withBoxCloseMorph({ viewGraphId, groupId }, write) {
+  perfMark('group-close');
   let start = null;
   if (canMorph()) {
     const contents = boxContents(viewGraphId, groupId);

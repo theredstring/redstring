@@ -72,3 +72,22 @@ describe('gestures', () => {
     expect(Object.keys(s.report().byActivity)).toContain('gesture:resize');
   });
 });
+
+describe('script-driven animations', () => {
+  it('times a perfMark like an animation event', async () => {
+    const { perfMark } = await import('../../src/utils/perfSession.js');
+    const lines = [];
+    const log = console.log;
+    console.log = (...a) => lines.push(a);
+    try {
+      startSession();
+      perfMark('to-things');
+      stopSession();
+    } finally {
+      console.log = log;
+    }
+    const anims = lines.filter((a) => a[1] === 'anim').map((a) => JSON.parse(a[2]));
+    expect(anims[0].what).toEqual(['to-things (script)']);
+    perfMark('ignored when no session runs');
+  });
+});
