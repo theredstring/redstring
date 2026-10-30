@@ -1,17 +1,47 @@
 // Pure helpers for the manual-install / debug-downgrade paths in updater.cjs.
 // Extracted so they can be unit-tested without electron / electron-updater.
 
+// Semver order, prereleases included: 0.15.9 < 1.0.0-rc.1 < 1.0.0. Read as
+// plain numbers, "1.0.0-rc.1" was 1.0.0.1, above 1.0.0, so a build on an rc
+// refused the release as a downgrade. Build metadata (+...) is ignored.
+function splitVersion(v) {
+  const s = String(v).replace(/^v/, '').split('+')[0];
+  const dash = s.indexOf('-');
+  const core = dash === -1 ? s : s.slice(0, dash);
+  const pre = dash === -1 ? null : s.slice(dash + 1).split('.');
+  return { core: core.split('.').map((n) => parseInt(n, 10) || 0), pre };
+}
+
+function comparePrerelease(xa, xb) {
+  if (!xa || !xb) return (xa ? -1 : 0) - (xb ? -1 : 0);
+  for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
+    if (xa[i] === undefined) return -1;
+    if (xb[i] === undefined) return 1;
+    const na = /^\d+$/.test(xa[i]);
+    const nb = /^\d+$/.test(xb[i]);
+    if (na && nb) {
+      const d = Number(xa[i]) - Number(xb[i]);
+      if (d) return Math.sign(d);
+    } else if (na !== nb) {
+      return na ? -1 : 1;
+    } else if (xa[i] !== xb[i]) {
+      return xa[i] < xb[i] ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
 function compareVersions(a, b) {
-  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
-  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
+  const va = splitVersion(a);
+  const vb = splitVersion(b);
+  const len = Math.max(va.core.length, vb.core.length);
   for (let i = 0; i < len; i++) {
-    const ai = pa[i] || 0;
-    const bi = pb[i] || 0;
+    const ai = va.core[i] || 0;
+    const bi = vb.core[i] || 0;
     if (ai < bi) return -1;
     if (ai > bi) return 1;
   }
-  return 0;
+  return comparePrerelease(va.pre, vb.pre);
 }
 
 function pickPreviousRelease(releases, currentVersion) {

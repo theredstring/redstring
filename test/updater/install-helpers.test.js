@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   compareVersions,
+  checkStagedVersion,
   pickPreviousRelease,
   pickAssetForArch,
   buildSwapAndRelaunchScript,
@@ -33,6 +34,26 @@ describe('compareVersions', () => {
 
   it('treats non-numeric components as 0', () => {
     expect(compareVersions('1.0.beta', '1.0.0')).toBe(0);
+  });
+
+  it('puts a prerelease below its release and above the version before', () => {
+    const order = ['0.15.9', '1.0.0-beta', '1.0.0-rc.1', '1.0.0-rc.2', '1.0.0-rc.10', '1.0.0', '1.0.1'];
+    for (let i = 1; i < order.length; i++) {
+      expect(compareVersions(order[i - 1], order[i]), `${order[i - 1]} < ${order[i]}`).toBe(-1);
+      expect(compareVersions(order[i], order[i - 1]), `${order[i]} > ${order[i - 1]}`).toBe(1);
+    }
+    expect(compareVersions('v1.0.0-rc.1', '1.0.0-rc.1')).toBe(0);
+    expect(compareVersions('1.0.0+build.5', '1.0.0')).toBe(0);
+  });
+});
+
+describe('checkStagedVersion with prereleases', () => {
+  it('lets a build on an rc install the release', () => {
+    expect(checkStagedVersion({ stagedVersion: '1.0.0', expectedVersion: '1.0.0', currentVersion: '1.0.0-rc.2' }).ok).toBe(true);
+  });
+
+  it('still refuses the rc as a downgrade from the release', () => {
+    expect(checkStagedVersion({ stagedVersion: '1.0.0-rc.2', expectedVersion: '1.0.0-rc.2', currentVersion: '1.0.0' }).ok).toBe(false);
   });
 });
 
