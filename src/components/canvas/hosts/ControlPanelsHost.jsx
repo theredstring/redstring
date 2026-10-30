@@ -38,7 +38,7 @@ import { copyFormula } from '../formats/formula/copyFormula.js';
 import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
 import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
-import { Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
+import { Scaling, Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
 import { buildGroupPieButtons, setGroupPieButtons, reframeGroup } from '../pie/groupPieButtons.js';
 import {
   onCarouselClose,
@@ -204,6 +204,13 @@ export default function ControlPanelsHost({ ctx }) {
         title: standardNotation ? 'Write Every Operation' : 'Standard Notation',
         onClick: () => setNotation(standardNotation ? 'explicit' : 'standard'),
       }] : []),
+      // Its size, as the group pie's Size (cycleFormulaSize below).
+      {
+        key: 'size',
+        icon: (size) => <Scaling size={size} />,
+        title: `Size: ${nodeSizeLabel(groupPanelTarget?.formulaSize ?? 1)}`,
+        onClick: () => groupPieHandlersRef.current?.cycleFormulaSize(),
+      },
     ]
     : null;
   // Formula or Things: one button, first in the panel's row as in the group pie
@@ -504,8 +511,9 @@ export default function ControlPanelsHost({ ctx }) {
         }, { finalize: true });
       }
       // The hover chip keeps the label it had when the pointer came in (as the node pie's Size does).
-      if (getActionHoverItem()?.id === 'group-size') {
-        useCanvasUIStore.getState().setActivePieMenuItemForVision({ id: 'group-size', label: `Size: ${nodeSizeLabel(next)}` });
+      const hoverId = getActionHoverItem()?.id;
+      if (hoverId === 'group-size' || hoverId === 'control-format-size') {
+        useCanvasUIStore.getState().setActivePieMenuItemForVision({ id: hoverId, label: `Size: ${nodeSizeLabel(next)}` });
       }
     },
   };
@@ -594,10 +602,10 @@ export default function ControlPanelsHost({ ctx }) {
 
 
   // --- Group Control Panel Management ---
+  // An equation (the format mode) has its own setting; every other group reads the group one.
+  const groupPanelEnabled = groupPanelMode === 'format' ? showEquationControlPanel : showGroupControlPanel;
   useEffect(() => {
-    // An equation (the format mode) has its own setting; every other group reads the group one.
-    const panelEnabled = groupPanelMode === 'format' ? showEquationControlPanel : showGroupControlPanel;
-    const shouldShow = Boolean(panelEnabled && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
+    const shouldShow = Boolean(groupPanelEnabled && selectedGroup && !abstractionCarouselVisible && !connectionNamePrompt.visible);
     if (shouldShow) {
       setGroupControlPanelShouldShow(true);
       setGroupControlPanelVisible(true);
@@ -608,10 +616,13 @@ export default function ControlPanelsHost({ ctx }) {
       setAbstractionControlPanelShouldShow(false);
       setConnectionControlPanelVisible(false);
       setConnectionControlPanelShouldShow(false);
-    } else if (!shouldShow && groupControlPanelVisible) {
-      setGroupControlPanelVisible(false);
+    } else {
+      if (groupControlPanelVisible) setGroupControlPanelVisible(false);
+      // Turned off, the panel isn't drawn (below), so no exit plays to clear the
+      // latch a selection set; left up, it would swallow the next click-off.
+      if (!groupPanelEnabled && groupControlPanelShouldShow) setGroupControlPanelShouldShow(false);
     }
-  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, showGroupControlPanel, showEquationControlPanel, groupPanelMode]);
+  }, [selectedGroup, abstractionCarouselVisible, connectionNamePrompt.visible, groupControlPanelVisible, groupControlPanelShouldShow, groupPanelEnabled]);
 
   // The expanded Thing's description for the web it's showing, under it in the
   // panel (the node itself shows only the web).
@@ -683,9 +694,11 @@ export default function ControlPanelsHost({ ctx }) {
         )
       }
 
-      {/* GroupControlPanel Component - with animation */}
+      {/* GroupControlPanel Component - with animation. Not drawn while its setting
+          is off: mounted hidden, it would play its exit, whose end deselects the
+          group and takes the group pie with it. */}
       {
-        (groupControlPanelShouldShow || groupControlPanelVisible) && (
+        groupPanelEnabled && (groupControlPanelShouldShow || groupControlPanelVisible) && (
           <UnifiedBottomControlPanel
             mode={groupPanelMode}
             isVisible={groupControlPanelVisible}
