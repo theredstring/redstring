@@ -1752,6 +1752,19 @@ class SaveCoordinator {
    * @param {Object} state - Store snapshot to check.
    * @returns {boolean} `true` when the save should be refused.
    */
+  /**
+   * Whether autosave's shrinkage guard would refuse `state`, for save paths
+   * that write without going through this coordinator (the save before a
+   * universe switch, merges). Same baseline, same rule.
+   *
+   * @param {Object} state - Store snapshot about to be written.
+   * @returns {boolean} `true` when the write should be refused.
+   */
+  refusesAsShrinkage(state) {
+    this._syncGuardUniverse(state?._universeSlug);
+    return this._isCatastrophicShrinkage(state);
+  }
+
   _isCatastrophicShrinkage(state) {
     try {
       const current = this._countDataItems(state);

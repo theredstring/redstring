@@ -3155,8 +3155,16 @@ class UniverseBackend {
     // Check if active universe actually exists before trying to save (it might have been deleted)
     if (options.saveCurrent !== false && this.activeUniverseSlug && this.universes.has(this.activeUniverseSlug)) {
       try {
-        await this.saveActiveUniverse();
-        umLog('[UniverseBackend] Saved current universe before switching');
+        const saved = await this.saveActiveUniverse();
+        // A refused save returns its reasons rather than throwing. The pending
+        // saves are cancelled next, so say it now: nothing else will.
+        if (saved && !Array.isArray(saved) && saved.results?.length === 0) {
+          const outgoing = this.getUniverse(this.activeUniverseSlug);
+          umWarn('[UniverseBackend] Save before switch refused:', saved.errors);
+          this.notifyStatus('warning', `"${outgoing?.name || this.activeUniverseSlug}" wasn't saved before switching (${String(saved.errors?.[0] || '').replace(/^Save suppressed: /, '')}). Its saved copy is unchanged.`);
+        } else {
+          umLog('[UniverseBackend] Saved current universe before switching');
+        }
       } catch (error) {
         umWarn('[UniverseBackend] Failed to save current universe before switch:', error);
         this.notifyStatus('warning', `Could not save "${this.getUniverse(this.activeUniverseSlug)?.name || this.activeUniverseSlug}" before switching — its latest changes may not be persisted.`);
@@ -3399,6 +3407,13 @@ class UniverseBackend {
     if (this._isLoadInFlight() && !options.isConflictResolution) {
       umWarn(`[UniverseBackend] Save suppressed: a universe load is still in flight for ${universe.slug}`);
       return { results: [], errors: ['Save suppressed: universe load in flight'] };
+    }
+    // Autosave refuses a state that collapsed against what was last loaded or
+    // saved (an emptied store, a wiped web). This path skips autosave, so a
+    // switch or a merge used to write exactly that state to the file and Git.
+    if (!options.isConflictResolution && loadGateCoordinator?.refusesAsShrinkage?.(storeState)) {
+      umWarn(`[UniverseBackend] Save suppressed: ${universe.slug} shrank unexpectedly against its last saved copy`);
+      return { results: [], errors: ['Save suppressed: data shrank unexpectedly'] };
     }
 
     // Export data asynchronously to prevent UI blocking
