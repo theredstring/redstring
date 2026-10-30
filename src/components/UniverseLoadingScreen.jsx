@@ -92,7 +92,7 @@ const UniverseLoadingScreen = ({ universeName = null, onStopWaiting = null }) =>
       {elapsedMs >= SHOW_ESCAPE_AFTER_MS && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
           <PanelIconButton
-            label="Start without it"
+            label="Start Without It"
             labelFontSize={12}
             variant="outline"
             onClick={stopWaiting}
