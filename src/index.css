@@ -208,6 +208,23 @@ button:hover {
   outline-offset: 2px;
 }
 
+/* Keyboard focus (Header's pressable()) wears the same ring. :focus-visible,
+   so a click or a tap never shows it. */
+.header-action-btn:focus-visible,
+.header-hamburger-button:focus-visible {
+  outline: none;
+}
+.header-action-btn:focus-visible .header-btn-circle,
+.header-hamburger-button:focus-visible .header-btn-circle {
+  outline: 3px solid #bdb5b5;
+  outline-offset: 2px;
+}
+.header-logo-button:focus-visible {
+  outline: 3px solid #bdb5b5;
+  outline-offset: -3px;
+  border-radius: 50%;
+}
+
 /* --- Controller mode hides the mouse pointer ---------------------------
    The crosshair is the cursor while a controller is driving; a second pointer
    that aims at nothing only competes with it. The `*` is needed because the

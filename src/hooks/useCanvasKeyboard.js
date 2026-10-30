@@ -541,8 +541,20 @@ export const useCanvasKeyboard = ({
     // 3. Tab hold-to-scrub (stable — no dependencies, uses refs + getState)
     // ---------------------------------------------------------------------------
     useEffect(() => {
+        // On the header's buttons and in its menu, Tab moves focus on, as it
+        // does everywhere else, and that keypress never toggles the panels.
+        // They only hold focus that came from the keyboard: a click hands it
+        // back to the canvas container (Header's pressable), so clicking a
+        // button and tapping Tab still hides the panels.
+        const FOCUS_STOP = '.header-logo-button, .header-action-btn, .header-hamburger-button, .menu-container button, .menu-container [role="button"]';
+        const tabMovesFocus = { current: false };
         const handleTabKeyDown = (e) => {
             if (e.key === 'Tab') {
+                if (e.target instanceof Element && e.target.closest(FOCUS_STOP)) {
+                    tabMovesFocus.current = true;
+                    return;
+                }
+                tabMovesFocus.current = false;
                 e.preventDefault();
                 if (!e.repeat) {
                     tabHeldDown.current = true;
@@ -578,6 +590,10 @@ export const useCanvasKeyboard = ({
         };
 
         const handleTabKeyUp = (e) => {
+            if (e.key === 'Tab' && tabMovesFocus.current) {
+                tabMovesFocus.current = false;
+                return;
+            }
             if (e.key === 'Tab') {
                 const wasScrubbing = tabScrubActive.current;
                 tabHeldDown.current = false;

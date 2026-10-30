@@ -43,7 +43,8 @@
     /* Prevent focus outline */
 }
 
-.menu-item:hover {
+.menu-item:hover,
+.menu-item:focus-visible {
     background-color: #F00000;
 }
 
@@ -52,7 +53,8 @@
     transition: opacity 0.2s;
 }
 
-.menu-item:hover .menu-item-chevron {
+.menu-item:hover .menu-item-chevron,
+.menu-item:focus-visible .menu-item-chevron {
     opacity: 1;
 }
 
@@ -121,8 +123,10 @@
     touch-action: manipulation;
 }
 
-.submenu-item:hover {
+.submenu-item:hover,
+.submenu-item:focus-visible {
     background-color: #F00000;
+    outline: none;
 }
 
 /* Compact slider inside submenu */
@@ -222,12 +226,15 @@ div.submenu-item {
     touch-action: manipulation;
 }
 
-.recent-file-item:hover {
+.recent-file-item:hover,
+.recent-file-item:focus-visible {
     background-color: #F00000;
     color: #EFE8E5;
+    outline: none;
 }
 
-.recent-file-item:hover .recent-file-time {
+.recent-file-item:hover .recent-file-time,
+.recent-file-item:focus-visible .recent-file-time {
     color: #EFE8E5;
 }
 

@@ -68,6 +68,31 @@ const TAB_AUTOSCROLL_SLACK_BELOW_PX = 24;
 // long-named webs moves the geometry for that whole window. Plus margin.
 const TAB_TRANSITION_SETTLE_MS = 260;
 
+// The header's click targets are divs and an img so they keep their exact
+// look. This gives them keyboard reach: Tab stops on them, Enter or Space
+// clicks them, and they have a name. The ring shows only for keyboard focus
+// (index.css, beside the game controller's).
+const pressable = ({ label, disabled = false, hidden = false, expanded }) => ({
+  role: 'button',
+  tabIndex: disabled || hidden ? -1 : 0,
+  'aria-label': label,
+  ...(disabled ? { 'aria-disabled': true } : {}),
+  ...(hidden ? { 'aria-hidden': true } : {}),
+  ...(expanded !== undefined ? { 'aria-expanded': expanded } : {}),
+  onKeyDown: (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.click();
+  },
+  // A click leaves focus where it went before these could take it: the canvas
+  // container around the header. Tab there is the panels shortcut.
+  onMouseDown: (e) => {
+    e.preventDefault();
+    e.currentTarget.parentElement?.closest('[tabindex]')?.focus({ preventScroll: true });
+  },
+});
+
 const Header = ({
   onTitleChange,
   onEditingStateChange,
@@ -1110,6 +1135,7 @@ const Header = ({
             the handle is here for Start to find. */}
         {showRedstringMenu && <img
           className="header-logo-button"
+          {...pressable({ label: 'Redstring Menu', expanded: isMenuOpen })}
           src={logos[currentLogoIndex]}
           alt=""
           style={{
@@ -1250,6 +1276,7 @@ const Header = ({
             row below closes up behind it. */}
         {showRedstringMenu && <img
           className="header-logo-button"
+          {...pressable({ label: 'Redstring Menu', expanded: isMenuOpen })}
           src={logos[currentLogoIndex]}
           alt=""
           style={{
@@ -1358,6 +1385,7 @@ const Header = ({
               key={action.key}
               className="header-action-btn"
               title={action.title}
+              {...pressable({ label: action.title, disabled: action.disabled })}
               // Declared so the game controller skips it. A pad has no way to
               // tell from the outside that pressing A here will do nothing, so
               // an unavailable Undo must not be a place the stick can come to
@@ -1583,6 +1611,7 @@ const Header = ({
               key={action.key}
               className="header-action-btn"
               title={action.title}
+              {...pressable({ label: action.title })}
               style={{
                 height: `${HEADER_HEIGHT}px`,
                 width: `${HEADER_HEIGHT}px`,
@@ -1651,6 +1680,7 @@ const Header = ({
           data-header-edge="left"
           className="header-action-btn"
           title="Settings"
+          {...pressable({ label: 'Settings' })}
           style={{
             position: 'absolute',
             left: 0,
@@ -1728,6 +1758,7 @@ const Header = ({
         <div
           className="header-hamburger-button"
           title={isHamburgerOpen ? 'Close Menu' : 'Open Menu'}
+          {...pressable({ label: isHamburgerOpen ? 'Close Menu' : 'Open Menu', expanded: isHamburgerOpen })}
           style={{
             height: `${HEADER_HEIGHT}px`,
             width: `${HEADER_HEIGHT}px`,
@@ -1829,6 +1860,7 @@ const Header = ({
                 key={action.key}
                 className="header-action-btn"
                 title={action.title}
+                {...pressable({ label: action.title, disabled: action.disabled, hidden: !isHamburgerOpen })}
                 // See the note on the inline row: declared so the pad skips it.
                 data-disabled={action.disabled ? 'true' : undefined}
                 style={{

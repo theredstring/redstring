@@ -250,10 +250,28 @@ const RedstringMenu = ({
     cancelNestedCloseTimeout();
   };
 
+  // From the keyboard: focus opens a submenu the way hover does (each
+  // onMouseEnter has an onFocus twin), Enter or Space clicks an item that is a
+  // div, and Escape closes the menu, handing focus back to the logo.
+  const handleMenuKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      onHoverView?.(false);
+      document.querySelector('.header-logo-button')?.focus();
+      return;
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches?.('div[role="button"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.target.click();
+    }
+  };
+
   return (
     <>
       {shouldRender && (
-        <div ref={menuRef} className={`menu-container ${isExiting ? 'exiting' : 'entering'}`}>
+        <div ref={menuRef} className={`menu-container ${isExiting ? 'exiting' : 'entering'}`} onKeyDown={handleMenuKeyDown}>
           <div className="menu-items">
             {menuItems.map((item, index) => {
               if (item === 'Download') {
@@ -265,6 +283,7 @@ const RedstringMenu = ({
                     key={index}
                     className="menu-item"
                     onMouseEnter={closeAllMenus}
+                    onFocus={closeAllMenus}
                     onClick={() => {
                       openDesktopDownload();
                       onHoverView?.(false);
@@ -279,6 +298,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('File')}
+                    onFocus={() => handleTopLevelMenuHover('File')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -290,12 +310,16 @@ const RedstringMenu = ({
                       <div
                         className="submenu-container"
                         onMouseEnter={handleTopLevelSubmenuEnter}
+                        onFocus={handleTopLevelSubmenuEnter}
                         onMouseLeave={handleTopLevelMenuLeave}
                       >
                         {/* Workspace operations */}
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={async () => {
                             try {
                               const { pickFolder } = await import('./utils/fileAccessAdapter.js');
@@ -318,7 +342,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => {
                             requestRefresh();
                           }}
@@ -329,7 +356,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => onLoadFromExternalLink?.()}
                           style={{ cursor: 'pointer' }}
                         >
@@ -338,7 +368,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => {
                             // OntologyImportDialog's host (ModalHosts) listens for this.
                             window.dispatchEvent(new Event('openOntologyImport'));
@@ -350,7 +383,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('Export') ? 'active-submenu-parent' : ''}`}
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={() => handleNestedSubmenuItemHover('Export')}
+                          onFocus={() => handleNestedSubmenuItemHover('Export')}
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ cursor: 'pointer' }}
                         >
@@ -362,6 +398,7 @@ const RedstringMenu = ({
                             <div
                               className="recent-files-submenu"
                               onMouseEnter={handleNestedSubmenuEnter}
+                              onFocus={handleNestedSubmenuEnter}
                               onMouseLeave={handleNestedSubmenuItemLeave}
                             >
                               <button className="recent-file-item" onClick={(e) => { e.stopPropagation(); onExportRedstring?.(); }}>
@@ -393,8 +430,11 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('RecentFiles') ? 'active-submenu-parent' : ''}`}
+                          tabIndex={0}
+                          role="button"
                           onClick={() => onOpenUniverse?.()}
                           onMouseEnter={() => handleNestedSubmenuItemHover('RecentFiles')}
+                          onFocus={() => handleNestedSubmenuItemHover('RecentFiles')}
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ cursor: 'pointer' }}
                         >
@@ -406,6 +446,7 @@ const RedstringMenu = ({
                             <div
                               className="recent-files-submenu"
                               onMouseEnter={handleNestedSubmenuEnter}
+                              onFocus={handleNestedSubmenuEnter}
                               onMouseLeave={handleNestedSubmenuItemLeave}
                             >
                               {recentFiles.length === 0 ? (
@@ -440,6 +481,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('Edit')}
+                    onFocus={() => handleTopLevelMenuHover('Edit')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -451,10 +493,13 @@ const RedstringMenu = ({
                       <div
                         className="submenu-container"
                         onMouseEnter={handleTopLevelSubmenuEnter}
+                        onFocus={handleTopLevelSubmenuEnter}
                         onMouseLeave={handleTopLevelMenuLeave}
                       >
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => performUndo()}
                           style={{ cursor: 'pointer', opacity: canUndo ? 1 : 0.5 }}
                         >
@@ -466,6 +511,8 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => performRedo()}
                           style={{ cursor: 'pointer', opacity: canRedo ? 1 : 0.5 }}
                         >
@@ -478,6 +525,8 @@ const RedstringMenu = ({
                         <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => {
                             // Dispatch global event; the merge modal is mounted in NodeCanvas
                             window.dispatchEvent(new Event('openMergeModal'));
@@ -490,7 +539,10 @@ const RedstringMenu = ({
                         <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('DragZoom') ? 'active-submenu-parent' : ''}`}
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={() => handleNestedSubmenuItemHover('DragZoom')}
+                          onFocus={() => handleNestedSubmenuItemHover('DragZoom')}
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ cursor: 'pointer' }}
                         >
@@ -502,11 +554,14 @@ const RedstringMenu = ({
                             <div
                               className="submenu-container"
                               onMouseEnter={handleNestedSubmenuEnter}
+                              onFocus={handleNestedSubmenuEnter}
                               onMouseLeave={handleNestedSubmenuItemLeave}
                               style={{ left: '100%', top: 0 }}
                             >
                               <div
                                 className="submenu-item"
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => onToggleDragZoom?.()}
                                 style={{ cursor: 'pointer', opacity: dragZoomEnabled ? 1 : 0.8 }}
                               >
@@ -548,6 +603,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('View')}
+                    onFocus={() => handleTopLevelMenuHover('View')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -559,11 +615,15 @@ const RedstringMenu = ({
                       <div
                         className="submenu-container"
                         onMouseEnter={handleTopLevelSubmenuEnter}
+                        onFocus={handleTopLevelSubmenuEnter}
                         onMouseLeave={handleTopLevelMenuLeave}
                       >
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => onToggleDarkMode?.()}
                           style={{ cursor: 'pointer' }}
                         >
@@ -572,7 +632,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => onToggleFullscreen?.()}
                           style={{ cursor: 'pointer' }}
                         >
@@ -581,7 +644,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => onToggleTrackpadZoom?.()}
                           style={{ cursor: 'pointer' }}
                         >
@@ -590,7 +656,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => onToggleShowConnectionNames?.()}
                           style={{ cursor: 'pointer' }}
                         >
@@ -599,7 +668,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('Grid') ? 'active-submenu-parent' : ''}`}
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={() => handleNestedSubmenuItemHover('Grid')}
+                          onFocus={() => handleNestedSubmenuItemHover('Grid')}
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ cursor: 'pointer' }}
                         >
@@ -611,11 +683,14 @@ const RedstringMenu = ({
                             <div
                               className="submenu-container"
                               onMouseEnter={handleNestedSubmenuEnter}
+                              onFocus={handleNestedSubmenuEnter}
                               onMouseLeave={handleNestedSubmenuItemLeave}
                               style={{ left: '100%', top: 0 }}
                             >
                               <div
                                 className="submenu-item"
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => onSetGridMode?.('off')}
                                 style={{ opacity: gridMode === 'off' ? 1 : 0.8, cursor: 'pointer' }}
                               >
@@ -623,6 +698,8 @@ const RedstringMenu = ({
                               </div>
                               <div
                                 className="submenu-item"
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => onSetGridMode?.('move')}
                                 style={{ opacity: gridMode === 'move' ? 1 : 0.8, cursor: 'pointer' }}
                               >
@@ -630,6 +707,8 @@ const RedstringMenu = ({
                               </div>
                               <div
                                 className="submenu-item"
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => onSetGridMode?.('always')}
                                 style={{ opacity: gridMode === 'always' ? 1 : 0.8, cursor: 'pointer' }}
                               >
@@ -638,6 +717,8 @@ const RedstringMenu = ({
                               <div className="submenu-divider" style={{ margin: '6px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
                               <div
                                 className="submenu-item"
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => onSetGridAppearance?.('lattice')}
                                 style={{ opacity: (gridAppearance || 'lattice') === 'lattice' ? 1 : 0.8, cursor: 'pointer' }}
                               >
@@ -645,6 +726,8 @@ const RedstringMenu = ({
                               </div>
                               <div
                                 className="submenu-item"
+                                tabIndex={0}
+                                role="button"
                                 onClick={() => onSetGridAppearance?.('dot')}
                                 style={{ opacity: gridAppearance === 'dot' ? 1 : 0.8, cursor: 'pointer' }}
                               >
@@ -677,6 +760,8 @@ const RedstringMenu = ({
 
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => {
                             console.log('[View] Force Simulation Tuner clicked');
                             closeAllMenus();
@@ -690,6 +775,8 @@ const RedstringMenu = ({
 
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => {
                             console.log('[View] Auto Layout clicked');
                             closeAllMenus();
@@ -703,6 +790,8 @@ const RedstringMenu = ({
 
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => {
                             console.log('[View] Snap to Grid clicked');
                             closeAllMenus();
@@ -716,6 +805,8 @@ const RedstringMenu = ({
 
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => {
                             console.log('[View] Condense Things clicked');
                             closeAllMenus();
@@ -730,7 +821,10 @@ const RedstringMenu = ({
                         {/* Keyboard Submenu */}
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('keyboard') ? 'active-submenu-parent' : ''}`}
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={() => handleNestedSubmenuItemHover('keyboard')}
+                          onFocus={() => handleNestedSubmenuItemHover('keyboard')}
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ position: 'relative' }}
                         >
@@ -741,6 +835,7 @@ const RedstringMenu = ({
                             <div
                               className="submenu-container"
                               onMouseEnter={handleNestedSubmenuEnter}
+                              onFocus={handleNestedSubmenuEnter}
                               onMouseLeave={handleNestedSubmenuItemLeave}
                               style={{ left: '100%', top: 0 }}
                               onMouseDown={(e) => {
@@ -793,7 +888,10 @@ const RedstringMenu = ({
                         {/* Text Size Submenu */}
                         <div
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('textSize') ? 'active-submenu-parent' : ''}`}
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={() => handleNestedSubmenuItemHover('textSize')}
+                          onFocus={() => handleNestedSubmenuItemHover('textSize')}
                           onMouseLeave={handleNestedSubmenuItemLeave}
                           style={{ position: 'relative' }}
                         >
@@ -804,6 +902,7 @@ const RedstringMenu = ({
                             <div
                               className="submenu-container"
                               onMouseEnter={handleNestedSubmenuEnter}
+                              onFocus={handleNestedSubmenuEnter}
                               onMouseLeave={handleNestedSubmenuItemLeave}
                               style={{ left: '100%', top: 0 }}
                               onMouseDown={(e) => {
@@ -862,6 +961,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('Connections')}
+                    onFocus={() => handleTopLevelMenuHover('Connections')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -873,11 +973,14 @@ const RedstringMenu = ({
                       <div
                         className="submenu-container"
                         onMouseEnter={handleTopLevelSubmenuEnter}
+                        onFocus={handleTopLevelSubmenuEnter}
                         onMouseLeave={handleTopLevelMenuLeave}
                       >
 
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => onSetRoutingStyle?.('straight')}
                           style={{ opacity: routingStyle === 'straight' ? 1 : 0.8, cursor: 'pointer' }}
                         >
@@ -886,6 +989,8 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => onSetRoutingStyle?.('manhattan')}
                           style={{ opacity: routingStyle === 'manhattan' ? 1 : 0.8, cursor: 'pointer' }}
                         >
@@ -894,6 +999,8 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => onSetRoutingStyle?.('clean')}
                           style={{ opacity: routingStyle === 'clean' ? 1 : 0.8, cursor: 'pointer' }}
                         >
@@ -902,6 +1009,8 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onClick={() => onSetRoutingStyle?.('lombardi')}
                           style={{ opacity: routingStyle === 'lombardi' ? 1 : 0.8, cursor: 'pointer' }}
                         >
@@ -917,6 +1026,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('Help')}
+                    onFocus={() => handleTopLevelMenuHover('Help')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -928,11 +1038,15 @@ const RedstringMenu = ({
                       <div
                         className="submenu-container"
                         onMouseEnter={handleTopLevelSubmenuEnter}
+                        onFocus={handleTopLevelSubmenuEnter}
                         onMouseLeave={handleTopLevelMenuLeave}
                       >
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => {
                             // Dispatch event to open help modal
                             window.dispatchEvent(new Event('openHelpModal'));
@@ -944,7 +1058,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => {
                             // Dispatch event to open onboarding modal
                             window.dispatchEvent(new Event('openOnboardingModal'));
@@ -956,7 +1073,10 @@ const RedstringMenu = ({
                         </div>
                         <div
                           className="submenu-item"
+                          tabIndex={0}
+                          role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
                           onClick={() => {
                             // Dispatch event to open settings modal
                             window.dispatchEvent(new Event('openSettingsModal'));
