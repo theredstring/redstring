@@ -5244,8 +5244,8 @@ exports[`connection labels, straight routing > at rest, then with hub selected >
       },
     ],
     "strokes": [
-      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
-      "hit path M 343 1070 Q 576.5 1170 810 1070",
+      "stroke path M 430 1118.5 Q 578 1126.5 726 1092.5",
+      "hit path M 164.5 1070 Q 487.5 1170 810 1070",
     ],
     "wrappers": 1,
   },
@@ -5649,8 +5649,8 @@ exports[`connection labels, straight routing > at rest, then with hub selected >
       },
     ],
     "strokes": [
-      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
-      "hit path M 343 1070 Q 576.5 1170 810 1070",
+      "stroke path M 430 1118.5 Q 578 1126.5 726 1092.5",
+      "hit path M 164.5 1070 Q 487.5 1170 810 1070",
     ],
     "wrappers": 1,
   },
@@ -6064,8 +6064,8 @@ exports[`connection labels, straight routing > at rest, then with leaf selected 
       },
     ],
     "strokes": [
-      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
-      "hit path M 343 1070 Q 576.5 1170 810 1070",
+      "stroke path M 430 1118.5 Q 578 1126.5 726 1092.5",
+      "hit path M 164.5 1070 Q 487.5 1170 810 1070",
     ],
     "wrappers": 1,
   },
@@ -6469,8 +6469,8 @@ exports[`connection labels, straight routing > at rest, then with leaf selected 
       },
     ],
     "strokes": [
-      "stroke path M 424 1098.5 Q 576.5 1141.5 729 1098.5",
-      "hit path M 343 1070 Q 576.5 1170 810 1070",
+      "stroke path M 430 1118.5 Q 578 1126.5 726 1092.5",
+      "hit path M 164.5 1070 Q 487.5 1170 810 1070",
     ],
     "wrappers": 1,
   },
