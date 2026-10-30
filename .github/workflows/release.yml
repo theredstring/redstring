@@ -99,6 +99,18 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
 
+      # The notarization key's three secrets are first read by notarytool, after
+      # the build and signing. Check their shape here, in seconds; the step names
+      # the wrong secret, never its value.
+      - name: Check notarization key (macOS)
+        if: runner.os == 'macOS'
+        run: node scripts/check-notarize-key.mjs
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
       # Windows releases must be Authenticode-signed: electron-updater verifies
       # the publisher of every downloaded update (verifyUpdateCodeSignature),
       # and an unsigned installer is the easiest thing to substitute. Refuse to
@@ -168,6 +180,8 @@ jobs:
             KEY_FILE="$RUNNER_TEMP/notarize-api-key.p8"
             ( umask 077; printf '%s\n' "$APPLE_API_KEY_P8" > "$KEY_FILE" )
             export APPLE_API_KEY="$KEY_FILE"
+            export APPLE_API_KEY_ID="$(printf '%s' "$APPLE_API_KEY_ID" | tr -d '[:space:]')"
+            export APPLE_API_ISSUER="$(printf '%s' "$APPLE_API_ISSUER" | tr -d '[:space:]')"
             unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD
             echo "Notarizing with the App Store Connect API key"
           else
