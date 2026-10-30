@@ -7,6 +7,7 @@ import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import NodePieMenuLayer from './NodePieMenuLayer.jsx';
 import GroupPieMenuLayer from './GroupPieMenuLayer.jsx';
 import PieMenu from '../../../PieMenu.jsx';
+import { edgePieDrawnAnchor } from '../edges/edgeGeometry.js';
 
 // The edge pie, memoized like the node pie (P5.03): its props are the anchor and
 // button list (memoized upstream), primitives and stable callbacks.
@@ -85,12 +86,9 @@ export default function PieMenusLayer({ ctx }) {
         // label rather than on it. The edge layer registers the drawn position
         // before this layer renders; connections that don't register one keep the
         // computed anchor.
-        const placedPos = liveAnchor?.edgeId ? placedLabelsRef?.current?.get(liveAnchor.edgeId)?.position : null;
         let anchor = liveAnchor;
-        if (placedPos && Number.isFinite(placedPos.x) && Number.isFinite(placedPos.y)) {
-          let deg = (((placedPos.angle || 0) % 180) + 180) % 180;
-          if (deg > 90) deg -= 180;
-          const next = { ...liveAnchor, x: placedPos.x, y: placedPos.y, angle: deg * (Math.PI / 180) };
+        const next = edgePieDrawnAnchor(liveAnchor, placedLabelsRef?.current);
+        if (next !== liveAnchor) {
           // Same values, same object: EdgePieMenu is memoized on the anchor's identity.
           const prev = placedAnchorRef.current;
           const same = prev && prev.edgeId === next.edgeId && prev.x === next.x && prev.y === next.y

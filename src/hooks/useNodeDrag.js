@@ -2288,6 +2288,7 @@ export const useNodeDrag = ({
       startPan,
       anchorWorld: { x: anchorWorldX, y: anchorWorldY },
       anchorClient: { x: clientX, y: clientY },
+      lastPan: { ...startPan },
       animationId: null
     };
 
@@ -2303,6 +2304,16 @@ export const useNodeDrag = ({
 
       const currentZoomVal = state.startZoom + (state.targetZoom - state.startZoom) * t;
 
+      // A key or stick pan held through the animation moves the pan between
+      // our frames. Slide the anchor's world point by that much so the two
+      // compose; writing the anchored pan over it threw the pan away each frame.
+      const driftX = panOffsetRef.current.x - state.lastPan.x;
+      const driftY = panOffsetRef.current.y - state.lastPan.y;
+      if (driftX !== 0 || driftY !== 0) {
+        state.anchorWorld.x -= driftX / zoomLevelRef.current;
+        state.anchorWorld.y -= driftY / zoomLevelRef.current;
+      }
+
       // Pan to keep anchor point stable
       const newPanX = state.anchorClient.x - rect.left - (state.anchorWorld.x - canvasSizeRef.current.offsetX) * currentZoomVal;
       const newPanY = state.anchorClient.y - rect.top - (state.anchorWorld.y - canvasSizeRef.current.offsetY) * currentZoomVal;
@@ -2314,6 +2325,7 @@ export const useNodeDrag = ({
 
       setZoomLevel(currentZoomVal);
       setPanOffset({ x: clampedPanX, y: clampedPanY });
+      state.lastPan = { x: clampedPanX, y: clampedPanY };
 
       // Update node CSS transforms to track cursor during zoom animation
       const dragInfo = draggingNodeInfoRef.current;
@@ -2353,7 +2365,8 @@ export const useNodeDrag = ({
       startZoom,
       targetZoom,
       startPan,
-      targetPan,
+      targetPan: { ...targetPan },
+      lastPan: { ...startPan },
       animationId: null
     };
 
@@ -2367,12 +2380,24 @@ export const useNodeDrag = ({
       const progress = Math.min(1, elapsed / DRAG_ZOOM_ANIMATION_DURATION);
       const t = 1 - Math.pow(1 - progress, 3); // easeOutCubic
 
+      // A key or stick pan still held after the drop moves the pan between our
+      // frames. Carry it into both ends so it rides on top of the restore;
+      // writing the lerp over it dropped every step, and the dropped nodes
+      // juddered until the restore let go.
+      const driftX = panOffsetRef.current.x - state.lastPan.x;
+      const driftY = panOffsetRef.current.y - state.lastPan.y;
+      if (driftX !== 0 || driftY !== 0) {
+        state.startPan.x += driftX; state.startPan.y += driftY;
+        state.targetPan.x += driftX; state.targetPan.y += driftY;
+      }
+
       const currentZoomVal = state.startZoom + (state.targetZoom - state.startZoom) * t;
       const currentPanX = state.startPan.x + (state.targetPan.x - state.startPan.x) * t;
       const currentPanY = state.startPan.y + (state.targetPan.y - state.startPan.y) * t;
 
       setZoomLevel(currentZoomVal);
       setPanOffset({ x: currentPanX, y: currentPanY });
+      state.lastPan = { x: currentPanX, y: currentPanY };
 
       if (progress < 1) {
         state.animationId = requestAnimationFrame(step);

@@ -18,6 +18,7 @@ import { computeFormulaObjects } from '../formats/formula/formulaObjects.js';
 import { formulaDisplayNow } from '../formats/formatsStore.js';
 import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
 import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
+import { edgePieDrawnAnchor } from '../edges/edgeGeometry.js';
 import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
 
 // How much canvas an open overlay panel has to leave behind before framing
@@ -630,7 +631,11 @@ export function frameEdgePieOnOpen(ctx) {
     }
   }
 
-  focusEdgePieMenuInView(selectedEdgeMidpoint, edgePieMenuButtons.length, labelRect);
+  // Frame the menu where PieMenusLayer draws it, not at the computed anchor: on a
+  // routed connection between two big groups those are hundreds of units apart.
+  focusEdgePieMenuInView(
+    edgePieDrawnAnchor(selectedEdgeMidpoint, placedLabelsRef.current), edgePieMenuButtons.length, labelRect
+  );
 }
 
 /** When the abstraction carousel opens, frame its node; the framing becomes the resting view. */

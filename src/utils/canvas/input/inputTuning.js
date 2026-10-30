@@ -17,6 +17,20 @@ export const PAN_MOMENTUM_MIN_SPEED = 0.01;            // px/ms threshold before
 export const TOUCH_MOMENTUM_VELOCITY_WINDOW_MS = 80;   // how far back from the last touchmove to sample for release velocity
 export const TOUCH_MOMENTUM_STATIONARY_GAP_MS = 60;    // if the gap between last touchmove and touchend exceeds this, treat the finger as held still — no momentum
 export const TOUCH_MOMENTUM_LAUNCH_MIN_SPEED = 0.25;   // px/ms — touch must be moving this fast at release to launch momentum (prevents slip when finger slows to a stop)
+
+/**
+ * When an input event happened, on performance.now()'s clock. Pan velocity is
+ * sampled with this rather than the time its handler runs: when the main thread
+ * stalls (a dropped frame), the moves queued behind it all run back to back, and
+ * stamped at handler time their whole travel lands within a millisecond or two,
+ * so the release glide launched many times too fast. Falls back to now for a
+ * synthetic event with no timeStamp, or one not on this clock.
+ */
+export const eventTime = (e) => {
+  const now = performance.now();
+  const t = e?.timeStamp;
+  return Number.isFinite(t) && t > 0 && t <= now ? t : now;
+};
 // --- "Is the view moving?" (touch catch) ---
 // While the view is moving, a finger coming down is catching it, not pressing
 // what happens to be under it (see isViewMoving / handleNodeTouchStart).

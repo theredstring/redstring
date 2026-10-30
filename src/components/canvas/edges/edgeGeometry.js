@@ -126,6 +126,26 @@ export function computeSelectedEdgeMidpoint(ctx) {
   };
 }
 
+/**
+ * Where the edge pie is actually drawn: on the label the connection drew when
+ * the edge layer registered one, else at the computed anchor. Routed labels
+ * slide along the visible route to dodge nodes and each other, so the computed
+ * anchor (the middle of the whole route, group interiors included) can sit far
+ * from the label. The menu and the framing both read this, so the view frames
+ * the menu where it is.
+ */
+export function edgePieDrawnAnchor(anchor, placedLabels) {
+  const placedPos = anchor?.edgeId ? placedLabels?.get(anchor.edgeId)?.position : null;
+  if (!placedPos || !Number.isFinite(placedPos.x) || !Number.isFinite(placedPos.y)) return anchor;
+  let deg = (((placedPos.angle || 0) % 180) + 180) % 180;
+  if (deg > 90) deg -= 180;
+  const angle = deg * (Math.PI / 180);
+  // Side is relative to the slope's "up": if the label's slope crossed vertical
+  // from the computed one, its up points the other way, so flip to keep the side.
+  const flip = Math.cos(angle - (anchor.angle ?? 0)) < 0 ? -1 : 1;
+  return { ...anchor, x: placedPos.x, y: placedPos.y, angle, side: (anchor.side ?? 1) * flip };
+}
+
 /** The segment index of every routed connection's visible polyline, for label crossing counts. */
 export function computeLabelCrossingIndex(ctx) {
   const {

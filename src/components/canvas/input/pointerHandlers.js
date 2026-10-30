@@ -15,7 +15,7 @@ import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { MOVEMENT_THRESHOLD, MIDDLE_MOUSE_ZOOM_SENSITIVITY, MAX_ZOOM, NODE_WIDTH, NODE_HEIGHT, PAN_DRAG_SENSITIVITY } from '../../../constants';
 import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
 import { haptic } from '../../../services/haptics.js';
-import { TOUCH_PAN_DRAG_SENSITIVITY, isMac, TOUCH_MOMENTUM_STATIONARY_GAP_MS, TOUCH_MOMENTUM_VELOCITY_WINDOW_MS, TOUCH_MOMENTUM_LAUNCH_MIN_SPEED, PAN_MOMENTUM_MIN_SPEED } from '../../../utils/canvas/input/inputTuning.js';
+import { TOUCH_PAN_DRAG_SENSITIVITY, isMac, TOUCH_MOMENTUM_STATIONARY_GAP_MS, TOUCH_MOMENTUM_VELOCITY_WINDOW_MS, TOUCH_MOMENTUM_LAUNCH_MIN_SPEED, PAN_MOMENTUM_MIN_SPEED, eventTime } from '../../../utils/canvas/input/inputTuning.js';
 import { v4 as uuidv4 } from 'uuid';
 import { groupDropAfterDrag } from '../groups/groupDropTarget.js';
 import useGraphStore, { TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT } from '../../../store/graphStore.js';
@@ -486,7 +486,7 @@ export function createPointerHandlers(ctxRef) {
           lastPanSampleRef.current = { time: performance.now() };
           setPanStart({ x: e.clientX, y: e.clientY });
           panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
-          panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
+          panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: eventTime(e) }];
         }
       }
     }
@@ -544,8 +544,9 @@ export function createPointerHandlers(ctxRef) {
         mouseMoved.current = true;
       }
 
-      // Update velocity history synchronously to avoid race conditions
-      const now = performance.now();
+      // Update velocity history synchronously to avoid race conditions.
+      // Stamped with the event's own time — see eventTime.
+      const now = eventTime(e);
       const history = panVelocityHistoryRef.current;
       history.push({ x: e.clientX, y: e.clientY, time: now });
       // Keep only last 100ms
@@ -717,7 +718,7 @@ export function createPointerHandlers(ctxRef) {
     lastPanVelocityRef.current = { vx: 0, vy: 0 };
     lastPanSampleRef.current = { time: performance.now() };
     panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
-    panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: performance.now() }];
+    panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: eventTime(e) }];
   };
   /**
    * Handles mouseup to finalize drags, connections, pan momentum, and selection.
@@ -901,7 +902,7 @@ export function createPointerHandlers(ctxRef) {
           // is too brittle, since a fast flick routinely has a 30-50ms lag between
           // the last move and pointer-up.
           const lastSample = history.length > 0 ? history[history.length - 1] : null;
-          const gapSinceLastSample = lastSample ? (performance.now() - lastSample.time) : Infinity;
+          const gapSinceLastSample = lastSample ? (eventTime(e) - lastSample.time) : Infinity;
           const heldStill = motionDriven
             ? gapSinceLastSample > TOUCH_MOMENTUM_STATIONARY_GAP_MS
             : false;

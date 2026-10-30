@@ -9,7 +9,7 @@ import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withSelectedFormula } from '../components/canvas/formats/formula/formulaSelection.js';
 import { useThingGroupPromptStore } from '../components/canvas/thingGroupPrompt/thingGroupPrompt.js';
-import { VIEW_MOTION_VISIBLE_SPEED } from '../utils/canvas/input/inputTuning.js';
+import { VIEW_MOTION_VISIBLE_SPEED, eventTime } from '../utils/canvas/input/inputTuning.js';
 
 // Constants locally defined or passed? 
 // Some constants seem global. I should duplicates them or export/import them.
@@ -551,6 +551,7 @@ export const useCanvasTouch = ({
                 clientX: t.clientX,
                 clientY: t.clientY,
                 detail: 1,
+                timeStamp: e.timeStamp,
                 preventDefault: () => { try { e.preventDefault(); } catch { } },
                 stopPropagation: () => { try { e.stopPropagation(); } catch { } }
             };
@@ -731,7 +732,7 @@ export const useCanvasTouch = ({
 
         // Record velocity for momentum calculation
         if (panSourceRef.current === 'touch') {
-            const now = performance.now();
+            const now = eventTime(e);
             panVelocityHistoryRef.current.push({ x: clientX, y: clientY, time: now });
             // Keep samples from last 100ms, but always keep at least the 10 most recent
             const cutoff = now - 100;
@@ -756,6 +757,7 @@ export const useCanvasTouch = ({
         const synthetic = {
             clientX,
             clientY,
+            timeStamp: e.timeStamp,
             preventDefault: () => { try { e.preventDefault(); } catch { } },
             stopPropagation: () => { try { e.stopPropagation(); } catch { } }
         };
@@ -905,6 +907,7 @@ export const useCanvasTouch = ({
         const synthetic = {
             clientX,
             clientY,
+            timeStamp: e.timeStamp,
             preventDefault: () => { try { e.preventDefault(); } catch { } },
             stopPropagation: () => { try { e.stopPropagation(); } catch { } },
             __source: 'canvas-touchend',
