@@ -212,6 +212,43 @@ export function getTrimmedBezierPath(x0, y0, cx, cy, x1, y1, tStart = 0, tEnd = 
 }
 
 /**
+ * Shorten a parallel-edge curve without changing its shape: cut it where it
+ * leaves each given box, plus `outsetPx` further along the curve.
+ *
+ * A curve rebuilt between nearer endpoints keeps the same perpendicular bow
+ * over a shorter chord, so it bends harder. Cutting the one center-to-center
+ * curve keeps a shortened end (an arrow, a hover) on the same line, ending sooner.
+ *
+ * @param {Object} curve - calculateParallelEdgePath result, center to center
+ * @param {Object|null} sourceBox - { minX, minY, maxX, maxY } to cut the start at, or null to keep it
+ * @param {Object|null} destBox - same, for the end
+ * @param {number} outsetPx - distance past each border crossing, along the curve
+ * @returns {Object} the cut curve, in calculateParallelEdgePath's shape
+ */
+export function clipCurveToBoxes(curve, sourceBox, destBox, outsetPx = 0) {
+  if (!curve || curve.type !== 'curve' || curve.ctrlX == null || (!sourceBox && !destBox)) {
+    return curve;
+  }
+  const { startX: x0, startY: y0, ctrlX: cx, ctrlY: cy, endX: x1, endY: y1 } = curve;
+  const crossings = getCurveBorderCrossings(x0, y0, cx, cy, x1, y1, sourceBox, destBox);
+  // |B'(t)|, to turn a pixel outset into a t step.
+  const speedAt = (t) => 2 * Math.hypot(
+    (1 - t) * (cx - x0) + t * (x1 - cx),
+    (1 - t) * (cy - y0) + t * (y1 - cy)
+  );
+  const tStart = sourceBox
+    ? crossings.source.t + outsetPx / Math.max(speedAt(crossings.source.t), 1e-3)
+    : 0;
+  const tEnd = destBox
+    ? crossings.dest.t - outsetPx / Math.max(speedAt(crossings.dest.t), 1e-3)
+    : 1;
+  // Boxes overlap: nothing is left outside them to draw.
+  if (!(tStart < tEnd)) return curve;
+  const cut = getTrimmedBezierPath(x0, y0, cx, cy, x1, y1, tStart, tEnd);
+  return { ...curve, ...cut };
+}
+
+/**
  * Calculate the control point for a curved parallel edge
  * @param {number} startX - Start X coordinate
  * @param {number} startY - Start Y coordinate

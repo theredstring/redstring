@@ -173,6 +173,19 @@ const boundsToHitbox = (b) => ({
   maxY: b.y + b.height,
 });
 
+// How far past the visual border a shortened connection end is pushed (see
+// getVisualConnectionEndpoints). A curved end measures it along the curve.
+export const VISIBLE_LINE_OUTSET = 20;
+
+/**
+ * The box a connection end is clipped against: the occluder box when there is
+ * one (a thing-group's outer box), else the node's hitbox. The same box
+ * getVisualConnectionEndpoints clips the straight chord against.
+ */
+export const getConnectionEndBox = (node, dims, isSelected = false, clipBounds = null) => (
+  clipBounds ? boundsToHitbox(clipBounds) : getNodeHitbox(node, dims, isSelected)
+);
+
 export const getVisualConnectionEndpoints = (
   sourceNode,
   targetNode,
@@ -229,8 +242,6 @@ export const getVisualConnectionEndpoints = (
   // portion. 14px lands the endpoint inside the arrow polygon at sides AND at
   // corners (verified for both axis-aligned and ~45° rays on a 200x80 node),
   // so the cap is hidden by the arrowhead and no stub pokes through.
-  const VISIBLE_LINE_OUTSET = 20;
-
   const dirX = centerX2 - centerX1;
   const dirY = centerY2 - centerY1;
   const dirLen = Math.sqrt(dirX * dirX + dirY * dirY);

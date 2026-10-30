@@ -6,13 +6,13 @@ import { getConnectionLabelColors } from '../../utils/colorUtils.js';
 import { haptic } from '../../services/haptics.js';
 import { resolveEdgeLabelFontSize } from '../../services/layoutGeometry.js';
 import { buildShellCutoutPath } from '../../services/groupLayout.js';
-import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints, straightArrowHeads } from '../../utils/canvas/nodeHitbox.js';
+import { VISIBLE_LINE_OUTSET, anchorInfoFacing, getConnectionEndBox, getLineNodeIntersection, getNodeEdgeIntersection, getNodeHitbox, getVisualConnectionEndpoints, straightArrowHeads } from '../../utils/canvas/nodeHitbox.js';
 import { connectionEndInfo } from './formats/replaced.js';
 import { anchorEndBox } from '../../utils/canvas/anchorEnd.js';
 import { stabilizeLabelPosition } from '../../utils/canvas/labelStabilization.js';
 import { NODE_DEFAULT_COLOR } from '../../constants';
 import { bundleFrameSign, computeCleanRouting, computeLombardiRouting, computeManhattanRouting, labelArcGlyphFrames, parallelLaneRank, rebuildRoutedPath, trimRoutePreviewEnd } from '../../utils/canvas/edgeRouting.js';
-import { DEFAULT_TIP_INSET, POLY_TIP, calculateParallelEdgePath, getCurveBorderCrossings, getCurvedArrowPlacement, getTrimmedBezierPath } from '../../utils/canvas/parallelEdgeUtils.js';
+import { DEFAULT_TIP_INSET, POLY_TIP, calculateParallelEdgePath, clipCurveToBoxes, getCurveBorderCrossings, getCurvedArrowPlacement, getTrimmedBezierPath } from '../../utils/canvas/parallelEdgeUtils.js';
 import SelfLoopEdge from './SelfLoopEdge.jsx';
 import { LABEL_TRUNCATE_FILL, chooseRoutedLabelPlacement, estimateTextWidth, labelBoundsFor, labelFrameToken, placeBundledLabel, routedLabelSpan, straightLabelTransform } from '../../utils/canvas/edgeLabelPlacement.js';
 
@@ -530,26 +530,29 @@ export function renderConnectionEdge(edge, ctx) {
 
   // Calculate parallel edge path using centralized utility
   // Note: curveInfo was already retrieved earlier for shouldShorten logic
-  // Curved edges anchor an arrow-less end at the node CENTER and an
-  // arrow-side end at the node BORDER (see x1/y1 logic above). The border
-  // anchor is what visibly shortens the connection when an arrow is active.
-  // On hover we want that same shortening as a preview, so pull the
-  // arrow-less curve ends to the border too — making hover match arrow-active
-  // geometry exactly (same parallelPath → same trim, arrows, dots).
-  let curveStartX = startX, curveStartY = startY, curveEndX = endX, curveEndY = endY;
-  if (isCurvedEdge && isActive) {
-    const hoverBorder = getVisualConnectionEndpoints(
-      sourceNode, destNode, sNodeDims, eNodeDims,
-      selectedInstanceIds.has(sourceNode.id),
-      selectedInstanceIds.has(destNode.id),
-      true,
-      sAnchorInfo?.outerBounds || null,
-      eAnchorInfo?.outerBounds || null
+  // A curved edge is ONE curve, center to center. An arrow end, or any end of
+  // a hovered/selected edge, is shortened by cutting that curve where it leaves
+  // the node (plus the usual outset), never by rebuilding it between nearer
+  // points: the same bow over a shorter chord bends harder. So a hover or an
+  // arrow ends the line sooner without changing its shape.
+  // The click target is the uncut curve, so a hover never moves it.
+  let parallelPath;
+  let curveHitPath = null;
+  if (isCurvedEdge && !orthoRouting) {
+    const centerCurve = calculateParallelEdgePath(
+      sCenterForArrow, sCenterForArrowY, dCenterForArrow, dCenterForArrowY, curveInfo, curveSpacing
     );
-    if (!hasSourceArrow) { curveStartX = hoverBorder.x1; curveStartY = hoverBorder.y1; }
-    if (!hasDestArrow) { curveEndX = hoverBorder.x2; curveEndY = hoverBorder.y2; }
+    const sourceBox = (isActive || hasSourceArrow)
+      ? getConnectionEndBox(sourceNode, sNodeDims, selectedInstanceIds.has(sourceNode.id), sAnchorInfo?.outerBounds || null)
+      : null;
+    const destBox = (isActive || hasDestArrow)
+      ? getConnectionEndBox(destNode, eNodeDims, selectedInstanceIds.has(destNode.id), eAnchorInfo?.outerBounds || null)
+      : null;
+    parallelPath = clipCurveToBoxes(centerCurve, sourceBox, destBox, VISIBLE_LINE_OUTSET);
+    curveHitPath = centerCurve.path;
+  } else {
+    parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
   }
-  const parallelPath = calculateParallelEdgePath(curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, curveSpacing);
   // A routed style OWNS the geometry, so the parallel-edge bezier is
   // not what gets drawn — and everything downstream that keys off
   // useCurve (arrowhead placement, hover-dot border crossings, the
@@ -800,7 +803,7 @@ export function renderConnectionEdge(edge, ctx) {
       ) : useCurve ? (
         <path
           data-edge-hit
-          d={parallelPath.path}
+          d={curveHitPath ?? parallelPath.path}
           fill="none"
           stroke="transparent"
           strokeWidth={Math.max(50, 44 * connectionWidth)}

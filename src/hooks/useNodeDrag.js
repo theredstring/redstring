@@ -8,8 +8,8 @@ import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
-import { anchorInfoFacing, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
-import { calculateParallelEdgePath, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
+import { VISIBLE_LINE_OUTSET, anchorInfoFacing, getConnectionEndBox, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
+import { calculateParallelEdgePath, clipCurveToBoxes, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
 import { computeManhattanRouting, computeCleanRouting, computeLombardiRouting, computeLombardiTangents, labelArcGlyphFrames, labelLineGlyphFrames, labelCurveMinBow, connectionCurveMinBow, curvedGlyphQuantum, rebuildRoutedPath, trimRoutePreviewEnd, POLY_TIP, ORTHOGONAL_LANE_FRACTION, LOMBARDI_LANE_FRACTION } from '../utils/canvas/edgeRouting.js';
 import { placeLabelOnRoute, quantizeAngle, applyLabelFrame, straightLabelTransform, routedLabelSpan, LABEL_TRUNCATE_FILL } from '../utils/canvas/edgeLabelPlacement.js';
@@ -1490,19 +1490,29 @@ export const useNodeDrag = ({
       }
       const dragCurveSpacing = 200 * (multiConnectionCurveRef?.current ?? 1.0);
 
-      // A selected curved edge anchors its arrow-less ends at the node BORDER
-      // instead of the center before the bow is computed — the same shortening
-      // an arrow would produce — so hover/selection geometry and arrow geometry
-      // are the same curve.
-      let curveStartX = endpoints.x1, curveStartY = endpoints.y1;
-      let curveEndX = endpoints.x2, curveEndY = endpoints.y2;
-      if (active && isCurvedEdge) {
-        if (!hasSourceArrow) { curveStartX = borderEndpoints.x1; curveStartY = borderEndpoints.y1; }
-        if (!hasDestArrow) { curveEndX = borderEndpoints.x2; curveEndY = borderEndpoints.y2; }
+      // A curved edge is one curve, center to center. An arrow end, or any end
+      // of a selected edge, is cut where the curve leaves its node, the same as
+      // the settled render: rebuilding the bow between nearer points bends it
+      // harder, cutting it only ends it sooner.
+      let parallelPath;
+      let curveHitPath = null;
+      if (isCurvedEdge) {
+        const centerCurve = calculateParallelEdgePath(
+          centerX1, centerY1, centerX2, centerY2, curveInfo, dragCurveSpacing
+        );
+        const sourceBox = (active || hasSourceArrow)
+          ? getConnectionEndBox(virtualSource, sDims, curSelectedIds.has(edge.sourceId), sAnchor?.outerBounds || null)
+          : null;
+        const destBox = (active || hasDestArrow)
+          ? getConnectionEndBox(virtualDest, dDims, curSelectedIds.has(edge.destinationId), eAnchor?.outerBounds || null)
+          : null;
+        parallelPath = clipCurveToBoxes(centerCurve, sourceBox, destBox, VISIBLE_LINE_OUTSET);
+        curveHitPath = centerCurve.path;
+      } else {
+        parallelPath = calculateParallelEdgePath(
+          endpoints.x1, endpoints.y1, endpoints.x2, endpoints.y2, curveInfo, dragCurveSpacing
+        );
       }
-      const parallelPath = calculateParallelEdgePath(
-        curveStartX, curveStartY, curveEndX, curveEndY, curveInfo, dragCurveSpacing
-      );
       const useCurve = parallelPath.type === 'curve';
       // Shared curved arrow placement + trim t values (same helper as the settled
       // render). Match the settled arrow scale (connectionWidth) so tips land
@@ -1610,7 +1620,7 @@ export const useNodeDrag = ({
             path.setAttribute('d', curveD);
           });
           hitPaths.forEach(path => {
-            path.setAttribute('d', parallelPath.path);
+            path.setAttribute('d', curveHitPath ?? parallelPath.path);
           });
           // Also update any straight <line> elements that might exist as click targets
           lines.forEach(line => {

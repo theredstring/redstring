@@ -14,7 +14,14 @@
  * Messages: { bank, equationIds } in; { progress: { done, total } } while
  * building, then { ok: true, built } or { ok: false, error }.
  */
+import { setAutoFreeze } from 'immer';
 import fontUrl from '../../../../../assets/fonts/EmOne-SemiBold.woff2?url';
+
+// Immer freezes a Map by giving it set/delete/clear functions of its own, and
+// Safari won't post a Map that has them ("The object can not be cloned"), so
+// on iPad the built universe could never be handed back. Nothing here needs
+// the store frozen: it is built, posted and thrown away.
+setAutoFreeze(false);
 
 const memory = new Map();
 const preferences = {

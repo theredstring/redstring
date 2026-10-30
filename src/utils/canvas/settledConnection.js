@@ -18,12 +18,12 @@
  *   settledConnectionGeometry(edge, scene)      one connection's stroke and arrows
  */
 import { CONNECTION_WIDTH_BASE_SCALE, NODE_DEFAULT_COLOR } from '../../constants.js';
-import { anchorInfoFacing, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
+import { VISIBLE_LINE_OUTSET, anchorInfoFacing, getConnectionEndBox, getLineNodeIntersection, getNodeEdgeIntersection, getVisualConnectionEndpoints } from './nodeHitbox.js';
 import {
   computeCleanRouting, computeLombardiRouting, computeLombardiTangents, computeManhattanRouting,
   connectionCurveMinBow, LOMBARDI_LANE_FRACTION, ORTHOGONAL_LANE_FRACTION,
 } from './edgeRouting.js';
-import { DEFAULT_TIP_INSET, calculateParallelEdgePath, getCurvedArrowPlacement, getTrimmedBezierPath } from './parallelEdgeUtils.js';
+import { DEFAULT_TIP_INSET, calculateParallelEdgePath, clipCurveToBoxes, getCurvedArrowPlacement, getTrimmedBezierPath } from './parallelEdgeUtils.js';
 import { computeCleanLaneOffsets } from './cleanLaneOffsets.js';
 import { calculateSelfLoopPath } from './selfLoopUtils.js';
 import { computeEdgeCurveInfo } from '../../components/canvas/edges/edgeGeometry.js';
@@ -298,7 +298,16 @@ export function settledConnectionGeometry(edge, scene) {
     ({ startX, startY, endX, endY } = orthoRouting);
   }
 
-  const parallelPath = calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
+  // A curved edge is one curve, center to center, cut at an arrow end where it
+  // leaves the node: rebuilding the bow between nearer points would bend it harder.
+  const parallelPath = (isCurvedEdge && !orthoRouting)
+    ? clipCurveToBoxes(
+      calculateParallelEdgePath(sCx, sCy, dCx, dCy, curveInfo, curveSpacing),
+      hasSourceArrow ? getConnectionEndBox(sourceNode, sNodeDims, false, sOuter) : null,
+      hasDestArrow ? getConnectionEndBox(destNode, eNodeDims, false, eOuter) : null,
+      VISIBLE_LINE_OUTSET,
+    )
+    : calculateParallelEdgePath(startX, startY, endX, endY, curveInfo, curveSpacing);
   const useCurve = parallelPath.type === 'curve' && !orthoRouting;
   const curvedArrowPlacement = useCurve ? getCurvedArrowPlacement(parallelPath, connectionWidth, DEFAULT_TIP_INSET) : null;
   let trimmedPath = null;
