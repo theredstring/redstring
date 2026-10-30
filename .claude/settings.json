@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(node:*)",
-      "Bash(/Users/granteubanks/Code/redstringuireact/dist-electron/mac-arm64/Redstring.app/Contents/MacOS/Redstring)"
-    ]
-  }
-}

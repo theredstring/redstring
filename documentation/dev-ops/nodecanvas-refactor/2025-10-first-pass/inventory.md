@@ -145,7 +145,7 @@ After refactoring, verify:
 **Current:** 10,450 lines
 **Reduction:** 479 lines (4.4%)
 
-See `.refactor-progress.md` for detailed progress report.
+See `progress.md` for detailed progress report.
 
 ## Post-Refactor Target
 

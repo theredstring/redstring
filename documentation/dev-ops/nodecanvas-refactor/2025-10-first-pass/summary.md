@@ -98,9 +98,9 @@ src/
 
 ## 📝 Documentation Created
 
-- `.refactor-inventory.md` - Pre-refactor baseline
-- `.refactor-progress.md` - Detailed extraction log
-- `.refactor-summary.md` - This file
+- `inventory.md` - Pre-refactor baseline
+- `progress.md` - Detailed extraction log
+- `summary.md` - This file
 
 ## 🎉 Mission Accomplished
 

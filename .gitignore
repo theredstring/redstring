@@ -72,6 +72,10 @@ mcp-server.log
 *.bak
 *.bak2
 
+# Claude Code project settings hold machine paths (settings.local.json is ignored too)
+.claude/settings.json
+.claude/settings.local.json
+
 # Nested git repositories
 docs/
 docs
