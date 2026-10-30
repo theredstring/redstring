@@ -20,7 +20,11 @@ const buildDoc = (names) => {
     edges: new Map(),
     openGraphIds: ['g1'], activeGraphId: 'g1', activeDefinitionNodeId: null,
     expandedGraphIds: new Set(), rightPanelTabs: [],
-    savedNodeIds: new Set(), savedGraphIds: new Set(), showConnectionNames: false
+    savedNodeIds: new Set(), savedGraphIds: new Set(), showConnectionNames: false,
+    // Copies of one universe share its creation time. Left out, export stamps
+    // "now", so copies built a millisecond apart (a loaded CI runner) differed
+    // in it and the merge saw a change to push.
+    universeCreatedAt: '2026-01-01T00:00:00.000Z'
   });
 };
 const buildState = (names) => importFromRedstring(buildDoc(names)).storeState;
