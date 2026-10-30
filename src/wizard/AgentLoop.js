@@ -12,6 +12,7 @@ import { isSettled, renderPlanText } from './tools/planTask.js';
 import { isGoalSettled, renderGoalText } from './tools/declareGoal.js';
 import { normalizeWizardMode, WIZARD_MODE_GOAL } from './wizardMode.js';
 import { executeTool, getToolDefinitions } from './tools/index.js';
+import { switchedOffWebId, switchedOffWebRefusal } from './switchedOffWeb.js';
 import { resolveToolPolicy, buildPolicyToolList, isToolAllowed, toolRefusalResult, READ_ONLY_TOOLS } from './toolPolicy.js';
 import { selectToolsForTurn } from './tools/schemas.js';
 import { buildRequestMessages } from './requestMessages.js';
@@ -1368,6 +1369,7 @@ export function sanitizeResultForLLM(result) {
 export async function* runAgent(userMessage, graphState, config = {}, ensureSchedulerStarted, abortSignal = null) {
   const cid = config.cid || `wizard-${Date.now()}`;
   const contextItems = config.contextItems || [];
+  const offWebId = switchedOffWebId(graphState, contextItems);
 
   // Build initial context (respects contextItems toggles from UI)
   let initialContext = buildPersistentContextHeader(graphState, contextItems);
@@ -2316,6 +2318,17 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
           resolvedToolCallIds.add(toolCall.id);
           yield { type: 'tool_result', name: toolCall.name, result: refusal, id: toolCall.id };
           messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(refusal) });
+          continue;
+        }
+
+        // The current web's chip is off: an add that names no web would land in
+        // it by default. Here for the same reason as the policy above.
+        const offWebRefusal = switchedOffWebRefusal(toolCall.name, toolCall.args, graphState, offWebId);
+        if (offWebRefusal) {
+          console.error(`[AgentLoop] Tool "${toolCall.name}" refused: no target, and the current web is switched off as context.`);
+          resolvedToolCallIds.add(toolCall.id);
+          yield { type: 'tool_result', name: toolCall.name, result: offWebRefusal, id: toolCall.id };
+          messages.push({ role: 'tool', tool_call_id: toolCall.id, content: JSON.stringify(offWebRefusal) });
           continue;
         }
 

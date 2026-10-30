@@ -88,7 +88,28 @@ describe('buildPinnedContext', () => {
 
     const off = [{ type: 'activeGraph', enabled: false }, { type: 'thing', id: 'p-heart', enabled: true }];
     const header = buildPersistentContextHeader(graphState, off);
-    expect(header).toContain('Active graph context is disabled by user.');
+    expect(header).toContain('is switched off as context');
     expect(header).toContain('Thing "Heart"');
+  });
+});
+
+describe('the current web switched off', () => {
+  const off = [{ type: 'activeGraph', id: 'g-body', enabled: false }];
+
+  it('names the web the user is on and none of what is in it', () => {
+    const header = buildPersistentContextHeader(graphState, off);
+    expect(header).toContain('CURRENT WEB (open on user\'s screen): "Body" (id: g-body) is switched off as context');
+    expect(header).toContain('createPopulatedGraph');
+    expect(header).toContain('targetGraphId="g-body"');
+    expect(header).not.toContain('Lungs');
+  });
+
+  it('shows the web the wizard moved to in full, and still names the switched-off one', () => {
+    const moved = { ...graphState, activeGraphId: 'g-heart', openGraphIds: ['g-body', 'g-heart'] };
+    const header = buildPersistentContextHeader(moved, off);
+    expect(header).toContain('CURRENT WEB (open on user\'s screen): "Heart"');
+    expect(header).toContain('Atrium');
+    expect(header).toContain('"Body" (id: g-body) is switched off as context');
+    expect(header).not.toContain('Lungs');
   });
 });

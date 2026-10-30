@@ -26,6 +26,7 @@ import { estimateTokens } from './tokenEstimate.js';
 import { formulaCover, formulaLine, repeatedTermsLines } from './tools/utils/formulas.js';
 // The names the context shows are the names the tools resolve (webView.js).
 import { placeName, instanceNames, drawnWebs } from './tools/utils/webView.js';
+import { switchedOffWebId } from './switchedOffWeb.js';
 
 /**
  * Total token budget for the graph portion of the context header.
@@ -330,6 +331,7 @@ export function buildContext(graphState) {
     const activeGraph = tiers.active;
     context += '\n\n## Environment Snapshot';
     context += `\nCURRENT WEB (open on user's screen): "${activeGraph.name}"`;
+    context += '\nBuild here when the request is about this web. A different subject gets a web of its own (createPopulatedGraph), even while this one is open.';
 
     // Definition-graph framing: tell the model it is inside a node.
     const definingNodes = nodePrototypes.filter(proto =>
@@ -605,28 +607,43 @@ export function buildPersistentContextHeader(graphState, contextItems = []) {
     return 'No graph state available.';
   }
 
-  // Check if 'activeGraph' context is enabled (defaults to true if no items specified)
-  const activeGraphItem = contextItems.find(item => item.type === 'activeGraph');
-  const includeActiveGraph = !activeGraphItem || activeGraphItem.enabled !== false;
+  // The web whose chip is off, kept by id: once the wizard makes a web of its
+  // own and moves there, that new web is shown in full.
+  const { graphs = [], activeGraphId } = graphState;
+  const offId = switchedOffWebId(graphState, contextItems);
+  const offWeb = offId ? graphs.find(g => g?.id === offId) : null;
+  const onOffWeb = !!offWeb && activeGraphId === offId;
   const pinned = buildPinnedContext(graphState, contextItems.filter(item => item.type === 'thing' && item.enabled !== false), {
-    activeShown: includeActiveGraph
+    activeShown: !onOffWeb
   });
 
-  if (includeActiveGraph) {
+  if (!offWeb) {
     // Use the full buildContext which includes Environment Snapshot framing
     return buildContext(graphState) + pinned;
   }
 
-  // Active graph context is disabled — provide minimal info
-  const { graphs = [] } = graphState;
-  let context = '';
+  const offName = offWeb.name || 'Unnamed';
+  const offLine = `"${offName}" (id: ${offId}) is switched off as context by the user. Its contents are left out on purpose: don't read it or build on it.`;
 
-  if (graphs.length > 0) {
-    const graphNames = graphs.slice(0, 5).map(g => `"${g.name}"`).join(', ');
-    context += `\n\nAvailable webs: ${graphs.length} total (${graphNames}${graphs.length > 5 ? '...' : ''})`;
-    context += '\n(Active graph context is disabled by user.)';
-  } else {
-    context += '\n\nNo webs yet - perfect time to create one!';
+  if (!onOffWeb) {
+    // Everything else as usual, without the switched-off web among the open ones.
+    const rest = {
+      ...graphState,
+      graphs: graphs.filter(g => g?.id !== offId),
+      openGraphIds: (graphState.openGraphIds || []).filter(id => id !== offId)
+    };
+    return buildContext(rest) + `\n\n${offLine} Leave it alone unless the user asks for it.` + pinned;
+  }
+
+  // On the switched-off web: say where the user is, and nothing of what is there.
+  let context = '\n\n## Environment Snapshot';
+  context += `\nCURRENT WEB (open on user's screen): ${offLine}`;
+  context += `\nTools that add Things go into the current web when no targetGraphId is given, so anything new starts in a web of its own (createPopulatedGraph). Add to "${offName}" only when the user asks for that, passing targetGraphId="${offId}".`;
+
+  const others = graphs.filter(g => g?.id !== offId);
+  if (others.length > 0) {
+    const graphNames = others.slice(0, 5).map(g => `"${g.name}"`).join(', ');
+    context += `\n\nOther webs: ${others.length} total (${graphNames}${others.length > 5 ? '...' : ''})`;
   }
 
   return context + pinned;
