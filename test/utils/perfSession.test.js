@@ -31,8 +31,8 @@ describe('perfSession', () => {
 describe('animation moments', () => {
   it('logs each animation with how long after the tap it started and which play it is', async () => {
     const lines = [];
-    const log = console.log;
-    console.log = (...a) => lines.push(a);
+    const log = console.info;
+    console.info = (...a) => lines.push(a);
     try {
       startSession();
       const el = document.createElement('div');
@@ -50,7 +50,7 @@ describe('animation moments', () => {
       stopSession();
       el.remove();
     } finally {
-      console.log = log;
+      console.info = log;
     }
     const anims = lines.filter((a) => a[1] === 'anim').map((a) => JSON.parse(a[2]));
     expect(anims.map((m) => m.play)).toEqual([1, 2]);
@@ -77,14 +77,14 @@ describe('script-driven animations', () => {
   it('times a perfMark like an animation event', async () => {
     const { perfMark } = await import('../../src/utils/perfSession.js');
     const lines = [];
-    const log = console.log;
-    console.log = (...a) => lines.push(a);
+    const log = console.info;
+    console.info = (...a) => lines.push(a);
     try {
       startSession();
       perfMark('to-things');
       stopSession();
     } finally {
-      console.log = log;
+      console.info = log;
     }
     const anims = lines.filter((a) => a[1] === 'anim').map((a) => JSON.parse(a[2]));
     expect(anims[0].what).toEqual(['to-things (script)']);
