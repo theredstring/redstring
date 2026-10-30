@@ -2845,10 +2845,10 @@ function NodeCanvas() {
   // saying so is what lets the same function serve the controller. The draw
   // then tracks the crosshair as the canvas pans, and releasing over another
   // node lands the edge through the ordinary release path.
-  // The connection menu's slope, mirrored for the controller's aiming. Its
-  // buttons already live in edgePieMenuButtonsRef.
-  const edgeAnchorAngleRef = useRef(0);
-  edgeAnchorAngleRef.current = selectedEdgeMidpoint?.angle ?? 0;
+  // The connection menu's anchor (slope and side), mirrored for the controller's
+  // aiming. Its buttons already live in edgePieMenuButtonsRef.
+  const edgeAnchorRef = useRef(null);
+  edgeAnchorRef.current = selectedEdgeMidpoint;
   const findEdgeAtClientPointRef = useRef(null);
   findEdgeAtClientPointRef.current = findEdgeAtClientPoint;
   const {
@@ -2887,7 +2887,7 @@ function NodeCanvas() {
     selection: { setSelectedInstanceIds, selectedInstanceIdsRef },
     hover: { commitHoverTarget, clearHoverImmediate },
     pie: {
-      pieMenuButtonsRef, pieMenuPageCountRef, edgePieMenuButtonsRef, edgeAnchorAngleRef, pieMenuNodeIdRef,
+      pieMenuButtonsRef, pieMenuPageCountRef, edgePieMenuButtonsRef, edgeAnchorRef, pieMenuNodeIdRef,
       setPieMenuPage, onPieMenuHoverChange: handlePieMenuHoverChange,
     },
     camera: {

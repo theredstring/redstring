@@ -566,15 +566,17 @@ const LINE_NAV_LATERAL_WEIGHT = 3;
  * @param {number} y deadzoned stick y (screen: +y down, as the gamepad reports)
  * @param {number} count number of buttons in the menu
  * @param {number} angleRad the menu's anchor angle — PieMenu's anchorAngle
+ * @param {number} side the anchor's side: 1 rows above the edge, -1 below
  * @returns {number} the new index, or the old one when nothing lies that way
  */
-export const stepLineFocusToward = (current, x, y, count, angleRad = 0) => {
+export const stepLineFocusToward = (current, x, y, count, angleRad = 0, side = 1) => {
   if (!count || count < 1) return -1;
   if (count === 1) return 0;
 
   const slots = lineModeLayout({
     count,
     angle: Number.isFinite(angleRad) ? angleRad : 0,
+    side,
     step: 1,
     perpOffset: 0,
     rowGap: 1,
@@ -769,11 +771,11 @@ export const useGamepad = ({
   const {
     pieMenuButtonsRef,
     pieMenuPageCountRef,
-    // The connection menu's live buttons and the slope of the edge they are laid
-    // along. Kept separate from the node menu's: only one is ever open, but they
-    // are different arrays with different layouts.
+    // The connection menu's live buttons and the anchor (slope and side) of the
+    // edge they are laid along. Kept separate from the node menu's: only one is
+    // ever open, but they are different arrays with different layouts.
     edgePieMenuButtonsRef,
-    edgeAnchorAngleRef,
+    edgeAnchorRef,
     // The instance id the open pie menu belongs to. Pie actions take it as their
     // first argument, exactly as PieMenu passes `node?.id` on a click.
     pieMenuNodeIdRef,
@@ -979,7 +981,7 @@ export const useGamepad = ({
     canvasContextMenuControlRef, panelResizeControlRef,
     setSelectedInstanceIds, selectedInstanceIdsRef, commitHoverTarget, clearHoverImmediate,
     pieMenuButtonsRef, pieMenuPageCountRef, pieMenuNodeIdRef, setPieMenuPage, onPieMenuHoverChange,
-    edgePieMenuButtonsRef, edgeAnchorAngleRef, findEdgeAtClientPointRef, connectionOrbControlRef,
+    edgePieMenuButtonsRef, edgeAnchorRef, findEdgeAtClientPointRef, connectionOrbControlRef,
     setPan, isAnimatingZoomRef, abstractionCarouselVisibleRef, driftingRef,
     semanticOrbitActiveRef, orbitControlRef,
     activeGraphIdRef, minZoom, maxZoom,
@@ -2338,7 +2340,7 @@ export const useGamepad = ({
       if (stickAimStep(left, 'edge', edgeOctantRef)) {
         const next = stepLineFocusToward(
           pieFocusedIndexRef.current, left.x, left.y, list.length,
-          p.edgeAnchorAngleRef?.current ?? 0
+          p.edgeAnchorRef?.current?.angle ?? 0, p.edgeAnchorRef?.current?.side ?? 1
         );
         if (next >= 0) setPieFocusBoth(next);
       }

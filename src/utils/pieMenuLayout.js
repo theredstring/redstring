@@ -121,6 +121,7 @@ function rowShifts(rows, step, staggerFraction) {
  * @param {number}  opts.step             centre-to-centre spacing along a row
  * @param {number}  opts.perpOffset       distance from the edge to row 0
  * @param {number}  opts.rowGap           centre-to-centre spacing between rows
+ * @param {number} [opts.side]            1 stacks rows on the edge's upper side, -1 below it
  * @param {number} [opts.maxPerRow]
  * @param {number} [opts.staggerFraction]
  * @returns {Array<{x:number, y:number, row:number, col:number, rowCount:number}>}
@@ -132,6 +133,7 @@ export function lineModeLayout({
   step,
   perpOffset,
   rowGap,
+  side = 1,
   maxPerRow = LINE_MODE_MAX_PER_ROW,
   staggerFraction = LINE_MODE_STAGGER_FRACTION,
 }) {
@@ -141,11 +143,13 @@ export function lineModeLayout({
   const shifts = rowShifts(rows, step, staggerFraction);
 
   // Along-edge unit vector, and the perpendicular pointing to the upward side.
-  // anchorAngle is always in [-π/2, π/2], so this is guaranteed to be "up".
+  // anchorAngle is always in [-π/2, π/2], so this is guaranteed to be "up";
+  // side -1 flips it below. Button order along the edge stays the same.
+  const s = side < 0 ? -1 : 1;
   const alongX = Math.cos(angle);
   const alongY = Math.sin(angle);
-  const perpX = Math.sin(angle);
-  const perpY = -Math.cos(angle);
+  const perpX = s * Math.sin(angle);
+  const perpY = s * -Math.cos(angle);
 
   const positions = [];
   rows.forEach((rowSize, row) => {

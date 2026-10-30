@@ -100,6 +100,7 @@ export function focusEdgePieMenuInViewWith(ctx, anchor, buttonCount, labelRect =
   const bounds = lineModeBounds(anchor.x, anchor.y, bSize / 2, {
     count: buttonCount,
     angle: anchor.angle ?? 0,
+    side: anchor.side ?? 1,
     step: bSize + bPad,
     perpOffset: bSize + bPad * 2,
     rowGap: bSize + bPad,

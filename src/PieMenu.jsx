@@ -371,6 +371,7 @@ const PieMenu = ({
     ? lineModeLayout({
       count: displayedButtons.length,
       angle: anchorAngle,
+      side: anchor?.side ?? 1,
       step: bSize + bPad,
       perpOffset: bSize + bPad * 2,
       rowGap: bSize + bPad,

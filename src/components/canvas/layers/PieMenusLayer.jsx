@@ -94,7 +94,7 @@ export default function PieMenusLayer({ ctx }) {
           // Same values, same object: EdgePieMenu is memoized on the anchor's identity.
           const prev = placedAnchorRef.current;
           const same = prev && prev.edgeId === next.edgeId && prev.x === next.x && prev.y === next.y
-            && prev.angle === next.angle && prev.sourceId === next.sourceId && prev.destinationId === next.destinationId;
+            && prev.angle === next.angle && prev.side === next.side && prev.sourceId === next.sourceId && prev.destinationId === next.destinationId;
           if (!same) placedAnchorRef.current = next;
           anchor = placedAnchorRef.current;
         }

@@ -99,11 +99,27 @@ export function computeSelectedEdgeMidpoint(ctx) {
   // connection crosses vertical — button order has to stay stable.
   let normalized = ((angleDeg % 180) + 180) % 180;
   if (normalized > 90) normalized -= 180;
+  const angle = normalized * (Math.PI / 180);
+
+  // The menu opens on the connection's upper side, except on one that bows out
+  // of a parallel bundle: there it opens on the side it bows toward. Upward from
+  // the lower of a pair crossed its sibling and sat on the sibling's label, so it
+  // read as the other connection's menu. Manhattan lanes don't bow; they keep up.
+  let side = 1;
+  const bundle = edgeCurveInfo.get(edgeId);
+  const bowed = bundle && bundle.totalInPair > 1 && bundle.pairIndex !== (bundle.totalInPair - 1) / 2;
+  if (bowed && edge.sourceId !== destId && !(enableAutoRouting && routingStyle === 'manhattan')) {
+    const midX = (sNode.x + sD.currentWidth / 2 + dNode.x + dD.currentWidth / 2) / 2;
+    const midY = (sNode.y + sD.currentHeight / 2 + dNode.y + dD.currentHeight / 2) / 2;
+    const upward = (x - midX) * Math.sin(angle) - (y - midY) * Math.cos(angle);
+    if (upward < -1) side = -1;
+  }
 
   return {
     x,
     y,
-    angle: normalized * (Math.PI / 180), // PieMenu's anchorAngle is radians
+    angle, // PieMenu's anchorAngle is radians
+    side, // 1 lays the rows on the upper side of the connection, -1 below
     sourceId: edge.sourceId,
     destinationId: destId,
     edgeId,
