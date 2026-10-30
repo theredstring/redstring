@@ -4,6 +4,48 @@ All notable changes to Redstring are documented in this file. Logs should be bri
 
 Versions before 0.1.0-alpha were never released. They are numbered after the fact to mark milestones in development.
 
+## [0.15.10] (1.0.0 pre-release) - 2026-10-30
+
+This is the pre-release build of Redstring 1.0.0.
+
+### Added
+- **Formulas.** Right-click the canvas › New Formula, then type an equation in Math or Code notation or pick one from the formula bank. It's built on the web as Things, one for each quantity, and drawn as the formula. Its pie menu switches between the formula and its Things, and between names and symbols. Copy puts its text on the clipboard too.
+- **A formula bank** of well-known equations from Wikidata and MathModDB, updated from Settings. The Formula Starter, offered in the New Formula box, adds a set of them to a universe.
+- **The Wizard writes formulas.** It can search the bank, add a formula to a web, and rewrite or delete one.
+- **Shared universes merge.** When two people save the same universe to Git, their changes are merged instead of one asking which version to keep. Edits made offline are kept and merged when you're back.
+- **History's Git list says who saved and what each save did**, like Added "Pressure" or connected "Tree" to "Pressure". On GitHub, saves are signed by your account.
+- **Merge selected Things.** With two or more Things selected, Merge in their panel opens the merge page on them, showing what each brings and where they disagree.
+- **A pie menu for Thing-groups**: Open Definition, Open in Panel, Combine Into Thing, Edit Name, Change Color, Ungroup and Delete.
+- **One definition can open in more than one Thing-group on a web.** A Thing dragged in one moves in the others too.
+- **Group Title Size** in Settings.
+- **What's New** opens after an update with what changed, and is in Help.
+- **The header and its menu work from the keyboard.**
+
+### Changed
+- **A Thing-group always opens its definition in place.** Editing inside it edits the definition; there are no copies to update.
+- **A dragged Thing-group lifts above everything else**, with all it holds and its connections.
+- **Group boxes hold the connections drawn among their Things**, so a curved connection no longer runs through the box's edge.
+- **A newly opened web frames its largest cluster.**
+- **Saves wait until you stop**, panning included, and never wait more than a few seconds while you keep working.
+- **Git sync carries universes up to 95 MB**, up from 50 MB. Past that, a dialog says so once.
+- **Alerts and questions use Redstring's own dialogs** instead of the browser's.
+- **Create New Thing is now Create or Open Web.**
+- **Big universes are smoother**, most of all on iPad: opening a selector, switching and resizing panels with many tabs open.
+- **The Wizard can finish what it's building** past its token budget, up to twice that.
+
+### Fixed
+- **A universe file saved elsewhere could be saved over.** If another device or app changes the linked file while it's open, Redstring asks which version to keep, and the other goes to History.
+- **A local file that couldn't be read was saved over** with the older Git copy. It's now left alone until it reads again.
+- **A save could keep every Thing but lose the connections**, or reach the file through a universe switch past the guard that stops autosave from shrinking a universe. Both are refused now.
+- **Memory grew with images and long sessions** until the app crashed, worst on iPad.
+- **One crashing part of the app blanked all of it.** It now shows Try Again in place, and the desktop app reloads a window that dies instead of leaving it white.
+- **A universe saved on iPad past 25 MB wouldn't open there again.**
+- **A tap on empty canvas didn't make a plus sign** when zoomed in or right after a pinch.
+- **Scrolling a panel pressed the buttons it passed over.**
+- **Dropping into nested or repeated Thing-groups** made Things jump or land in the wrong place.
+- **Formulas and Thing-groups in shared universes** could break when reopened or merged.
+- **The updater refused a release over its own release candidate.**
+
 ## [0.15.9] - 2026-10-09
 ### Added
 - **Import an ontology.** File › Import Ontology… reads OWL, Turtle, N-Triples, TriG, JSON-LD, OBO Graphs and Wikidata exports, gzipped or not. Pick the roots and how deep to go, and it comes in as Things with their types, webs of their parts, kinds and connections. Each term keeps its IRI, so importing it again finds the same Thing. It can go into the open universe or a new one, and the Universes panel has New from Ontology… too. The command line has `redstring import`.
