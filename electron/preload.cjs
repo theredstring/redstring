@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('electron', {
     writeFile: (filePath, content) => ipcRenderer.invoke('file:write', filePath, content),
     deleteFile: (filePath) => ipcRenderer.invoke('file:delete', filePath),
     fileExists: (filePath) => ipcRenderer.invoke('file:exists', filePath),
+    statFile: (filePath) => ipcRenderer.invoke('file:stat', filePath),
     folderExists: (folderPath) => ipcRenderer.invoke('file:folderExists', folderPath),
     getPathParent: (filePath) => ipcRenderer.invoke('file:getPathParent', filePath),
     mkdir: (folderPath) => ipcRenderer.invoke('file:mkdir', folderPath),

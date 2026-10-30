@@ -39,6 +39,19 @@ describe('askConfirm / showNotice', () => {
     await expect(answer).resolves.toBe(false);
   });
 
+  it('when cancel is a choice of its own, Escape answers neither', async () => {
+    render(<AppDialogHost />);
+    let escaped;
+    act(() => { escaped = askConfirm({ title: 'Saved Elsewhere', confirmLabel: 'Open That Version', cancelLabel: 'Keep Mine', dismissed: null }); });
+    await act(() => { fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' }); });
+    await expect(escaped).resolves.toBeNull();
+
+    let kept;
+    act(() => { kept = askConfirm({ title: 'Saved Elsewhere', confirmLabel: 'Open That Version', cancelLabel: 'Keep Mine', dismissed: null }); });
+    await click('Keep Mine');
+    await expect(kept).resolves.toBe(false);
+  });
+
   it('a notice shows its title and detail line and resolves when dismissed', async () => {
     render(<AppDialogHost />);
     let done;

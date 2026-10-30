@@ -60,9 +60,11 @@ import {
   readFileBytes,
   writeFile,
   fileExists,
+  statFile,
   getFileIdentifier,
   getFileName
 } from '../utils/fileAccessAdapter.js';
+import { askConfirm, hasAppDialogHost } from '../components/shared/appDialogs.js';
 import { isVerbose } from '../utils/verboseLog.js';
 import {
   isCapacitor,
@@ -165,6 +167,23 @@ const LOCAL_FILE_ERROR = {
   UNREADABLE: 'LOCAL_FILE_UNREADABLE'
 };
 
+/** SHA-256 of a file's bytes, as hex, or null where WebCrypto isn't available. */
+async function hashFileBytes(content) {
+  try {
+    // Tagged rather than instanceof: bytes can come from another realm (a worker).
+    const bytes = Object.prototype.toString.call(content) === '[object Uint8Array]' ? content
+      : typeof content === 'string' ? new TextEncoder().encode(content) : null;
+    const subtle = globalThis.crypto?.subtle;
+    if (!bytes || !subtle) return null;
+    const digest = new Uint8Array(await subtle.digest('SHA-256', bytes));
+    let hex = '';
+    for (const b of digest) hex += b.toString(16).padStart(2, '0');
+    return hex;
+  } catch (_) {
+    return null;
+  }
+}
+
 function createLocalFileError(code, message) {
   const error = new Error(message);
   error.code = code;
@@ -215,6 +234,17 @@ class UniverseBackend {
     // and writing it would replace whatever the file holds. Cleared when the
     // file reads again or the person picks a file (setFileHandle).
     this.unreadableLocalFiles = new Map();
+    // slug -> { size, mtimeMs, hash }: the linked file as this device last read
+    // or wrote it. A different file on disk at the next save means something
+    // else saved it (another device through a synced folder, another app).
+    this.localFileStamps = new Map();
+    // Slugs whose linked file holds a save from elsewhere that the person
+    // hasn't chosen between: nothing writes to it until they do.
+    this.changedLocalFiles = new Set();
+    this._askingAboutLocalFile = new Set();
+    // slug -> promise: a check, its write and the new stamp run one at a time,
+    // so a check never lands between a write and its stamp.
+    this._localFileQueues = new Map();
     this.gitSyncEngines = new Map(); // slug -> GitSyncEngine
     // slug -> { sha, nodeCount, ts } from direct provider reads that bypass
     // the engine (loadFromGitDirect). Seeded into the engine at creation so
@@ -1684,6 +1714,8 @@ class UniverseBackend {
       }
 
       this.isInitialized = true;
+      // Every universe with a linked file, Git or not.
+      this._startLocalFileWatch();
       this.notifyStatus('info', 'Universe backend initialized');
 
       umLog('[UniverseBackend] Backend service initialized successfully');
@@ -3642,6 +3674,9 @@ class UniverseBackend {
     if (this._unreadableLocalFileReason(universe.slug) !== null) {
       throw new Error('The local file could not be read, so it was not saved over. Fix the file, or choose a file for this universe again.');
     }
+    if (this.changedLocalFiles?.has(universe.slug)) {
+      throw new Error('The local file was saved by something else since Redstring last did, so it was not saved over.');
+    }
 
     // Electron: fileHandle is a string path, Browser: fileHandle is a FileHandle object
     const ensurePermission = async () => {
@@ -4064,6 +4099,8 @@ class UniverseBackend {
   async setFileHandle(slug, fileHandle, options = {}) {
     this.fileHandles.set(slug, fileHandle);
     this.unreadableLocalFiles?.delete(slug);
+    this.localFileStamps?.delete(slug);
+    this.changedLocalFiles?.delete(slug);
 
     let displayPath = options.displayPath || options.originalPath || null;
     let fileName = options.fileName || null;
@@ -6652,6 +6689,7 @@ class UniverseBackend {
 
     // Electron/Capacitor: fileHandle is a path string, Browser: FileHandle object
     let bytes;
+    let statBeforeRead = null;
     try {
       if (usesPathHandles()) {
         // Check if file exists first
@@ -6667,6 +6705,10 @@ class UniverseBackend {
         }
       }
 
+      // Taken before the read: a save from elsewhere landing during the read
+      // then shows as a change at the next save (asked about) rather than
+      // being taken for what was read (and written over).
+      statBeforeRead = await statFile(fileHandle);
       // As bytes: a big universe is more than one string can hold.
       bytes = await readFileBytes(fileHandle);
     } catch (error) {
@@ -6702,6 +6744,7 @@ class UniverseBackend {
       // Empty or blank: nothing there to lose.
       if (redstringData === null) {
         this.unreadableLocalFiles?.delete(slug);
+        await this._recordLocalFileStamp(slug, fileHandle, bytes, statBeforeRead);
         return null;
       }
       // Format-backup invariant (P0.5/D4): before any import or migration reshapes the
@@ -6726,6 +6769,7 @@ class UniverseBackend {
       }
       this._tagLocalCopyBase(storeState, this._readFileBaseRecord(slug, bytes?.length));
       this.unreadableLocalFiles?.delete(slug);
+      await this._recordLocalFileStamp(slug, fileHandle, bytes, statBeforeRead);
       return storeState;
     } catch (error) {
       umWarn('[UniverseBackend] Failed to parse local file JSON:', error);
@@ -6747,6 +6791,224 @@ class UniverseBackend {
    */
   _unreadableLocalFileReason(slug) {
     return this.unreadableLocalFiles?.get(slug) ?? null;
+  }
+
+  // ── A linked file saved by something else ─────────────────────────────
+  //
+  // A file in a synced folder (Dropbox, iCloud Drive) can be saved on another
+  // machine while this one has it open, and the next autosave here used to
+  // write over that save without a word. Each read and write records the
+  // file's size, time and hash; a save first checks the file is still that
+  // one. When it isn't, the save is refused and the person chooses which
+  // version to keep, the other going to History as a backup. A focused
+  // window, and every 30 s while visible, checks too, so a stale canvas is
+  // noticed before it is edited.
+
+  /** @private One check-write-stamp at a time per universe. */
+  _withLocalFile(slug, op) {
+    if (!this._localFileQueues) this._localFileQueues = new Map();
+    const prior = this._localFileQueues.get(slug) || Promise.resolve();
+    const run = prior.catch(() => {}).then(op);
+    this._localFileQueues.set(slug, run);
+    run.catch(() => {}).finally(() => {
+      if (this._localFileQueues.get(slug) === run) this._localFileQueues.delete(slug);
+    });
+    return run;
+  }
+
+  /**
+   * @private Remember the linked file as this device just read or wrote it.
+   * `stat` is passed when it was taken before a read; otherwise it is taken now.
+   */
+  async _recordLocalFileStamp(slug, handle, content, stat = undefined) {
+    if (!this.localFileStamps) this.localFileStamps = new Map();
+    const now = stat === undefined ? await statFile(handle) : stat;
+    const hash = now ? await hashFileBytes(content) : null;
+    if (now && hash) this.localFileStamps.set(slug, { size: now.size, mtimeMs: now.mtimeMs, hash });
+    else this.localFileStamps.delete(slug);
+  }
+
+  /**
+   * @private Has something else saved the linked file since this device last
+   * read or wrote it? Size and time first, which reads nothing; only when they
+   * differ is the file read and hashed, so a touch that left the content alone
+   * is not a change. Unknown (no record, a platform that can't say) is no.
+   */
+  async _localFileChangedElsewhere(slug, handle) {
+    const known = this.localFileStamps?.get(slug);
+    if (!known || !handle) return false;
+    const now = await statFile(handle);
+    if (!now) return false;
+    if (now.size === known.size && now.mtimeMs === known.mtimeMs) return false;
+    let bytes;
+    try {
+      bytes = await readFileBytes(handle);
+    } catch (_) {
+      return false;
+    }
+    const hash = await hashFileBytes(bytes);
+    if (!hash) return false;
+    if (hash === known.hash) {
+      this.localFileStamps.set(slug, { size: now.size, mtimeMs: now.mtimeMs, hash });
+      return false;
+    }
+    return true;
+  }
+
+  /** @private The linked file holds a save from elsewhere: stop writing it, and ask. */
+  _onLocalFileChangedElsewhere(slug) {
+    if (!this.changedLocalFiles) this.changedLocalFiles = new Set();
+    if (!this.changedLocalFiles.has(slug)) {
+      umWarn(`[UniverseBackend] The linked file of ${slug} was saved elsewhere since this device last read or wrote it; not writing over it.`);
+      this.changedLocalFiles.add(slug);
+    }
+    this._askAboutChangedLocalFile(slug).catch((error) => {
+      umWarn('[UniverseBackend] Could not ask about the changed file:', error?.message || error);
+    });
+  }
+
+  /**
+   * @private Which version to keep. Closing the question without choosing
+   * leaves the file alone and asks again the next time the window is focused.
+   */
+  async _askAboutChangedLocalFile(slug) {
+    if (!this._askingAboutLocalFile) this._askingAboutLocalFile = new Set();
+    if (this._askingAboutLocalFile.has(slug)) return;
+    const name = this.getUniverse(slug)?.name || slug;
+    if (!hasAppDialogHost()) {
+      this.notifyStatus('warning', `"${name}" was saved elsewhere, so it isn't being saved over. Reload to open that version.`);
+      return;
+    }
+    this._askingAboutLocalFile.add(slug);
+    try {
+      const answer = await askConfirm({
+        title: 'Saved Elsewhere',
+        message: `"${name}" was saved by something else since Redstring last saved it: another device through a synced folder, or another app.`,
+        details: 'The version you don\'t keep goes to History as a backup.',
+        confirmLabel: 'Open That Version',
+        cancelLabel: 'Keep Mine',
+        variant: 'warning',
+        dismissed: null,
+      });
+      if (answer === true) await this._openChangedLocalFile(slug);
+      else if (answer === false) await this._keepMineOverChangedLocalFile(slug);
+    } finally {
+      this._askingAboutLocalFile.delete(slug);
+    }
+  }
+
+  /** @private Open the version on disk. What was open here goes to History first. */
+  async _openChangedLocalFile(slug) {
+    const state = slug === this.activeUniverseSlug ? this.storeOperations?.getState?.() : null;
+    if (state?.graphs) {
+      try {
+        await backUpNow(slug, { content: serializeRedstring(exportToRedstring(state)) });
+      } catch (error) {
+        umWarn('[UniverseBackend] Could not back up the open version before opening the saved one:', error?.message || error);
+        this.notifyStatus('warning', `Couldn't keep a backup of what's open, so nothing was replaced. ${error?.message || ''}`.trim());
+        return false;
+      }
+    }
+    this.changedLocalFiles?.delete(slug);
+    this.localFileStamps?.delete(slug);
+    if (slug !== this.activeUniverseSlug) return true;
+    return this._reopenActiveFromFile(slug, `Opened the version of "${this.getUniverse(slug)?.name || slug}" saved elsewhere. Yours is in History.`);
+  }
+
+  /** @private Keep what is open and save it over the file. The file's version goes to History first. */
+  async _keepMineOverChangedLocalFile(slug) {
+    const handle = this.fileHandles.get(slug);
+    let onDisk = null;
+    try {
+      onDisk = handle ? await readFileBytes(handle) : null;
+    } catch (_) { /* gone or unreadable: nothing of theirs to keep */ }
+    if (onDisk && !isBlankBytes(onDisk)) {
+      try {
+        await backUpNow(slug, { content: onDisk });
+      } catch (error) {
+        umWarn('[UniverseBackend] Could not back up the version on disk before saving over it:', error?.message || error);
+        this.notifyStatus('warning', `Couldn't keep a backup of the version on disk, so it wasn't saved over. ${error?.message || ''}`.trim());
+        return false;
+      }
+    }
+    // What is on disk now is known (and kept), so the next save may replace it.
+    await this._withLocalFile(slug, () => this._recordLocalFileStamp(slug, handle, onDisk || new Uint8Array()));
+    this.changedLocalFiles?.delete(slug);
+    this.notifyStatus('info', `Keeping yours. The version saved elsewhere is in History.`);
+    if (slug === this.activeUniverseSlug) {
+      try {
+        await loadGateCoordinator?.flush?.('keep-mine');
+      } catch (_) { /* autosave picks it up */ }
+    }
+    return true;
+  }
+
+  /** @private Load the active universe again and put it on the canvas. */
+  async _reopenActiveFromFile(slug, message) {
+    const universe = this.getUniverse(slug);
+    if (!universe) return false;
+    // Pending saves hold the state being replaced: they must not land after it.
+    try { loadGateCoordinator?.cancelPendingSaves?.(); } catch (_) { /* ignore */ }
+    try {
+      const storeState = await this.loadUniverseData(universe);
+      if (!storeState) return false;
+      this.storeOperations?.loadUniverseFromFile?.(storeState);
+      this.notifyStatus('info', message);
+      return true;
+    } catch (error) {
+      umWarn('[UniverseBackend] Reopening the file failed:', error?.message || error);
+      this.notifyStatus('warning', `Couldn't open the file: ${error?.message || error}`);
+      return false;
+    }
+  }
+
+  /**
+   * One check of the active universe's linked file for a save from
+   * elsewhere. With nothing unsaved here the file is simply opened again, as
+   * an editor reopens a file changed underneath it; otherwise the person chooses.
+   */
+  async checkLocalFileForChanges() {
+    const slug = this.activeUniverseSlug;
+    const universe = slug ? this.getUniverse(slug) : null;
+    const handle = slug ? this.fileHandles.get(slug) : null;
+    if (!universe?.localFile?.enabled || !handle) return { skipped: 'no-file' };
+    if (this._isLoadInFlight?.()) return { skipped: 'busy' };
+    const coordinator = loadGateCoordinator;
+    if (coordinator?.isGlobalDragging || coordinator?.loadInFlight > 0 || coordinator?.isSaving) return { skipped: 'busy' };
+    if (this.changedLocalFiles?.has(slug)) {
+      await this._askAboutChangedLocalFile(slug);
+      return { asked: true };
+    }
+    const changed = await this._withLocalFile(slug, () => this._localFileChangedElsewhere(slug, handle));
+    if (!changed) return { changed: false };
+    if (coordinator?.hasUnsavedChanges?.() || this.activeUniverseSlug !== slug) {
+      this._onLocalFileChangedElsewhere(slug);
+      return { changed: true, asked: true };
+    }
+    this.localFileStamps?.delete(slug);
+    const reopened = await this._reopenActiveFromFile(slug, `Opened "${universe.name || slug}" again: it was saved elsewhere.`);
+    return { changed: true, reopened };
+  }
+
+  /** Check the linked file on focus, on becoming visible, and every 30 s while visible. */
+  _startLocalFileWatch() {
+    if (this._localFileWatchStarted || typeof window === 'undefined') return;
+    this._localFileWatchStarted = true;
+    let last = 0;
+    const check = () => {
+      const now = Date.now();
+      if (now - last < 2000) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      last = now;
+      this.checkLocalFileForChanges().catch(() => {});
+    };
+    this._localFileWatchTimer = setInterval(check, REMOTE_WATCH_INTERVAL_MS);
+    window.addEventListener('focus', check);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') check();
+      });
+    }
   }
 
   /**
@@ -7774,6 +8036,12 @@ class UniverseBackend {
       return { blocked: true, reason: 'the local file could not be read' };
     }
 
+    // Something else saved the file and the person hasn't said which version
+    // to keep (_askAboutChangedLocalFile).
+    if (this.changedLocalFiles?.has(universeSlug)) {
+      return { blocked: true, reason: 'the file was saved elsewhere' };
+    }
+
     // Identity guard at the byte-exit point: state stamped for a different
     // universe must never reach this universe's file.
     if (storeState?._universeSlug && storeState._universeSlug !== universeSlug) {
@@ -7951,9 +8219,19 @@ class UniverseBackend {
       }
     }
 
+    let savedElsewhere = false;
     try {
-      // Use the unified file access adapter
-      await writeFile(handle, fileContent);
+      // Written only if the file is still as this device left it.
+      savedElsewhere = await this._withLocalFile(universeSlug, async () => {
+        if (await this._localFileChangedElsewhere(universeSlug, handle)) return true;
+        await writeFile(handle, fileContent);
+        await this._recordLocalFileStamp(universeSlug, handle, fileContent);
+        return false;
+      });
+      if (savedElsewhere) {
+        this._onLocalFileChangedElsewhere(universeSlug);
+        return { blocked: true, reason: 'the file was saved elsewhere' };
+      }
 
       // A backup, if one is due (universeBackups.js). Not awaited: it never
       // holds up a save, and a backup that fails is only logged. Electron

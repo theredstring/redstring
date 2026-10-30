@@ -495,6 +495,18 @@ export const capFileExists = async (handle) => {
   }
 };
 
+/** Size and last-modified time of a managed file, or null. */
+export const capStatFile = async (handle) => {
+  try {
+    const { Filesystem, Directory } = await fs();
+    const { directory, path } = await locate(handle);
+    const { size, mtime } = await Filesystem.stat({ path, directory: Directory[directory] });
+    return Number.isFinite(size) && Number.isFinite(mtime) ? { size, mtimeMs: mtime } : null;
+  } catch {
+    return null;
+  }
+};
+
 export const capDeleteFile = async (handle) => {
   const { Filesystem, Directory } = await fs();
   const { directory, path } = await locate(handle);

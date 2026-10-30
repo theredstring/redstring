@@ -23,6 +23,8 @@ export const useAppDialogStore = create(() => ({
 
 let hostMounted = false;
 export const setAppDialogHostMounted = (mounted) => { hostMounted = !!mounted; };
+/** Whether a question asked now can be answered (false in tests and headless runs). */
+export const hasAppDialogHost = () => hostMounted;
 
 let nextId = 1;
 
@@ -37,8 +39,10 @@ function enqueue(kind, options, fallback) {
 /**
  * Ask a yes/no question.
  * @param {{ title: string, message?: string, details?: string, confirmLabel?: string,
- *   cancelLabel?: string, variant?: 'default'|'danger'|'warning'|'info' }} options
- * @returns {Promise<boolean>} true on confirm; false on cancel, Escape or the scrim.
+ *   cancelLabel?: string, variant?: 'default'|'danger'|'warning'|'info', dismissed?: * }} options
+ *   `dismissed` is the answer when the person closes it without choosing
+ *   (Escape, the scrim): false unless the cancel button is a choice of its own.
+ * @returns {Promise<boolean|*>} true on confirm; false on cancel; `dismissed` on Escape or the scrim.
  */
 export function askConfirm({
   title,
@@ -47,8 +51,9 @@ export function askConfirm({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   variant = 'default',
+  dismissed = false,
 } = {}) {
-  return enqueue('confirm', { title, message, details, confirmLabel, cancelLabel, variant }, false);
+  return enqueue('confirm', { title, message, details, confirmLabel, cancelLabel, variant, dismissed }, false);
 }
 
 /**
@@ -67,10 +72,15 @@ export function showNotice({
   return enqueue('notice', { title, message, details, confirmLabel: buttonLabel, variant }, undefined);
 }
 
+/** Passed by the host when a question is closed without a choice (Escape, the scrim). */
+export const DISMISSED = Symbol('dismissed');
+
 /** The host's buttons. Settles the request with this id and shows the next one. */
 export function answerAppDialog(id, value) {
   const request = useAppDialogStore.getState().queue.find((r) => r.id === id);
   if (!request) return; // already answered (ConfirmDialog calls onClose after onConfirm)
   useAppDialogStore.setState((s) => ({ queue: s.queue.filter((r) => r.id !== id) }));
-  request.resolve(request.kind === 'confirm' ? value === true : undefined);
+  if (request.kind !== 'confirm') request.resolve(undefined);
+  // askConfirm always sets `dismissed` (false unless the caller chose another answer, null included).
+  else request.resolve(value === DISMISSED ? request.dismissed : value === true);
 }

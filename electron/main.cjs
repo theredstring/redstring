@@ -1040,6 +1040,19 @@ handle('file:exists', async (event, filePath) => {
   }
 });
 
+// Size and modification time, nothing read: how the renderer notices a
+// linked file that something else (a synced folder, another app) saved since
+// it last read or wrote it. Null when the file is gone.
+handle('file:stat', async (event, filePath) => {
+  const safePath = assertAccessAllowed(filePath, 'file:stat');
+  try {
+    const stats = await fs.stat(safePath);
+    return stats.isFile() ? { size: stats.size, mtimeMs: stats.mtimeMs } : null;
+  } catch {
+    return null;
+  }
+});
+
 handle('file:folderExists', async (event, folderPath) => {
   try {
     const safePath = assertAccessAllowed(folderPath, 'file:folderExists');

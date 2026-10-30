@@ -103,6 +103,17 @@ describe('electron/main.cjs', () => {
       await expect(ctx.invoke('file:read', ev, path.join(ctx.userData, 'secrets', 'x.secret'))).rejects.toThrow(/not approved/);
       await expect(ctx.invoke('file:readBytes', ev, path.join(ctx.userData, 'secrets', 'x.secret'))).rejects.toThrow(/not approved/);
       await expect(ctx.invoke('file:readBytes', ev, approvalsFile)).rejects.toThrow(/not approved/);
+      await expect(ctx.invoke('file:stat', ev, approvalsFile)).rejects.toThrow(/not approved/);
+    });
+
+    it('tells a reachable file\'s size and modified time, and null once it is gone', async () => {
+      const ev = ipcEvent(APP);
+      const inDocs = path.join(ctx.documents, 'Redstring', 'stat.redstring');
+      await ctx.invoke('file:write', ev, inDocs, '{"ok":1}');
+      const stat = await ctx.invoke('file:stat', ev, inDocs);
+      expect(stat).toEqual({ size: 8, mtimeMs: fs.statSync(inDocs).mtimeMs });
+      fs.rmSync(inDocs);
+      expect(await ctx.invoke('file:stat', ev, inDocs)).toBeNull();
     });
 
     it('the documents folder and the dedicated files folder stay writable', async () => {

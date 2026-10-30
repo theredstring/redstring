@@ -26,6 +26,7 @@ import {
   capReadTextFile,
   capWriteTextFile,
   capFileExists,
+  capStatFile,
   capListFiles,
   UNIVERSES_FOLDER
 } from './capacitorAdapter.js';
@@ -286,6 +287,33 @@ export const fileExists = async (fileHandleOrPath) => {
   // In browser, having a FileHandle object means we have a reference.
   // For robust checking we might try to getFile(), but usually this suffices.
   return !!fileHandleOrPath;
+};
+
+/**
+ * A file's size and last-modified time, without reading it, or null where the
+ * platform can't say (a window still on an older preload, a handle that no
+ * longer resolves). universeBackend uses it to notice a linked file that
+ * something else saved since this device last read or wrote it.
+ * @param {FileHandle|string} fileHandleOrPath
+ * @returns {Promise<{size: number, mtimeMs: number}|null>}
+ */
+export const statFile = async (fileHandleOrPath) => {
+  if (!fileHandleOrPath) return null;
+  try {
+    if (isCapacitorHandle(fileHandleOrPath)) return await capStatFile(fileHandleOrPath);
+    if (isElectron() && typeof fileHandleOrPath === 'string') {
+      const fsApi = window.electron?.fileSystem;
+      if (typeof fsApi?.statFile !== 'function') return null;
+      return await fsApi.statFile(fileHandleOrPath);
+    }
+    if (typeof fileHandleOrPath.getFile === 'function') {
+      const file = await fileHandleOrPath.getFile();
+      return { size: file.size, mtimeMs: file.lastModified };
+    }
+  } catch {
+    // Unknown, not "changed": the caller writes as it always has.
+  }
+  return null;
 };
 
 /**

@@ -3,7 +3,7 @@ import { AlertTriangle, Info } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import Dialog, { DialogButton, DialogNote } from './Dialog.jsx';
-import { useAppDialogStore, setAppDialogHostMounted, answerAppDialog } from './appDialogs.js';
+import { useAppDialogStore, setAppDialogHostMounted, answerAppDialog, DISMISSED } from './appDialogs.js';
 
 /**
  * Renders askConfirm / showNotice (appDialogs.js), one at a time, front of the
@@ -72,8 +72,10 @@ const AppDialogHost = () => {
           cancelLabel={request.cancelLabel}
           variant={request.variant}
           onConfirm={() => answerAppDialog(request.id, true)}
-          // Also called after onConfirm; the first answer stands.
-          onClose={() => answerAppDialog(request.id, false)}
+          onCancel={() => answerAppDialog(request.id, false)}
+          // Also called after onConfirm and onCancel; the first answer stands.
+          // On its own it is Escape or the scrim: closed without a choice.
+          onClose={() => answerAppDialog(request.id, DISMISSED)}
         />
       ) : (
         <NoticeDialog key={request.id} request={request} />
