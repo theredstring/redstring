@@ -9,6 +9,7 @@ import DialogGallery from './DialogGallery.jsx';
 import ModalGallery from './ModalGallery.jsx';
 import PaletteEditor from './PaletteEditor.jsx';
 import DruidWarningDialog from './DruidWarningDialog.jsx';
+import ConfirmDialog from '../shared/ConfirmDialog.jsx';
 import WhatsNewRehearsal from './WhatsNewRehearsal.jsx';
 
 /**
@@ -41,6 +42,7 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
   const [settings, setSettings] = useState(() => debugConfig.getConfig());
   // Switching the Druid on waits for its warning to be confirmed.
   const [askDruid, setAskDruid] = useState(false);
+  const [askDisableStorage, setAskDisableStorage] = useState(false);
 
   useEffect(() => debugConfig.addListener(setSettings), []);
 
@@ -205,9 +207,27 @@ const DebugSection = ({ onCloseSettings, onRelock }) => {
         </div>
         <Toggle
           checked={!!settings.disableLocalStorage}
-          onChange={(v) => debugConfig.setLocalStorageDisabled(v)}
+          onChange={(v) => {
+            if (v) { setAskDisableStorage(true); return; }
+            debugConfig.setLocalStorageDisabled(false);
+          }}
         />
       </div>
+      {askDisableStorage && typeof document !== 'undefined' && createPortal(
+        // Above Settings, as the Druid warning is.
+        <div style={{ position: 'relative', zIndex: 30000 }}>
+          <ConfirmDialog
+            isOpen
+            title="Disable Local Storage?"
+            message="Anything not yet saved to a file or a repo is lost on the next reload."
+            confirmLabel="Disable"
+            variant="warning"
+            onConfirm={() => debugConfig.setLocalStorageDisabled(true)}
+            onClose={() => setAskDisableStorage(false)}
+          />
+        </div>,
+        document.body
+      )}
       <div className="settings-row">
         <div className="settings-row-label">
           Force Git-Only Mode
