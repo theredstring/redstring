@@ -159,7 +159,10 @@ const HELD_SAVE_DEBOUNCE_MS = 3000;
 const LOCAL_FILE_ERROR = {
   PERMISSION: 'LOCAL_FILE_PERMISSION',
   MISSING: 'LOCAL_FILE_MISSING',
-  NOT_FOUND: 'LOCAL_FILE_NOT_FOUND'
+  NOT_FOUND: 'LOCAL_FILE_NOT_FOUND',
+  // The file is there but couldn't be read or understood (half-synced by a
+  // cloud drive, cut off mid-write, written by a newer Redstring).
+  UNREADABLE: 'LOCAL_FILE_UNREADABLE'
 };
 
 function createLocalFileError(code, message) {
@@ -207,6 +210,11 @@ class UniverseBackend {
 
     // File and Git engine management
     this.fileHandles = new Map(); // slug -> FileSystemFileHandle
+    // slug -> reason. The linked file is there but its last read failed, so
+    // nothing may write to it: the other copy loaded in its place may be older,
+    // and writing it would replace whatever the file holds. Cleared when the
+    // file reads again or the person picks a file (setFileHandle).
+    this.unreadableLocalFiles = new Map();
     this.gitSyncEngines = new Map(); // slug -> GitSyncEngine
     // slug -> { sha, nodeCount, ts } from direct provider reads that bypass
     // the engine (loadFromGitDirect). Seeded into the engine at creation so
@@ -3616,6 +3624,10 @@ class UniverseBackend {
       }
     }
 
+    if (this._unreadableLocalFileReason(universe.slug) !== null) {
+      throw new Error('The local file could not be read, so it was not saved over. Fix the file, or choose a file for this universe again.');
+    }
+
     // Electron: fileHandle is a string path, Browser: fileHandle is a FileHandle object
     const ensurePermission = async () => {
       if (usesPathHandles()) {
@@ -4036,6 +4048,7 @@ class UniverseBackend {
    */
   async setFileHandle(slug, fileHandle, options = {}) {
     this.fileHandles.set(slug, fileHandle);
+    this.unreadableLocalFiles?.delete(slug);
 
     let displayPath = options.displayPath || options.originalPath || null;
     let fileName = options.fileName || null;
@@ -4743,7 +4756,11 @@ class UniverseBackend {
     const gitRes = resultsMap.get(SOURCE_OF_TRUTH.GIT);
     if (gitRes?.data) {
       umLog('[UniverseBackend] Using Git fallback (Primary unavailable)');
-      this.notifyStatus('warning', 'Primary storage unavailable. Loaded from Git backup.');
+      if (this._unreadableLocalFileReason(universe.slug) !== null) {
+        this.notifyStatus('warning', `Couldn't read the local file for ${universe.name || universe.slug}. Opened the copy from Git, and the file won't be saved over until it reads again.`);
+      } else {
+        this.notifyStatus('warning', 'Primary storage unavailable. Loaded from Git backup.');
+      }
       // If dual-connected but no source of truth set, adopt this source
       if (!primaryDefined && hasLocal && hasGit) {
         umLog('[UniverseBackend] Auto-setting source of truth to git (loaded from git fallback)');
@@ -5007,16 +5024,16 @@ class UniverseBackend {
               umLog('[UniverseBackend] Secondary local sync skipped: permission not granted and prompts disabled');
               saved = false;
             } else {
-              await this.saveToLinkedLocalFile(slug, storeState, { suppressNotification: true });
-              saved = true;
+              const outcome = await this.saveToLinkedLocalFile(slug, storeState, { suppressNotification: true });
+              saved = !(outcome?.blocked || outcome?.skipped);
             }
           } catch (permError) {
             umWarn('[UniverseBackend] Permission check failed for secondary local sync:', permError);
           }
         } else {
           try {
-            await this.saveToLinkedLocalFile(slug, storeState, { suppressNotification: true });
-            saved = true;
+            const outcome = await this.saveToLinkedLocalFile(slug, storeState, { suppressNotification: true });
+            saved = !(outcome?.blocked || outcome?.skipped);
           } catch (error) {
             umWarn('[UniverseBackend] Secondary local sync failed:', error);
           }
@@ -6659,6 +6676,7 @@ class UniverseBackend {
         throw createLocalFileError(LOCAL_FILE_ERROR.NOT_FOUND, 'Local file not found. Reconnect the file to continue.');
       }
       umWarn('[UniverseBackend] Failed to read local file contents:', error);
+      this._markLocalFileUnreadable(universe, message || 'read failed');
       throw createLocalFileError(LOCAL_FILE_ERROR.MISSING, 'Failed to read the linked local file.');
     }
 
@@ -6666,7 +6684,11 @@ class UniverseBackend {
       // A big file is parsed a slice at a time (formats/universeBytes.js);
       // empty or blank comes back null.
       const redstringData = await parseRedstringBytes(bytes);
-      if (redstringData === null) return null;
+      // Empty or blank: nothing there to lose.
+      if (redstringData === null) {
+        this.unreadableLocalFiles?.delete(slug);
+        return null;
+      }
       // Format-backup invariant (P0.5/D4): before any import or migration reshapes the
       // data, preserve the original bytes of any older-than-current file. Local files have
       // no other safety net (git keeps history, browser storage keeps revisions; a freshly
@@ -6688,11 +6710,28 @@ class UniverseBackend {
         umLog(`[UniverseBackend] Local file migrated in memory (${importResult.version.imported} → ${importResult.version.current}); it will be written on the next save.`);
       }
       this._tagLocalCopyBase(storeState, this._readFileBaseRecord(slug, bytes?.length));
+      this.unreadableLocalFiles?.delete(slug);
       return storeState;
     } catch (error) {
       umWarn('[UniverseBackend] Failed to parse local file JSON:', error);
-      throw new Error(`Invalid local file format: ${error.message}`);
+      this._markLocalFileUnreadable(universe, error?.message || 'unreadable');
+      throw createLocalFileError(LOCAL_FILE_ERROR.UNREADABLE, `Invalid local file format: ${error.message}`);
     }
+  }
+
+  /** @private The linked file is there but couldn't be read: stop writing to it. */
+  _markLocalFileUnreadable(universe, reason) {
+    if (!universe?.slug) return;
+    if (!this.unreadableLocalFiles) this.unreadableLocalFiles = new Map();
+    this.unreadableLocalFiles.set(universe.slug, reason);
+  }
+
+  /**
+   * Why the linked file of `slug` may not be written, or null when it may.
+   * @private
+   */
+  _unreadableLocalFileReason(slug) {
+    return this.unreadableLocalFiles?.get(slug) ?? null;
   }
 
   /**
@@ -7711,6 +7750,13 @@ class UniverseBackend {
     if (this.pendingConflict?.universeSlug === universeSlug && !isConflictResolution) {
       umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: slot conflict pending`);
       return { skipped: true, reason: 'conflict-pending' };
+    }
+
+    // The file couldn't be read, so what it holds is unknown and may be newer
+    // than this state (a sync still arriving, a newer Redstring's format).
+    if (this._unreadableLocalFileReason(universeSlug) !== null) {
+      umWarn(`[UniverseBackend] saveToLinkedLocalFile blocked for ${universeSlug}: the file could not be read (${this._unreadableLocalFileReason(universeSlug)})`);
+      return { blocked: true, reason: 'the local file could not be read' };
     }
 
     // Identity guard at the byte-exit point: state stamped for a different
