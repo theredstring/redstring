@@ -17,10 +17,12 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 - **Hierarchical Organization**: Nodes can expand to reveal internal definition graphs
 - **Contextual Definitions**: Same concept can have different meanings in different contexts
 - **Visual Abstractions**: Multi-dimensional abstraction chains (specific → general)
+- **Formulas**: Equations drawn as webs, where every symbol is a Thing you can connect to
 
 ### Semantic Web Integration
-- **W3C Standards Compliant**: Full RDF, OWL, and JSON-LD support
-- **Dual-Format Storage**: Native Redstring format + RDF export for interoperability
+- **Linked Data Native**: A `.redstring` file is a JSON-LD document, aligned with SKOS and PROV
+- **RDF Export**: Turtle, TriG and N-Quads
+- **Ontology Import**: Turtle, TriG, N-Triples, N-Quads, RDF/XML (most `.owl` files), JSON-LD and OBO Graphs
 - **External Knowledge Sources**: Direct integration with Wikidata, DBpedia, and Wikipedia
 - **Property-Based Discovery**: Find related concepts through semantic relationships
 - **Cross-Domain Linking**: Connect knowledge across different sources and domains
@@ -28,31 +30,30 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 ### Local-First Storage Architecture
 - **Multi-Storage Sync**: Save to all enabled storage locations simultaneously
   - Local `.redstring` files (first-class, independent storage)
-  - Git repositories (GitHub/Gitea/GitLab - opt-in collaboration)
+  - Git repositories (GitHub or self-hosted Gitea, opt-in)
   - Browser storage (universal fallback/cache)
 - **Source of Truth**: Choose which storage drives your UI (matters for loading, not saving)
 - **Privacy by Design**: Git/GitHub cannot access data unless you explicitly enable it
 - **Resilient**: If one storage method fails, others still succeed
 
 ### Git Federation
-- **Real-Time Sync**: Sub-5-second auto-commits to Git repositories
-- **Hot-Swappable Providers**: Switch between GitHub, GitLab, Gitea, or self-hosted
-- **Multi-Provider Redundancy**: Backup to multiple Git providers simultaneously
-- **Instant Migration**: Move your entire semantic space between providers in minutes
-- **Version History**: Complete audit trail using Git's native capabilities
-- **Conflict Resolution**: Git merge capabilities for collaborative knowledge building
+- **Background Sync**: Commits a few seconds after you stop editing
+- **Providers**: GitHub (OAuth or GitHub App) or a self-hosted Gitea
+- **Shared Universes**: Several people can work in one universe; their edits merge automatically
+- **Version History**: Every Git save is a commit, and History shows who saved and what each save did
 
 ### The Wizard (AI Agent)
 - **Mystical Guide**: The Wizard is Redstring's AI agent — a guide through your knowledge graph with first-class access to create, explore, and transform your semantic space
-- **42 Specialized Tools**: Comprehensive tool suite spanning graph creation, semantic web discovery, tabular data import, and more
+- **51 Specialized Tools**: Comprehensive tool suite spanning graph creation, formulas, semantic web discovery, tabular data import, and more
+- **Bring Your Own Key**: The Wizard uses your own model provider key, stored on your device
 - **Model Context Protocol (MCP)**: Full MCP server for integration with external AI clients
 - **3-Tier Dynamic Tool Selection**: Core tools always available, advanced tools surface contextually based on graph state and user intent
 - **Transparent Operations**: Full visibility into AI tool calls and actions
 
 ### Format Versioning
-- **Automatic Migration**: Files from older versions (v1.0.0, v2.0.0) auto-upgrade to v3.0.0
-- **Version Validation**: Clear error messages for incompatible formats
-- **User Feedback**: Migration progress displayed during import
+- **Automatic Migration**: Files from older versions (v1 through v3) auto-upgrade on open
+- **Forward Compatible**: Fields from a newer minor version are kept, not dropped
+- **Version Validation**: A file from a newer major version is refused, after a backup is taken
 - **Data Protection**: Comprehensive validation before any data changes
 
 ## Getting Started for Humans
@@ -60,12 +61,12 @@ Redstring enables you to create, connect, and explore concepts through an intuit
 Redstring is a desktop-first app. The fastest path is the Electron build.
 
 ### Prerequisites
-- Node.js 18+ and npm
+- Node.js 20+ and npm (CI runs Node 24)
 
 ### Electron (recommended)
 
 ```bash
-git clone https://github.com/yourusername/redstring.git
+git clone https://github.com/theredstring/redstring.git
 cd redstring
 npm install
 npm run electron:dev
@@ -95,7 +96,7 @@ npm run dev:full   # frontend + OAuth server + main server in one terminal
 Redstring has a headless stack — the same Zustand store that powers the GUI runs in Node, driven by a CLI, HTTP API, or MCP server. **Start with `documentation/core-system/HEADLESS.md`** for the complete reference. The short version:
 
 ```bash
-git clone https://github.com/yourusername/redstring.git
+git clone https://github.com/theredstring/redstring.git
 cd redstring
 npm install
 
@@ -191,8 +192,8 @@ Redstring is designed as a **local-first** application where your data lives on 
 
 2. **Git Repository Sync**
    - Opt-in collaboration and backup
-   - Supports GitHub, GitLab, Gitea, or self-hosted Git
-   - Real-time sync with sub-5-second auto-commits
+   - Supports GitHub or a self-hosted Gitea
+   - Commits a few seconds after you stop editing
    - Enable only when you want to collaborate or backup to Git
 
 3. **Browser Storage (IndexedDB)**
@@ -207,9 +208,9 @@ When you save, Redstring saves to **ALL enabled storage locations** to keep them
 ```
 Your Edit → Save
     ↓
-    ├─→ Local File (if enabled) ✓
-    ├─→ Git Repo (if enabled)   ✓
-    └─→ Browser Cache (always)  ✓
+    ├─→ Local File (if enabled)
+    ├─→ Git Repo (if enabled)
+    └─→ Browser Cache (always)
 ```
 
 **Source of Truth** only matters when **loading** data—it determines which storage to trust if they differ.
@@ -219,10 +220,10 @@ Your Edit → Save
 Git federation enables collaborative knowledge building across teams and organizations.
 
 #### Key Features
-- **Provider Abstraction**: Unified interface for GitHub, GitLab, Gitea, etc.
-- **Authentication**: OAuth for GitHub, token auth for self-hosted
+- **Providers**: GitHub and self-hosted Gitea behind one interface
+- **Authentication**: OAuth or a GitHub App for GitHub, a token for Gitea
 - **Repository Structure**: Standard layout with `universes/<slug>/<file>.redstring`
-- **Conflict Handling**: Git merge capabilities with exponential backoff on conflicts
+- **Merging**: When two people save the same universe, their edits are merged against the version they both started from
 - **Rate Limiting**: Intelligent batching and circuit breaker protection
 
 #### Typical Workflow
@@ -232,34 +233,18 @@ Git federation enables collaborative knowledge building across teams and organiz
    - Build your knowledge graph
 
 2. **Link Git Repository (Optional)**
-   - Connect to GitHub/GitLab repository
+   - Connect to a GitHub or Gitea repository
    - Enable Git sync for backup and collaboration
    - Data stays local, with copies pushed to Git
 
 3. **Collaborate**
-   - Team members clone repository
-   - Multiple people can work simultaneously
-   - Conflicts resolved through Git merge
-
-4. **Switch Providers**
-   - Change Git provider anytime
-   - Export to new repository
-   - No data loss or migration complexity
-
-### Solid Pod Federation (Experimental)
-
-Redstring supports experimental integration with Solid Pods for decentralized storage.
-
-- **WebID Authentication**: Connect to any Solid Pod provider
-- **RDF Storage**: Store cognitive spaces as RDF/Turtle files
-- **Cross-Pod References**: Link concepts across different users' Pods
-- **Access Control**: Granular permissions using Solid protocols
-
-**Note**: Solid integration is experimental. Git federation is recommended for production use.
+   - Give others access to the repository
+   - Multiple people can work in the same universe
+   - Edits merge automatically; History shows who saved what
 
 ## The Wizard
 
-The Wizard is Redstring's mystical guide through your knowledge graph — an AI agent that can create, explore, and transform your semantic space through natural conversation. With first-class access to 42 specialized tools organized in a 3-tier dynamic selection system, it works alongside you: core tools are always available, while advanced tools surface contextually based on your graph state and what you're asking about.
+The Wizard is Redstring's mystical guide through your knowledge graph — an AI agent that can create, explore, and transform your semantic space through natural conversation. With first-class access to 51 specialized tools organized in a 3-tier dynamic selection system, it works alongside you: core tools are always available, while advanced tools surface contextually based on your graph state and what you're asking about.
 
 ### Wizard Tools
 
@@ -267,6 +252,7 @@ The Wizard is Redstring's mystical guide through your knowledge graph — an AI 
 - `createGraph` - Create a new graph workspace
 - `createPopulatedGraph` - Create a new graph with nodes, edges, and groups in one step
 - `expandGraph` - Add nodes, edges, and groups to an existing graph
+- `buildComposition` - Build nested layers (Things with webs inside them) in one call
 - `readGraph` - Read all nodes, edges, and groups from the active graph
 - `switchToGraph` - Navigate to a different graph
 - `inspectWorkspace` - Quick comprehensive overview of entire workspace
@@ -275,8 +261,10 @@ The Wizard is Redstring's mystical guide through your knowledge graph — an AI 
 #### Node Operations
 - `createNode` - Create a single node in the active or target graph
 - `updateNode` - Update an existing node's properties (name, description, color)
+- `setNodeSize` - Change the size of one node on the canvas
 - `deleteNode` - Remove a node and its connections by name
 - `selectNode` - Select and highlight a node on the canvas
+- `getNodeContext` - Get a node and its neighbors
 - `search` - Search for nodes or connections by keyword, or list all
 - `setNodeType` - Set or clear a node's type/category (auto-creates type node)
 - `inspectPrototype` - Get detailed properties of a node prototype and find all instances
@@ -300,12 +288,21 @@ The Wizard is Redstring's mystical guide through your knowledge graph — an AI 
 - `condenseToNode` - Package selected nodes into a new concept with a definition graph
 - `abstractionChain` - Read, add to, or remove from a node's abstraction chains
 
+#### Formulas
+- `addFormula` - Write an equation into a web, each symbol a Thing
+- `searchFormulaBank` - Find an equation in this universe or in the formula bank (well-known equations by discipline, from Wikidata)
+- `formula` - Place, open or edit a formula that exists
+
 #### Semantic Web Discovery
 - `discoverOrbit` - Discover linked-data connections from Wikidata/DBpedia (returns 4 quality rings)
 - `semanticSearch` - Search Wikidata/DBpedia for entity data (enrich or related mode)
 - `materializeSemanticEntities` - Turn semantic web discoveries into Redstring nodes/edges
 - `importKnowledgeCluster` - BFS crawl of Wikidata/DBpedia linked data around a seed entity
 - `querySparql` - Execute raw SPARQL SELECT queries against Wikidata/DBpedia/Schema.org
+
+#### Identifiers & Sources
+- `linkIdentifier` - Attach a DOI, a Wikidata/Wikipedia/DBpedia entry, or any URL to Things
+- `findWork` - Look up the real DOIs for papers from their title, author and year
 
 #### Enrichment & Styling
 - `enrichFromWikipedia` - Pull Wikipedia data for a node (image, description, link)
@@ -322,6 +319,7 @@ The Wizard is Redstring's mystical guide through your knowledge graph — an AI 
 
 #### Planning & Interaction
 - `planTask` - Create or update a step-by-step task plan for complex operations
+- `declareGoal` - In goal mode, state what a build must satisfy before building it
 - `askMultipleChoice` - Ask the user a multiple-choice question
 - `listTools` - List all available tools with descriptions
 
@@ -329,7 +327,7 @@ The Wizard is Redstring's mystical guide through your knowledge graph — an AI 
 
 The Wizard uses 3-tier dynamic filtering so conversations stay focused:
 
-- **Tier 1 (Always Available)**: Core creation, search, navigation, and planning tools (~19 tools)
+- **Tier 1 (Always Available)**: Core creation, search, navigation, formula and planning tools
 - **Tier 2 (Context-Triggered)**: Groups, definitions, merging, and styling tools — included when your graph has relevant content
 - **Tier 3 (Keyword-Triggered)**: Semantic web discovery and tabular import tools — included when your message mentions related concepts
 
@@ -353,7 +351,7 @@ npm run ai-wizard
 npm run test:ai:all
 ```
 
-See `COMPREHENSIVE_AI_TOOLS.md` for complete documentation.
+See `documentation/ai-agent-mcp/MCP_TOOLS_QUICK_REFERENCE.md` for the MCP tool reference.
 
 ### CLI + Canvas Coworking
 
@@ -396,22 +394,22 @@ const results = await enhancedSemanticSearch('LittleBigPlanet', {
 3. **Category-Based Search**: Discover concepts in related categories
 4. **Relationship Traversal**: Follow semantic connections between entities
 
-### RDF Export/Import
+### RDF Export and Ontology Import
 
-Export your knowledge graph as standard RDF for semantic web integration:
+A `.redstring` file is already linked data: one JSON-LD document whose webs are RDF named graphs. From the app's export menu (or `src/formats/rdfExport.js`) the same dataset can be written as Turtle, TriG or N-Quads:
 
 ```javascript
-// Export to RDF/Turtle
-const rdfData = await exportToRDF(graphState);
+import { exportToTurtle, exportToTrig } from './src/formats/rdfExport.js';
 
-// Import from RDF sources
-const graphData = await importFromRDF(turtleString);
+const turtle = await exportToTurtle(storeState);
+const trig = await exportToTrig(storeState);
 ```
 
-**Dual-Format Approach**:
-- Native Redstring format for application functionality
-- RDF statements for semantic web interoperability
-- Both formats maintained in `.redstring` files
+Ontologies and RDF files come in through **Import Ontology** (in the File menu or the universe list), or from the CLI:
+
+```bash
+node cli/redstring.js import my-ontology.owl
+```
 
 ### Cross-Domain Linking
 
@@ -420,7 +418,7 @@ Link concepts across different knowledge bases using standard RDF:
 ```turtle
 # In alice's knowledge graph
 @prefix alice: <https://alice.github.io/semantic/vocabulary/> .
-@prefix bob: <https://bob.gitlab.com/knowledge/concepts/> .
+@prefix bob: <https://bob.example.org/knowledge/concepts/> .
 
 alice:ClimatePolicy 
     alice:influences bob:EconomicGrowth ;
@@ -433,15 +431,15 @@ alice:ClimatePolicy
 
 Redstring uses a JSON-based format with JSON-LD context for semantic web compatibility.
 
-**v4.0.0** (current, June 2026) introduced the `prototypeSpace` / `spatialGraphs` top-level shape: node prototypes live in a shared namespace and each graph is a named spatial context that owns its instances and edges.
+**v4** (June 2026) introduced the `prototypeSpace` / `spatialGraphs` top-level shape: node prototypes live in a shared namespace and each graph is a named spatial context that owns its instances and edges. The current version is **4.1.0**, which adds per-instance node size; later additions within 4.1.0 (images by reference, definitions opened in place, formulas) are optional fields that older builds keep untouched.
 
 ```json
 {
   "@context": "https://redstring.net/contexts/v1.jsonld",
   "@type": "redstring:CognitiveSpace",
-  "format": "redstring-v4.0.0",
+  "format": "redstring-v4.1.0",
   "metadata": {
-    "version": "4.0.0",
+    "version": "4.1.0",
     "created": "2024-01-01T00:00:00Z",
     "modified": "2024-01-01T12:00:00Z"
   },
@@ -478,8 +476,8 @@ Edges are embedded inside each `spatialGraph` entry (they were in a global `rela
 
 ### Version Support
 
-- **Current**: v4.0.0 — `prototypeSpace`/`spatialGraphs` shape, graph-scoped edges, SKOS+PROV alignment (breaking change from v3)
-- **Supported**: v1.0.0, v2.0.0-semantic, v3.0.0 (all auto-migrated on open)
+- **Current**: v4.1.0 — `prototypeSpace`/`spatialGraphs` shape, graph-scoped edges, SKOS+PROV alignment (v4 was a breaking change from v3)
+- **Supported**: v1.0.0, v2.0.0-semantic, v3.0.0, v4.0.0 (all auto-migrated on open)
 - **Format History**: Metadata tracks migrations and applied changes
 
 See `documentation/data-format/redstring-format-spec.md` for the complete specification.
@@ -491,50 +489,45 @@ See `documentation/data-format/redstring-format-spec.md` for the complete specif
 ```
 redstring/
 ├── src/
-│   ├── components/        # React UI components
+│   ├── components/       # React UI components (canvas layers, hosts, panels)
 │   ├── store/            # Zustand state management
 │   ├── services/         # Core services
-│   │   ├── universeManager.js      # Universe orchestration
+│   │   ├── universeBackend.js      # Universe loading, saving, switching
 │   │   ├── gitSyncEngine.js        # Git synchronization
-│   │   ├── semanticWebQuery.js     # Semantic search
-│   │   └── solidAuth.js            # Solid Pod integration
-│   ├── formats/          # Import/export formats
-│   │   ├── redstringFormat.js      # Native format
-│   │   └── rdfExport.js            # RDF serialization
+│   │   └── semanticWebQuery.js     # Semantic search
+│   ├── formats/          # The .redstring format, RDF codecs, ontology import
+│   ├── wizard/           # The Wizard's agent loop and tools
 │   └── ...
-├── deployment/
-│   ├── app-semantic-server.js      # Production server
-│   ├── docker/                     # Docker configs
-│   └── gcp/                        # Google Cloud deployment
-├── test/
-│   ├── formats/          # Format validation tests
-│   └── ai/              # AI integration tests
-├── docs/                # Additional documentation
-└── universes/           # Local universe storage
+├── electron/             # Desktop app main process, preload, updater
+├── functions/            # Cloudflare Pages functions behind redstring.io (OAuth, API)
+├── cli/                  # Headless CLI
+├── android/, ios/        # Capacitor mobile shells
+├── test/                 # Unit, security and meta tests
+└── documentation/        # Architecture and design documentation
 ```
 
 ### Key Services
 
 #### Universe Management
-- `universeManager.js`: Orchestrates universes, loading, saving, switching
-- `universeBackend.js`: Façade for UI components
-- `gitFederationService.js`: Git repository management and status
+- `universeBackend.js`: Universes: loading, saving, switching, storage slots
 
 #### Synchronization
 - `gitSyncEngine.js`: Background sync with batching and conflict resolution
-- `gitNativeProvider.js`: Provider abstraction (GitHub, GitLab, Gitea)
+- `gitNativeProvider.js`: Provider abstraction (GitHub, Gitea)
 - `persistentAuth.js`: Authentication and token management
 
 #### Semantic Web
 - `semanticWebQuery.js`: Multi-source semantic search
 - `knowledgeFederation.js`: Cross-domain knowledge linking
-- `solidAuth.js` / `solidData.js`: Solid Pod integration
 
 ### Testing
 
 ```bash
 # Run all tests
 npm test
+
+# What CI runs
+npm run test:ci
 
 # Format tests
 npm run test:format
@@ -559,71 +552,9 @@ npm run test:bridge
 
 **Note**: This is significant work. Test your changes thoroughly and verify they work before submitting.
 
-## Deployment
-
-### Local Development
-
-```bash
-# Quick start
-npm run dev
-
-# Full stack with OAuth and main server
-npm run dev:full
-```
-
-### Docker
-
-```bash
-# Build and run
-npm run prod:docker
-
-# Or use docker-compose
-npm run prod:compose
-```
-
-### Google Cloud Platform
-
-```bash
-# Setup GCP project
-npm run setup:gcp
-
-# Deploy to production
-npm run deploy:gcp:prod
-
-# Deploy to test environment
-npm run deploy:gcp:test
-```
-
-#### GCP Architecture
-
-```
-Frontend (Port 4000) → Main Server → OAuth Server (Port 3002) → GitHub API
-                          ↓
-                    Cloud Run Service
-                          ↓
-                    Secret Manager (OAuth credentials)
-```
-
-#### Required Secrets
-
-Store in Google Cloud Secret Manager:
-- `github-client-id`: GitHub OAuth app client ID
-- `github-client-secret`: GitHub OAuth app client secret
-- `github-app-private-key`: GitHub App private key (optional)
-
-#### OAuth Configuration
-
-**GitHub OAuth App Settings:**
-- Homepage URL: `https://your-app.run.app`
-- Callback URL: `https://your-app.run.app/oauth/callback`
-
-**GitHub App Settings (optional, for enhanced features):**
-- Webhook URL: `https://your-app.run.app/api/github/webhook`
-- Permissions: Repository contents (read/write)
-
 ### Environment Variables
 
-Create `.env` file for local development:
+The OAuth server used by `npm run dev:full` reads a `.env` file:
 
 ```bash
 # GitHub OAuth
@@ -646,23 +577,22 @@ OAUTH_PORT=3002
 ## Documentation
 
 ### Core Documentation
-- `aiinstructions.txt` - Project overview and recent enhancements
+- `AI_COMPENDIUM.md` - Index of all documentation, tagged by status
+- `documentation/core-system/CANVAS_ARCHITECTURE.md` - The canvas: stores, layers, hosts, controllers
 - `documentation/data-format/redstring-format-spec.md` - File format specification
 - `documentation/core-system/HEADLESS.md` - Run and drive Redstring without a browser (CLI, workspaces, universes, GitHub) — start here if you're an AI that cloned this repo
 - `documentation/semantic-web/SEMANTIC_WEB_INTEGRATION.md` - Semantic web features and RDF integration
-- `COMPREHENSIVE_AI_TOOLS.md` - Wizard tools and MCP integration
+- `documentation/ai-agent-mcp/MCP_TOOLS_QUICK_REFERENCE.md` - Wizard tools and MCP integration
 - `documentation/core-system/GIT_FEDERATION.md` - Git federation architecture and workflows
 
 ### Guides
 - `documentation/storage-federation/LOCAL_DEVELOPMENT.md` - Local setup and testing
 - `documentation/storage-federation/DEPLOYMENT.md` - Production deployment guide
 - `documentation/data-format/REDSTRING_FORMAT_VERSIONING.md` - Format versioning system
-- `DYNAMIC_FEDERATION_GUIDE.md` - Dynamic federation and cross-domain linking
 
 ### Troubleshooting
 - `documentation/storage-federation/TROUBLESHOOTING.md` - Common issues and solutions
 - `documentation/ai-agent-mcp/AI_INTEGRATION_TROUBLESHOOTING.md` - Wizard and AI tool debugging
-- `AUTH_401_FIX.md` - OAuth authentication issues
 
 ## Architecture Highlights
 
@@ -673,19 +603,18 @@ OAUTH_PORT=3002
 - Privacy by design: no external access without explicit permission
 
 ### Semantic Web Integration
-- W3C standards compliant (RDF, OWL, JSON-LD)
-- Dual-format storage (native + semantic)
+- W3C standards: JSON-LD native, RDF export, SKOS and PROV alignment, OWL ontology import
 - Cross-domain linking via RDF
 - Integration with major knowledge bases (Wikidata, DBpedia, Wikipedia)
 
 ### Git-Native Federation
-- Real-time sync with background commits
-- Hot-swappable providers (GitHub, GitLab, Gitea)
-- Multi-provider redundancy and backup
-- Version history and conflict resolution via Git
+- Background sync a few seconds after you stop editing
+- GitHub or self-hosted Gitea
+- Shared universes that merge everyone's edits
+- Version history via Git
 
 ### The Wizard (AI-First Design)
-- Built-in AI agent with 42 specialized tools
+- Built-in AI agent with 51 specialized tools
 - 3-tier dynamic tool selection based on context
 - Model Context Protocol (MCP) for external AI client integration
 - Transparent operation logging and full tool call visibility
@@ -699,7 +628,7 @@ OAUTH_PORT=3002
 - **Total**: ~5-10 seconds, 40-70 total entities
 
 ### Git Sync
-- Auto-commit interval: 20-30 seconds (depending on auth method)
+- Commits 3 seconds after you stop editing, and at least every 30 seconds while you keep going
 - Conflict retry: Exponential backoff with fresh SHA
 - Circuit breaker: Opens after excessive API calls, resumes after cooldown
 
@@ -728,7 +657,7 @@ MIT License - See `LICENSE` file for details.
 
 ## Support
 
-- **Documentation**: See `docs/` directory
+- **Documentation**: See `AI_COMPENDIUM.md` and the `documentation/` directory
 - **Issues**: [GitHub Issues](https://github.com/theredstring/redstring/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/theredstring/redstring/discussions)
 - **Sponsor**: [Support development on GitHub Sponsors](https://github.com/sponsors/theredstring)
