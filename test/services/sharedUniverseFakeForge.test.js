@@ -18,16 +18,25 @@ import { deepEqual } from '../../src/formats/syncMerge.js';
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-forge-test-'));
 const forges = [];
 
+// A forge on a port something else holds exits at once, and a busy CI runner
+// can take seconds to start one, so: a fresh port whenever the process dies
+// before answering, and up to 15 s for each to come up.
 async function startForge(extraArgs = []) {
-  const port = 4600 + Math.floor(Math.random() * 300) + forges.length * 300;
-  const endpoint = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [path.resolve('scripts/fake-forge.mjs'), '--port', String(port), '--dir', DIR, ...extraArgs], { stdio: 'pipe' });
-  forges.push(child);
-  for (let i = 0; i < 50; i++) {
-    try {
-      if ((await fetch(`${endpoint}/api/v1/version`)).ok) return endpoint;
-    } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const port = 4600 + Math.floor(Math.random() * 1200);
+    const endpoint = `http://127.0.0.1:${port}`;
+    const child = spawn(process.execPath, [path.resolve('scripts/fake-forge.mjs'), '--port', String(port), '--dir', DIR, ...extraArgs], { stdio: 'pipe' });
+    forges.push(child);
+    let exited = false;
+    child.once('exit', () => { exited = true; });
+    const deadline = Date.now() + 15000;
+    while (!exited && Date.now() < deadline) {
+      try {
+        if ((await fetch(`${endpoint}/api/v1/version`)).ok) return endpoint;
+      } catch { /* not up yet */ }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    child.kill();
   }
   throw new Error('fake forge did not start');
 }
@@ -40,7 +49,7 @@ const READ_LAG_MS = 1500;
 beforeAll(async () => {
   ENDPOINT = await startForge();
   LAGGING = await startForge(['--read-lag', String(READ_LAG_MS)]);
-}, 20000);
+}, 60000);
 
 afterAll(() => {
   for (const child of forges) child.kill();
