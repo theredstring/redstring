@@ -3,9 +3,9 @@
  *
  * Built because repeated theorising about the canvas's raster/compositing cost
  * kept producing plausible-but-wrong fixes. Everything here MEASURES; nothing
- * here assumes. Output is written with console.log so it forwards to the
+ * here assumes. Output is written with console.info so it forwards to the
  * Electron terminal (see the console-message hook in electron/main.cjs) and can
- * be pasted straight into a bug report.
+ * be pasted straight into a bug report; production builds strip console.log.
  *
  * Typical session:
  *   __diag.help()
@@ -19,7 +19,7 @@
 import { startSession, sessionReport, stopSession } from './perfSession.js';
 
 const TAG = '[diag]';
-const log = (...a) => console.log(TAG, ...a);
+const log = (...a) => console.info(TAG, ...a);
 
 const num = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : 'n/a');
 

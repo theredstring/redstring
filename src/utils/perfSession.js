@@ -9,8 +9,9 @@
  * frame loops and timers are running, which CSS animations are playing and
  * whether they're on screen, and for each animation as it starts, how long
  * after the tap it began and how its frames went (`[perf] anim`). Every 10 s
- * it logs one `[perf]` line (the Capacitor bridge forwards console.log to the
- * device log) and keeps a running total in `__diag.sessionReport()`.
+ * it logs one `[perf]` line (with console.info: the Capacitor bridge forwards
+ * it to the device log, and built bundles strip console.log) and keeps a
+ * running total in `__diag.sessionReport()`.
  *
  * Inert unless started: nothing is wrapped and nothing runs.
  */
@@ -125,7 +126,7 @@ export function startSession({ log = true } = {}) {
     tapStart = null;
     if (!st || !t || Math.hypot(t.clientX - st.x, t.clientY - st.y) > 16 || performance.now() - st.at > 600) return;
     const stack = (document.elementsFromPoint?.(t.clientX, t.clientY) || []).slice(0, 4).map(describe);
-    if (log) console.log(TAG, 'tap', JSON.stringify({ target: describe(e.target), under: stack }));
+    if (log) console.info(TAG, 'tap', JSON.stringify({ target: describe(e.target), under: stack }));
   };
   window.addEventListener('touchstart', onTapStart, opts);
   window.addEventListener('touchend', onTapEnd, opts);
@@ -175,7 +176,7 @@ export function startSession({ log = true } = {}) {
     const m = moment;
     moment = null;
     if (!m || !log) return;
-    console.log(TAG, 'anim', JSON.stringify({
+    console.info(TAG, 'anim', JSON.stringify({
       what: m.names,
       play: m.play,
       fromInput: m.fromInput,
@@ -286,7 +287,7 @@ export function startSession({ log = true } = {}) {
 
   const windowTimer = nativeSetInterval(() => {
     if (log && Object.keys(s.windowByActivity).length) {
-      console.log(TAG, JSON.stringify({ window: summarise(s.windowByActivity) }));
+      console.info(TAG, JSON.stringify({ window: summarise(s.windowByActivity) }));
     }
     s.windowByActivity = {};
   }, WINDOW_MS);
@@ -326,7 +327,7 @@ export function startSession({ log = true } = {}) {
     session = null;
   };
 
-  if (log) console.log(TAG, 'session started');
+  if (log) console.info(TAG, 'session started');
   return s;
 }
 
@@ -336,7 +337,7 @@ export function startSession({ log = true } = {}) {
  */
 export function perfNote(tag, detail) {
   if (!session) return;
-  try { console.log(TAG, tag, JSON.stringify(detail)); } catch { /* unserializable */ }
+  try { console.info(TAG, tag, JSON.stringify(detail)); } catch { /* unserializable */ }
 }
 
 /**
@@ -351,7 +352,7 @@ export function perfMark(name) {
 export function sessionReport() {
   if (!session) return null;
   const r = session.report();
-  console.log(TAG, 'report', JSON.stringify(r));
+  console.info(TAG, 'report', JSON.stringify(r));
   return r;
 }
 

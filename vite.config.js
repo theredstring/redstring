@@ -1,5 +1,5 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'fs';
 import path from 'path';
@@ -70,10 +70,20 @@ export const agentProxy = {
 };
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+// Built bundles leave out console.log and console.debug: about 950 calls of
+// development chatter. info, warn and error stay, so crashes, load timings and
+// warnings still reach the console and the device log (__diag and perfSession
+// write with console.info for that reason). The measuring builds keep it all.
+const stripsConsoleLog = (command, mode) => command === 'build'
+  && mode !== 'profile'
+  && loadEnv(mode, projectRoot, 'VITE_').VITE_PERF_SESSION !== '1'
+  && process.env.VITE_PERF_SESSION !== '1';
+
+export default defineConfig(({ command, mode }) => ({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(packageJson.version)
   },
+  esbuild: stripsConsoleLog(command, mode) ? { pure: ['console.log', 'console.debug'] } : undefined,
   plugins: [react()],
   // `npm run build:profile` (mode "profile") swaps in React's profiling build so
   // <Profiler onRender> fires in an optimised bundle (P0.01, renderProbe.js).
