@@ -925,7 +925,7 @@ const UniversesList = ({
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                                       <span style={{ fontWeight: 600, color: theme.canvas.textPrimary }}>Status:</span>
                                       <span style={{
-                                        color: hasError ? theme.alert.error.text : sync.state === 'idle' ? theme.canvas.brand : theme.canvas.textSecondary,
+                                        color: hasError ? theme.alert.error.text : sync.state === 'idle' && !theme.darkMode ? theme.canvas.brand : theme.canvas.textSecondary,
                                         fontWeight: 500
                                       }}>
                                         {statusText}
