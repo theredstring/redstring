@@ -41,6 +41,11 @@ async function startForge(extraArgs = []) {
   throw new Error('fake forge did not start');
 }
 
+// Each test is a few seconds against real Git repositories in another process
+// (0.4 to 7 s here); a busy CI runner has stretched them past 20 and 30 s. A
+// ceiling, not a target: a hung test still fails, only later.
+const TEST_TIMEOUT_MS = 90000;
+
 let ENDPOINT;
 // GitHub's reads trail its writes for a moment after a save; this host's do too.
 let LAGGING;
@@ -160,7 +165,7 @@ const sameDocument = (a, b) => {
 
 
 // Every save spawns a few git processes; under a full parallel run that is slow.
-describe.each(Object.keys(HOSTS))('shared universe over HTTP (fake forge, %s API)', { timeout: 30000 }, (host) => {
+describe.each(Object.keys(HOSTS))('shared universe over HTTP (fake forge, %s API)', { timeout: TEST_TIMEOUT_MS }, (host) => {
   it('two people edit, the second save merges, the first pulls it in, nobody echoes', async () => {
     const repo = `forest${++repoCounter}`;
     const ana = makeDevice(host, repo, 'ana', forest());
@@ -238,7 +243,7 @@ describe.each(Object.keys(HOSTS))('shared universe over HTTP (fake forge, %s API
     expect(names(ben.state)).toEqual(['Bird', 'Squirrel', 'Tree']);
     await ana.engine.checkRemote();
     expect(names(ana.state)).toEqual(['Bird', 'Squirrel', 'Tree']);
-  }, 20000);
+  });
 
   it('reads the merge base by SHA from the host', async () => {
     const repo = `forest${++repoCounter}`;
@@ -254,7 +259,7 @@ describe.each(Object.keys(HOSTS))('shared universe over HTTP (fake forge, %s API
 });
 
 // GitHub's own behaviour, beyond the API shape.
-describe('shared universe over HTTP (fake forge, GitHub quirks)', { timeout: 30000 }, () => {
+describe('shared universe over HTTP (fake forge, GitHub quirks)', { timeout: TEST_TIMEOUT_MS }, () => {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   it('a universe over 1 MB, which the contents API sends without content', async () => {
