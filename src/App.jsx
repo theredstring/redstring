@@ -5,6 +5,7 @@ import BridgeClient from './ai/BridgeClient.jsx';
 import GlobalContextMenu from './components/GlobalContextMenu.jsx';
 import UniverseManagerBootstrap from './components/UniverseManagerBootstrap.jsx';
 import UpdateToast from './components/UpdateToast.jsx';
+import AppDialogHost from './components/shared/AppDialogHost.jsx';
 import useGraphStore from './store/graphStore.js';
 import { isElectron } from './utils/fileAccessAdapter.js';
 import { isCapacitor, registerCapacitorLifecycle, logPlatformDiagnostics } from './utils/capacitorAdapter.js';
@@ -177,6 +178,8 @@ function App() {
       <BridgeClient />
       <GlobalContextMenu />
       <UpdateToast />
+      {/* askConfirm / showNotice from anywhere in the app (shared/appDialogs.js). */}
+      <AppDialogHost />
     </>
   );
 }
