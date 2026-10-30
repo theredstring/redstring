@@ -36,13 +36,13 @@ describe('UniverseLoadingScreen', () => {
   it('offers no escape hatch while the wait is still ordinary', async () => {
     render(<UniverseLoadingScreen universeName="Chloroplast" />);
     await advance(3000);
-    expect(screen.queryByText('Start without it')).toBeNull();
+    expect(screen.queryByText('Start Without It')).toBeNull();
   });
 
   it('offers one once waiting has gone on long enough to worry', async () => {
     render(<UniverseLoadingScreen universeName="Chloroplast" />);
     await advance(6500);
-    expect(screen.getByText('Start without it')).toBeTruthy();
+    expect(screen.getByText('Start Without It')).toBeTruthy();
   });
 
   it('never ends the wait on its own, however long it runs', async () => {
@@ -61,7 +61,7 @@ describe('UniverseLoadingScreen', () => {
     render(<UniverseLoadingScreen universeName="Chloroplast" onStopWaiting={onStopWaiting} />);
     await advance(6500);
 
-    await act(async () => { screen.getByText('Start without it').click(); });
+    await act(async () => { screen.getByText('Start Without It').click(); });
     expect(onStopWaiting).toHaveBeenCalledTimes(1);
   });
 
@@ -71,7 +71,7 @@ describe('UniverseLoadingScreen', () => {
     render(<UniverseLoadingScreen universeName="Chloroplast" />);
     await advance(6500);
 
-    await act(async () => { screen.getByText('Start without it').click(); });
+    await act(async () => { screen.getByText('Start Without It').click(); });
     expect(heard).toHaveBeenCalledTimes(1);
     window.removeEventListener('redstring:stop-waiting-for-universe', heard);
   });
