@@ -19,7 +19,7 @@
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 import { createSaveMirrorSender } from './saveMirror.js';
 import { msSinceCameraMoved, msSinceActive, markEdited } from './cameraActivity.js';
-import { userDataCounts, countPlacements } from '../formats/userDataCounts.js';
+import { userDataCounts, countPlacements, countConnections } from '../formats/userDataCounts.js';
 import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 import { vlog } from '../utils/verboseLog.js';
@@ -275,10 +275,12 @@ class SaveCoordinator {
       if (!parsed || typeof parsed !== 'object') return false;
       if (parsed.dataBaseline && typeof parsed.dataBaseline === 'object') {
         const placements = Math.max(this.dataBaseline?.placements || 0, parsed.dataBaseline.placements || 0);
+        const connections = Math.max(this.dataBaseline?.connections || 0, parsed.dataBaseline.connections || 0);
         this.dataBaseline = {
           nodes: Math.max(this.dataBaseline?.nodes || 0, parsed.dataBaseline.nodes || 0),
           graphs: Math.max(this.dataBaseline?.graphs || 0, parsed.dataBaseline.graphs || 0),
-          ...(placements ? { placements } : {})
+          ...(placements ? { placements } : {}),
+          ...(connections ? { connections } : {})
         };
       }
       if (parsed.lastSaveHash) this.lastSaveHash = parsed.lastSaveHash;
@@ -1666,7 +1668,8 @@ class SaveCoordinator {
       this.dataBaseline = {
         nodes: Math.max(this.dataBaseline?.nodes || 0, counts.nodes),
         graphs: Math.max(this.dataBaseline?.graphs || 0, counts.graphs),
-        placements: Math.max(this.dataBaseline?.placements || 0, counts.placements || 0)
+        placements: Math.max(this.dataBaseline?.placements || 0, counts.placements || 0),
+        connections: Math.max(this.dataBaseline?.connections || 0, counts.connections || 0)
       };
 
       // Persist the baseline so the shrinkage guard survives page refresh.
@@ -1772,11 +1775,14 @@ class SaveCoordinator {
       const baselineNodes = baseline.nodes || 0;
       const baselineGraphs = baseline.graphs || 0;
       const baselinePlacements = baseline.placements || 0;
+      const baselineConnections = baseline.connections || 0;
       const collapsed = (
         (baselineNodes >= 5 && current.nodes <= Math.max(2, Math.floor(baselineNodes * 0.1))) ||
         (baselineGraphs >= 1 && current.graphs === 0) ||
         // Every Thing and web still here, the webs emptied (2026-10-23).
-        (baselinePlacements >= 50 && (current.placements || 0) <= Math.floor(baselinePlacements * 0.1))
+        (baselinePlacements >= 50 && (current.placements || 0) <= Math.floor(baselinePlacements * 0.1)) ||
+        // Every Thing, web and placement still here, the connections gone.
+        (baselineConnections >= 50 && (current.connections || 0) <= Math.floor(baselineConnections * 0.1))
       );
       if (collapsed) {
         console.warn('[SaveCoordinator] Refusing to save: data appears catastrophically reduced', {
@@ -2239,12 +2245,12 @@ class SaveCoordinator {
    *
    * @private
    * @param {Object} state - Zustand store snapshot.
-   * @returns {{ nodes: number, graphs: number, placements: number }} Counts of user prototypes, graphs and placements.
+   * @returns {{ nodes: number, graphs: number, placements: number, connections: number }} Counts of user prototypes, graphs, placements and connections.
    */
   _countDataItems(state) {
-    if (!state) return { nodes: 0, graphs: 0, placements: 0 };
+    if (!state) return { nodes: 0, graphs: 0, placements: 0, connections: 0 };
     const { nodes, graphs } = userDataCounts(state);
-    return { nodes, graphs, placements: countPlacements(state) };
+    return { nodes, graphs, placements: countPlacements(state), connections: countConnections(state) };
   }
 
   /**
@@ -2282,7 +2288,8 @@ class SaveCoordinator {
       return {
         nodes: Math.max(prior.nodes || 0, counts.nodes),
         graphs: Math.max(prior.graphs || 0, counts.graphs),
-        placements: Math.max(prior.placements || 0, counts.placements || 0)
+        placements: Math.max(prior.placements || 0, counts.placements || 0),
+        connections: Math.max(prior.connections || 0, counts.connections || 0)
       };
     }
     // Webs read back hollow: most of the Things are here, but almost nothing
@@ -2300,7 +2307,21 @@ class SaveCoordinator {
       console.warn(
         `[SaveCoordinator] ${reason}: the webs came back nearly empty (${counts.placements || 0} placements, ${priorPlacements} before) with their Things still here — keeping the placement floor so autosave won't write them.`
       );
-      return { ...counts, placements: priorPlacements };
+      return { ...counts, placements: priorPlacements, connections: Math.max(prior.connections || 0, counts.connections || 0) };
+    }
+    // The same for connections: the Things and their placements read back,
+    // the connections between them nearly gone.
+    const priorConnections = prior.connections || 0;
+    if (
+      sameUniverse
+      && priorConnections >= 50
+      && (counts.connections || 0) <= Math.floor(priorConnections * 0.1)
+      && counts.nodes >= Math.floor((prior.nodes || 0) * 0.5)
+    ) {
+      console.warn(
+        `[SaveCoordinator] ${reason}: the connections came back nearly empty (${counts.connections || 0}, ${priorConnections} before) with their Things still here — keeping the connection floor so autosave won't write them.`
+      );
+      return { ...counts, connections: priorConnections };
     }
     return counts;
   }

@@ -49,7 +49,7 @@ describe('SaveCoordinator shrinkage baseline', () => {
 
   it('counts user prototypes only, ignoring the seeded base types', () => {
     expect(saveCoordinator._countDataItems(state(0, { baseSeeded: true })))
-      .toEqual({ nodes: 0, graphs: 0, placements: 0 });
+      .toEqual({ nodes: 0, graphs: 0, placements: 0, connections: 0 });
     expect(saveCoordinator._countDataItems(state(3, { baseSeeded: true })).nodes).toBe(3);
   });
 
@@ -120,7 +120,7 @@ describe('SaveCoordinator shrinkage baseline', () => {
 
     const real = state(12);
     expect(saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(real), real, 'load'))
-      .toEqual({ nodes: 12, graphs: 0, placements: 0 });
+      .toEqual({ nodes: 12, graphs: 0, placements: 0, connections: 0 });
   });
 });
 
@@ -171,6 +171,68 @@ describe('SaveCoordinator placement floor', () => {
     saveCoordinator.dataBaseline = { nodes: 1886, graphs: 812, placements: 5673 };
     const smaller = withPlacements(400, 300);
     expect(saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(smaller), smaller, 'load').placements).toBe(300);
+  });
+});
+
+/**
+ * Connections can go the same way: every Thing, web and placement kept, the
+ * connections between them lost. Nothing counted them, so a save like that
+ * went through.
+ */
+describe('SaveCoordinator connection floor', () => {
+  const withConnections = (nodes, connections, slug = 'wiz-formula-test') => {
+    const s = state(nodes, { slug });
+    s.graphs.set('g', { id: 'g', instances: new Map([['i0', { id: 'i0', prototypeId: 'p0' }]]) });
+    for (let i = 0; i < connections; i++) s.edges.set('e' + i, { id: 'e' + i });
+    return s;
+  };
+
+  beforeEach(() => {
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator.activeUniverseSlugForGuard = 'wiz-formula-test';
+  });
+
+  afterEach(() => {
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator.activeUniverseSlugForGuard = null;
+  });
+
+  it('counts connections', () => {
+    expect(saveCoordinator._countDataItems(withConnections(3, 9)).connections).toBe(9);
+  });
+
+  it('refuses a save whose connections were lost while the Things stayed', () => {
+    saveCoordinator.dataBaseline = { nodes: 400, graphs: 20, placements: 1, connections: 900 };
+    expect(saveCoordinator._isCatastrophicShrinkage(withConnections(400, 0))).toBe(true);
+    expect(saveCoordinator._isCatastrophicShrinkage(withConnections(400, 600))).toBe(false);
+  });
+
+  it('a small universe can lose its few connections', () => {
+    saveCoordinator.dataBaseline = { nodes: 10, graphs: 1, placements: 1, connections: 12 };
+    expect(saveCoordinator._isCatastrophicShrinkage(withConnections(10, 0))).toBe(false);
+  });
+
+  it('a load that comes back without its connections keeps the floor', () => {
+    saveCoordinator.dataBaseline = { nodes: 400, graphs: 20, placements: 1, connections: 900 };
+    const bare = withConnections(400, 0);
+    saveCoordinator.dataBaseline = saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(bare), bare, 'load');
+    expect(saveCoordinator.dataBaseline.connections).toBe(900);
+    expect(saveCoordinator._isCatastrophicShrinkage(bare)).toBe(true);
+  });
+
+  it('an ordinary shrink, Things and connections together, still adopts its own counts', () => {
+    saveCoordinator.dataBaseline = { nodes: 400, graphs: 20, placements: 1, connections: 900 };
+    const smaller = withConnections(100, 80);
+    expect(saveCoordinator._adoptBaseline(saveCoordinator._countDataItems(smaller), smaller, 'load').connections).toBe(80);
+  });
+
+  it('the floor survives a reload of the page', () => {
+    saveCoordinator.dataBaseline = { nodes: 400, graphs: 20, placements: 1, connections: 900 };
+    saveCoordinator._persistGuardState('wiz-formula-test');
+    saveCoordinator.dataBaseline = { nodes: 0, graphs: 0 };
+    saveCoordinator._restoreGuardState('wiz-formula-test');
+    expect(saveCoordinator.dataBaseline.connections).toBe(900);
+    saveCoordinator.clearPersistedGuardState('wiz-formula-test');
   });
 });
 

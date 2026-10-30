@@ -113,6 +113,32 @@ export const countPlacements = (x) => {
   return n;
 };
 
+const sizeOf = (collection) => {
+  if (collection instanceof Map) return collection.size;
+  if (Array.isArray(collection)) return collection.length;
+  if (collection && typeof collection === 'object') return Object.keys(collection).length;
+  return 0;
+};
+
+/**
+ * Connections, across the universe. Counted apart for the same reason as
+ * placements: every Thing, web and placement can survive while the
+ * connections between them are lost, and no other count would notice.
+ * A store keeps them in one `edges` collection; a v4 document inside each web.
+ */
+export const countConnections = (x) => {
+  const d = unwrap(x);
+  if (!d || typeof d !== 'object') return 0;
+  if (isCollection(d.edges)) return sizeOf(d.edges);
+  if (isCollection(d.legacy?.edges)) return sizeOf(d.legacy.edges);
+  const graphs = graphCollectionOf(d);
+  if (!graphs) return 0;
+  const list = graphs instanceof Map ? [...graphs.values()] : Array.isArray(graphs) ? graphs : Object.values(graphs);
+  let n = 0;
+  for (const graph of list) n += sizeOf(graph?.edges ?? graph?.['redstring:edges']);
+  return n;
+};
+
 export const userDataCounts = (x) => ({
   nodes: countUserPrototypes(x),
   graphs: countGraphs(x),
