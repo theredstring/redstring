@@ -602,6 +602,41 @@ function createWindow() {
     }
   });
 
+  // A renderer that dies (out of memory after a long session, a GPU fault)
+  // leaves a white window with nothing to click. Reload it, which opens the
+  // universe as last saved. Dying
+  // again and again within a couple of minutes means reloading won't help,
+  // so then it asks instead of looping.
+  const recentCrashes = [];
+  mainWindow.webContents.on('render-process-gone', async (_event, details) => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed() || flushCompleted || details?.reason === 'clean-exit') return;
+    console.error('[Electron] Renderer gone:', details?.reason, 'exit code', details?.exitCode);
+    const now = Date.now();
+    while (recentCrashes.length && now - recentCrashes[0] > 120000) recentCrashes.shift();
+    recentCrashes.push(now);
+    if (recentCrashes.length < 3) {
+      win.webContents.reload();
+      return;
+    }
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'error',
+      buttons: ['Reload', 'Quit'],
+      defaultId: 0,
+      cancelId: 1,
+      message: 'Redstring keeps stopping',
+      detail: `The window has stopped ${recentCrashes.length} times in the last two minutes (${details?.reason || 'unknown reason'}). Your universe is as it was last saved.`,
+    });
+    if (win.isDestroyed()) return;
+    if (response === 0) {
+      recentCrashes.length = 0;
+      win.webContents.reload();
+    } else {
+      flushCompleted = true;
+      app.quit();
+    }
+  });
+
   const params = [];
   if (isTestMode) params.push('test=true');
   if (sessionName) params.push(`session=${encodeURIComponent(sessionName)}`);
