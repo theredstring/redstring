@@ -6,9 +6,6 @@
     "This list only shrinks. Never add an entry to get a red build green."
   ],
   "seededFrom": "refactor/wave2-integration @ 62188b8, 2026-09-24",
-  "unparseable": [
-    "src/components/repositories/RepositoryList.jsx",
-    "src/examples/UniverseManagerPureUI.jsx"
-  ],
+  "unparseable": [],
   "entries": []
 }
