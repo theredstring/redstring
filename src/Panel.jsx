@@ -60,6 +60,7 @@ import LeftGridView from './components/panel/views/LeftGridView.jsx';
 import LeftAIView from './components/panel/views/LeftAIView.jsx';
 import LeftHistoryView from './components/panel/views/LeftHistoryView.jsx';
 import { fetchWikidataSlice } from './services/wikidataSlice.js';
+import { showNotice } from './components/shared/appDialogs.js';
 
 // Generate color for concept based on name hash - unified color system
 // Uses the same saturation and brightness as maroon (#8B0000) but with different hues
@@ -1595,7 +1596,7 @@ const Panel = memo(
           }, { type: 'prototype_image' });
         } catch (error) {
           console.error('Image add failed:', error);
-          alert(error?.message || 'Could not add this image.');
+          showNotice({ title: 'Could Not Add Image', details: error?.message, variant: 'error' });
         } finally {
           cache.stopImageLoading(nodeId);
         }

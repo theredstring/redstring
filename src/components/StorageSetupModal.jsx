@@ -13,6 +13,7 @@ import { useGitHubConnection, isGitHubDeviceFlowShowing } from '../hooks/useGitH
 import { persistentAuth } from '../services/persistentAuth.js';
 import universeBackend from '../services/universeBackend.js';
 import { MODAL_CLOSE_ICON_SIZE } from '../constants.js';
+import { showNotice } from './shared/appDialogs.js';
 import { getStatusColors } from '../utils/statusColors.js';
 import {
   saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle,
@@ -260,7 +261,7 @@ const StorageSetupModal = ({
         return;
       }
       if (!('showDirectoryPicker' in window)) {
-        alert('Directory picker is not supported in this browser.');
+        await showNotice({ title: 'Folders Not Supported', message: "This browser can't link a folder. Try Chrome, Edge or the desktop app." });
         return;
       }
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });

@@ -11,6 +11,7 @@ import { useTheme } from '../../hooks/useTheme.js';
 import { universeManagerService } from '../../services/universeManagerService.js';
 import { oauthFetch } from '../../services/bridgeConfig.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
+import { askConfirm, showNotice } from '../shared/appDialogs.js';
 
 const RepositoryManager = ({
   onSelectRepository,
@@ -128,7 +129,7 @@ const RepositoryManager = ({
       
       // Check if repository already exists
       if (repositories.some(repo => repo.name.toLowerCase() === trimmedName.toLowerCase())) {
-        alert('A repository with this name already exists.');
+        await showNotice({ title: 'Name Taken', message: `A repository named "${trimmedName}" already exists.` });
         return;
       }
 
@@ -192,8 +193,12 @@ const RepositoryManager = ({
     }
   };
 
-  const handleRemoveRepository = (repo) => {
-    if (confirm(`Remove "${repo.name}" from your repository list? This won't delete the repository from GitHub.`)) {
+  const handleRemoveRepository = async (repo) => {
+    if (await askConfirm({
+      title: 'Remove From List?',
+      message: `"${repo.name}" leaves this list. It stays on GitHub.`,
+      confirmLabel: 'Remove',
+    })) {
       setRepositories(prev => prev.filter(r => r.id !== repo.id));
     }
   };

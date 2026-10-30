@@ -26,6 +26,7 @@ import { persistentAuth } from '../services/persistentAuth.js';
 import { formatUniverseNameFromRepo, buildUniqueUniverseName } from '../utils/universeNaming.js';
 import { isCapacitor } from '../utils/capacitorAdapter.js';
 import { openExternalUrl } from '../utils/safeUrl.js';
+import { askConfirm } from './shared/appDialogs.js';
 
 // Simple device detection
 const getDeviceInfo = () => {
@@ -257,7 +258,13 @@ const UniverseManagementPanel = ({
   const handleSwitchUniverse = async (slug) => {
     if (slug === activeUniverseSlug) return;
 
-    const confirmed = window.confirm('Save current universe before switching?');
+    // Either answer switches; the question is only whether to save first.
+    const confirmed = await askConfirm({
+      title: 'Save Before Switching?',
+      message: 'Save the open universe before switching to another.',
+      confirmLabel: 'Save',
+      cancelLabel: "Don't Save",
+    });
 
     try {
       setIsLoading(true);
@@ -307,7 +314,12 @@ const UniverseManagementPanel = ({
     const universe = universes.find(u => u.slug === slug);
     if (!universe) return;
 
-    if (!window.confirm(`Delete universe "${universe.name}"? This cannot be undone.`)) {
+    if (!(await askConfirm({
+      title: 'Delete Universe?',
+      message: `"${universe.name}" is deleted. This can't be undone.`,
+      confirmLabel: 'Delete',
+      variant: 'danger',
+    }))) {
       return;
     }
 

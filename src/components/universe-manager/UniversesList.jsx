@@ -8,6 +8,7 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
 import { showContextMenuForElement } from '../GlobalContextMenu.jsx';
+import { showNotice } from '../shared/appDialogs.js';
 
 
 function formatWhen(timestamp) {
@@ -151,7 +152,7 @@ const UniversesList = ({
 
       // Web: use File System Access API
       if (!('showDirectoryPicker' in window)) {
-        alert('Directory picker is not supported in this browser.');
+        await showNotice({ title: 'Folders Not Supported', message: "This browser can't link a folder. Try Chrome, Edge or the desktop app." });
         return;
       }
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });

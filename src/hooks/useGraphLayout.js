@@ -11,6 +11,7 @@ import { snapPositionToGrid } from '../utils/canvas/geometryUtils.js';
 import { HEADER_HEIGHT } from '../constants';
 import { computeFormulaObjects } from '../components/canvas/formats/formula/formulaObjects.js';
 import { formulaDisplayNow } from '../components/canvas/formats/formatsStore.js';
+import { showNotice } from '../components/shared/appDialogs.js';
 
 /** groupId -> { x, y, w, h } of every formula drawn in the active web, as plain data for the worker. */
 const formulaFramesNow = () => {
@@ -732,7 +733,7 @@ export const useGraphLayout = ({
           } catch (error) {
             console.error('[useGraphLayout] Failed to apply layout:', error);
             reportLayoutProgress(null);
-            alert(`Auto-layout failed: ${error.message}`);
+            showNotice({ title: 'Auto-Layout Failed', details: error?.message, variant: 'error' });
           }
         };
 
@@ -779,7 +780,7 @@ export const useGraphLayout = ({
             onError: (message) => {
                 console.error('[useGraphLayout] Layout worker failed:', message);
                 reportLayoutProgress(null);
-                alert(`Auto-layout failed: ${message}`);
+                showNotice({ title: 'Auto-Layout Failed', details: message, variant: 'error' });
             }
         });
     }, [

@@ -1,5 +1,6 @@
 import useGraphStore from '../store/graphStore.js';
 import * as fileStorage from '../store/fileStorage.js';
+import { askConfirm, showNotice } from '../components/shared/appDialogs.js';
 
 /**
  * The Redstring menu's file actions (P2.06e, with P2.08). They were inline
@@ -29,11 +30,12 @@ export async function openUniverse() {
   const store = useGraphStore.getState();
   try {
     if (hasWork()) {
-      const confirmed = confirm(
-        'Opening a different universe file will replace your current work.\n\n' +
-        'Make sure your current work is saved first.\n\n' +
-        'Continue with opening a different universe file?'
-      );
+      const confirmed = await askConfirm({
+        title: 'Open Another Universe?',
+        message: 'It replaces what is open now. Save your work first.',
+        confirmLabel: 'Open',
+        variant: 'warning',
+      });
       if (!confirmed) return;
     }
     const loadedData = await fileStorage.openUniverseFile();
@@ -51,12 +53,14 @@ export async function saveUniverse() {
   try {
     if (fileStorage.canAutoSave()) {
       const saveResult = await fileStorage.forceSave(useGraphStore.getState());
-      alert(saveResult ? 'Universe saved successfully!' : 'Save failed for unknown reason.');
+      await showNotice(saveResult
+        ? { title: 'Universe Saved' }
+        : { title: 'Could Not Save', message: 'The universe was not saved.', variant: 'error' });
     } else {
-      alert('No universe file is currently open. Please create or open a universe first.');
+      await showNotice({ title: 'No Universe Open', message: 'Create or open a universe first.' });
     }
   } catch (error) {
-    alert(`Failed to save universe: ${error.message}`);
+    await showNotice({ title: 'Could Not Save', message: 'The universe was not saved.', details: error?.message, variant: 'error' });
   }
 }
 
@@ -64,11 +68,12 @@ export async function openRecentUniverse(recentFileEntry) {
   const store = useGraphStore.getState();
   try {
     if (hasWork()) {
-      const confirmed = confirm(
-        `Opening "${recentFileEntry.fileName}" will replace your current work.\n\n` +
-        'Make sure your current work is saved first.\n\n' +
-        'Continue?'
-      );
+      const confirmed = await askConfirm({
+        title: `Open "${recentFileEntry.fileName}"?`,
+        message: 'It replaces what is open now. Save your work first.',
+        confirmLabel: 'Open',
+        variant: 'warning',
+      });
       if (!confirmed) return;
     }
     const loadedData = await fileStorage.openRecentFile(recentFileEntry);
@@ -81,7 +86,7 @@ export async function openRecentUniverse(recentFileEntry) {
     }
   } catch (error) {
     store.setUniverseError(`Failed to open recent file: ${error.message}`);
-    alert(`Failed to open "${recentFileEntry.fileName}": ${error.message}`);
+    await showNotice({ title: 'Could Not Open', message: `"${recentFileEntry.fileName}" did not open.`, details: error?.message, variant: 'error' });
   }
 }
 
@@ -103,6 +108,6 @@ export async function exportActiveUniverse(formatId) {
     const universeName = universeBackend.getActiveUniverse?.()?.name;
     await exportUniverseAs(formatId, useGraphStore.getState(), universeName);
   } catch (error) {
-    alert(`Failed to export: ${error.message}`);
+    await showNotice({ title: 'Could Not Export', details: error?.message, variant: 'error' });
   }
 }

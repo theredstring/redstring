@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Key, Eye, EyeOff, CheckCircle, AlertCircle, ExternalLink, Settings, Trash2 } from 'lucide-react';
 import apiKeyManager from '../../services/apiKeyManager.js';
+import { askConfirm } from '../../components/shared/appDialogs.js';
 import { useProviderModels } from '../../hooks/useProviderModels.js';
 import './APIKeySetup.css';
 // Installs the one-time "who receives what" consent in front of every AI request.
@@ -234,7 +235,12 @@ const APIKeySetup = ({ onKeySet, onClose, inline = false }) => {
   };
 
   const handleRemoveKey = async () => {
-    if (!window.confirm('Are you sure you want to remove your API key? This action cannot be undone.')) {
+    if (!(await askConfirm({
+      title: 'Remove API Key?',
+      message: 'It is deleted from this device. You can add it again later.',
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    }))) {
       return;
     }
 

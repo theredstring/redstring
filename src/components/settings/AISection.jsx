@@ -7,6 +7,7 @@ import apiKeyManager from '../../services/apiKeyManager.js';
 import { useProviderModels } from '../../hooks/useProviderModels.js';
 import { getProviderLabel } from '../../services/modelCatalog.js';
 import debugConfig from '../../utils/debugConfig.js';
+import { askConfirm } from '../shared/appDialogs.js';
 import { useWizardMode } from '../../hooks/useWizardMode.js';
 import { WIZARD_MODE_OPTIONS } from '../../wizard/wizardMode.js';
 import { appleModelHealth, unavailableReason, APPLE_LABEL, APPLE_MODEL_ID } from '../../services/appleModel.js';
@@ -321,7 +322,12 @@ const AISection = () => {
   };
 
   const handleRemoveKey = async () => {
-    if (!window.confirm('Are you sure you want to remove your API key? This action cannot be undone.')) {
+    if (!(await askConfirm({
+      title: 'Remove API Key?',
+      message: 'It is deleted from this device. You can add it again later.',
+      confirmLabel: 'Remove',
+      variant: 'danger',
+    }))) {
       return;
     }
 

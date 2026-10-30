@@ -62,6 +62,7 @@ import { openExternalUrl } from '../../../utils/safeUrl.js';
 import { buildAIOutputReportUrl } from '../../../services/aiConsent.js';
 import { formulaSnapshotForWizard } from '../../canvas/formats/formula/formulaSnapshot.js';
 import { extractChatMath } from '../../wizard/chatMath.jsx';
+import { askConfirm, showNotice } from '../../shared/appDialogs.js';
 
 /**
  * services/aiConsent.js refuses to send graph content to a provider the person
@@ -1381,7 +1382,7 @@ const LeftAIView = ({ compact = false,
   };
 
   // handleClearConversation updated for the new tab system
-  const handleClearConversation = () => {
+  const handleClearConversation = async () => {
     if (messages.length === 0) return;
     // Same reasoning as handleChatUndo: clearing mid-run deletes the bubble the
     // run is streaming into, and the next event re-creates it — leaving a
@@ -1390,7 +1391,14 @@ const LeftAIView = ({ compact = false,
       console.warn('[AI Collaboration] Clear ignored: a run is in progress. Stop it first.');
       return;
     }
-    if (window.confirm('Clear entire conversation? This cannot be undone.')) {
+    const confirmed = await askConfirm({
+      title: 'Clear Conversation?',
+      message: "Every message in it is removed. This can't be undone.",
+      confirmLabel: 'Clear',
+      variant: 'danger',
+    });
+    // A run may have started while the question was up.
+    if (confirmed && !isProcessingRef.current) {
       setMessages([]);
       lastMessagesRef.current = []; // Prevent potential race conditions
 
@@ -4004,7 +4012,7 @@ const LeftAIView = ({ compact = false,
               try {
                 parsedArgs = JSON.parse(testToolArgs);
               } catch (e) {
-                alert('Invalid JSON in arguments');
+                showNotice({ title: 'Invalid Arguments', message: 'The arguments are not valid JSON.', details: e?.message, variant: 'error' });
                 return;
               }
 

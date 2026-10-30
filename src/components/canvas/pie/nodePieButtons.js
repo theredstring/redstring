@@ -22,6 +22,7 @@ import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestDeleteDefinition } from '../dialogs/deleteDefinition.js';
 import { projectGraphView } from '../../../core/openDefinitions.js';
 import { expandNodeInPlace, expandBlockLabel } from '../actions/expandInPlace.js';
+import { showNotice } from '../../shared/appDialogs.js';
 
 const dispatchPie = (event, env) => useCanvasUIStore.getState().dispatchPie(event, env);
 
@@ -252,7 +253,7 @@ export function buildNodePieMenuPages(ctx) {
             }, { type: 'prototype_image' });
           } catch (error) {
             console.error('[PieMenu] Add Image failed:', error);
-            alert(error?.message || 'Could not add this image.');
+            showNotice({ title: 'Could Not Add Image', details: error?.message, variant: 'error' });
           } finally {
             cache.stopImageLoading(prototypeId);
           }

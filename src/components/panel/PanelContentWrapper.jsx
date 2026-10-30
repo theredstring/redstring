@@ -9,6 +9,7 @@ import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { requestDeleteDefinition } from '../canvas/dialogs/deleteDefinition.js';
+import { showNotice } from '../shared/appDialogs.js';
 
 /**
  * Wrapper component that handles data fetching and action binding
@@ -276,7 +277,7 @@ const PanelContentWrapper = memo(({
         }, { type: 'prototype_image' });
       } catch (error) {
         console.error('Image add failed:', error);
-        alert(error?.message || 'Could not add this image.');
+        showNotice({ title: 'Could Not Add Image', details: error?.message, variant: 'error' });
       } finally {
         cache.stopImageLoading(nodeId);
       }

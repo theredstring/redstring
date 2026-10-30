@@ -9,6 +9,7 @@ import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { parseInputData, generateGraph } from '../../../services/autoGraphGenerator';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import useWhatsNewOnUpdate from '../../help/useWhatsNewOnUpdate.js';
+import { showNotice } from '../../shared/appDialogs.js';
 
 /**
  * Help, Settings, Merge, Auto Graph and Import Ontology, outside NodeCanvas (P2.06b).
@@ -74,14 +75,17 @@ const generateAutoGraph = (inputData, inputFormat, options) => {
 
     closeAutoGraph();
 
-    const message = `Generated ${results.instancesCreated.length} nodes and ${results.edgesCreated.length} edges.\n` +
-      `Prototypes: ${results.prototypesCreated.length} new, ${results.prototypesReused.length} reused.` +
-      (results.errors.length > 0 ? `\n\nWarnings: ${results.errors.length}` : '');
-    alert(message);
+    const warnings = results.errors.length;
+    showNotice({
+      title: 'Graph Generated',
+      message: `${results.instancesCreated.length} Things and ${results.edgesCreated.length} connections. ` +
+        `${results.prototypesCreated.length} new, ${results.prototypesReused.length} reused.` +
+        (warnings > 0 ? ` ${warnings} ${warnings === 1 ? 'warning' : 'warnings'}.` : ''),
+    });
     console.log('[AutoGraph] Generation results:', results);
   } catch (error) {
     console.error('[AutoGraph] Generation failed:', error);
-    alert(`Failed to generate graph: ${error.message}`);
+    showNotice({ title: 'Could Not Generate Graph', details: error?.message, variant: 'error' });
   }
 };
 

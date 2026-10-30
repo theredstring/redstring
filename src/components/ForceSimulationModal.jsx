@@ -9,6 +9,7 @@ import { useForceSimulation } from '../hooks/useForceSimulation.js';
 import { useTheme } from '../hooks/useTheme.js';
 import { MAX_LAYOUT_SCALE_MULTIPLIER, MIN_LAYOUT_SCALE_MULTIPLIER } from '../services/graphLayoutService.js';
 import MaroonSlider from './MaroonSlider.jsx';
+import { showNotice } from './shared/appDialogs.js';
 
 /**
  * Draggable modal for interactive force-directed layout tuning.
@@ -127,7 +128,7 @@ const ForceSimulationModal = ({
     }
 
     if (!copySuccess) {
-      alert('Failed to copy to clipboard. Use "Show JSON" and copy manually.');
+      showNotice({ title: 'Could Not Copy', message: 'Open Show JSON and copy it from there.' });
     }
   };
 
