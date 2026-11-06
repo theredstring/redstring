@@ -23,6 +23,7 @@ const TOKEN = crypto.randomBytes(32).toString('hex');
 const fetch = (u, o = {}) => globalThis.fetch(u, { ...o, headers: { ...(o.headers || {}), 'X-Redstring-Token': TOKEN } });
 
 let daemon, tmpDir, useGraphStore, controller, exportToRedstring;
+let readOnly = false;          // stands in for a read-only universe being open
 let fetchImpl;                 // swappable so we can simulate the daemon vanishing
 const saveEnabledLog = [];
 
@@ -71,6 +72,7 @@ beforeAll(async () => {
   fetchImpl = (u, o) => fetch(u, o);
   controller = createDaemonCoexistence({
     useGraphStore,
+    isReadOnly: () => readOnly,
     saveCoordinator: { setEnabled: (b) => saveEnabledLog.push(b) },
     bridgeFetch: (p, o) => http(p, o),
     exportToRedstring,
@@ -101,6 +103,18 @@ describe('daemon coexistence controller (Node integration vs real daemon)', () =
     await sleep(250); // let the debounced forward fire
     const state = await daemonState();
     expect(state.graphs.some(x => x.id === 'g-browser')).toBe(true);
+  });
+
+  it('forwards nothing of a read-only universe to the daemon', async () => {
+    const before = await daemonState();
+    readOnly = true;
+    useGraphStore.getState().createNewGraph({ id: 'g-visit', name: 'Read Only Visit' });
+    await sleep(250); // the debounced forward fires, and finds it read only
+    await controller.forwardNow();
+    readOnly = false;
+    const after = await daemonState();
+    expect(after.graphs.map(g => g.name)).not.toContain('Read Only Visit');
+    expect(after.graphs.length).toBe(before.graphs.length);
   });
 
   it('re-hydrates when the daemon advances externally (MCP/CLI mutation)', async () => {

@@ -43,7 +43,11 @@ Three layers keep it read-only, all keyed on `src/store/readOnlyUniverse.js`:
 
 A refused edit made inside the person's own click or key press (`isInsidePersonsAct`) answers with `nudgeReadOnlyUniverse`: "Read Only" fades up in the save indicator's spot for about a second (`SaveStatusDisplay`), and the pill, if it's showing, offers the copy. Moving around doesn't answer: position writes, node drags, pans and the canvas's own background writes are all quiet.
 
-The Wizard still works here, and its writes are refused like any other, but it doesn't know that: it can say it built something it didn't.
+Links are opened one at a time, and the newest asked for wins (`readOnlyOpenCount`, `readOnlySwitch`), so a link that was still loading can't become the universe to come back to.
+
+The bridge fails editing actions while one is open, so an outside agent hears why, instead of an action reporting success or queueing itself again and landing on whatever opens next (`LOOKING_ACTIONS` in `BridgeClient`).
+
+The Wizard still works here, and its writes are refused like any other, but it doesn't know that: it can say it built something it didn't. A run started during a visit stops when that visit ends, so its later results can't land in what opens next. Its conversation is kept like any other, tool results included: nothing about the document, but what it said about it outlasts the visit.
 
 **What stays live.** The pill (`ReadOnlyHost`) sits over the TypeList and rides on top of whichever control panel is up (`store/bottomPanelTop.js`; the panel reports its own top edge). Its X hides it until the next visit and the visit goes on. A visit opens the left panel on Universes (the tab is ready but the panel stays shut where panels are exclusive), and the universe's row there is the way out. Editing buttons stay where they are, dimmed, in the node, connection and group pies (`pie/readOnlyButtons.js`), the context menus, the bottom panel (`data-view-only` marks what stays live) and the right panel. The pie and bottom panel lists name what only looks, so a new button dims by default.
 

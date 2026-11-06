@@ -62,4 +62,18 @@ export const slotLayout = ({ isSlim = false, isVerySlim = false, theme }) => {
   };
 };
 
+/**
+ * A row of labelled pill buttons, as the panel narrows. Under ~320px each one
+ * fills what's left of its line and they wrap, so however few fit on a line they
+ * stay inside the card, and a label that still can't fit wraps inside its pill.
+ *
+ * @param {boolean} isVerySlim - Container under ~320px.
+ */
+export const pillRow = (isVerySlim = false) => ({
+  rowStyle: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' },
+  pillProps: isVerySlim
+    ? { labelFontSize: 12, style: { flex: '1 1 auto', minWidth: 0, maxWidth: '100%', padding: '6px 8px', gap: 6 } }
+    : {}
+});
+
 export default slotLayout;

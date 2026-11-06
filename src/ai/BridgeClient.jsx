@@ -16,6 +16,14 @@ import saveCoordinator from '../services/SaveCoordinator.js';
 import { exportToRedstring } from '../formats/redstringFormat.js';
 import { vlog } from '../utils/verboseLog.js';
 
+// What the bridge may still do while a read-only universe is open: get around it
+// and talk to the Wizard. openGraph isn't here: of a web that isn't there, it asks
+// for one and queues itself again.
+const LOOKING_ACTIONS = new Set([
+  'setActiveGraph', 'openRightPanelNodeTab', 'closeGraphTab', 'duplicateCandidates',
+  'chat', 'sendWizardMessage', 'createWizardTab', 'switchWizardTab', 'getWizardTabs', 'getWizardStatus',
+]);
+
 /**
  * Bridge Client Component (formerly MCPBridge)
  *
@@ -642,6 +650,11 @@ const BridgeClient = () => {
 
             for (const pendingAction of orderedActions) {
               try {
+                // Heard as a failure, below: refused, it would report success or
+                // queue itself again, and land on whatever opens next.
+                if (isReadOnlyUniverseOpen() && !LOOKING_ACTIONS.has(pendingAction.action)) {
+                  throw new Error('This universe is read only. Make a copy to edit it.');
+                }
                 // Emit running status to telemetry so chat shows non-stalled progress
                 try {
                   // Inform bridge about start to produce ordered telemetry with seq

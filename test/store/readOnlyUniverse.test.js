@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
-import useReadOnlyUniverse, { setReadOnlyUniverse } from '../../src/store/readOnlyUniverse.js';
+import useReadOnlyUniverse, { currentReadOnlyVisit, setReadOnlyUniverse } from '../../src/store/readOnlyUniverse.js';
 import saveCoordinator from '../../src/services/SaveCoordinator.js';
 import { createDaemonCoexistence } from '../../src/services/daemonCoexistence.js';
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../../src/formats/redstringFormat.js';
@@ -173,6 +173,12 @@ describe('a universe open read-only', () => {
     expect(useGraphStore.getState().graphs.has('g9')).toBe(false);
     expect(load('visit')).toBe(true);
     expect(useGraphStore.getState().graphs.has('g9')).toBe(true);
+  });
+
+  it('names the visit, so a run started in one can tell when it has ended', () => {
+    expect(currentReadOnlyVisit()).toBe('visit');
+    setReadOnlyUniverse(null);
+    expect(currentReadOnlyVisit()).toBe(null);
   });
 
   it('merges nothing in', () => {

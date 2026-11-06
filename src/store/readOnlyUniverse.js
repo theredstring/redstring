@@ -38,6 +38,9 @@ export const setReadOnlyUniverse = (active) => {
   useReadOnlyUniverse.setState({ active, ...(active ? { failure: null } : {}) });
 };
 
+/** The visit open now, to tell later whether it's still the one. */
+export const currentReadOnlyVisit = () => useReadOnlyUniverse.getState().active?.slug ?? null;
+
 export const nudgeReadOnlyUniverse = () => {
   useReadOnlyUniverse.setState((state) => ({ nudge: state.nudge + 1 }));
 };

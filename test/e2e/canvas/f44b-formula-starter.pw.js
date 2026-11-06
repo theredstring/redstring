@@ -69,9 +69,10 @@ test('F44b the formula starter: nothing offered until added; then listed, and pl
 
   // Filed: Formulas holds the discipline, the discipline its webs, each equation shown as its formula.
   expect(await webOf(page, 'Formulas')).toEqual(['Epidemiology']);
+  // (Each stands in its web as a node opened in place, shown as its formula, kept on the node.)
   const shown = await storeEval(page, (st) => {
     let formulas = 0;
-    for (const g of st.graphs.values()) for (const gr of g.groups?.values() || []) if (gr.format === 'formula') formulas++;
+    for (const g of st.graphs.values()) for (const i of g.instances?.values() || []) if (i.openDefinition && i.format === 'formula') formulas++;
     return formulas;
   });
   expect(shown).toBe(14);

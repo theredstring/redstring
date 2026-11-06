@@ -17,6 +17,8 @@ function allFormulas(state) {
   state.graphs.forEach((graph, graphId) => {
     let shown = false;
     graph.groups?.forEach((g) => { if (g.format === 'formula') shown = true; });
+    // Opened in place, the format is on the anchor (as formulaSnapshot reads it).
+    if (!shown) graph.instances?.forEach((inst) => { if (inst.format === 'formula') shown = true; });
     if (!shown) return;
     const view = projectGraphView(state, graphId);
     view?.groups?.forEach((group) => {

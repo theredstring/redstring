@@ -1879,7 +1879,9 @@ class UniverseBackend {
               // adapter's stale-slug guard works for EVERY load path (startup,
               // background, reload, auth-triggered, conflict-resolve) — not
               // just the switch/create paths that stamped it explicitly.
-              if (storeState && typeof storeState === 'object' && !storeState._universeSlug && this.activeUniverseSlug) {
+              // Not while read-only: what that takes is its own load, already
+              // stamped by the switch, and a stamp here would pass anything off as it.
+              if (storeState && typeof storeState === 'object' && !storeState._universeSlug && this.activeUniverseSlug && !isReadOnlyUniverseOpen()) {
                 storeState._universeSlug = this.activeUniverseSlug;
               }
 
@@ -7270,6 +7272,9 @@ class UniverseBackend {
     }
     const { key, universe } = resolved;
 
+    // Nothing of it is stored, so deleting it is just leaving it, back to where you came from.
+    if (universe.readOnly) return this.closeReadOnlyUniverse();
+
     const isDeletingActive = (this.activeUniverseSlug === key);
 
     // Remove engine first
@@ -8525,12 +8530,17 @@ class UniverseBackend {
    * that can't be read changes nothing.
    */
   async openReadOnlyUniverse(sourceUrl) {
-    const atBoot = this.bootVisit === true;
+    // A second link failing during a visit leaves that visit up.
+    const atBoot = this.bootVisit === true && !this.getActiveUniverse()?.readOnly;
+    // The newest link asked for is the one that opens.
+    const opening = (this.readOnlyOpenCount = (this.readOnlyOpenCount || 0) + 1);
+    const superseded = () => opening !== this.readOnlyOpenCount;
     try {
       await this.initialize();
       const parsed = await fetchSharedUniverse(sourceUrl, {
         getToken: () => persistentAuth.getAccessToken()
       });
+      if (superseded()) return null;
       const validation = validateFormatVersion(parsed);
       if (!validation.valid) {
         throw new Error(validation.tooNew
@@ -8555,10 +8565,15 @@ class UniverseBackend {
         gitRepo: { enabled: false, linkedRepo: null, schemaPath: 'schema' },
         readOnly: { sourceUrl }
       });
+      // One at a time: a switch that started before the last one finished would
+      // take that link for the universe to come back to.
+      await this.readOnlySwitch?.catch(() => {});
+      if (superseded()) return null;
       this.universes.set(slug, universe);
       this.readOnlyStates.set(slug, storeState);
       try {
-        await this.switchActiveUniverse(slug);
+        this.readOnlySwitch = this.switchActiveUniverse(slug);
+        await this.readOnlySwitch;
       } catch (error) {
         this.universes.delete(slug);
         this.readOnlyStates.delete(slug);

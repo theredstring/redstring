@@ -64,14 +64,28 @@ const putPanelDown = async (page) => {
 const pillText = (page) => page.locator('.format-offer').innerText().then(t => t.replace(/\s+/g, ''));
 const shownNodes = (page, ids) => page.evaluate((list) =>
   list.filter(id => document.querySelector(`svg.canvas g.node[data-instance-id="${id}"]`)).length, ids);
-const formulaGroup = (page, prefix) => storeEval(page, (st, p) => {
-  const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.name.startsWith(p));
-  return g ? { id: g.id, format: g.format ?? null, linkedFormat: g.linkedFormat ?? null, members: [...g.memberInstanceIds] } : null;
+// fn(state, view, arg) on the web as drawn. A formula stands in the web as one
+// node opened in place (its group `open:<node>`, its format on the node); its
+// Things, parts and connections live in its definition and are projected in.
+const viewEval = (page, fn, arg) => page.evaluate(async ([source, a]) => {
+  // Made before the first await: past it, the page's CSP refuses eval.
+  const f = new Function(`return (${source})`)();
+  const { projectGraphView } = await import('/src/core/openDefinitions.js');
+  const st = window.useGraphStore.getState();
+  return f(st, projectGraphView(st, st.activeGraphId), a);
+}, [fn.toString(), arg]);
+const formulaGroup = (page, prefix) => viewEval(page, (st, view, p) => {
+  const g = [...view.groups.values()].find(x => x.name.startsWith(p));
+  return g ? { id: g.id, anchorId: g.anchorInstanceId, format: g.format ?? null, linkedFormat: g.linkedFormat ?? null, members: [...g.memberInstanceIds] } : null;
 }, prefix);
-const positionsOf = (page, ids) => storeEval(page, (st, list) => {
-  const g = st.graphs.get(st.activeGraphId);
-  return list.map(id => ({ x: g.instances.get(id).x, y: g.instances.get(id).y }));
-}, ids);
+const positionsOf = (page, ids) => viewEval(page, (st, view, list) =>
+  list.map(id => ({ x: view.instances.get(id).x, y: view.instances.get(id).y })), ids);
+/** activeGraphSnapshot's fields, as drawn. */
+const viewSnapshot = (page) => viewEval(page, (st, view) => ({
+  instances: Object.fromEntries([...view.instances.keys()].map(id => [id, true])),
+  groups: Object.fromEntries([...view.groups.values()].map(g => [g.id, { name: g.name, memberInstanceIds: [...g.memberInstanceIds] }])),
+  edgeIds: [...view.edgeIds],
+}));
 
 async function buildFormula(page, text) {
   await page.mouse.click(BARE.x, BARE.y, { button: 'right' });
@@ -87,16 +101,23 @@ async function buildFormula(page, text) {
 
 test('F44 a typed formula is built as Things and shown in place as one object', async ({ page }) => {
   await openFixture(page, 'small');
-  const before = await activeGraphSnapshot(page);
+  const before = await viewSnapshot(page);
+  const webBefore = await activeGraphSnapshot(page);
 
   await buildFormula(page, QUADRATIC);
 
-  // 9 operands and 4 parts (each a Thing-group's Thing), 8 operations, and the
-  // equation's own Thing-group, named after it while it has no title.
-  const after = await activeGraphSnapshot(page);
+  // In the web itself, one node and no connections: the rest is its definition.
+  const web = await activeGraphSnapshot(page);
+  const placed = Object.keys(web.instances).filter(id => !webBefore.instances[id]);
+  expect(placed).toHaveLength(1);
+  expect(web.edgeIds).toEqual(webBefore.edgeIds);
+  // Drawn: 9 operands and 4 parts (each a Thing-group's Thing), 8 operations, and
+  // the equation's own node, its Thing named after it while it has no title.
+  const after = await viewSnapshot(page);
   const newIds = Object.keys(after.instances).filter(id => !before.instances[id]);
   expect(newIds).toHaveLength(14);
   const top = await formulaGroup(page, 'x = ');
+  expect(top.anchorId).toBe(placed[0]);
   const memberIds = top.members;
   expect(memberIds).toHaveLength(13);
   expect(after.edgeIds.length - before.edgeIds.length).toBe(8);
@@ -104,12 +125,9 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   expect(names).toContain('x = (−b + √(b ^ 2 − 4 × a × c)) ÷ (2 × a)');
   expect(names).toEqual(expect.arrayContaining(['−b + √(b ^ 2 − 4 × a × c)', '2 × a', '−b', '√(b ^ 2 − 4 × a × c)']));
   // Each operation is a connection defined by its Thing.
-  const operations = await storeEval(page, (st, ids) => {
-    const g = st.graphs.get(st.activeGraphId);
-    return g.edgeIds.map(id => st.edges.get(id))
-      .filter(e => ids.includes(e.sourceId))
-      .map(e => st.nodePrototypes.get(e.definitionNodeIds?.[0])?.name).sort();
-  }, memberIds);
+  const operations = await viewEval(page, (st, view, ids) => view.edgeIds.map(id => st.edges.get(id))
+    .filter(e => ids.includes(e.sourceId))
+    .map(e => st.nodePrototypes.get(e.definitionNodeIds?.[0])?.name).sort(), memberIds);
   expect(operations).toEqual(['Addition', 'Division', 'Equality', 'Exponentiation', 'Multiplication', 'Multiplication', 'Multiplication', 'Subtraction']);
 
   // Shown in place, and saved that way on the group: the object, not its Things.
@@ -125,10 +143,8 @@ test('F44 a typed formula is built as Things and shown in place as one object', 
   expect(rows.divide).toBe(0);
 
   // A connection from outside lands on its Thing's token.
-  const xId = await storeEval(page, (st, ids) => {
-    const g = st.graphs.get(st.activeGraphId);
-    return ids.find(id => st.nodePrototypes.get(g.instances.get(id).prototypeId).name === 'x');
-  }, memberIds);
+  const xId = await viewEval(page, (st, view, ids) =>
+    ids.find(id => st.nodePrototypes.get(view.instances.get(id).prototypeId).name === 'x'), memberIds);
   await storeEval(page, (st, dest) => st.addEdge(st.activeGraphId, {
     id: 'e-alpha-x', sourceId: 'i-alpha', destinationId: dest, directionality: { arrowsToward: new Set([dest]) },
   }), xId);
@@ -347,11 +363,10 @@ test('F44 a logarithm is an operation: its base a Thing of its own, lowered afte
   const { members } = await formulaGroup(page, 'y = ');
   // log_2(x) is 2 —Logarithm→ x, as 2^x is 2 —Exponentiation→ x; ln(x) is a
   // part typed Natural Logarithm, as √ is a part typed Square Root.
-  const built = await storeEval(page, (st, ids) => {
-    const g = st.graphs.get(st.activeGraphId);
-    const ops = g.edgeIds.map(id => st.edges.get(id)).filter(e => ids.includes(e.sourceId))
+  const built = await viewEval(page, (st, view, ids) => {
+    const ops = view.edgeIds.map(id => st.edges.get(id)).filter(e => ids.includes(e.sourceId))
       .map(e => st.nodePrototypes.get(e.definitionNodeIds?.[0])?.name).sort();
-    const types = [...g.groups.values()].map(gr => st.nodePrototypes.get(st.nodePrototypes.get(gr.linkedNodePrototypeId)?.typeNodeId)?.name).filter(Boolean);
+    const types = [...view.groups.values()].map(gr => st.nodePrototypes.get(st.nodePrototypes.get(gr.linkedNodePrototypeId)?.typeNodeId)?.name).filter(Boolean);
     return { ops, types };
   }, members);
   expect(built.ops).toEqual(['Addition', 'Equality', 'Logarithm']);
@@ -385,13 +400,20 @@ test('F44 a function is a Thing that says what it is, and a Thing of the same na
 test('F44 the offer shows a group in place, and its X waves it off', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'a + b * c');
-  // A plain group that happens to read as a formula (an equation's own Thing-group never is offered).
-  const { id: built, members } = await formulaGroup(page, 'a + b');
-  const id = await storeEval(page, (st, [gid, ids]) => {
-    const anchor = st.graphs.get(st.activeGraphId).groups.get(gid).anchorInstanceId;
-    st.deleteGroup(st.activeGraphId, gid);
-    return st.createGroup(st.activeGraphId, { name: 'a + b × c', memberInstanceIds: ids.filter(x => x !== anchor) });
-  }, [built, members]);
+  // A plain group that happens to read as a formula (an equation's own Thing-group
+  // never is offered): the same Things and operations, in the web itself.
+  const { anchorId, members } = await formulaGroup(page, 'a + b');
+  const id = await viewEval(page, (st, view, [anchor, ids]) => {
+    const own = (x) => `plain-${x}`;
+    const nodes = ids.map(i => ({ instanceId: own(i), prototypeId: view.instances.get(i).prototypeId, x: view.instances.get(i).x, y: view.instances.get(i).y, scale: 1 }));
+    const edges = view.edgeIds.map(e => st.edges.get(e)).filter(e => ids.includes(e.sourceId)).map(e => ({
+      ...e, id: own(e.id), sourceId: own(e.sourceId), destinationId: own(e.destinationId),
+      directionality: { arrowsToward: new Set([own(e.destinationId)]) },
+    }));
+    st.removeNodeInstance(st.activeGraphId, anchor);
+    st.pasteNodesAndEdges(st.activeGraphId, nodes, edges);
+    return st.createGroup(st.activeGraphId, { name: 'a + b × c', memberInstanceIds: nodes.map(n => n.instanceId) });
+  }, [anchorId, members]);
   await expect(object(page)).toHaveCount(0);
 
   // The group is offered back.
@@ -560,9 +582,10 @@ test('F44 New Formula lists the universe\'s equations; one picked is placed, eac
   });
   await expect(object(page)).toHaveCount(3);
   expect(await definitions()).toEqual([1]);
-  expect(await storeEval(page, (st) => [...st.graphs.get(st.activeGraphId).groups.values()]
+  // Each place it stands opens that one definition.
+  expect(await viewEval(page, (st, view) => [...view.groups.values()]
     .filter(g => g.format === 'formula' && st.nodePrototypes.get(g.linkedNodePrototypeId)?.name === 'Ideal Gas Law')
-    .map(g => g.linkedDefinitionIndex))).toEqual([0]);
+    .map(g => g.linkedDefinitionIndex))).toEqual([0, 0]);
 });
 
 test('F44 the box\'s choices stay in its header; its sections group the list, which the wheel scrolls', async ({ page }) => {
@@ -577,6 +600,13 @@ test('F44 the box\'s choices stay in its header; its sections group the list, wh
   await shot(page, '9a-bank-discipline');
   // The wheel scrolls the list, not the canvas; the header stays where it is.
   const before = await camera(page);
+  // Once the box's entrance has settled: it slides in, the header with it.
+  let lastY = null;
+  await expect.poll(async () => {
+    const was = lastY;
+    lastY = (await top.boundingBox()).y;
+    return lastY === was;
+  }).toBe(true);
   const topBox = await top.boundingBox();
   const scroller = page.locator('.formula-selector .unified-selector-scroll');
   const at = await scroller.boundingBox();
@@ -641,8 +671,8 @@ test('F44 a formula takes connections like a node group, and its hidden Things t
   });
   await expect(object(page)).toHaveCount(1);
   await page.waitForTimeout(800); // past the entrance
-  const formula = await storeEval(page, (st) => {
-    const g = [...st.graphs.get(st.activeGraphId).groups.values()].find(x => x.format === 'formula');
+  const formula = await viewEval(page, (st, view) => {
+    const g = [...view.groups.values()].find(x => x.format === 'formula');
     return { anchorId: g.anchorInstanceId, members: [...g.memberInstanceIds] };
   });
   const edgesNow = () => storeEval(page, (st) => [...st.edges.values()].map(e => `${e.sourceId}>${e.destinationId}`));
@@ -684,8 +714,9 @@ test('F44 a formula takes connections like a node group, and its hidden Things t
   // A Thing dropped on it isn't offered as one of its Things.
   expect(await page.evaluate(async () => {
     const { findGroupDropTarget } = await import('/src/components/canvas/groups/groupDropTarget.js');
+    const { projectGraphView } = await import('/src/core/openDefinitions.js');
     const st = window.useGraphStore.getState();
-    const g = st.graphs.get(st.activeGraphId);
+    const g = projectGraphView(st, st.activeGraphId);
     const nodes = [...g.instances.values()];
     const f = [...g.groups.values()].find(x => x.format === 'formula');
     const m = g.instances.get(f.memberInstanceIds[0]);
@@ -701,12 +732,11 @@ test('F44 connections on a formula follow it while it is dragged, to another for
     const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
     const st = window.useGraphStore.getState();
     const near = st.graphs.get(st.activeGraphId).instances.get('i-epsilon');
-    buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
-    buildBankEquation(d, d.equations.find(e => e.id === 'Q41591'), st.activeGraphId, { x: near.x + 1400, y: near.y + 520 });
+    const a = buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
+    const b = buildBankEquation(d, d.equations.find(e => e.id === 'Q41591'), st.activeGraphId, { x: near.x + 1400, y: near.y + 520 });
     const s2 = window.useGraphStore.getState();
-    const [a, b] = [...s2.graphs.get(s2.activeGraphId).groups.values()].filter(g => g.format === 'formula');
-    s2.addEdge(s2.activeGraphId, { id: 'e-ff', sourceId: a.anchorInstanceId, destinationId: b.anchorInstanceId });
-    s2.addEdge(s2.activeGraphId, { id: 'e-fn', sourceId: a.anchorInstanceId, destinationId: 'i-gamma' });
+    s2.addEdge(s2.activeGraphId, { id: 'e-ff', sourceId: a.anchorId, destinationId: b.anchorId });
+    s2.addEdge(s2.activeGraphId, { id: 'e-fn', sourceId: a.anchorId, destinationId: 'i-gamma' });
   });
   await expect(object(page)).toHaveCount(2);
   await page.waitForTimeout(800); // past the entrances
@@ -733,13 +763,13 @@ test('F44 arrowheads into a formula stop at its band, mid-drag as on the drop', 
     const d = (await loadFormulaBank()).disciplines.find(x => x.id === 'physics');
     const st = window.useGraphStore.getState();
     const near = st.graphs.get(st.activeGraphId).instances.get('i-epsilon');
-    buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
+    const f = buildBankEquation(d, d.equations.find(e => e.id === 'Q191785'), st.activeGraphId, { x: near.x + 380, y: near.y + 520 });
+    const { projectGraphView } = await import('/src/core/openDefinitions.js');
     const s2 = window.useGraphStore.getState();
-    const g = s2.graphs.get(s2.activeGraphId);
-    const f = [...g.groups.values()].find(x => x.format === 'formula');
-    const token = f.memberInstanceIds.find(id => !g.instances.get(id).isGroupAnchor);
+    const g = projectGraphView(s2, s2.activeGraphId);
+    const token = f.instanceIds.find(id => !g.instances.get(id).isGroupAnchor);
     const toward = (id) => ({ arrowsToward: new Set([id]) });
-    s2.addEdge(s2.activeGraphId, { id: 'e-equation', sourceId: 'i-gamma', destinationId: f.anchorInstanceId, directionality: toward(f.anchorInstanceId) });
+    s2.addEdge(s2.activeGraphId, { id: 'e-equation', sourceId: 'i-gamma', destinationId: f.anchorId, directionality: toward(f.anchorId) });
     s2.addEdge(s2.activeGraphId, { id: 'e-token', sourceId: 'i-alpha', destinationId: token, directionality: toward(token) });
     return { token };
   });
@@ -805,9 +835,8 @@ test('F44 arrowheads into a formula stop at its band, mid-drag as on the drop', 
 test('F44 the panel deletes a formula, its Things and its parts, playing its entrance backwards, as one undo step', async ({ page }) => {
   await openFixture(page, 'small');
   await buildFormula(page, 'x = (a + b) * c');
-  const { id, members } = await formulaGroup(page, 'x = (a + b)');
-  const before = await activeGraphSnapshot(page);
-  const anchorId = await storeEval(page, (st, gid) => st.graphs.get(st.activeGraphId).groups.get(gid).anchorInstanceId, id);
+  const { id, members, anchorId } = await formulaGroup(page, 'x = (a + b)');
+  const before = await viewSnapshot(page);
   await storeEval(page, (st, a) => st.addEdge(st.activeGraphId, { id: 'e-out', sourceId: a, destinationId: 'i-gamma' }), anchorId);
   await page.waitForTimeout(800); // past the entrance
 
@@ -820,11 +849,11 @@ test('F44 the panel deletes a formula, its Things and its parts, playing its ent
   await shot(page, '18-deleting');
   await expect(page.locator('svg.canvas g.formula-object')).toHaveCount(0);
   await expect(panel(page)).toHaveCount(0);
-  // Gone: the group, its part, its Things and anchors, and the connection to Gamma; Gamma stays.
-  const after = await storeEval(page, (st, gid) => {
-    const g = st.graphs.get(st.activeGraphId);
-    return { group: g.groups.has(gid), groups: [...g.groups.keys()].sort(), instances: [...g.instances.keys()], edge: st.edges.has('e-out') };
-  }, id);
+  // Gone from the web as drawn: its node, its part, its Things and anchors, and the
+  // connection to Gamma; Gamma stays. (Its definition stays its Thing's.)
+  const after = await viewEval(page, (st, view, gid) => (
+    { group: view.groups.has(gid), groups: [...view.groups.keys()].sort(), instances: [...view.instances.keys()], edge: st.edges.has('e-out') }
+  ), id);
   expect(after.group).toBe(false);
   expect(after.edge).toBe(false);
   expect(after.instances.filter(i => members.includes(i) || i === anchorId)).toEqual([]);
@@ -837,7 +866,7 @@ test('F44 the panel deletes a formula, its Things and its parts, playing its ent
   // One undo brings all of it back.
   await page.keyboard.press('ControlOrMeta+z');
   await expect(object(page)).toHaveCount(1);
-  expect(await storeEval(page, (st, gid) => st.graphs.get(st.activeGraphId).groups.get(gid)?.format, id)).toBe('formula');
+  expect(await viewEval(page, (st, view, gid) => view.groups.get(gid)?.format, id)).toBe('formula');
   expect(await storeEval(page, () => window.useGraphStore.getState().edges.has('e-out'))).toBe(true);
 });
 
@@ -889,11 +918,10 @@ test('F44 the bank writes calculus as the textbook does, and a concept two ways 
   // Coulomb's law: q₁ and q₂ are both Electric Charge, which the bank writes Q.
   await build('Q11773690', { dx: 380, dy: 900 });
   await expect(object(page)).toHaveCount(2);
-  const charges = await storeEval(page, (st) => {
-    const g = [...st.graphs.get(st.activeGraphId).groups.values()]
+  const charges = await viewEval(page, (st, view) => {
+    const g = [...view.groups.values()]
       .find(x => x.format === 'formula' && st.nodePrototypes.get(x.linkedNodePrototypeId)?.name === 'Definition of Coulomb Force');
-    const inst = st.graphs.get(st.activeGraphId).instances;
-    return g.memberInstanceIds.map(id => inst.get(id))
+    return g.memberInstanceIds.map(id => view.instances.get(id))
       .filter(i => st.nodePrototypes.get(i.prototypeId)?.name === 'Electric Charge')
       .map(i => `${i.labels?.formula}/${st.nodePrototypes.get(i.prototypeId).labels?.formula}`).sort();
   });

@@ -567,13 +567,16 @@ test('F50 nothing to make or remove: no plus sign, no keys, no formula, nothing 
   await page.waitForTimeout(200);
   await expect(page.locator('.formula-selector')).toHaveCount(0);
 
-  // Loads and merges from anywhere but the switch that opened it.
+  // Loads and merges from anywhere but the switch that opened it, the backend's own too.
   const refused = await page.evaluate(async () => {
     const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const { default: backend } = await import('/src/services/universeBackend.js');
     const s = useGraphStore.getState();
+    const empty = () => ({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map(), edgePrototypes: new Map() });
+    backend.storeOperations.loadUniverseFromFile(empty());
     return {
-      load: s.loadUniverseFromFile({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map(), edgePrototypes: new Map() }),
-      merge: s.mergeUniverseState({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map(), edgePrototypes: new Map() }),
+      load: s.loadUniverseFromFile(empty()),
+      merge: s.mergeUniverseState(empty()),
     };
   });
   expect(refused).toEqual({ load: false, merge: null });
@@ -662,6 +665,121 @@ test('F50 a link arriving in the app on a fresh install goes ahead of setting up
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden({ timeout: 30_000 });
   await expect(welcome).toBeVisible({ timeout: 30_000 });
+});
+
+test('F50 a narrow panel keeps Universes inside its cards', async ({ page }) => {
+  // What sticks out of the box around this text, and that box's width.
+  const spill = (text) => page.getByText(text, { exact: true }).first().evaluate((el) => {
+    let box = el;
+    while (box && !['6px', '8px'].includes(getComputedStyle(box).borderTopLeftRadius)) box = box.parentElement;
+    const right = box.getBoundingClientRect().right;
+    return [...box.querySelectorAll('*')]
+      .filter((node) => node.getBoundingClientRect().right > right + 0.5)
+      .map((node) => `${node.tagName} ${(node.textContent || '').slice(0, 20)}`);
+  });
+  const source = 'https://files.example.test/a-rather-long-universe-name-indeed.redstring';
+  await hostFile(page);
+  await page.route(source, (route) => route.fulfill({ body: file, headers: { 'access-control-allow-origin': '*' } }));
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await page.goto(`/open?url=${encodeURIComponent(source)}`);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+
+  const atWidth = async (width) => {
+    await page.evaluate((w) => localStorage.setItem('panelWidth_left', String(w)), width);
+    await page.reload();
+    await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+    await page.waitForTimeout(500);
+    expect((await page.locator('.panel-left-tab-strip').boundingBox()).width, 'the panel is that wide').toBe(width);
+  };
+
+  for (const width of [180, 210, 250, 300, 360]) {
+    await atWidth(width);
+    expect(await spill('READ ONLY'), `read-only card at ${width}`).toEqual([]);
+    expect(await spill('Workspace Folder'), `workspace folder at ${width}`).toEqual([]);
+    await page.screenshot({ path: test.info().outputPath(`universes-${width}.png`) });
+  }
+
+  // Above ultra slim the Workspace Folder's button stays beside its text; at it,
+  // under. The read-only row's close is beside its name, not on a line of its own.
+  const buttonUnderText = async () => {
+    const text = await page.getByText('Workspace Folder', { exact: true }).first().boundingBox();
+    const choose = await page.getByRole('button', { name: 'Choose workspace folder' }).boundingBox();
+    return choose.y > text.y + text.height;
+  };
+  await atWidth(360);
+  expect(await buttonUnderText()).toBe(false);
+  await atWidth(300);
+  expect(await buttonUnderText()).toBe(true);
+  await atWidth(180);
+  expect(await buttonUnderText()).toBe(true);
+  const close = await page.getByRole('button', { name: 'Close', exact: true }).boundingBox();
+  const name = await page.getByText('a-rather-long-universe-name-indeed', { exact: true }).boundingBox();
+  expect(close.y).toBeLessThan(name.y + name.height);
+  expect(close.x).toBeGreaterThan(name.x);
+
+  // A universe of your own at that width: its Share section and storage too.
+  await pillSettled(page);
+  await page.getByTestId('read-only-make-copy').click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await expect(page.getByTestId('share-universe')).toBeVisible();
+  expect(await spill('ACTIVE'), 'your own card at 180').toEqual([]);
+  await page.screenshot({ path: test.info().outputPath('universes-own-180.png') });
+});
+
+test('F50 links racing: the newest opens, and closing returns to yours', async ({ page }) => {
+  await hostFile(page);
+  // A universe of your own to come back to.
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await pillSettled(page);
+  await page.getByTestId('read-only-make-copy').click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await renameAlpha(page, 'Mine Now');
+  await page.waitForTimeout(6_000);
+  await page.reload();
+  await waitForCanvasReady(page);
+  expect((await store(page)).names).toContain('Mine Now');
+
+  const fulfil = (route) => route.fulfill({ body: file, headers: { 'access-control-allow-origin': '*' } });
+  const first = 'https://files.example.test/first.redstring';
+  const second = 'https://files.example.test/second.redstring';
+  let releaseFirst;
+  const firstHeld = new Promise((resolve) => { releaseFirst = resolve; });
+  await page.route(first, async (route) => { await firstHeld; await fulfil(route); });
+  await page.route(second, fulfil);
+
+  const opened = await page.evaluate(([one, two]) => import('/src/services/universeBackend.js').then(({ default: backend }) => {
+    window.__first = backend.openReadOnlyUniverse(one);
+    return backend.openReadOnlyUniverse(two);
+  }), [first, second]);
+  expect(opened?.slug).toBeTruthy();
+  releaseFirst();
+  expect(await page.evaluate(() => window.__first)).toBe(null);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('second', { exact: true })).toBeVisible();
+  await expect(page.getByText('first', { exact: true })).toHaveCount(0);
+
+  await pillSettled(page);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden({ timeout: 30_000 });
+  await expect.poll(async () => (await store(page)).names).toContain('Mine Now');
+});
+
+test('F50 a second link that fails leaves the visit up', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  await page.evaluate(() => import('/src/services/universeBackend.js').then(({ default: backend }) => backend.openReadOnlyUniverse('https://files.example.test/gone.redstring')));
+  await expect(page.getByTestId('read-only-failure')).toBeVisible();
+  await page.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(page.getByTestId('read-only-failure')).toBeHidden();
+  await page.waitForTimeout(800);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/open');
 });
 
 test('F50 the bar fits a phone', async ({ page }) => {

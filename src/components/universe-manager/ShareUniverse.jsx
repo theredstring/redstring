@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, Link as LinkIcon, Plus } from 'lucide-react';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { pillRow } from './shared/slotLayout.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import { openExternalUrl } from '../../utils/safeUrl.js';
 import { copyText, repoAudience, sharedLinkForUniverse } from '../../services/universeShare.js';
@@ -9,8 +10,9 @@ import { copyText, repoAudience, sharedLinkForUniverse } from '../../services/un
  * The active universe's Share section: its link and who that link opens for.
  * Access is the repository's, so changing it means going there.
  */
-const ShareUniverse = ({ universe, onLinkRepo }) => {
+const ShareUniverse = ({ universe, onLinkRepo, isVerySlim = false }) => {
   const theme = useTheme();
+  const { rowStyle, pillProps } = pillRow(isVerySlim);
   const [audience, setAudience] = useState(null);
   const [copied, setCopied] = useState(false);
 
@@ -55,12 +57,13 @@ const ShareUniverse = ({ universe, onLinkRepo }) => {
               <span style={{ overflowWrap: 'anywhere' }}>{audienceLine}</span>
             </div>
           )}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={rowStyle}>
             <PanelIconButton
               icon={copied ? Check : Copy}
               label={copied ? 'Copied' : 'Copy Link'}
               variant="outline"
               size={12}
+              {...pillProps}
               onClick={copy}
             />
             {audience && (
@@ -68,6 +71,7 @@ const ShareUniverse = ({ universe, onLinkRepo }) => {
                 label="Manage Access"
                 variant="outline"
                 size={12}
+                {...pillProps}
                 onClick={() => openExternalUrl(`https://github.com/${repoLabel}/settings/access`)}
               />
             )}
@@ -78,12 +82,13 @@ const ShareUniverse = ({ universe, onLinkRepo }) => {
           <div style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary }}>
             Add a repository to get a link.
           </div>
-          <div>
+          <div style={rowStyle}>
             <PanelIconButton
               icon={Plus}
               label="Add Repository"
               variant="outline"
               size={12}
+              {...pillProps}
               onClick={() => onLinkRepo?.(universe.slug)}
             />
           </div>

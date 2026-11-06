@@ -26,6 +26,7 @@ import { resolveGraphId } from '../../../wizard/tools/resolveGraphId.js';
 import ConfirmDialog from '../../shared/ConfirmDialog.jsx';
 import { middleClickHandlers } from '../../../utils/middleClick.js';
 import useGraphStore from '../../../store/graphStore.js';
+import { currentReadOnlyVisit } from '../../../store/readOnlyUniverse.js';
 import { applyOffscreenLayout } from '../../../services/offscreenLayout.js';
 import { applyToolResultToStore, collectApplyFailures, configureToolResultApplier, setWizardProvenanceContext, resolveHeldWizardChanges } from '../../../services/toolResultApplier.js';
 import { useWizardConfirmationStore, pendingForConversation, buildConfirmationQuestion, beginWizardTurn } from '../../../services/wizardConfirmationGate.js';
@@ -2946,8 +2947,12 @@ const LeftAIView = ({ compact = false,
       // Same reason as _preCreatedConvId above: this must name the tab the run
       // was started in, which is what the ref holds and the closure may not.
       const targetConversationId = _preCreatedConvId;
+      const visit = currentReadOnlyVisit();
       try {
         for await (const event of agentEvents) {
+          // Started looking at a read-only universe that has since closed or been
+          // copied: what's open now is someone's own, and this run wasn't for it.
+          if (visit && currentReadOnlyVisit() !== visit) abortController.abort();
           // Stopped: drop whatever the run still emits. A tool already in flight
           // finishes on its own time, and its result used to land in the store
           // and the bubble after the user had pressed Stop.

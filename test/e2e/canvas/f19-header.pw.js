@@ -88,10 +88,47 @@ test('F19c View > Snap to Grid and View > Grid > Dot reach the canvas (B-12)', a
 
   const appearance = () => storeEval(page, (st) => st.gridSettings?.appearance || 'lattice');
   expect(await appearance()).toBe('lattice');
-  await openView();
+  // Snap to Grid leaves the menu open; the logo again would close it.
+  await page.locator('.menu-item', { hasText: /^View$/ }).first().hover();
   await page.locator('.submenu-item.has-submenu', { hasText: /^Grid/ }).hover();
   await page.locator('.submenu-item', { hasText: /^Dot/ }).click();
   await expect.poll(appearance).toBe('dot');
+});
+
+test('F19d a press on a nested menu item lands: File > Export keeps its submenu to the click', async ({ page }) => {
+  await openFixture(page, 'small');
+  await page.evaluate(() => {
+    window.__landed = [];
+    document.addEventListener('click', (e) => {
+      const item = e.target.closest?.('.recent-file-item');
+      if (item) { window.__landed.push(item.innerText); e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  });
+  await page.locator('.header-logo-button').click();
+  await page.locator('.menu-item', { hasText: /^File$/ }).first().hover();
+  await page.locator('.submenu-item.has-submenu', { hasText: /^Export/ }).hover();
+  await page.locator('.recent-file-item', { hasText: 'JSON' }).click();
+  expect(await page.evaluate(() => window.__landed)).toHaveLength(1);
+});
+
+test('F19e the menu works from the keyboard: focus opens each level and an item takes Enter', async ({ page }) => {
+  await openFixture(page, 'small');
+  const appearance = () => storeEval(page, (st) => st.gridSettings?.appearance || 'lattice');
+  await page.locator('.header-logo-button').click();
+  await page.locator('.menu-item', { hasText: /^View$/ }).first().focus();
+  const grid = page.locator('.submenu-item.has-submenu', { hasText: /^Grid/ });
+  await expect(grid).toBeVisible();
+  await grid.focus();
+  const dot = page.locator('.submenu-item', { hasText: /^Dot/ });
+  await expect(dot).toBeVisible();
+  await dot.focus();
+  await expect(dot).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(appearance).toBe('dot');
+  // Another menu takes over from the nested one.
+  await page.locator('.menu-item', { hasText: /^File$/ }).first().focus();
+  await expect(dot).toHaveCount(0);
+  await expect(page.locator('.submenu-item', { hasText: 'Import Ontology' })).toBeVisible();
 });
 
 test("F19b the Redstring menu's View > Auto Layout reaches the canvas", async ({ page }) => {

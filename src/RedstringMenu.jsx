@@ -213,6 +213,13 @@ const RedstringMenu = ({
     openTopLevelMenu(menuName);
   };
 
+  // Focus bubbles here from everything inside the menu. Pressing an item in a
+  // nested submenu focuses it, so reopening on that closed the nested submenu
+  // before the press ended, and the click never landed.
+  const handleTopLevelMenuFocus = (menuName) => {
+    if (!isTopLevelMenuOpen(menuName)) openTopLevelMenu(menuName);
+  };
+
   const handleTopLevelMenuLeave = () => {
     // Top-level menus don't close on leave - they switch immediately on hover of another item
     // Only close if interacting with slider
@@ -307,7 +314,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('File')}
-                    onFocus={() => handleTopLevelMenuHover('File')}
+                    onFocus={() => handleTopLevelMenuFocus('File')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -521,7 +528,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('Edit')}
-                    onFocus={() => handleTopLevelMenuHover('Edit')}
+                    onFocus={() => handleTopLevelMenuFocus('Edit')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -643,7 +650,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('View')}
-                    onFocus={() => handleTopLevelMenuHover('View')}
+                    onFocus={() => handleTopLevelMenuFocus('View')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -1001,7 +1008,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('Connections')}
-                    onFocus={() => handleTopLevelMenuHover('Connections')}
+                    onFocus={() => handleTopLevelMenuFocus('Connections')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >
@@ -1066,7 +1073,7 @@ const RedstringMenu = ({
                   <div
                     key={index}
                     onMouseEnter={() => handleTopLevelMenuHover('Help')}
-                    onFocus={() => handleTopLevelMenuHover('Help')}
+                    onFocus={() => handleTopLevelMenuFocus('Help')}
                     onMouseLeave={handleTopLevelMenuLeave}
                     style={{ position: 'relative', width: '100%' }}
                   >

@@ -3,7 +3,7 @@ import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Sa
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
-import { slotLayout } from './shared/slotLayout.js';
+import { pillRow, slotLayout } from './shared/slotLayout.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
@@ -36,6 +36,9 @@ function formatWhen(timestamp) {
 }
 
 import { saveWorkspaceHandle, getWorkspaceHandle, clearWorkspaceHandle, checkWorkspacePermission, requestWorkspacePermission } from '../../services/workspaceFolderService.js';
+
+// The list's width when the panel is at Panel.jsx's ULTRA_SLIM_WIDTH (320), less its gutters.
+const ULTRA_SLIM_CONTAINER = 275;
 
 const UniversesList = ({
   universes = [],
@@ -79,6 +82,7 @@ const UniversesList = ({
   const [isMergeMode, setIsMergeMode] = useState(false); // Picking a universe to merge into the active one
   const [isHeaderSlim, setIsHeaderSlim] = useState(false); // Track if header should stack at < 480px
   const [isVerySlim, setIsVerySlim] = useState(false); // Track if container is < 320px for aggressive space-saving
+  const [isUltraSlim, setIsUltraSlim] = useState(false); // Panel.jsx's ultra slim: a panel of 320px or less
   const [workspaceFolder, setWorkspaceFolder] = useState(() => {
     try {
       return localStorage.getItem('redstring_workspace_folder_name') || null;
@@ -126,12 +130,14 @@ const UniversesList = ({
     const initialWidth = el.clientWidth;
     setIsHeaderSlim(initialWidth < 480);
     setIsVerySlim(initialWidth < 320);
+    setIsUltraSlim(initialWidth <= ULTRA_SLIM_CONTAINER);
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = entry.contentRect?.width || el.clientWidth || 0;
         setIsHeaderSlim(width < 480);
         setIsVerySlim(width < 320);
+        setIsUltraSlim(width <= ULTRA_SLIM_CONTAINER);
       }
     });
 
@@ -366,6 +372,7 @@ const UniversesList = ({
     labelTextStyle: slotLabelTextStyle,
     buttonRowStyle: slotButtonRowStyle
   } = slotLayout({ isSlim, isVerySlim, theme });
+  const { rowStyle: pillRowStyle, pillProps } = pillRow(isVerySlim);
 
   return (
     <div ref={containerRef}>
@@ -412,15 +419,18 @@ const UniversesList = ({
             borderRadius: 6,
             border: `1px solid ${theme.canvas.border}`,
             display: 'flex',
-            alignItems: 'center',
+            // At ultra slim the buttons take a row of their own, as a storage
+            // slot's do (slotLayout.js), and the text gets the whole width.
+            flexDirection: isUltraSlim ? 'column' : 'row',
+            alignItems: isUltraSlim ? 'stretch' : 'center',
             justifyContent: 'space-between',
-            gap: 10
+            gap: isUltraSlim ? 8 : 10
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: isUltraSlim ? 'flex-start' : 'center', gap: 8, flex: 1, minWidth: 0 }}>
               {workspaceFolder ? (
-                <FolderOpen size={isVerySlim ? 16 : 18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.brand} />
+                <FolderOpen size={isVerySlim ? 16 : 18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.brand} style={{ flexShrink: 0 }} />
               ) : (
-                <Folder size={isVerySlim ? 16 : 18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.textSecondary} />
+                <Folder size={isVerySlim ? 16 : 18} color={theme.darkMode ? '#CCAAA8' : theme.canvas.textSecondary} style={{ flexShrink: 0 }} />
               )}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{
@@ -433,9 +443,9 @@ const UniversesList = ({
                 <span style={{
                   fontSize: isVerySlim ? '0.6rem' : '0.65rem',
                   color: workspaceFolder ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
+                  ...(isUltraSlim
+                    ? { overflowWrap: 'anywhere' }
+                    : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
                 }}>
                   {workspaceFolder || 'Not linked — files may lose permissions on reload'}
                 </span>
@@ -443,20 +453,20 @@ const UniversesList = ({
             </div>
             <div style={{
               display: 'flex',
-              gap: isVerySlim ? 2 : 4,
+              gap: isUltraSlim ? 8 : (isVerySlim ? 2 : 4),
               flexShrink: 0
             }}>
               <PanelIconButton
                 icon={workspaceFolder ? FolderOpen : Upload}
-                size={isVerySlim ? 14 : 18}
-                style={isVerySlim ? { padding: '5px' } : {}}
+                size={isVerySlim && !isUltraSlim ? 14 : 18}
+                style={isUltraSlim ? { padding: '6px' } : (isVerySlim ? { padding: '5px' } : {})}
                 onClick={handlePickWorkspaceFolder}
                 title={workspaceFolder ? 'Change workspace folder' : 'Choose workspace folder'}
               />
               {workspaceFolder && (
                 <PanelIconButton
                   icon={X}
-                  size={isVerySlim ? 12 : 16}
+                  size={isUltraSlim ? 18 : (isVerySlim ? 12 : 16)}
                   style={isVerySlim ? { padding: '6px' } : {}}
                   onClick={handleClearWorkspaceFolder}
                   title="Unlink workspace folder"
@@ -472,7 +482,8 @@ const UniversesList = ({
               borderRadius: 6,
               border: `1px solid ${theme.alert.warning.border}`,
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: isUltraSlim ? 'column' : 'row',
+              alignItems: isUltraSlim ? 'stretch' : 'center',
               justifyContent: 'space-between',
               gap: 8,
               fontSize: isVerySlim ? '0.62rem' : '0.68rem',
@@ -489,7 +500,7 @@ const UniversesList = ({
                   padding: '2px 10px',
                   borderColor: theme.alert.warning.text,
                   color: theme.alert.warning.text,
-                  flexShrink: 0
+                  flexShrink: isUltraSlim ? 1 : 0
                 }}
                 onClick={handleRegrantWorkspacePermission}
                 title="Re-grant workspace folder access permission"
@@ -610,6 +621,7 @@ const UniversesList = ({
                     borderRadius: 8,
                     backgroundColor: theme.canvas.bg,
                     padding: isVerySlim ? 8 : 12,
+                    position: 'relative',
 
                     display: 'flex',
                     flexDirection: 'column',
@@ -624,8 +636,8 @@ const UniversesList = ({
                     alignItems: isVerySlim ? 'flex-start' : 'center',
                     gap: isVerySlim ? 8 : 0
                   }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 0, ...(isVerySlim ? { width: '100%' } : {}) }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isVerySlim ? 4 : 6 }}>
                         {isRenaming ? (
                           <input
                             type="text"
@@ -655,7 +667,14 @@ const UniversesList = ({
                           />
                         ) : (
                           <span
-                            style={{ fontWeight: 600, color: theme.canvas.textPrimary }}
+                            style={{
+                              fontWeight: 600,
+                              color: theme.canvas.textPrimary,
+                              maxWidth: '100%',
+                              overflowWrap: 'anywhere',
+                              // Clear of the close button in the corner.
+                              ...(isVerySlim && isReadOnly ? { boxSizing: 'border-box', paddingRight: 24 } : {})
+                            }}
                             onDoubleClick={isActive && !isReadOnly ? () => beginRename(universe) : undefined}
                           >
                             {universe.name}
@@ -664,11 +683,12 @@ const UniversesList = ({
                         {isActive && (
                           <span style={{
                             fontSize: '0.6rem',
-                            padding: '2px 6px',
+                            padding: isVerySlim ? '2px 5px' : '2px 6px',
                             borderRadius: 10,
                             backgroundColor: theme.canvas.brand,
                             color: '#DEDADA',
-                            fontWeight: 700
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap'
                           }}>
                             ACTIVE
                           </span>
@@ -676,13 +696,14 @@ const UniversesList = ({
                         {isReadOnly && (
                           <span style={{
                             fontSize: '0.6rem',
-                            padding: '2px 6px',
+                            padding: isVerySlim ? '2px 5px' : '2px 6px',
                             borderRadius: 10,
                             backgroundColor: 'transparent',
                             color: theme.canvas.textPrimary,
                             border: `1px solid ${theme.canvas.border}`,
                             fontWeight: 700,
-                            letterSpacing: '0.05em'
+                            letterSpacing: isVerySlim ? 0 : '0.05em',
+                            whiteSpace: 'nowrap'
                           }}>
                             READ ONLY
                           </span>
@@ -690,13 +711,14 @@ const UniversesList = ({
                         {isEmpty && (
                           <span style={{
                             fontSize: '0.6rem',
-                            padding: '2px 6px',
+                            padding: isVerySlim ? '2px 5px' : '2px 6px',
                             borderRadius: 10,
                             backgroundColor: 'transparent',
                             color: theme.canvas.textSecondary,
                             border: `1px solid ${theme.canvas.border}`,
                             fontWeight: 700,
-                            letterSpacing: '0.05em'
+                            letterSpacing: '0.05em',
+                            whiteSpace: 'nowrap'
                           }}>
                             EMPTY
                           </span>
@@ -738,7 +760,10 @@ const UniversesList = ({
                       display: 'flex',
                       gap: isVerySlim ? 2 : (isSlim ? 4 : 6),
                       alignItems: 'center',
-                      flexShrink: 0
+                      flexShrink: 0,
+                      // A read-only row has one button, the way out: in the
+                      // corner, not on a line of its own under the name.
+                      ...(isVerySlim && isReadOnly ? { position: 'absolute', top: 4, right: 4 } : {})
                     }}>
                       {/* In merge mode every other row collapses to one button, so
                           there is exactly one thing to do: pick a universe. The
@@ -827,19 +852,20 @@ const UniversesList = ({
                   </div>
 
                   {isActive && isReadOnly && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: isVerySlim ? 8 : (isSlim ? 12 : 24) }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: isVerySlim ? 0 : (isSlim ? 12 : 24) }}>
                       <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
                         Nothing is saved. Make a copy to keep it and edit it.
                       </div>
                       <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary, overflowWrap: 'anywhere' }}>
                         {universe.raw?.readOnly?.sourceUrl}
                       </div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <div style={pillRowStyle}>
                         <PanelIconButton
                           icon={CopyPlus}
                           label="Make a Copy"
                           variant="outline"
                           size={12}
+                          {...pillProps}
                           onClick={onMakeCopy}
                         />
                         {!isInstalledApp() && (
@@ -848,6 +874,7 @@ const UniversesList = ({
                             label="Open in App"
                             variant="outline"
                             size={12}
+                            {...pillProps}
                             onClick={() => openInApp(universe.raw?.readOnly?.sourceUrl)}
                           />
                         )}
@@ -856,6 +883,7 @@ const UniversesList = ({
                           label={copiedSlug === universe.slug ? 'Copied' : 'Copy Link'}
                           variant="outline"
                           size={12}
+                          {...pillProps}
                           onClick={() => {
                             const url = buildSharedLink(universe.raw?.readOnly?.sourceUrl);
                             if (!url) return;
@@ -874,7 +902,7 @@ const UniversesList = ({
                   {/* Expanded Content - Only for Active Universe */}
                   {isActive && !isReadOnly && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: isVerySlim ? 8 : (isSlim ? 12 : 24) }}>
-                      <ShareUniverse universe={universe} onLinkRepo={onLinkRepo} />
+                      <ShareUniverse universe={universe} onLinkRepo={onLinkRepo} isVerySlim={isVerySlim} />
 
                       {/* Storage Slots */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
