@@ -828,7 +828,7 @@ const UnifiedBottomControlPanel = ({
     && selectedNodes.every(n => savedNodeIds?.has(n.id));
 
   // The toggle under a selection too big to preview whole: "+ N others" while
-  // collapsed, "Show fewer" once expanded.
+  // collapsed, "Show Fewer" once expanded.
   const isConnectionList = mode === 'connections';
   const isNodeList = isNodes && selectionChips.length > 0;
   const hiddenInSelection = isNodeList ? nodeRendererMetrics.hiddenCount : isConnectionList ? connectionHiddenCount : 0;
@@ -846,7 +846,7 @@ const UnifiedBottomControlPanel = ({
 
   let overflowToggleLabel = null;
   if (selectionExpanded && selectionCanCollapse) {
-    overflowToggleLabel = 'Show fewer';
+    overflowToggleLabel = 'Show Fewer';
   } else if (!selectionExpanded && hiddenInSelection > 0) {
     const noun = isConnectionList
       ? (hiddenInSelection === 1 ? 'other connection' : 'other connections')
