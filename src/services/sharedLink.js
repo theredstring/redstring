@@ -13,7 +13,7 @@
 import { classifyUrl } from './externalUniverseLoader.js';
 
 const CANONICAL_ORIGIN = 'https://redstring.io';
-const LINK_HOSTS = new Set(['redstring.io', 'www.redstring.io', 'staging.redstring.io']);
+const LINK_HOSTS = new Set(['redstring.io', 'www.redstring.io', 'redstring-staging.pages.dev']);
 const OPEN_PATH = /^\/open\/?$/;
 const RAW_GITHUB = 'https://raw.githubusercontent.com/';
 

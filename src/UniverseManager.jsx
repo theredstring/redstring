@@ -49,6 +49,7 @@ import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import Modal from './components/shared/Modal.jsx';
 import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
+import { OPEN_EXTERNAL_LINK_EVENT, takeExternalLinkBoxRequest } from './components/modals/externalLinkBox.js';
 import { makeCopyOfOpenUniverse } from './components/canvas/actions/makeCopy.js';
 import ExportUniverseModal from './components/modals/ExportUniverseModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
@@ -947,10 +948,14 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const handler = () => setExternalLinkModalOpen(true);
-    window.addEventListener('redstring:open-external-link', handler);
+    const handler = () => {
+      takeExternalLinkBoxRequest();
+      setExternalLinkModalOpen(true);
+    };
+    window.addEventListener(OPEN_EXTERNAL_LINK_EVENT, handler);
+    if (takeExternalLinkBoxRequest()) setExternalLinkModalOpen(true);
     return () => {
-      window.removeEventListener('redstring:open-external-link', handler);
+      window.removeEventListener(OPEN_EXTERNAL_LINK_EVENT, handler);
     };
   }, []);
 

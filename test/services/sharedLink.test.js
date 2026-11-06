@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   parseSharedLink, buildSharedLink, buildAppLink, normalizeSourceUrl, unwrapSharedLink
 } from '../../src/services/sharedLink.js';
@@ -25,6 +25,48 @@ describe('shared links', () => {
     const link = buildSharedLink(source);
     expect(link).toBe(`https://redstring.io/open?url=${encodeURIComponent(source)}`);
     expect(parseSharedLink(link)).toBe(source);
+  });
+
+  describe('Dropbox', () => {
+    const FILE = 'https://dl.dropboxusercontent.com/scl/fi/abc123/my%20map.redstring?rlkey=key456';
+    const COPIED = 'https://www.dropbox.com/scl/fi/abc123/my%20map.redstring?rlkey=key456&st=3099g7vb&dl=0';
+
+    it('takes what Copy link gives, and reads from where the app is allowed to', () => {
+      expect(normalizeSourceUrl(COPIED)).toBe(FILE);
+    });
+
+    it.each([
+      ['another copy of it', 'https://www.dropbox.com/scl/fi/abc123/my%20map.redstring?rlkey=key456&st=viaxk8w4&dl=0'],
+      ['a download link', 'https://www.dropbox.com/scl/fi/abc123/my%20map.redstring?rlkey=key456&dl=1'],
+      ['the bare domain', 'https://dropbox.com/scl/fi/abc123/my%20map.redstring?rlkey=key456'],
+      ['the download host already', `${FILE}&st=viaxk8w4&dl=0`],
+    ])('comes to the same file from %s', (_, url) => {
+      expect(normalizeSourceUrl(url)).toBe(FILE);
+    });
+
+    it('shares a link that holds only what it needs', () => {
+      const link = buildSharedLink(COPIED);
+      expect(link).not.toContain('st%3D');
+      expect(link).not.toContain('dl%3D');
+      expect(parseSharedLink(link)).toBe(FILE);
+    });
+
+    it('is found inside a pasted or followed Redstring link', () => {
+      expect(parseSharedLink(`https://redstring.io/open?url=${encodeURIComponent(COPIED)}`)).toBe(FILE);
+    });
+
+    it('leaves a link with no key as it is, for Dropbox to refuse', () => {
+      expect(normalizeSourceUrl('https://www.dropbox.com/scl/fi/abc123/f.redstring')).toBe('https://dl.dropboxusercontent.com/scl/fi/abc123/f.redstring');
+    });
+
+    it('still only takes universe files', () => {
+      expect(normalizeSourceUrl('https://www.dropbox.com/scl/fi/abc123/photo.png?rlkey=k&dl=0')).toBe(null);
+      expect(normalizeSourceUrl('https://www.dropbox.com/scl/fo/abc123/folder?rlkey=k&dl=0')).toBe(null);
+    });
+
+    it('leaves other hosts alone', () => {
+      expect(normalizeSourceUrl('https://dropbox.com.evil.example/f.redstring?rlkey=k&dl=0')).toBe('https://dropbox.com.evil.example/f.redstring?rlkey=k&dl=0');
+    });
   });
 
   it('gives the app the same link', () => {
@@ -69,6 +111,14 @@ describe('shared links', () => {
     expect(parseSharedLink(`http://localhost:4001/${query}`, { anyHost: true })).toBe('https://example.com/f.redstring');
     expect(parseSharedLink('redstring://auth?url=https%3A%2F%2Fexample.com%2Ff.redstring')).toBe(null);
     expect(parseSharedLink('not a url')).toBe(null);
+  });
+
+  it('reads and writes links on staging, so they can be tried there', () => {
+    const staging = 'https://redstring-staging.pages.dev/open?gh=g/a/main/f.redstring';
+    expect(parseSharedLink(staging)).toBe('https://raw.githubusercontent.com/g/a/main/f.redstring');
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'redstring-staging.pages.dev', origin: 'https://redstring-staging.pages.dev' } });
+    expect(buildSharedLink('https://raw.githubusercontent.com/g/a/main/f.redstring')).toBe(staging);
+    vi.unstubAllGlobals();
   });
 
   it('lets the link box take a shared link', () => {

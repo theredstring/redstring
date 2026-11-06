@@ -150,6 +150,40 @@ test('F50 a link opened while you work: yours is saved, the visit is never remem
   expect((await store(page)).names).not.toContain('Vandalised');
 });
 
+test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and the link box', async ({ page }) => {
+  const COPIED = 'https://www.dropbox.com/scl/fi/abc123/atlas.redstring?rlkey=key456&st=3099g7vb&dl=0';
+  const requested = [];
+  await page.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) => {
+    const url = route.request().url();
+    requested.push(url);
+    // As the real thing: only the download host lets the app read the file.
+    if (url !== 'https://dl.dropboxusercontent.com/scl/fi/abc123/atlas.redstring?rlkey=key456') return route.abort();
+    return route.fulfill({ body: file, headers: { 'access-control-allow-origin': '*' } });
+  });
+
+  await page.goto(`/open?url=${encodeURIComponent(COPIED)}`);
+  await expect(page.getByTestId('read-only-bar')).toContainText('atlas', { timeout: 30_000 });
+  await waitForCanvasReady(page);
+  expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
+
+  // Pasted into the link box, from the File menu, with the Universes panel closed:
+  // the one click has to open the box as well as the panel.
+  await page.getByTestId('read-only-make-copy').click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await page.reload();
+  await waitForCanvasReady(page);
+  await expect(page.getByText('Manage your knowledge spaces')).not.toBeInViewport();
+  await page.getByRole('button', { name: 'Redstring Menu' }).click();
+  await page.getByText('File', { exact: true }).first().hover();
+  await page.locator('.submenu-item', { hasText: 'Load from External Link' }).click();
+  await page.getByPlaceholder('https://github.com/owner/repo/blob/main/path.redstring').fill(COPIED);
+  await expect(page.getByText('Direct file URL detected')).toBeVisible();
+  await page.getByRole('button', { name: 'Fetch & preview' }).click();
+  await page.getByText("Just view (read only)").click();
+  await expect(page.getByTestId('read-only-bar')).toContainText('atlas', { timeout: 15_000 });
+  expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
+});
+
 test('F50 a link that cannot be read says so and changes nothing', async ({ page }) => {
   await hostFile(page, { status: 404 });
   await page.goto(LINK);

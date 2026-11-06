@@ -42,6 +42,14 @@ describe('fetchSharedUniverse', () => {
     expect(describeSharedLinkFailure(noAccess)).toMatch(/doesn't have access/);
   });
 
+  it('blames the link, not GitHub, when another host refuses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json(403)));
+    const error = await fetchSharedUniverse('https://dl.dropboxusercontent.com/scl/fi/a/f.redstring').catch((e) => e);
+    expect(error.code).toBe('NO_ACCESS');
+    expect(describeSharedLinkFailure(error)).toMatch(/whole link/);
+    expect(describeSharedLinkFailure(error)).not.toMatch(/GitHub/);
+  });
+
   it('explains a host that refuses the read', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
     const error = await fetchSharedUniverse('https://dav.example.com/f.redstring').catch((e) => e);

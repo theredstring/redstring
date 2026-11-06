@@ -17,6 +17,7 @@ redstring://open?gh=...
 - **A link grants nothing.** It says where the file is, and the host decides who can read it. A raw link's `?token=` is dropped.
 - **Always `/open`, one level deep.** Assets load relative to the page (`base: './'`), so a deeper path would break them.
 - **Any direct https file works, if its host allows it.** The app fetches the file, so the host has to send CORS headers (GitHub raw and gists do). Redstring doesn't proxy. Files over the size cap (50 MB, 25 MB on phones) are refused.
+- **Dropbox links work as Copy link gives them.** `www.dropbox.com` can't be read from the app, so `classifyUrl` reads the same file from `dl.dropboxusercontent.com`, keeping only `rlkey`. Dropbox staff describe that host as legacy but still supported, so it could change.
 - **Private GitHub files** are read as the person: an anonymous 404 retries through `api.github.com` with their token (`fetchSharedUniverse`). The token goes nowhere else.
 
 ## How a link arrives

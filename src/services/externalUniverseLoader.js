@@ -6,6 +6,7 @@
  *   - GitHub folder URLs (github.com/.../tree/...)
  *   - GitHub repo URLs (github.com/owner/repo)
  *   - Arbitrary direct URLs whose path ends in .redstring
+ *   - Dropbox share links, as Copy link gives them
  *
  * No React, no store imports. Just URL classification, fetch, and GitHub API listing.
  * GitHub calls are unauthenticated (60 req/hr limit per IP — acceptable for one-shot load).
@@ -17,6 +18,18 @@ const GITHUB_FILE_BLOB_RE = /^\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/;
 const GITHUB_FOLDER_TREE_RE = /^\/([^/]+)\/([^/]+)\/tree\/([^/]+)(?:\/(.+))?$/;
 const GITHUB_REPO_RE = /^\/([^/]+)\/([^/]+)\/?$/;
 const RAW_GITHUB_RE = /^\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/;
+
+const DROPBOX_HOSTS = new Set(['dropbox.com', 'www.dropbox.com', 'dl.dropbox.com', 'dl.dropboxusercontent.com']);
+
+/**
+ * Dropbox's Copy link gives an address the app isn't allowed to read; the same
+ * file reads from its download host. Only `rlkey` grants access: `st` changes
+ * with every copy, and `dl` only picks between a page and a download.
+ */
+function dropboxFileUrl(url) {
+  const rlkey = url.searchParams.get('rlkey');
+  return `https://dl.dropboxusercontent.com${url.pathname}${rlkey ? `?rlkey=${encodeURIComponent(rlkey)}` : ''}`;
+}
 
 /**
  * Classify a URL into one of the recognized kinds.
@@ -98,7 +111,7 @@ export function classifyUrl(input) {
 
   // Arbitrary host: only accept direct .redstring file URLs.
   if (REDSTRING_EXT_RE.test(path)) {
-    return { kind: 'raw-file', rawUrl: url.toString() };
+    return { kind: 'raw-file', rawUrl: DROPBOX_HOSTS.has(host) ? dropboxFileUrl(url) : url.toString() };
   }
 
   return { kind: 'invalid', reason: 'URL must end in .redstring or be a GitHub URL' };
@@ -285,9 +298,9 @@ export async function fetchSharedUniverse(sourceUrl, { getToken, maxBytes = maxE
 /** A shared link's failure, in words for the person who followed it. */
 export function describeSharedLinkFailure(error) {
   if (error?.code === 'NO_ACCESS') {
-    return error.signedIn === false
-      ? "This universe wasn't found, or it's private. If you have access, connect GitHub in the Universes panel and open the link again."
-      : "This universe wasn't found, or your GitHub account doesn't have access to it.";
+    if (error.signedIn === false) return "This universe wasn't found, or it's private. If you have access, connect GitHub in the Universes panel and open the link again.";
+    if (error.signedIn === true) return "This universe wasn't found, or your GitHub account doesn't have access to it.";
+    return "This universe wasn't found, or this link doesn't give access to it. Check that you have the whole link.";
   }
   if (error?.code === 'UNREACHABLE') {
     return "Couldn't reach this universe. The server may be down, or it may not allow Redstring to read the file.";
