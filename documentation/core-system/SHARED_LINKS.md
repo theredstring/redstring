@@ -40,7 +40,7 @@ Three layers keep it read-only, all keyed on `src/store/readOnlyUniverse.js`:
 2. **Saving.** SaveCoordinator's `onStateChange`, `executeSave`, `flush` and `forceSave` refuse, beside the load gate. So do the backend's direct paths, `saveActiveUniverseInternal` and `forceSave`, restoring a backup or a Git version, the File menu's own open and save (`universeFileActions`), and forwarding to a headless daemon (`daemonCoexistence`).
 3. **Gestures.** Dragging and drawing connections don't start (`useNodeDrag`, `pointerHandlers`), because a drag moves the DOM before the store hears about it. Neither do the things a refused write would leave half done: the plus sign and its bubbles, the formula box and its offer, and cut, paste and delete from the keyboard (`useCanvasKeyboard`). Settings rows and File menu items that edit are dimmed.
 
-A refused edit, within a moment of the person's own gesture, nudges the bar (`nudgeReadOnlyUniverse`). Background writes don't.
+A refused edit made inside the person's own click or key press (`isInsidePersonsAct`) answers with `nudgeReadOnlyUniverse`: "Read Only" fades up in the save indicator's spot for about a second (`SaveStatusDisplay`), and the pill, if it's showing, offers the copy. Moving around doesn't answer: position writes, node drags, pans and the canvas's own background writes are all quiet.
 
 The Wizard still works here, and its writes are refused like any other, but it doesn't know that: it can say it built something it didn't.
 
