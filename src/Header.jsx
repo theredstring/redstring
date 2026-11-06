@@ -1211,10 +1211,10 @@ const Header = ({
   // Search and Auto Layout, the same two in the wide row and the hamburger.
   const searchAction = { key: 'search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search Everything', onClick: () => onOpenSearch?.() };
   const autoLayoutAction = { key: 'auto-layout', Icon: Broom, iconSize: 20, strokeWidth: 2.5, title: readOnly ? READ_ONLY_HINT : 'Auto Layout Web', disabled: readOnly, onClick: () => onAutoLayoutGraph?.() };
-  // Read-only there's nothing for the + to make, and search finds what it opens.
-  const plusActions = readOnly ? [] : [
-    { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create or Open Web', onClick: () => onCreateNewThing?.() },
-  ];
+  const plusAction = { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: readOnly ? READ_ONLY_HINT : 'Create or Open Web', disabled: readOnly, onClick: () => onCreateNewThing?.() };
+  const bookmarkAction = { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: readOnly ? READ_ONLY_HINT : (bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark'), disabled: readOnly, onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } };
+  const undoAction = { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo || readOnly };
+  const redoAction = { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo || readOnly };
 
   // The hamburger's column, top-down from the button.
   const hamburgerActions = [
@@ -1228,10 +1228,10 @@ const Header = ({
     // the header, opposite the hamburger. It is the one thing in this
     // column you reach for without already being in the middle of
     // something, so it does not belong behind a tap.
-    ...plusActions,
-    { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
-    { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
-    { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
+    plusAction,
+    bookmarkAction,
+    undoAction,
+    redoAction,
     searchAction,
     autoLayoutAction,
     // The right-click menu, for devices that have no right button. It
@@ -1381,7 +1381,7 @@ const Header = ({
           }}
         >
           {[
-            { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
+            undoAction,
             // Redo stands down while the Redstring menu is up: its Edit section
             // already carries Undo and Redo with their shortcuts written next to
             // them. Undo stays because it is the one you reach for without
@@ -1392,9 +1392,7 @@ const Header = ({
             // Today this row and the menu share one condition, so the entry
             // never renders — written as the rule rather than as a deletion so
             // it still holds if the menu's gate moves again.
-            ...(showRedstringMenu ? [] : [
-              { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
-            ]),
+            ...(showRedstringMenu ? [] : [redoAction]),
             { key: 'help', Icon: HelpCircle, iconSize: 22, strokeWidth: 3, title: 'Help & Guide', onClick: () => window.dispatchEvent(new Event('openHelpModal')) },
             { key: 'settings', Icon: Settings, iconSize: 20, strokeWidth: 2.5, title: 'Settings', onClick: () => window.dispatchEvent(new Event('openSettingsModal')) },
           ].map((action) => (
@@ -1619,8 +1617,8 @@ const Header = ({
           {[
             searchAction,
             autoLayoutAction,
-            { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
-            ...plusActions,
+            bookmarkAction,
+            plusAction,
           ].map((action) => (
             <div
               key={action.key}

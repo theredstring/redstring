@@ -8,7 +8,7 @@
  * panning and zooming.
  *
  * `active` is { slug, name, sourceUrl }. `nudge` counts refused edits, so the
- * read-only bar can answer them. `failure` is a link that couldn't be opened:
+ * save indicator can answer them. `failure` is a link that couldn't be opened:
  * { message, sourceUrl, atBoot }.
  */
 

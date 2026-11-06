@@ -6,6 +6,7 @@ import { Plus, Check, Link2, ChevronDown, RefreshCw, Loader2, ListPlus } from 'l
 import useGraphStore from '../../store/graphStore.js';
 import { projectGraphView } from '../../core/openDefinitions.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../store/readOnlyUniverse.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import useElementWidth from '../../hooks/useElementWidth.js';
 import useSemanticConnections from '../../hooks/useSemanticConnections.js';
@@ -83,6 +84,7 @@ const DraggableStatement = ({ begin, onDropAt, disabled, style, children, ...res
  */
 const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpen, offerAddSeed = true }) => {
   const theme = useTheme();
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const [containerRef, width] = useElementWidth(320);
   const [shown, setShown] = useState(PAGE);
   const [filter, setFilter] = useState('');
@@ -346,6 +348,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
               labelFontSize={12}
               variant="outline"
               onClick={addSeed}
+              disabled={readOnly}
               title={`Add ${seedName} to this web, in open space`}
               // Room for the hover ring at the panel's edge, and never wider than the column.
               style={{ marginLeft: '3px', maxWidth: 'calc(100% - 6px)', minWidth: 0 }}
@@ -363,6 +366,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
             labelFontSize={12}
             variant="outline"
             onClick={askAddAll}
+            disabled={readOnly}
             title={filtering
               ? `Add the ${remaining} connections matching "${filter.trim()}"`
               : `Add all ${remaining} connections of ${seedName} to this web`}
@@ -410,7 +414,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
               <DraggableStatement
                 begin={dragItemFor(c)}
                 onDropAt={(at) => onAdd(c, at)}
-                disabled={!activeGraphId || !!presentId}
+                disabled={!activeGraphId || !!presentId || readOnly}
                 data-semantic-row={c.other.name}
                 onClick={onOpen ? () => onOpen(c.other) : undefined}
                 title={c.other.description ? `${c.other.name}: ${c.other.description}` : `${c.subject} → ${c.predicate} → ${c.object}`}
@@ -456,6 +460,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     icon={Link2}
                     size={17}
                     onClick={() => onAdd(c)}
+                    disabled={readOnly}
                     title={`Connect to ${c.other.name}, already in this web, by "${c.predicate}"`}
                   />
                 ) : activeGraphId ? (
@@ -463,6 +468,7 @@ const SemanticConnectionList = ({ seed, seedPrototypeId = null, seedColor, onOpe
                     icon={Plus}
                     size={18}
                     onClick={() => onAdd(c)}
+                    disabled={readOnly}
                     title={canAdd
                       ? `Add ${c.other.name} beside ${seedName}, connected by "${c.predicate}"`
                       : `Add ${seedName} and its connection to ${c.other.name}, "${c.predicate}"`}

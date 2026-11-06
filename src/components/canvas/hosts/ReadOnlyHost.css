@@ -52,11 +52,6 @@
   font-size: 14px;
   font-weight: bold;
   user-select: none;
-  transition: transform 0.18s ease;
-}
-
-.read-only-pill.is-nudged {
-  transform: scale(1.04);
 }
 
 .read-only-pill-status {

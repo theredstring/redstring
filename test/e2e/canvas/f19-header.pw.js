@@ -22,6 +22,15 @@ const movedCount = (before, after) => Object.keys(before.instances).filter((id) 
   return b && (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5);
 }).length;
 
+// The menu slides in under the mouse, so a hover before it has landed can end up
+// on the row beside the one it aimed for.
+const openMenu = async (page) => {
+  await page.locator('.header-logo-button').click();
+  const menu = page.locator('.menu-container');
+  await expect(menu).toBeVisible();
+  await menu.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
+};
+
 test('F19 header buttons: bookmark, new web, search, auto layout, and renaming the web', async ({ page }) => {
   await openFixture(page, 'small');
 
@@ -74,12 +83,8 @@ test('F19c View > Snap to Grid and View > Grid > Dot reach the canvas (B-12)', a
   }, [graphId, instanceId]);
   const offGrid = await position();
 
-  const openView = async () => {
-    await page.locator('.header-logo-button').click();
-    await page.locator('.menu-item', { hasText: /^View$/ }).first().hover();
-  };
-
-  await openView();
+  await openMenu(page);
+  await page.locator('.menu-item', { hasText: /^View$/ }).first().hover();
   await page.locator('.submenu-item', { hasText: 'Snap to Grid' }).click();
   await expect.poll(async () => {
     const p = await position();
@@ -104,7 +109,7 @@ test('F19d a press on a nested menu item lands: File > Export keeps its submenu 
       if (item) { window.__landed.push(item.innerText); e.preventDefault(); e.stopPropagation(); }
     }, true);
   });
-  await page.locator('.header-logo-button').click();
+  await openMenu(page);
   await page.locator('.menu-item', { hasText: /^File$/ }).first().hover();
   await page.locator('.submenu-item.has-submenu', { hasText: /^Export/ }).hover();
   await page.locator('.recent-file-item', { hasText: 'JSON' }).click();
@@ -114,7 +119,7 @@ test('F19d a press on a nested menu item lands: File > Export keeps its submenu 
 test('F19e the menu works from the keyboard: focus opens each level and an item takes Enter', async ({ page }) => {
   await openFixture(page, 'small');
   const appearance = () => storeEval(page, (st) => st.gridSettings?.appearance || 'lattice');
-  await page.locator('.header-logo-button').click();
+  await openMenu(page);
   await page.locator('.menu-item', { hasText: /^View$/ }).first().focus();
   const grid = page.locator('.submenu-item.has-submenu', { hasText: /^Grid/ });
   await expect(grid).toBeVisible();
@@ -135,7 +140,7 @@ test("F19b the Redstring menu's View > Auto Layout reaches the canvas", async ({
   await openFixture(page, 'small');
   const before = await activeGraphSnapshot(page);
 
-  await page.locator('.header-logo-button').click();
+  await openMenu(page);
   await page.locator('.menu-item', { hasText: /^View$/ }).first().hover();
   await page.locator('.submenu-item', { hasText: 'Auto Layout' }).click();
 

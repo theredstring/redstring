@@ -547,8 +547,8 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
-                          onClick={() => performUndo()}
-                          style={{ cursor: 'pointer', opacity: canUndo ? 1 : 0.5 }}
+                          onClick={() => { if (!readOnly) performUndo(); }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer', opacity: canUndo ? 1 : 0.5 }}
                         >
                           <Undo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -560,8 +560,8 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
-                          onClick={() => performRedo()}
-                          style={{ cursor: 'pointer', opacity: canRedo ? 1 : 0.5 }}
+                          onClick={() => { if (!readOnly) performRedo(); }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer', opacity: canRedo ? 1 : 0.5 }}
                         >
                           <Redo2 size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
@@ -574,11 +574,13 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
+                          title={readOnly ? READ_ONLY_HINT : undefined}
                           onClick={() => {
+                            if (readOnly) return;
                             // Dispatch global event; the merge modal is mounted in NodeCanvas
                             window.dispatchEvent(new Event('openMergeModal'));
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <GitMerge size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Merge Duplicates
@@ -809,12 +811,14 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
+                          title={readOnly ? READ_ONLY_HINT : undefined}
                           onClick={() => {
+                            if (readOnly) return;
                             console.log('[View] Force Simulation Tuner clicked');
                             closeAllMenus();
                             if (onOpenForceSim) onOpenForceSim();
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <Activity size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Force Simulation Tuner
@@ -824,12 +828,14 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
+                          title={readOnly ? READ_ONLY_HINT : undefined}
                           onClick={() => {
+                            if (readOnly) return;
                             console.log('[View] Auto Layout clicked');
                             closeAllMenus();
                             if (onAutoLayoutGraph) onAutoLayoutGraph();
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <Broom size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Auto Layout Web
@@ -839,12 +845,14 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
+                          title={readOnly ? READ_ONLY_HINT : undefined}
                           onClick={() => {
+                            if (readOnly) return;
                             console.log('[View] Snap to Grid clicked');
                             closeAllMenus();
                             if (onSnapToGrid) onSnapToGrid();
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <Grid3x3 size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Snap to Grid
@@ -854,12 +862,14 @@ const RedstringMenu = ({
                           className="submenu-item"
                           tabIndex={0}
                           role="button"
+                          title={readOnly ? READ_ONLY_HINT : undefined}
                           onClick={() => {
+                            if (readOnly) return;
                             console.log('[View] Condense Things clicked');
                             closeAllMenus();
                             if (onCondenseNodes) onCondenseNodes();
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <RefreshCw size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Condense Things

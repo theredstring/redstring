@@ -4,6 +4,7 @@ import { generateThumbnail, loadImageFileAsDataUrl, getDefinitionDescription } f
 import SharedPanelContent from './SharedPanelContent.jsx';
 import useGraphStore from "../../store/graphStore.js";
 import useCanvasUIStore from '../../store/canvasUIStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../store/readOnlyUniverse.js';
 import useImageCache from '../../services/imageCache.js';
 import ColorPicker from '../../ColorPicker.jsx';
 import PanelColorPickerPortal from '../PanelColorPickerPortal.jsx';
@@ -27,6 +28,7 @@ const PanelContentWrapper = memo(({
   isUltraSlim = false
 }) => {
   const theme = useTheme();
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   // #region agent log
   // Agent log removed
   // #endregion
@@ -497,7 +499,7 @@ const PanelContentWrapper = memo(({
         typeActionsAvailable={!!typePrototype}
         onOpenTypeInPanel={typePrototype && typePrototype.id !== nodeData.id ? handleOpenTypeInPanel : undefined}
         onExpandType={handleExpandType}
-        typeExpandDisabled={!!typeDefinitionId && typeDefinitionId === activeGraphId}
+        typeExpandDisabled={(!!typeDefinitionId && typeDefinitionId === activeGraphId) || (readOnly && !typeDefinitionId)}
         definitionGraphIds={definitionGraphIds}
         definitionIndex={definitionIndex}
         currentDefinitionId={currentDefinitionId}
@@ -510,13 +512,13 @@ const PanelContentWrapper = memo(({
         bioText={bioText}
         onBioChange={handleBioChange}
         bioWritesThing={bioWritesThing}
-        canEditDefinitions={isRealPrototype}
+        canEditDefinitions={isRealPrototype && !readOnly}
         activeGraphId={activeGraphId}
         subjectWebId={subjectWebId}
         isHomeTab={tabType === 'home'}
         showExpandButton={true}
         // Off only when the definition on show is the Web already open.
-        expandButtonDisabled={!!shownDefinitionId && shownDefinitionId === activeGraphId}
+        expandButtonDisabled={(!!shownDefinitionId && shownDefinitionId === activeGraphId) || (readOnly && definitionGraphIds.length === 0)}
         isUltraSlim={isUltraSlim}
       />
 

@@ -1449,7 +1449,8 @@ export async function* runAgent(userMessage, graphState, config = {}, ensureSche
   const baseSystemPrompt = (config.systemPrompt
     || (modelTier === 'small' ? SMALL_MODEL_SYSTEM_PROMPT : SYSTEM_PROMPT)
     || 'You are The Wizard, a helpful assistant for building knowledge graphs.')
-    + (goalMode ? GOAL_MODE_PROMPT_ADDENDUM : '');
+    + (goalMode ? GOAL_MODE_PROMPT_ADDENDUM : '')
+    + (toolPolicy?.promptAddendum || '');
 
   // Truncate context for small models — they have limited context budgets
   if (modelTier === 'small') {

@@ -134,6 +134,15 @@ export function readSharedLinkFromAddress() {
   }
 }
 
+/** A page showing one link goes on to show another: a reload follows the newest. */
+export function replaceSharedLinkInAddress(sourceUrl) {
+  try {
+    if (readSharedLinkFromAddress() === sourceUrl) return;
+    const { pathname, search } = new URL(buildSharedLink(sourceUrl));
+    if (OPEN_PATH.test(window.location.pathname)) window.history.replaceState(null, '', `${pathname}${search}`);
+  } catch { /* the address stays as it was */ }
+}
+
 /** Takes the link out of the address bar, so a reload opens the app itself. */
 export function clearSharedLinkFromAddress() {
   try {

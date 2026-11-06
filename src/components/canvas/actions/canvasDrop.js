@@ -9,6 +9,7 @@
 import { haptic } from '../../../services/haptics.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { isReadOnlyUniverseOpen } from '../../../store/readOnlyUniverse.js';
 import { ensureConceptPrototype } from '../../../services/semanticPlacement.js';
 import { getNodeDimensions } from '../../../utils.js';
 
@@ -37,11 +38,14 @@ const defineConnection = (storeActions, edgeId, prototypeId) => {
  */
 export function canvasDropSpec(getCtx) {
   return {
+    // Read only, a Thing still drags to where it only looks (a chat, the open webs).
+    canDrop: () => !isReadOnlyUniverseOpen(),
     drop: (item, monitor) => {
       useCanvasUIStore.getState().setSpawnDropEdgeId(null);
       return handleCanvasDrop(getCtx(), item, monitor);
     },
     hover: (item, monitor) => {
+      if (!monitor.canDrop()) return;
       const offset = monitor.getClientOffset();
       const edgeId = item.semanticStatement || !offset ? null : connectionUnderDrop(getCtx().findEdgeAtClientPointRef, offset);
       useCanvasUIStore.getState().setSpawnDropEdgeId(edgeId);

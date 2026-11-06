@@ -782,6 +782,100 @@ test('F50 a second link that fails leaves the visit up', async ({ page }) => {
   expect(new URL(page.url()).pathname).toBe('/open');
 });
 
+test('F50 what can\'t be done isn\'t offered, and the pill stays quiet about it', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  const nudges = () => page.evaluate(async () => {
+    const { default: readOnly } = await import('/src/store/readOnlyUniverse.js');
+    return readOnly.getState().nudge;
+  });
+  const before = await nudges();
+
+  // The header's add and bookmark are there, faded, and do nothing.
+  for (const key of ['Make a copy to edit']) {
+    const faded = page.locator(`header .header-action-btn[title="${key}"]`);
+    await expect(faded).toHaveCount(3); // Auto Layout, bookmark, add.
+    for (const button of await faded.all()) {
+      await expect(button).toHaveAttribute('data-disabled', 'true');
+      await button.click({ force: true });
+    }
+  }
+  await expect(page.locator('[data-testid="new-web-prompt"], .unified-selector')).toHaveCount(0);
+
+  // A quick drag off a Thing is as if it can't be done: no line, nothing said.
+  const box = await page.locator('svg.canvas g.node').nth(2).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 120, box.y + box.height + 120, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect(await nudges()).toBe(before);
+
+  // A Thing with no definition has nothing to open, and none to make.
+  const proto = await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const s = useGraphStore.getState();
+    const bare = [...s.graphs.get(s.activeGraphId).instances.values()]
+      .map((inst) => s.nodePrototypes.get(inst.prototypeId))
+      .find((thing) => thing && !thing.definitionGraphIds?.length);
+    s.setRightPanelExpanded(true);
+    s.openRightPanelNodeTab(bare.id, bare.name);
+    return bare.name;
+  });
+  const panel = page.locator('.panel-container.right');
+  await expect(panel.getByRole('button', { name: new RegExp(`Define ${proto}`) })).toBeDisabled();
+  await expect(panel.locator('[title="No definition to open"]').first()).toBeVisible();
+  expect(await nudges()).toBe(before);
+
+  // Keys have no fade: they answer bottom right, and the pill says what it says.
+  await page.locator('svg.canvas g.node').nth(2).click();
+  await page.keyboard.press('Delete');
+  await expect.poll(nudges).toBe(before + 1);
+  await expect(page.getByTestId('read-only-bar')).toContainText('Read Only');
+  await expect(page.getByTestId('read-only-bar')).not.toContainText('Make a copy to edit');
+});
+
+test('F50 the Wizard is offered only what looks', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const s = useGraphStore.getState();
+    const inst = [...s.graphs.get(s.activeGraphId).instances.values()][0];
+    s.setRightPanelExpanded(true);
+    s.openRightPanelNodeTab(inst.prototypeId);
+  });
+  await page.locator('.panel-container.right [title="Ask The Wizard"]').first().click();
+  await expect(page.getByText('Explain this Thing')).toBeVisible();
+  await expect(page.getByText('Ask something specific…')).toBeVisible();
+  await expect(page.getByText(/abstraction ladder/)).toHaveCount(0);
+  await expect(page.getByText('Fill in details')).toHaveCount(0);
+});
+
+test('F50 a second link takes over the address, so a reload comes back to it', async ({ page }) => {
+  const second = 'https://files.example.test/second.redstring';
+  await page.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) => {
+    const url = route.request().url();
+    return url === SOURCE || url === second
+      ? route.fulfill({ status: 200, body: file, headers: { 'access-control-allow-origin': '*' } })
+      : route.abort();
+  });
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await page.evaluate((source) => import('/src/services/universeBackend.js').then(({ default: backend }) => backend.openReadOnlyUniverse(source)), second);
+  await expect.poll(() => new URL(page.url()).search).toBe(`?url=${encodeURIComponent(second)}`);
+  await page.reload();
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('second', { exact: true }).first()).toBeAttached();
+});
+
 test('F50 the bar fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await hostFile(page);

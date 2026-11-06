@@ -3,6 +3,9 @@ import useGraphStore from '../../src/store/graphStore.js';
 import useHistoryStore from '../../src/store/historyStore.js';
 import useReadOnlyUniverse, { currentReadOnlyVisit, setReadOnlyUniverse } from '../../src/store/readOnlyUniverse.js';
 import saveCoordinator from '../../src/services/SaveCoordinator.js';
+import { resolveHeldWizardChanges } from '../../src/services/toolResultApplier.js';
+import { holdForConfirmation, useWizardConfirmationStore, _resetWizardConfirmationGate } from '../../src/services/wizardConfirmationGate.js';
+import { canvasDropSpec } from '../../src/components/canvas/actions/canvasDrop.js';
 import { createDaemonCoexistence } from '../../src/services/daemonCoexistence.js';
 import { exportToRedstring, PERSISTED_STORE_KEYS } from '../../src/formats/redstringFormat.js';
 
@@ -322,5 +325,49 @@ describe('answering a refused edit', () => {
     useGraphStore.getState().updateMultipleNodeInstancePositions('g1', [{ instanceId: 'i1', x: 500, y: 500 }], { phase: 'end' });
     expect(useReadOnlyUniverse.getState().nudge).toBe(nudges);
     expect(useGraphStore.getState().graphs.get('g1').instances.get('i1').x).toBe(10);
+  });
+});
+
+describe('what a visit leaves behind', () => {
+  const visit = { slug: 'visit', name: 'Visit', sourceUrl: 'https://files.example.test/visit.redstring' };
+  const held = () => holdForConfirmation({
+    toolName: 'removeDefinitionGraph',
+    result: { action: 'removeDefinitionGraph', graphId: 'g1', graphName: 'One' },
+    toolCallId: 't1',
+    conversationId: 'c1',
+    kind: 'graph',
+  });
+
+  afterEach(() => {
+    setReadOnlyUniverse(null);
+    _resetWizardConfirmationGate();
+  });
+
+  it('a held Wizard change never waits past a visit opening', () => {
+    held();
+    setReadOnlyUniverse(visit);
+    expect(useWizardConfirmationStore.getState().pending).toEqual([]);
+  });
+
+  it('a held Wizard change never waits past a visit closing', () => {
+    setReadOnlyUniverse(visit);
+    held();
+    setReadOnlyUniverse(null);
+    expect(useWizardConfirmationStore.getState().pending).toEqual([]);
+  });
+
+  it('nothing else lets go of a held change', () => {
+    held();
+    setReadOnlyUniverse(null);
+    expect(useWizardConfirmationStore.getState().pending).toHaveLength(1);
+    resolveHeldWizardChanges(useWizardConfirmationStore.getState().pending.map((entry) => entry.id), false);
+    expect(useWizardConfirmationStore.getState().pending).toEqual([]);
+  });
+
+  it('a Thing let go on the canvas lands only outside a visit', () => {
+    const spec = canvasDropSpec(() => ({}));
+    expect(spec.canDrop()).toBe(true);
+    setReadOnlyUniverse(visit);
+    expect(spec.canDrop()).toBe(false);
   });
 });

@@ -31,6 +31,7 @@
  * Labels say Thing, Web and Connection. Never node, graph or edge.
  */
 import { TOOL_POLICIES } from '../toolPolicy.js';
+import { isReadOnlyUniverseOpen } from '../../store/readOnlyUniverse.js';
 
 export const SURFACES = {
   THING: 'thing',
@@ -202,7 +203,11 @@ export function policyForIntent(intent) {
 
 /** Intents offered on a surface, given what that surface's context builder found. */
 export function intentsForSurface(surface, facts) {
-  return INTENTS.filter(i => i.surface === surface && (!i.availableWhen || i.availableWhen(facts)));
+  // A read-only universe: only the asks that end in an answer.
+  const onlyLooking = isReadOnlyUniverseOpen();
+  return INTENTS.filter(i => i.surface === surface
+    && (!onlyLooking || i.tier === 'readonly' || i.tier === 'freetext')
+    && (!i.availableWhen || i.availableWhen(facts)));
 }
 
 /** The pre-selected intent: the first available one, which is always today's behaviour. */
@@ -223,6 +228,8 @@ export function getIntent(id) {
  * self-maintaining: give the ladder a second ask and its picker comes back.
  */
 export function shouldSkipPicker(surface, facts) {
+  // Read only leaves one canned ask, but asking something else is why you came.
+  if (isReadOnlyUniverseOpen()) return false;
   return intentsForSurface(surface, facts).filter(i => i.tier !== 'freetext').length <= 1;
 }
 

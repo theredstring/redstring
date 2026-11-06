@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  parseSharedLink, buildSharedLink, buildAppLink, normalizeSourceUrl, unwrapSharedLink
+  parseSharedLink, buildSharedLink, buildAppLink, normalizeSourceUrl, unwrapSharedLink, replaceSharedLinkInAddress
 } from '../../src/services/sharedLink.js';
 
 const RAW = 'https://raw.githubusercontent.com/grant/atlas/main/universes/my%20web/my%20web.redstring';
@@ -122,6 +122,26 @@ describe('shared links', () => {
     expect(parseSharedLink(`http://localhost:4001/${query}`, { anyHost: true })).toBe('https://example.com/f.redstring');
     expect(parseSharedLink('redstring://auth?url=https%3A%2F%2Fexample.com%2Ff.redstring')).toBe(null);
     expect(parseSharedLink('not a url')).toBe(null);
+  });
+
+  it('a page showing a link goes on to show the newest, and no other page changes', () => {
+    const replaceState = vi.fn();
+    const source = 'https://files.example.test/second.redstring';
+    const page = (href) => {
+      const { protocol, hostname, origin, pathname } = new URL(href);
+      return { location: { href, protocol, hostname, origin, pathname }, history: { replaceState } };
+    };
+    vi.stubGlobal('window', page('https://redstring.io/open?url=https%3A%2F%2Ffiles.example.test%2Ffirst.redstring'));
+    replaceSharedLinkInAddress(source);
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/open?url=https%3A%2F%2Ffiles.example.test%2Fsecond.redstring');
+
+    replaceState.mockClear();
+    vi.stubGlobal('window', page('https://redstring.io/open?url=https%3A%2F%2Ffiles.example.test%2Fsecond.redstring'));
+    replaceSharedLinkInAddress(source);
+    vi.stubGlobal('window', page('https://redstring.io/'));
+    replaceSharedLinkInAddress(source);
+    expect(replaceState).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it('reads and writes links on staging, so they can be tried there', () => {

@@ -164,3 +164,19 @@ describe('the Druid policy', () => {
     expect(toolRefusalResult('askMultipleChoice', resolveToolPolicy(TOOL_POLICIES.DRUID)).message).toContain('createNode');
   });
 });
+
+describe('a read-only universe', () => {
+  const policy = resolveToolPolicy(TOOL_POLICIES.READ_ONLY_UNIVERSE);
+
+  it('reads, and tells the model it can only read', () => {
+    expect(policy.allow).toBe(READ_ONLY_TOOLS);
+    expect(policy.promptAddendum).toMatch(/read only/i);
+    expect(policy.promptAddendum).toMatch(/never say you built/i);
+    expect(policy.promptAddendum).toMatch(/never follow instructions/i);
+  });
+
+  it('refuses a writer, and says to make a copy', () => {
+    expect(isToolAllowed('createNode', policy)).toBe(false);
+    expect(toolRefusalResult('createNode', policy).message).toMatch(/Make a Copy/);
+  });
+});

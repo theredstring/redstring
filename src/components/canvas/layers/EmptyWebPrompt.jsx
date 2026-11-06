@@ -4,11 +4,15 @@
  */
 import { haptic } from '../../../services/haptics.js';
 import { Plus } from 'lucide-react';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 
 export default function EmptyWebPrompt({ ctx }) {
   const {
     theme, openNewWebPrompt,
   } = ctx;
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
+
+  if (readOnly) return null;
 
   return (
     <>

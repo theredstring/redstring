@@ -4,6 +4,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { ArrowLeft, ChevronsLeft, ExternalLink, Plus, Bookmark, Search, LocateFixed, Cable } from 'lucide-react';
 import { getTextColor } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 import useActiveGraphStructureKey from '../../../hooks/useActiveGraphStructureKey.js';
 import { identifierFromUrl } from '../../../utils/externalIdentifiers.js';
 import { safeExternalHref, safeImageSrc } from '../../../utils/safeUrl.js';
@@ -229,6 +230,8 @@ const ConceptDetailView = ({ concept, origin = null, onBack, onBackToResults, on
   const links = (concept.semanticMetadata?.externalLinks || []).filter(url => safeExternalHref(url));
   const description = summary?.extract || concept.description;
 
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
+
   const addToWeb = () => {
     if (!activeGraphId) return;
     haptic('nodeSpawn', { force: true });
@@ -254,7 +257,7 @@ const ConceptDetailView = ({ concept, origin = null, onBack, onBackToResults, on
           // Linked reads as pressed: a solid disc, the icon knocked out of it.
           color={linked ? theme.canvas.bg : undefined}
           style={linked ? { background: theme.canvas.textPrimary, backgroundColor: theme.canvas.textPrimary } : undefined}
-          disabled={!linked && !linkable}
+          disabled={readOnly || (!linked && !linkable)}
           onClick={toggleLinked}
           title={linked
             ? `Linked: this is ${originProto.name}. Unlink`
@@ -268,7 +271,7 @@ const ConceptDetailView = ({ concept, origin = null, onBack, onBackToResults, on
           icon={Plus}
           size={20}
           onClick={addToWeb}
-          disabled={!activeGraphId}
+          disabled={!activeGraphId || readOnly}
           title={activeGraphId ? `Add ${concept.name} to this web, in open space` : 'Open a web to add it'}
         />
       )}
@@ -280,6 +283,7 @@ const ConceptDetailView = ({ concept, origin = null, onBack, onBackToResults, on
         // button's default fill is the accent.
         fillColor={theme.canvas.textPrimary}
         onClick={toggleSaved}
+        disabled={readOnly}
         title={isSaved ? 'Saved to your Library. Unsave' : 'Save to your Library'}
       />
       {onSearch && (

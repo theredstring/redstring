@@ -130,6 +130,31 @@ describe('AgentLoop', () => {
     });
   });
 
+  describe('in a read-only universe', () => {
+    it('tells the model, and refuses a writer it reaches for anyway', async () => {
+      const createNode = { id: 't1', name: 'createNode', args: { name: 'X' } };
+      let call = 0;
+      const seen = [];
+      vi.mocked(callLLM).mockImplementation(async function* (messages, tools) {
+        seen.push({ messages, tools });
+        call += 1;
+        if (call === 1) yield { type: 'tool_call', ...createNode };
+        else yield { type: 'text', content: 'This universe is read only.' };
+      });
+      vi.mocked(executeTool).mockClear();
+
+      const events = [];
+      for await (const event of runAgent('Add a Thing', { ...mockGraphState }, { ...mockConfig, toolPolicy: 'readonly-universe' }, mockEnsureSchedulerStarted)) {
+        events.push(event);
+      }
+
+      const system = seen[0].messages.find((m) => m.role === 'system');
+      expect(JSON.stringify(system.content)).toMatch(/This universe is read only/);
+      expect(seen[0].tools.map((t) => t.name)).not.toContain('createNode');
+      expect(executeTool).not.toHaveBeenCalled();
+    });
+  });
+
   describe('single tool call', () => {
     it('yields tool_call, executes tool, yields tool_result, then done', async () => {
       let iteration = 0;

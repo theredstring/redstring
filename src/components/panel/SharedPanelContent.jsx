@@ -1233,7 +1233,7 @@ const SharedPanelContent = ({
           icon={ArrowUpFromDot}
           color={expandButtonDisabled ? theme.canvas.textSecondary : theme.canvas.textPrimary}
           onClick={expandButtonDisabled ? undefined : onExpandNode}
-          title={expandButtonDisabled ? "Cannot expand - this node defines the current graph" : "Expand definition"}
+          title={expandButtonDisabled ? (readOnly ? "No definition to open" : "Cannot expand - this node defines the current graph") : "Expand definition"}
           disabled={expandButtonDisabled}
         />
       )}
@@ -1295,7 +1295,6 @@ const SharedPanelContent = ({
           icon={Sparkles}
           onClick={handleAskWizard}
           title="Ask The Wizard"
-          disabled={readOnly}
         />
       )}
     </div>

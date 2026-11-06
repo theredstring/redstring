@@ -10,7 +10,7 @@ export const READ_ONLY_HINT = 'Make a copy to edit';
 
 const LOOKING_AROUND = new Set([
   // A Thing
-  'expand-tab', 'decompose-preview', 'abstraction', 'open-in-panel', 'copy', 'semantic-search', 'orbit',
+  'expand-tab', 'decompose-preview', 'abstraction', 'open-in-panel', 'copy', 'semantic-search', 'orbit', 'ask-wizard',
   // Flipping through its definitions
   'compose-preview', 'decomp-open', 'decomp-prev', 'decomp-next',
   // The abstraction carousel

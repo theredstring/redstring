@@ -41,7 +41,7 @@ import {
 } from '../utils/deviceDetection.js';
 import { oauthFetch } from './bridgeConfig.js';
 import { storageWrapper } from '../utils/storageWrapper.js';
-import { clearSharedLinkFromAddress, parseSharedLink, readSharedLinkFromAddress } from './sharedLink.js';
+import { clearSharedLinkFromAddress, parseSharedLink, readSharedLinkFromAddress, replaceSharedLinkInAddress } from './sharedLink.js';
 import { describeSharedLinkFailure, fetchSharedUniverse, suggestUniverseNameFromUrl } from './externalUniverseLoader.js';
 import { isReadOnlyUniverseOpen, setReadOnlyFailure, setReadOnlyUniverse } from '../store/readOnlyUniverse.js';
 import {
@@ -8577,8 +8577,15 @@ class UniverseBackend {
       } catch (error) {
         this.universes.delete(slug);
         this.readOnlyStates.delete(slug);
+        // The switch committed before the store refused: what's in the store is
+        // still what was open before, and nothing read-only is showing.
+        if (this.activeUniverseSlug === slug) {
+          this.activeUniverseSlug = this.universes.has(this.readOnlyReturnSlug) ? this.readOnlyReturnSlug : null;
+          setReadOnlyUniverse(null);
+        }
         throw error;
       }
+      replaceSharedLinkInAddress(sourceUrl);
       return { slug };
     } catch (error) {
       umWarn('[UniverseBackend] Could not open a shared link:', error?.message || error);

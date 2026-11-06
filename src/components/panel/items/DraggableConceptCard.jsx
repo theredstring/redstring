@@ -3,6 +3,7 @@ import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { Search, Bookmark, ArrowRight, Link2, Cable } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 import { getTextColor, getLightHueText, getDarkHueText } from '../../../utils/colorUtils';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { sanitizeColor } from '../../../utils/safeColor.js';
@@ -38,6 +39,7 @@ const sourceLabel = (concept) => (
  */
 const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize, onSelect, onFocus }) => {
   const theme = useTheme();
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const [{ isDragging }, drag, preview] = useDrag(() => ({
     type: ItemTypes.SPAWNABLE_NODE,
     item: {
@@ -129,6 +131,7 @@ const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize
         fillColor={ink}
         style={buttonStyle}
         onClick={handleSaveToggle}
+        disabled={readOnly}
         title={isBookmarked ? `Saved to your Library. Unsave "${concept.name}"` : `Save "${concept.name}" to your Library`}
       />
       {originProto && (
@@ -138,7 +141,7 @@ const DraggableConceptCard = ({ concept, origin = null, index = 0, onMaterialize
           // Linked reads as pressed: a solid disc in the card's ink, the icon
           // knocked out of it in the card's own colour.
           color={linked ? color : ink}
-          disabled={!linked && !linkable}
+          disabled={readOnly || (!linked && !linkable)}
           style={linked ? { ...buttonStyle, background: ink, backgroundColor: ink } : buttonStyle}
           onClick={handleLinkToggle}
           title={linked

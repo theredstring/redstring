@@ -266,6 +266,7 @@ const WebDefinitionsSection = ({
             fontSize: '0.9rem',
             fontWeight: 'bold',
             cursor: canEdit ? 'pointer' : 'default',
+            opacity: canEdit ? 1 : 0.4,
             outline: 'none'
           }}
         >

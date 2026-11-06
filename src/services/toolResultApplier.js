@@ -36,7 +36,8 @@ import { NODE_DEFAULT_COLOR } from '../constants.js';
 import { attachOneShotOutcome } from './oneShot.js';
 import { sanitizeColor } from '../utils/safeColor.js';
 import { normalizeIdentifier } from '../wizard/tools/linkIdentifier.js';
-import { classifyForConfirmation, holdForConfirmation, takePending } from './wizardConfirmationGate.js';
+import { classifyForConfirmation, holdForConfirmation, takePending, useWizardConfirmationStore } from './wizardConfirmationGate.js';
+import useReadOnlyUniverse, { currentReadOnlyVisit } from '../store/readOnlyUniverse.js';
 import { snapshotEntityMaps, diffCreatedEntities, hasCreatedEntities, notifyWizardEntitiesCreated } from './wizardCreatedEntities.js';
 import {
   addFormulaForWizard, addBankFormulaForWizard, placeEquation, openFormulaForWizard,
@@ -1073,6 +1074,22 @@ export function resolveHeldWizardChanges(ids, allow) {
     applyAll();
   }
 }
+
+// A held change was asked for in what was open then. A read-only universe opening
+// or closing takes it off the table: nothing waits to land on what's open next.
+let heldVisit = currentReadOnlyVisit();
+useReadOnlyUniverse.subscribe(() => {
+  const visit = currentReadOnlyVisit();
+  if (visit === heldVisit) return;
+  heldVisit = visit;
+  const entries = takePending(useWizardConfirmationStore.getState().pending.map((entry) => entry.id));
+  if (entries.length === 0) return;
+  dispatchWizardToolFailed(
+    entries[0].toolName,
+    `the universe changed before you answered, so it wasn't applied (${entries.map((e) => e.summary).slice(0, 3).join('; ')}${entries.length > 3 ? '; …' : ''}).`,
+    entries[0].result
+  );
+});
 
 // Applies a result and records what it made, by real store id, for the call's
 // card (wizardCreatedEntities.js). Writes are synchronous, so the store after

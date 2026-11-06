@@ -1620,6 +1620,7 @@ const UnifiedBottomControlPanel = ({
                 {wizardEnabled && onAskWizard && (
                   <div
                     className="piemenu-button"
+                    data-view-only
                     onClick={onAskWizard}
                     title="Ask The Wizard"
                     onMouseEnter={() => triggerActionHover('control-ask-wizard', 'Ask The Wizard')}

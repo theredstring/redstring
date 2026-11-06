@@ -15,8 +15,6 @@ import { DEFAULT_ZOOM_BAR_POSITION, isExclusivePanelMode } from '../../../consta
 import { buildAppLink, clearSharedLinkFromAddress, isInstalledApp } from '../../../services/sharedLink.js';
 import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 
-const NUDGE_MS = 2400;
-
 // Clearance above the TypeList, as the desktop-app pill and the control panels
 // leave, and above a control panel.
 const BOTTOM_GAP = 20;
@@ -24,16 +22,14 @@ const PANEL_GAP = 12;
 
 /**
  * The read-only universe's pill: that it's read only, and the way to make it
- * yours. A refused edit brings the offer forward. Its X only hides it: leaving the
- * universe is the X on its row in Universes, where a visit opens. Also the message
- * when a shared link can't be opened.
+ * yours. Its X only hides it: leaving the universe is the X on its row in
+ * Universes, where a visit opens. Also the message when a shared link can't be
+ * opened.
  */
 const ReadOnlyHost = () => {
   const theme = useTheme();
   const active = useReadOnlyUniverse((s) => s.active);
-  const nudge = useReadOnlyUniverse((s) => s.nudge);
   const failure = useReadOnlyUniverse((s) => s.failure);
-  const [nudged, setNudged] = useState(false);
   const [copying, setCopying] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [animationState, setAnimationState] = useState(null);
@@ -68,13 +64,6 @@ const ReadOnlyHost = () => {
       setAnimationState((state) => (state ? 'shrinking' : state));
     }
   }, [pillUp]);
-
-  useEffect(() => {
-    if (!nudge) return undefined;
-    setNudged(true);
-    const timer = setTimeout(() => setNudged(false), NUDGE_MS);
-    return () => clearTimeout(timer);
-  }, [nudge]);
 
   const makeCopy = useCallback(async () => {
     setCopying(true);
@@ -125,10 +114,10 @@ const ReadOnlyHost = () => {
             else if (animationState === 'shrinking') setAnimationState(null);
           }}
         >
-          <div data-testid="read-only-bar" className={`read-only-pill${nudged ? ' is-nudged' : ''}`}>
+          <div data-testid="read-only-bar" className="read-only-pill">
             <span className="read-only-pill-status">
               <Eye size={16} strokeWidth={2.5} style={{ flexShrink: 0 }} />
-              {nudged ? 'Make a copy to edit' : 'Read Only'}
+              Read Only
             </span>
             <button
               type="button"

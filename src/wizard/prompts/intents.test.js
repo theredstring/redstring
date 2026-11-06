@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import {
   SURFACES,
   INTENTS,
@@ -10,6 +10,7 @@ import {
   getIntent
 } from './intents.js';
 import { TOOL_POLICIES } from '../toolPolicy.js';
+import { setReadOnlyUniverse } from '../../store/readOnlyUniverse.js';
 
 const thingFacts = { webInstanceCount: 5, hasLadder: false };
 const webFacts = { isBlank: false };
@@ -116,5 +117,28 @@ describe('chip titles', () => {
     for (const intent of INTENTS) {
       expect(CHIP_TITLES[intent.action], `no chip title for "${intent.action}"`).toBeTruthy();
     }
+  });
+});
+
+describe('in a read-only universe', () => {
+  afterEach(() => setReadOnlyUniverse(null));
+
+  it('offers only the asks that end in an answer, and keeps the picker', () => {
+    setReadOnlyUniverse({ slug: 'atlas', name: 'atlas', sourceUrl: 'https://files.example.test/atlas.redstring' });
+    for (const surface of [SURFACES.THING, SURFACES.CONNECTION, SURFACES.WEB]) {
+      const tiers = intentsForSurface(surface, surface === SURFACES.THING ? thingFacts : surface === SURFACES.WEB ? webFacts : { edgeCount: 1 }).map(i => i.tier);
+      expect(tiers).toContain('readonly');
+      expect(tiers).toContain('freetext');
+      expect(tiers).not.toContain('imperative');
+      expect(tiers).not.toContain('query');
+    }
+    expect(shouldSkipPicker(SURFACES.THING, thingFacts)).toBe(false);
+    expect(defaultIntentForSurface(SURFACES.THING, thingFacts).tier).toBe('readonly');
+  });
+
+  it('goes back to everything when the visit ends', () => {
+    setReadOnlyUniverse({ slug: 'atlas', name: 'atlas', sourceUrl: 'https://files.example.test/atlas.redstring' });
+    setReadOnlyUniverse(null);
+    expect(defaultIntentForSurface(SURFACES.THING, thingFacts).action).toBe('define-node');
   });
 });

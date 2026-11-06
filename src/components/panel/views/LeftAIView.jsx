@@ -53,6 +53,7 @@ import { renderGoalText } from '../../../wizard/tools/declareGoal.js';
 // this process now. None of these reach a server.
 import { runWizardInProcess, isAbortError } from '../../../wizard/runWizardInProcess.js';
 import { getToolDefinitions, executeTool } from '../../../wizard/tools/index.js';
+import { TOOL_POLICIES } from '../../../wizard/toolPolicy.js';
 import { callLLM } from '../../../wizard/LLMClient.js';
 import { enrichBatch, enrichSingle, fetchWikipediaPage } from '../../../wizard/services/wikipediaEnrichment.js';
 import { buildEnrichmentUpdates, linkedWikipediaTitle } from '../../../services/conceptEnrichment.js';
@@ -2309,6 +2310,12 @@ const LeftAIView = ({ compact = false,
     // tripped breaker so queued asks can drain again after this run.
     queuePausedRef.current = false;
     consecutiveAskErrorsRef.current = 0;
+    // A chat that read a shared universe stays with it: what that file said doesn't
+    // follow anyone into a universe the Wizard can edit.
+    const visitNow = currentReadOnlyVisit();
+    if ((messagesRef.current || []).some(m => m?.metadata?.readOnlyVisit && m.metadata.readOnlyVisit !== visitNow)) {
+      handleNewConversation();
+    }
     // Optional display-override path used by programmatic dispatchers (e.g., the Ask The Wizard
     // chip). When set, the UI shows displayContent (a short summary) and the LLM's
     // conversation-history replay uses replayContent (defaults to displayContent), while the
@@ -2554,6 +2561,7 @@ const LeftAIView = ({ compact = false,
   const handleAutonomousAgent = async (question, persona = 'wizard', askOptions = {}) => {
     const { graphs: graphsMap, nodePrototypes: nodePrototypesMap, edges: edgesMap } = useGraphStore.getState();
     const askToolPolicy = askOptions?.toolPolicy;
+    const visit = currentReadOnlyVisit();
     // Retire this tab's plan only when it is FINISHED. This used to clear
     // unconditionally on every request, which made continuation impossible: the
     // plan was deleted here and then read back a few hundred lines below when
@@ -2635,7 +2643,10 @@ const LeftAIView = ({ compact = false,
         timestamp: new Date().toISOString(),
         contentBlocks: [],
         isStreaming: true,
-        ...(askToolPolicy ? { metadata: { wizardAsk: { toolPolicy: askToolPolicy } } } : {})
+        ...((askToolPolicy || visit) ? { metadata: {
+          ...(askToolPolicy ? { wizardAsk: { toolPolicy: askToolPolicy } } : {}),
+          ...(visit ? { readOnlyVisit: visit } : {})
+        } } : {})
       };
 
       // INVARIANT: at most one message is ever streaming. The thinking-dots row
@@ -2930,7 +2941,7 @@ const LeftAIView = ({ compact = false,
         apiKey,
         apiConfig: wizardApiConfig,
         cid: `wizard-${Date.now()}`,
-        toolPolicy: askToolPolicy,
+        toolPolicy: visit ? TOOL_POLICIES.READ_ONLY_UNIVERSE : askToolPolicy,
         signal: abortController.signal
       });
 
@@ -2947,12 +2958,11 @@ const LeftAIView = ({ compact = false,
       // Same reason as _preCreatedConvId above: this must name the tab the run
       // was started in, which is what the ref holds and the closure may not.
       const targetConversationId = _preCreatedConvId;
-      const visit = currentReadOnlyVisit();
       try {
         for await (const event of agentEvents) {
-          // Started looking at a read-only universe that has since closed or been
-          // copied: what's open now is someone's own, and this run wasn't for it.
-          if (visit && currentReadOnlyVisit() !== visit) abortController.abort();
+          // A read-only universe has opened, closed or been copied since this run
+          // started: it's working from a universe that isn't the one on screen.
+          if (currentReadOnlyVisit() !== visit) abortController.abort();
           // Stopped: drop whatever the run still emits. A tool already in flight
           // finishes on its own time, and its result used to land in the store
           // and the bubble after the user had pressed Stop.
